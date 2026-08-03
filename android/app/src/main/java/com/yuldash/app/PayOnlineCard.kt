@@ -153,7 +153,7 @@ internal fun PayOnlineCard(
                             ),
                         )
                         if (amountRub != null && amountRub > 0) {
-                            Text("${fmtRub(amountRub)} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 26.sp)
+                            Text("${fmtRub(amountRub)} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 26.sp)
                         }
                         // Выбор способа оплаты — не мелкий фильтр, а решение про деньги:
                         // тач-цель ≥ 48dp (§4.5), иначе палец промахивается и платит «не тем».
@@ -211,7 +211,7 @@ internal fun PayOnlineCard(
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(appText("Оплачено — спасибо!", "Түләнде — рәхмәт!"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                                Text(appText("Оплачено — спасибо!", "Түләнде — рәхмәт!"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                                 Text(
                                     appText("Деньги уйдут водителю.", "Аҡса водителгә китә."),
                                     color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
@@ -233,7 +233,7 @@ private fun PayOnlineHeader(icon: ImageVector, tint: Color, bg: Color, title: St
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Text(subtitle, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
         }
     }

@@ -397,7 +397,7 @@ private fun SavePlaceKindDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) }
         },
-        title = { Text(appText("Сохранить адрес", "Адресты һаҡлау"), fontWeight = FontWeight.Black) },
+        title = { Text(appText("Сохранить адрес", "Адресты һаҡлау"), fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(address, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)

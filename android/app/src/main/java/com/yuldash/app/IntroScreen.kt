@@ -90,7 +90,7 @@ internal fun Context.findActivityCompat(): Activity? {
 /** Montserrat (сабсет с кириллицей+башкирским) — премиум-гарнитура интро. */
 private val Montserrat = FontFamily(
     Font(R.font.montserrat_medium, FontWeight.Medium),
-    Font(R.font.montserrat_black, FontWeight.Black),
+    Font(R.font.montserrat_black, FontWeight.Bold),
 )
 
 /** Тексты интро в одном месте — чтобы и анимированный экран, и статичный [IntroBrandContent]/тесты
@@ -266,7 +266,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                 Text(
                     INTRO_BRAND_WORD,
                     fontSize = 44.sp,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                     fontFamily = Montserrat,
                     letterSpacing = (brandIn * 2f).sp,
                     modifier = Modifier.graphicsLayer { alpha = brandIn; scaleX = brandScale; scaleY = brandScale },
@@ -359,7 +359,7 @@ internal fun IntroBrandContent(
                 if (showMeaning) INTRO_MEANING_WORD else INTRO_BRAND_WORD,
                 color = Color.White,
                 fontSize = if (showMeaning) 36.sp else 44.sp,
-                fontWeight = if (showMeaning) FontWeight.Medium else FontWeight.Black,
+                fontWeight = if (showMeaning) FontWeight.Medium else FontWeight.Bold,
                 fontFamily = Montserrat,
                 letterSpacing = if (showMeaning) 1.sp else 2.sp,
             )

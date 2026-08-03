@@ -205,7 +205,7 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
                         Spacer(Modifier.width(12.dp))
                         Text(
                             appText("Стать курьером Юлдаша", "Юлдаш курьеры булыу"),
-                            color = CanonText, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, fontWeight = FontWeight.Black,
+                            color = CanonText, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, fontWeight = FontWeight.Bold,
                         )
                     }
                     Text(
@@ -251,7 +251,7 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
             item {
                 Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonDangerBorder)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(appText("Причина отказа", "Кире ҡағыу сәбәбе"), color = CanonRed, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                        Text(appText("Причина отказа", "Кире ҡағыу сәбәбе"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
                         Text(prefill.rejectReason, color = CanonText, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
                     }
                 }
@@ -544,7 +544,7 @@ private fun CourierStatusScaffold(
             Spacer(Modifier.height(20.dp))
         }
         item {
-            Text(title, color = CanonText, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+            Text(title, color = CanonText, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             Spacer(Modifier.height(8.dp))
             Text(body, color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, textAlign = TextAlign.Center)
             Spacer(Modifier.height(20.dp))

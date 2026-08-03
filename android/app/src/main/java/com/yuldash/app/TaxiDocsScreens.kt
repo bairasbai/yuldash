@@ -397,7 +397,7 @@ private fun TaxiDocsHeader(a: TaxiApplicationDto) {
                     transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
                     label = "docsHeroTitle",
                 ) { t ->
-                    Text(t, color = CanonText, fontWeight = FontWeight.Black, fontSize = TitleSize, lineHeight = TitleLead)
+                    Text(t, color = CanonText, fontWeight = FontWeight.Bold, fontSize = TitleSize, lineHeight = TitleLead)
                 }
                 AnimatedContent(
                     targetState = subtitle,
@@ -754,7 +754,7 @@ private fun PretripIntroCard(required: Boolean) {
         Column(Modifier.padding(CardPad), verticalArrangement = Arrangement.spacedBy(GapS)) {
             Text(
                 appText("Перед выходом на линию", "Линияға сығыр алдынан"),
-                color = CanonText, fontWeight = FontWeight.Black, fontSize = TitleSize, lineHeight = TitleLead,
+                color = CanonText, fontWeight = FontWeight.Bold, fontSize = TitleSize, lineHeight = TitleLead,
             )
             Text(
                 appText(
@@ -909,7 +909,7 @@ private fun PretripDoneCard(confirmedAt: String?) {
             }
             Text(
                 appText("Готовность подтверждена", "Әҙерлек раҫланды"), color = CanonText,
-                fontWeight = FontWeight.Black, fontSize = TitleSize, lineHeight = TitleLead, textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Bold, fontSize = TitleSize, lineHeight = TitleLead, textAlign = TextAlign.Center,
             )
             Text(
                 appText("Хорошей смены и лёгкой дороги 💚", "Уңышлы смена һәм еңел юл 💚"),

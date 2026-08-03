@@ -168,7 +168,7 @@ private fun EarnTotalsCard(d: DriverEarningsDto) {
                     fontSize = MoneyType.Hero,
                     lineHeight = MoneyType.HeroLine,
                     letterSpacing = MoneyType.HeroTracking,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                 )
             }
             MoneyLine(
@@ -200,7 +200,7 @@ private fun EarnDayRow(day: DriverEarningsDayDto, maxSum: Int) {
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    "${fmtRub(day.sum)} ₽", color = CanonGreen, fontWeight = FontWeight.Black,
+                    "${fmtRub(day.sum)} ₽", color = CanonGreen, fontWeight = FontWeight.Bold,
                     fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
                 )
             }

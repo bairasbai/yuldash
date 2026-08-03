@@ -187,7 +187,7 @@ private fun TaxiReceiptCard(r: InstantReceiptDto) {
                                 Spacer(Modifier.width(4.dp))
                                 Text(
                                     appText("Оплачено", "Түләнгән"),
-                                    color = CanonGreen2, fontSize = MoneyType.Caption, fontWeight = FontWeight.Black, maxLines = 1,
+                                    color = CanonGreen2, fontSize = MoneyType.Caption, fontWeight = FontWeight.Bold, maxLines = 1,
                                 )
                             }
                         }
@@ -199,7 +199,7 @@ private fun TaxiReceiptCard(r: InstantReceiptDto) {
                     fontSize = MoneyType.Hero,
                     lineHeight = MoneyType.HeroLine,
                     letterSpacing = MoneyType.HeroTracking,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                 )
                 // Платное ожидание показываем отдельной строкой — иначе «почему больше, чем в оценке?».
                 if (r.waitingFeeKop > 0) {
@@ -275,7 +275,7 @@ private fun TaxiReceiptHeader(route: String, orderLabel: String) {
             Text(
                 appText("Поездка завершена", "Сәфәр тамамланды"),
                 color = CanonOnAccent, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
-                fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
             )
             Text(
                 route,
@@ -542,7 +542,7 @@ private fun TaxiActionHead(
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 title, color = CanonText, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.Bold,
             )
             Text(text, color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine)
         }
@@ -575,7 +575,7 @@ private fun TaxiReceiptPendingCard() {
             Text(
                 appText("Чек ещё не готов", "Чек әҙер түгел"),
                 color = CanonText, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
-                fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
             )
             Text(
                 appText("Он появится после завершения поездки. Хорошей дороги!", "Ул сәфәр тамамланғас барлыҡҡа килер. Юлың уң булһын!"),

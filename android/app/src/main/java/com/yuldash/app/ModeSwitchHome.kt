@@ -293,7 +293,7 @@ private fun ModeSwitchBar(
                                 title,
                                 color = if (on) CanonText else CanonMuted,
                                 fontSize = 14.sp,
-                                fontWeight = if (on) FontWeight.Black else FontWeight.SemiBold,
+                                fontWeight = if (on) FontWeight.Bold else FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -355,7 +355,7 @@ private fun ModeHintSheet(onDismiss: () -> Unit) {
         ) {
             Text(
                 appText("Три режима", "Өс режим"),
-                color = CanonText, fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black,
+                color = CanonText, fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold,
             )
             HintRow(
                 iconRes = R.drawable.yu_mode_taxi,
@@ -391,7 +391,7 @@ private fun ModeHintSheet(onDismiss: () -> Unit) {
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonPooling),
             ) {
-                Text(appText("Понятно", "Аңлашылды"), fontSize = 17.sp, fontWeight = FontWeight.Black)
+                Text(appText("Понятно", "Аңлашылды"), fontSize = 17.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -406,7 +406,7 @@ private fun HintRow(iconRes: Int, accent: Color, title: String, body: String) {
             }
         }
         Column(Modifier.weight(1f)) {
-            Text(title, color = accent, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            Text(title, color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(2.dp))
             Text(body, color = CanonText, fontSize = 16.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium)
         }

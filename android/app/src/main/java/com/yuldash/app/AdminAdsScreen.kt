@@ -195,7 +195,7 @@ internal fun AdAdminCard(
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(ad.title.ifBlank { appText("Без названия", "Исемһеҙ") }, modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                Text(ad.title.ifBlank { appText("Без названия", "Исемһеҙ") }, modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 Surface(color = statusColor.copy(alpha = 0.14f), shape = RoundedCornerShape(999.dp)) {
                     Text(statusLabel, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                 }
@@ -285,7 +285,7 @@ internal fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCrea
 
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(appText(if (edit != null) "Изменить объявление" else "Новое объявление", if (edit != null) "Иғланды үҙгәртеү" else "Яңы иғлан"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+            Text(appText(if (edit != null) "Изменить объявление" else "Новое объявление", if (edit != null) "Иғланды үҙгәртеү" else "Яңы иғлан"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             OutlinedTextField(partner, { partner = it }, label = { Text(appText("Рекламодатель", "Рекламала ҡатнашыусы")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(title, { title = it }, label = { Text(appText("Заголовок", "Башлыҡ")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(text, { text = it }, label = { Text(appText("Текст", "Текст")) }, minLines = 2, modifier = Modifier.fillMaxWidth())

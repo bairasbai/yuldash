@@ -247,7 +247,7 @@ internal fun ReviewThanksCard(onDone: () -> Unit) {
             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen, modifier = Modifier.size(52.dp))
             Text(
                 appText("Спасибо за отзыв!", "Фекерең өсөн рәхмәт!"),
-                color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black,
+                color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold,
             )
             Text(
                 appText(

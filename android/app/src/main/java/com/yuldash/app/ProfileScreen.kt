@@ -385,7 +385,7 @@ internal fun ProfileScreen(
         AlertDialog(
             onDismissRequest = { showRedeem = false },
             containerColor = CanonSurface,
-            title = { Text(appText("Код друга", "Дуҫ коды"), color = CanonText, fontWeight = FontWeight.Black) },
+            title = { Text(appText("Код друга", "Дуҫ коды"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(appText("Введи код того, кто тебя позвал. Бонус получите оба.", "Һине саҡырған кешенең кодын индер. Бонусты икәүегеҙ ҙә алырһығыҙ."), color = CanonMuted, fontSize = 13.sp)
@@ -435,7 +435,7 @@ internal fun ProfileScreen(
         AlertDialog(
             onDismissRequest = { showEditName = false },
             containerColor = CanonSurface,
-            title = { Text(appText("Ваше имя", "Исемегеҙ"), color = CanonText, fontWeight = FontWeight.Black) },
+            title = { Text(appText("Ваше имя", "Исемегеҙ"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = { OutlinedTextField(nameDraft, { nameDraft = it.take(120) }, singleLine = true, modifier = Modifier.fillMaxWidth(), placeholder = { Text(appText("Как вас зовут?", "Исемегеҙ нисек?")) }, shape = RoundedCornerShape(14.dp)) },
             confirmButton = {
                 TextButton(onClick = {
@@ -471,7 +471,7 @@ internal fun ProfileScreen(
         AlertDialog(
             onDismissRequest = { showEditCity = false },
             containerColor = CanonSurface,
-            title = { Text(appText("Мой город", "Минең ҡалам"), color = CanonText, fontWeight = FontWeight.Black) },
+            title = { Text(appText("Мой город", "Минең ҡалам"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(appText("Покажем скидки и посылки рядом с тобой.", "Яныңдағы ташламаларҙы һәм тапшырыуҙарҙы күрһәтербеҙ."), color = CanonMuted, fontSize = 13.sp)
@@ -525,7 +525,7 @@ internal fun ProfileScreen(
             onDismissRequest = { if (!deletingAccount) showDeleteAccount = false },
             containerColor = CanonSurface,
             icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = CanonRed) },
-            title = { Text(appText("Удалить аккаунт?", "Иҫәпте бөтөрәһегеҙме?"), color = CanonText, fontWeight = FontWeight.Black) },
+            title = { Text(appText("Удалить аккаунт?", "Иҫәпте бөтөрәһегеҙме?"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
                     appText(
@@ -573,7 +573,7 @@ internal fun ProfileScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item { Spacer(Modifier.height(2.dp)) }
-            item { Text(appText("Профиль", "Профиль"), color = CanonGreen, fontSize = 29.sp, lineHeight = 31.sp, fontWeight = FontWeight.Black) }
+            item { Text(appText("Профиль", "Профиль"), color = CanonGreen, fontSize = 29.sp, lineHeight = 31.sp, fontWeight = FontWeight.Bold) }
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color.Transparent),
@@ -600,7 +600,7 @@ internal fun ProfileScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (avatarUrl.isBlank()) {
-                                    Text(displayName.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 28.sp)
+                                    Text(displayName.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 28.sp)
                                 } else {
                                     coil.compose.AsyncImage(
                                         model = avatarUrl,
@@ -618,7 +618,7 @@ internal fun ProfileScreen(
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        displayName, color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp,
+                                        displayName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 22.sp,
                                         lineHeight = 26.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f, fill = false),
                                     )
@@ -681,7 +681,7 @@ internal fun ProfileScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2)
                                     Spacer(Modifier.width(10.dp))
-                                    Text(appText("Позови своего", "Үҙеңдекен саҡыр"), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                                    Text(appText("Позови своего", "Үҙеңдекен саҡыр"), color = CanonGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
                                 }
                                 Text(appText("Пригласил соседа → вы оба получаете бонус (бесплатное поднятие поездки).", "Күршеңде саҡырҙың → икәүегеҙ ҙә бонус (сәфәрҙе бушлай күтәреү) аласаҡ."), color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp)
                                 // Три равные колонки вместо жёсткого spacedBy(20): длинные
@@ -825,7 +825,7 @@ private fun ReferralStat(label: String, value: String, modifier: Modifier = Modi
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(label, color = CanonGreen2, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
-            value, color = CanonGreen, fontWeight = FontWeight.Black,
+            value, color = CanonGreen, fontWeight = FontWeight.Bold,
             fontSize = if (code) 18.sp else 20.sp, lineHeight = 24.sp,
             letterSpacing = if (code) 1.5.sp else 0.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -881,7 +881,7 @@ private fun ProfileStatusPill(loading: Boolean, error: Boolean, confirmed: Boole
                         modifier = Modifier.heightIn(min = 48.dp).bounceClick(onRetry).padding(horizontal = 10.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(appText("Обновить", "Яңыртыу"), color = fg, fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
+                        Text(appText("Обновить", "Яңыртыу"), color = fg, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
                     }
                 }
             }
@@ -909,7 +909,7 @@ internal fun DangerActionCard(title: String, text: String, onClick: () -> Unit) 
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = CanonRed, fontWeight = FontWeight.Black, fontSize = 16.sp, lineHeight = 19.sp)
+                Text(title, color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 19.sp)
                 Text(text, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
             }
             Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
@@ -940,7 +940,7 @@ internal fun ProfileActionCard(
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp, lineHeight = 19.sp)
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 19.sp)
                 Text(text, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
             }
             Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
@@ -972,7 +972,7 @@ internal fun ProfileActionCard(
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp, lineHeight = 19.sp)
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 19.sp)
                 Text(text, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
             }
             Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
@@ -1097,7 +1097,7 @@ internal fun PassengerCabinetContent(
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         item {
-            Text(appText("Ваши поездки и заявки", "Һеҙҙең сәфәрҙәр һәм заявкалар"), color = CanonGreen, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
+            Text(appText("Ваши поездки и заявки", "Һеҙҙең сәфәрҙәр һәм заявкалар"), color = CanonGreen, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold)
             Text(appText("Быстрый доступ к бронированиям, заявкам и защите поездки.", "Брондәргә, заявкаларға һәм хәүефһеҙлеккә тиҙ инеү."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
         }
         // §9 Качество: активные ограничения (пауза такси-заказов) + «написать в поддержку».
@@ -1119,7 +1119,7 @@ internal fun PassengerCabinetContent(
                     }
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(appText("Быстрый заказ", "Тиҙ заказ"), color = CanonBg, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                        Text(appText("Быстрый заказ", "Тиҙ заказ"), color = CanonBg, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Text(appText("Вызвать машину сейчас — цену видно заранее", "Хәҙер машина саҡырыу — хаҡ алдан күренә"), color = CanonBg.copy(alpha = 0.9f), fontSize = 13.sp, lineHeight = 17.sp)
                     }
                     Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonBg, modifier = Modifier.size(22.dp))
@@ -1669,7 +1669,7 @@ private fun DriverOnlineHint(online: Boolean) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(icon, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(10.dp))
-                            Text(title, color = CanonWarn, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Black)
+                            Text(title, color = CanonWarn, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold)
                         }
                         Text(note, color = CanonText, fontSize = 13.sp, lineHeight = 17.sp)
                         TextButton(
@@ -1684,7 +1684,7 @@ private fun DriverOnlineHint(online: Boolean) {
                                 }
                             },
                             modifier = Modifier.heightIn(min = 48.dp),
-                        ) { Text(action, color = CanonWarn, fontSize = 14.sp, fontWeight = FontWeight.Black) }
+                        ) { Text(action, color = CanonWarn, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
                     }
                 }
             }
@@ -1719,7 +1719,7 @@ internal fun RestrictionsCard(data: com.yuldash.app.data.RestrictionsDto) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.Lock, contentDescription = appText("Ограничение", "Сикләү"), tint = CanonWarn, modifier = Modifier.size(20.dp))
-                Text(appText("Мои ограничения", "Минең сикләүҙәр"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(appText("Мои ограничения", "Минең сикләүҙәр"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             data.items.forEach { it ->
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -1749,7 +1749,7 @@ internal fun RestrictionsCard(data: com.yuldash.app.data.RestrictionsDto) {
         AlertDialog(
             onDismissRequest = { showSupport = false },
             containerColor = CanonSurface,
-            title = { Text(appText("Твоя версия событий", "Һинең яғыңдан ҡараш"), color = CanonText, fontWeight = FontWeight.Black) },
+            title = { Text(appText("Твоя версия событий", "Һинең яғыңдан ҡараш"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(appText("Расскажи, как было — поддержка перезвонит и разберётся по-человечески.", "Нисек булғанын һөйлә — ярҙам шылтыратып кешеләрсә асыҡлар."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
@@ -1802,18 +1802,18 @@ private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclare
                     tint = accent, modifier = Modifier.size(22.dp)
                 )
                 Spacer(Modifier.width(8.dp))
-                Text(title, color = accent, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                Text(title, color = accent, fontWeight = FontWeight.Bold, fontSize = 17.sp)
             }
             // Сумма к оплате (или сумма в ожидании подтверждения).
             if (debt.unpaidKop > 0) {
                 Text(
                     appText("К оплате: ", "Түләргә: ") + "${debt.unpaidRub} ₽",
-                    color = CanonText, fontWeight = FontWeight.Black, fontSize = 22.sp
+                    color = CanonText, fontWeight = FontWeight.Bold, fontSize = 22.sp
                 )
             } else if (onlyPending) {
                 Text(
                     appText("В обработке: ", "Эшкәртеүҙә: ") + "${debt.pendingRub} ₽",
-                    color = CanonText, fontWeight = FontWeight.Black, fontSize = 22.sp
+                    color = CanonText, fontWeight = FontWeight.Bold, fontSize = 22.sp
                 )
             }
             // Пояснение по состоянию.
@@ -1836,7 +1836,7 @@ private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclare
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(appText("Перевод по СБП", "СБП аша күсереү"), color = CanonMuted, fontSize = 12.sp)
                         if (debt.sbpPhone.isNotBlank()) {
-                            Text(debt.sbpPhone, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                            Text(debt.sbpPhone, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                             if (debt.sbpName.isNotBlank()) Text(debt.sbpName, color = CanonText, fontSize = 14.sp)
                         } else {
                             Text(appText("Реквизиты уточняются — напиши в поддержку.", "Реквизиттар аныҡлана — ярҙамға яҙ."), color = CanonMuted, fontSize = 13.sp)
@@ -1919,7 +1919,7 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                 ) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(appText("Чистыми сегодня", "Бөгөн таҙа килем"), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text(formatTaxiKop(netEarnKop), color = Color.White, fontWeight = FontWeight.Black, fontSize = 34.sp)
+                        Text(formatTaxiKop(netEarnKop), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 34.sp)
                         Text(
                             appText("${wd.ordersToday} ${pluralOrdersRu(wd.ordersToday)}", "${wd.ordersToday} заказ"),
                             color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp,
@@ -1939,7 +1939,7 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(appText("Комиссия сервиса", "Сервис комиссияһы"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                    Text(feePct(wd.feePercent), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                    Text(feePct(wd.feePercent), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
                 // Три сегмента-ступени: подсвечена текущая.
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1952,7 +1952,7 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                         ) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(feePct(t), color = if (active) Color.White else CanonMuted,
-                                    fontWeight = if (active) FontWeight.Black else FontWeight.Bold, fontSize = 13.sp)
+                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Bold, fontSize = 13.sp)
                             }
                         }
                     }
@@ -2013,12 +2013,12 @@ private fun TaxiShiftProgressCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                     tint = accent, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(appText("Смена такси", "Такси сменаһы"), color = CanonText,
-                    fontWeight = FontWeight.Black, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                    fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
                 Text(appText("из ${wd.limitHours} ч", "${wd.limitHours} сәғәттән"), color = CanonMuted, fontSize = 13.sp)
             }
             Text(
                 appText("На линии ${shiftTimeRu(wd.secondsOnline)}", "Линияла ${shiftTimeBa(wd.secondsOnline)}"),
-                color = CanonText, fontWeight = FontWeight.Black, fontSize = 22.sp,
+                color = CanonText, fontWeight = FontWeight.Bold, fontSize = 22.sp,
             )
             LinearProgressIndicator(
                 progress = { progress },
@@ -2057,7 +2057,7 @@ private fun TaxiRestCard(wd: com.yuldash.app.data.TaxiWorkdayDto, onCreateRide: 
                 Spacer(Modifier.width(12.dp))
                 Text(
                     appText("Ты сегодня за рулём ${wd.limitHours} часов 🌙", "Һин бөгөн ${wd.limitHours} сәғәт руль артында 🌙"),
-                    color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, lineHeight = 22.sp,
+                    color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 22.sp,
                 )
             }
             val unlock = unlockTimeLabel(wd.unlockAt)
@@ -2075,7 +2075,7 @@ private fun TaxiRestCard(wd: com.yuldash.app.data.TaxiWorkdayDto, onCreateRide: 
                 Surface(color = CanonSurface, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, CanonBorder)) {
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(appText("Возьми одного попутчика домой", "Бер юлдашты өйгә алып ҡайт"),
-                            color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                            color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         Text(
                             appText(
                                 "Машина всё равно едет назад — подвези земляка. Одна публикация попутки до конца отдыха.",
@@ -2133,7 +2133,7 @@ private fun TaxiOnboardingCta(app: com.yuldash.app.data.TaxiApplicationDto?, onC
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(sub, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
             }
             Spacer(Modifier.width(8.dp))
@@ -2251,7 +2251,7 @@ internal fun DriverDemandSection(online: Boolean) {
 private fun PassengerRow(b: com.yuldash.app.data.DriverBookingDto) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
-            Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Black, color = CanonGreen2)
+            Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Bold, color = CanonGreen2)
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
@@ -2335,7 +2335,7 @@ internal fun DriverCabinetContent(
     cancelTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { cancelTarget = null },
-            title = { Text(appText("Снять поездку?", "Сәфәрҙе алырғамы?"), fontWeight = FontWeight.Black) },
+            title = { Text(appText("Снять поездку?", "Сәфәрҙе алырғамы?"), fontWeight = FontWeight.Bold) },
             text = { Text(appText(
                 "${target.from} → ${target.to}. Все брони пассажиров будут отменены, им придёт уведомление.",
                 "${target.from} → ${target.to}. Пассажирҙарҙың бөтә брондары кире алына, уларға хәбәр килә."
@@ -2359,7 +2359,7 @@ internal fun DriverCabinetContent(
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         item {
-            Text(appText("Маршруты и проверка", "Маршруттар һәм тикшереү"), color = CanonGreen, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
+            Text(appText("Маршруты и проверка", "Маршруттар һәм тикшереү"), color = CanonGreen, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold)
             Text(appText("Публикуйте поездки, проходите проверку и поднимайте маршрут выше.", "Сәфәр баҫтырығыҙ, тикшереү үтегеҙ һәм маршрутты өҫкә күтәрегеҙ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
         }
         // Долг по комиссии за такси (Модель А «на доверии»): баннер только если есть что платить/подтверждать.
@@ -2513,7 +2513,7 @@ internal fun DriverCabinetContent(
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
-                                Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Black, color = CanonGreen2)
+                                Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Bold, color = CanonGreen2)
                             }
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
@@ -2733,7 +2733,7 @@ internal fun DriverCabinetContent(
             onDismissRequest = { editing = null },
             containerColor = CanonSurface,
             shape = CanonCardShape,
-            title = { Text(appText("Изменить поездку", "Сәфәрҙе үҙгәртеү"), fontWeight = FontWeight.Black, fontSize = 20.sp) },
+            title = { Text(appText("Изменить поездку", "Сәфәрҙе үҙгәртеү"), fontWeight = FontWeight.Bold, fontSize = 20.sp) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("${ride.from} → ${ride.to}", color = CanonMuted, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -2772,7 +2772,7 @@ internal fun DriverCabinetContent(
                         editing = null
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = CanonGreen2)
-                ) { Text(appText("Сохранить", "Һаҡлау"), fontWeight = FontWeight.Black) }
+                ) { Text(appText("Сохранить", "Һаҡлау"), fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
                 TextButton(onClick = { editing = null }, colors = ButtonDefaults.textButtonColors(contentColor = CanonMuted)) {
@@ -2811,7 +2811,7 @@ internal fun ArchiveRideCard(ride: com.yuldash.app.data.RideDto) {
                     color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (ride.price > 0) Text("${ride.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
+            if (ride.price > 0) Text("${ride.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         }
     }
 }
@@ -2820,7 +2820,7 @@ internal fun ArchiveRideCard(ride: com.yuldash.app.data.RideDto) {
 internal fun CabinetMetric(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(modifier = modifier, color = CanonSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, color = CanonGreen2, fontSize = 20.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(value, color = CanonGreen2, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Text(label, color = CanonMuted, fontSize = 11.sp, lineHeight = 13.sp, textAlign = TextAlign.Center, maxLines = 2)
         }
     }
@@ -2890,7 +2890,7 @@ internal fun DriverScheduleSection() {
                 }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(appText("Регулярные маршруты", "Даими маршруттар"), fontWeight = FontWeight.Black, fontSize = 17.sp, color = CanonText)
+                    Text(appText("Регулярные маршруты", "Даими маршруттар"), fontWeight = FontWeight.Bold, fontSize = 17.sp, color = CanonText)
                     Text(appText("Езжу постоянно — покажем в профиле и поиске", "Даими йөрөйөм — профилдә һәм эҙләүҙә күрһәтәбеҙ"), color = CanonMuted, fontSize = 12.sp, lineHeight = 15.sp)
                 }
             }
@@ -3019,7 +3019,7 @@ private fun AddScheduleDialog(onDismiss: () -> Unit, onSaved: (DriverScheduleDto
         onDismissRequest = onDismiss,
         containerColor = CanonSurface,
         shape = CanonCardShape,
-        title = { Text(appText("Регулярный маршрут", "Даими маршрут"), fontWeight = FontWeight.Black) },
+        title = { Text(appText("Регулярный маршрут", "Даими маршрут"), fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
@@ -3103,7 +3103,7 @@ internal fun PublicDriverSchedulesCard(driverId: Int, onWatch: (DriverScheduleDt
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(appText("Ездит регулярно", "Даими йөрөй"), fontWeight = FontWeight.Black, fontSize = 16.sp, color = CanonText)
+            Text(appText("Ездит регулярно", "Даими йөрөй"), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = CanonText)
             schedules.forEach { s ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -3246,7 +3246,7 @@ internal fun AdsCabinetContent(
                     ) {
                         Icon(Icons.Default.AddBox, contentDescription = null, tint = Color.White)
                         Spacer(Modifier.width(8.dp))
-                        Text(appText("Новое объявление", "Яңы иғлан"), fontWeight = FontWeight.Black, color = Color.White)
+                        Text(appText("Новое объявление", "Яңы иғлан"), fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
                 items(ads, key = { it.id }) { ad ->
@@ -3289,7 +3289,7 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     ad.title.ifBlank { appText("Без названия", "Исемһеҙ") },
-                    modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Black,
+                    modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Bold,
                     fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.width(8.dp))
@@ -3329,7 +3329,7 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
                 ) {
                     Icon(Icons.Default.Payments, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(appText("Оплатить размещение · ${ad.budgetKop / 100} ₽", "Урынлаштырыуҙы түләү · ${ad.budgetKop / 100} ₽"), fontWeight = FontWeight.Black, color = Color.White)
+                    Text(appText("Оплатить размещение · ${ad.budgetKop / 100} ₽", "Урынлаштырыуҙы түләү · ${ad.budgetKop / 100} ₽"), fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
             if (ad.status == "active" && ad.paid) {
@@ -3351,7 +3351,7 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
                 ) {
                     Icon(Icons.Default.Autorenew, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(appText("Продлить размещение · ${ad.budgetKop / 100} ₽", "Урынлаштырыуҙы оҙайтыу · ${ad.budgetKop / 100} ₽"), fontWeight = FontWeight.Black, color = CanonGreen2)
+                    Text(appText("Продлить размещение · ${ad.budgetKop / 100} ₽", "Урынлаштырыуҙы оҙайтыу · ${ad.budgetKop / 100} ₽"), fontWeight = FontWeight.Bold, color = CanonGreen2)
                 }
             }
             if (ad.status == "draft" || ad.status == "rejected") {
@@ -3365,7 +3365,7 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
                         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                     ) {
                         if (submitting) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                        else Text(appText("На модерацию", "Модерацияға"), fontWeight = FontWeight.Black, color = Color.White)
+                        else Text(appText("На модерацию", "Модерацияға"), fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }
@@ -3403,7 +3403,7 @@ internal fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCre
         contentPadding = PaddingValues(vertical = 16.dp)
     ) {
         item {
-            Text(appText("Реклама в Юлдаше", "Юлдашта реклама"), color = CanonGreen, fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
+            Text(appText("Реклама в Юлдаше", "Юлдашта реклама"), color = CanonGreen, fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
             Text(
                 appText("Покажи своё дело землякам по маршрутам и городам. Создай объявление, пройди модерацию и оплати размещение.",
@@ -3411,7 +3411,7 @@ internal fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCre
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
             )
         }
-        item { Text(appText("Тарифы", "Тарифтар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp) }
+        item { Text(appText("Тарифы", "Тарифтар"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp) }
         // Тарифы не пришли (сеть/сервер) — под заголовком не должно оставаться пустое место.
         if (packages.isEmpty()) {
             item {
@@ -3429,10 +3429,10 @@ internal fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCre
             Surface(color = CanonSurface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, CanonBorder)) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(appText(p.title, p.titleBa.ifBlank { p.title }), color = CanonText, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                        Text(appText(p.title, p.titleBa.ifBlank { p.title }), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         Text(appText("${p.periodDays} дней показов", "${p.periodDays} көн күрһәтеү"), color = CanonMuted, fontSize = 12.sp)
                     }
-                    Text("${p.amountKop / 100} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                    Text("${p.amountKop / 100} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
             }
         }
@@ -3446,7 +3446,7 @@ internal fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCre
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {
-                Text(appText("Разместить рекламу", "Реклама урынлаштырырға"), fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
+                Text(appText("Разместить рекламу", "Реклама урынлаштырырға"), fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
             }
         }
     }
@@ -3510,7 +3510,7 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
             item { AdField(appText("Текст кнопки (напр. «Позвонить»)", "Төймә тексты (мәҫ. «Шылтыратырға»)"), button, { button = it }) }
             item { AdField(appText("Ссылка или телефон", "Һылтанма йәки телефон"), target, { target = it }) }
             item { AdField(appText("Город(а) через запятую — пусто = все", "Ҡала(лар) өтөр аша — буш = бөтәһе"), cities, { cities = it }) }
-            item { Text(appText("Тариф", "Тариф"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp) }
+            item { Text(appText("Тариф", "Тариф"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp) }
             if (packages.isEmpty() && packagesError) {
                 // Без тарифов кнопка «На модерацию» не сработает — честно объясняем и даём повтор.
                 item {
@@ -3537,7 +3537,7 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(appText(p.title, p.titleBa.ifBlank { p.title }), modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("${p.amountKop / 100} ₽ / ${p.periodDays}${appText(" дн", " көн")}", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                        Text("${p.amountKop / 100} ₽ / ${p.periodDays}${appText(" дн", " көн")}", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             }
@@ -3552,7 +3552,7 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
                         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                     ) {
                         if (busy) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                        else Text(appText("На модерацию", "Модерацияға"), fontWeight = FontWeight.Black, color = Color.White)
+                        else Text(appText("На модерацию", "Модерацияға"), fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }
@@ -3614,7 +3614,7 @@ internal fun InfoCard(
             // русского) уезжал за край карточки и обрезался. Размеры — в sp, чтобы уважать
             // системный крупный шрифт.
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp, lineHeight = 20.sp)
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 20.sp)
                 Text(text, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
             }
         }
@@ -3643,7 +3643,7 @@ internal fun EmptyStateCard(
             Surface(color = CanonMint, shape = CircleShape) {
                 Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(15.dp).size(30.dp))
             }
-            Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, textAlign = TextAlign.Center)
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center)
             Text(text, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
             if (action != null && onAction != null) {
                 AppButton(
@@ -3698,7 +3698,7 @@ internal fun InlinePartnerAdCard(
                 }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(ad.titleText(), color = CanonText, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(ad.titleText(), color = CanonText, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(ad.descriptionText(), color = CanonMuted, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 TextButton(onClick = { openAdTarget(context, ad, adLabel); onClick(ad) }) {
@@ -3785,7 +3785,7 @@ internal fun PartnerAdCard(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(ad.titleText(), color = CanonText, fontWeight = FontWeight.Black, fontSize = if (compact) 16.sp else 18.sp, lineHeight = 20.sp)
+                    Text(ad.titleText(), color = CanonText, fontWeight = FontWeight.Bold, fontSize = if (compact) 16.sp else 18.sp, lineHeight = 20.sp)
                     Text(ad.descriptionText(), color = CanonText, fontSize = 14.sp, lineHeight = 18.sp, maxLines = if (compact) 2 else 3, overflow = TextOverflow.Ellipsis)
                     Text(ad.addressText(), color = CanonMuted, fontSize = 13.sp, lineHeight = 16.sp)
                 }
@@ -3817,7 +3817,7 @@ internal fun PartnerAdCard(
                     shape = RoundedCornerShape(15.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
-                    Text(ad.primaryButtonText(), fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
+                    Text(ad.primaryButtonText(), fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
                 }
                 ad.secondaryButtonText()?.let { button ->
                     OutlinedButton(

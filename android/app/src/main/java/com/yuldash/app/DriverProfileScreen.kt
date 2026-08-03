@@ -132,7 +132,7 @@ private fun DriverHeaderCard(d: DriverPublicDto) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         d.name.ifBlank { appText("Водитель", "Водитель") },
-                        fontWeight = FontWeight.Black, fontSize = TaxiType.Hero, lineHeight = TaxiType.HeroLine,
+                        fontWeight = FontWeight.Bold, fontSize = TaxiType.Hero, lineHeight = TaxiType.HeroLine,
                         color = CanonText, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                     if (d.car.isNotBlank()) {
@@ -212,7 +212,7 @@ private fun StatCell(modifier: Modifier, value: String, label: String, hint: Str
                     Spacer(Modifier.width(3.dp))
                 }
                 Text(
-                    value, fontWeight = FontWeight.Black,
+                    value, fontWeight = FontWeight.Bold,
                     fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine, color = CanonText,
                 )
             }

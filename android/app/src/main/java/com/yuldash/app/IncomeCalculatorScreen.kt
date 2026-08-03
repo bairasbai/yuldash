@@ -96,7 +96,7 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
                 Surface(color = CanonGreenInk, shape = RoundedCornerShape(22.dp)) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(appText("Чистыми тебе в месяц", "Айына таҙа килем"), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        Text(rub(animatedNet.toDouble()), color = Color.White, fontWeight = FontWeight.Black, fontSize = 34.sp)
+                        Text(rub(animatedNet.toDouble()), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 34.sp)
                         Spacer(Modifier.height(4.dp))
                         Text(
                             appText("Выручка ${rub(gross)} − расходы ~${costsPct.roundToInt()}% (серверы, налог, платёжка)",
@@ -110,7 +110,7 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
             item {
                 Surface(color = CanonSurface, shape = CanonItemShape) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(appText("Из чего доход", "Килем нимәнән"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                        Text(appText("Из чего доход", "Килем нимәнән"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         BreakdownRow(appText("Купоны и реклама бизнеса", "Купондар һәм бизнес рекламаһы"), rub(couponsIncome * routes))
                         BreakdownRow(appText("Boost водителей", "Водителдәр Boost'ы"), rub(boostIncome * routes))
                         if (taxiOn) BreakdownRow(appText("Комиссия такси", "Такси комиссияһы"), rub(taxiIncome * routes))
@@ -144,7 +144,7 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
                             // «Чистыми после бензина» рядом с валовым — прозрачно, что именно вычли.
                             Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(appText("Сколько остаётся водителю", "Водителгә күпме ҡала"), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                                    Text(appText("Сколько остаётся водителю", "Водителгә күпме ҡала"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
                                             Text(appText("Валовый (что платят)", "Ялпы (нимә түләйҙәр)"), color = CanonMuted, fontSize = 12.sp)
@@ -152,7 +152,7 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
                                         }
                                         Column(Modifier.weight(1f)) {
                                             Text(appText("Чистыми после бензина", "Бензиндан һуң таҙа"), color = CanonMuted, fontSize = 12.sp)
-                                            Text(rub(driverNetMonth), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                                            Text(rub(driverNetMonth), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                         }
                                     }
                                     Text(
@@ -201,7 +201,7 @@ private fun CalcSlider(label: String, value: Float, range: ClosedFloatingPointRa
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(label, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 Surface(color = CanonMint, shape = RoundedCornerShape(8.dp)) {
-                    Text(valueText, Modifier.padding(horizontal = 10.dp, vertical = 4.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                    Text(valueText, Modifier.padding(horizontal = 10.dp, vertical = 4.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
             Slider(

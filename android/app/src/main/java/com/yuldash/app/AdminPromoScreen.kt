@@ -165,7 +165,7 @@ private fun AdminPromoCard(p: AdminPromoDto, busy: Boolean, onToggle: (Boolean) 
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(p.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                    Text(p.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Text(p.title.ifBlank { p.campaign }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
                 Switch(
@@ -185,7 +185,7 @@ private fun AdminPromoCard(p: AdminPromoDto, busy: Boolean, onToggle: (Boolean) 
             // Воронка applied → active
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PromoMetric(appText("Ввели", "Индерҙе"), p.applied.toString())
-                Text("→", color = CanonMuted, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                Text("→", color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 PromoMetric(appText("Активны", "Актив"), p.active.toString())
                 Spacer(Modifier.weight(1f))
                 Text(
@@ -220,7 +220,7 @@ private fun AdminPromoCard(p: AdminPromoDto, busy: Boolean, onToggle: (Boolean) 
 @Composable
 private fun PromoMetric(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, color = CanonText, fontWeight = FontWeight.Black, fontSize = 20.sp)
+        Text(value, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
         Text(label, color = CanonMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
@@ -361,7 +361,7 @@ private fun PromoField(
         singleLine = true,
         label = { Text(label) },
         placeholder = { if (placeholder.isNotBlank()) Text(placeholder, color = CanonMuted) },
-        textStyle = if (mono) androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 18.sp, color = CanonText)
+        textStyle = if (mono) androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = CanonText)
         else androidx.compose.ui.text.TextStyle(fontSize = 16.sp, color = CanonText),
         shape = CanonItemShape,
         keyboardOptions = KeyboardOptions(

@@ -222,7 +222,7 @@ private fun SosAlarmBanner(count: Int) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     appText("Ждут помощи: $count", "Ярҙам көтә: $count"),
-                    color = CanonRed, fontSize = 16.sp, fontWeight = FontWeight.Black, lineHeight = 20.sp,
+                    color = CanonRed, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp,
                 )
                 Text(
                     appText("Сначала позвони — разбираться будешь потом.", "Башта шылтырат — аҙаҡ асыҡларһың."),
@@ -279,13 +279,13 @@ private fun AdminSosCard(
                 Icon(catIcon, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    catLabel, color = accent, fontSize = 16.sp, fontWeight = FontWeight.Black, lineHeight = 20.sp,
+                    catLabel, color = accent, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp,
                     modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.width(12.dp))
                 Text(
                     if (open) appText("Открыт", "Асыҡ") else appText("Разобран", "Ҡаралған"),
-                    color = accent, fontSize = 11.sp, fontWeight = FontWeight.Black,
+                    color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold,
                 )
             }
 
@@ -294,7 +294,7 @@ private fun AdminSosCard(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         e.userName.ifBlank { appText("Без имени", "Исемһеҙ") },
-                        color = CanonText, fontWeight = FontWeight.Black, fontSize = 20.sp, lineHeight = 24.sp,
+                        color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 24.sp,
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                     Text(formatDepart(e.createdAt), color = CanonMuted, fontSize = 13.sp)
@@ -364,7 +364,7 @@ private fun AdminSosCard(
                                 Text(
                                     (if (e.handledNote.isNotBlank()) appText("Что сделали", "Нимә эшләнде")
                                     else appText("Принято", "Ҡабул ителгән")) + (stamp?.let { " · $it" } ?: ""),
-                                    color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Black,
+                                    color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Bold,
                                 )
                                 if (e.handledNote.isNotBlank()) {
                                     Text(e.handledNote, color = CanonText, fontSize = 16.sp, lineHeight = 22.sp)

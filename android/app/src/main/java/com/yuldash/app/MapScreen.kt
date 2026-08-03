@@ -458,7 +458,7 @@ internal fun MapScreen(
                                         Text(
                                             appText("$count рядом", "$count яҡында"),
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                            color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 12.sp, maxLines = 1
+                                            color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1
                                         )
                                     }
                                 }
@@ -945,7 +945,7 @@ private fun HomeHeader(onSos: () -> Unit) {
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("SOS", color = CanonRed, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                Text("SOS", color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
         }
     }
@@ -1041,7 +1041,7 @@ private fun QuickSearchCard(
                             Text(
                                 appText(card.pill, card.pillBa),
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                color = CanonGreen, fontWeight = FontWeight.Black,
+                                color = CanonGreen, fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp, maxLines = 1
                             )
                         }
@@ -1052,7 +1052,7 @@ private fun QuickSearchCard(
                     ) {
                         Text(
                             appText(card.title, card.titleBa),
-                            color = CanonGreen, fontWeight = FontWeight.Black,
+                            color = CanonGreen, fontWeight = FontWeight.Bold,
                             fontSize = if (compact) 20.sp else 24.sp,
                             lineHeight = if (compact) 24.sp else 28.sp,
                             maxLines = 2, overflow = TextOverflow.Ellipsis
@@ -1124,7 +1124,7 @@ internal fun SeniorAccessCard(onSimpleMode: () -> Unit) {
                 Text(
                     appText("Простой режим", "Ябай режим"),
                     color = CanonText,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
                     lineHeight = 18.sp
                 )
@@ -1873,7 +1873,7 @@ internal fun RequestPreviewCard(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(req.passengerName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(req.passengerName, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(appText("ищет попутку", "юлдаш эҙләй"), color = CanonMuted, fontSize = 12.sp, maxLines = 1)
                 }
             }
@@ -1890,7 +1890,7 @@ internal fun RequestPreviewCard(
                     modifier = Modifier.weight(1f).height(48.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                     shape = RoundedCornerShape(16.dp)
-                ) { Text(appText("Откликнуться", "Яуап бирергә"), fontWeight = FontWeight.Black, fontSize = 15.sp, maxLines = 1) }
+                ) { Text(appText("Откликнуться", "Яуап бирергә"), fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1) }
                 TextButton(onClick = onClose) { Text(appText("Закрыть", "Ябырға"), color = CanonMuted, fontSize = 15.sp) }
             }
         }

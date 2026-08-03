@@ -165,7 +165,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(a.name.ifBlank { appText("Без имени", "Исемһеҙ") }, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                                Text(a.name.ifBlank { appText("Без имени", "Исемһеҙ") }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
                                 TaxiStatusBadge(a.status)
                             }
                             if (a.phone.isNotBlank()) Text(a.phone, color = CanonMuted, fontSize = 13.sp)

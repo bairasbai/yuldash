@@ -321,7 +321,7 @@ internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> U
                     Text(
                         appText("Мои разборы", "Минең бәхәстәр"),
                         color = CanonText,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.Bold,
                         fontSize = FairTitle,
                         lineHeight = FairTitleLine,
                         modifier = Modifier.weight(1f),
@@ -408,7 +408,7 @@ private fun StandingCard(st: StandingDto) {
                         Text(
                             if (isPaused) pausedTitle else okTitle,
                             color = CanonText,
-                            fontWeight = FontWeight.Black,
+                            fontWeight = FontWeight.Bold,
                             fontSize = FairTitle,
                             lineHeight = FairTitleLine,
                         )
@@ -527,7 +527,7 @@ private fun StandingHero(label: String, value: String, tint: Color, modifier: Mo
             Text(
                 value,
                 color = tint,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.Bold,
                 fontSize = FairMetric,
                 lineHeight = FairMetricLine,
                 maxLines = 1,
@@ -565,7 +565,7 @@ private fun StandingCounter(label: String, value: String, tint: Color) {
             Text(
                 value,
                 color = tint,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.Bold,
                 fontSize = FairTitle,
                 lineHeight = FairTitleLine,
                 maxLines = 1,
@@ -591,7 +591,7 @@ private fun IncidentRow(inc: IncidentDto, onClick: () -> Unit) {
                     Text(
                         incidentTypeLabel(inc.type),
                         color = CanonText,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.Bold,
                         fontSize = FairTitle,
                         lineHeight = FairTitleLine,
                         maxLines = 2,
@@ -758,7 +758,7 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
                                         Text(
                                             appText("Расскажи, как было", "Нисек булғанын һөйлә"),
                                             color = CanonText,
-                                            fontWeight = FontWeight.Black,
+                                            fontWeight = FontWeight.Bold,
                                             fontSize = FairTitle,
                                             lineHeight = FairTitleLine,
                                         )
@@ -811,7 +811,7 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
                                         Text(
                                             appText("Договорились сами?", "Үҙегеҙ килештегеҙме?"),
                                             color = CanonText,
-                                            fontWeight = FontWeight.Black,
+                                            fontWeight = FontWeight.Bold,
                                             fontSize = FairTitle,
                                             lineHeight = FairTitleLine,
                                         )
@@ -854,7 +854,7 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
                                         Text(
                                             appText("Не согласен с решением?", "Ҡарар менән килешмәйһеңме?"),
                                             color = CanonText,
-                                            fontWeight = FontWeight.Black,
+                                            fontWeight = FontWeight.Bold,
                                             fontSize = FairTitle,
                                             lineHeight = FairTitleLine,
                                         )
@@ -922,7 +922,7 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
                 Text(
                     appText("Закрыть спор миром?", "Бәхәсте тыныслыҡ менән ябырғамы?"),
                     color = CanonText,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                 )
             },
             text = {
@@ -971,7 +971,7 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
             onDismissRequest = { if (!busy) appealOpen = false },
             containerColor = CanonSurface,
             shape = CanonCardShape,
-            title = { Text(appText("Апелляция", "Ялыу"), color = CanonText, fontWeight = FontWeight.Black) },
+            title = { Text(appText("Апелляция", "Ялыу"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = {
                 Column(
                     Modifier.verticalScroll(rememberScrollState()),
@@ -1034,7 +1034,7 @@ private fun IncidentHeaderCard(i: IncidentDto) {
                     Text(
                         incidentTypeLabel(i.type),
                         color = CanonText,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.Bold,
                         fontSize = FairTitle,
                         lineHeight = FairTitleLine,
                     )
@@ -1212,7 +1212,7 @@ private fun IncidentVerdictCard(i: IncidentDto) {
                 Text(
                     appText("Решение", "Ҡарар"),
                     color = CanonText,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                     fontSize = FairTitle,
                     lineHeight = FairTitleLine,
                 )
@@ -1239,7 +1239,7 @@ private fun IncidentVerdictCard(i: IncidentDto) {
                         Text(
                             kopToRub(i.compensationKop),
                             color = CanonGreen2,
-                            fontWeight = FontWeight.Black,
+                            fontWeight = FontWeight.Bold,
                             fontSize = FairTitle,
                             lineHeight = FairTitleLine,
                         )
@@ -1378,7 +1378,7 @@ internal fun FileIncidentDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         containerColor = CanonSurface,
         shape = CanonCardShape,
-        title = { Text(appText("Открыть разбор", "Ҡарауҙы асыу"), color = CanonText, fontWeight = FontWeight.Black) },
+        title = { Text(appText("Открыть разбор", "Ҡарауҙы асыу"), color = CanonText, fontWeight = FontWeight.Bold) },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -1396,7 +1396,7 @@ internal fun FileIncidentDialog(
                 Text(
                     appText("Что случилось?", "Нимә булды?"),
                     color = CanonText,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                     fontSize = FairTitle,
                     lineHeight = FairTitleLine,
                 )

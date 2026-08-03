@@ -263,7 +263,7 @@ private fun MoneyPeriodSegment(
                 label,
                 color = fg,
                 fontSize = MoneyType.Body,
-                fontWeight = if (active) FontWeight.Black else FontWeight.Bold,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
@@ -295,7 +295,7 @@ private fun CourierTotalsCard(d: CourierEarningsDto, modifier: Modifier = Modifi
                         fontSize = MoneyType.Hero,
                         lineHeight = MoneyType.HeroLine,
                         letterSpacing = MoneyType.HeroTracking,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
             }
@@ -365,7 +365,7 @@ private fun CourierDayRow(
                 Text(
                     kopToRub(day.netKop),
                     color = CanonGreen2, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
-                    fontWeight = FontWeight.Black, textAlign = TextAlign.End,
+                    fontWeight = FontWeight.Bold, textAlign = TextAlign.End,
                 )
             }
             Box(
@@ -408,7 +408,7 @@ internal fun MoneyLine(
         Spacer(Modifier.width(12.dp))
         Text(
             value, color = valueColor, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
-            fontWeight = FontWeight.Black, textAlign = TextAlign.End,
+            fontWeight = FontWeight.Bold, textAlign = TextAlign.End,
         )
     }
 }
@@ -419,7 +419,7 @@ internal fun MoneySectionHeader(title: String, caption: String, modifier: Modifi
     Column(modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             title, color = CanonText, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
-            fontWeight = FontWeight.Black,
+            fontWeight = FontWeight.Bold,
         )
         Text(caption, color = CanonMuted, fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine)
     }
@@ -458,7 +458,7 @@ internal fun MoneyStaleStrip(onRetry: () -> Unit) {
                     Text(
                         appText("Повторить", "Ҡабатлау"),
                         color = CanonWarn, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
-                        fontWeight = FontWeight.Black, maxLines = 1,
+                        fontWeight = FontWeight.Bold, maxLines = 1,
                     )
                 }
             }

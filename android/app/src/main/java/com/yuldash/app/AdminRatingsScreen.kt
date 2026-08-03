@@ -158,7 +158,7 @@ private fun RatingsRulesCard(headline: String) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AnimatedContent(targetState = headline, label = "ratingsHeadline") { t ->
-                    Text(t, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Black, lineHeight = 20.sp)
+                    Text(t, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp)
                 }
                 Text(
                     appText(

@@ -557,7 +557,7 @@ internal fun LoginFormContent(
                 color = CanonText,
                 fontSize = LoginTitle,
                 lineHeight = 32.sp,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
             Text(
@@ -610,7 +610,7 @@ internal fun LoginFormContent(
                     placeholder = { Text(appTextFor(currentLanguage, "Код из Telegram", "Telegram коды"), fontSize = LoginBody) },
                     leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = CanonMuted) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    textStyle = TextStyle(fontSize = LoginTitle, fontWeight = FontWeight.Black, letterSpacing = 6.sp, color = CanonText),
+                    textStyle = TextStyle(fontSize = LoginTitle, fontWeight = FontWeight.Bold, letterSpacing = 6.sp, color = CanonText),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp),
                     singleLine = true,
                     shape = CanonItemShape
@@ -681,7 +681,7 @@ internal fun LoginFormContent(
                         Text(
                             appTextFor(currentLanguage, "Войти через Telegram", "Telegram аша инеү"),
                             color = Color.White, fontSize = LoginBody, lineHeight = 24.sp,
-                            fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
+                            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                         )
                     }
                 }
@@ -879,7 +879,7 @@ internal fun ColumnScope.LoginSmsSection(
                     Icon(Icons.Default.Lock, contentDescription = null, tint = CanonMuted)
                 },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                textStyle = TextStyle(fontSize = LoginTitle, fontWeight = FontWeight.Black, letterSpacing = 6.sp, color = CanonText),
+                textStyle = TextStyle(fontSize = LoginTitle, fontWeight = FontWeight.Bold, letterSpacing = 6.sp, color = CanonText),
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 72.dp),
@@ -911,7 +911,7 @@ internal fun ColumnScope.LoginSmsSection(
             } else {
                 Text(
                     text = if (step == 0) appTextFor(currentLanguage, "Получить код", "Код алыу") else appTextFor(currentLanguage, "Войти", "Инеү"),
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                     fontSize = LoginBody
                 )
             }
@@ -1054,7 +1054,7 @@ private fun BrandHero(
                     translationY = (1f - brandIn) * 24.dp.toPx()
                 }
             ) {
-                Text("Юлдаш", color = Color.White, fontSize = LoginDisplay, lineHeight = 56.sp, fontWeight = FontWeight.Black)
+                Text("Юлдаш", color = Color.White, fontSize = LoginDisplay, lineHeight = 56.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = appTextFor(currentLanguage, "Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
@@ -1121,7 +1121,7 @@ private fun LoginHeroFeature(icon: ImageVector, title: String, body: String) {
             )
         }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, color = Color.White, fontSize = LoginBody, lineHeight = 24.sp, fontWeight = FontWeight.Black)
+            Text(title, color = Color.White, fontSize = LoginBody, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
             Text(body, color = Color.White.copy(alpha = 0.92f), fontSize = LoginCaption, lineHeight = 19.sp)
         }
     }
@@ -1168,7 +1168,7 @@ private fun LoginLangChip(text: String, active: Boolean, onClick: () -> Unit) {
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = fg, fontSize = LoginCaption, fontWeight = FontWeight.Black)
+        Text(text, color = fg, fontSize = LoginCaption, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -1186,7 +1186,7 @@ internal fun SafetyFooter(currentLanguage: AppLanguage, modifier: Modifier = Mod
                 color = CanonGreen2,
                 fontSize = LoginCaption,
                 lineHeight = 19.sp,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
         }

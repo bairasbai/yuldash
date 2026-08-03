@@ -175,7 +175,7 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(a.name.ifBlank { noName }, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                                        Text(a.name.ifBlank { noName }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
                                         CourierStatusBadge(a.status)
                                     }
                                     if (a.phone.isNotBlank()) Text(a.phone, color = CanonMuted, fontSize = 13.sp)

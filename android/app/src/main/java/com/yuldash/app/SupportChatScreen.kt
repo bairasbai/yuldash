@@ -133,7 +133,7 @@ private fun SupportTicketsList(
         contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
     ) {
         item {
-            Text(appText("Мы рядом", "Беҙ янда"), color = CanonGreen, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black)
+            Text(appText("Мы рядом", "Беҙ янда"), color = CanonGreen, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             Text(appText("Напиши нам — ответим и поможем. Обычно отвечаем в течение дня.",
                 "Беҙгә яҙ — яуап бирербеҙ һәм ярҙам итербеҙ. Ғәҙәттә көн эсендә яуаплайбыҙ."),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 4.dp))
@@ -153,7 +153,7 @@ private fun SupportTicketsList(
                     }
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(appText("Новое обращение", "Яңы мөрәжәғәт"), color = CanonBg, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                        Text(appText("Новое обращение", "Яңы мөрәжәғәт"), color = CanonBg, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Text(appText("Опиши вопрос — мы разберёмся", "Һорауыңды яҙ — беҙ асыҡлайбыҙ"),
                             color = CanonBg.copy(alpha = 0.9f), fontSize = 13.sp, lineHeight = 17.sp)
                     }
@@ -213,7 +213,7 @@ private fun SupportTicketRow(row: SupportTicketRowDto, onClick: () -> Unit) {
                     Text(
                         row.subject.ifBlank { appText("Обращение", "Мөрәжәғәт") },
                         color = CanonText,
-                        fontWeight = if (row.unread) FontWeight.Black else FontWeight.Bold,
+                        fontWeight = if (row.unread) FontWeight.Bold else FontWeight.Bold,
                         fontSize = 16.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -266,7 +266,7 @@ private fun NewTicketForm(onCancel: () -> Unit, onCreated: (Int) -> Unit) {
         Modifier.fillMaxSize().padding(16.dp).imePadding(),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(appText("Новое обращение", "Яңы мөрәжәғәт"), color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black)
+        Text(appText("Новое обращение", "Яңы мөрәжәғәт"), color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text(appText("Расскажи, что случилось — чем подробнее, тем быстрее поможем.",
             "Нимә булғанын яҙ — ни тиклем ентеклерәк, шул тиклем тиҙерәк ярҙам итәбеҙ."),
             color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)

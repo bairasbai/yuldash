@@ -149,7 +149,7 @@ private fun TaxiTripHistoryCard(order: InstantOrderDto, onClick: () -> Unit) {
                 if (done && rub > 0) {
                     Text(
                         "${fmtRub(rub)} ₽",
-                        color = CanonText, fontSize = 18.sp, fontWeight = FontWeight.Black,
+                        color = CanonText, fontSize = 18.sp, fontWeight = FontWeight.Bold,
                     )
                 }
             }

@@ -468,7 +468,7 @@ internal fun SosContent(
                         }
                         Spacer(Modifier.width(14.dp))
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(appText("Срочный вызов", "Ашығыс саҡырыу"), fontSize = 24.sp, fontWeight = FontWeight.Black)
+                            Text(appText("Срочный вызов", "Ашығыс саҡырыу"), fontSize = 24.sp, fontWeight = FontWeight.Bold)
                             Text(appText("Звонок в экстренные службы с твоего номера.", "Ашығыс хеҙмәттәргә үҙ номерыңдан шылтырау."), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -485,7 +485,7 @@ internal fun SosContent(
                 ) {
                     Icon(Icons.Default.Call, contentDescription = null, tint = Color.White)
                     Spacer(Modifier.width(10.dp))
-                    Text(appText("Позвонить 112", "112 — шылтыратыу"), color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                    Text(appText("Позвонить 112", "112 — шылтыратыу"), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                 }
             }
             item {
@@ -499,7 +499,7 @@ internal fun SosContent(
 
             // Прямой вызов конкретной службы — быстрее 112 (без оператора-маршрутизатора). Тап = сразу звонок.
             item {
-                Text(appText("Прямой вызов службы", "Хеҙмәткә туранан-тура"), modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                Text(appText("Прямой вызов службы", "Хеҙмәткә туранан-тура"), modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -532,7 +532,7 @@ internal fun SosContent(
             item {
                 Surface(color = CanonMint, shape = CanonItemShape) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(appText("Продиктуй оператору", "Операторға әйт"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                        Text(appText("Продиктуй оператору", "Операторға әйт"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         if (description.isNotBlank()) Text(description.trim(), color = CanonText, fontSize = 15.sp, lineHeight = 20.sp)
                         if (coordsText != null) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -575,7 +575,7 @@ internal fun SosContent(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(appText("Сообщить близким и поддержке", "Яҡындарға һәм ярҙамға хәбәр итеү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, textAlign = TextAlign.Center)
+                    Text(appText("Сообщить близким и поддержке", "Яҡындарға һәм ярҙамға хәбәр итеү"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp, textAlign = TextAlign.Center)
                     Text(
                         if (loggedIn)
                             appText("SMS твоим доверенным контактам + сигнал поддержке Юлдаш с твоими координатами.", "Ышаныслы контакттарыңа SMS + Юлдаш ярҙамына координаталарың менән сигнал.")
@@ -676,7 +676,7 @@ internal fun RowScope.SosDirectCallChip(
                 overflow = TextOverflow.Ellipsis
             )
             Surface(color = CanonDangerBg, shape = RoundedCornerShape(8.dp)) {
-                Text(number, color = CanonRed, fontWeight = FontWeight.Black, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 9.dp, vertical = 2.dp))
+                Text(number, color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 9.dp, vertical = 2.dp))
             }
         }
     }
@@ -840,7 +840,7 @@ internal fun VerifyDriverContent(
         ) {
             item { Spacer(Modifier.height(10.dp)) }
             item {
-                Text(appText("Проверка водителя", "Водителде тикшереү"), color = CanonGreen, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Black)
+                Text(appText("Проверка водителя", "Водителде тикшереү"), color = CanonGreen, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold)
                 Text(appText("Пройдите проверку, чтобы пассажиры вам доверяли", "Пассажирҙар ышанһын өсөн тикшереүҙе үтегеҙ"), color = CanonMuted, fontSize = 15.sp, lineHeight = 20.sp)
             }
             item {
@@ -856,7 +856,7 @@ internal fun VerifyDriverContent(
             if (submitError) {
                 item { SubmitErrorBanner() }
             }
-            item { Text(appText("Данные автомобиля", "Машина мәғлүмәте"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+            item { Text(appText("Данные автомобиля", "Машина мәғлүмәте"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(value = make, onValueChange = onMakeChange, label = { Text(appText("Марка", "Марка")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
@@ -872,7 +872,7 @@ internal fun VerifyDriverContent(
             item {
                 OutlinedTextField(value = seats, onValueChange = onSeatsChange, label = { Text(appText("Количество мест", "Урындар һаны")) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), singleLine = true)
             }
-            item { Text(appText("Документы (фото)", "Документтар (фото)"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+            item { Text(appText("Документы (фото)", "Документтар (фото)"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp) }
             item { UploadTile(appText("Фото водительских прав", "Водитель танытмаһы фотоһы"), licenseUrl != null, uploadingLicense, onPickLicense) }
             item { UploadTile(appText("Фото автомобиля", "Машина фотоһы"), carPhotoUrl != null, uploadingCar, onPickCar) }
             item {
@@ -885,7 +885,7 @@ internal fun VerifyDriverContent(
                 ) {
                     Icon(Icons.Default.Verified, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (submitting) appText("Отправка…", "Ебәрелә…") else appText("Отправить на проверку", "Тикшереүгә ебәреү"), fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    Text(if (submitting) appText("Отправка…", "Ебәрелә…") else appText("Отправить на проверку", "Тикшереүгә ебәреү"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
             item {
@@ -902,7 +902,7 @@ internal fun StatusBanner(icon: ImageVector, title: String, sub: String, bg: Col
             Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(28.dp))
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                 Text(sub, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
             }
         }
@@ -955,11 +955,11 @@ internal fun DriverReasonBanner(docsStatus: String, autocheckResult: String, aut
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Info, contentDescription = null, tint = tone, modifier = Modifier.size(22.dp))
                 Spacer(Modifier.width(10.dp))
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             explanations.forEach { line ->
                 Row(verticalAlignment = Alignment.Top) {
-                    Text("•  ", color = tone, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                    Text("•  ", color = tone, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     Text(line, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
                 }
             }
@@ -991,7 +991,7 @@ internal fun SubmitErrorBanner() {
             Icon(Icons.Default.Info, contentDescription = null, tint = CanonRed, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(appText("Не отправилось", "Ебәрелмәне"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(appText("Не отправилось", "Ебәрелмәне"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(
                     appText("Проверь интернет и нажми «Отправить на проверку» ещё раз.", "Интернетты тикшереп, «Тикшереүгә ебәреү»гә тағы баҫ."),
                     color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp
@@ -1047,7 +1047,7 @@ internal fun DocumentRow(icon: androidx.compose.ui.graphics.vector.ImageVector, 
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text(status, color = if (loaded) CanonGreen2 else CanonWarn, fontSize = 13.sp)
         }
         Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)

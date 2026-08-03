@@ -2311,12 +2311,14 @@ internal fun InstantDriverEnRouteCard(
         Card(
             colors = CardDefaults.cardColors(containerColor = CanonSurface),
             shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
+            // Это шторка снизу, а не карточка в потоке: ей положено отделяться от карты,
+            // поэтому берём ступень sheet, а не card. Значение из шкалы, не с потолка.
+            elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.sheet),
             modifier = Modifier.fillMaxWidth().weight(0.64f),
         ) {
             Column(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(18.dp).navigationBarsPadding(),
+                    .padding(CanonSpace.lg).navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 // «Где я сейчас» одним взглядом — до того, как человек начнёт читать надписи.

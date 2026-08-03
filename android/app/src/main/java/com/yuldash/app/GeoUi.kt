@@ -206,7 +206,7 @@ internal fun DriverZoneSheet(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding().padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(appText("Где вожу", "Ҡайҙа йөрөтәм"), color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            Text(appText("Где вожу", "Ҡайҙа йөрөтәм"), color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Text(
                 appText("Заказы придут только по выбранной зоне. Поменять можно в любой момент.",
                     "Заказдар һайланған зона буйынса ғына килә. Теләһә ҡасан үҙгәртеп була."),
@@ -263,7 +263,7 @@ internal fun DriverZoneSheet(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
             ) {
                 if (saving) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                else Text(appText("Сохранить", "Һаҡларға"), fontWeight = FontWeight.Black, fontSize = 16.sp)
+                else Text(appText("Сохранить", "Һаҡларға"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
         }
     }
@@ -335,7 +335,7 @@ private fun ZoneOptionCard(
                 }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f).heightIn(min = 48.dp), verticalArrangement = Arrangement.Center) {
-                    Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                    Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     Text(text, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
                 }
                 if (selected) Icon(Icons.Default.Check, contentDescription = appText("Выбрано", "Һайланған"), tint = CanonGreen2)

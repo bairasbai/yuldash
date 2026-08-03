@@ -1421,7 +1421,7 @@ internal fun OnboardingContent(
                             color = CanonText,
                             fontSize = 30.sp,
                             lineHeight = 33.sp,
-                            fontWeight = FontWeight.Black
+                            fontWeight = FontWeight.Bold
                         )
                     }
                     item {
@@ -1475,7 +1475,7 @@ internal fun OnboardingContent(
                                 }
                             }
                         ) {
-                            Text(appText("Назад", "Кире"), color = CanonGreen2, fontWeight = FontWeight.Black)
+                            Text(appText("Назад", "Кире"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                         }
                     } else {
                         Spacer(Modifier.width(82.dp))
@@ -1486,7 +1486,7 @@ internal fun OnboardingContent(
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(onClick = { onFinish(role) }) {
-                        Text(appText("Пропустить", "Үткәреп ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Black)
+                        Text(appText("Пропустить", "Үткәреп ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -1508,7 +1508,7 @@ internal fun OnboardingContent(
                 ) {
                     Text(
                         text = if (isLastPage) appText("Войти через Telegram", "Telegram аша инеү") else appText("Далее", "Артабан"),
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.Bold,
                         fontSize = 18.sp
                     )
                 }
@@ -1542,7 +1542,7 @@ internal fun OnboardingLangChip(text: String, active: Boolean, onClick: () -> Un
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = if (active) Color.White else CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Black)
+        Text(text, color = if (active) Color.White else CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -1634,7 +1634,7 @@ internal fun OnboardingHeroCard(slide: OnboardingSlide, pageOffset: () -> Float 
                     color = Color.White,
                     fontSize = 24.sp,
                     lineHeight = 26.sp,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = appText(slide.eyebrowRu, slide.eyebrowBa),
@@ -1681,7 +1681,7 @@ internal fun OnboardingFeatureCard(item: OnboardingItem, index: Int) {
             OnboardingIconBubble(item.icon, index)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(appText(item.titleRu, item.titleBa), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, lineHeight = 21.sp)
+                Text(appText(item.titleRu, item.titleBa), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp, lineHeight = 21.sp)
                 Text(appText(item.bodyRu, item.bodyBa), color = CanonMuted, fontSize = 15.sp, lineHeight = 20.sp)
             }
         }
@@ -1736,7 +1736,7 @@ internal fun OnboardingSimpleModeCard(onEnable: () -> Unit) {
                         appText("Тебе удобнее крупные кнопки и голосовой заказ?", "Һиңә эре төймәләр һәм тауыш менән заказ уңайлыраҡмы?"),
                         modifier = Modifier.weight(1f),
                         color = CanonText,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.Bold,
                         fontSize = 17.sp,
                         lineHeight = 21.sp
                     )
@@ -1761,7 +1761,7 @@ internal fun OnboardingSimpleModeCard(onEnable: () -> Unit) {
                     Text(
                         appText("Включить простой режим", "Ябай режимды тоҡандырыу"),
                         color = Color.White,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
                 }
@@ -1794,7 +1794,7 @@ internal fun OnboardingRoleCard(
             OnboardingIconBubble(icon)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text(body, color = CanonMuted, fontSize = 15.sp, lineHeight = 20.sp)
             }
             Icon(
@@ -1822,7 +1822,7 @@ internal fun OnboardingMiniTrust(icon: ImageVector, label: String, modifier: Mod
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, contentDescription = null, tint = CanonGreen2)
         Spacer(Modifier.height(6.dp))
-        Text(label, color = CanonText, textAlign = TextAlign.Center, fontWeight = FontWeight.Black, fontSize = 12.sp, lineHeight = 13.sp, minLines = 2, maxLines = 2)
+        Text(label, color = CanonText, textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 13.sp, minLines = 2, maxLines = 2)
     }
 }
 
@@ -1844,7 +1844,7 @@ internal fun OnboardingIconBubble(icon: ImageVector, index: Int? = null) {
                 color = CanonGreen2
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(index.toString(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    Text(index.toString(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1857,7 +1857,7 @@ internal fun OnboardingSafetyNote(text: String) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Lock, contentDescription = null, tint = CanonGreen2)
             Spacer(Modifier.width(12.dp))
-            Text(text, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp, lineHeight = 19.sp)
+            Text(text, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 19.sp)
         }
     }
 }
@@ -1942,7 +1942,7 @@ internal fun onboardingSlides() = listOf(
 @Composable
 internal fun ScreenTopBar(title: String, onBack: () -> Unit) {
     TopAppBar(
-        title = { Text(title, fontWeight = FontWeight.Black) },
+        title = { Text(title, fontWeight = FontWeight.Bold) },
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Кире"))
@@ -2254,7 +2254,7 @@ private fun RowScope.YuldashBottomItem(
             text = label,
             color = labelColor,
             fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Black else FontWeight.Medium,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

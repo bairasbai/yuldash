@@ -404,7 +404,7 @@ private fun DriverResponseCard(
                             Text(
                                 "$price ₽",
                                 color = CanonGreen2,
-                                fontWeight = FontWeight.Black,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = BargainPrice,
                                 lineHeight = BargainPriceLine,
                                 letterSpacing = (-0.2f).sp,

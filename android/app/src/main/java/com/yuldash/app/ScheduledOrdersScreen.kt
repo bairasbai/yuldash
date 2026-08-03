@@ -222,7 +222,7 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                     // «Пора ехать» — активированные ко времени (сервер уже перевёл в поиск).
                     if (data.activated.isNotEmpty()) {
                         item {
-                            Text(appText("Пора ехать", "Барыр ваҡыт"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                            Text(appText("Пора ехать", "Барыр ваҡыт"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                         }
                         items(data.activated, key = { "act-${it.id}" }) { order ->
                             ActivatedOrderCard(order = order, onOpen = onActivated)
@@ -230,7 +230,7 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                     }
                     if (data.scheduled.isNotEmpty()) {
                         item {
-                            Text(appText("Ждут своего времени", "Ваҡытын көтә"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp,
+                            Text(appText("Ждут своего времени", "Ваҡытын көтә"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp,
                                 modifier = Modifier.padding(top = if (data.activated.isNotEmpty()) 6.dp else 0.dp))
                         }
                         items(data.scheduled, key = { it.id }) { order ->
@@ -268,7 +268,7 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                 Text(
                     appText("Отменить предзаказ?", "Алдан заказды кире алырғамы?"),
                     color = CanonText,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                 )
             },
             text = {
@@ -383,7 +383,7 @@ private fun ActivatedOrderCard(order: InstantOrderDto, onOpen: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(activatedScheduledTitle(order.status),
-                    color = CanonBg, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                    color = CanonBg, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Text("${order.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}",
                     color = CanonBg.copy(alpha = 0.9f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }

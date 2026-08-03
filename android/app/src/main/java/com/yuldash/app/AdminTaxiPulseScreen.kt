@@ -119,7 +119,7 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
                         }
                     }
                     item {
-                        Text(appText("По городам", "Ҡалалар буйынса"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, modifier = Modifier.appearIn(3))
+                        Text(appText("По городам", "Ҡалалар буйынса"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.appearIn(3))
                     }
                     if (p.byCity.isEmpty()) {
                         item {
@@ -170,7 +170,7 @@ private fun PulseTile(value: String, label: String, modifier: Modifier = Modifie
         modifier = modifier,
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(value, color = if (accent) CanonGreen2 else CanonText, fontSize = 26.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(value, color = if (accent) CanonGreen2 else CanonText, fontSize = 26.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Text(label, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
         }
     }
@@ -182,7 +182,7 @@ private fun PulseDotStat(count: Int, label: String, color: androidx.compose.ui.g
     Row(verticalAlignment = Alignment.CenterVertically) {
         Surface(color = color, shape = CircleShape, modifier = Modifier.size(8.dp)) {}
         Spacer(Modifier.width(6.dp))
-        Text("$count", color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Black)
+        Text("$count", color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.width(4.dp))
         Text(label, color = CanonMuted, fontSize = 12.sp)
     }

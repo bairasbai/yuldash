@@ -173,7 +173,7 @@ private fun TaxiRidesTotalsCard(d: DriverTaxiRidesDto, modifier: Modifier = Modi
                     fontSize = MoneyType.Hero,
                     lineHeight = MoneyType.HeroLine,
                     letterSpacing = MoneyType.HeroTracking,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                 )
             }
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -230,7 +230,7 @@ private fun TaxiRideRow(r: DriverTaxiRideDto, modifier: Modifier = Modifier, onC
                     Text(
                         kopToRub(r.netKop),
                         color = CanonGreen2, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
-                        fontWeight = FontWeight.Black, maxLines = 1,
+                        fontWeight = FontWeight.Bold, maxLines = 1,
                     )
                     Text(
                         appText("тебе", "һиңә"),

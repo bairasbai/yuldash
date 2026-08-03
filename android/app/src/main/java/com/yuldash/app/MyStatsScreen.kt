@@ -128,7 +128,7 @@ internal fun MyStatsScreen(onBack: () -> Unit) {
                     Spacer(Modifier.width(4.dp))
                     Text(
                         appText("Мой Юлдаш", "Минең Юлдаш"),
-                        color = CanonGreen, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Black,
+                        color = CanonGreen, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold,
                     )
                 }
             }
@@ -239,7 +239,7 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
                     Spacer(Modifier.height(6.dp))
                     Text(
                         rankTitle,
-                        color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black,
+                        color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
                     )
                     if (name.isNotBlank()) {
                         Text(name, color = StatsMintBright, fontSize = 14.sp, fontWeight = FontWeight.Medium)
@@ -257,7 +257,7 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
             Column {
                 Text(
                     fmtKmStat(s.km),
-                    color = Color.White, fontSize = 46.sp, lineHeight = 48.sp, fontWeight = FontWeight.Black,
+                    color = Color.White, fontSize = 46.sp, lineHeight = 48.sp, fontWeight = FontWeight.Bold,
                 )
                 Text(
                     appTextFor(language, "километров вместе", "километр бергә"),
@@ -290,7 +290,7 @@ private fun MiniStat(modifier: Modifier, value: String, label: String) {
             .padding(vertical = 12.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(value, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+        Text(value, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(2.dp))
         Text(label, color = StatsMint, fontSize = 11.sp, textAlign = TextAlign.Center)
     }
@@ -315,7 +315,7 @@ private fun StatTile(
             Surface(color = CanonMint, shape = CircleShape) {
                 Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.padding(9.dp).size(20.dp))
             }
-            Text(value, color = CanonText, fontSize = 22.sp, lineHeight = 24.sp, fontWeight = FontWeight.Black)
+            Text(value, color = CanonText, fontSize = 22.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
             Text(label, color = CanonMuted, fontSize = 13.sp)
         }
     }
@@ -516,7 +516,7 @@ private fun AchievementsSection() {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(appText("Твои значки", "Һинең билдәләрең"), color = CanonText,
-                fontWeight = FontWeight.Black, fontSize = 18.sp)
+                fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Spacer(Modifier.width(8.dp))
             Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
                 Text("${d.earnedCount}/${d.items.size}", color = CanonGreen2, fontSize = 12.sp,

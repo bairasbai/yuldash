@@ -132,7 +132,7 @@ private fun PromoInputCard(onApplied: (PromoApplyResultDto) -> Unit) {
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(appText("Есть промокод?", "Промокодың бармы?"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                Text(appText("Есть промокод?", "Промокодың бармы?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                 Text(appText("Код друга или акции", "Дуҫ йәки акция коды"), color = CanonMuted, fontSize = 14.sp)
             }
         }
@@ -147,7 +147,7 @@ private fun PromoInputCard(onApplied: (PromoApplyResultDto) -> Unit) {
                     label = { Text(appText("Промокод", "Промокод")) },
                     placeholder = { Text("YULDASH", color = CanonMuted, fontFamily = FontFamily.Monospace) },
                     textStyle = androidx.compose.ui.text.TextStyle(
-                        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 20.sp, color = CanonText,
+                        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = CanonText,
                     ),
                     shape = CanonItemShape,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
@@ -206,7 +206,7 @@ private fun PromoSuccessCard(res: PromoApplyResultDto) {
         }
         Text(
             appText("Промокод применён!", "Промокод ҡулланылды!"),
-            color = CanonText, fontWeight = FontWeight.Black, fontSize = 22.sp, textAlign = TextAlign.Center,
+            color = CanonText, fontWeight = FontWeight.Bold, fontSize = 22.sp, textAlign = TextAlign.Center,
         )
         if (message.isNotBlank()) {
             Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2)) {
@@ -236,7 +236,7 @@ private fun PromoTaxiDiscountNote(discountKop: Int) {
                 Spacer(Modifier.width(10.dp))
                 Text(
                     appText("Вводить больше ничего не нужно", "Башҡа бер нәмә лә индерергә кәрәкмәй"),
-                    color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp,
+                    color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 15.sp,
                 )
             }
             Text(
@@ -276,7 +276,7 @@ private fun PromoAppliedCard(m: MyPromoDto) {
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(appText("Промокод активен", "Промокод актив"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                Text(appText("Промокод активен", "Промокод актив"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                 Text(m.title.ifBlank { thanksFallback }, color = CanonMuted, fontSize = 14.sp)
             }
         }
@@ -285,7 +285,7 @@ private fun PromoAppliedCard(m: MyPromoDto) {
                 Text(appText("Твой промокод", "Һинең промокодың"), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
                     Text(
-                        m.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 26.sp,
+                        m.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 26.sp,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), textAlign = TextAlign.Center,
                     )
                 }
@@ -335,7 +335,7 @@ private fun PromoPerkChip(kind: String, perkValue: Int, discountKop: Int = 0) {
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Icon(icon, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.size(22.dp))
-            Text(label, color = CanonGoldInk, fontWeight = FontWeight.Black, fontSize = 16.sp)
+            Text(label, color = CanonGoldInk, fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
     }
 }
@@ -386,7 +386,7 @@ private fun PromoDiscountStatus(m: MyPromoDto) {
                 Spacer(Modifier.width(8.dp))
                 Text(
                     title, color = if (waiting) CanonGreen2 else CanonText,
-                    fontWeight = FontWeight.Black, fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold, fontSize = 15.sp,
                 )
             }
             Text(

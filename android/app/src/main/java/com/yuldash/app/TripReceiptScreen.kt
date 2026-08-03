@@ -134,7 +134,7 @@ private fun ReceiptCard(r: TripReceiptDto) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
                     }
                 }
-                Text(appText("Поездка завершена", "Сәфәр тамамланды"), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                Text(appText("Поездка завершена", "Сәфәр тамамланды"), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Text("${r.fromCity} → ${r.toCity}", color = Color.White.copy(alpha = 0.92f), fontSize = 15.sp, textAlign = TextAlign.Center)
             }
         }
@@ -164,7 +164,7 @@ private fun ReceiptCard(r: TripReceiptDto) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(appText("Сумма поездки", "Сәфәр суммаһы"), color = CanonMuted, fontSize = 13.sp)
-                        Text("${r.amount} ₽", color = CanonText, fontSize = 34.sp, fontWeight = FontWeight.Black)
+                        Text("${r.amount} ₽", color = CanonText, fontSize = 34.sp, fontWeight = FontWeight.Bold)
                     }
                     if (r.paid) {
                         Surface(shape = RoundedCornerShape(999.dp), color = CanonMint) {
@@ -261,7 +261,7 @@ private fun ReceiptPendingCard() {
             Surface(color = CanonMint, shape = CircleShape) {
                 Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp).size(30.dp))
             }
-            Text(appText("Квитанция ещё не готова", "Квитанция әҙер түгел"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, textAlign = TextAlign.Center)
+            Text(appText("Квитанция ещё не готова", "Квитанция әҙер түгел"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center)
             Text(
                 appText("Она появится после завершения поездки. Хорошей дороги!", "Ул сәфәр тамамланғас барлыҡҡа килер. Юлың уң булһын!"),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center,

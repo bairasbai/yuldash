@@ -387,7 +387,7 @@ private fun CourierNotApprovedView(
             Spacer(Modifier.height(20.dp))
         }
         item {
-            Text(title, color = CanonText, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, fontWeight = FontWeight.Black, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(title, color = CanonText, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(8.dp))
             Text(body, color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(20.dp))
@@ -425,7 +425,7 @@ private fun CourierRefreshStrip(text: String, onRetry: () -> Unit) {
                 Text(
                     appText("Повторить", "Ҡабатлау"),
                     color = CanonWarn,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                     fontSize = DeliveryBody,
                     lineHeight = DeliveryBodyLine,
                 )
@@ -1268,7 +1268,7 @@ private fun CourierCarryingTab(
         AlertDialog(
             onDismissRequest = { if (!saving) goodsTarget = null },
             containerColor = CanonSurface,
-            title = { Text(appText("Стоимость покупки", "Һатып алыу хаҡы"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
+            title = { Text(appText("Стоимость покупки", "Һатып алыу хаҡы"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     DeliveryHint(appText("Сколько ты потратил на товар? Получатель вернёт эту сумму плюс доставку.", "Тауарға күпме тотондоң? Алыусы был сумманы һәм илтеүҙе кире ҡайтарыр."))
@@ -1343,7 +1343,7 @@ private fun CourierCarryingTab(
             title = {
                 Text(
                     appText("Не застал получателя?", "Алыусыны тапманыңмы?"),
-                    color = CanonText, fontWeight = FontWeight.Black,
+                    color = CanonText, fontWeight = FontWeight.Bold,
                     fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine,
                 )
             },
@@ -1439,7 +1439,7 @@ private fun CourierCarryingTab(
             title = {
                 Text(
                     appText("Забрал посылку?", "Бандерольде алдыңмы?"),
-                    color = CanonText, fontWeight = FontWeight.Black,
+                    color = CanonText, fontWeight = FontWeight.Bold,
                     fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine,
                 )
             },
@@ -1493,7 +1493,7 @@ private fun CourierCarryingTab(
                 ) {
                     Text(
                         appText("Забрал, еду", "Алдым, китәм"),
-                        color = CanonGreen2, fontWeight = FontWeight.Black,
+                        color = CanonGreen2, fontWeight = FontWeight.Bold,
                     )
                 }
             },
@@ -1531,7 +1531,7 @@ private fun CourierCarryingTab(
         AlertDialog(
             onDismissRequest = { if (!submitting) deliverTarget = null },
             containerColor = CanonSurface,
-            title = { Text(appText("Код вручения", "Тапшырыу коды"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
+            title = { Text(appText("Код вручения", "Тапшырыу коды"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     DeliveryHint(appText("Спроси код у получателя и введи его. Так подтвердим, что заказ попал по адресу.", "Кодты алыусынан һора һәм индер. Шулай заказ дөрөҫ ергә барғанын раҫлайбыҙ."))
@@ -1944,7 +1944,7 @@ private fun CourierContactDetails(label: String, name: String, phone: String) {
                     Text(
                         phone,
                         color = CanonGreen2,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.Bold,
                         fontSize = DeliveryBody,
                         lineHeight = DeliveryBodyLine,
                         modifier = Modifier.weight(1f),
@@ -2015,7 +2015,7 @@ private fun CourierCabinetTab(
                             Spacer(Modifier.width(16.dp))
                             val until10 = until.take(10)
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(appText("Пауза по качеству", "Сифат буйынса пауза"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                                Text(appText("Пауза по качеству", "Сифат буйынса пауза"), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
                                 Text(
                                     appText("Пауза до $until10. Подтяни рейтинг — и снова в строю. Мы рядом, поможем.", "$until10 тиклем пауза. Рейтингты күтәр — һәм ҡабат сафта. Беҙ янда, ярҙам итербеҙ."),
                                     color = CanonWarn, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
@@ -2037,7 +2037,7 @@ private fun CourierCabinetTab(
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(appText("Твой рейтинг", "Һинең рейтинг"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                             if (avg != null && me.rating.count > 0) {
-                                Text(deliveryDecimal(avg) + " ★", color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
+                                Text(deliveryDecimal(avg) + " ★", color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
                                 Text(appText("оценок: ${me.rating.count}", "баһа: ${me.rating.count}"), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                             } else {
                                 Text(appText("Пока нет оценок", "Әлегә оценка юҡ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
@@ -2057,7 +2057,7 @@ private fun CourierCabinetTab(
                         Spacer(Modifier.width(16.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(appText("Доставлено заказов", "Тапшырылған заказдар"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
-                            Text("${st.deliveredCount}", color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
+                            Text("${st.deliveredCount}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
                         }
                     }
                 }
@@ -2084,7 +2084,7 @@ private fun CourierCabinetTab(
                                     Icon(Icons.Default.Percent, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
                                 }
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(appText("Сейчас ты платишь $currentFeePercent% комиссии", "Хәҙер һин $currentFeePercent% комиссия түләйһең"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                                    Text(appText("Сейчас ты платишь $currentFeePercent% комиссии", "Хәҙер һин $currentFeePercent% комиссия түләйһең"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
                                     Text(tierLine, color = if (promo) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                                 }
                             }
@@ -2106,7 +2106,7 @@ private fun CourierCabinetTab(
                     Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
-                            Text(appText("Наша комиссия за доставки", "Илтеүҙәр өсөн беҙҙең комиссия"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                            Text(appText("Наша комиссия за доставки", "Илтеүҙәр өсөн беҙҙең комиссия"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
                         }
                         DeliveryHint(
                             appText("Это сбор Юлдаша$feeShare за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.", "Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы$feeShare. Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш."),
@@ -2117,10 +2117,10 @@ private fun CourierCabinetTab(
                         Surface(color = if (owed > 0) CanonMint else CanonBg, shape = CanonItemShape) {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    appText("К оплате сейчас", "Хәҙер түләргә"), color = CanonText, fontWeight = FontWeight.Black,
+                                    appText("К оплате сейчас", "Хәҙер түләргә"), color = CanonText, fontWeight = FontWeight.Bold,
                                     fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, modifier = Modifier.weight(1f),
                                 )
-                                Text(kopToRub(owed), color = if (owed > 0) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
+                                Text(kopToRub(owed), color = if (owed > 0) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
                             }
                         }
                         if (owed > 0) {

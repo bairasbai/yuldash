@@ -279,8 +279,8 @@ internal fun TaxiServiceClassTile(
                 }
             }
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
-                if (price != null) Text("$price ₽", color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (price != null) Text("$price ₽", color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
             Text(subtitle, color = CanonMutedStrong, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
@@ -308,10 +308,10 @@ internal fun TaxiFareSummary(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(appText("Стоимость поездки", "Сәфәр хаҡы"), color = CanonMutedStrong, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     when {
-                        loading -> Text(appText("Считаем…", "Иҫәпләйбеҙ…"), color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Black)
-                        error != null -> Text(appText("Цена недоступна", "Хаҡ әлегә юҡ"), color = CanonRed, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                        price != null -> Text("$price ₽", color = CanonText, fontSize = 34.sp, lineHeight = 38.sp, fontWeight = FontWeight.Black)
-                        else -> Text("—", color = CanonMuted, fontSize = 30.sp, fontWeight = FontWeight.Black)
+                        loading -> Text(appText("Считаем…", "Иҫәпләйбеҙ…"), color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        error != null -> Text(appText("Цена недоступна", "Хаҡ әлегә юҡ"), color = CanonRed, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        price != null -> Text("$price ₽", color = CanonText, fontSize = 34.sp, lineHeight = 38.sp, fontWeight = FontWeight.Bold)
+                        else -> Text("—", color = CanonMuted, fontSize = 30.sp, fontWeight = FontWeight.Bold)
                     }
                 }
                 Surface(shape = RoundedCornerShape(18.dp), color = CanonTaxiBg) {
@@ -438,7 +438,7 @@ internal fun MobilityProgressRail(
                     color = if (index == currentIndex) CanonText else CanonMuted,
                     fontSize = 10.sp,
                     lineHeight = 13.sp,
-                    fontWeight = if (index == currentIndex) FontWeight.Black else FontWeight.Medium,
+                    fontWeight = if (index == currentIndex) FontWeight.Bold else FontWeight.Medium,
                     textAlign = TextAlign.Center,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -510,7 +510,7 @@ internal fun CourierLineHero(
                         )
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(title, color = if (online) CanonOnAccent else CanonText, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                        Text(title, color = if (online) CanonOnAccent else CanonText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Text(subtitle, color = if (online) CanonOnAccent.copy(alpha = 0.76f) else CanonMutedStrong, fontSize = 12.sp, lineHeight = 16.sp)
                     }
                     val switchLabel = appText("Работа курьера", "Курьер эше")
@@ -564,7 +564,7 @@ internal fun MobilitySegmentTab(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(label, color = if (active) CanonBg else CanonMutedStrong, fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(label, color = if (active) CanonBg else CanonMutedStrong, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             if (!badge.isNullOrBlank()) {
                 Spacer(Modifier.width(5.dp))
                 Surface(shape = CircleShape, color = if (active) CanonTaxi else CanonMint) {
@@ -572,7 +572,7 @@ internal fun MobilitySegmentTab(
                         badge,
                         color = if (active) CanonTaxiInk else CanonGreen2,
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }
@@ -603,10 +603,10 @@ internal fun CourierOfferCard(
                 }
                 Column(Modifier.weight(1f)) {
                     Text(priceCaption, color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Text(priceLabel, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                    Text(priceLabel, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 }
                 Surface(shape = RoundedCornerShape(12.dp), color = CanonGreen2.copy(alpha = 0.12f)) {
-                    Text(deliveryLabel, color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
+                    Text(deliveryLabel, color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
                 }
             }
             MobilityRouteTimeline(from = from, to = to, compact = true)
@@ -670,7 +670,7 @@ internal fun CourierServiceTypeTile(
                 )
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Black)
+                Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 Text(subtitle, color = CanonMutedStrong, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             if (selected) {
@@ -702,7 +702,7 @@ internal fun CourierFareSummary(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(appText("Стоимость доставки", "Доставка хаҡы"), color = CanonMutedStrong, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text(total, color = CanonText, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+                    Text(total, color = CanonText, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold)
                 }
                 Surface(shape = RoundedCornerShape(18.dp), color = CanonMint) {
                     Icon(Icons.Default.LocalShipping, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(13.dp).size(25.dp))
@@ -725,7 +725,7 @@ private fun MobilityValueTile(label: String, value: String, color: Color, modifi
     Surface(shape = RoundedCornerShape(14.dp), color = CanonBg, border = BorderStroke(1.dp, CanonBorder), modifier = modifier) {
         Column(Modifier.padding(horizontal = 9.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(label, color = CanonMuted, fontSize = 10.sp, maxLines = 1)
-            Text(value, color = color, fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(value, color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

@@ -221,7 +221,7 @@ private fun BargainStep(value: Int, current: Boolean) {
                 color = CanonGreen2,
                 fontSize = BargainMeta,
                 lineHeight = BargainMetaLine,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 modifier = Modifier.padding(horizontal = BargainGapTight, vertical = BargainGapHair),
             )
@@ -315,7 +315,7 @@ internal fun CounterPriceDialog(
             Text(
                 appText("Твоя цена", "Һинең хаҡың"),
                 color = CanonText,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.Bold,
                 fontSize = BargainTitle,
                 lineHeight = BargainTitleLine,
                 textAlign = TextAlign.Center,
@@ -348,7 +348,7 @@ internal fun CounterPriceDialog(
                                 color = CanonGreen2,
                                 fontSize = BargainPrice,
                                 lineHeight = BargainPriceLine,
-                                fontWeight = FontWeight.Black,
+                                fontWeight = FontWeight.Bold,
                                 letterSpacing = (-0.2f).sp,
                                 maxLines = 1,
                             )
@@ -386,7 +386,7 @@ internal fun CounterPriceDialog(
                     textStyle = TextStyle(
                         fontSize = BargainPrice,
                         lineHeight = BargainPriceLine,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.Bold,
                         color = CanonText,
                     ),
                     shape = BargainFieldShape,
@@ -440,7 +440,7 @@ internal fun CounterPriceDialog(
                         Text(
                             appText("Предложить", "Тәҡдим итеү"),
                             color = if (ok) CanonGreen2 else CanonMuted,
-                            fontWeight = FontWeight.Black,
+                            fontWeight = FontWeight.Bold,
                             fontSize = BargainBody,
                             lineHeight = BargainBodyLine,
                         )

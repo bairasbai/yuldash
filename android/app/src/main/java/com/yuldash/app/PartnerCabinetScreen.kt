@@ -129,7 +129,7 @@ private fun PartnerPendingView(p: PartnerDto) {
         Surface(color = CanonWarnBg, shape = CircleShape) {
             Icon(Icons.Default.HourglassTop, contentDescription = null, tint = CanonWarn, modifier = Modifier.padding(18.dp).size(36.dp))
         }
-        Text(appText("Бизнес на проверке", "Бизнес тикшереүҙә"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 22.sp, textAlign = TextAlign.Center)
+        Text(appText("Бизнес на проверке", "Бизнес тикшереүҙә"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 22.sp, textAlign = TextAlign.Center)
         Text(p.name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center)
         Text(
             appText(
@@ -153,7 +153,7 @@ private fun PartnerRejectedView(p: PartnerDto, onResubmitted: () -> Unit) {
         item {
             Surface(color = CanonDangerBg, shape = CanonItemShape) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(appText("Заявка отклонена", "Заявка кире ҡағылды"), color = CanonRed, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    Text(appText("Заявка отклонена", "Заявка кире ҡағылды"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     if (p.rejectReason.isNotBlank()) Text(p.rejectReason, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp)
                     Text(appText("Поправь данные и отправь снова.", "Мәғлүмәтте төҙәтеп ҡабат ебәр."), color = CanonMuted, fontSize = 13.sp)
                 }
@@ -337,7 +337,7 @@ private fun PartnerDashboard(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(partner.name, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                    Text(partner.name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Text(couponCategoryLabel(partner.category) + (if (partner.city.isNotBlank()) "  ·  ${partner.city}" else ""), color = CanonMuted, fontSize = 13.sp)
                 }
                 Surface(color = CanonMint, shape = RoundedCornerShape(10.dp)) {
@@ -356,7 +356,7 @@ private fun PartnerDashboard(
         // Заголовок «Мои купоны» + кнопка создать
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(appText("Мои купоны", "Минең купондар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                Text(appText("Мои купоны", "Минең купондар"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
                 Surface(onClick = onCreateCoupon, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonGreen2, shape = RoundedCornerShape(12.dp)) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Add, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(18.dp))
@@ -401,7 +401,7 @@ private fun PartnerDashboard(
 private fun SubscriptionCard(partner: PartnerDto, onSubscribe: () -> Unit) {
     AppCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(appText("Подписка", "Яҙылыу"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+            Text(appText("Подписка", "Яҙылыу"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             if (partner.subscriptionActive) {
                 val until = shortDate(partner.subscriptionUntil)
                 Text(
@@ -432,14 +432,14 @@ private fun StatementCard(statement: com.yuldash.app.data.StatementDto?) {
     if (statement == null) return
     AppCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(appText("Выписка", "Иҫәп-хисап"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+            Text(appText("Выписка", "Иҫәп-хисап"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text(
                 appText("Погашено купонов: ${statement.redeemedTotal}", "Һүндерелгән купондар: ${statement.redeemedTotal}"),
                 color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold,
             )
             Text(
                 appText("К оплате: ${kopToRub(statement.amountKop)}", "Түләргә: ${kopToRub(statement.amountKop)}"),
-                color = CanonGreen2, fontSize = 18.sp, fontWeight = FontWeight.Black,
+                color = CanonGreen2, fontSize = 18.sp, fontWeight = FontWeight.Bold,
             )
             Text(
                 appText(
@@ -458,12 +458,12 @@ private fun PartnerCouponRow(c: PartnerCouponDto, busy: Boolean, onEdit: () -> U
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(c.title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                    Text(c.title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     Text(c.discountText, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
                 if (c.premium) {
                     Surface(color = CanonGold, shape = RoundedCornerShape(9.dp)) {
-                        Text(appText("Премиум", "Премиум"), color = CanonGoldInk, fontWeight = FontWeight.Black, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp))
+                        Text(appText("Премиум", "Премиум"), color = CanonGoldInk, fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp))
                     }
                     Spacer(Modifier.width(6.dp))
                 }
@@ -622,7 +622,7 @@ private fun SubscribeView(partner: PartnerDto, onBack: () -> Unit, onSubscribed:
                 item {
                     Surface(color = CanonMint, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2)) {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(appText("Переведи ${kopToRub(info.amountKop)} по СБП", "СБП аша ${kopToRub(info.amountKop)} күсер"), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                            Text(appText("Переведи ${kopToRub(info.amountKop)} по СБП", "СБП аша ${kopToRub(info.amountKop)} күсер"), color = CanonGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                             Text(
                                 appText(
                                     "Оплата «на доверии»: переведи сумму по реквизитам из поддержки. Как подтвердим оплату — подписка включится, и купоны появятся на витрине.",
@@ -673,14 +673,14 @@ private fun PlanCard(plan: PartnerPlanDto, current: Boolean, busy: Boolean, onSe
     Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(if (plan.premium) 2.dp else 1.dp, if (plan.premium) CanonGold else CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(appText(plan.title, plan.titleBa.ifBlank { plan.title }), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                Text(appText(plan.title, plan.titleBa.ifBlank { plan.title }), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
                 if (plan.premium) {
                     Surface(color = CanonGold, shape = RoundedCornerShape(10.dp)) {
-                        Text(appText("Премиум", "Премиум"), color = CanonGoldInk, fontWeight = FontWeight.Black, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                        Text(appText("Премиум", "Премиум"), color = CanonGoldInk, fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                     }
                 }
             }
-            Text("${kopToRub(plan.amountKop)} / ${plan.periodDays} " + appText("дн.", "көн"), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 20.sp)
+            Text("${kopToRub(plan.amountKop)} / ${plan.periodDays} " + appText("дн.", "көн"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 20.sp)
             if (current) {
                 Surface(color = CanonMint, shape = RoundedCornerShape(10.dp)) {
                     Row(Modifier.padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -695,7 +695,7 @@ private fun PlanCard(plan: PartnerPlanDto, current: Boolean, busy: Boolean, onSe
                 modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = if (plan.premium) CanonGold else CanonGreen2, contentColor = if (plan.premium) CanonGoldInk else androidx.compose.ui.graphics.Color.White),
             ) {
-                Text(if (current) appText("Продлить", "Оҙайтыу") else appText("Оформить", "Рәсмиләштереү"), fontWeight = FontWeight.Black, fontSize = 15.sp)
+                Text(if (current) appText("Продлить", "Оҙайтыу") else appText("Оформить", "Рәсмиләштереү"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
             }
         }
     }
@@ -715,7 +715,7 @@ private fun RedeemDialog(onDismiss: () -> Unit) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = CanonSurface,
-        title = { Text(if (result == null) appText("Погасить код клиента", "Клиент кодын һүндереү") else appText("Скидка подтверждена", "Ташлама раҫланды"), color = CanonText, fontWeight = FontWeight.Black) },
+        title = { Text(if (result == null) appText("Погасить код клиента", "Клиент кодын һүндереү") else appText("Скидка подтверждена", "Ташлама раҫланды"), color = CanonText, fontWeight = FontWeight.Bold) },
         text = {
             if (result != null) {
                 val r = result!!
@@ -723,7 +723,7 @@ private fun RedeemDialog(onDismiss: () -> Unit) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(28.dp))
                         Spacer(Modifier.width(10.dp))
-                        Text(r.discountText, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 22.sp)
+                        Text(r.discountText, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 22.sp)
                     }
                     Text(r.couponTitle, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     Text(appText("Клиент: ${r.customerName}", "Клиент: ${r.customerName}"), color = CanonMuted, fontSize = 14.sp)

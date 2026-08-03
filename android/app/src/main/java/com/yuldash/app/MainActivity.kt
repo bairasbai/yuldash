@@ -805,12 +805,12 @@ internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () 
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(appText("Перевод по СБП", "СБП аша күсереү"), fontSize = 22.sp, fontWeight = FontWeight.Black, color = CanonText)
-            Text("$amountRub ₽", fontSize = 42.sp, fontWeight = FontWeight.Black, color = CanonGreen2)
+            Text(appText("Перевод по СБП", "СБП аша күсереү"), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = CanonText)
+            Text("$amountRub ₽", fontSize = 42.sp, fontWeight = FontWeight.Bold, color = CanonGreen2)
             Surface(color = CanonMint, shape = CanonItemShape) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(appText("Получатель · СБП", "Алыусы · СБП"), color = CanonMuted, fontSize = 13.sp)
-                    Text(phone, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                    Text(phone, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text("$name · $bank", color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -830,7 +830,7 @@ internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () 
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {
-                Text(appText("Скопировать номер", "Номерҙы күсереү"), fontWeight = FontWeight.Black)
+                Text(appText("Скопировать номер", "Номерҙы күсереү"), fontWeight = FontWeight.Bold)
             }
             // Быстрая оплата: QR + кнопка «Оплатить в Сбербанке» (открывает перевод по номеру).
             SberPayBlock(phone)
@@ -890,7 +890,7 @@ internal fun SberPayBlock(phone: String, modifier: Modifier = Modifier) {
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
         ) {
-            Text(appText("Оплатить в Сбербанке", "Сбербанкта түләү"), fontWeight = FontWeight.Black)
+            Text(appText("Оплатить в Сбербанке", "Сбербанкта түләү"), fontWeight = FontWeight.Bold)
         }
     }
 }

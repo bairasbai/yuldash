@@ -76,7 +76,7 @@ internal fun ClinicRidesEntryCard(onClick: () -> Unit) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     appText("Поездки к клинике", "Клиникаға сәфәрҙәр"),
-                    color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp,
+                    color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp,
                 )
                 Text(
                     appText("Кто-то уже едет к больнице — подсядь по пути",
@@ -186,7 +186,7 @@ internal fun ClinicRidesScreen(onBack: () -> Unit, onBookRide: (Ride) -> Unit) {
                     selected?.let { p ->
                         item {
                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(appText("Кто едет в «${p.name}»", "«${p.name}»-ға кем бара"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                                Text(appText("Кто едет в «${p.name}»", "«${p.name}»-ға кем бара"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                                 if (p.address.isNotBlank()) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(14.dp))
@@ -261,7 +261,7 @@ private fun ClinicRideCard(dto: RideDto, onBook: () -> Unit) {
     AppCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${ride.from} → ${ride.to}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${ride.from} → ${ride.to}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (ride.verified) {
                     Icon(Icons.Default.Verified, contentDescription = appText("Проверен", "Тикшерелгән"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
                 }
@@ -275,7 +275,7 @@ private fun ClinicRideCard(dto: RideDto, onBook: () -> Unit) {
             val driverFallback = appText("Водитель", "Йөрөтөүсе")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(ride.driver.ifBlank { driverFallback }, color = CanonMuted, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(if (ride.price > 0) "${ride.price} ₽" else appText("Бесплатно", "Бушлай"), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(if (ride.price > 0) "${ride.price} ₽" else appText("Бесплатно", "Бушлай"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             AppButton(appText("Поехать", "Барырға"), onBook, height = 46.dp)
         }

@@ -369,7 +369,7 @@ internal fun SupportContent(
                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(appText("Добровольная поддержка", "Ирекле ярҙам"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                    Text(appText("Добровольная поддержка", "Ирекле ярҙам"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(appText("Помогает оплачивать серверы, карты, SMS и поддержку.", "Серверҙарҙы, карталарҙы, SMS һәм ярҙам хеҙмәтен түләргә ярҙам итә."), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -649,7 +649,7 @@ internal fun BoostContent(
             ) {
                 item {
                     Text(appText("Какую поездку поднять", "Ҡайһы сәфәрҙе күтәрергә"),
-                        fontWeight = FontWeight.Black, fontSize = 15.sp, color = CanonText)
+                        fontWeight = FontWeight.Bold, fontSize = 15.sp, color = CanonText)
                 }
                 items(rides, key = { it.id }) { ride ->
                     BoostRideRow(ride, selected = ride.id == selectedRideId,
@@ -657,7 +657,7 @@ internal fun BoostContent(
                 }
                 item {
                     Text(appText("Тариф поднятия", "Күтәреү тарифы"),
-                        fontWeight = FontWeight.Black, fontSize = 15.sp, color = CanonText,
+                        fontWeight = FontWeight.Bold, fontSize = 15.sp, color = CanonText,
                         modifier = Modifier.padding(top = 4.dp))
                 }
                 itemsIndexed(plans, key = { i, it -> "${it.tier}#$i" }) { i, plan ->
@@ -773,12 +773,12 @@ internal fun BoostPlanCard(plan: BoostPlanDto, selected: Boolean, onClick: () ->
             Icon(Icons.Default.TrendingUp, contentDescription = null, tint = if (selected) CanonGreen else CanonMuted)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(plan.title, fontWeight = FontWeight.Black, color = CanonText)
+                Text(plan.title, fontWeight = FontWeight.Bold, color = CanonText)
                 Text(sub, fontSize = 13.sp, color = CanonMuted)
             }
             Surface(color = if (selected) CanonGreen else CanonGreen.copy(alpha = 0.12f), shape = RoundedCornerShape(50)) {
                 Text("${plan.price} ₽", color = if (selected) Color.White else CanonGreen,
-                    fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
         }
     }
@@ -822,7 +822,7 @@ internal fun BoostResultContent(
         ) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(appText("Переведи ${res.amount} ₽ по СБП", "СБП аша ${res.amount} ₽ күсер"),
-                    fontWeight = FontWeight.Black, fontSize = 16.sp, color = CanonText)
+                    fontWeight = FontWeight.Bold, fontSize = 16.sp, color = CanonText)
                 val payPhone = res.payeePhone?.takeIf { it.isNotBlank() }
                 if (payPhone != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -870,7 +870,7 @@ internal fun StateMessage(icon: ImageVector, title: String, text: String, action
     ) {
         Icon(icon, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(48.dp))
         Spacer(Modifier.height(14.dp))
-        Text(title, fontWeight = FontWeight.Black, fontSize = 18.sp, color = CanonText, textAlign = TextAlign.Center)
+        Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = CanonText, textAlign = TextAlign.Center)
         Spacer(Modifier.height(6.dp))
         Text(text, color = CanonMuted, textAlign = TextAlign.Center, fontSize = 14.sp)
         Spacer(Modifier.height(18.dp))

@@ -148,7 +148,7 @@ internal fun AdminPartnersScreen(onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { rejectTarget = null },
             containerColor = CanonSurface,
-            title = { Text(appText("Отклонить бизнес", "Бизнесты кире ҡағыу"), color = CanonText, fontWeight = FontWeight.Black) },
+            title = { Text(appText("Отклонить бизнес", "Бизнесты кире ҡағыу"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(appText("Напиши причину — заведение увидит её и сможет исправить.", "Сәбәпте яҙ — урын уны күрер һәм төҙәтә алыр."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
@@ -193,7 +193,7 @@ private fun AdminPartnerCard(p: AdminPartnerDto, busy: Boolean, onApprove: () ->
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(p.name, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    Text(p.name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text(couponCategoryLabel(p.category) + (if (p.city.isNotBlank()) "  ·  ${p.city}" else ""), color = CanonMuted, fontSize = 13.sp)
                 }
                 AdminPartnerStatusChip(p.status)

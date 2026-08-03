@@ -83,7 +83,7 @@ internal fun SeasonalBanner(
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
                             title,
-                            color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp,
+                            color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp,
                             maxLines = 2, overflow = TextOverflow.Ellipsis,
                         )
                         if (subtitle.isNotBlank()) {

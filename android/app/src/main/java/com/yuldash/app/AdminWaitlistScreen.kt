@@ -222,7 +222,7 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
 private fun WaitlistStatCard(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder), modifier = modifier) {
         Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(value, color = CanonText, fontWeight = FontWeight.Black, fontSize = 20.sp)
+            Text(value, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
             Text(label, color = CanonMuted, fontSize = 12.sp)
         }
     }

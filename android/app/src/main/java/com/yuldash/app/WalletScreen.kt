@@ -194,7 +194,7 @@ private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean, payo
             }
             Text(
                 if (loading && balance == null) "…" else "${fmtRub(balance?.balanceRub ?: 0)} ₽",
-                color = CanonOnAccent, fontSize = 44.sp, lineHeight = 48.sp, fontWeight = FontWeight.Black,
+                color = CanonOnAccent, fontSize = 44.sp, lineHeight = 48.sp, fontWeight = FontWeight.Bold,
             )
             Text(
                 when (payoutEnabled) {
@@ -242,7 +242,7 @@ private fun WalletLedgerRow(e: WalletLedgerEntryDto) {
             }
             Text(
                 "$sign${fmtRub(abs(e.amountKop) / 100)} ₽",
-                color = amountColor, fontWeight = FontWeight.Black, fontSize = 16.sp,
+                color = amountColor, fontWeight = FontWeight.Bold, fontSize = 16.sp,
             )
         }
     }
@@ -268,7 +268,7 @@ private fun PayoutSoonCard() {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(
                     appText("Выплаты на карту — скоро", "Картаға түләүҙәр — оҙаҡламай"),
-                    color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp,
+                    color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp,
                 )
                 Text(
                     appText(
@@ -332,7 +332,7 @@ private fun PayoutCard(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         appText("Вывод на карту", "Картаға сығарыу"),
-                        color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp,
+                        color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp,
                     )
                     Text(
                         if (status.hasRequisite) appText("Карта ····${status.cardLast4}", "Карта ····${status.cardLast4}")
@@ -409,7 +409,7 @@ private fun PayoutCard(
             title = {
                 Text(
                     appText("Вывести ${fmtRub(amountRub)} ₽?", "${fmtRub(amountRub)} ₽ сығарырғамы?"),
-                    color = CanonText, fontWeight = FontWeight.Black,
+                    color = CanonText, fontWeight = FontWeight.Bold,
                 )
             },
             text = {
@@ -485,7 +485,7 @@ private fun PayoutCardDialog(onDismiss: () -> Unit, onSaved: (String) -> Unit) {
         onDismissRequest = { if (!busy) onDismiss() },
         containerColor = CanonSurface,
         title = {
-            Text(appText("Карта для выплат", "Түләүҙәр өсөн карта"), color = CanonText, fontWeight = FontWeight.Black)
+            Text(appText("Карта для выплат", "Түләүҙәр өсөн карта"), color = CanonText, fontWeight = FontWeight.Bold)
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

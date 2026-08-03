@@ -188,7 +188,7 @@ private fun TrustLevelCard(d: TrustSummaryDto) {
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(appText("Твой уровень", "Кимәлең"), color = CanonMuted, fontSize = 13.sp)
-                    Text(d.title.localized(), color = CanonText, fontWeight = FontWeight.Black, fontSize = 26.sp, lineHeight = 28.sp)
+                    Text(d.title.localized(), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 26.sp, lineHeight = 28.sp)
                 }
             }
             TrustLadder(d.level)
@@ -239,7 +239,7 @@ private fun TrustLadder(level: Int) {
                     color = if (reached) CanonText else CanonMuted,
                     fontSize = 11.sp,
                     lineHeight = 13.sp,
-                    fontWeight = if (i == level) FontWeight.Black else FontWeight.Medium,
+                    fontWeight = if (i == level) FontWeight.Bold else FontWeight.Medium,
                     textAlign = TextAlign.Center,
                     maxLines = 2,
                 )
@@ -270,7 +270,7 @@ private fun TrustNextCard(d: TrustSummaryDto, onAction: () -> Unit) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(appText("Следующий уровень", "Киләһе кимәл"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Text(next.title.localized(), color = CanonText, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                Text(next.title.localized(), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                 Text(next.how.localized(), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
             }
             if (next.benefits.isNotEmpty()) {
@@ -294,7 +294,7 @@ private fun TrustInviteCallout(onOpenInvites: () -> Unit) {
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(appText("Ты можешь звать своих", "Һин үҙеңдекеләрҙе саҡыра алаһың"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    Text(appText("Ты можешь звать своих", "Һин үҙеңдекеләрҙе саҡыра алаһың"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text(appText("Приглашай тех, кому доверяешь", "Ышанған кешеләреңде саҡыр"), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
                 }
             }
@@ -372,7 +372,7 @@ internal fun InvitesScreen(onBack: () -> Unit) {
                         item {
                             AppCard {
                                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text(appText("У тебя есть код?", "Кодың бармы?"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                                    Text(appText("У тебя есть код?", "Кодың бармы?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                     Text(
                                         appText("Введи код от своего — и войдёшь в круг доверия.", "Үҙеңдекенән кодты индер — ышаныс түңәрәгенә инерһең."),
                                         color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
@@ -423,7 +423,7 @@ internal fun InvitesScreen(onBack: () -> Unit) {
                                     }
                                     Spacer(Modifier.width(14.dp))
                                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(appText("Ты в кругу своих", "Һин үҙебеҙҙекеләр араһында"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                                        Text(appText("Ты в кругу своих", "Һин үҙебеҙҙекеләр араһында"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                                         Text(appText("Видишь поездки «только для своих»", "«Үҙебеҙҙекеләр өсөн генә» сәфәрҙәрҙе күрәһең"), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
                                     }
                                 }
@@ -439,7 +439,7 @@ internal fun InvitesScreen(onBack: () -> Unit) {
                                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(30.dp))
                                     Spacer(Modifier.width(12.dp))
                                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(appText("Теперь ты свой!", "Хәҙер һин үҙебеҙҙеке!"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                                        Text(appText("Теперь ты свой!", "Хәҙер һин үҙебеҙҙеке!"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                                         Text(appText("Добро пожаловать в круг доверия 💚", "Ышаныс түңәрәгенә рәхим ит 💚"), color = CanonMuted, fontSize = 13.sp)
                                     }
                                 }
@@ -518,7 +518,7 @@ private fun InviteCodeRow(inv: InviteDto, onShare: () -> Unit) {
     AppCard {
         Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(inv.code, color = CanonText, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                Text(inv.code, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                 Text(
                     if (used) appText("Уже использован", "Ҡулланылған")
                     else appText("Ждёт активации", "Активлаштырыуҙы көтә"),
@@ -634,7 +634,7 @@ private fun ConsentRow(meta: ConsentKindMeta, grantedAt: String?, saving: Boolea
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text(subtitle, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
             if (grantedAt != null) {
                 Text(

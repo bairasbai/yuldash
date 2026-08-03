@@ -200,7 +200,7 @@ private fun AdminParcelActionDialog(
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         containerColor = CanonSurface,
-        title = { Text(title, color = CanonText, fontWeight = FontWeight.Black) },
+        title = { Text(title, color = CanonText, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(hint, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
@@ -279,7 +279,7 @@ private fun ParcelStatementCard(s: ParcelStatementDto) {
                 Spacer(Modifier.width(16.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(appText("Курьеры оплатили", "Курьерҙар түләне"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    Text(kopToRub(s.collectedFeeKop), color = CanonText, fontWeight = FontWeight.Black, fontSize = 26.sp)
+                    Text(kopToRub(s.collectedFeeKop), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 26.sp)
                     Text(appText("Доставлено посылок: ${s.deliveredCount}", "Тапшырылған бандеролдәр: ${s.deliveredCount}"), color = CanonMuted, fontSize = 13.sp)
                 }
             }
@@ -314,7 +314,7 @@ private fun StatementRow(label: String, value: String, hint: String, accent: Col
             Text(hint, color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp)
         }
         Spacer(Modifier.width(12.dp))
-        Text(value, color = accent, fontWeight = FontWeight.Black, fontSize = 17.sp)
+        Text(value, color = accent, fontWeight = FontWeight.Bold, fontSize = 17.sp)
     }
 }
 
@@ -343,7 +343,7 @@ private fun AdminParcelCard(p: ParcelDto, onAction: (Pair<ParcelDto, String>) ->
                 Spacer(Modifier.weight(1f))
                 // Сумма сделки — то, что отправитель платит курьеру. Наш сбор здесь не показываем:
                 // это разные деньги, и раньше их путали (аудит 2026-07-26).
-                if (p.priceKop > 0) Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                if (p.priceKop > 0) Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             }
             p.courier?.let { cr ->
                 Row(verticalAlignment = Alignment.CenterVertically) {

@@ -172,7 +172,7 @@ internal fun CourierTroubleDialog(
             Text(
                 if (returning) appText("Возврат посылки", "Бандерольде кире ҡайтарыу")
                 else appText("Что-то пошло не так?", "Нимәлер дөрөҫ бармаймы?"),
-                color = CanonText, fontWeight = FontWeight.Black,
+                color = CanonText, fontWeight = FontWeight.Bold,
             )
         },
         text = {

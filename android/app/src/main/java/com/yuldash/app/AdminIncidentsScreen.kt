@@ -250,12 +250,12 @@ private fun AdminIncidentCard(
                 Spacer(Modifier.width(12.dp))
                 Text(
                     incidentTypeLabel(inc.type),
-                    color = tone.fg, fontSize = 16.sp, fontWeight = FontWeight.Black, lineHeight = 20.sp,
+                    color = tone.fg, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp,
                     modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
                 if (tone.word.isNotEmpty()) {
                     Spacer(Modifier.width(12.dp))
-                    Text(tone.word, color = tone.fg, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                    Text(tone.word, color = tone.fg, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -295,7 +295,7 @@ private fun AdminIncidentCard(
                             Text(
                                 appText("Апелляция", "Ялыу") + appealStatusSuffix(inc.appealStatus),
                                 color = if (liveAppeal) CanonRed else CanonMuted,
-                                fontWeight = FontWeight.Black, fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold, fontSize = 11.sp,
                             )
                             Text(inc.appealText, color = CanonText, fontSize = 16.sp, lineHeight = 22.sp)
                         }
@@ -319,7 +319,7 @@ private fun AdminIncidentCard(
                                 Text(
                                     incidentResolutionLabel(inc.resolution),
                                     color = if (punished) CanonWarn else CanonGreen2,
-                                    fontSize = 11.sp, fontWeight = FontWeight.Black,
+                                    fontSize = 11.sp, fontWeight = FontWeight.Bold,
                                 )
                             }
                             if (inc.resolutionNote.isNotBlank()) {
@@ -350,7 +350,7 @@ private fun AdminSideBlock(who: String, phone: String, text: String, photos: Int
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    who, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp, lineHeight = 20.sp,
+                    who, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 20.sp,
                     modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
                 if (phone.isNotBlank()) {
@@ -462,7 +462,7 @@ private fun ResolveIncidentDialog(inc: IncidentDto, onDismiss: () -> Unit, onRes
         title = {
             Text(
                 appText("Решение по спору #${inc.id}", "#${inc.id} бәхәс буйынса ҡарар"),
-                color = CanonText, fontWeight = FontWeight.Black, fontSize = 20.sp, lineHeight = 24.sp,
+                color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 24.sp,
             )
         },
         text = {
@@ -484,7 +484,7 @@ private fun ResolveIncidentDialog(inc: IncidentDto, onDismiss: () -> Unit, onRes
                         )
                     }
                 }
-                Text(appText("Что решаем", "Нимә хәл итәбеҙ"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(appText("Что решаем", "Нимә хәл итәбеҙ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     resolutionOptions.forEach { r ->
                         ChoiceRow(appText(r.ru, r.ba), resolution == r.key) { resolution = r.key }
@@ -510,7 +510,7 @@ private fun ResolveIncidentDialog(inc: IncidentDto, onDismiss: () -> Unit, onRes
                     }
                 }
 
-                Text(appText("Кто виноват", "Кем ғәйепле"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(appText("Кто виноват", "Кем ғәйепле"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     faultOptions.forEach { f ->
                         ChoiceRow(appText(f.ru, f.ba), fault == f.key) { fault = f.key }
@@ -594,7 +594,7 @@ private fun ResolveIncidentDialog(inc: IncidentDto, onDismiss: () -> Unit, onRes
                         Text(
                             appText("Сохранить решение", "Ҡарарҙы һаҡлау"),
                             color = if (canSave) CanonGreen2 else CanonMuted,
-                            fontSize = 16.sp, fontWeight = FontWeight.Black,
+                            fontSize = 16.sp, fontWeight = FontWeight.Bold,
                         )
                     }
                 }

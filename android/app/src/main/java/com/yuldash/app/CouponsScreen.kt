@@ -169,7 +169,7 @@ private fun CouponTab(label: String, active: Boolean, modifier: Modifier = Modif
         modifier = modifier.height(48.dp),
     ) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Black, fontSize = 14.sp)
+            Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
     }
 }
@@ -277,7 +277,7 @@ private fun CouponCard(c: CouponDto, onClick: () -> Unit) {
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(c.partner.name.ifBlank { c.title }, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    Text(c.partner.name.ifBlank { c.title }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text(couponCategoryLabel(c.partner.category) + (if (c.city.isNotBlank()) "  ·  ${c.city}" else ""), color = CanonMuted, fontSize = 13.sp)
                 }
                 if (c.premium) PremiumBadge()
@@ -306,7 +306,7 @@ private fun DiscountBadge(text: String) {
     if (text.isBlank()) return
     Surface(color = CanonGold, shape = RoundedCornerShape(14.dp)) {
         Text(
-            text, color = CanonGoldInk, fontWeight = FontWeight.Black, fontSize = 22.sp,
+            text, color = CanonGoldInk, fontWeight = FontWeight.Bold, fontSize = 22.sp,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
         )
     }
@@ -318,7 +318,7 @@ private fun PremiumBadge() {
         Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.WorkspacePremium, contentDescription = appText("Премиум", "Премиум"), tint = CanonGoldInk, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(4.dp))
-            Text(appText("Премиум", "Премиум"), color = CanonGoldInk, fontWeight = FontWeight.Black, fontSize = 11.sp)
+            Text(appText("Премиум", "Премиум"), color = CanonGoldInk, fontWeight = FontWeight.Bold, fontSize = 11.sp)
         }
     }
 }
@@ -377,7 +377,7 @@ private fun MyCouponCard(m: MyCouponDto) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(c.partner.name.ifBlank { c.title }, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    Text(c.partner.name.ifBlank { c.title }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text(c.title, color = CanonMuted, fontSize = 13.sp)
                 }
                 CouponStatusChip(m.status)
@@ -387,7 +387,7 @@ private fun MyCouponCard(m: MyCouponDto) {
             if (m.status == "reserved") {
                 Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(m.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 24.sp, modifier = Modifier.weight(1f))
+                        Text(m.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 24.sp, modifier = Modifier.weight(1f))
                         Surface(onClick = { clipboard.setText(AnnotatedString(m.code)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonSurface, shape = RoundedCornerShape(12.dp)) {
                             Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
                         }
@@ -447,13 +447,13 @@ private fun CouponDetailView(couponId: Int, preview: CouponDto, onBack: () -> Un
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(coupon.partner.name.ifBlank { coupon.title }, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                        Text(coupon.partner.name.ifBlank { coupon.title }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         Text(couponCategoryLabel(coupon.partner.category), color = CanonMuted, fontSize = 13.sp)
                     }
                     if (coupon.premium) PremiumBadge()
                 }
             }
-            item { Text(coupon.title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 20.sp, lineHeight = 26.sp) }
+            item { Text(coupon.title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 26.sp) }
             item { DiscountBadge(coupon.discountText) }
             if (coupon.description.isNotBlank()) {
                 item { Text(coupon.description, color = CanonText, fontSize = 15.sp, lineHeight = 21.sp) }
@@ -540,7 +540,7 @@ private fun ActivatedCodeView(a: ActivatedCouponDto, onDone: () -> Unit) {
                 }
             }
             item {
-                Text(appText("Скидка активирована!", "Ташлама активлаштырылды!"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 22.sp, textAlign = TextAlign.Center)
+                Text(appText("Скидка активирована!", "Ташлама активлаштырылды!"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 22.sp, textAlign = TextAlign.Center)
             }
             item {
                 Text(appText("Покажи этот код в заведении", "Был кодты урында күрһәт"), color = CanonMuted, fontSize = 15.sp, textAlign = TextAlign.Center)
@@ -550,7 +550,7 @@ private fun ActivatedCodeView(a: ActivatedCouponDto, onDone: () -> Unit) {
             item {
                 Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(2.dp, CanonGreen2)) {
                     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(a.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 40.sp, textAlign = TextAlign.Center)
+                        Text(a.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 40.sp, textAlign = TextAlign.Center)
                         Surface(onClick = { clipboard.setText(AnnotatedString(a.code)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
                             Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))

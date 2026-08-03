@@ -156,7 +156,7 @@ private fun AppButtonContent(text: String, icon: ImageVector?, loading: Boolean,
             Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = tint)
             Spacer(Modifier.width(8.dp))
         }
-        Text(text, fontWeight = FontWeight.Black, fontSize = 16.sp, color = tint)
+        Text(text, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = tint)
     }
 }
 
@@ -270,7 +270,7 @@ internal fun AppErrorState(
             Surface(color = CanonDangerBg, shape = CircleShape) {
                 Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CanonRed, modifier = Modifier.padding(15.dp).size(30.dp))
             }
-            Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, textAlign = TextAlign.Center)
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center)
             Text(text, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
             AppButton(retryLabel, onRetry, style = AppButtonStyle.Primary, icon = Icons.Default.Refresh)
         }

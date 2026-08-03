@@ -489,7 +489,7 @@ internal fun CreateRideFormContent(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Text(appText("Маршрут для своих", "Үҙ кешеләрең өсөн маршрут"), fontSize = 24.sp, fontWeight = FontWeight.Black)
+            Text(appText("Маршрут для своих", "Үҙ кешеләрең өсөн маршрут"), fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(appText("Укажите путь, места и цену. Контакты откроются после подтверждения.", "Юлды, урындарҙы һәм хаҡты күрһәтегеҙ. Контакттар раҫланғандан һуң асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         // Чипы популярных направлений (слот): тап заполняет «откуда/куда». Пустой список — ничего не рисует.
@@ -533,7 +533,7 @@ internal fun CreateRideFormContent(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.LocalHospital, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text(appText("Клиника назначения", "Билдәләнгән клиника"), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                            Text(appText("Клиника назначения", "Билдәләнгән клиника"), fontWeight = FontWeight.Bold, color = CanonText, fontSize = 16.sp)
                         }
                         Text(
                             appText("Выбери, к какой клинике едешь — попутчики к ней смогут подсесть. Это просто точка назначения.",
@@ -694,7 +694,7 @@ internal fun CreateRideFormContent(
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(painterResource(R.drawable.yu_multi_stop), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(appText("Остановки по пути", "Юл буйындағы туҡталыштар"), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                        Text(appText("Остановки по пути", "Юл буйындағы туҡталыштар"), fontWeight = FontWeight.Bold, color = CanonText, fontSize = 16.sp)
                     }
                     Text(
                         appText("Куда заезжаешь по дороге — так тебя найдут попутчики с этих мест.", "Юлда ҡайҙа туҡтайһың — шул урындарҙан юлдаштар һине табыр."),
@@ -726,7 +726,7 @@ internal fun CreateRideFormContent(
         item {
             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                 Column(Modifier.padding(vertical = 6.dp)) {
-                    Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                    Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Bold, color = CanonText, fontSize = 16.sp)
                     PrefToggleRow(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ өсөн"), womenOnly) { onWomenOnly(it) }
                     PrefToggleRow(R.drawable.yu_child_seat, appText("Детское кресло / бустер", "Балалар ултырғысы / бустер"), childSeat) { onChildSeat(it) }
                     PrefToggleRow(R.drawable.yu_pet, appText("Можно с животным", "Хайуан менән"), petsAllowed) { onPetsAllowed(it) }
