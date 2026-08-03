@@ -1115,18 +1115,22 @@ internal fun SeniorAccessCard(onSimpleMode: () -> Unit) {
         border = BorderStroke(1.dp, CanonHairlineGreen)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Строка стоит в одном списке с остальными настройками, поэтому и выглядит
+            // так же (SettingsNavRow): значок 12dp, подпись 14sp, серая стрелка. Раньше
+            // подпись была 12sp, а стрелка зелёной — набрана мельче соседей, но с более
+            // ярким акцентом: два противоречивых сигнала в одной строке.
             Surface(color = CanonMint, shape = CircleShape) {
                 Icon(
                     Icons.Default.VolumeUp,
                     contentDescription = null,
                     tint = CanonGreen2,
-                    modifier = Modifier.padding(8.dp).size(20.dp)
+                    modifier = Modifier.padding(12.dp)
                 )
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     appText("Простой режим", "Ябай режим"),
@@ -1138,8 +1142,8 @@ internal fun SeniorAccessCard(onSimpleMode: () -> Unit) {
                 Text(
                     appText("Крупные кнопки и голос", "Ҙур төймәләр һәм тауыш"),
                     color = CanonMuted,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1147,8 +1151,7 @@ internal fun SeniorAccessCard(onSimpleMode: () -> Unit) {
             Icon(
                 Icons.Default.KeyboardArrowRight,
                 contentDescription = appText("Открыть простой режим", "Ябай режимды асыу"),
-                tint = CanonGreen2,
-                modifier = Modifier.size(24.dp)
+                tint = CanonMuted,
             )
         }
     }
@@ -1181,7 +1184,7 @@ private val MapMidPoint = Point(52.55, 58.49) // южнее центра мар�
 // MapKit init: setLocale ДО initialize и ТОЛЬКО один раз на процесс.
 // Повторный setLocale после initialize → AssertionError (краш при возврате на карту с подэкрана).
 private var mapKitReady = false
-private fun ensureMapKit(context: Context) {
+internal fun ensureMapKit(context: Context) {
     if (mapKitReady) return
     mapKitReady = true
     runCatching { MapKitFactory.setLocale("ru_RU") }   // если уже инициализирован — пропускаем, не крашим
@@ -1984,7 +1987,7 @@ internal fun PickupPickerOverlay(
 ) {
     val ctx = LocalContext.current
     val mapView = remember {
-        runCatching { MapKitFactory.initialize(ctx) }   // локаль уже задана при первой карте; повторный setLocale кинул бы исключение
+        ensureMapKit(ctx)   // русская локаль + initialize, ровно один раз на процесс
         MapView(ctx).also { v ->
             v.mapWindow.map.move(CameraPosition(initial ?: MapMidPoint, if (initial != null) 15f else 11f, 0f, 0f))
         }

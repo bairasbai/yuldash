@@ -593,7 +593,10 @@ internal fun ProfileScreen(
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Alignment.Top, а не CenterVertically: справа четыре строки, слева кружок
+                        // 70dp. При центрировании имя оказывалось ВЫШЕ верхнего края аватарки —
+                        // читалось как съехавшая вёрстка. Сверху они начинаются на одной линии.
+                        Row(verticalAlignment = Alignment.Top) {
                             Box(
                                 modifier = Modifier
                                     .size(70.dp)

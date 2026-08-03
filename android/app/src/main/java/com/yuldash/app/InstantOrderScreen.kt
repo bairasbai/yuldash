@@ -553,7 +553,7 @@ internal fun InstantRouteMap(
     // а здесь про него забыли: у экрана заказа своя карта.
     val nightMap = appIsDark()
     val mapView = remember {
-        runCatching { MapKitFactory.initialize(ctx) }
+        ensureMapKit(ctx)   // русская локаль ставится тут же: голый initialize оставлял логотип «Yandex Maps» по-английски
         MapView(ctx).also { v ->
             val center = from ?: to ?: InstantDefaultPoint
             v.mapWindow.map.move(CameraPosition(center, 12f, 0f, 0f))

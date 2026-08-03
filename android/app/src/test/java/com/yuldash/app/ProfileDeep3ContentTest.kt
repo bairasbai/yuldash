@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isToggleable
@@ -169,6 +170,7 @@ class ProfileDeep3ContentTest {
     fun metrics_showRoutesFreeSeatsAndRating() {
         // 1 маршрут, 2 свободных места, рейтинг «4.9».
         content(driverRides = listOf(ride(seats = 2)), ratingText = "4.9")
+        scrollTo("Мои маршруты")
         composeRule.onNodeWithText("Мои маршруты").assertIsDisplayed()
         composeRule.onNodeWithText("Свободно").assertIsDisplayed()
         composeRule.onNodeWithText("Рейтинг").assertIsDisplayed()
@@ -250,7 +252,7 @@ class ProfileDeep3ContentTest {
             onRate = { _, _, done -> fired = true; done(true) },
         )
         composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
-            .performScrollToNode(hasText("Пассажиры — оцените после поездки"))
+            .performScrollToNode(hasContentDescription("4 звезды"))
         composeRule.onNodeWithContentDescription("4 звезды").performClick()
         assertEquals(false, fired)
         // Подпись под звёздами лежит ниже края экрана: узел в дереве есть, но не показан,
@@ -269,7 +271,7 @@ class ProfileDeep3ContentTest {
             onRate = { id, n, done -> ratedBooking = id; ratedStars = n; done(true) },
         )
         composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
-            .performScrollToNode(hasText("Пассажиры — оцените после поездки"))
+            .performScrollToNode(hasContentDescription("4 звезды"))
         // Звёзды помечены contentDescription "1".."5" (не text) → четвёртая = "4".
         composeRule.onNodeWithContentDescription("4 звезды").performClick()
         // Кнопка появляется через AnimatedVisibility и оказывается за нижним краем: тап по

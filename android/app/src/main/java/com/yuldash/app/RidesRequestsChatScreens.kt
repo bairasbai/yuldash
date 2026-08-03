@@ -1272,18 +1272,22 @@ internal fun MyRequestsScreen(
             item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
         } else if (requests.isEmpty()) {
             item {
-                // Пусто — это тоже состояние экрана, а не «ничего нет». Карточку с кнопкой
-                // держим в верхней половине по центру: прижатая к статус-бару плашка и
-                // 1300px пустоты под ней читались как незагрузившийся экран.
+                // Пусто — это тоже состояние экрана, а не «ничего нет». Плашка и кнопка идут
+                // ОДНОЙ связкой по центру свободного места: прижатая к статус-бару плашка
+                // и 1300px пустоты под ней читались как незагрузившийся экран, а разнесённые
+                // по экрану плашка и кнопка — как два несвязанных острова.
                 Box(
-                    Modifier.appearIn(0).fillParentMaxHeight(0.45f).fillMaxWidth(),
+                    Modifier.appearIn(0).fillParentMaxHeight(0.72f).fillMaxWidth(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    InfoCard(
-                        title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
-                        text = appText("Создайте заявку — водители увидят её и откликнутся.", "Заявка булдырығыҙ — водителдәр уны күреп яуап бирер."),
-                        icon = Icons.Default.AddBox
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        InfoCard(
+                            title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
+                            text = appText("Создайте заявку — водители увидят её и откликнутся.", "Заявка булдырығыҙ — водителдәр уны күреп яуап бирер."),
+                            icon = Icons.Default.AddBox
+                        )
+                        CreateRequestButton(onCreateNew)
+                    }
                 }
             }
         } else {
@@ -1309,18 +1313,22 @@ internal fun MyRequestsScreen(
                 }
             }
         }
-        item {
-            Button(
-                onClick = onCreateNew,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-            ) {
-                Icon(Icons.Default.AddBox, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(appText("Создать новую", "Яңыһын булдырыу"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-        }
+        if (requests.isNotEmpty()) item { CreateRequestButton(onCreateNew) }
+    }
+}
+
+/** Одна кнопка на два места: в связке пустого состояния и под списком заявок. */
+@Composable
+private fun CreateRequestButton(onCreateNew: () -> Unit) {
+    Button(
+        onClick = onCreateNew,
+        modifier = Modifier.fillMaxWidth().height(56.dp),
+        shape = CanonFieldShape,
+        colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+    ) {
+        Icon(Icons.Default.AddBox, contentDescription = null)
+        Spacer(Modifier.width(8.dp))
+        Text(appText("Создать новую", "Яңыһын булдырыу"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
     }
 }
 

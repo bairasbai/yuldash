@@ -316,8 +316,12 @@ private fun ModeSwitchBar(
                 label = "mode_subtitle",
                 modifier = Modifier.weight(1f),
             ) { text ->
+                // maxLines = 2, а не 1: в режиме «Курьер» строку делят три надписи, и на
+                // башкирском «бандероль ебәреү» обрезалось до «бандерол…» — по-русски
+                // «отправить посылку» влезало, поэтому в тестах и на глаз это не всплывало.
+                // Двум языкам нужна разная ширина, значит одна строка тут не гарантия.
                 Text(text, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = 4.dp))
             }
             // Вторая сторона курьера — сама работа. Дверь к ней стоит там же, где человек выбрал

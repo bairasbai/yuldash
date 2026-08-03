@@ -82,6 +82,7 @@ class ProfileDeep2ContentTest {
                 )
             }
         }
+        scrollTo("Не удалось загрузить поездки")
         composeRule.onNodeWithText("Не удалось загрузить поездки").assertIsDisplayed()
         scrollTo("Повторить")
         composeRule.onNodeWithText("Повторить").assertIsDisplayed()

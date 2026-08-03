@@ -693,7 +693,7 @@ internal fun BookingRouteMapPreview(   // internal: живой MapKit-ренде
 ) {
     val context = LocalContext.current
     val mapView = remember(fromPoint, toPoint) {
-        runCatching { MapKitFactory.initialize(context) }
+        ensureMapKit(context)   // русская локаль ставится тут же: голый initialize оставлял логотип «Yandex Maps» по-английски
         MapView(context).also { view ->
             view.setOnTouchListener { v, event ->
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
