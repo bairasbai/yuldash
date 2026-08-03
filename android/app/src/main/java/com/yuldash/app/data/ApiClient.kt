@@ -3033,6 +3033,8 @@ object ApiClient {
         settlement = parseParcelSettlement(o.optJSONObject("settlement")),
         returnReason = o.optString("return_reason"),
         returnedAt = nStr(o, "returned_at"),
+        pickupPhotoUrl = o.optString("pickup_photo_url"),
+        deliveryPhotoUrl = o.optString("delivery_photo_url"),
         deliveryAttempts = o.optInt("delivery_attempts"),
         cancelFeeKop = o.optInt("cancel_fee_kop"),
     )
@@ -3114,12 +3116,18 @@ object ApiClient {
     /** Курьер: сменить статус. status="in_transit" или "delivered"+code. 422 — неверный код. */
     /** deliveryPhotoUrl — фото «отдал целой» на границе ответственности: в споре о повреждении
      *  это единственное, что отличает слово от доказательства (поле сервер принимал, клиент не слал). */
+    /** pickupPhotoUrl — фото «взял целой» на переходе в путь. Вторая граница ответственности:
+     *  снимок вручения был, снимка забора не было, и спор «было битое / стало битое» упирался
+     *  в слово против слова. Момент выбран не при взятии заявки: заказ берут заранее, а у
+     *  посылки курьер оказывается позже — сфотографировать там просто нечего. */
     suspend fun setParcelStatus(
         id: Int, status: String, code: String? = null, deliveryPhotoUrl: String? = null,
+        pickupPhotoUrl: String? = null,
     ): Result<ParcelDto> {
         val body = JSONObject().put("status", status)
         code?.takeIf { it.isNotBlank() }?.let { body.put("code", it.trim()) }
         deliveryPhotoUrl?.takeIf { it.isNotBlank() }?.let { body.put("delivery_photo_url", it) }
+        pickupPhotoUrl?.takeIf { it.isNotBlank() }?.let { body.put("pickup_photo_url", it) }
         return call("POST", "/parcels/$id/status", body, auth = true).map { parseParcel(it) }
             .onSuccess { Analytics.log("parcel_status_$status") }
     }
@@ -5300,6 +5308,10 @@ data class ParcelDto(
     val returnedAt: String? = null,
     val deliveryAttempts: Int = 0,
     val cancelFeeKop: Int = 0,
+    // Две границы ответственности: «взял целой» и «отдал целой». Сервер хранил оба снимка,
+    // но клиент не показывал ни одного — в споре о повреждении смотреть было не на что.
+    val pickupPhotoUrl: String = "",
+    val deliveryPhotoUrl: String = "",
     // «Где именно забрать и куда привезти» — свободный ориентир от отправителя («у мечети,
     // синие ворота»). Приватность: в открытой ленте свободных заказов сервер их НЕ отдаёт, они
     // приходят только принявшему курьеру и самому отправителю → "" = «не пришло», блок не рисуем.

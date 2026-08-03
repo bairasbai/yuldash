@@ -119,5 +119,8 @@ internal val CanonDangerBorder: Color @Composable get() = if (appIsDark()) Color
 // под ним тоже не меняется по теме, и «адаптивный» цвет тут сделал бы текст невидимым —
 // ровно та ошибка, на которой уже обожглись с CanonTaxiInk (см. комментарий выше).
 internal val CanonOnAccent: Color = Color(0xFFFFFFFF)
+// Затемнение под полноэкранным просмотром фото. Плоское и в обеих темах одинаковое: подложка
+// нужна, чтобы снимок читался, а не чтобы следовать теме — на светлом фоне фото «поплывёт».
+internal val CanonScrim: Color = Color(0xE6000000)
 internal val CanonCardShape = RoundedCornerShape(28.dp)
 internal val CanonItemShape = RoundedCornerShape(22.dp)

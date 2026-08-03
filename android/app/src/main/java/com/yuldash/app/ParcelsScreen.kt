@@ -116,6 +116,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 
 /** Как часто список отправителя сам подтягивает свежие статусы (в фоне цикл стоит на паузе). */
 private const val MY_PARCELS_REFRESH_INTERVAL_MS = 25_000L
@@ -318,6 +324,75 @@ private fun ParcelRouteRow(from: String, to: String) {
  * [prominent] = карточка курьера: он по этому едет, поэтому зелёная рамка и жирное начертание.
  * false = карточка отправителя, ему достаточно спокойно свериться с тем, что он сам указал.
  */
+/**
+ * Снимки посылки на двух границах ответственности: какой её ВЗЯЛИ и какой ОТДАЛИ.
+ *
+ * Зачем: спор «было битое / стало битое» иначе упирается в слово против слова. Сервер хранил
+ * оба снимка давно, но показать их было негде — то есть доказательство существовало и было
+ * недоступно обеим сторонам. Видят их и отправитель, и курьер: это защита для обоих.
+ *
+ * Пусто → блок не рисуется вовсе. Плашки «фото нет» тут были бы обвинением без повода.
+ */
+@Composable
+internal fun ParcelPhotoStrip(pickupUrl: String, deliveryUrl: String) {
+    val shots = remember(pickupUrl, deliveryUrl) {
+        buildList {
+            if (pickupUrl.isNotBlank()) add(pickupUrl to true)
+            if (deliveryUrl.isNotBlank()) add(deliveryUrl to false)
+        }
+    }
+    if (shots.isEmpty()) return
+    var viewing by remember { mutableStateOf<String?>(null) }
+    val ctx = LocalContext.current
+    val token = remember { ApiClient.currentToken() ?: "" }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            appText("Как выглядела посылка", "Бандероль ниндәй ине"),
+            color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            shots.forEach { (url, isPickup) ->
+                val label = if (isPickup) appText("Когда забрал", "Алғанда")
+                else appText("Когда вручил", "Тапшырғанда")
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    coil.compose.AsyncImage(
+                        model = coil.request.ImageRequest.Builder(ctx).data(url)
+                            .addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+                        contentDescription = label,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(84.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(CanonBg)
+                            .clickable { viewing = url },
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(label, color = CanonMuted, fontSize = 11.sp, lineHeight = 14.sp)
+                }
+            }
+        }
+    }
+
+    // Просмотр во весь экран: тема спорная и тяжёлая — никаких жестов, только посмотреть и закрыть.
+    viewing?.let { url ->
+        Dialog(onDismissRequest = { viewing = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Box(
+                Modifier.fillMaxSize().background(CanonScrim).clickable { viewing = null },
+                contentAlignment = Alignment.Center,
+            ) {
+                coil.compose.AsyncImage(
+                    model = coil.request.ImageRequest.Builder(ctx).data(url)
+                        .addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+                    contentDescription = appText("Фото посылки", "Бандероль фотоһы"),
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 internal fun ParcelAddressBlock(
     fromAddress: String,
@@ -1906,6 +1981,8 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
             // То, что отправитель сам написал курьеру. Спокойный вариант блока: ему не ехать
             // по этим ориентирам, ему нужно сверить — не перепутал ли он ворота.
             ParcelAddressBlock(fromAddress = p.fromAddress, toAddress = p.toAddress, prominent = false)
+            // Снимки на границах ответственности — отправителю они нужны так же, как курьеру.
+            ParcelPhotoStrip(pickupUrl = p.pickupPhotoUrl, deliveryUrl = p.deliveryPhotoUrl)
             if (p.cancelFeeKop > 0) {
                 Surface(color = CanonWarnBg, shape = CanonItemShape) {
                     Text(

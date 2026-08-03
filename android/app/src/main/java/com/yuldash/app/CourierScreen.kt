@@ -898,6 +898,8 @@ private fun CourierCarryingTab(
     var refreshing by remember { mutableStateOf(false) }
     var busyId by remember { mutableIntStateOf(0) }
     var deliverTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    // Посылка, которую курьер забирает прямо сейчас: диалог «взял целой» перед выездом.
+    var transitTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var goodsTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var troubleTarget by remember { mutableStateOf<ParcelDto?>(null) }   // отказ / возврат (аудит 2026-07-26)
@@ -1011,16 +1013,10 @@ private fun CourierCarryingTab(
                             CourierCarryingCard(
                                 p = parcel,
                                 busy = busyId == parcel.id,
-                                onTransit = {
-                                    if (busyId != 0) return@CourierCarryingCard
-                                    busyId = parcel.id
-                                    scope.launch {
-                                        ApiClient.setParcelStatus(parcel.id, "in_transit")
-                                            .onSuccess { Toast.makeText(ctx, transitMsg, Toast.LENGTH_SHORT).show(); reload() }
-                                            .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr, Toast.LENGTH_SHORT).show() }
-                                        busyId = 0
-                                    }
-                                },
+                                // Не отправляем статус сразу: сначала предлагаем снять посылку.
+                                // Это вторая граница ответственности — «взял целой». Снимок
+                                // необязателен, отказаться можно одной кнопкой.
+                                onTransit = { if (busyId == 0) transitTarget = parcel },
                                 onDeliver = { deliverTarget = parcel },
                                 onSetGoods = { goodsTarget = parcel },
                                 onDispute = { disputeTarget = parcel },
@@ -1112,6 +1108,101 @@ private fun CourierCarryingTab(
             parcel = target,
             onDismiss = { troubleTarget = null },
             onDone = { troubleTarget = null; reload() },
+        )
+    }
+
+    // «Забрал и повёз» — вторая граница ответственности. Снимок вручения был давно, снимка
+    // забора не было вовсе: если получатель скажет «пришло битое», курьеру нечем показать,
+    // какой посылка была на старте. Фото необязательно — уехать можно и без него.
+    transitTarget?.let { target ->
+        var submitting by remember(target.id) { mutableStateOf(false) }
+        var pickupPhoto by remember(target.id) { mutableStateOf<String?>(null) }
+        var photoBusy by remember(target.id) { mutableStateOf(false) }
+        var photoError by remember(target.id) { mutableStateOf<String?>(null) }
+        val photoFail = appText("Фото не загрузилось, попробуй ещё раз", "Фото йөкләнмәне, тағы ҡабатла")
+        val pickPickupPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri == null) return@rememberLauncherForActivityResult
+            photoBusy = true
+            scope.launch {
+                val bytes = withContext(Dispatchers.IO) { decodeToJpeg(ctx, uri) }
+                if (bytes == null) { photoBusy = false; photoError = photoFail; return@launch }
+                ApiClient.uploadEvidence(bytes)
+                    .onSuccess { url -> if (url.isNotBlank()) { pickupPhoto = url; photoError = null } }
+                    .onFailure { photoError = photoFail }
+                photoBusy = false
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { if (!submitting) transitTarget = null },
+            containerColor = CanonSurface,
+            title = {
+                Text(
+                    appText("Забрал посылку?", "Бандерольде алдыңмы?"),
+                    color = CanonText, fontWeight = FontWeight.Black,
+                    fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine,
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DeliveryHint(
+                        appText(
+                            "Сними посылку перед выездом. Если в дороге что-то случится, будет видно, какой ты её взял.",
+                            "Юлға сыҡҡанға тиклем бандерольде фотоға төшөр. Юлда берәй хәл булһа, уны ниндәй итеп алғаның күренер.",
+                        )
+                    )
+                    AppButton(
+                        text = when {
+                            pickupPhoto != null -> appText("Фото приложено ✓", "Фото тағылды ✓")
+                            photoBusy -> appText("Загружаем фото…", "Фото йөкләнә…")
+                            else -> appText("Сфотографировать посылку", "Бандерольде фотоға төшөрөү")
+                        },
+                        onClick = { if (!photoBusy && pickupPhoto == null) pickPickupPhoto.launch("image/*") },
+                        style = AppButtonStyle.Secondary,
+                        loading = photoBusy,
+                        enabled = !photoBusy && pickupPhoto == null,
+                    )
+                    DialogErrorLine(photoError)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    enabled = !submitting && !photoBusy,
+                    onClick = {
+                        submitting = true
+                        busyId = target.id
+                        scope.launch {
+                            ApiClient.setParcelStatus(target.id, "in_transit", pickupPhotoUrl = pickupPhoto)
+                                .onSuccess {
+                                    Toast.makeText(ctx, transitMsg, Toast.LENGTH_SHORT).show()
+                                    transitTarget = null
+                                    reload()
+                                }
+                                .onFailure {
+                                    Toast.makeText(
+                                        ctx,
+                                        (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr,
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            busyId = 0
+                            submitting = false
+                        }
+                    },
+                ) {
+                    Text(
+                        appText("Забрал, еду", "Алдым, китәм"),
+                        color = CanonGreen2, fontWeight = FontWeight.Black,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    enabled = !submitting,
+                    onClick = { transitTarget = null },
+                ) { Text(appText("Отмена", "Кире алыу"), color = CanonMuted) }
+            },
         )
     }
 
@@ -1295,6 +1386,8 @@ private fun CourierCarryingCard(
             // Главное на карточке взятого заказа: по этим ориентирам курьер и едет. Стоит выше
             // контактов — сначала «куда рулить», потом «кому звонить». Пусто → блок не рисуется.
             ParcelAddressBlock(fromAddress = p.fromAddress, toAddress = p.toAddress, prominent = true)
+            // Что курьер снял сам: подтверждение его же добросовестности, если начнётся спор.
+            ParcelPhotoStrip(pickupUrl = p.pickupPhotoUrl, deliveryUrl = p.deliveryPhotoUrl)
             Surface(color = CanonMint, shape = CanonItemShape) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     CourierContactDetails(

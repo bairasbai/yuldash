@@ -134,6 +134,11 @@ class ParcelStatusIn(BaseModel):
     status: str = Field("", max_length=16)
     code: str = Field("", max_length=12)   # обязателен только для перехода в delivered
     delivery_photo_url: str = Field("", max_length=500)   # фото «отдал целой» (только НАШ URL)
+    # Фото «взял целой» на переходе accepted→in_transit. Поле принималось только в /accept, а
+    # это разные моменты: заказ берут за час до выезда, у посылки курьер оказывается позже —
+    # и снимок в момент «беру заказ» физически невозможен. Без снимка на границе ответственности
+    # спор «было битое / стало битое» упирается в слово против слова.
+    pickup_photo_url: str = Field("", max_length=500)
 
 
 class ParcelReasonIn(BaseModel):
@@ -578,6 +583,13 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
         if parcel.status != "accepted":
             raise herr(409, "Сначала прими посылку", "Башта бандерольде ал")
         parcel.status = "in_transit"
+        # Фото «взял целой» — именно здесь, а не при взятии заказа: это момент, когда курьер
+        # реально стоит у посылки. Чужой хост не принимаем (открытие такой ссылки у оппонента
+        # слило бы его IP) — то же правило, что у фото вручения. Пустое/чужое молча игнорим,
+        # снимок необязателен и не должен ломать сам переход в путь.
+        pickup_photo = (body.pickup_photo_url or "").strip()
+        if pickup_photo and is_own_media_url(pickup_photo):
+            parcel.pickup_photo_url = pickup_photo
     else:  # delivered — нужен верный код вручения
         # C2 «купи и привези»: сперва курьер должен ввести фактическую стоимость товара
         # (получатель возвращает её + доставку). Без неё расчёт невозможен → 409.

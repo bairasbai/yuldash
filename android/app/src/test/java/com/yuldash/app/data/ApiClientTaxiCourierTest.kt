@@ -383,4 +383,58 @@ class ApiClientTaxiCourierTest {
         assertEquals("", p.fromAddress)
         assertEquals("", p.toAddress)
     }
+
+    // ---------------------------- Фото на границах ответственности ----------------------------
+
+    /**
+     * «Взял целой» уходит именно на переходе в путь: заказ берут заранее, а рядом с посылкой
+     * курьер оказывается позже — снимок в момент принятия заявки физически невозможен.
+     */
+    @Test
+    fun setParcelStatus_sendsPickupPhotoOnTransit() = runBlocking {
+        server.enqueue(json("""{"id":31,"status":"in_transit","from_city":"Баймак","to_city":"Сибай",
+            "size":"m","description":"мёд","receiver_name":"Айгуль","receiver_phone":"",
+            "fee_kop":0,"confirm_code":"","created_at":"2026-08-03T10:00:00","sender_id":3,
+            "pickup_photo_url":"/media/p31.jpg"}""")) 
+        val p = ApiClient.setParcelStatus(31, "in_transit", pickupPhotoUrl = "/media/p31.jpg").getOrThrow()
+        assertEquals("/media/p31.jpg", p.pickupPhotoUrl)
+        val recorded = server.takeRequest()
+        assertEquals("/parcels/31/status", recorded.path)
+        assertTrue(recorded.body.readUtf8().contains("pickup_photo_url"))
+    }
+
+    /** Снимок необязателен: без него тело запроса не должно тащить пустой ключ. */
+    @Test
+    fun setParcelStatus_withoutPhoto_omitsKey() = runBlocking {
+        server.enqueue(json("""{"id":32,"status":"in_transit","from_city":"Баймак","to_city":"Сибай",
+            "size":"s","description":"","receiver_name":"Айгуль","receiver_phone":"",
+            "fee_kop":0,"confirm_code":"","created_at":"2026-08-03T10:00:00","sender_id":3}""")) 
+        ApiClient.setParcelStatus(32, "in_transit").getOrThrow()
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(!body.contains("pickup_photo_url"))
+        assertTrue(!body.contains("delivery_photo_url"))
+    }
+
+    /** Оба снимка разбираются из ответа — без них показывать в карточке было бы нечего. */
+    @Test
+    fun parcel_parsesBothPhotos() = runBlocking {
+        server.enqueue(json("""{"items":[{"id":33,"sender_id":3,"from_city":"Баймак","to_city":"Сибай",
+            "size":"m","description":"банка мёда","receiver_name":"Айгуль","receiver_phone":"+79270000001",
+            "fee_kop":0,"status":"delivered","confirm_code":"1234","created_at":"2026-08-01T10:00:00",
+            "pickup_photo_url":"/media/take.jpg","delivery_photo_url":"/media/give.jpg"}]}"""))
+        val p = ApiClient.getCarryingParcels().getOrThrow().first()
+        assertEquals("/media/take.jpg", p.pickupPhotoUrl)
+        assertEquals("/media/give.jpg", p.deliveryPhotoUrl)
+    }
+
+    /** Старый сервер снимков не шлёт — клиент получает пустые строки, а не падает. */
+    @Test
+    fun parcel_oldServerWithoutPhotos_usesEmpty() = runBlocking {
+        server.enqueue(json("""{"items":[{"id":34,"sender_id":3,"from_city":"Баймак","to_city":"Сибай",
+            "size":"s","description":"","receiver_name":"Айгуль","receiver_phone":"",
+            "fee_kop":0,"status":"new","confirm_code":"","created_at":"2026-08-01T10:00:00"}]}"""))
+        val p = ApiClient.getAvailableParcels().getOrThrow().first()
+        assertEquals("", p.pickupPhotoUrl)
+        assertEquals("", p.deliveryPhotoUrl)
+    }
 }
