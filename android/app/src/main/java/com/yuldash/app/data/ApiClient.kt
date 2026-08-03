@@ -2095,6 +2095,7 @@ object ApiClient {
     ): Result<InstantEstimateDto> =
         call("POST", "/instant/estimate", instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category), auth = true).map { o ->
             val note = o.optJSONObject("surge_note")
+            val promoNote = o.optJSONObject("promo_note")   // null, когда скидки нет
             val optArr = o.optJSONArray("options") ?: JSONArray()
             val factorArr = o.optJSONArray("price_factors") ?: JSONArray()
             InstantEstimateDto(
@@ -2137,6 +2138,13 @@ object ApiClient {
                         )
                     }
                 },
+                promoCode = o.optString("promo_code"),
+                promoDiscountKop = o.optInt("promo_discount_kop"),
+                // Старый сервер поля не шлёт → 0. Ниже подстраховываемся полной ценой, чтобы
+                // «со скидкой» никогда не оказалось нулём на пустом месте.
+                priceWithDiscount = o.optInt("price_with_discount", o.optInt("price")),
+                promoNoteRu = promoNote?.optString("ru") ?: "",
+                promoNoteBa = promoNote?.optString("ba") ?: "",
             )
         }
 
@@ -2923,6 +2931,7 @@ object ApiClient {
                 ok = o.optBoolean("ok", true), kind = o.optString("kind"),
                 perkValue = o.optInt("perk_value"),
                 messageRu = o.optString("message_ru"), messageBa = o.optString("message_ba"),
+                discountKop = o.optInt("discount_kop"),
             )
         }.onSuccess { Analytics.log("promo_apply") }
 
@@ -2934,6 +2943,10 @@ object ApiClient {
                 code = p.optString("code"), title = p.optString("title"),
                 kind = p.optString("kind"), perkValue = p.optInt("perk_value"),
                 redeemedAt = nStr(o, "redeemed_at"),
+                // Судьба скидки на такси лежит рядом с promo, а не внутри него.
+                discountKop = o.optInt("discount_kop"),
+                discountAvailable = o.optBoolean("discount_available"),
+                discountUsedOrderId = if (o.isNull("discount_used_order_id")) null else o.optInt("discount_used_order_id"),
             )
         }
 
@@ -4016,7 +4029,22 @@ data class InstantEstimateDto(
     val weatherCode: String = "",
     val hasTolls: Boolean = false,
     val priceFactors: List<InstantPriceFactorDto> = emptyList(),
-)
+    // Промокод-скидка на поездку в такси (kind=taxi_ride). Считает и решает сервер: клиент только
+    // показывает выгоду ДО заказа. Пустой код и нули = скидки нет ИЛИ сервер старый — в обоих
+    // случаях на экране не должно быть ни «−0 ₽», ни перечёркнутых цен.
+    val promoCode: String = "",
+    val promoDiscountKop: Int = 0,
+    val priceWithDiscount: Int = 0,
+    // promo_note приходит объектом {ru, ba} (как surge_note) — надпись обязана быть на двух языках.
+    val promoNoteRu: String = "",
+    val promoNoteBa: String = "",
+) {
+    /** Скидка реально есть и её видно человеку. Всё остальное — «скидки нет», без пустых плашек. */
+    val hasPromoDiscount: Boolean get() = promoDiscountKop > 0
+
+    /** Цена, которую человек реально заплатит: со скидкой, если она есть. */
+    val priceToPay: Int get() = if (hasPromoDiscount) priceWithDiscount.coerceAtLeast(0) else price
+}
 
 /** Быстрый заказ (такси-режим) с сервера. Имя/телефон стороны приходят пустыми до accept (приватность). */
 // «Пульс такси» (B7b-3): живая сводка для админа.
@@ -4095,7 +4123,27 @@ data class InstantOrderDto(
     // searchingAt — начало текущего круга подбора (у предзаказа это активация, а не бронирование).
     val createdAt: String? = null,
     val searchingAt: String? = null,
+    // Промокод на поездку, зафиксированный в ЭТОМ заказе (копейки). Скидку оплачивает Юлдаш из
+    // своей комиссии (не хватило — доплачивает водителю в кошелёк), водитель получает ровно
+    // столько же, как без промокода. Оба поля видят обе стороны: иначе водитель попросит полную
+    // сумму, а пассажир будет уверен, что платит со скидкой.
+    val promoDiscountKop: Int = 0,
+    val passengerPriceKop: Int = 0,
 ) {
+    /** Полная цена поездки в копейках: фактическая, а до завершения — оценка. */
+    val fullPriceKop: Int get() = (priceFinal ?: priceEstimate).coerceAtLeast(0) * 100
+
+    /**
+     * Сколько пассажир реально отдаёт водителю на руки (копейки) — скидка уже вычтена.
+     * Старый сервер обоих полей не шлёт (нули) → берём полную цену: показать «0 ₽» человеку,
+     * который вот-вот расплачивается в машине, хуже, чем не показать скидку.
+     */
+    val passengerPayKop: Int
+        get() = if (passengerPriceKop > 0 || promoDiscountKop > 0) passengerPriceKop.coerceAtLeast(0) else fullPriceKop
+
+    /** Скидка по промокоду в этом заказе есть и её видно человеку. */
+    val hasPromoDiscount: Boolean get() = promoDiscountKop > 0
+
     /** С какого момента честно считать «ищем уже M:SS». null = сервер старый, счётчик не показываем. */
     val searchClockFrom: String? get() = if (scheduledAt != null) searchingAt else (createdAt ?: searchingAt)
 
@@ -4169,6 +4217,8 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     driverFeePercent = optDouble("driver_fee_percent", 0.0),
     createdAt = if (isNull("created_at")) null else optString("created_at").ifBlank { null },
     searchingAt = if (isNull("searching_at")) null else optString("searching_at").ifBlank { null },
+    promoDiscountKop = optInt("promo_discount_kop"),
+    passengerPriceKop = optInt("passenger_price_kop"),
 )
 
 /** Мои предзаказы «на время»: ещё ждут (scheduled) + активированные ко времени (activated). */
@@ -5255,16 +5305,27 @@ data class AdminPartnerDto(
 
 // ═══════════ M2: Промокоды и кампании ═══════════
 
-/** Результат применения промокода. kind: "welcome" (приветствие) | "boost" (N бесплатных поднятий). */
+/**
+ * Результат применения промокода.
+ * kind: "welcome" (приветствие) | "boost" (N бесплатных поднятий) | "taxi_ride" (скидка на такси).
+ * discountKop > 0 — человеку выдана скидка на ОДНУ поездку в такси; она сработает сама при заказе.
+ */
 data class PromoApplyResultDto(
     val ok: Boolean, val kind: String, val perkValue: Int,
     val messageRu: String, val messageBa: String,
+    val discountKop: Int = 0,
 )
 
-/** Мой активированный промокод (один на аккаунт). */
+/** Мой активированный промокод (один на аккаунт).
+ *  discountAvailable = скидка на такси ещё цела и ждёт следующего заказа (потратил → false). */
 data class MyPromoDto(
     val code: String, val title: String, val kind: String, val perkValue: Int,
     val redeemedAt: String?,
+    val discountKop: Int = 0,
+    val discountAvailable: Boolean = false,
+    // На каком заказе скидка сработала. null при discountAvailable=false → кампанию выключили
+    // или вышел срок: человек должен понимать, потратил он скидку или её просто больше нет.
+    val discountUsedOrderId: Int? = null,
 )
 
 /** Статистика кода: воронка applied (ввели) → active (стали активными). */

@@ -2,7 +2,8 @@ package com.yuldash.app
 
 // ═══════════════════ M2: Промокод (пользователь) ═══════════════════
 // Один код на аккаунт. Если уже применён (getMyPromo) → показываем «Твой промокод» + что он дал
-// (welcome — приветствие, boost — N бесплатных поднятий), без поля ввода. Иначе — поле ввода
+// (welcome — приветствие, boost — N бесплатных поднятий, taxi_ride — скидка на ОДНУ поездку в
+// такси: срабатывает сама в цене заказа, оплачивает её Юлдаш), без поля ввода. Иначе — поле ввода
 // (заглавные, моноширинно) + «Применить». Успех — красивая галочка + серверное сообщение по языку.
 // Промокод по желанию: отказ ничего не блокирует. Всё двуязычно, все состояния, только Canon*.
 
@@ -30,6 +31,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Redeem
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material3.Icon
@@ -214,7 +216,51 @@ private fun PromoSuccessCard(res: PromoApplyResultDto) {
                 )
             }
         }
-        PromoPerkChip(res.kind, res.perkValue)
+        PromoPerkChip(res.kind, res.perkValue, res.discountKop)
+        // Скидка на такси — самое частое непонимание: «код ввёл, а куда его теперь вводить?».
+        // Никуда: он сработает сам в цене заказа. И сразу говорим, чьи это деньги.
+        PromoTaxiDiscountNote(res.discountKop)
+    }
+}
+
+// ─────────────────── Что делать со скидкой на такси (и чьи это деньги) ───────────────────
+
+/** Скидки нет → ничего не рисуем: пустая плашка на экране успеха только сбивает с толку. */
+@Composable
+private fun PromoTaxiDiscountNote(discountKop: Int) {
+    if (discountKop <= 0) return
+    Surface(color = CanonMint, shape = CanonCardShape, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.LocalTaxi, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    appText("Вводить больше ничего не нужно", "Башҡа бер нәмә лә индерергә кәрәкмәй"),
+                    color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp,
+                )
+            }
+            Text(
+                appText(
+                    "Скидка ${kopToRub(discountKop)} сработает сама при следующем заказе такси — ты увидишь её в цене ещё до кнопки «Вызвать».",
+                    "${kopToRub(discountKop)} ташлама киләһе такси заказында үҙе эшләй — уны «Саҡырыу» төймәһенә тиклем үк хаҡта күрәһең.",
+                ),
+                color = CanonGreen2, fontSize = 14.sp, lineHeight = 19.sp,
+            )
+            Text(
+                appText(
+                    "Скидку оплачивает Юлдаш из своей комиссии — водитель получит своё полностью.",
+                    "Ташламаны Юлдаш үҙ комиссияһынан түләй — водитель үҙенекен тулыһынса ала.",
+                ),
+                color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp,
+            )
+            Text(
+                appText(
+                    "Скидка одноразовая. Поездка не состоялась — вернём её тебе.",
+                    "Ташлама бер тапҡырлыҡ. Сәфәр булмаһа — уны һиңә кире ҡайтарабыҙ.",
+                ),
+                color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp,
+            )
+        }
     }
 }
 
@@ -243,7 +289,10 @@ private fun PromoAppliedCard(m: MyPromoDto) {
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), textAlign = TextAlign.Center,
                     )
                 }
-                PromoPerkChip(m.kind, m.perkValue)
+                PromoPerkChip(m.kind, m.perkValue, m.discountKop)
+                // Судьба скидки: ждёт заказа / уже сработала / больше не действует. Без этого
+                // человек не понимает, почему в цене такси скидки нет.
+                PromoDiscountStatus(m)
             }
         }
         Surface(color = CanonMint, shape = CanonItemShape) {
@@ -255,16 +304,29 @@ private fun PromoAppliedCard(m: MyPromoDto) {
     }
 }
 
-// ─────────────────────────── Что дал код (welcome / boost) ───────────────────────────
+// ─────────────────────── Что дал код (скидка на такси / boost / welcome) ───────────────────────
 
+/**
+ * Что человек получил, одной строкой. Скидку на поездку определяем по САМОЙ скидке, а не по
+ * названию вида кода: раньше любой не-boost код подписывался «Приветственный бонус», и человек
+ * с кодом на 300 ₽ такси видел безликое «бонус» — то есть выгоды не видел вообще.
+ */
 @Composable
-private fun PromoPerkChip(kind: String, perkValue: Int) {
+private fun PromoPerkChip(kind: String, perkValue: Int, discountKop: Int = 0) {
+    val isDiscount = discountKop > 0 || kind.equals("taxi_ride", ignoreCase = true)
     val isBoost = kind.equals("boost", ignoreCase = true)
-    val icon = if (isBoost) Icons.Default.RocketLaunch else Icons.Default.CardGiftcard
-    val label = if (isBoost) {
-        appText("$perkValue бесплатных поднятий", "$perkValue бушлай күтәреү")
-    } else {
-        appText("Приветственный бонус", "Сәләмләү бүләге")
+    val icon = when {
+        isDiscount -> Icons.Default.LocalTaxi
+        isBoost -> Icons.Default.RocketLaunch
+        else -> Icons.Default.CardGiftcard
+    }
+    val label = when {
+        isDiscount -> {
+            val sum = if (discountKop > 0) kopToRub(discountKop) else "$perkValue ₽"
+            appText("$sum скидки на такси", "Таксиға $sum ташлама")
+        }
+        isBoost -> appText("$perkValue бесплатных поднятий", "$perkValue бушлай күтәреү")
+        else -> appText("Приветственный бонус", "Сәләмләү бүләге")
     }
     Surface(color = CanonGold, shape = CanonItemShape) {
         Row(
@@ -274,6 +336,63 @@ private fun PromoPerkChip(kind: String, perkValue: Int) {
         ) {
             Icon(icon, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.size(22.dp))
             Text(label, color = CanonGoldInk, fontWeight = FontWeight.Black, fontSize = 16.sp)
+        }
+    }
+}
+
+// ─────────────────────── Судьба скидки на такси (ждёт / сработала / нет) ───────────────────────
+
+/**
+ * Три честных состояния скидки. Молчать тут нельзя: человек открывает такси, скидки в цене нет,
+ * и без объяснения это выглядит как обман. Кода без скидки этот блок не касается — ничего не рисуем.
+ */
+@Composable
+private fun PromoDiscountStatus(m: MyPromoDto) {
+    if (m.discountKop <= 0) return
+    val sum = kopToRub(m.discountKop)
+    val waiting = m.discountAvailable
+    val used = !m.discountAvailable && m.discountUsedOrderId != null
+    val title = when {
+        waiting -> appText("$sum ждут следующего заказа такси", "$sum киләһе такси заказын көтә")
+        used -> appText("Скидка $sum уже сработала", "$sum ташлама эшләне инде")
+        else -> appText("Скидка $sum больше не действует", "$sum ташлама башҡа эшләмәй")
+    }
+    val note = when {
+        waiting -> appText(
+            "Ничего вводить не нужно — увидишь скидку в цене до кнопки «Вызвать». Её оплачивает Юлдаш, водитель получит своё полностью.",
+            "Бер нәмә лә индерергә кәрәкмәй — ташламаны «Саҡырыу» төймәһенә тиклем хаҡта күрәһең. Уны Юлдаш түләй, водитель үҙенекен тулыһынса ала.",
+        )
+        used -> appText(
+            "Она была одноразовой и ушла в оплаченную поездку. Спасибо, что ездишь с нами!",
+            "Ул бер тапҡырлыҡ ине һәм түләнгән сәфәргә китте. Беҙҙең менән йөрөгәнең өсөн рәхмәт!",
+        )
+        else -> appText(
+            "Акция закончилась. Промокод остаётся с тобой, но скидку по нему уже не начислим.",
+            "Акция бөттө. Промокод һиндә ҡала, әммә уның буйынса ташлама башҡа бирелмәй.",
+        )
+    }
+    Surface(
+        color = if (waiting) CanonMint else CanonBg,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, if (waiting) CanonGreen2 else CanonBorder),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.LocalTaxi, contentDescription = null,
+                    tint = if (waiting) CanonGreen2 else CanonMuted, modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    title, color = if (waiting) CanonGreen2 else CanonText,
+                    fontWeight = FontWeight.Black, fontSize = 15.sp,
+                )
+            }
+            Text(
+                note, color = if (waiting) CanonGreen2 else CanonMuted,
+                fontSize = 13.sp, lineHeight = 18.sp,
+            )
         }
     }
 }

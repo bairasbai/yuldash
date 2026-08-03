@@ -116,8 +116,10 @@ internal fun MyTaxiTripsScreen(onBack: () -> Unit, onOpenReceipt: (Int) -> Unit)
 @Composable
 private fun TaxiTripHistoryCard(order: InstantOrderDto, onClick: () -> Unit) {
     val done = order.status == "done"
-    // Сумма: итоговая, если сервер её посчитал; иначе оценка на момент заказа.
-    val rub = order.priceFinal ?: order.priceEstimate
+    // Сумма, которую человек РЕАЛЬНО отдал: со скидкой по промокоду, если она была. Полная цена
+    // здесь была бы враньём — в истории ищут, сколько потратили, а не прейскурант. Фолбэк на
+    // старый сервер уже внутри passengerPayKop, второй раз его городить не нужно.
+    val rub = order.passengerPayKop / 100
     AppCard(onClick = if (done) onClick else null) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

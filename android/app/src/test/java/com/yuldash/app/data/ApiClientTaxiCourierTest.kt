@@ -523,4 +523,132 @@ class ApiClientTaxiCourierTest {
         assertNull(p.deliverBy)
         assertEquals(false, p.overdue)
     }
+
+    // ---------------------------- Такси: промокод-скидка на поездку ----------------------------
+    // Скидку оплачивает Юлдаш (из своей комиссии, не хватило — доплата водителю в кошелёк), поэтому
+    // цифры в этих трёх тестах — не косметика: по ним человек решает, ехать ли, и сколько отдать
+    // водителю на руки. Ошибка в разборе = спор в машине.
+
+    /**
+     * Выгода обязана доехать до экрана ДО заказа: сколько было, сколько стало и сколько сэкономлено.
+     * Подсказку сервер шлёт объектом {ru, ba} — иначе башкирский пользователь увидел бы русский текст.
+     */
+    @Test
+    fun instantEstimate_parsesPromoDiscount() = runBlocking {
+        server.enqueue(
+            json(
+                """{"price":500,"distance_km":9.0,"eta_min":14.0,"zone":"Баймак","category":"standard",
+                   "promo_code":"TAXI150","promo_discount_kop":15000,"price_with_discount":350,
+                   "promo_note":{"ru":"Скидка по промокоду −150 ₽. Её оплачивает Юлдаш.",
+                                 "ba":"Промокод буйынса ташлама −150 һум. Уны Юлдаш түләй."}}"""
+            )
+        )
+        val est = ApiClient.instantEstimate(52.5, 58.3, 52.6, 58.4).getOrThrow()
+        assertEquals("TAXI150", est.promoCode)
+        assertEquals(15000, est.promoDiscountKop)
+        assertEquals(350, est.priceWithDiscount)
+        assertTrue(est.hasPromoDiscount)
+        // На кнопке и в цене — сумма со скидкой, а не полная: человек платит ровно то, что нажал.
+        assertEquals(350, est.priceToPay)
+        assertTrue(est.promoNoteRu.startsWith("Скидка"))
+        assertTrue(est.promoNoteBa.contains("Юлдаш"))
+    }
+
+    /**
+     * Скидки нет — сервер честно шлёт нули и promo_note:null. На экране в этом случае не должно
+     * быть ни «−0 ₽», ни перечёркнутой цены: цена к оплате равна обычной.
+     */
+    @Test
+    fun instantEstimate_withoutPromo_isZeroAndSilent() = runBlocking {
+        server.enqueue(
+            json(
+                """{"price":420,"distance_km":7.0,"eta_min":11.0,"promo_code":"",
+                   "promo_discount_kop":0,"price_with_discount":420,"promo_note":null}"""
+            )
+        )
+        val est = ApiClient.instantEstimate(52.5, 58.3, 52.6, 58.4).getOrThrow()
+        assertEquals("", est.promoCode)
+        assertEquals(0, est.promoDiscountKop)
+        assertEquals("", est.promoNoteRu)
+        assertEquals("", est.promoNoteBa)
+        assertEquals(false, est.hasPromoDiscount)
+        assertEquals(420, est.priceToPay)
+    }
+
+    /**
+     * Заказ: скидка зафиксирована, и обе стороны видят ОДНУ сумму «на руки» (цена минус скидка).
+     * Полная цена при этом никуда не девается — из неё считается доход водителя.
+     */
+    @Test
+    fun getInstantOrder_parsesPromoDiscountAndPassengerPrice() = runBlocking {
+        server.enqueue(
+            json(
+                """{"id":51,"status":"accepted","role":"passenger","price_estimate":500,"price_final":null,
+                   "promo_discount_kop":15000,"passenger_price_kop":35000}"""
+            )
+        )
+        val o = ApiClient.getInstantOrder(51).getOrThrow()
+        assertEquals(15000, o.promoDiscountKop)
+        assertEquals(35000, o.passengerPriceKop)
+        assertTrue(o.hasPromoDiscount)
+        assertEquals(35000, o.passengerPayKop)     // столько человек реально отдаёт водителю
+        assertEquals(50000, o.fullPriceKop)        // а столько стоила поездка целиком
+        assertEquals("/instant/orders/51", server.takeRequest().path)
+    }
+
+    /**
+     * Старый сервер полей скидки не пришлёт. Нули и пустые строки — и НИКАКИХ «0 ₽» в сумме
+     * к оплате: человеку, который расплачивается в машине, показываем полную цену поездки.
+     */
+    @Test
+    fun instantPromoFields_oldServer_areZeroWithoutCrash() = runBlocking {
+        server.enqueue(json("""{"price":300,"distance_km":6.0,"eta_min":10.0}"""))
+        val est = ApiClient.instantEstimate(52.5, 58.3, 52.6, 58.4).getOrThrow()
+        assertEquals("", est.promoCode)
+        assertEquals(0, est.promoDiscountKop)
+        assertEquals("", est.promoNoteRu)
+        assertEquals("", est.promoNoteBa)
+        assertEquals(300, est.priceToPay)          // фолбэк на обычную цену, а не 0 ₽
+
+        server.enqueue(json("""{"id":52,"status":"done","role":"passenger","price_estimate":280,"price_final":300}"""))
+        val o = ApiClient.getInstantOrder(52).getOrThrow()
+        assertEquals(0, o.promoDiscountKop)
+        assertEquals(0, o.passengerPriceKop)
+        assertEquals(false, o.hasPromoDiscount)
+        assertEquals(30000, o.passengerPayKop)     // фактическая цена поездки, а не ноль
+    }
+
+    /** Активация кода на скидку: клиент обязан знать сумму, чтобы сказать «сработает само при заказе». */
+    @Test
+    fun applyPromo_parsesTaxiRideDiscount() = runBlocking {
+        server.enqueue(
+            json(
+                """{"ok":true,"kind":"taxi_ride","perk_value":300,"discount_kop":30000,
+                   "message_ru":"Код принят — 300 ₽ скидки на поездку в такси",
+                   "message_ba":"Код ҡабул ителде — таксиға 300 һум ташлама"}"""
+            )
+        )
+        val res = ApiClient.applyPromo("taxi300").getOrThrow()
+        assertEquals("taxi_ride", res.kind)
+        assertEquals(30000, res.discountKop)
+        // Код уходит на сервер в верхнем регистре — там он и хранится.
+        assertTrue(server.takeRequest().body.readUtf8().contains("TAXI300"))
+    }
+
+    /** «Мой промокод»: скидка цела и ждёт заказа — экран говорит об этом, а не молчит. */
+    @Test
+    fun getMyPromo_parsesDiscountFate() = runBlocking {
+        server.enqueue(
+            json(
+                """{"promo":{"code":"TAXI150","title":"Первая поездка","kind":"taxi_ride","perk_value":150},
+                   "redeemed_at":"2026-08-01T10:00:00","discount_kop":15000,
+                   "discount_available":true,"discount_used_order_id":null}"""
+            )
+        )
+        val mine = ApiClient.getMyPromo().getOrThrow()!!
+        assertEquals("TAXI150", mine.code)
+        assertEquals(15000, mine.discountKop)
+        assertEquals(true, mine.discountAvailable)
+        assertNull(mine.discountUsedOrderId)
+    }
 }

@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Redeem
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sos
 import androidx.compose.material.icons.filled.Star
@@ -105,6 +106,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -281,7 +283,17 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                         color = CanonMuted, fontSize = 12.sp,
                     )
                 }
-                Text("${estimate.price} ₽", color = CanonGreen2, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("${estimate.price} ₽", color = CanonGreen2, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                    // Иначе рядом две разные суммы без объяснения: тут расчёт поездки, а промокод
+                    // вычитается уже сверху — человек не должен гадать, какая цифра настоящая.
+                    if (estimate.hasPromoDiscount) {
+                        Text(
+                            appText("до скидки по промокоду", "промокод ташламаһына тиклем"),
+                            color = CanonMuted, fontSize = 11.sp,
+                        )
+                    }
+                }
             }
 
             estimate.priceFactors.forEach { factor ->
@@ -339,6 +351,120 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                     )
                 }
             }
+        }
+    }
+}
+
+// ------------------------------ Промокод в такси: выгода и честность ------------------------------
+/**
+ * Выгода по промокоду ДО заказа: сколько было, сколько стало и кто платит разницу.
+ *
+ * Почему это отдельная карточка, а не строчка мелким шрифтом. Промокоды в Юлдаше были, но в
+ * такси человек вводил код и не видел ни рубля выгоды — код выглядел бумажкой. Здесь ровно то,
+ * ради чего он его вводил: «−150 ₽», старая цена зачёркнута, новая крупная.
+ *
+ * Скидки нет (или сервер старый) → на экране НИЧЕГО: ни «−0 ₽», ни пустой плашки.
+ */
+@Composable
+private fun TaxiPromoSavingsCard(estimate: InstantEstimateDto?) {
+    val est = estimate ?: return
+    if (!est.hasPromoDiscount) return
+    val savedRub = est.promoDiscountKop / 100
+    var shown by remember(est.promoCode, est.promoDiscountKop) { mutableStateOf(false) }
+    LaunchedEffect(est.promoCode, est.promoDiscountKop) { shown = true }
+    AnimatedVisibility(
+        visible = shown,
+        enter = expandVertically(tween(260)) + fadeIn(tween(260)),
+        exit = shrinkVertically(tween(160)) + fadeOut(tween(160)),
+    ) {
+        Surface(color = CanonMint, shape = CanonCardShape, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Redeem, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            appText("Промокод сработал", "Промокод эшләне"),
+                            color = CanonGreen2, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Black,
+                        )
+                        if (est.promoCode.isNotBlank()) {
+                            Text(
+                                appText("Код ${est.promoCode} · один раз", "Код ${est.promoCode} · бер тапҡыр"),
+                                color = CanonGreen2, fontSize = TxCaption, lineHeight = LhCaption,
+                            )
+                        }
+                    }
+                    // Сама выгода одним числом. «Было → стало» повторять не нужно: обе цены
+                    // стоят на 40dp выше, в блоке цены, — дважды одни и те же цифры только шумят.
+                    Text(
+                        "−$savedRub ₽",
+                        color = CanonGreen2, fontSize = TxTitle, lineHeight = LhTitle, fontWeight = FontWeight.Black,
+                    )
+                }
+                // Подсказку пишет сервер (RU+BA) — она и объясняет, кто оплачивает скидку.
+                // Сервер промолчал → говорим то же самое своими словами, а не оставляем пустоту.
+                Text(
+                    appText(est.promoNoteRu, est.promoNoteBa).ifBlank { taxiPromoHonestText() },
+                    color = CanonGreen2, fontSize = TxCaption, lineHeight = LhCaption,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Одна честная фраза про то, ЧЬИ это деньги. Пассажир платит водителю напрямую, платформа
+ * денег за поездку не касается — поэтому скидку оплачивает Юлдаш из своей комиссии, а не
+ * водитель из своего кармана. Без этой строки водитель, увидев меньшую сумму, решит, что его
+ * обманули, а пассажир — что скидка «не считается».
+ */
+@Composable
+private fun taxiPromoHonestText(): String = appText(
+    "Скидку оплачивает Юлдаш из своей комиссии — водитель получит своё полностью.",
+    "Ташламаны Юлдаш үҙ комиссияһынан түләй — водитель үҙенекен тулыһынса ала.",
+)
+
+/**
+ * Сумма «на руки» в активном заказе, чеке и на экране водителя: сколько человек РЕАЛЬНО отдаёт.
+ * Ошибка в этой цифре — спор с водителем на дороге, поэтому она одна и та же у обеих сторон.
+ * Скидки нет → карточка не рисуется вовсе: обычному заказу лишняя плашка только мешает.
+ */
+@Composable
+private fun TaxiPromoPayRow(order: InstantOrderDto, forDriver: Boolean, modifier: Modifier = Modifier) {
+    if (!order.hasPromoDiscount) return
+    val savedRub = order.promoDiscountKop / 100
+    Surface(color = CanonMint, shape = CanonItemShape, modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Redeem, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (forDriver) appText(
+                        "Пассажир отдаёт на руки ${formatTaxiKop(order.passengerPayKop)}",
+                        "Пассажир ҡулға ${formatTaxiKop(order.passengerPayKop)} бирә",
+                    ) else appText(
+                        "К оплате водителю ${formatTaxiKop(order.passengerPayKop)}",
+                        "Водителгә түләргә ${formatTaxiKop(order.passengerPayKop)}",
+                    ),
+                    color = CanonGreen2, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Black,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    formatTaxiKop(order.fullPriceKop),
+                    color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                    textDecoration = TextDecoration.LineThrough,
+                )
+            }
+            Text(
+                if (forDriver) appText(
+                    "Промокод −$savedRub ₽ оплачивает Юлдаш: разницу берём из своей комиссии, не хватит — доплатим тебе в кошелёк. Ты получаешь столько же, как без промокода.",
+                    "Промокод −$savedRub ₽ хаҡын Юлдаш түләй: айырманы үҙ комиссиябыҙҙан алабыҙ, етмәһә — кеҫәңә өҫтәйбеҙ. Һин промокодһыҙҙағы кеүек үк алаһың.",
+                ) else appText(
+                    "Скидка по промокоду −$savedRub ₽. Её оплачивает Юлдаш — водитель получит своё полностью, спорить не о чем.",
+                    "Промокод буйынса ташлама −$savedRub ₽. Уны Юлдаш түләй — водитель үҙенекен тулыһынса ала, бәхәсләшер нәмә юҡ.",
+                ),
+                color = CanonGreen2, fontSize = TxCaption, lineHeight = LhCaption,
+            )
         }
     }
 }
@@ -784,8 +910,10 @@ internal fun InstantOrderScreen(
                             icon = Icons.Default.CheckCircle,
                             title = appText("Поездка завершена", "Сәфәр тамамланды"),
                             // Цена — доминанта итога, маршрут под ней подписью: человек проверяет
-                            // «сколько», а не перечитывает адреса.
-                            hero = "${o.priceFinal ?: o.priceEstimate} ₽",
+                            // «сколько», а не перечитывает адреса. Со скидкой по промокоду тут
+                            // стоит сумма, которую он реально отдал водителю, — иначе чек спорит
+                            // с кошельком.
+                            hero = formatTaxiKop(o.passengerPayKop),
                             subtitle = appText(
                                 "${o.fromText.ifBlank { "Точка А" }} → ${o.toText.ifBlank { "Точка Б" }}",
                                 "${o.fromText.ifBlank { "А нөктәһе" }} → ${o.toText.ifBlank { "Б нөктәһе" }}"),
@@ -794,10 +922,13 @@ internal fun InstantOrderScreen(
                             onSecondary = onBack,
                             extra = {
                                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    // Скидка сработала → говорим, сколько сэкономлено и чьи это деньги.
+                                    TaxiPromoPayRow(order = o, forDriver = false)
                                     // Онлайн-оплата завершённого такси-заказа (карта/СБП через ЮKassa, за флагом).
                                     // 503 (провайдер выключен) → карточка тихо исчезает на сессию (OnlinePayGate).
+                                    // Платим ровно ту сумму, что человек и должен: со скидкой, а не полную.
                                     PayOnlineCard(
-                                        amountRub = (o.priceFinal ?: o.priceEstimate).takeIf { it > 0 },
+                                        amountRub = (o.passengerPayKop / 100).takeIf { it > 0 },
                                         pay = { m -> ApiClient.payInstantOrder(o.id, m) },
                                     )
                                     InstantRateAndReport(o, isDriver = false)   // §9: оценить/пожаловаться
@@ -1430,18 +1561,33 @@ private fun InstantDestinationPicker(
                             }
                             "ok" -> estimate?.let { est ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    // Доминанта экрана: сюда человек и смотрит.
-                                    AnimatedContent(targetState = est.price, label = "estPrice") { p ->
+                                    // Доминанта экрана: сюда человек и смотрит. Со скидкой здесь
+                                    // стоит сумма, которую он реально отдаст, — а не та, которую
+                                    // «якобы» экономит: цена в кнопке и в кармане обязана совпасть.
+                                    AnimatedContent(targetState = est.priceToPay, label = "estPrice") { p ->
                                         Text(
-                                            "$p ₽", color = CanonText, fontSize = TxHero, lineHeight = LhHero,
+                                            "$p ₽",
+                                            color = if (est.hasPromoDiscount) CanonGreen2 else CanonText,
+                                            fontSize = TxHero, lineHeight = LhHero,
                                             fontWeight = FontWeight.Black,
                                         )
                                     }
                                     Spacer(Modifier.width(10.dp))
-                                    Text(
-                                        appText("примерно", "яҡынса"),
-                                        color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
-                                    )
+                                    Column {
+                                        // «Было столько» — только когда скидка реально есть.
+                                        // Нет скидки → нет ни перечёркнутой цены, ни пустого места.
+                                        if (est.hasPromoDiscount) {
+                                            Text(
+                                                "${est.price} ₽",
+                                                color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                                                textDecoration = TextDecoration.LineThrough,
+                                            )
+                                        }
+                                        Text(
+                                            appText("примерно", "яҡынса"),
+                                            color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                                        )
+                                    }
                                 }
                                 val meta = buildList {
                                     if (est.distanceKm > 0) add(appText("≈ ${est.distanceKm.toInt()} км", "≈ ${est.distanceKm.toInt()} км"))
@@ -1459,6 +1605,9 @@ private fun InstantDestinationPicker(
                     }
                 }
             }
+            // Выгода по промокоду — сразу под ценой. Это единственное место, где человек видит,
+            // что промокод не бумажка, и решает ДО нажатия «Вызвать».
+            TaxiPromoSavingsCard(estimate)
             // Pricing v2 приходит только с сервера: клиент показывает
             // базу, факторы и общий потолок, но не пересчитывает сумму сам.
             TaxiPricingBreakdown(estimate)
@@ -1540,7 +1689,8 @@ private fun InstantDestinationPicker(
                     // Предзаказ «на время»: показываем время подачи.
                     scheduled -> appText("Заказать на ${clockHm(scheduledAtMs!!)}", "${clockHm(scheduledAtMs!!)}-ға заказ итеү")
                     // Глагол-действие: «Вызвать машину» понятнее, чем «Заказать» (эталон Яндекс/inDrive).
-                    estimate != null -> appText("Вызвать за ${estimate!!.price} ₽", "${estimate!!.price} ₽-ға саҡырыу")
+                    // Цена на кнопке — уже со скидкой: человек нажимает ровно ту сумму, что заплатит.
+                    estimate != null -> appText("Вызвать за ${estimate!!.priceToPay} ₽", "${estimate!!.priceToPay} ₽-ға саҡырыу")
                     else -> appText("Вызвать машину", "Машина саҡырыу")
                 }
                 // Цена в кнопке меняется вместе с классом машины — без анимации это выглядело
@@ -2004,10 +2154,17 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(4.dp))
+        // Сумма здесь — та, что человек отдаст водителю: скидка по промокоду уже зафиксирована
+        // в заказе, и показывать полную цену значило бы обещать одно, а взять другое.
+        val payWhileSearching = formatTaxiKop(order.passengerPayKop)
         Text(
-            appText("≈ ${order.priceEstimate} ₽ · подбираем ближайшего водителя", "≈ ${order.priceEstimate} ₽ · яҡын водителде табабыҙ"),
+            appText("≈ $payWhileSearching · подбираем ближайшего водителя", "≈ $payWhileSearching · яҡын водителде табабыҙ"),
             color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption, textAlign = TextAlign.Center,
         )
+        if (order.hasPromoDiscount) {
+            Spacer(Modifier.height(10.dp))
+            TaxiPromoPayRow(order = order, forDriver = false)
+        }
         Spacer(Modifier.height(20.dp))
         // Ответ на «сколько ещё ждать». Пустого обещания не даём — по мере ожидания текст
         // честно меняется, и человек видит, что приложение про него не забыло.
@@ -2225,6 +2382,35 @@ internal fun InstantDriverEnRouteCard(
                             shape = CircleShape, color = CanonGreen2,
                         ) {
                             Icon(Icons.Default.Phone, contentDescription = appText("Позвонить водителю", "Водителгә шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(14.dp).size(20.dp))
+                        }
+                    }
+                }
+                // Сколько отдать водителю. Раньше в активном заказе суммы не было вообще: человек
+                // садился в машину и вспоминал цену по памяти, а со скидкой по промокоду это
+                // прямой спор на дороге. Показываем ровно то, что уходит из рук.
+                if (order.hasPromoDiscount) {
+                    TaxiPromoPayRow(order = order, forDriver = false)
+                } else {
+                    Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    appText("К оплате водителю", "Водителгә түләргә"),
+                                    color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                                )
+                                Text(
+                                    appText("наличными или переводом", "аҡсалата йәки күсереп"),
+                                    color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                                )
+                            }
+                            Text(
+                                formatTaxiKop(order.passengerPayKop),
+                                color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                                fontWeight = FontWeight.Black,
+                            )
                         }
                     }
                 }
@@ -3379,6 +3565,18 @@ internal fun InstantOfferOverlay(order: InstantOrderDto, accepting: Boolean = fa
                                     color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
                                 )
                             }
+                            // «Тебе чистыми» посчитано с полной цены — и это верно: скидку пассажира
+                            // оплачивает Юлдаш. Но на руки водитель получит меньше, и узнать об
+                            // этом он должен ДО того, как возьмёт заказ, а не в машине.
+                            if (order.hasPromoDiscount) {
+                                Text(
+                                    appText(
+                                        "На руки от пассажира: ${formatTaxiKop(order.passengerPayKop)} — у него промокод −${order.promoDiscountKop / 100} ₽, разницу платит Юлдаш. Твой доход прежний.",
+                                        "Пассажирҙан ҡулға: ${formatTaxiKop(order.passengerPayKop)} — унда промокод −${order.promoDiscountKop / 100} ₽, айырманы Юлдаш түләй. Һинең килемең үҙгәрмәй.",
+                                    ),
+                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold,
+                                )
+                            }
                         }
                         if (order.category == "comfort") {
                             Surface(shape = RoundedCornerShape(10.dp), color = CanonMint) {
@@ -3552,16 +3750,20 @@ internal fun InstantDriverTripScreen(
                 current.status == "done" -> InstantFinalCard(
                     icon = Icons.Default.CheckCircle,
                     title = appText("Поездка завершена", "Сәфәр тамамланды"),
+                    // «Заплатил» — то, что реально легло в руку (со скидкой пассажира это меньше
+                    // полной цены). «Чистыми» при этом не падает: скидку оплатил Юлдаш.
                     subtitle = if (current.driverGrossKop > 0) appText(
-                        "Пассажир заплатил ${formatTaxiKop(current.driverGrossKop)} · чистыми ${formatTaxiKop(current.driverNetKop)}",
-                        "Пассажир ${formatTaxiKop(current.driverGrossKop)} түләне · таҙа килем ${formatTaxiKop(current.driverNetKop)}",
+                        "Пассажир заплатил ${formatTaxiKop(current.passengerPayKop)} · чистыми ${formatTaxiKop(current.driverNetKop)}",
+                        "Пассажир ${formatTaxiKop(current.passengerPayKop)} түләне · таҙа килем ${formatTaxiKop(current.driverNetKop)}",
                     ) else appText(
-                        "Получено ${current.priceFinal ?: current.priceEstimate} ₽. Спасибо!",
-                        "${current.priceFinal ?: current.priceEstimate} ₽ алынды. Рәхмәт!",
+                        "Получено ${formatTaxiKop(current.passengerPayKop)}. Спасибо!",
+                        "${formatTaxiKop(current.passengerPayKop)} алынды. Рәхмәт!",
                     ),
                     action = appText("Готово", "Әҙер"), onAction = onFinished, onSecondary = onFinished,
                     extra = {
                         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                            // Промокод пассажира: почему на руки пришло меньше и где остальное.
+                            TaxiPromoPayRow(order = current, forDriver = true)
                             InstantReceiptReminder()   // B7b-4: чек самозанятого — мягко, не назидательно
                             InstantRateAndReport(current, isDriver = true)   // §9: оценить/пожаловаться
                             UnpaidReportButton(orderId = current.id)   // B8-7: «пассажир не заплатил» одним тапом
@@ -3673,13 +3875,18 @@ internal fun InstantDriverTripScreen(
                                 }
                             }
                             val waitRub = current.waitingFeeKop / 100
+                            // Сумма «на руки» — та же, что видит пассажир. Если у него сработал
+                            // промокод, он отдаст меньше полной цены, и водитель обязан узнать об
+                            // этом ЗДЕСЬ, а не у машины (объяснение — в карточке ниже).
+                            val payToDriver = formatTaxiKop(current.passengerPayKop)
                             Text(
                                 appText(
-                                    "Пассажир платит: ${current.priceEstimate} ₽" + (if (waitRub > 0) " + $waitRub ₽ ожидание" else "") + " · наличными/переводом",
-                                    "Пассажир түләй: ${current.priceEstimate} ₽" + (if (waitRub > 0) " + $waitRub ₽ көтөү" else "") + " · аҡсалата/күсереп",
+                                    "Пассажир платит: $payToDriver" + (if (waitRub > 0) " + $waitRub ₽ ожидание" else "") + " · наличными/переводом",
+                                    "Пассажир түләй: $payToDriver" + (if (waitRub > 0) " + $waitRub ₽ көтөү" else "") + " · аҡсалата/күсереп",
                                 ),
                                 color = CanonMuted, fontSize = 13.sp,
                             )
+                            TaxiPromoPayRow(order = current, forDriver = true)
                             if (current.driverGrossKop > 0) {
                                 Text(
                                     appText(
