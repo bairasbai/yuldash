@@ -19,6 +19,7 @@ from ..safety_logic import ensure_active
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
 from ..timeutil import client_dt_to_utc, utcnow
+from ..workday import local_now
 from ..trust_service import INSIDER_LEVEL, trust_level
 from ..services import (
     CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
@@ -120,7 +121,12 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
         while made < 4 and guard < 40:
             guard += 1
             dt = dt + step
-            if body.recurrence == "weekdays" and dt.weekday() >= 5:   # пропускаем сб/вс
+            # День недели считаем по МЕСТНОМУ времени, а не по UTC. Рейс на 04:00 по Уфе — это
+            # 23:00 предыдущих суток по UTC, и наивная проверка ставила бы «по будням» рейс
+            # в субботу и теряла понедельник. Утренние рейсы на Уфу — самый частый случай,
+            # так что промах был бы не редким исключением, а нормой (регресс перевода на UTC,
+            # найден независимой проверкой 2026-08-03).
+            if body.recurrence == "weekdays" and local_now(dt).weekday() >= 5:   # пропускаем сб/вс
                 continue
             session.add(Ride(driver_id=user.id, seats_left=body.seats_total, **{**dump, "depart_at": dt}, **geo))
             made += 1

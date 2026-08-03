@@ -110,7 +110,11 @@ def _rules(now):
          # promoredemption.used_order_id — жёсткий FK: заказ, на котором потрачена промо-скидка,
          # держит ссылку из погашения (оно живёт вечно, «один код на аккаунт»). Без гарда чистка
          # падает на внешнем ключе.
-         "AND NOT EXISTS (SELECT 1 FROM promoredemption pm WHERE pm.used_order_id = instantorder.id)",
+         "AND NOT EXISTS (SELECT 1 FROM promoredemption pm WHERE pm.used_order_id = instantorder.id) "
+         # offerdecline.order_id — тоже жёсткий FK. Сейчас спасает случайность (журнал живёт
+         # 90 дней, заказы чистятся после 180), но правило не должно держаться на разнице
+         # двух независимых чисел: подняли бы DECLINE_DAYS — и чистка упала бы на внешнем ключе.
+         "AND NOT EXISTS (SELECT 1 FROM offerdecline od WHERE od.order_id = instantorder.id)",
          {"c": cut(TRIP_DAYS)}),
         # Доставки: старые терминальные с ЗАКРЫТОЙ комиссией и без спора/оценки (финансы/репутацию
         # бережём). message.parcel_id — жёсткий FK (чат отправитель ↔ курьер): без гарда чистка

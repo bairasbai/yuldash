@@ -317,6 +317,23 @@ def restrictions_payload(session: Session, user: User, now: Optional[datetime] =
             "note_ba": ("Ялыу тикшерелә — тере кеше хәл итә. Юлдаш ғәҙәттәгесә эшләй."
                         if review else "Юлдаш ғәҙәттәгесә эшләй."),
         })
+    # Пауза офферов за брошенные ПРИНЯТЫЕ заказы (разбор №2). Без этой строки водитель стоял бы
+    # на линии с зелёным тумблером три часа тишины и не понял бы, что это не сбой связи:
+    # предупреждение перед отменой есть, а самой паузы не видно нигде.
+    from .instant_service import driver_pause_until      # локальный импорт: избегаем цикла
+    d_until = driver_pause_until(session, user.id, now)
+    if d_until is not None:
+        items.append({
+            "kind": "driver_offers_pause",
+            "reason": "driver_cancels",
+            "category": None, "category_ru": "", "category_ba": "",
+            "until": d_until.isoformat(),
+            "title_ru": "Заказы приходят с паузой", "title_ba": "Заказдар паузанан һуң килә",
+            "note_ru": ("Несколько принятых заказов подряд были отменены. Пассажир после такой "
+                        "отмены ищет машину заново. Попутка работает как обычно."),
+            "note_ba": ("Ҡабул ителгән заказдар бер нисә тапҡыр кире алынды. Пассажир ундай кире "
+                        "алыуҙан һуң машинаны яңынан эҙләй. Юлдаш ғәҙәттәгесә эшләй."),
+        })
     p_until = passenger_pause_until(session, user.id, now)
     if p_until is not None:
         items.append({

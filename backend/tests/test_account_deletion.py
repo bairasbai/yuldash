@@ -75,6 +75,12 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         s.add(M.CommissionDebt(driver_id=uid, order_id=order.id, amount_kop=200))
         s.add(M.LedgerEntry(driver_id=uid, order_id=order.id, kind="earn", amount_kop=200))
         s.add(M.TripShare(order_id=order.id, contact_id=contact.id, token="del-order-share-token-123456"))
+        # Причины отказа от оффера: МОЯ и ЧУЖАЯ по МОЕМУ заказу. Вторая — ключевая: по driver_id
+        # она не ловится, но держит внешний ключ на заказ, который сейчас удалится. Без явного
+        # гарда по order_id удаление аккаунта падало бы на Postgres, то есть не работало бы
+        # вообще (152-ФЗ). На SQLite ключи не проверяются — тест поймает это только на Postgres.
+        s.add(M.OfferDecline(order_id=order.id, driver_id=uid, reason="far"))
+        s.add(M.OfferDecline(order_id=order.id, driver_id=oid, reason="cheap"))
         # --- посылка + рейтинг курьера по parcel_id + чат отправитель ↔ курьер ---
         parcel = M.ParcelDelivery(sender_id=uid, from_city="A", to_city="B", courier_id=oid)
         s.add(parcel); s.commit(); s.refresh(parcel)

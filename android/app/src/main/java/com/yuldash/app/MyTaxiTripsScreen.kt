@@ -175,13 +175,18 @@ private fun TripRouteLine(label: String, value: String) {
     }
 }
 
-/** ISO-время → «ДД.ММ.ГГГГ, ЧЧ:ММ». Не разобралось — дата как есть, без падения. */
+/** ISO-время с сервера (UTC) → «ДД.ММ.ГГГГ, ЧЧ:ММ» в часах человека.
+ *  Нарезка строки показывала бы UTC как местное — поездка в 23:10 попадала бы во вчерашний
+ *  день, и человек не нашёл бы её в истории там, где ищет (разбор №2, 2026-08-03). */
 @Composable
 private fun tripDayLabel(iso: String?): String {
     if (iso.isNullOrBlank()) return appText("Поездка", "Сәфәр")
-    val date = iso.substringBefore('T')
-    val time = iso.substringAfter('T', "").take(5)
-    val parts = date.split("-")
-    val human = if (parts.size == 3) "${parts[2]}.${parts[1]}.${parts[0]}" else date
-    return if (time.length == 5) "$human, $time" else human
+    val ms = parseIsoUtcMillis(iso) ?: return iso.substringBefore('T')
+    val c = java.util.Calendar.getInstance().apply { timeInMillis = ms }
+    return String.format(
+        java.util.Locale.US, "%02d.%02d.%04d, %02d:%02d",
+        c.get(java.util.Calendar.DAY_OF_MONTH), c.get(java.util.Calendar.MONTH) + 1,
+        c.get(java.util.Calendar.YEAR),
+        c.get(java.util.Calendar.HOUR_OF_DAY), c.get(java.util.Calendar.MINUTE),
+    )
 }

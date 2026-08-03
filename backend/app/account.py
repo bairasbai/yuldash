@@ -357,6 +357,14 @@ def delete_user_account(session: Session, user: User) -> None:
     if order_ids:
         session.execute(update(PromoRedemption).where(PromoRedemption.used_order_id.in_(order_ids))
                         .values(used_order_id=None))
+    # Журнал причин отказа ссылается на ЗАКАЗ. Чужие водители отказывались от заказов этого
+    # человека — их строки нужно убрать ДО удаления самих заказов, иначе внешний ключ на боевом
+    # Postgres не даст удалить аккаунт вообще (152-ФЗ: удаление обязано работать). На SQLite
+    # проверки ключей выключены, поэтому тесты этого не показывали — ровно тот случай, что уже
+    # записан правилом в docs/lessons.md.
+    if order_ids:
+        session.execute(delete(OfferDecline).where(OfferDecline.order_id.in_(order_ids)))
+    session.execute(delete(OfferDecline).where(OfferDecline.driver_id == uid))
     session.execute(delete(InstantOrder).where(
         or_(InstantOrder.passenger_id == uid, InstantOrder.driver_id == uid)))
     # 3.12 Посылки: отвязать себя как курьера на ЧУЖИХ, удалить свои (как отправитель).
@@ -423,8 +431,6 @@ def delete_user_account(session: Session, user: User) -> None:
     session.execute(delete(DriverProfile).where(DriverProfile.user_id == uid))
     # 3.21 Доверие: мой уровень «свой», мои инвайт-коды, мои согласия (152-ФЗ — стираем всё).
     session.execute(delete(Consent).where(Consent.user_id == uid))
-    # Журнал причин отказа от офферов — обезличивать нечего, это статистика по ушедшему.
-    session.execute(delete(OfferDecline).where(OfferDecline.driver_id == uid))
     session.execute(delete(InviteCode).where(InviteCode.owner_id == uid))
     session.execute(delete(Trust).where(Trust.user_id == uid))
     # Отвязать цепочку: те, кого я пригласил в круг своих, остаются «своими», но ссылку на меня убираем (FK).

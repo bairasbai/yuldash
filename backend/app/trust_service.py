@@ -42,7 +42,14 @@ def record_login_consents(session: Session, user_id: int) -> None:
     ознакомления с текстом, который на экране виден рядом с кнопкой.
     """
     for kind in ("offer", "privacy", "age18"):
-        record_consent(session, user_id, kind)
+        try:
+            record_consent(session, user_id, kind)
+        except Exception:  # noqa: BLE001
+            # Вход важнее записи. Сбой на этом шаге отдал бы 500 уже ПОСЛЕ того, как одноразовый
+            # код сожжён, — человеку пришлось бы заказывать новый SMS и гадать, что случилось.
+            # То же правило, что у журнала отказов: побочная запись не ломает главное действие.
+            session.rollback()
+
 
 INSIDER_LEVEL = 3   # «свой» — дарованный уровень при активации инвайта
 MIN_INVITER_LEVEL = 2  # приглашать в круг может только проверенный (L2+)

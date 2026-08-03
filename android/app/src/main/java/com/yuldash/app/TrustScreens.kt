@@ -659,9 +659,16 @@ private fun ConsentRow(meta: ConsentKindMeta, grantedAt: String?, saving: Boolea
     }
 }
 
-/** ISO-время → «ДД.ММ.ГГГГ». Некорректный формат — отдаём дату как есть (без падения). */
+/** ISO-время с сервера (UTC) → «ДД.ММ.ГГГГ» в часах человека.
+ *  Это дата согласия на обработку данных — юридический факт, и показывать её на день раньше
+ *  из-за непереведённого пояса нельзя (разбор №2, 2026-08-03). Ночные согласия (после 19:00
+ *  по Уфе) при нарезке строки уезжали на предыдущие сутки. */
 private fun prettyDate(iso: String): String {
-    val date = iso.substringBefore('T')
-    val parts = date.split("-")
-    return if (parts.size == 3) "${parts[2]}.${parts[1]}.${parts[0]}" else date
+    val ms = parseIsoUtcMillis(iso) ?: return iso.substringBefore('T')
+    val c = java.util.Calendar.getInstance().apply { timeInMillis = ms }
+    return String.format(
+        java.util.Locale.US, "%02d.%02d.%04d",
+        c.get(java.util.Calendar.DAY_OF_MONTH), c.get(java.util.Calendar.MONTH) + 1,
+        c.get(java.util.Calendar.YEAR),
+    )
 }

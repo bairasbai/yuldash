@@ -458,6 +458,10 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
             ParcelDelivery.weight_kg == float(body.weight_kg or 0.0),
             ParcelDelivery.cargo_type == cargo_type,
             ParcelDelivery.fragile == bool(body.fragile),
+            # Имя получателя и тип доставки — тоже в ключе. На один номер шлют разным людям
+            # (общий семейный телефон), и схлопнуть такие заявки значило бы потерять посылку.
+            ParcelDelivery.receiver_name == receiver_name,
+            ParcelDelivery.delivery_type == "poputka",
             ParcelDelivery.status == "created",
             ParcelDelivery.created_at >= utcnow() - timedelta(seconds=_DUPLICATE_WINDOW_SEC),
         ).order_by(ParcelDelivery.id.desc())

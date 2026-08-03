@@ -788,6 +788,12 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
             ParcelDelivery.weight_kg == float(body.weight_kg or 0.0),
             ParcelDelivery.cargo_type == cargo_type,
             ParcelDelivery.fragile == bool(body.fragile),
+            # Срочность и цена — В КЛЮЧЕ: от них зависит, когда поедут и сколько возьмут.
+            # Без них человек, передумавший с «по пути» на «срочно», молча получал бы обратно
+            # свой первый — дешёвый и медленный — заказ и был уверен, что заказал срочно.
+            ParcelDelivery.urgency == urgency,
+            ParcelDelivery.delivery_price_kop == priced["price_kop"],
+            ParcelDelivery.receiver_name == receiver_name,
             ParcelDelivery.status == "created",
             ParcelDelivery.created_at >= utcnow() - timedelta(seconds=parcels_mod._DUPLICATE_WINDOW_SEC),
         ).order_by(ParcelDelivery.id.desc())

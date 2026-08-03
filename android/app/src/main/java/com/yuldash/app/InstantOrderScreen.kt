@@ -2022,8 +2022,9 @@ private fun showDateTimePicker(ctx: Context, initialMs: Long?, onPicked: (Long) 
 }
 
 // epoch ms → ISO с локальным смещением (однозначно для сервера).
-private fun isoFromMillis(ms: Long): String =
-    java.time.OffsetDateTime.ofInstant(java.time.Instant.ofEpochMilli(ms), java.time.ZoneId.systemDefault()).toString()
+// Одна функция на приложение: копия здесь и `isoWithOffset` в BookingActiveTripScreen делали
+// одно и то же, а две копии расходятся при первой же правке (урок «один шов»).
+private fun isoFromMillis(ms: Long): String = isoWithOffset(ms)
 
 // epoch ms → «ЧЧ:ММ» (для кнопки).
 private fun clockHm(ms: Long): String {

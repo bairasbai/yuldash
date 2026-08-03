@@ -22,6 +22,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlmodel import Session, select
 
+from datetime import datetime, timedelta, timezone
+
 from ..config import settings
 from ..db import get_session
 from ..livepos import livepos_get
@@ -444,12 +446,21 @@ def _t(lang: str, ru: str, ba: str) -> str:
 
 
 def _fmt_when(iso: str, lang: str) -> str:
-    """ISO → короткое человекочитаемое «дд.мм, чч:мм» (без тяжёлых локалей)."""
+    """ISO (UTC из БД) → «дд.мм, чч:мм» по МЕСТНОМУ времени.
+
+    Раньше строка просто резалась, и это случайно совпадало: время выезда хранилось в местных
+    часах. После перевода базы на UTC (миграция y_utc_depart) резать стало нельзя — страница
+    показывала бы время на пять часов раньше. А эту ссылку водитель кидает в семейный чат:
+    карточка обещала бы 05:00 вместо 10:00, и человек вышел бы к подъезду не тогда.
+    Приложение свою половину уже чинит (formatDepart) — здесь вторая половина того же бага.
+    """
     try:
-        date, time = iso.split("T")
-        y, m, d = date.split("-")
-        hh, mm = time.split(":")[0], time.split(":")[1]
-        return f"{d}.{m}, {hh}:{mm}"
+        base = iso.split(".")[0].replace("Z", "")
+        dt = datetime.fromisoformat(base)
+        if dt.tzinfo is not None:                      # пояс указан явно — верим ему
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        local = dt + timedelta(hours=settings.local_tz_offset_hours)
+        return f"{local.day:02d}.{local.month:02d}, {local.hour:02d}:{local.minute:02d}"
     except Exception:  # noqa: BLE001 — кривой формат не должен ронять страницу
         return iso
 
