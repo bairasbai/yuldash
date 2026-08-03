@@ -836,6 +836,14 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, canTake: Boolean, 
         priceLabel = priceLabel,
         description = p.description,
     ) {
+        // Срок стоит первым в карточке свободного заказа: по нему курьер и решает, браться ли.
+        // «Нужно завтра» и «нужно к пятнице» — это разные заказы, даже если маршрут один.
+        ParcelDeadlineNote(
+            deliverBy = p.deliverBy,
+            overdue = p.overdue,
+            status = p.status,
+            forCourier = true,
+        )
         // Приватность (§8): в открытой ленте сервер адресов НЕ отдаёт — до «Взять заказ» блок
         // молчит сам собой. Как только заказ станет своим, ориентиры появятся здесь же, без
         // отдельной ветки кода: рисуем ровно то, что прислал сервер.
@@ -1383,6 +1391,14 @@ private fun CourierCarryingCard(
             }
             CourierDeliveryProgress(status = p.status)
             ParcelReturnNotice(status = p.status, reason = p.returnReason, forCourier = true)
+            // Срок — выше адресов: сначала «к какому дню», потом «куда рулить». Если он вышел,
+            // блок краснеет сам, и курьер видит это раньше, чем ему напишет отправитель.
+            ParcelDeadlineNote(
+                deliverBy = p.deliverBy,
+                overdue = p.overdue,
+                status = p.status,
+                forCourier = true,
+            )
             // Главное на карточке взятого заказа: по этим ориентирам курьер и едет. Стоит выше
             // контактов — сначала «куда рулить», потом «кому звонить». Пусто → блок не рисуется.
             ParcelAddressBlock(fromAddress = p.fromAddress, toAddress = p.toAddress, prominent = true)

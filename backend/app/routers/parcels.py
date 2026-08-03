@@ -20,11 +20,11 @@ admin через _require_admin (обычный HTTPException-строка), у�
 получатель называет при передаче → status=delivered. Сбор fee_kop по delivered — доход платформы.
 """
 import secrets
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlmodel import Session, select
 
@@ -37,6 +37,7 @@ from ..safety_logic import (ensure_active,
 from ..security import current_user
 from ..services import notify_admin_telegram, push_notification
 from ..timeutil import utcnow
+from ..workday import local_day
 
 router = APIRouter(tags=["parcels"])
 
@@ -67,6 +68,10 @@ _CANCEL_FEE_STATUSES = ("accepted", "in_transit")
 # поэтому в отчёте админа эти деньги считаются отдельно и не называются «собрано»
 # (дубль _COURIER_TYPES из courier.py: импортировать оттуда нельзя — цикл, courier импортирует нас).
 _BILLABLE_TYPES = ("courier", "buy_bring")
+
+# СРОК доставки («нужно к какому дню»): окно выбора — сегодня … +30 дней. Дальше это уже не срок,
+# а опечатка в календаре: посылка «к 2027 году» не помогает ни отправителю, ни курьеру.
+_DELIVER_BY_MAX_DAYS = 30
 
 # Анти-абуз отказов курьера: снялся с заказа больше стольких раз за окно → сигнал админу
 # (не блокируем автоматически — «между своими» разбирается человеком).
@@ -99,6 +104,14 @@ def _parcel_data(parcel_id: Optional[int], ptype: str = _PARCEL_PUSH_TYPE) -> di
 
 # ---------- Тела запросов ----------
 
+def blank_date_to_none(v):
+    """Пустая строка от клиента = «срок не выбран», а не кривая дата.
+
+    Форма, где поле просто не заполнили, не должна отвечать 422 — «когда получится» это
+    нормальный заказ. Общий before-валидатор для обеих точек приёма (ParcelIn, CourierOrderIn)."""
+    return None if isinstance(v, str) and not v.strip() else v
+
+
 class ParcelIn(BaseModel):
     from_city: str = Field("", max_length=80)
     to_city: str = Field("", max_length=80)
@@ -123,6 +136,14 @@ class ParcelIn(BaseModel):
     # отправитель называет сумму сам, и она видна ДО принятия. 0 — тоже честный ответ:
     # «по-соседски, бесплатно», и так и подписано. Деньги идут напрямую (Модель А). Потолок 100 000 ₽.
     price_kop: int = Field(0, ge=0, le=100_000_00)
+    # «Нужно доставить не позже этого дня» (ГГГГ-ММ-ДД). Не прислали / null → «не срочно,
+    # когда получится» (поведение как раньше). Проверка окна — validate_deliver_by.
+    deliver_by: Optional[date] = None
+
+    @field_validator("deliver_by", mode="before")
+    @classmethod
+    def _blank_deliver_by(cls, v):
+        return blank_date_to_none(v)
 
 
 class ParcelAcceptIn(BaseModel):
@@ -144,6 +165,41 @@ class ParcelStatusIn(BaseModel):
 class ParcelReasonIn(BaseModel):
     """Причина (снятие курьера / возврат / админ-действие) — видна обеим сторонам, ≤200."""
     reason: str = Field("", max_length=200)
+
+
+def validate_deliver_by(value: Optional[date]) -> Optional[date]:
+    """Проверить срок «нужно доставить не позже этого дня» и вернуть его же.
+
+    Пустое/не прислали → None и никакой ошибки: «не срочно, когда получится» — нормальный
+    ответ, а не забытое поле. Прошлое → 422 (срок, который уже вышел, не может быть целью).
+    Дальше окна → 422 (см. _DELIVER_BY_MAX_DAYS).
+
+    День МЕСТНЫЙ (Уфа UTC+5, workday.local_day), а не UTC: человек живёт по своим суткам, и
+    «сегодня» у него наступает на пять часов раньше, чем у сервера. ОДНА функция на обе точки
+    приёма — «по пути» (ParcelIn) и заказ курьера (CourierOrderIn) судят срок одинаково."""
+    if value is None:
+        return None
+    today = local_day()
+    if value < today:
+        raise herr(422, "Срок доставки уже прошёл — выбери сегодняшний день или позже",
+                   "Доставка ваҡыты үткән — бөгөнгө йәки һуңғараҡ көндө һайла")
+    if value > today + timedelta(days=_DELIVER_BY_MAX_DAYS):
+        raise herr(422, f"Срок доставки — не дальше {_DELIVER_BY_MAX_DAYS} дней",
+                   f"Доставка ваҡытын {_DELIVER_BY_MAX_DAYS} көндән алыҫҡа ҡуйып булмай")
+    return value
+
+
+def _is_overdue(p: ParcelDelivery) -> bool:
+    """Срок вышел, а доставка ещё не завершена.
+
+    Считаем на СЕРВЕРЕ: у телефона свои часы, свой часовой пояс и своё представление о полуночи —
+    «просрочено» должно быть одинаковым и у отправителя, и у курьера. Завершённая доставка
+    (delivered/canceled/returned) не просрочена никогда: везти уже нечего, а красный значок на
+    вручённой посылке — просто враньё."""
+    deadline = getattr(p, "deliver_by", None)
+    if deadline is None or p.status in _FINAL_STATUSES:
+        return False
+    return deadline < local_day()
 
 
 def _gen_code(session: Session) -> str:
@@ -204,6 +260,11 @@ def _parcel_base(p: ParcelDelivery, blur_coords: bool = False) -> dict:
         # C1: тип доставки и поля курьерского режима (аддитивно; старый клиент их игнорирует).
         "delivery_type": getattr(p, "delivery_type", "poputka") or "poputka",
         "urgency": getattr(p, "urgency", "bypath") or "bypath",
+        # СРОК доставки и серверный флаг «срок вышел». Это НЕ персональные данные, а УСЛОВИЕ
+        # заказа: курьер решает, берётся ли он успеть, — значит должен видеть срок ДО принятия,
+        # в том числе в открытом списке (в отличие от телефона и адресов, которые скрыты).
+        "deliver_by": (p.deliver_by.isoformat() if getattr(p, "deliver_by", None) else None),
+        "overdue": _is_overdue(p),
         "declared_value_kop": getattr(p, "declared_value_kop", 0) or 0,
         "cod_amount_kop": getattr(p, "cod_amount_kop", 0) or 0,
         "commission_kop": getattr(p, "commission_kop", 0) or 0,
@@ -334,6 +395,9 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
         raise herr(422, "Выбери размер посылки", "Бандероль үлсәмен һайла")
     if not body.rules_accepted:
         raise herr(422, "Прими правила доставки", "Доставка ҡағиҙәләрен ҡабул ит")
+    # Срок «к какому дню нужно» (опционально). Проверяем ДО создания: заявка с сроком из
+    # прошлого родилась бы уже просроченной.
+    deliver_by = validate_deliver_by(body.deliver_by)
 
     parcel = ParcelDelivery(
         sender_id=user.id,
@@ -356,6 +420,8 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
         delivery_price_kop=int(body.price_kop or 0),
         # Объявленная ценность — ориентир при разборе спора (0 = не объявлена).
         declared_value_kop=int(body.declared_value_kop or 0),
+        # «Нужно не позже этого дня» (None = не срочно, когда получится).
+        deliver_by=deliver_by,
         status="created",
         confirm_code=_gen_code(session),
     )

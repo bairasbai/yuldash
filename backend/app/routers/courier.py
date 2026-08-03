@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlmodel import Session, select
 
@@ -697,6 +697,14 @@ class CourierOrderIn(BaseModel):
     declared_value_kop: int = Field(0, ge=0, le=100_000_00)   # объявленная ценность ≤ 100 000 ₽
     cod_amount_kop: int = Field(0, ge=0, le=100_000_00)       # buy_bring: наложка ≤ 100 000 ₽
     shopping_list: str = Field("", max_length=2000)        # buy_bring: что купить (уходит в description)
+    # СРОК: «нужно доставить не позже этого дня» (ГГГГ-ММ-ДД). Не прислали → «когда получится».
+    # Окно и текст ошибки — общие с посылкой «по пути» (parcels.validate_deliver_by).
+    deliver_by: Optional[date] = None
+
+    @field_validator("deliver_by", mode="before")
+    @classmethod
+    def _blank_deliver_by(cls, v):
+        return parcels_mod.blank_date_to_none(v)
 
 
 @router.post("/courier/orders")
@@ -729,6 +737,9 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
         raise herr(422, "Некорректная срочность", "Ялған ашығыслыҡ")
     if not body.rules_accepted:
         raise herr(422, "Прими правила доставки", "Доставка ҡағиҙәләрен ҡабул ит")
+    # Срок «к какому дню нужно» — та же функция, что у посылки «по пути»: одно окно, один текст
+    # ошибки. Отдельная копия проверки разъехалась бы при первой же правке (уроки, «один шов»).
+    deliver_by = parcels_mod.validate_deliver_by(body.deliver_by)
 
     cod_amount_kop = 0
     description = body.description.strip()
@@ -775,6 +786,8 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
         cod_amount_kop=cod_amount_kop,
         delivery_type=dtype,
         urgency=urgency,
+        # «Нужно не позже этого дня» (None = не срочно, когда получится).
+        deliver_by=deliver_by,
         status="created",
         confirm_code=parcels_mod._gen_code(session),
     )

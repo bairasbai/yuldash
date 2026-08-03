@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.ReportProblem
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Icon
@@ -210,6 +211,59 @@ internal fun parcelSizeHint(size: String): String = when (size.lowercase()) {
     else -> ""
 }
 
+// ─────────────────── Срок доставки: «к какому дню нужно» ───────────────────
+// Это НЕ городской ETA «привезём за 2 ч 15 мин». В селе доставка держится на том, поедет ли
+// кто-то в ту сторону, и минутный прогноз тут был бы враньём. Поэтому срок — ДОГОВОРЁННОСТЬ:
+// отправитель называет день, курьер видит этот день ДО того, как взяться, и решает, успеет ли.
+// Формат везде один и тот же, серверный (2026-08-05); пустая строка = «не срочно».
+
+/**
+ * Дата через [days] дней в формате сервера (2026-08-05).
+ *
+ * Locale.US задаём явно: под локалью телефона в строку попали бы её собственные цифры, и сервер
+ * получил бы мусор. Та же грабля, что у денежного форматтера выше (аудит 2026-08-03).
+ */
+internal fun deliveryDateAhead(days: Int): String {
+    val cal = java.util.Calendar.getInstance()
+    cal.add(java.util.Calendar.DAY_OF_YEAR, days)
+    return String.format(
+        java.util.Locale.US, "%04d-%02d-%02d",
+        cal.get(java.util.Calendar.YEAR),
+        cal.get(java.util.Calendar.MONTH) + 1,
+        cal.get(java.util.Calendar.DAY_OF_MONTH),
+    )
+}
+
+private val deliveryMonthsRu = listOf(
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+)
+private val deliveryMonthsBa = listOf(
+    "ғинуар", "февраль", "март", "апрель", "май", "июнь",
+    "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
+)
+
+/** «2026-08-05» → «5 августа». Нечитаемую строку отдаём как есть: врать датой нельзя. */
+@Composable
+private fun deliveryDateHuman(date: String): String {
+    val parts = date.split("-")
+    if (parts.size != 3) return date
+    val month = parts[1].toIntOrNull() ?: return date
+    val day = parts[2].toIntOrNull() ?: return date
+    if (month < 1 || month > 12) return date
+    return "$day " + appText(deliveryMonthsRu[month - 1], deliveryMonthsBa[month - 1])
+}
+
+/** Как этот день называют вслух: «Сегодня», «Завтра» или «5 августа».
+ *  Пусто остаётся пустым — «не срочно» рисуется отдельно, а не прочерком. */
+@Composable
+internal fun deliveryDayName(date: String): String = when {
+    date.isBlank() -> ""
+    date == deliveryDateAhead(0) -> appText("Сегодня", "Бөгөн")
+    date == deliveryDateAhead(1) -> appText("Завтра", "Иртәгә")
+    else -> deliveryDateHuman(date)
+}
+
 private data class ParcelStatusStyle(val bg: Color, val fg: Color, val ru: String, val ba: String)
 
 @Composable
@@ -285,6 +339,79 @@ internal fun ParcelReturnNotice(
                     fontSize = DeliveryCaption,
                     lineHeight = DeliveryCaptionLine,
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Срок на карточке заказа — одинаковый у курьера и у отправителя.
+ *
+ * Курьеру он нужен, чтобы решить, браться ли: «нужно завтра» и «нужно к пятнице» — разные заказы.
+ * Отправителю — чтобы понять, ждать ещё или уже пора написать. Просрочку считает СЕРВЕР (поле
+ * overdue): у телефона своя дата и свой часовой пояс, и клиентский подсчёт красил бы одну и ту же
+ * посылку по-разному на двух экранах.
+ *
+ * Срока нет → не рисуем вовсе: «Срок: —» читалось бы как «отправитель поленился написать».
+ * Завершённый заказ срок тоже не показывает — там он уже не новость.
+ */
+@Composable
+internal fun ParcelDeadlineNote(
+    deliverBy: String?,
+    overdue: Boolean,
+    status: String,
+    forCourier: Boolean,
+) {
+    val date = deliverBy.orEmpty()
+    if (date.isBlank() || isParcelTerminal(status)) return
+    // Просрочка наступает у человека на глазах (список сам обновляется раз в 25 с) — цвет
+    // переезжает плавно, иначе спокойная карточка «щёлкает» в тревожную одним кадром.
+    val bg by animateColorAsState(if (overdue) CanonDangerBg else CanonCourierBg, tween(320), label = "pdue-bg")
+    val ink by animateColorAsState(if (overdue) CanonRed else CanonCourier, tween(320), label = "pdue-ink")
+    val label = if (overdue) appText("Срок вышел · было нужно", "Ваҡыт үтте · кәрәк ине")
+    else appText("Нужно доставить", "Илтергә кәрәк")
+    val day = deliveryDayName(date)
+    // Спокойно и без обвинений: просрочка тут чаще про «попутчик не нашёлся», чем про чью-то вину.
+    val calmNote = if (forCourier) appText(
+        "Отправитель ждёт. Напиши ему, если не успеваешь.",
+        "Ебәреүсе көтә. Өлгөрмәһәң, уға яҙ.",
+    ) else appText(
+        "Посылка ещё в пути. Так бывает, когда попутчик не нашёлся сразу.",
+        "Бандероль әле юлда. Юлдаш шунда уҡ табылмаһа, шулай була.",
+    )
+    Surface(
+        color = bg,
+        shape = CanonItemShape,
+        border = if (overdue) BorderStroke(1.dp, CanonDangerBorder) else null,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
+                // Голосом блок читается одной мыслью: «Нужно доставить. Завтра» — а не тремя
+                // обрывками, между которыми проваливается смысл.
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "$label. $day" + if (overdue) ". $calmNote" else ""
+                },
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(Icons.Default.Schedule, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    label, color = ink, fontWeight = FontWeight.Bold,
+                    fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                )
+                Text(
+                    day, color = CanonText, fontWeight = FontWeight.Black,
+                    fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                )
+                if (overdue) {
+                    Text(
+                        calmNote, color = CanonText,
+                        fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                    )
+                }
             }
         }
     }
@@ -1006,6 +1133,10 @@ private fun SendParcelTab(onSent: () -> Unit) {
     var receiverPhone by rememberSaveable { mutableStateOf("") }
     var rulesAccepted by rememberSaveable { mutableStateOf(false) }
     var urgency by rememberSaveable { mutableStateOf("bypath") }          // bypath | now
+    // К какому дню нужно (2026-08-05). Пусто = «не срочно» — и это значение по умолчанию:
+    // большинству в селе спешить некуда, а навязанный дедлайн отпугивает курьеров, которым
+    // он не по пути. До сервера пустая строка не доедет вовсе (ApiClient её отсекает).
+    var deliverBy by rememberSaveable { mutableStateOf("") }
     var shoppingList by rememberSaveable { mutableStateOf("") }
     // Объявленная ценность: поля в форме не было вообще, поэтому спор о повреждении ВСЕГДА падал
     // в ветку «ценность не объявлена» — доказывать было нечем (аудит 2026-07-26).
@@ -1062,7 +1193,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
         deliveryType = "poputka"
         fromCity = ""; toCity = ""; fromAddress = ""; toAddress = ""; size = ""; description = ""
         receiverName = ""; receiverPhone = ""; rulesAccepted = false
-        urgency = "bypath"; shoppingList = ""; declaredRub = ""
+        urgency = "bypath"; shoppingList = ""; declaredRub = ""; deliverBy = ""
         priceRub = ""; productRub = ""; estimate = null
         fromLat = null; fromLng = null; toLat = null; toLng = null
         error = null
@@ -1130,6 +1261,9 @@ private fun SendParcelTab(onSent: () -> Unit) {
                     appText("Курьер купит товар за тебя и привезёт. До 5000 ₽.", "Курьер һинең өсөн тауар алып килтерер. 5000 ₽-ға тиклем."),
                     Icons.Default.ShoppingBag,
                 ) { deliveryType = "buy_bring"; estimate = null }
+                // Способ выбран — сразу честно про ожидание. Без этой строки человек видел, ЧТО
+                // за способ, но не понимал, сегодня приедет или через неделю.
+                DeliveryWaitNote(deliveryType)
             }
         }
         // Маршрут. Каждый город идёт в паре со своим ориентиром: «Откуда» — это село целиком,
@@ -1184,12 +1318,21 @@ private fun SendParcelTab(onSent: () -> Unit) {
                 }
             }
         }
-        // Срочность (курьер / купи-привези)
+        // Срок: к какому дню нужно. Спрашиваем у ВСЕХ типов, включая «по пути» — именно там
+        // человек и не понимает, сегодня посылка уедет или через неделю.
+        if (step == stepParcel) item {
+            DeliverySectionTitle(appText("Когда нужно", "Ҡасан кәрәк"))
+        }
+        if (step == stepParcel) item {
+            ParcelDeadlinePicker(value = deliverBy, onValue = { deliverBy = it })
+        }
+        // Способ перевозки (курьер / купи-привези). Заголовок именно про «как», а не про «когда»:
+        // это выбор скорости и цены, а срок из блока выше — про день, к которому нужно.
         if (isCourier && step == stepParcel) {
             item {
                 // Блок появляется только у курьерских типов — значит въезжает мягко,
                 // а не выпрыгивает посреди формы (appearIn стартует с нуля, не с цели).
-                DeliverySectionTitle(appText("Когда доставить", "Ҡасан илтергә"), Modifier.appearIn())
+                DeliverySectionTitle(appText("Как везти", "Нисек илтергә"), Modifier.appearIn())
             }
             item {
                 Row(Modifier.appearIn(1), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1340,6 +1483,8 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                 // Где забрать и куда привезти. Пустые до сервера не доедут —
                                 // их отсекает сам ApiClient, чтобы не слать пустой шум.
                                 fromAddress = fromAddress.trim(), toAddress = toAddress.trim(),
+                                // Срок «к какому дню нужно». Пусто = «не срочно» и в тело не попадёт.
+                                deliverBy = deliverBy,
                             )
                                 .onSuccess { showCreatedReceipt(it) }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
@@ -1408,6 +1553,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                 declaredValueKop = declaredRub.toIntOrNull()?.takeIf { it > 0 }
                                     ?.let { (it * 100).coerceAtMost(100_000_00) },
                                 fromAddress = fromAddress.trim(), toAddress = toAddress.trim(),
+                                deliverBy = deliverBy,
                             )
                                 .onSuccess { showCreatedReceipt(it) }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
@@ -1574,6 +1720,98 @@ private fun UrgencyChip(title: String, subtitle: String, selected: Boolean, modi
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+/**
+ * Одна честная строка про ожидание — прямо под выбором способа доставки.
+ *
+ * Раньше экран говорил, ЧТО за способ, но молчал о том, сколько ждать: человек выбирал «по пути»
+ * и не понимал, приедет сегодня или через неделю. Точное время обещать нельзя — попутчик может
+ * и не найтись, — но объяснить, от чего ожидание зависит, можно и нужно.
+ */
+@Composable
+private fun DeliveryWaitNote(deliveryType: String) {
+    val text = when (deliveryType) {
+        "courier" -> appText(
+            "Курьер выезжает, как только возьмёт заказ.",
+            "Курьер заказды алыу менән юлға сыға.",
+        )
+        "buy_bring" -> appText(
+            "Курьер сам купит и выедет, как только возьмёт заказ.",
+            "Курьер үҙе һатып алыр һәм заказды алғас юлға сығыр.",
+        )
+        else -> appText(
+            "Везёт попутчик, который и так едет. Ждать можно день-другой — пока кто-нибудь не поедет в ту сторону.",
+            "Юл ыңғайы бараған юлдаш илтә. Бер-ике көн көтөргә тура килеүе ихтимал — шул яҡҡа кемдер киткәнсе.",
+        )
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
+        // Способ щёлкают туда-сюда: подмена строки одним кадром читалась бы как сбой отрисовки.
+        AnimatedContent(
+            targetState = text,
+            modifier = Modifier.weight(1f),
+            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
+            label = "delivery-wait-note",
+        ) { line -> DeliveryHint(line) }
+    }
+}
+
+/**
+ * Срок: к какому дню нужно. Не календарь-комбайн, а четыре ответа из жизни — «да когда
+ * получится», «сегодня», «завтра», «к пятнице».
+ *
+ * По умолчанию «Не срочно» (пустая строка): большинству в селе спешить некуда, а навязанный
+ * дедлайн отпугнёт курьеров, которым он не по пути. «Выбрать день» открывает системный календарь
+ * с минимумом «сегодня» — тот же, что у водительских документов (openFutureDatePicker).
+ */
+@Composable
+private fun ParcelDeadlinePicker(value: String, onValue: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val lang = LocalAppLanguage.current
+    val today = deliveryDateAhead(0)
+    val tomorrow = deliveryDateAhead(1)
+    // Черновик мог пролежать до ночи, и «сегодня» стало вчерашним. Просроченный срок отправлять
+    // нельзя — тихо возвращаемся к «не срочно», не пугая человека ошибкой на пустом месте.
+    LaunchedEffect(value, today) { if (value.isNotBlank() && value < today) onValue("") }
+    val customDay = value.isNotBlank() && value != today && value != tomorrow
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            UrgencyChip(
+                appText("Не срочно", "Ашығыс түгел"),
+                appText("когда получится", "ҡасан булһа ла"),
+                value.isBlank(), Modifier.weight(1f),
+            ) { onValue("") }
+            UrgencyChip(
+                appText("Сегодня", "Бөгөн"),
+                deliveryDateHuman(today),
+                value == today, Modifier.weight(1f),
+            ) { onValue(today) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            UrgencyChip(
+                appText("Завтра", "Иртәгә"),
+                deliveryDateHuman(tomorrow),
+                value == tomorrow, Modifier.weight(1f),
+            ) { onValue(tomorrow) }
+            UrgencyChip(
+                appText("Выбрать день", "Көн һайлау"),
+                if (customDay) deliveryDateHuman(value) else appText("другой день", "башҡа көн"),
+                customDay, Modifier.weight(1f),
+            ) {
+                openFutureDatePicker(ctx, if (lang == AppLanguage.Ba) "ba" else "ru") { onValue(it) }
+            }
+        }
+        DeliveryHint(
+            if (value.isBlank()) appText(
+                "Без срока берут охотнее: курьер подстроит доставку под свою дорогу.",
+                "Ваҡытһыҙ теләберәк алалар: курьер илтеүҙе үҙ юлына яраҡлаштыра.",
+            ) else appText(
+                "Курьер увидит этот день до того, как взяться, — и возьмётся, только если успевает.",
+                "Курьер был көндө эшкә тотонғанға тиклем күрер һәм өлгөрһә генә алыр.",
+            ),
+        )
     }
 }
 
@@ -1978,6 +2216,14 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                 CourierDeliveryProgress(status = p.status)
             }
             ParcelReturnNotice(status = p.status, reason = p.returnReason, forCourier = false)
+            // Срок, который отправитель сам назвал. Если он вышел — человек должен узнать об этом
+            // из приложения, а не догадываться, почему посылка всё ещё «в пути».
+            ParcelDeadlineNote(
+                deliverBy = p.deliverBy,
+                overdue = p.overdue,
+                status = p.status,
+                forCourier = false,
+            )
             // То, что отправитель сам написал курьеру. Спокойный вариант блока: ему не ехать
             // по этим ориентирам, ему нужно сверить — не перепутал ли он ворота.
             ParcelAddressBlock(fromAddress = p.fromAddress, toAddress = p.toAddress, prominent = false)

@@ -437,4 +437,90 @@ class ApiClientTaxiCourierTest {
         assertEquals("", p.pickupPhotoUrl)
         assertEquals("", p.deliveryPhotoUrl)
     }
+
+    // ---------------------------- Срок доставки ----------------------------
+    // Отправитель говорит, к какому дню нужно; курьер видит этот день ДО того, как взяться.
+    // Это договорённость, а не прогноз: обещать минуты там, где всё держится на попутчике, нельзя.
+
+    @Test
+    fun createParcel_sendsDeliverBy() = runBlocking {
+        server.enqueue(json("""{"id":41,"from_city":"Баймак","to_city":"Сибай","status":"new"}"""))
+        ApiClient.createParcel(
+            fromCity = "Баймак", toCity = "Сибай", size = "s", description = "мёд",
+            receiverName = "Айгуль", receiverPhone = "+79270000001", rulesAccepted = true,
+            deliverBy = "2026-08-05",
+        ).getOrThrow()
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals("/parcels", recorded.path)
+        val body = recorded.body.readUtf8()
+        assertTrue(body.contains("deliver_by"))
+        assertTrue(body.contains("2026-08-05"))
+    }
+
+    /**
+     * «Не срочно» — это значение по умолчанию, и ключа в теле быть не должно вовсе.
+     * Пустая строка на сервере читалась бы как дата, а навязанный дедлайн отпугивает курьеров,
+     * которым он не по пути.
+     */
+    @Test
+    fun createParcel_withoutDeliverBy_omitsKey() = runBlocking {
+        server.enqueue(json("""{"id":42,"from_city":"Баймак","to_city":"Сибай","status":"new"}"""))
+        ApiClient.createParcel(
+            fromCity = "Баймак", toCity = "Сибай", size = "s", description = "",
+            receiverName = "Айгуль", receiverPhone = "+79270000001", rulesAccepted = true,
+        ).getOrThrow()
+        assertTrue(!server.takeRequest().body.readUtf8().contains("deliver_by"))
+    }
+
+    /** У курьерского заказа срок тот же самый: одна форма — один контракт. */
+    @Test
+    fun createCourierOrder_sendsDeliverBy() = runBlocking {
+        server.enqueue(json("""{"id":43,"from_city":"Баймак","to_city":"Сибай","status":"new"}"""))
+        ApiClient.createCourierOrder(
+            fromCity = "Баймак", toCity = "Сибай",
+            fromLat = 52.5, fromLng = 58.3, toLat = 52.6, toLng = 58.4,
+            size = "m", description = "коробка",
+            receiverName = "Айгуль", receiverPhone = "+79270000001", rulesAccepted = true,
+            deliveryType = "courier", urgency = "now",
+            deliverBy = "2026-08-06",
+        ).getOrThrow()
+        val recorded = server.takeRequest()
+        assertEquals("/courier/orders", recorded.path)
+        assertTrue(recorded.body.readUtf8().contains("2026-08-06"))
+    }
+
+    /** Признак просрочки считает СЕРВЕР — клиент обязан его донести, а не пересчитывать по часам телефона. */
+    @Test
+    fun parcel_parsesDeliverByAndOverdue() = runBlocking {
+        server.enqueue(
+            json(
+                """{"items":[{"id":44,"sender_id":3,"from_city":"Баймак","to_city":"Сибай","size":"m",
+                   "description":"мёд","receiver_name":"Айгуль","receiver_phone":"+79270000001",
+                   "fee_kop":0,"status":"in_transit","confirm_code":"1234",
+                   "created_at":"2026-08-01T10:00:00","deliver_by":"2026-08-02","overdue":true}]}"""
+            )
+        )
+        val p = ApiClient.getMyParcels().getOrThrow().first()
+        assertEquals("2026-08-02", p.deliverBy)
+        assertEquals(true, p.overdue)
+    }
+
+    /**
+     * Старый сервер этих ключей не пришлёт: срок → null («не срочно», блок не рисуем),
+     * просрочка → false. Обновлённое приложение не должно ломаться о неподнятый бэкенд.
+     */
+    @Test
+    fun parcel_oldServerWithoutDeadline_usesNullAndFalse() = runBlocking {
+        server.enqueue(
+            json(
+                """{"items":[{"id":45,"sender_id":3,"from_city":"Баймак","to_city":"Сибай","size":"s",
+                   "description":"","receiver_name":"Айгуль","receiver_phone":"",
+                   "fee_kop":0,"status":"new","confirm_code":"","created_at":"2026-08-01T10:00:00"}]}"""
+            )
+        )
+        val p = ApiClient.getAvailableParcels().getOrThrow().first()
+        assertNull(p.deliverBy)
+        assertEquals(false, p.overdue)
+    }
 }

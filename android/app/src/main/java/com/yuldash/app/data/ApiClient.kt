@@ -3037,6 +3037,11 @@ object ApiClient {
         deliveryPhotoUrl = o.optString("delivery_photo_url"),
         deliveryAttempts = o.optInt("delivery_attempts"),
         cancelFeeKop = o.optInt("cancel_fee_kop"),
+        // Срок «к какому дню нужно» и признак просрочки. Просрочку считает СЕРВЕР: у телефона
+        // своя дата и свой часовой пояс, и клиентский подсчёт красил бы карточку по-разному
+        // у отправителя и курьера. nStr → null, если срока нет или сервер старый.
+        deliverBy = nStr(o, "deliver_by"),
+        overdue = o.optBoolean("overdue", false),
     )
 
     /** Разбор блока settlement (buy_bring): null, если сервер не прислал. */
@@ -3054,13 +3059,17 @@ object ApiClient {
      *  fromAddress/toAddress — «где именно забрать и куда привезти». Города мало: курьер брал
      *  заказ и ехал «в Баймак» — ни дома, ни ориентира. В селе это чаще ориентир, чем улица
      *  с табличкой, поэтому одна свободная строка на сторону. Пустые не шлём — как comment
-     *  и entrance в createInstantOrder. */
+     *  и entrance в createInstantOrder.
+     *
+     *  deliverBy — «к какому дню нужно», строка вида 2026-08-05. Это не прогноз, а договорённость:
+     *  курьер видит день до того, как взяться. Пусто = «не срочно», ключа в теле нет вовсе. */
     suspend fun createParcel(
         fromCity: String, toCity: String, size: String, description: String,
         receiverName: String, receiverPhone: String, rulesAccepted: Boolean,
         fromLat: Double? = null, fromLng: Double? = null, toLat: Double? = null, toLng: Double? = null,
         priceKop: Int = 0, declaredValueKop: Int = 0,
         fromAddress: String = "", toAddress: String = "",
+        deliverBy: String = "",
     ): Result<ParcelDto> {
         val body = JSONObject()
             .put("from_city", fromCity).put("to_city", toCity)
@@ -3074,6 +3083,7 @@ object ApiClient {
             .put("from_lat", fromLat ?: JSONObject.NULL).put("from_lng", fromLng ?: JSONObject.NULL)
             .put("to_lat", toLat ?: JSONObject.NULL).put("to_lng", toLng ?: JSONObject.NULL)
         putParcelAddresses(body, fromAddress, toAddress)
+        putParcelDeliverBy(body, deliverBy)
         return call("POST", "/parcels", body, auth = true)
             .map { parseParcel(it) }.onSuccess { Analytics.log("parcel_create") }
     }
@@ -3082,6 +3092,12 @@ object ApiClient {
     private fun putParcelAddresses(body: JSONObject, fromAddress: String, toAddress: String) {
         if (fromAddress.isNotBlank()) body.put("from_address", fromAddress.take(PARCEL_ADDRESS_MAX_LEN))
         if (toAddress.isNotBlank()) body.put("to_address", toAddress.take(PARCEL_ADDRESS_MAX_LEN))
+    }
+
+    /** Кладёт срок «к какому дню нужно» (2026-08-05). Пусто = «не срочно» → ключа в теле нет:
+     *  навязанный дедлайн отпугивает курьеров, а пустая строка на сервере значила бы «на сегодня». */
+    private fun putParcelDeliverBy(body: JSONObject, deliverBy: String) {
+        if (deliverBy.isNotBlank()) body.put("deliver_by", deliverBy.trim())
     }
 
     /** Отправитель: мои посылки (с кодом вручения и курьером, если принята). */
@@ -3284,6 +3300,7 @@ object ApiClient {
         deliveryType: String, urgency: String,
         declaredValueKop: Int? = null, codAmountKop: Int? = null, shoppingList: String? = null,
         fromAddress: String = "", toAddress: String = "",
+        deliverBy: String = "",
     ): Result<ParcelDto> {
         val body = JSONObject()
             .put("from_city", fromCity).put("to_city", toCity)
@@ -3297,6 +3314,7 @@ object ApiClient {
         codAmountKop?.let { body.put("cod_amount_kop", it) }
         shoppingList?.takeIf { it.isNotBlank() }?.let { body.put("shopping_list", it) }
         putParcelAddresses(body, fromAddress, toAddress)
+        putParcelDeliverBy(body, deliverBy)
         return call("POST", "/courier/orders", body, auth = true).map { parseParcel(it) }
             .onSuccess { Analytics.log("courier_order_$deliveryType") }
     }
@@ -5318,6 +5336,11 @@ data class ParcelDto(
     // Значения по умолчанию обязательны: старый сервер этих ключей не пришлёт.
     val fromAddress: String = "",
     val toAddress: String = "",
+    // Срок доставки — не прогноз, а договорённость: отправитель говорит, к какому дню нужно,
+    // курьер видит это ДО того, как взяться. Формат сервера — 2026-08-05; null = «не срочно».
+    // overdue считает сервер («срок вышел, а доставка не завершена») — клиент его не выводит сам.
+    val deliverBy: String? = null,
+    val overdue: Boolean = false,
 )
 
 /** C2: расчёт «купи и привези» — сколько получатель вернёт курьеру (товар + доставка).
