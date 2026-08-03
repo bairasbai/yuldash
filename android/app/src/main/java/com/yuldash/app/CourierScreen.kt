@@ -257,12 +257,30 @@ internal fun CourierScreen(
                 application?.status == "approved" && meError && m == null -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center) {
                     AppErrorState(onRetry = { reloadKey++ })
                 }
-                application?.status != "approved" -> CourierNotApprovedView(
-                    application = application,
-                    refreshFailed = applicationRefreshFailed,
-                    onRetry = { reloadKey++ },
-                    onBecomeCourier = onBecomeCourier,
-                )
+                // Без одобренной заявки человек ВСЁ РАВНО видит заказы «по пути» (найдено при
+                // живой проверке на эмуляторе 2026-08-03). Раньше весь экран был заперт за
+                // заявкой профи-курьера — с селфи, госномером и ручной модерацией. Но «по пути»
+                // везёт сосед, который и так едет в Сибай: требовать от него анкету перевозчика
+                // значит убить главный сценарий доставки «между своими». Сервер этого и не
+                // требовал — `/parcels/available` открыт любому вошедшему; запрет жил только
+                // в приложении. Профи-лента («Курьерские») по-прежнему за заявкой.
+                application?.status != "approved" -> Column(Modifier.fillMaxSize()) {
+                    CourierNotApprovedView(
+                        application = application,
+                        refreshFailed = applicationRefreshFailed,
+                        onRetry = { reloadKey++ },
+                        onBecomeCourier = onBecomeCourier,
+                        compact = true,
+                    )
+                    CourierAvailableTab(
+                        online = false,
+                        lineBusy = false,
+                        zone = "region",
+                        workCity = "",
+                        onGoOnline = {},
+                        poputkaOnly = true,
+                    )
+                }
                 m == null -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center) {
                     AppErrorState(onRetry = { reloadKey++ })
                 }
@@ -279,6 +297,9 @@ private fun CourierNotApprovedView(
     refreshFailed: Boolean,
     onRetry: () -> Unit,
     onBecomeCourier: () -> Unit,
+    // compact=true — приглашение стоит НАД лентой «по пути», а не вместо неё. Тогда оно
+    // обязано быть узкой карточкой: два прокручиваемых списка в одной колонке не уживаются.
+    compact: Boolean = false,
 ) {
     val status = application?.status
     val (emoji, title, body) = when (status) {
@@ -297,6 +318,45 @@ private fun CourierNotApprovedView(
             appText("Стань курьером Юлдаша", "Юлдаш курьеры бул"),
             appText("Развози посылки своим и зарабатывай. Комиссия по ступени — от 0% до 8%, всегда видна заранее.", "Үҙебеҙҙекеләргә бандеролдәр илт тә аҡса эшлә. Баҫҡыс буйынса комиссия 0%-тан 8%-ҡа тиклем, алдан уҡ күренә."),
         )
+    }
+    if (compact) {
+        Surface(
+            color = CanonMint,
+            shape = CanonCardShape,
+            border = BorderStroke(1.dp, CanonGreen2.copy(alpha = 0.3f)),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Row(
+                Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (emoji == "🛵") {
+                    Icon(painterResource(R.drawable.yu_mode_courier), contentDescription = null,
+                        tint = CanonGreen2, modifier = Modifier.size(28.dp))
+                } else {
+                    Text(emoji, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = CanonText, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                        fontWeight = FontWeight.Bold)
+                    Text(
+                        appText(
+                            "Заказы «по пути» бери прямо сейчас — заявка нужна только для курьерских.",
+                            "«Юл ыңғайы» заказдарын хәҙер үк ал — заявка тик курьер заказдары өсөн кәрәк.",
+                        ),
+                        color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                    )
+                }
+                TextButton(onClick = onBecomeCourier) {
+                    Text(
+                        if (status == null) appText("Стать", "Булыу") else appText("Заявка", "Заявка"),
+                        color = CanonGreen2, fontSize = DeliveryCaption, fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+        return
     }
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 20.dp),
@@ -723,10 +783,13 @@ private fun CourierAvailableTab(
     zone: String,
     workCity: String,
     onGoOnline: () -> Unit,
+    // Человек БЕЗ заявки профи-курьера. Ему доступна только лента «по пути» — и это не
+    // ограничение, а её смысл: везёт сосед, который и так едет, а не нанятый курьер.
+    poputkaOnly: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    var feed by rememberSaveable { mutableIntStateOf(COURIER_FEED_PRO) }
+    var feed by rememberSaveable { mutableIntStateOf(if (poputkaOnly) COURIER_FEED_POPUTKA else COURIER_FEED_PRO) }
     var cityFilter by rememberSaveable { mutableStateOf("") }
     // Куда. Сервер этот фильтр принимал всегда, клиент его просто не слал — и курьер, который
     // едет в Сибай, листал заказы во все стороны подряд. Работает в обеих лентах: «по пути»
@@ -822,10 +885,12 @@ private fun CourierAvailableTab(
                     ),
                 )
             }
-            item {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CourierPickChip(appText("Курьерские", "Курьер заказдары"), !poputka) { feed = COURIER_FEED_PRO }
-                    CourierPickChip(appText("По пути", "Юл ыңғайы"), poputka) { feed = COURIER_FEED_POPUTKA }
+            if (!poputkaOnly) {
+                item {
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CourierPickChip(appText("Курьерские", "Курьер заказдары"), !poputka) { feed = COURIER_FEED_PRO }
+                        CourierPickChip(appText("По пути", "Юл ыңғайы"), poputka) { feed = COURIER_FEED_POPUTKA }
+                    }
                 }
             }
             // Два ряда фильтров — «откуда» и «куда». Подписи обязательны: без них два одинаковых

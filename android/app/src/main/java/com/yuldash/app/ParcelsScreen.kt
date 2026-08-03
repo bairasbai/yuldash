@@ -1549,15 +1549,60 @@ private fun SendParcelTab(onSent: () -> Unit) {
             }
         }
         item { DeliveryErrorCard(error) }
-        // Шаги 1-2: «Далее». Кнопка неактивна, пока шаг не заполнен — человек сразу видит,
-        // что от него ждут, и не доходит до конца формы с пустым обязательным полем.
+        // Шаги 1-2: «Далее».
+        //
+        // Кнопка гаснет, пока шаг не заполнен, — но ОДНОГО этого мало. Живая проверка на
+        // эмуляторе (2026-08-03) показала, чем это оборачивается: не выбран размер посылки,
+        // а сам выбор уехал вверх за край экрана. Человек видит серую кнопку, жмёт её,
+        // ничего не происходит, и никто нигде не говорит почему. Он решает, что приложение
+        // сломалось, и уходит. Поэтому под погасшей кнопкой прямо пишем, чего не хватает.
         if (step != stepReceiver) item {
+            val blocked = if (step == stepRoute) !routeOk else !parcelOk
             AppButton(
                 text = appText("Далее", "Артабан"),
                 onClick = { if (step == stepRoute && routeOk) step = stepParcel else if (step == stepParcel && parcelOk) step = stepReceiver },
                 style = AppButtonStyle.Accent,
-                enabled = if (step == stepRoute) routeOk else parcelOk,
+                enabled = !blocked,
             )
+            val hint = when {
+                step == stepRoute && fromCity.isBlank() -> appText("Укажи, откуда забрать посылку", "Бандерольде ҡайҙан алырға икәнен күрһәт")
+                step == stepRoute && toCity.isBlank() -> appText("Укажи, куда её привезти", "Уны ҡайҙа илтергә икәнен күрһәт")
+                step == stepParcel && size.isBlank() -> appText("Выбери размер посылки — он выше", "Бандероль үлсәмен һайла — ул юғарыраҡ")
+                step == stepParcel && !weightOk -> appText("Вес больше 100 кг — это уже грузоперевозка", "Ауырлыҡ 100 кг-дан артыҡ — был инде йөк ташыу")
+                step == stepParcel && !buyBringOk -> appText("Укажи стоимость покупки", "Һатып алыу хаҡын күрһәт")
+                else -> null
+            }
+            if (blocked && hint != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    hint,
+                    color = CanonWarn,
+                    fontSize = DeliveryCaption,
+                    lineHeight = DeliveryCaptionLine,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+        // Та же беда, что и на «Далее»: последний шаг гаснет молча, а незаполненное поле
+        // (имя, телефон или галочка правил) может быть выше края экрана.
+        if (step == stepReceiver) item {
+            val hint = when {
+                receiverName.isBlank() -> appText("Впиши имя получателя", "Алыусының исемен яҙ")
+                receiverPhone.isBlank() -> appText("Впиши телефон получателя", "Алыусының телефонын яҙ")
+                !rulesAccepted -> appText("Отметь галочку с правилами доставки", "Доставка ҡағиҙәләре янындағы билдәне ҡуй")
+                else -> null
+            }
+            if (hint != null) {
+                Text(
+                    hint,
+                    color = CanonWarn,
+                    fontSize = DeliveryCaption,
+                    lineHeight = DeliveryCaptionLine,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                )
+            }
         }
         if (step == stepReceiver) item {
             when {
