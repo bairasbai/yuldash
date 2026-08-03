@@ -104,7 +104,11 @@ def _rules(now):
          "AND NOT EXISTS (SELECT 1 FROM message m WHERE m.order_id = instantorder.id) "
          "AND NOT EXISTS (SELECT 1 FROM tripshare ts WHERE ts.order_id = instantorder.id) "
          "AND NOT EXISTS (SELECT 1 FROM sosevent se WHERE se.order_id = instantorder.id) "
-         "AND NOT EXISTS (SELECT 1 FROM report rp WHERE rp.order_id = instantorder.id)",
+         "AND NOT EXISTS (SELECT 1 FROM report rp WHERE rp.order_id = instantorder.id) "
+         # promoredemption.used_order_id — жёсткий FK: заказ, на котором потрачена промо-скидка,
+         # держит ссылку из погашения (оно живёт вечно, «один код на аккаунт»). Без гарда чистка
+         # падает на внешнем ключе.
+         "AND NOT EXISTS (SELECT 1 FROM promoredemption pm WHERE pm.used_order_id = instantorder.id)",
          {"c": cut(TRIP_DAYS)}),
         # Доставки: старые терминальные с ЗАКРЫТОЙ комиссией и без спора/оценки (финансы/репутацию
         # бережём). message.parcel_id — жёсткий FK (чат отправитель ↔ курьер): без гарда чистка

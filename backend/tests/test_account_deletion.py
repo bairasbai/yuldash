@@ -93,7 +93,10 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # --- промокампания: код → погашение ---
         promo = M.PromoCode(owner_id=uid, code="MYCODE")
         s.add(promo); s.commit(); s.refresh(promo)
-        s.add(M.PromoRedemption(user_id=uid, promo_id=promo.id))
+        # used_order_id — FK на такси-заказ (промо-скидка потрачена на нём). Без снятия этой
+        # ссылки delete(InstantOrder) падает на Postgres и аккаунт становится неудаляемым.
+        s.add(M.PromoRedemption(user_id=uid, promo_id=promo.id,
+                                discount_kop=20000, used_order_id=order.id))
         # --- лист ожидания по телефону (удаляется по phone юзера) ---
         s.add(M.WaitlistEntry(phone=phone))
         s.commit()

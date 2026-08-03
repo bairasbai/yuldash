@@ -24,10 +24,11 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from . import promo_ride
 from .config import settings
-from .ledger import fee_kop_for
+from .ledger import fee_kop_for, post_promo_compensation, promo_comp_ext_id
 from .models import (
-    CommissionDebt, DebtStatus, InstantOrder, InstantOrderStatus,
+    CommissionDebt, DebtStatus, InstantOrder, InstantOrderStatus, LedgerEntry, LedgerKind,
     TaxiApplication, TaxiApplicationStatus,
 )
 from .timeutil import utcnow
@@ -92,6 +93,20 @@ def driver_fee_percent(session: Session, driver_id: int, now=None) -> float:
     return settings.service_fee_percent
 
 
+def _promo_comp_kop(session: Session, order_ids: list) -> int:
+    """Сколько платформа доплатила водителю в кошелёк по этим заказам (компенсация промокода).
+    Читаем ФАКТ из ledger, а не пересчитываем формулу — деньги должны сходиться с историей."""
+    if not order_ids:
+        return 0
+    total = session.exec(
+        select(func.coalesce(func.sum(LedgerEntry.amount_kop), 0)).where(
+            LedgerEntry.kind == LedgerKind.adj,
+            LedgerEntry.ext_id.in_([promo_comp_ext_id(i) for i in order_ids]),
+        )
+    ).one()
+    return int(total or 0)
+
+
 def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] = None) -> dict:
     """Данные дашборда таксиста для кабинета: заработок и заказы ЗА СЕГОДНЯ + текущая ступень
     комиссии. Лесенка комиссии — по СТАЖУ (дни с первого done-заказа), не по деньгам:
@@ -114,16 +129,20 @@ def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] =
     ).all()
     earnings = sum(int(o.price_final if o.price_final is not None else o.price_estimate) for o in done_today)
     gross_today_kop = earnings * 100
+    promo_disc_kop = promo_comp_kop = 0
     if done_today:
+        order_ids = [o.id for o in done_today if o.id is not None]
         debts_today = session.exec(
-            select(CommissionDebt).where(
-                CommissionDebt.order_id.in_([o.id for o in done_today if o.id is not None])
-            )
+            select(CommissionDebt).where(CommissionDebt.order_id.in_(order_ids))
         ).all()
         fee_today_kop = sum(max(int(d.amount_kop or 0), 0) for d in debts_today)
+        # Промокод пассажира: на руки водитель получил меньше на размер скидки, зато комиссия
+        # уменьшена, а остаток пришёл в кошелёк. Без этих двух слагаемых «чистыми» врало бы.
+        promo_disc_kop = sum(max(int(o.promo_discount_kop or 0), 0) for o in done_today)
+        promo_comp_kop = _promo_comp_kop(session, order_ids) if promo_disc_kop else 0
     else:
         fee_today_kop = 0
-    net_today_kop = max(gross_today_kop - fee_today_kop, 0)
+    net_today_kop = max(gross_today_kop - promo_disc_kop - fee_today_kop + promo_comp_kop, 0)
 
     percent = driver_fee_percent(session, driver_id, now)
     first_done = session.exec(
@@ -146,6 +165,10 @@ def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] =
         "earnings_today": earnings,
         "gross_today_kop": gross_today_kop,
         "fee_today_kop": fee_today_kop,
+        # Скидки пассажиров по промокодам за сегодня и компенсация их платформой — чтобы в
+        # кабинете было видно, откуда разница между ценой поездки и деньгами в руках.
+        "promo_discount_today_kop": promo_disc_kop,
+        "promo_comp_today_kop": promo_comp_kop,
         "net_today_kop": net_today_kop,
         "orders_today": len(done_today),
         "fee_percent": percent,
@@ -225,10 +248,20 @@ def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
     ).all()
     if not orders:
         return {"rides": [], "total_price": 0, "total_fee_kop": 0, "total_net_kop": 0}
+    order_ids = [o.id for o in orders if o.id is not None]
     debts = {d.order_id: d for d in session.exec(
-        select(CommissionDebt).where(CommissionDebt.order_id.in_([o.id for o in orders]))
+        select(CommissionDebt).where(CommissionDebt.order_id.in_(order_ids))
     ).all() if d.order_id is not None}
-    rides, total_price, total_fee = [], 0, 0
+    # Компенсации промокодов по этим заказам (обычно пусто — лишний запрос не делаем).
+    comps: dict = {}
+    if any(int(o.promo_discount_kop or 0) > 0 for o in orders):
+        comps = {e.order_id: int(e.amount_kop) for e in session.exec(
+            select(LedgerEntry).where(
+                LedgerEntry.kind == LedgerKind.adj,
+                LedgerEntry.ext_id.in_([promo_comp_ext_id(i) for i in order_ids]),
+            )
+        ).all() if e.order_id is not None}
+    rides, total_price, total_fee, total_net = [], 0, 0, 0
     for o in orders:
         price_rub = int(o.price_final if o.price_final is not None else o.price_estimate)
         d = debts.get(o.id)
@@ -236,22 +269,30 @@ def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
         fee_kop = int(d.amount_kop) if d and d.status != DebtStatus.paid else (
             int(d.amount_kop) if d else 0
         )
+        # Промокод: на руки водитель взял меньше на скидку, зато комиссия уже уменьшена, а
+        # остаток скидки платформа вернула в кошелёк. «Чистыми» = как будто промокода не было.
+        disc_kop = max(int(o.promo_discount_kop or 0), 0)
+        comp_kop = comps.get(o.id, 0)
+        net_kop = price_rub * 100 - disc_kop - fee_kop + comp_kop
         total_price += price_rub
         total_fee += fee_kop
+        total_net += net_kop
         rides.append({
             "order_id": o.id,
             "done_at": o.done_at,
             "from": o.from_text or "", "to": o.to_text or "",
             "price": price_rub,                       # ₽, как показываем пассажиру
+            "promo_discount_kop": disc_kop,           # скидка пассажира (её оплатила платформа)
+            "promo_comp_kop": comp_kop,               # доплата платформы в кошелёк
             "fee_kop": fee_kop,                       # комиссия платформы, копейки
-            "net_kop": price_rub * 100 - fee_kop,     # «чистыми» водителю
+            "net_kop": net_kop,                       # «чистыми» водителю
             "paid": bool(o.paid),
             "payment_method": o.payment_method or "",
             "fee_status": (d.status.value if d and hasattr(d.status, "value") else
                            (d.status if d else "none")),
         })
     return {"rides": rides, "total_price": total_price, "total_fee_kop": total_fee,
-            "total_net_kop": total_price * 100 - total_fee}
+            "total_net_kop": total_net}
 
 
 def order_commission_kop(order: InstantOrder, percent: Optional[float] = None) -> int:
@@ -281,7 +322,13 @@ def accrue_for_order(session: Session, order: InstantOrder) -> Optional[Commissi
     # Ступень фиксируем на момент создания: upfront net в оффере и фактический долг совпадут,
     # даже если короткая поездка пересекла календарную границу тарифной ступени.
     percent = driver_fee_percent(session, order.driver_id, order.created_at or now)
-    amount = order_commission_kop(order, percent)
+    full = order_commission_kop(order, percent)
+    # Скидку пассажира по промокоду оплачивает ПЛАТФОРМА, а не водитель: сначала гасим её своей
+    # комиссией (вплоть до нуля), остаток кладём водителю в кошелёк. Водитель в любом случае
+    # получает столько же, как без промокода (см. app/promo_ride.py).
+    amount, comp = promo_ride.split_commission(full, order.promo_discount_kop)
+    if comp > 0:
+        post_promo_compensation(session, order.driver_id, order.id, comp)   # идемпотентно по ext_id
     if amount <= 0:
         return None                           # нулевая комиссия (промо 0% / грошовый заказ) — долг не заводим
     debt = CommissionDebt(

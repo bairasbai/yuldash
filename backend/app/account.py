@@ -349,6 +349,14 @@ def delete_user_account(session: Session, user: User) -> None:
     # 3.11 Такси-заказы: отвязать себя как «висящий оффер» на ЧУЖИХ заказах, затем удалить свои.
     session.execute(update(InstantOrder).where(InstantOrder.current_offer_driver_id == uid)
                     .values(current_offer_driver_id=None))
+    # Промо-скидка, потраченная на удаляемом заказе, держит на него внешний ключ: без снятия
+    # ссылки delete(InstantOrder) падает на Postgres, а это неудаляемый аккаунт (152-ФЗ).
+    # Снимаем ТОЛЬКО ссылку: отметку used_at оставляем, иначе чужая скидка (пассажира, которого
+    # вёз удаляющийся водитель) стала бы «не потраченной» и человек получил бы её второй раз.
+    # Сама PromoRedemption удаляется ниже, на 3.14 (порядок дети → родители там свой).
+    if order_ids:
+        session.execute(update(PromoRedemption).where(PromoRedemption.used_order_id.in_(order_ids))
+                        .values(used_order_id=None))
     session.execute(delete(InstantOrder).where(
         or_(InstantOrder.passenger_id == uid, InstantOrder.driver_id == uid)))
     # 3.12 Посылки: отвязать себя как курьера на ЧУЖИХ, удалить свои (как отправитель).

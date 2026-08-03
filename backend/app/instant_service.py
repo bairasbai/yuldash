@@ -25,6 +25,7 @@ from sqlalchemy import func
 
 from .config import settings
 from . import pricing
+from . import promo_ride
 from .models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus as S, Tariff,
     TripShare, TrustedContact, User,
@@ -734,6 +735,10 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
         raise HTTPException(409, "Заказ уже изменился")
     _cleanup_tried(order_id)
     fresh = session.get(InstantOrder, order_id)
+    # Поездки не было → скидка по промокоду возвращается пассажиру. Один код даётся на всю жизнь
+    # аккаунта, и сжечь его из-за того, что водитель не приехал, было бы нечестно.
+    promo_ride.release(session, fresh)
+    fresh = session.get(InstantOrder, order_id)
     _notify_cancel(session, fresh, actor)
     return fresh
 
@@ -972,6 +977,10 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     order = session.get(InstantOrder, order.id)
     if order.status != S.scheduled:
         return order   # гонку проиграли (кто-то активировал/отменил параллельно) — не дублируем поиск
+    # Цена пересчитана заново → скидка по промокоду могла превысить допустимую долю подешевевшей
+    # поездки. Ужимаем (только вниз), чтобы потолок кампании не обходился через предзаказ.
+    promo_ride.reclamp(session, order)
+    order = session.get(InstantOrder, order.id)
     return start_matching(session, order)
 
 
@@ -1231,6 +1240,11 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
         "category": order.category,
         "price_estimate": order.price_estimate,
         "price_final": order.price_final,
+        # Промокод: скидку оплачивает платформа, но ЗНАТЬ о ней должны обе стороны — иначе
+        # водитель попросит полную сумму, а пассажир будет уверен, что платит со скидкой.
+        # passenger_price_kop — сколько человек реально отдаёт водителю (цена минус скидка).
+        "promo_discount_kop": int(order.promo_discount_kop or 0),
+        "passenger_price_kop": promo_ride.payable_kop(order),
         "surge_k": order.surge_k,
         "distance_km": order.distance_km,
         "eta_min": order.eta_min,

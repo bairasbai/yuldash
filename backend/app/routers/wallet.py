@@ -126,7 +126,10 @@ def pay_instant_order(order_id: int, body: PayIn, user: User = Depends(current_u
     if order.paid:                                        # идемпотентно: повторная оплата не начисляет второй раз
         return {"status": "already_paid", "method": order.payment_method}
     _guard_method(body.method)
-    amount_kop = int(order.price_final or order.price_estimate) * 100   # цена в ₽ → копейки
+    # Пассажир платит цену МИНУС скидку по промокоду (её оплачивает платформа своей комиссией,
+    # см. app/promo_ride.py) — без этого промокод молча пропадал бы при оплате картой.
+    from .. import promo_ride
+    amount_kop = promo_ride.payable_kop(order)
     if body.method == "cash":
         from .. import ledger
         ledger.settle_instant_order(session, order.id, "cash", amount_kop)   # paid=True, ledger НЕ трогаем

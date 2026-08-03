@@ -24,6 +24,7 @@ from .. import debt as debt_mod
 from .. import geo as geo_mod
 from .. import instant_service as isv
 from .. import pretrip as pretrip_mod
+from .. import promo_ride
 from .. import quality as quality_mod
 from .. import taxi as taxi_mod
 from .. import workday as workday_mod
@@ -226,10 +227,15 @@ def guard_estimate_budget(user_id: int) -> None:
 
 @router.post("/instant/estimate")
 def estimate(body: EstimateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Оценка цены ДО заказа. Сервер считает сам (haversine × road_k) — цена из клиента игнорируется."""
+    """Оценка цены ДО заказа. Сервер считает сам (haversine × road_k) — цена из клиента игнорируется.
+
+    Скидку по промокоду показываем ЗДЕСЬ, а не после поездки: человек должен видеть выгоду до
+    того, как нажал «Заказать», иначе промокод для него не существует."""
     guard_estimate_budget(user.id)
     _guard_taxi_available(session, body.from_lat, body.from_lng)   # пассажиру — только гейт (a)
-    return isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category)
+    est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category)
+    est.update(promo_ride.preview(session, user.id, est["price"]))
+    return est
 
 
 # ------------------------------ заказ ------------------------------
@@ -274,6 +280,11 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     )
     session.add(order)
     session.commit()
+    session.refresh(order)
+    # Скидка по промокоду ФИКСИРУЕТСЯ в заказе и списывается ровно один раз (row-lock + CAS
+    # внутри). Делаем это ДО поиска водителя, чтобы и пассажир, и водитель уже в карточке
+    # видели честную сумму «к оплате».
+    promo_ride.consume(session, user.id, order)
     session.refresh(order)
     order = isv.start_matching(session, order)   # created → searching → offered|expired
     return isv.order_payload(session, order, user)
@@ -329,6 +340,10 @@ def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
     )
     session.add(order)
     session.commit()
+    session.refresh(order)
+    # Предзаказ тоже получает скидку сразу (человек видел её в оценке). Цена пересчитывается в
+    # момент активации — там же скидка при необходимости ужимается до доли новой цены.
+    promo_ride.consume(session, user.id, order)
     session.refresh(order)
     return isv.order_payload(session, order, user)
 
@@ -645,13 +660,18 @@ def order_receipt(order_id: int, user: User = Depends(current_user),
         raise herr(409, "Квитанция появится после завершения поездки",
                    "Квитанция сәфәр тамамланғандан һуң күренәсәк")
     driver = session.get(User, order.driver_id) if order.driver_id else None
+    payable = promo_ride.payable_kop(order)   # цена минус скидка по промокоду
     return {
         "order_id": order.id,
         "role": "driver" if order.driver_id == user.id else "passenger",
         "from_text": order.from_text, "to_text": order.to_text,
         "done_at": order.done_at.isoformat() if order.done_at else "",
         "distance_km": order.distance_km,
-        "amount": int(order.price_final if order.price_final is not None else order.price_estimate),
+        # В чеке — сумма, которую человек РЕАЛЬНО заплатил (без промокода она равна цене).
+        "amount": payable // 100,
+        "amount_kop": payable,
+        "price_kop": promo_ride.price_kop(order),          # цена поездки до скидки
+        "promo_discount_kop": int(order.promo_discount_kop or 0),
         "waiting_fee_kop": order.waiting_fee_kop,
         "payment_method": order.payment_method or "",
         "paid": bool(order.paid),
@@ -679,9 +699,9 @@ def cash_received(order_id: int, user: User = Depends(current_user),
     if order.paid:
         return {"status": "already_paid", "method": order.payment_method}
     from .. import ledger
-    amount_kop = int(order.price_final or order.price_estimate) * 100
+    amount_kop = promo_ride.payable_kop(order)   # наличными водитель берёт цену МИНУС скидку
     ledger.settle_instant_order(session, order.id, "cash", amount_kop)
-    return {"status": "paid", "method": "cash"}
+    return {"status": "paid", "method": "cash", "amount_kop": amount_kop}
 
 
 @router.post("/instant/orders/{order_id}/lost-item")

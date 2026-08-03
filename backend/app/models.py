@@ -688,6 +688,11 @@ class InstantOrder(SQLModel, table=True):
     # Применённый сурж-коэффициент (волна 2, §5): фиксируется на заказе в момент создания,
     # price_estimate уже с ним — цена не «уезжает» задним числом.
     surge_k: float = 1.0
+    # Скидка по промокоду (M2, kind="taxi_ride"), копейки. Фиксируется при СОЗДАНИИ заказа:
+    # человек видел цену со скидкой до заказа — она и должна остаться. Пассажир платит
+    # price − promo_discount_kop, а водитель НЕ теряет ни копейки: скидку оплачивает платформа
+    # (комиссия за поездку уменьшается, остаток идёт водителю в кошелёк). См. app/promo_ride.py.
+    promo_discount_kop: int = Field(default=0, sa_type=BigInteger)
     distance_km: float = 0.0
     eta_min: float = 0.0
     # Оплата после done (Фаза 3, деньги v1). paid — факт оплаты (нал/безнал). Наличные через
@@ -1265,6 +1270,15 @@ class PromoRedemption(SQLModel, table=True):
     promo_id: int = Field(index=True, foreign_key="promocode.id")
     user_id: int = Field(index=True, foreign_key="user.id")
     redeemed_at: datetime = Field(default_factory=utcnow)
+    # --- Скидка на поездку в такси (kind="taxi_ride"), копейки ---
+    # Сумма фиксируется В МОМЕНТ АКТИВАЦИИ: правка кампании задним числом не меняет обещание,
+    # которое человек уже получил. 0 = у кода нет денежной скидки (welcome/boost).
+    discount_kop: int = Field(default=0, sa_type=BigInteger)
+    # На каком заказе скидка потрачена (NULL = ещё цела). Захват — под row-lock + атомарный
+    # CAS-UPDATE, иначе два параллельных заказа потратили бы одну скидку дважды.
+    # Заказ не состоялся (отменён / «рядом никого») → ссылка снимается, скидка не сгорает.
+    used_order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
+    used_at: Optional[datetime] = None
 
 
 # ---- M3: доставка посылок между сёлами/городами (реальная боль села) ----

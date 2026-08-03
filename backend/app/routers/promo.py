@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from .. import promo_ride
 from ..db import get_session
 from ..errors import herr
 from ..models import (
@@ -34,8 +35,10 @@ from .referral import LIVE_TRIP_MIN_KM, LIVE_TRIP_MIN_MINUTES, MAX_REFERRAL_CRED
 
 router = APIRouter(tags=["promo"])
 
-# Допустимые типы бонуса пользователю. Расширяемо (можно добавить, напр., "discount" позже).
-_PROMO_KINDS = ("welcome", "boost")
+# Допустимые типы бонуса пользователю.
+# welcome — чистая атрибуция; boost — бесплатные поднятия поездки; taxi_ride — скидка в рублях
+# на поездку в такси (её оплачивает платформа из своей комиссии, см. app/promo_ride.py).
+_PROMO_KINDS = ("welcome", "boost", promo_ride.KIND)
 
 
 # ---------- Тела запросов ----------
@@ -75,12 +78,9 @@ class StatusIn(BaseModel):
 
 # ---------- Хелперы ----------
 
-def _in_window(promo: PromoCode, now: datetime) -> bool:
-    if promo.valid_from and promo.valid_from > now:
-        return False
-    if promo.valid_until and promo.valid_until <= now:
-        return False
-    return True
+# Окно действия кампании — общий хелпер из promo_ride: тем же правилом проверяется и скидка
+# на такси (выключили/просрочили кампанию — гаснет и ещё не потраченная скидка).
+_in_window = promo_ride.in_window
 
 
 def _user_is_live(session: Session, user_id: int) -> bool:
@@ -126,6 +126,13 @@ def _promo_counts(session: Session, promo: PromoCode) -> tuple[int, int]:
 
 def _apply_message(promo: PromoCode) -> tuple[str, str]:
     """Дружелюбное двуязычное сообщение об активации (бонус/приветствие)."""
+    disc_kop = promo_ride.granted_kop(promo)
+    if disc_kop > 0:
+        rub = disc_kop // 100
+        return (
+            f"Код принят — {rub} ₽ скидки на поездку в такси 🚕 Она сработает сама при заказе.",
+            f"Код ҡабул ителде — таксиға {rub} һум ташлама 🚕 Заказ биргәндә үҙе эшләй.",
+        )
     if promo.kind == "boost" and promo.perk_value > 0:
         return (
             f"Код принят — тебе начислено {promo.perk_value} бесплатных поднятий поездки 🎉",
@@ -170,13 +177,17 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user), session: Sess
     if promo.limit_total > 0 and promo.redeemed_count >= promo.limit_total:
         raise herr(409, "Промокод исчерпан", "Промокод бөттө")
 
-    # Начисление бонуса. boost → бесплатные поднятия (referral_credits) с общим кэпом; welcome → атрибуция.
+    # Начисление бонуса. boost → бесплатные поднятия (referral_credits) с общим кэпом;
+    # taxi_ride → скидка на поездку в такси (сумма фиксируется здесь и живёт на PromoRedemption,
+    # чтобы правка кампании задним числом не меняла уже данное человеку обещание);
+    # welcome → чистая атрибуция.
     if promo.kind == "boost" and promo.perk_value > 0:
         user.referral_credits = min(user.referral_credits + promo.perk_value, MAX_REFERRAL_CREDITS)
         session.add(user)
+    discount_kop = promo_ride.granted_kop(promo)
     promo.redeemed_count += 1
     session.add(promo)
-    session.add(PromoRedemption(promo_id=promo.id, user_id=user.id))
+    session.add(PromoRedemption(promo_id=promo.id, user_id=user.id, discount_kop=discount_kop))
     try:
         session.commit()
     except IntegrityError:   # гонка: параллельный запрос уже активировал код у этого юзера (UNIQUE)
@@ -188,6 +199,8 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user), session: Sess
         "ok": True,
         "kind": promo.kind,
         "perk_value": promo.perk_value,
+        # Скидка на поездку в такси, копейки (0 у welcome/boost) — клиент сразу знает, что обещать.
+        "discount_kop": discount_kop,
         "message_ru": msg_ru,
         "message_ba": msg_ba,
     }
@@ -195,13 +208,18 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user), session: Sess
 
 @router.get("/promo/mine")
 def promo_mine(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Мой применённый промокод (один на жизнь) или {promo: null}."""
+    """Мой применённый промокод (один на жизнь) или {promo: null}.
+
+    Для скидки на такси показываем ещё и её судьбу: цела ли она и на каком заказе потрачена —
+    иначе человек не понимает, почему в цене скидки нет (потратил) или почему она вернулась
+    (поездка не состоялась)."""
     red = session.exec(select(PromoRedemption).where(PromoRedemption.user_id == user.id)).first()
     if not red:
         return {"promo": None}
     promo = session.get(PromoCode, red.promo_id)
     if not promo:
         return {"promo": None}
+    avail, _ = promo_ride.available(session, user.id)
     return {
         "promo": {
             "code": promo.code,
@@ -210,6 +228,11 @@ def promo_mine(user: User = Depends(current_user), session: Session = Depends(ge
             "perk_value": promo.perk_value,
         },
         "redeemed_at": red.redeemed_at.isoformat() if red.redeemed_at else None,
+        # Скидка на поездку в такси (копейки). available=false + used_order_id=null →
+        # кампанию выключили или срок вышел.
+        "discount_kop": int(red.discount_kop or 0),
+        "discount_available": avail is not None,
+        "discount_used_order_id": red.used_order_id,
     }
 
 
@@ -271,14 +294,18 @@ def _promo_admin(promo: PromoCode, session: Session) -> dict:
 @router.post("/admin/promo")
 def admin_promo_create(body: AdminPromoIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Создать промокод/кампанию. code → upper, уникальность (409). owner_phone (опц.) привязывает
-    к блогеру (нашли по phone → owner_id; нет — общая акция Юлдаша). kind ∈ {welcome, boost}."""
+    к блогеру (нашли по phone → owner_id; нет — общая акция Юлдаша).
+
+    kind ∈ {welcome, boost, taxi_ride}. Для taxi_ride perk_value — РУБЛИ скидки на поездку в
+    такси; выше потолка promo_ride_max_discount_rub она всё равно не выдастся (и не больше
+    доли promo_ride_max_price_share от цены конкретной поездки)."""
     _require_admin(user)
     code = (body.code or "").strip().upper()
     if not code:
         raise HTTPException(422, "Нужен код промокода")
     kind = (body.kind or "welcome").strip()
     if kind not in _PROMO_KINDS:
-        raise HTTPException(422, "Недопустимый тип бонуса (welcome|boost)")
+        raise HTTPException(422, "Недопустимый тип бонуса (welcome|boost|taxi_ride)")
     exists = session.exec(select(PromoCode).where(PromoCode.code == code)).first()
     if exists:
         raise HTTPException(409, "Такой код уже есть")

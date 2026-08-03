@@ -20,6 +20,7 @@ from typing import Optional
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from . import promo_ride
 from .config import settings
 from .models import Booking, InstantOrder, LedgerEntry, LedgerKind
 from .timeutil import utcnow
@@ -167,26 +168,68 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
             "provider_status": res["status"], "balance_kop": driver_balance(session, driver_id)}
 
 
+def promo_comp_ext_id(order_id: int) -> str:
+    """Ключ идемпотентности компенсации промокода по заказу (один заказ — одна компенсация)."""
+    return f"promo:{order_id}"
+
+
+def post_promo_compensation(session: Session, driver_id: Optional[int], order_id: Optional[int],
+                            amount_kop: int) -> Optional[LedgerEntry]:
+    """Доплатить водителю остаток промо-скидки, который не влез в нашу комиссию.
+
+    Скидку пассажиру оплачивает платформа: сначала своей комиссией, а если скидка оказалась
+    БОЛЬШЕ комиссии — остаток кладём водителю в кошелёк, чтобы он получил ровно столько же,
+    как без промокода. Append-only запись kind=adj (+сумма), историю денег не правим.
+
+    Идемпотентно по ext_id: повторный «done» / ретрай не начислит второй раз. Коммитит сам —
+    это самостоятельный денежный эффект, он не должен зависеть от того, завёлся ли долг."""
+    if driver_id is None or order_id is None or amount_kop <= 0:
+        return None
+    ext = promo_comp_ext_id(order_id)
+    prev = session.exec(
+        select(LedgerEntry).where(LedgerEntry.ext_id == ext, LedgerEntry.kind == LedgerKind.adj)
+    ).first()
+    if prev is not None:
+        return prev
+    entry = LedgerEntry(
+        driver_id=driver_id, order_id=order_id, kind=LedgerKind.adj,
+        amount_kop=int(amount_kop), ext_id=ext,
+        note="Компенсация промокода пассажира",
+    )
+    session.add(entry)
+    session.commit()
+    session.refresh(entry)
+    return entry
+
+
 def _post_earn_and_fee(session: Session, driver_id: int, amount_kop: int, *,
                        order_id: Optional[int] = None, booking_id: Optional[int] = None,
-                       note: str = "", percent: Optional[float] = None) -> None:
+                       note: str = "", percent: Optional[float] = None,
+                       fee_kop: Optional[int] = None) -> None:
     """Добавить в ledger начисление за поездку: earn (+вся сумма) и fee (−комиссия).
     Вызывать ТОЛЬКО под уже открытой транзакцией с залоченной строкой заказа/брони.
 
     percent — ставка комиссии. None → плоский service_fee_percent. Для ТАКСИ передаём
     driver_fee_percent (лесенка 3/5/8 + промо запуска 0%): иначе онлайн-оплата удержала бы
-    8% в обход промо/лесенки, при этом Model-A долг с верной ставкой гасится → перебор + споры."""
-    fee = fee_kop_for(amount_kop, percent)
+    8% в обход промо/лесенки, при этом Model-A долг с верной ставкой гасится → перебор + споры.
+
+    fee_kop — готовая сумма комиссии (перебивает расчёт по проценту). Нужна для промокода:
+    комиссия там уже уменьшена на скидку, и пересчёт по проценту от УРЕЗАННОЙ оплаты списал бы
+    с водителя лишнее."""
+    fee = fee_kop_for(amount_kop, percent) if fee_kop is None else max(int(fee_kop), 0)
     eff = percent if percent is not None else settings.service_fee_percent
     session.add(LedgerEntry(
         driver_id=driver_id, order_id=order_id, booking_id=booking_id,
         kind=LedgerKind.earn, amount_kop=amount_kop, note=note,
     ))
     if fee > 0:
+        # Комиссия урезана скидкой пассажира → так и пишем, иначе процент в истории не сойдётся
+        # с суммой и водитель решит, что его обсчитали.
+        label = (f"Комиссия сервиса {eff:g}%" if fee_kop is None
+                 else f"Комиссия сервиса {eff:g}% (уменьшена скидкой по промокоду)")
         session.add(LedgerEntry(
             driver_id=driver_id, order_id=order_id, booking_id=booking_id,
-            kind=LedgerKind.fee, amount_kop=-fee,
-            note=f"Комиссия сервиса {eff:g}%",
+            kind=LedgerKind.fee, amount_kop=-fee, note=label,
         ))
 
 
@@ -215,8 +258,14 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
         # Фолбэк done_at/сейчас — для старых заказов без created_at.
         from . import debt as _debt
         pct = _debt.driver_fee_percent(session, order.driver_id, order.created_at or order.done_at)
+        # Скидка по промокоду уже вычтена из того, что заплатил пассажир (amount_kop). Комиссию
+        # считаем от ПОЛНОЙ цены и гасим её скидкой — ровно как в долге Модели А. Иначе водитель
+        # заплатил бы процент с урезанной суммы, а платформа не оплатила бы обещанную скидку.
+        full_fee = fee_kop_for(promo_ride.price_kop(order), pct)
+        fee_due, _comp = promo_ride.split_commission(full_fee, order.promo_discount_kop)
         _post_earn_and_fee(session, order.driver_id, amount_kop,
-                           order_id=order.id, note=f"Быстрый заказ #{order.id}", percent=pct)
+                           order_id=order.id, note=f"Быстрый заказ #{order.id}", percent=pct,
+                           fee_kop=(fee_due if int(order.promo_discount_kop or 0) > 0 else None))
         # Комиссия удержана в ledger fee → снимаем долг Модели А по этому заказу, иначе
         # двойная комиссия + фантомный unpaid-долг заблокирует водителя на онлайн-оплате.
         _debt.void_debt_for_order(session, order.id)
