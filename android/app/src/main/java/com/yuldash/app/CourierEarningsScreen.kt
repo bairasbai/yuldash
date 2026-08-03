@@ -77,12 +77,12 @@ internal object MoneyType {
     val Hero = 34.sp
     val HeroLine = 40.sp
     val HeroTracking = (-0.5f).sp   // крупные цифры без разрядки выглядят рыхло
-    val Value = 17.sp
-    val ValueLine = 22.sp
+    val Value = 19.sp
+    val ValueLine = 25.sp
     val Body = 14.sp
-    val BodyLine = 19.sp
+    val BodyLine = 20.sp
     val Caption = 12.sp
-    val CaptionLine = 16.sp
+    val CaptionLine = 17.sp
 }
 
 /**

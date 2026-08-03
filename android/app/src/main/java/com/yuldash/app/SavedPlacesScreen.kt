@@ -143,7 +143,7 @@ private fun QuickPlaceRow(icon: ImageVector, title: String, subtitle: String?, o
         border = BorderStroke(1.dp, CanonBorder),
         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick),
     ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = CircleShape) {
                 Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
             }
@@ -214,7 +214,7 @@ private fun SaveAsChip(icon: ImageVector, label: String, active: Boolean, loadin
         color = if (active) CanonGreen2 else CanonMint,
         modifier = Modifier.heightIn(min = 48.dp).clickable(enabled = !loading && !active, onClick = onClick),   // P3: тач-цель ≥48dp (§4.5)
     ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (loading) {
                 CircularProgressIndicator(Modifier.size(15.dp), strokeWidth = 2.dp, color = if (active) CanonSurface else CanonGreen2)
             } else {
@@ -299,7 +299,7 @@ internal fun SavedPlacesScreen(onBack: () -> Unit) {
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                                 .clickable { pendingHit = hit; query = ""; suggestions = emptyList() },
                         ) {
-                            Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text(hit.title, color = CanonText, fontSize = 14.sp, maxLines = 2)
@@ -429,7 +429,7 @@ private fun DialogKindRow(icon: ImageVector, label: String, onClick: () -> Unit)
         color = CanonMint,
         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick),
     ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(12.dp))
             Text(label, color = CanonGreen, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)

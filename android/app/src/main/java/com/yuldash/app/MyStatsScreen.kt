@@ -114,7 +114,7 @@ internal fun MyStatsScreen(onBack: () -> Unit) {
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {

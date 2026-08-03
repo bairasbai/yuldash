@@ -116,14 +116,14 @@ internal fun taxiAgeYears(birthIso: String): Int? =
 // До этого здесь жили одиннадцать разных размеров вперемешку (11, 12, 13, 14, 15, 16, 17, 19,
 // 20, 22), половина без межстрочного интервала — башкирский, который длиннее русского, слипался.
 internal object TaxiType {
-    val Hero = 22.sp        // заголовок экрана: один на экран
-    val HeroLine = 27.sp
-    val Title = 18.sp       // заголовок карточки/секции
-    val TitleLine = 24.sp
-    val Body = 15.sp        // читаемый текст, значения, названия пунктов
-    val BodyLine = 20.sp
-    val Caption = 13.sp     // подпись, пояснение, сноска, мета
-    val CaptionLine = 18.sp
+    val Hero = 24.sp        // заголовок экрана: один на экран
+    val HeroLine = 30.sp
+    val Title = 19.sp       // заголовок карточки/секции
+    val TitleLine = 25.sp
+    val Body = 16.sp        // читаемый текст, значения, названия пунктов
+    val BodyLine = 23.sp
+    val Caption = 14.sp     // подпись, пояснение, сноска, мета
+    val CaptionLine = 20.sp
     val EmojiRow = 20.sp    // эмодзи-значок в строке правила (картинка, не текст)
     val EmojiHero = 44.sp   // эмодзи в круге на экране статуса
 }
@@ -724,7 +724,7 @@ private fun TaxiStatusScaffold(
         item {
             AppButton(primaryLabel, onPrimary, style = AppButtonStyle.Primary)
             if (secondaryLabel != null && onSecondary != null) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
                 TextButton(onClick = onSecondary, modifier = Modifier.fillMaxWidth()) {
                     Text(secondaryLabel, color = CanonMuted, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine)
                 }

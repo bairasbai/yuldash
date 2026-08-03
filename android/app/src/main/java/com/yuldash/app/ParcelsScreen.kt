@@ -140,14 +140,14 @@ private const val MY_PARCELS_REFRESH_INTERVAL_MS = 25_000L
 //   Body    — содержательный текст; Black/Bold = заголовок строки или карточки
 //   Caption — подписи, пояснения, чипы, статусы
 // Размеры в sp → уважают системный шрифт и глобальный тумблер «Крупный шрифт» (FontScalePrefs).
-internal val DeliveryDisplay = 30.sp
-internal val DeliveryDisplayLine = 34.sp
-internal val DeliveryTitle = 20.sp
-internal val DeliveryTitleLine = 26.sp
-internal val DeliveryBody = 15.sp
-internal val DeliveryBodyLine = 21.sp
-internal val DeliveryCaption = 13.sp
-internal val DeliveryCaptionLine = 18.sp
+internal val DeliveryDisplay = 34.sp
+internal val DeliveryDisplayLine = 40.sp
+internal val DeliveryTitle = 19.sp
+internal val DeliveryTitleLine = 25.sp
+internal val DeliveryBody = 16.sp
+internal val DeliveryBodyLine = 23.sp
+internal val DeliveryCaption = 14.sp
+internal val DeliveryCaptionLine = 20.sp
 
 /** Заголовок раздела формы. Один вид на все три экрана доставки — раньше каждый раздел
  *  подписывался вручную своим кеглем (15/17/20), и разделы выглядели разной важности. */
@@ -1054,7 +1054,7 @@ internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDism
                             tint = tint,
                             // 48dp — тач-цель целиком, иконка 36dp внутри. Раньше clickable вешался
                             // ПОСЛЕ padding, и живая зона была 38dp — мимо звезды промахивались.
-                            modifier = Modifier.size(48.dp).bounceClick { stars = i; err = null }.padding(6.dp),
+                            modifier = Modifier.size(48.dp).bounceClick { stars = i; err = null }.padding(4.dp),
                         )
                     }
                 }

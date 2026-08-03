@@ -93,7 +93,7 @@ internal fun ForceUpdateScreen(storeUrl: String) {
                 lineHeight = 23.sp,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(24.dp))
             if (storeUrl.isNotBlank()) {
                 Button(
                     onClick = {

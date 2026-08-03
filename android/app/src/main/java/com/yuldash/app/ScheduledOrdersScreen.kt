@@ -339,7 +339,7 @@ private fun ScheduledOrderCard(
                 Text(appText("≈ ${order.priceEstimate} ₽ · цену уточним при подаче", "≈ ${order.priceEstimate} ₽ · хаҡты килгәндә асыҡлайбыҙ"),
                     color = CanonMuted, fontSize = 14.sp)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AppButton(
                     text = appText("Начать поиск сейчас", "Хәҙер эҙләргә"),
                     onClick = onActivate,

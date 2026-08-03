@@ -111,7 +111,7 @@ internal fun AdminReviewsContent(
             }
             error != null -> Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text(error, color = CanonRed, fontSize = 16.sp)
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(12.dp))
                 Button(onClick = onRetry, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg)) {
                     Text(appText("Повторить", "Ҡабатларға"), fontWeight = FontWeight.Bold)
                 }

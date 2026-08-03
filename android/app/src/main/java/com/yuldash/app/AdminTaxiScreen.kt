@@ -202,7 +202,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                                 Text(appText("Комментарий: ", "Комментарий: ") + a.comment, color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp)
                             }
                             if (a.status == "pending") {
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = {
                                             val id = a.id

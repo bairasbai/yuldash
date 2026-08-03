@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
@@ -565,7 +566,8 @@ internal fun ProfileScreen(
             dismissButton = { TextButton(enabled = !deletingAccount, onClick = { showDeleteAccount = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
     }
-    Scaffold(containerColor = CanonBg) { padding ->
+    // Отступ под статус-бар уже дал общий Scaffold вкладок — свой не дублируем (см. RidesScreen).
+    Scaffold(containerColor = CanonBg, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
         LazyColumn(
             modifier = Modifier
                 .padding(padding)
@@ -826,7 +828,7 @@ private fun ReferralStat(label: String, value: String, modifier: Modifier = Modi
         Text(label, color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
             value, color = CanonGreen, fontWeight = FontWeight.Bold,
-            fontSize = if (code) 18.sp else 20.sp, lineHeight = 24.sp,
+            fontSize = 19.sp, lineHeight = 25.sp,
             letterSpacing = if (code) 1.5.sp else 0.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
@@ -1147,7 +1149,7 @@ internal fun PassengerCabinetContent(
         }
         if (loading) {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     repeat(2) { SkeletonCard(lines = 3) }
                 }
             }
@@ -2467,7 +2469,7 @@ internal fun DriverCabinetContent(
                         onSecondary = onCreateRide
                     )
                     // F1: управление рейсом — завершить (брони → done, пассажирам «оцените») или снять (с подтверждением).
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = { ride.id.toIntOrNull()?.let(onCompleteRide) },
                             modifier = Modifier.weight(1f),
@@ -2526,7 +2528,7 @@ internal fun DriverCabinetContent(
                                 Text(String.format(java.util.Locale.US, "%.1f", r), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = CanonText)
                             }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onConfirmBooking(b.bookingId) },
                                 modifier = Modifier.weight(1f),
@@ -2635,7 +2637,7 @@ internal fun DriverCabinetContent(
                             color = CanonMuted, fontSize = 12.sp,
                         )
                         AnimatedVisibility(visible = editing && stars > 0) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(
                                     onClick = {
                                         sending = true
@@ -3530,7 +3532,7 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
                     border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
                     modifier = Modifier.fillMaxWidth().clickable { pkg = p.code }
                 ) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             if (selected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
                             contentDescription = null, tint = if (selected) CanonGreen2 else CanonMuted
@@ -3542,7 +3544,7 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
                 }
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { save(submit = false) }, enabled = !busy, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(14.dp)) {
                         Text(appText("Сохранить", "Һаҡларға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                     }
@@ -3785,7 +3787,7 @@ internal fun PartnerAdCard(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(ad.titleText(), color = CanonText, fontWeight = FontWeight.Bold, fontSize = if (compact) 16.sp else 18.sp, lineHeight = 20.sp)
+                    Text(ad.titleText(), color = CanonText, fontWeight = FontWeight.Bold, fontSize = if (compact) 16.sp else 19.sp, lineHeight = 20.sp)
                     Text(ad.descriptionText(), color = CanonText, fontSize = 14.sp, lineHeight = 20.sp, maxLines = if (compact) 2 else 3, overflow = TextOverflow.Ellipsis)
                     Text(ad.addressText(), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                 }
@@ -3810,7 +3812,7 @@ internal fun PartnerAdCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
                     onClick = { openAdTarget(context, ad, adLabel); onClick(ad) },   // «Открыть» → сайт/звонок партнёра
                     modifier = Modifier.weight(1f).height(44.dp),

@@ -411,7 +411,7 @@ private fun SubscriptionCard(partner: PartnerDto, onSubscribe: () -> Unit) {
                 if (until != null) Text(appText("Действует до $until", "$until тиклем ғәмәлдә"), color = CanonMuted, fontSize = 14.sp)
                 if (partner.hasPremium) {
                     Surface(color = CanonGold, shape = RoundedCornerShape(8.dp)) {
-                        Text(appText("Премиум-размещение", "Премиум урынлаштырыу"), color = CanonGoldInk, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+                        Text(appText("Премиум-размещение", "Премиум урынлаштырыу"), color = CanonGoldInk, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                     }
                 }
                 OutlinedButton(onClick = onSubscribe, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {

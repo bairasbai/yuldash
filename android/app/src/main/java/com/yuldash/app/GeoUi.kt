@@ -99,7 +99,7 @@ internal fun DriverZoneChip(zone: InstantZoneDto?, onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
     ) {
         Row(
-            Modifier.heightIn(min = 48.dp).padding(horizontal = 14.dp, vertical = 10.dp),
+            Modifier.heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(zoneEmoji(zone), fontSize = 16.sp)
@@ -328,7 +328,7 @@ private fun ZoneOptionCard(
         border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(38.dp).background(if (selected) CanonSurface else CanonMint, CircleShape), contentAlignment = Alignment.Center) {
                     Text(emoji, fontSize = 19.sp)

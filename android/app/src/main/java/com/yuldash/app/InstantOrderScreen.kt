@@ -1189,7 +1189,7 @@ private fun InstantAddressResults(
                             .heightIn(min = 48.dp)
                             .clip(InstantControlShape)
                             .clickable { onPick(hit) }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
@@ -1785,14 +1785,14 @@ private fun InstantOrderDetails(
     // Свёрнуто, но что-то заполнено → показываем короткую сводку, чтобы человек не потерял ввод.
     val filled = comment.isNotBlank() || entrance.isNotBlank() || forOther
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Surface(
                 onClick = onToggle,
                 color = CanonSurface,
                 shape = CanonItemShape,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             ) {
-                Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
@@ -2682,7 +2682,7 @@ private fun InstantCancelReasonDialog(
 /** SOS + «Поделиться поездкой»: доверие = продукт (§8). Обе кнопки ≥48dp, спокойные цвета. */
 @Composable
 private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(
             onClick = { NavSignals.openSosForOrder.value = orderId },
             modifier = Modifier.weight(1f).heightIn(min = 48.dp),
@@ -2749,7 +2749,7 @@ private fun InstantRoadsideButton(orderId: Int) {
                     "Ярҙам саҡырылды: яҡындар һәм ярҙам хеҙмәте координаталарыңды алды.",
                 ),
                 color = CanonWarn, fontSize = 14.sp, lineHeight = 20.sp,
-                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
             )
         }
         return
@@ -3064,7 +3064,7 @@ private fun TaxiDisputeLink(order: InstantOrderDto, isDriver: Boolean) {
                     "Ҡарау асылды. Икенсе яҡты аңлатырға саҡырабыҙ һәм ҡарарҙы икегеҙгә лә яҙабыҙ.",
                 ),
                 color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
-                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
             )
         }
         return
@@ -3151,10 +3151,10 @@ private fun InstantFinalCard(
             textAlign = TextAlign.Center, modifier = Modifier.appearIn(3),
         )
         if (extra != null) {
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(16.dp))
             Column(Modifier.fillMaxWidth().appearIn(4)) { extra() }
         }
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(24.dp))
         Button(
             onClick = onAction,
             // heightIn, а не height: при системном крупном шрифте фиксированная высота срезает надпись.
@@ -3537,7 +3537,7 @@ private fun TaxiComingSoonCard(
             }
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
         Button(
             onClick = onBackToPooling,
             modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -4318,7 +4318,7 @@ internal fun InstantDriverTripScreen(
                         // даже на 320dp и при fontScale 1.5, а детали выше остаются прокручиваемыми.
                         Box(
                             Modifier.fillMaxWidth().navigationBarsPadding()
-                                .padding(start = 18.dp, top = 8.dp, end = 18.dp, bottom = 12.dp),
+                                .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 12.dp),
                         ) {
                             Button(
                                 onClick = {

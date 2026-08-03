@@ -21,15 +21,18 @@ import java.io.File
 class CanonSourceGuardTest {
 
     private val allowedSizes = setOf(12, 14, 16, 19, 24, 34)
+    private val allowedLeading = setOf(17, 20, 23, 25, 30, 40)
     private val allowedRadii = setOf(8, 14, 22, 28)
 
     /** Осознанные исключения: "файл:значение". Каждое — с причиной. */
     private val sizeExceptions = setOf(
-        "IntroScreen.kt:44",                 // логотип-слово на заставке, не текст интерфейса
+        "IntroScreen.kt:44", "IntroScreen.kt:36",   // логотип-слово на заставке, не текст интерфейса
         "InstantOrderScreen.kt:44",          // эмодзи 🚕 в кружке
         "ForceUpdateScreen.kt:46",           // эмодзи 🙌 в кружке
         "RidesRequestsChatScreens.kt:23",    // эмодзи-реакция в чате
-        "LoginScreen.kt:52",                 // логотип-слово на входе
+        "LoginScreen.kt:52", "LoginScreen.kt:56",   // логотип-слово на входе и его межстрочный
+        "TaxiOnboardingScreen.kt:20",        // EmojiRow — эмодзи в строке правила, это картинка
+        "TaxiOnboardingScreen.kt:44",        // EmojiHero — эмодзи в круге на экране статуса
     )
 
     private fun screens(): List<File> {
@@ -56,17 +59,39 @@ class CanonSourceGuardTest {
         assertTrue("не нашёл исходники экранов, сторож ничего не проверяет", screens().size > 30)
     }
 
+    /**
+     * Проверяем ВСЕ три способа задать кегль, а не только прямой. Первая версия сторожа знала
+     * лишь `fontSize = 14.sp` — и пропустила девять локальных шкал (`private val TxBody = 16.sp`,
+     * `object MoneyType`) и восемь условных размеров (`if (compact) 20.sp else 24.sp`).
+     * Экраны жили по своим правилам, а тест показывал зелёный: худший вид проверки.
+     */
     @Test
     fun `кегль только со шкалы`() {
-        val re = Regex("""fontSize\s*=\s*(\d+)\.sp""")
         val bad = mutableListOf<String>()
+        val spLiteral = Regex("""(\d+)\.sp""")
+        val decl = Regex("""\bval\s+\w+\s*(?::\s*TextUnit\s*)?=\s*(\d+)\.sp""")
         screens().forEach { f ->
             if (f.name == "CanonTokens.kt") return@forEach
             f.readLines().forEachIndexed { i, line ->
-                re.findAll(line).forEach { m ->
+                // запятая разделяет аргументы: так fontSize и lineHeight в одной строке не путаются
+                line.split(",").forEach { part ->
+                    val allowed = when {
+                        part.contains("fontSize") -> allowedSizes
+                        part.contains("lineHeight") -> allowedLeading
+                        else -> return@forEach
+                    }
+                    spLiteral.findAll(part).forEach { m ->
+                        val v = m.groupValues[1].toInt()
+                        if (v !in allowed && "${f.name}:$v" !in sizeExceptions) {
+                            bad += "${f.name}:${i + 1}  ${v}sp — шкала: ${allowed.sorted()}"
+                        }
+                    }
+                }
+                // Своя шкала в файле — тоже шкала: её ступени обязаны совпасть с общими.
+                decl.find(line)?.let { m ->
                     val v = m.groupValues[1].toInt()
-                    if (v !in allowedSizes && "${f.name}:$v" !in sizeExceptions) {
-                        bad += "${f.name}:${i + 1}  ${v}sp — шкала: ${allowedSizes.sorted()}"
+                    if (v !in allowedSizes && v !in allowedLeading && "${f.name}:$v" !in sizeExceptions) {
+                        bad += "${f.name}:${i + 1}  своя ступень ${v}sp мимо общей шкалы"
                     }
                 }
             }

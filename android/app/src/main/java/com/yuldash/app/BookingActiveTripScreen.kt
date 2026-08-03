@@ -371,7 +371,7 @@ internal fun BookingScreen(
             contentPadding = PaddingValues(bottom = 116.dp)
         ) {
             item {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
             }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -839,7 +839,7 @@ internal fun SettingsNavRow(
     badge: Int = 0,   // >0 → зелёный бейдж непрочитанного (напр. новые ответы поддержки)
 ) {
     val modifier = if (onClick != null) Modifier.bounceClick(onClick) else Modifier
-    Row(modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp))
         }
@@ -1385,7 +1385,7 @@ internal fun ActiveTripScreen(
                                 appText("Если нравится — поддержи, это по желанию.", "Оҡшаһа — ярҙам ит, был ирекле."),
                                 color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 FilledTonalButton(
                                     onClick = onSupport,
                                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonGreen.copy(alpha = 0.18f))
@@ -1413,7 +1413,7 @@ internal fun ActiveTripScreen(
                     "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚",
                 )
                 val cancelFailMsg = appText("Не удалось отменить", "Кире алып булманы")
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     OutlinedButton(
                         onClick = { showCancel = true },
                         modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -2089,7 +2089,7 @@ internal fun TripStatusButtons(
                 onClick = { onStatus(st) },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(14.dp),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
                 colors = ButtonDefaults.filledTonalButtonColors(
                     containerColor = if (role != "driver" && selectedStatus == st) CanonMint else CanonSurface,
                     contentColor = CanonText
@@ -2194,11 +2194,11 @@ internal fun MessageBubble(
             if (deleted) {
                 Text(
                     appText("Сообщение удалено", "Хәбәр юйылды"),
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     color = CanonMuted, fontSize = 14.sp, fontStyle = FontStyle.Italic
                 )
             } else if (voiceUrl != null) {
-                Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = {
                             if (playing) {

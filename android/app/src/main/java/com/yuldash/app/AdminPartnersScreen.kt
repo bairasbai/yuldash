@@ -222,7 +222,7 @@ private fun AdminPartnerCard(p: AdminPartnerDto, busy: Boolean, onApprove: () ->
             }
             // Действия — только для тех, кого ещё можно модерировать
             if (p.status == "pending" || p.status == "rejected") {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (p.status == "pending") {
                         Button(
                             onClick = onApprove, enabled = !busy,

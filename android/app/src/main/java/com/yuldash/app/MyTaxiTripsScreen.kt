@@ -121,7 +121,7 @@ private fun TaxiTripHistoryCard(order: InstantOrderDto, onClick: () -> Unit) {
     // старый сервер уже внутри passengerPayKop, второй раз его городить не нужно.
     val rub = order.passengerPayKop / 100
     AppCard(onClick = if (done) onClick else null) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(color = if (done) CanonMint else CanonWarnBg, shape = CircleShape) {
                     Icon(

@@ -660,7 +660,7 @@ internal fun RowScope.SosDirectCallChip(
         modifier = Modifier.weight(1f).bounceClick(onClick)
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 14.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -1009,7 +1009,7 @@ internal fun UploadTile(title: String, done: Boolean, loading: Boolean, onClick:
         border = BorderStroke(1.dp, if (done) CanonGreen2 else CanonBorder),
         modifier = Modifier.fillMaxWidth().bounceClick(onClick)
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                 Icon(if (done) Icons.Default.CheckCircle else Icons.Default.PhotoCamera, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(22.dp))
             }

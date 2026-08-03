@@ -229,7 +229,7 @@ private fun ClinicChip(partner: MedicalPartnerDto, selected: Boolean, onClick: (
         modifier = Modifier.bounceClick(onClick),
     ) {
         Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(

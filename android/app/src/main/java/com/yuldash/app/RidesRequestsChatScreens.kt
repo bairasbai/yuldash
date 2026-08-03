@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -320,11 +321,18 @@ internal fun RidesScreen(
     }
     val activeStatuses = listOf("pending", "confirmed", "onboard")
     val historyStatuses = listOf("done", "cancelled")
-    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
+    // contentWindowInsets = 0: вкладки живут ВНУТРИ общего Scaffold в YuldashApp, он уже отдал
+    // отступ под статус-бар. Свой Scaffold добавлял его второй раз — заголовок «Мои поездки»
+    // висел на 70dp от верха, а соседние «Мои заявки» на 33dp. Разнобой между вкладками одного
+    // приложения глаз ловит сразу, даже не понимая, что именно не так. Так уже сделано на главной.
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .padding(padding)
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item { Spacer(Modifier.height(4.dp)) }
@@ -523,7 +531,7 @@ internal fun MyTripCard(
                 DetailMeta(Icons.Default.Person, "${seatsText(ride.seats)} · ${ride.price} ₽")
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
                     onClick = onPrimary,
                     modifier = Modifier.weight(1f).height(44.dp),
@@ -853,7 +861,7 @@ internal fun RideCard(
         elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -861,7 +869,7 @@ internal fun RideCard(
                     "${ride.from} → ${ride.to}",
                     modifier = Modifier.weight(1f),
                     fontWeight = FontWeight.Bold,
-                    fontSize = if (compact) 17.sp else 18.sp,
+                    fontSize = if (compact) 16.sp else 19.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -896,7 +904,7 @@ internal fun RideCard(
                 modifier = if (ride.driverId > 0) Modifier.clickable(onClickLabel = appText("Открыть профиль", "Профильде асыу")) { openDriver(ride.driverId) } else Modifier
             ) {
                 SmallAvatar(ride.driverAvatar, driverName, 44)
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(driverName, fontWeight = FontWeight.Bold)
@@ -928,7 +936,7 @@ internal fun RideCard(
                     Text("${seatsText(ride.seats)} · ", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("${ride.price} ₽", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = onBook,
                         modifier = Modifier.weight(1f).height(48.dp),
@@ -954,7 +962,7 @@ internal fun RideCard(
                     Metric(Icons.Default.Payments, "${ride.price} ₽", Modifier.weight(1f))
             Metric(Icons.Default.EventSeat, seatsText(ride.seats), Modifier.weight(1f))
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = onBook,
                         enabled = hasSeats,
@@ -1251,7 +1259,7 @@ internal fun MyRequestsScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 118.dp)
     ) {
@@ -1264,7 +1272,13 @@ internal fun MyRequestsScreen(
             item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
         } else if (requests.isEmpty()) {
             item {
-                Box(Modifier.appearIn(0)) {
+                // Пусто — это тоже состояние экрана, а не «ничего нет». Карточку с кнопкой
+                // держим в верхней половине по центру: прижатая к статус-бару плашка и
+                // 1300px пустоты под ней читались как незагрузившийся экран.
+                Box(
+                    Modifier.appearIn(0).fillParentMaxHeight(0.45f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
                     InfoCard(
                         title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
                         text = appText("Создайте заявку — водители увидят её и откликнутся.", "Заявка булдырығыҙ — водителдәр уны күреп яуап бирер."),
@@ -1371,14 +1385,14 @@ internal fun RequestSummaryCard(
                     onEdit?.let { doEdit ->
                         TextButton(onClick = doEdit, modifier = Modifier.weight(1f).height(44.dp)) {
                             Icon(Icons.Default.Edit, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(4.dp))
                             Text(appText("Редактировать", "Үҙгәртеү"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
                     onCancel?.let { doCancel ->
                         TextButton(onClick = doCancel, modifier = Modifier.weight(1f).height(44.dp)) {
                             Icon(Icons.Default.Close, contentDescription = null, tint = CanonRed, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(4.dp))
                             Text(appText("Отменить заявку", "Заявканы кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
@@ -1578,7 +1592,7 @@ private fun FullRideCard(
             }
             RidePrefChips(ride)
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedButton(
@@ -1882,7 +1896,7 @@ internal fun ChatContent(
             Row(
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 if (onEmoji != null) {
                     IconButton(onClick = onEmoji, modifier = Modifier.size(48.dp)) {
@@ -2557,7 +2571,7 @@ internal fun ChatComposer(
                     modifier = Modifier
                         .weight(1f)
                         .background(CanonMint, RoundedCornerShape(22.dp))
-                        .padding(horizontal = 6.dp),
+                        .padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
@@ -2616,7 +2630,7 @@ private fun QuickReplyChip(text: String, onClick: () -> Unit) {
         border = BorderStroke(1.dp, CanonHairlineGreen),
         modifier = Modifier.heightIn(min = 48.dp).bounceClick(onClick = onClick),
     ) {
-        Box(Modifier.fillMaxHeight().padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxHeight().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
             Text(text, color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
     }
@@ -2725,7 +2739,7 @@ internal fun VoiceMessageCard(message: LocalVoiceMessage) {
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
     DisposableEffect(message.audioPath) { onDispose { runCatching { player.value?.release() }; player.value = null } }
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonGreen2, shape = CircleShape) {
                 IconButton(
                     onClick = {

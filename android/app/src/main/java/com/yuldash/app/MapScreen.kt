@@ -239,6 +239,9 @@ import androidx.compose.material.icons.filled.Remove
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
+import com.yandex.mapkit.logo.Alignment as LogoAlignment
+import com.yandex.mapkit.logo.HorizontalAlignment as LogoHorizontal
+import com.yandex.mapkit.logo.VerticalAlignment as LogoVertical
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
@@ -766,7 +769,9 @@ private fun MapHero(
             MapAdRouteBanner(
                 adRoute = adRoute,
                 onClearRoute = onClearRoute,
-                modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+                // top = 44dp: сверху слева теперь стоит логотип «Яндекс Карты» (его туда увели,
+                // чтобы карточка снизу его не закрывала) — плашка маршрута идёт под ним.
+                modifier = Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 48.dp, end = 12.dp),
             )
             // Подсказка-маршрут плавает в нижней части карты: свайп вправо → язычок, тап → назад.
             Box(
@@ -1047,14 +1052,16 @@ private fun QuickSearchCard(
                         }
                     }
                     Box(
-                        modifier = Modifier.height(if (compact) 48.dp else 56.dp),
+                        // Высота = две строки заголовка ровно: 2 x 25 и 2 x 30 по шкале.
+                        // Магическое число тут уже один раз обрезало текст — держим связь явной.
+                        modifier = Modifier.height(if (compact) 50.dp else 60.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         Text(
                             appText(card.title, card.titleBa),
                             color = CanonGreen, fontWeight = FontWeight.Bold,
-                            fontSize = if (compact) 20.sp else 24.sp,
-                            lineHeight = if (compact) 24.sp else 28.sp,
+                            fontSize = if (compact) 19.sp else 24.sp,
+                            lineHeight = if (compact) 25.sp else 30.sp,
                             maxLines = 2, overflow = TextOverflow.Ellipsis
                         )
                     }
@@ -1298,6 +1305,11 @@ private fun YandexMapCard(
         MapView(context).also { view ->
             val map = view.mapWindow.map
             map.isNightModeEnabled = nightMap
+            // Логотип «Яндекс Карты» — в ЛЕВЫЙ ВЕРХ. По умолчанию он внизу справа, а там у нас
+            // плавает карточка-подсказка на всю ширину — она накрывала логотип наполовину.
+            // Это не косметика: условия MapKit требуют, чтобы логотип был виден целиком,
+            // иначе карту нельзя показывать в публичном релизе.
+            map.logo.setAlignment(LogoAlignment(LogoHorizontal.LEFT, LogoVertical.TOP))
             map.move(CameraPosition(MapMidPoint, 9.0f, 0f, 0f))
             // Маршруты-линии + ценники поездок рисуются ниже (LaunchedEffect, по реальным заказам).
             // Карта внутри прокручиваемого списка: на касании просим родителя (LazyColumn)
@@ -1668,7 +1680,7 @@ private fun YandexMapCard(
             visible = etaText != null,
             enter = fadeIn(tween(CanonMotion.NORMAL)) + slideInVertically(tween(CanonMotion.NORMAL)) { -it },
             exit = fadeOut(tween(CanonMotion.QUICK)) + slideOutVertically(tween(CanonMotion.QUICK)) { -it },
-            modifier = Modifier.align(Alignment.TopStart).padding(12.dp)
+            modifier = Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 48.dp)
         ) {
             Surface(
                 color = CanonSurface,

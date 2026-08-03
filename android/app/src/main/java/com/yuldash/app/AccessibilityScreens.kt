@@ -470,7 +470,7 @@ private fun VoiceRequestPlayRow(url: String) {
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
     DisposableEffect(url) { onDispose { runCatching { player.value?.release() }; player.value = null } }
     Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
-        Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(
                 onClick = {
                     if (playing) {
@@ -1534,7 +1534,7 @@ internal fun RepeatTripContent(
 @Composable
 private fun FrequentTripCard(trip: FrequentTrip, loading: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Card(modifier = Modifier.bounceClick { if (enabled && !loading) onClick() }.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                 Icon(if (trip.categoryKey == "hospital") Icons.Default.LocalHospital else Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(28.dp))
             }

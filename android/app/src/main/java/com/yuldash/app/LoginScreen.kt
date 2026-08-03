@@ -556,7 +556,7 @@ internal fun LoginFormContent(
                 text = appTextFor(currentLanguage, "Войти в Юлдаш", "Юлдашҡа инеү"),
                 color = CanonText,
                 fontSize = LoginTitle,
-                lineHeight = 32.sp,
+                lineHeight = 30.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
@@ -568,7 +568,7 @@ internal fun LoginFormContent(
                 ),
                 color = CanonMuted,
                 fontSize = LoginBody,
-                lineHeight = 24.sp,
+                lineHeight = 23.sp,
                 textAlign = TextAlign.Center
             )
             if (tgMode) {
@@ -576,7 +576,7 @@ internal fun LoginFormContent(
                 val errPhoneRequired = appTextFor(currentLanguage, "Для безопасности нужен номер. В Telegram нажми «📱 Поделиться номером», потом вернись и нажми «Войти».", "Хәүефһеҙлек өсөн номер кәрәк. Telegram'да «📱 Номер менән бүлешергә» баҫ, аҙаҡ кире ҡайтып «Инеү» баҫ.")
                 Text(
                     text = appTextFor(currentLanguage, "Открой Telegram, нажми «Старт» — бот пришлёт 6-значный код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот 6 һанлы код ебәрер. Шуны индер."),
-                    color = CanonMuted, fontSize = LoginBody, lineHeight = 24.sp
+                    color = CanonMuted, fontSize = LoginBody, lineHeight = 23.sp
                 )
                 // Баннер «нужен номер» приходит после 403 — значит на входе его нет и появление
                 // действительно анимируется (не мёртвый AnimatedVisibility(visible = true)).
@@ -588,7 +588,7 @@ internal fun LoginFormContent(
                     Surface(color = CanonWarnBg, shape = CanonItemShape) {
                         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Icon(Icons.Default.Shield, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(24.dp))
-                            Text(errPhoneRequired, color = CanonWarn, fontSize = LoginCaption, lineHeight = 19.sp)
+                            Text(errPhoneRequired, color = CanonWarn, fontSize = LoginCaption, lineHeight = 20.sp)
                         }
                     }
                 }
@@ -639,7 +639,7 @@ internal fun LoginFormContent(
                     Text(
                         if (needPhone) appTextFor(currentLanguage, "Открыть Telegram и поделиться номером", "Telegram'ды асып, номер менән бүлешергә")
                         else appTextFor(currentLanguage, "Открыть Telegram ещё раз", "Telegram'ды тағы асырға"),
-                        color = CanonGreen2, fontSize = LoginBody, lineHeight = 24.sp, textAlign = TextAlign.Center
+                        color = CanonGreen2, fontSize = LoginBody, lineHeight = 23.sp, textAlign = TextAlign.Center
                     )
                 }
                 TextButton(
@@ -680,7 +680,7 @@ internal fun LoginFormContent(
                         Spacer(Modifier.width(16.dp))
                         Text(
                             appTextFor(currentLanguage, "Войти через Telegram", "Telegram аша инеү"),
-                            color = Color.White, fontSize = LoginBody, lineHeight = 24.sp,
+                            color = Color.White, fontSize = LoginBody, lineHeight = 23.sp,
                             fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                         )
                     }
@@ -763,7 +763,7 @@ internal fun LoginErrorBanner(
                         tint = CanonRed,
                         modifier = Modifier.size(24.dp),
                     )
-                    Text(shownText, color = CanonRed, fontSize = LoginBody, lineHeight = 24.sp)
+                    Text(shownText, color = CanonRed, fontSize = LoginBody, lineHeight = 23.sp)
                 }
                 Text(
                     text = appTextFor(
@@ -771,7 +771,7 @@ internal fun LoginErrorBanner(
                         "Нет интернета или код ещё не пришёл? Проверь связь и нажми «Повторить».",
                         "Интернет юҡмы, әллә код килеп еткәне юҡмы? Бәйләнеште тикшер ҙә «Ҡабатларға» баҫ.",
                     ),
-                    color = CanonMuted, fontSize = LoginCaption, lineHeight = 19.sp,
+                    color = CanonMuted, fontSize = LoginCaption, lineHeight = 20.sp,
                 )
                 if (onRetry != null) {
                     AppButton(
@@ -795,7 +795,7 @@ private fun LoginLoadingHint(visible: Boolean, text: String) {
         enter = fadeIn(tween(CanonMotion.QUICK)) + expandVertically(tween(CanonMotion.NORMAL, easing = EaseOutExpo)),
         exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
     ) {
-        Text(text, color = CanonMuted, fontSize = LoginCaption, lineHeight = 19.sp, textAlign = TextAlign.Center)
+        Text(text, color = CanonMuted, fontSize = LoginCaption, lineHeight = 20.sp, textAlign = TextAlign.Center)
     }
 }
 
@@ -834,7 +834,7 @@ internal fun ColumnScope.LoginSmsSection(
     ) {
         Icon(Icons.Default.Phone, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
         Spacer(Modifier.width(16.dp))
-        Text(appTextFor(currentLanguage, "Войти по номеру телефона", "Телефон номеры аша инеү"), color = CanonGreen2, fontSize = LoginBody, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
+        Text(appTextFor(currentLanguage, "Войти по номеру телефона", "Телефон номеры аша инеү"), color = CanonGreen2, fontSize = LoginBody, lineHeight = 23.sp, fontWeight = FontWeight.Bold)
     }
     if (showPhone) {
         Text(
@@ -842,7 +842,7 @@ internal fun ColumnScope.LoginSmsSection(
             else appTextFor(currentLanguage, "Код отправлен на $phone", "Код $phone номерыңа ебәрелде"),
             color = CanonMuted,
             fontSize = LoginBody,
-            lineHeight = 24.sp
+            lineHeight = 23.sp
         )
         if (step == 0) {
             OutlinedTextField(
@@ -1060,7 +1060,7 @@ private fun BrandHero(
                     text = appTextFor(currentLanguage, "Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
                     color = Color.White.copy(alpha = 0.94f),
                     fontSize = LoginTitle,
-                    lineHeight = 32.sp,
+                    lineHeight = 30.sp,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -1121,8 +1121,8 @@ private fun LoginHeroFeature(icon: ImageVector, title: String, body: String) {
             )
         }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, color = Color.White, fontSize = LoginBody, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
-            Text(body, color = Color.White.copy(alpha = 0.92f), fontSize = LoginCaption, lineHeight = 19.sp)
+            Text(title, color = Color.White, fontSize = LoginBody, lineHeight = 23.sp, fontWeight = FontWeight.Bold)
+            Text(body, color = Color.White.copy(alpha = 0.92f), fontSize = LoginCaption, lineHeight = 20.sp)
         }
     }
 }
@@ -1185,7 +1185,7 @@ internal fun SafetyFooter(currentLanguage: AppLanguage, modifier: Modifier = Mod
                 text = appTextFor(currentLanguage, "Безопасность поездок — наш приоритет", "Сәфәр хәүефһеҙлеге — беҙҙең өҫтөнлөк"),
                 color = CanonGreen2,
                 fontSize = LoginCaption,
-                lineHeight = 19.sp,
+                lineHeight = 20.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
@@ -1194,7 +1194,7 @@ internal fun SafetyFooter(currentLanguage: AppLanguage, modifier: Modifier = Mod
             text = appTextFor(currentLanguage, "Юлдаш заботится о вас", "Юлдаш һеҙҙең хаҡта хәстәрләй"),
             color = CanonMuted,
             fontSize = LoginCaption,
-            lineHeight = 19.sp,
+            lineHeight = 20.sp,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center
         )
@@ -1229,7 +1229,7 @@ internal fun LoginConsent(currentLanguage: AppLanguage, modifier: Modifier = Mod
             ),
             color = CanonMuted,
             fontSize = LoginCaption,
-            lineHeight = 19.sp,
+            lineHeight = 20.sp,
             textAlign = TextAlign.Center
         )
         // Ссылки — тач-цель ≥48dp по высоте (вертикальный паддинг у самого clickable), а не «попади в 12sp».
@@ -1238,7 +1238,7 @@ internal fun LoginConsent(currentLanguage: AppLanguage, modifier: Modifier = Mod
                 text = appTextFor(currentLanguage, "Условия", "Шарттарҙы"),
                 color = CanonGreen2,
                 fontSize = LoginCaption,
-                lineHeight = 19.sp,
+                lineHeight = 20.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
@@ -1253,7 +1253,7 @@ internal fun LoginConsent(currentLanguage: AppLanguage, modifier: Modifier = Mod
                 text = appTextFor(currentLanguage, "Политику конфиденциальности", "Конфиденциаллек сәйәсәтен"),
                 color = CanonGreen2,
                 fontSize = LoginCaption,
-                lineHeight = 19.sp,
+                lineHeight = 20.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 modifier = Modifier

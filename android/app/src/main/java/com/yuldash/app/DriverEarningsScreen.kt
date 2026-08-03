@@ -141,7 +141,7 @@ private fun EarnPeriodChip(icon: ImageVector, label: String, active: Boolean, on
         shape = RoundedCornerShape(999.dp),
         border = BorderStroke(1.dp, if (active) Color.Transparent else CanonBorder),
     ) {
-        Row(Modifier.padding(horizontal = 13.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = if (active) Color.White else CanonGreen2, modifier = Modifier.size(16.dp))
             Spacer(Modifier.size(6.dp))
             Text(

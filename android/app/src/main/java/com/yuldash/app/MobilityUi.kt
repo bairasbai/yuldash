@@ -215,8 +215,8 @@ private fun MobilityRouteText(label: String, value: String, compact: Boolean) {
         Text(
             value,
             color = CanonText,
-            fontSize = if (compact) 14.sp else 15.sp,
-            lineHeight = if (compact) 18.sp else 20.sp,
+            fontSize = if (compact) 14.sp else 16.sp,
+            lineHeight = if (compact) 20.sp else 23.sp,
             fontWeight = FontWeight.Bold,
             maxLines = if (compact) 1 else 2,
             overflow = TextOverflow.Ellipsis,

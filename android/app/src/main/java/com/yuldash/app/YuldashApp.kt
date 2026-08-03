@@ -1489,7 +1489,7 @@ internal fun OnboardingContent(
                         Text(appText("Пропустить", "Үткәреп ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                     }
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
                         if (isLastPage) {

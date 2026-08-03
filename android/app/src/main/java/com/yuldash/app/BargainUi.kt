@@ -88,14 +88,14 @@ private const val BARGAIN_PRICE_CAP = 100_000
 //   Meta  — история торга, подпись «чей ход», сноски.
 // Вес закреплён за ролью: Black — цены и заголовки, Bold — то, что требует твоего хода,
 // Normal — спокойный текст. Пятого размера в торге не бывает.
-internal val BargainPrice = 22.sp
-internal val BargainPriceLine = 26.sp
-internal val BargainTitle = 17.sp
-internal val BargainTitleLine = 22.sp
+internal val BargainPrice = 24.sp
+internal val BargainPriceLine = 30.sp
+internal val BargainTitle = 19.sp
+internal val BargainTitleLine = 25.sp
 internal val BargainBody = 14.sp
 internal val BargainBodyLine = 20.sp
 internal val BargainMeta = 12.sp
-internal val BargainMetaLine = 16.sp
+internal val BargainMetaLine = 17.sp
 
 // ─────────────────────────── Ритм торга (сетка 4dp) ───────────────────────────
 internal val BargainCardPad = 20.dp     // воздух внутри карточки отклика

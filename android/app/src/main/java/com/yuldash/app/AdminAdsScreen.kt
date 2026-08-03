@@ -97,7 +97,7 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
             }
             error != null -> Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text(error ?: "", color = CanonRed, fontSize = 16.sp)
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(12.dp))
                 Button(onClick = { scope.launch { reload() } }, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg)) {
                     Text(appText("Повторить", "Ҡабатларға"), fontWeight = FontWeight.Bold)
                 }
@@ -111,7 +111,7 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = CanonGold.copy(alpha = 0.15f), shape = RoundedCornerShape(999.dp)) {
-                            Text("Founder $founderUsed/$founderLimit", color = CanonGold, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                            Text("Founder $founderUsed/$founderLimit", color = CanonGold, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                         }
                         Spacer(Modifier.weight(1f))
                         Button(onClick = { editing = null; showForm = !showForm }, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg), shape = CanonCardShape) {
@@ -312,7 +312,7 @@ internal fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCrea
                             color = if (sel) CanonBg else if (disabled) CanonMuted else CanonText,
                             fontSize = 14.sp, fontWeight = FontWeight.Bold,
                             modifier = Modifier
-                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
                                 .then(if (disabled) Modifier else Modifier.clickable { plan = p }),
                         )
                     }
