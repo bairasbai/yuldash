@@ -3,6 +3,42 @@
 > Чтобы НЕ читать весь файл. Иди сразу в нужный ФАЙЛ (UI давно разрезан), `grep` по имени функции.
 > ⚠️ Числа строк ниже устарели — ищи через `grep`/`rg`. Актуальная карта файлов — сразу ниже.
 
+## 🔧 Разбор №2: что изменилось в контракте (2026-08-03)
+
+Полный список находок — [gaps-taxi-courier-2026-08-03.md](gaps-taxi-courier-2026-08-03.md),
+почему выбраны такие решения — [decisions.md](decisions.md).
+
+**Время — единое соглашение.** `app/timeutil.client_dt_to_utc(dt, naive_means="local"|"utc")` —
+ЕДИНСТВЕННЫЙ шов, через который время от клиента попадает в БД. Зовётся в `routers/rides.py`
+(создание и правка поездки) и `routers/requests.py` (создание, «за близкого», правка заявки).
+Время с поясом переводится точно; без пояса считается местным башкирским (так шлют старые
+версии приложения). У такси-предзаказа исторически `naive_means="utc"` — там клиент всегда
+слал пояс, менять было нечего.
+В приложении: `isoWithOffset(ms)` (в `BookingActiveTripScreen.kt`) формирует ISO с поясом —
+зовут `CreateRideScreen.kt` и `AccessibilityScreens.kt`; `formatDepart` (в `MainActivity.kt`)
+теперь ПЕРЕВОДИТ UTC в местное время телефона, а не режет строку.
+Разовый сдвиг уже записанных строк — миграция `y_utc_depart` (`ride.depart_at`,
+`riderequest.desired_at`, −5 часов).
+
+**Новое на сервере:**
+
+| Что | Где | Зачем |
+|---|---|---|
+| `POST /parcels/{id}/attempt-failed` | `routers/parcels.py` | «Приехал, никого нет» — попытка учтена, посылка остаётся у курьера. Возврат — отдельная кнопка |
+| `POST /instant/orders/{id}/decline` принимает `reason` | `routers/instant.py` | far / cheap / direction / busy / break / other. Пишется в таблицу `offerdecline` |
+| Таблица `OfferDecline` | `models.py` | Журнал причин отказа. Ретеншен 90 дней (`cleanup.py`), удаляется с аккаунтом (`account.py`) |
+| `instant_service.driver_pause_until / driver_cancel_times / driver_pause_message` | `instant_service.py` | Пауза офферов за брошенные принятые заказы. Гейт — в `eligible()` и в `POST .../accept` |
+| `workday.week_seconds / week_block_until / week_block_message` | `workday.py` | Недельный лимит труда (скользящее окно). Гейт внутри `guard_taxi_rested` |
+| `trust_service.record_login_consents` | `trust_service.py` | Вход пишет `offer` + `privacy` + `age18` в реестр согласий. Зовётся из всех трёх путей входа |
+| `settings.launch_warnings()` | `config.py` | Печатается при старте: мешает ВЫПУСКУ, но не работе (тестовый аккаунт стора, форс-апдейт, push, Sentry) |
+| Поля груза `weight_kg` / `cargo_type` / `fragile` | `models.ParcelDelivery` | Условия заказа, видны курьеру ДО принятия — в том числе в открытом списке |
+| Дедуп заявок доставки | `routers/parcels.py`, `routers/courier.py` | Совпадающая заявка за 60 с возвращает ту же — двойной тап не плодит посылки |
+
+**Прод-гварды** (`config.validate_production`): `REDIS_URL` обязателен при `TAXI_ENABLED=true`;
+`APP_STORE_URL` обязателен при `MIN_APP_VERSION_CODE>0`.
+
+**Миграции этой волны:** `y_utc_depart` → `z_decline_reason` → `z2_cargo_kind`.
+
 ## 📦 Фичи доставки: адрес, переписка, фото, срок (2026-08-03)
 
 **Контракт срока доставки**
