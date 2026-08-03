@@ -2197,10 +2197,12 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
             color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption, textAlign = TextAlign.Center,
         )
         if (order.hasPromoDiscount) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(CanonSpace.md))
             TaxiPromoPayRow(order = order, forDriver = false)
         }
-        Spacer(Modifier.height(20.dp))
+        // Пауза перед строкой ожидания — самая длинная на карточке: дальше идёт то, ради чего
+        // человек и смотрит в экран («сколько ещё ждать»), и её стоит отделить воздухом.
+        Spacer(Modifier.height(CanonSpace.xl))
         // Ответ на «сколько ещё ждать». Пустого обещания не даём — по мере ожидания текст
         // честно меняется, и человек видит, что приложение про него не забыло.
         AnimatedContent(

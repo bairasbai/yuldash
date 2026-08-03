@@ -176,6 +176,12 @@ android {
             // «AssertionError at Файл.kt:73», а текст (что ожидали и что нашли) остаётся
             // в HTML-отчёте — то есть в CI его не видно вообще, и чинить приходится вслепую.
             all {
+                // Куча для JVM тестов. По умолчанию Gradle даёт 512 МБ — мало, когда в одной
+                // машине 83 класса Robolectric с Compose-песочницами. Симптом был характерный:
+                // AdminScreensIntegrationTest падал по 60-секундному таймауту в КОНЦЕ прогона и
+                // каждый раз в другом методе, а в одиночку проходил за 36 секунд. Так выглядит
+                // не сломанный тест, а пробуксовка сборщика мусора под конец.
+                it.maxHeapSize = "4g"
                 it.testLogging {
                     events("failed")
                     exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
