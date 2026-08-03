@@ -10,7 +10,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Refresh
@@ -28,10 +31,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -268,6 +273,61 @@ internal fun AppErrorState(
             AppButton(retryLabel, onRetry, style = AppButtonStyle.Primary, icon = Icons.Default.Refresh)
         }
     }
+}
+
+/**
+ * Спокойная плашка-предупреждение поверх уже показанных данных: «связь пропала, на экране
+ * может быть старое».
+ *
+ * Отличается от [AppErrorState] тем, что не заменяет собой контент — данные-то есть, просто
+ * они могли устареть. Раньше такие ситуации молчали: обратный отсчёт предзаказа продолжал
+ * тикать по замороженным цифрам, и человек шёл к дороге к машине, которой уже нет.
+ */
+@Composable
+internal fun AppNoticeCard(text: String, modifier: Modifier = Modifier, icon: ImageVector = Icons.Default.CloudOff) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = CanonWarnBg,
+        shape = CanonItemShape,
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(20.dp))
+            Text(text, color = CanonWarn, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+// ─────────────────────────── Обновление жестом ───────────────────────────
+
+/**
+ * «Потянуть вниз, чтобы обновить» — один компонент на всё приложение.
+ *
+ * Зачем: жест сверху вниз — базовый рефлекс в Яндекс Такси/Доставке и Самокате. До этого
+ * в Юлдаше он не работал НИГДЕ: единственным способом обновить список было выйти с экрана
+ * и зайти заново. Человек тянул экран, ничего не происходило, и он считал данные свежими.
+ *
+ * @param refreshing идёт ли обновление прямо сейчас (крутить индикатор)
+ * @param onRefresh что вызвать по жесту — обычно тот же reload(), что и при входе на экран
+ *
+ * Оборачивай СКРОЛЛЯЩИЙСЯ контейнер (LazyColumn/Column со scroll) — иначе жесту не за что зацепиться.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun AppPullRefresh(
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = onRefresh,
+        modifier = modifier.fillMaxSize(),
+    ) { content() }
 }
 
 /** Дружелюбная заглушка «пусто» + опциональное действие. Делегирует к EmptyStateCard (единый вид). */

@@ -6,9 +6,13 @@
     <path
         android:strokeColor="#FF0B6B4B"
         android:strokeWidth="2.2"
+        android:pathData="M13.8 20a4.2 4.2 0 1 0 8.4 0a4.2 4.2 0 1 0 -8.4 0Z"/>
+    <path
+        android:strokeColor="#FF0B6B4B"
+        android:strokeWidth="2.2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M11 30Q18 22 25 30"/>
+        android:pathData="M11 33Q18 25 25 33"/>
     <path
         android:fillColor="#FF0B6B4B"
         android:strokeColor="#FF0B6B4B"

@@ -1262,6 +1262,22 @@ object ApiClient {
     suspend fun sendOrderMessage(orderId: Int, text: String): Result<Unit> =
         call("POST", "/instant/orders/$orderId/messages", JSONObject().put("text", text), auth = true).map { }
 
+    // ---------- Чат доставки: отправитель ↔ курьер (привязка к parcel_id) ----------
+    // До этого по посылке можно было только позвонить. «Оставь у соседей», «я на работе до шести»,
+    // «звони, домофон не работает» — вещи на одну фразу, ради которых звонок избыточен, а без
+    // переписки ещё и не остаётся следа, если потом спор.
+
+    /** История переписки по посылке. После вручения/отмены сервер отдаёт её только для чтения. */
+    suspend fun getParcelMessages(parcelId: Int): Result<List<MessageDto>> =
+        call("GET", "/parcels/$parcelId/messages", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i -> parseMessageDto(arr.getJSONObject(i)) }
+        }
+
+    /** Отправить текст в чат посылки (REST-фолбэк, когда WS лежит). */
+    suspend fun sendParcelMessage(parcelId: Int, text: String): Result<Unit> =
+        call("POST", "/parcels/$parcelId/messages", JSONObject().put("text", text), auth = true).map { }
+
     // Голосовое: загрузить аудио (multipart) → URL, затем отправить сообщение со ссылкой.
     suspend fun uploadVoice(bytes: ByteArray): Result<String> =
         callMultipart("/voice", bytes, "m4a", "voice.m4a").map { it.optString("url") }
@@ -2337,6 +2353,35 @@ object ApiClient {
     suspend fun adminDeleteTaxiCity(id: Int): Result<Unit> =
         call("DELETE", "/admin/taxi-cities/$id", null, auth = true).map { }
 
+    /**
+     * Админ: журнал предрейсовых подтверждений за день (580-ФЗ).
+     *
+     * Водитель отмечается каждый день сам (самочувствие, машина, без алкоголя), запись живёт
+     * на сервере — но достать её из приложения было нельзя ни одним способом. При разборе ДТП
+     * или проверке это единственное доказательство, что водитель в тот день заявил о готовности.
+     *
+     * @param day дата в формате `ГГГГ-ММ-ДД`; пусто = сегодня (решает сервер).
+     */
+    suspend fun adminPretripJournal(day: String? = null): Result<PretripJournalDto> {
+        val q = if (day.isNullOrBlank()) "" else "?day=$day"
+        return call("GET", "/admin/taxi/pretrip$q", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            PretripJournalDto(
+                day = obj.optString("day"),
+                items = (0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    PretripEntryDto(
+                        driverId = o.optInt("driver_id"),
+                        name = o.optString("name"),
+                        phone = o.optString("phone"),
+                        confirmedAt = o.optString("confirmed_at"),
+                        note = o.optString("note"),
+                    )
+                },
+            )
+        }
+    }
+
     // ---------- Ранний доступ / лист ожидания (волна 2, §11 «Запуск») ----------
 
     /** Оставить номер в листе ожидания («сообщим, когда включим»). ПУБЛИЧНЫЙ — работает и без входа.
@@ -2954,6 +2999,9 @@ object ApiClient {
         senderId = o.optInt("sender_id"),
         courierId = nInt(o, "courier_id"),
         fromCity = o.optString("from_city"), toCity = o.optString("to_city"),
+        // «Где забрать / куда привезти». optString даёт "" на старом сервере без этих полей —
+        // клиент новее бэкенда не должен падать, он просто не рисует блок.
+        fromAddress = o.optString("from_address"), toAddress = o.optString("to_address"),
         fromLat = nDbl(o, "from_lat"), fromLng = nDbl(o, "from_lng"),
         toLat = nDbl(o, "to_lat"), toLng = nDbl(o, "to_lng"),
         size = o.optString("size"),
@@ -2999,15 +3047,20 @@ object ApiClient {
         )
     }
 
-    /** Отправитель: создать посылку. rulesAccepted обязателен (422 иначе), size обязателен. */
+    /** Отправитель: создать посылку. rulesAccepted обязателен (422 иначе), size обязателен.
+     *
+     *  fromAddress/toAddress — «где именно забрать и куда привезти». Города мало: курьер брал
+     *  заказ и ехал «в Баймак» — ни дома, ни ориентира. В селе это чаще ориентир, чем улица
+     *  с табличкой, поэтому одна свободная строка на сторону. Пустые не шлём — как comment
+     *  и entrance в createInstantOrder. */
     suspend fun createParcel(
         fromCity: String, toCity: String, size: String, description: String,
         receiverName: String, receiverPhone: String, rulesAccepted: Boolean,
         fromLat: Double? = null, fromLng: Double? = null, toLat: Double? = null, toLng: Double? = null,
         priceKop: Int = 0, declaredValueKop: Int = 0,
-    ): Result<ParcelDto> = call(
-        "POST", "/parcels",
-        JSONObject()
+        fromAddress: String = "", toAddress: String = "",
+    ): Result<ParcelDto> {
+        val body = JSONObject()
             .put("from_city", fromCity).put("to_city", toCity)
             .put("size", size).put("description", description)
             .put("receiver_name", receiverName).put("receiver_phone", receiverPhone)
@@ -3017,9 +3070,17 @@ object ApiClient {
             .put("price_kop", priceKop)
             .put("declared_value_kop", declaredValueKop)
             .put("from_lat", fromLat ?: JSONObject.NULL).put("from_lng", fromLng ?: JSONObject.NULL)
-            .put("to_lat", toLat ?: JSONObject.NULL).put("to_lng", toLng ?: JSONObject.NULL),
-        auth = true,
-    ).map { parseParcel(it) }.onSuccess { Analytics.log("parcel_create") }
+            .put("to_lat", toLat ?: JSONObject.NULL).put("to_lng", toLng ?: JSONObject.NULL)
+        putParcelAddresses(body, fromAddress, toAddress)
+        return call("POST", "/parcels", body, auth = true)
+            .map { parseParcel(it) }.onSuccess { Analytics.log("parcel_create") }
+    }
+
+    /** Кладёт «где забрать / куда привезти» в тело заказа. Пустое поле — не поле: в теле его нет. */
+    private fun putParcelAddresses(body: JSONObject, fromAddress: String, toAddress: String) {
+        if (fromAddress.isNotBlank()) body.put("from_address", fromAddress.take(PARCEL_ADDRESS_MAX_LEN))
+        if (toAddress.isNotBlank()) body.put("to_address", toAddress.take(PARCEL_ADDRESS_MAX_LEN))
+    }
 
     /** Отправитель: мои посылки (с кодом вручения и курьером, если принята). */
     suspend fun getMyParcels(): Result<List<ParcelDto>> =
@@ -3214,6 +3275,7 @@ object ApiClient {
         size: String, description: String, receiverName: String, receiverPhone: String, rulesAccepted: Boolean,
         deliveryType: String, urgency: String,
         declaredValueKop: Int? = null, codAmountKop: Int? = null, shoppingList: String? = null,
+        fromAddress: String = "", toAddress: String = "",
     ): Result<ParcelDto> {
         val body = JSONObject()
             .put("from_city", fromCity).put("to_city", toCity)
@@ -3226,6 +3288,7 @@ object ApiClient {
         declaredValueKop?.let { body.put("declared_value_kop", it) }
         codAmountKop?.let { body.put("cod_amount_kop", it) }
         shoppingList?.takeIf { it.isNotBlank() }?.let { body.put("shopping_list", it) }
+        putParcelAddresses(body, fromAddress, toAddress)
         return call("POST", "/courier/orders", body, auth = true).map { parseParcel(it) }
             .onSuccess { Analytics.log("courier_order_$deliveryType") }
     }
@@ -4185,6 +4248,18 @@ data class PretripDto(
 
 /** Город, где включено такси (управляет админ). */
 data class TaxiCityDto(val id: Int, val city: String, val enabled: Boolean)
+
+/** Одна запись журнала предрейсовых подтверждений: кто и когда отметился в этот день. */
+data class PretripEntryDto(
+    val driverId: Int,
+    val name: String,
+    val phone: String,
+    val confirmedAt: String,   // ISO-время подтверждения
+    val note: String,          // заметка водителя (может быть пустой)
+)
+
+/** Журнал предрейсовых подтверждений за конкретный день (580-ФЗ, юридический след). */
+data class PretripJournalDto(val day: String, val items: List<PretripEntryDto>)
 
 /** Населённый пункт из справочника географии (волна 2).
  *  kind: city (город РБ) | district_center (райцентр) | neighbor (соседний регион). */
@@ -5187,6 +5262,9 @@ data class AdminPromoDto(
  *  rating=null — у курьера пока нет оценок («новый курьер»); ratingCount — сколько оценок. */
 data class ParcelCourierDto(val id: Int, val name: String, val rating: Double?, val ratingCount: Int, val phone: String)
 
+/** Потолок «где забрать / куда привезти»: столько же принимает сервер, и столько же режет форма. */
+internal const val PARCEL_ADDRESS_MAX_LEN = 200
+
 /** Посылка. Форма зависит от роли: у отправителя есть confirmCode/receiverPhone/courier;
  *  в списке «доступные» (курьер) телефон и код скрыты (пустые).
  *  status: created/accepted/in_transit/delivered/canceled/returning/returned. */
@@ -5222,6 +5300,12 @@ data class ParcelDto(
     val returnedAt: String? = null,
     val deliveryAttempts: Int = 0,
     val cancelFeeKop: Int = 0,
+    // «Где именно забрать и куда привезти» — свободный ориентир от отправителя («у мечети,
+    // синие ворота»). Приватность: в открытой ленте свободных заказов сервер их НЕ отдаёт, они
+    // приходят только принявшему курьеру и самому отправителю → "" = «не пришло», блок не рисуем.
+    // Значения по умолчанию обязательны: старый сервер этих ключей не пришлёт.
+    val fromAddress: String = "",
+    val toAddress: String = "",
 )
 
 /** C2: расчёт «купи и привези» — сколько получатель вернёт курьеру (товар + доставка).

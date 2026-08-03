@@ -55,6 +55,9 @@ class TaxiApplyIn(BaseModel):
     permit_number: str = Field(..., min_length=1, max_length=60)
     birth_date: date
     license_since_year: int = Field(..., ge=1900, le=2100)
+    # Точная дата выдачи прав — опционально (старые клиенты шлют только год). Если пришла,
+    # стаж считаем ПО ДАТАМ: год в одиночку давал допуск при реальном стаже 2 года и 1 день.
+    license_since_date: Optional[date] = None
     permit_photo_url: str = Field("", max_length=500)
     osago_url: str = Field("", max_length=500)
     # Проверки водителя, Уровень 1: селфи с правами в руках (сверка лица) + справка о несудимости (опц.).
@@ -101,6 +104,19 @@ def _full_years_since(d: date, today: date) -> int:
     return today.year - d.year - ((today.month, today.day) < (d.month, d.day))
 
 
+def license_start_date(license_since_date: Optional[date], license_since_year: int) -> date:
+    """С какой даты считаем стаж вождения.
+
+    Есть точная дата выдачи прав → берём её. Пришёл только год (старые клиенты) → берём
+    31 ДЕКАБРЯ этого года: внутри года дата неизвестна, и ошибиться нужно в пользу
+    безопасности пассажира, а не в пользу допуска. Раньше стаж считался вычитанием годов
+    (`today.year - year`), и права от 31.12.2023 проходили 01.01.2026 при реальном стаже
+    2 года и 1 день — прямое нарушение требования к перевозчику (аудит 2026-08-03)."""
+    if license_since_date is not None:
+        return license_since_date
+    return date(int(license_since_year), 12, 31)
+
+
 def _validate_apply(body: TaxiApplyIn) -> None:
     """Валидация требований 580-ФЗ/бизнес-правил. Ошибки — понятной русской строкой."""
     inn = body.inn.strip()
@@ -111,7 +127,12 @@ def _validate_apply(body: TaxiApplyIn) -> None:
         raise herr(400, f"Возить такси можно с {MIN_AGE_YEARS} лет", f"Такси йөрөтөргә {MIN_AGE_YEARS} йәштән мөмкин")
     if body.license_since_year > today.year:
         raise herr(400, "Год получения прав не может быть в будущем", "Права алған йыл киләсәктә була алмай")
-    if today.year - body.license_since_year < MIN_LICENSE_YEARS:
+    if body.license_since_date is not None and body.license_since_date > today:
+        raise herr(400, "Дата получения прав не может быть в будущем",
+                   "Права алған дата киләсәктә була алмай")
+    # Стаж считаем по ДАТАМ, а не вычитанием годов (см. license_start_date).
+    since = license_start_date(body.license_since_date, body.license_since_year)
+    if _full_years_since(since, today) < MIN_LICENSE_YEARS:
         raise herr(400, f"Нужен стаж вождения от {MIN_LICENSE_YEARS} лет", f"Руль артында {MIN_LICENSE_YEARS} йыл стаж кәрәк")
     # Сроки документов: если указаны — только в будущем. Просроченный документ в момент подачи
     # это не «почти готов», это отказ; лучше сказать сразу, чем одобрить и снять допуск назавтра.
@@ -169,6 +190,9 @@ def _application_payload(app: TaxiApplication) -> dict:
         "criminal_record_url": app.criminal_record_url or "",
         "birth_date": app.birth_date.isoformat(),
         "license_since_year": app.license_since_year,
+        # Точная дата выдачи прав — модератору видно, по чему считался стаж (None = только год).
+        "license_since_date": (app.license_since_date.isoformat()
+                               if getattr(app, "license_since_date", None) else None),
         "comment": app.comment or "",
         "created_at": app.created_at.isoformat(),
         "reviewed_at": app.reviewed_at.isoformat() if app.reviewed_at else None,
@@ -198,7 +222,11 @@ def taxi_apply(body: TaxiApplyIn, user: User = Depends(current_user), session: S
     app.selfie_url = selfie_url
     app.criminal_record_url = criminal_url
     app.birth_date = body.birth_date
-    app.license_since_year = body.license_since_year
+    app.license_since_date = body.license_since_date
+    # Год держим в согласии с датой: пришла точная дата — год берём из неё (иначе в карточке
+    # модератора год и дата могли бы противоречить друг другу).
+    app.license_since_year = (body.license_since_date.year if body.license_since_date
+                              else body.license_since_year)
     app.osago_until = body.osago_until
     app.permit_until = body.permit_until
     app.inspection_until = body.inspection_until

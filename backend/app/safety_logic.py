@@ -304,7 +304,13 @@ def apply_incident_resolution(
     if exclude_rating or shield:
         _exclude_linked_ratings(session, incident)
 
-    prof = get_or_create_safety_profile(session, incident.respondent_id, lock=True)  # лок: страйки без гонки
+    # Обвинённый мог удалить аккаунт: спор и улики заявителя живы и обезличены (account.py,
+    # 3.7-bis), но наказывать больше некого. Берём НЕ сохраняемую заглушку — вся лестница ниже
+    # отрабатывает вхолостую, а решение админа всё равно записывается в спор (это документ
+    # разбора: жертве и полиции он нужен и без второй стороны).
+    gone = incident.respondent_id is None
+    prof = (SafetyProfile(user_id=0) if gone
+            else get_or_create_safety_profile(session, incident.respondent_id, lock=True))  # лок: страйки без гонки
 
     # Пере-решение (после апелляции): сначала откатываем то, что ЭТОТ спор уже наложил
     # (Incident.applied_*). «Оставить в силе» тем самым не наказывает второй раз за тот же
@@ -336,14 +342,14 @@ def apply_incident_resolution(
 
     # Приостановка: явные дни от админа > ban > лестница (3-й страйк / resolution=suspend).
     days = suspend_days if (suspend_days and suspend_days > 0) else None
-    if days is None:
+    if days is None and not gone:
         if resolution == "ban":
             days = 3650
         elif resolution == "suspend":
             days = _escalation_days(session, incident.respondent_id, incident.id)
         elif added_strike and prof.strikes >= settings.safety_strikes_to_suspend:
             days = _escalation_days(session, incident.respondent_id, incident.id)
-    if days and days > 0:
+    if days and days > 0 and not gone:
         prof.suspended_until = now + timedelta(days=days)
         prof.suspend_reason = note or resolution
         incident.applied_suspended_until = prof.suspended_until
@@ -351,7 +357,8 @@ def apply_incident_resolution(
             resolution = "suspend"
 
     recompute_standing(prof, now)
-    session.add(prof)
+    if not gone:                  # заглушку удалённого аккаунта в БД не пишем
+        session.add(prof)
 
     incident.resolution = resolution
     incident.fault = (fault or "").strip()
@@ -366,5 +373,6 @@ def apply_incident_resolution(
     session.add(incident)
     session.commit()
     session.refresh(incident)
-    session.refresh(prof)
+    if not gone:                  # заглушки нет в сессии — refresh по ней упал бы
+        session.refresh(prof)
     return incident, prof

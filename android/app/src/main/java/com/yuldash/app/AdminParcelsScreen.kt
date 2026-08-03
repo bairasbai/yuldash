@@ -5,6 +5,11 @@ package com.yuldash.app
 // сколько должны, и отдельно — сбор «по пути», который выставить некому (это не выручка).
 // По паттерну AdminPartnersScreen: умная обёртка держит стейт+сеть, LazyColumn рисует все состояния.
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -58,14 +63,16 @@ internal fun AdminParcelsScreen(onBack: () -> Unit) {
     var list by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
     var statement by remember { mutableStateOf<ParcelStatementDto?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var refreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     // Рычаги админа: раньше экран был «только посмотреть» — звонит бабушка «посылка две недели
     // висит», а отменить, снять курьера или закрыть вручную было НЕЧЕМ (аудит 2026-07-26).
     var action by remember { mutableStateOf<Pair<ParcelDto, String>?>(null) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
 
-    fun reload() {
-        loading = true; error = null
+    fun reload(pull: Boolean = false) {
+        if (pull) refreshing = true else loading = true
+        error = null
         scope.launch {
             ApiClient.adminListParcels()
                 .onSuccess {
@@ -77,42 +84,68 @@ internal fun AdminParcelsScreen(onBack: () -> Unit) {
                     )
                 }
                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }
-            loading = false
+            loading = false; refreshing = false
         }
     }
     LaunchedEffect(Unit) { reload() }
 
+    // Какое состояние сейчас на экране — отдельным значением, чтобы скелетон, ошибка, «пусто»
+    // и список сменяли друг друга плавно, а не подменялись кадром.
+    val phase = when {
+        loading && list.isEmpty() -> "load"
+        error != null && list.isEmpty() -> "err"
+        list.isEmpty() -> "empty"
+        else -> "ok"
+    }
+
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Посылки", "Бандеролдәр"), onBack) }) { padding ->
-        LazyColumn(
-            Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(vertical = 16.dp),
+        AppPullRefresh(
+            refreshing = refreshing,
+            onRefresh = { if (!refreshing) reload(pull = true) },
+            modifier = Modifier.padding(padding),
         ) {
-            item {
-                Text(
-                    appText(
-                        "Все доставки посылок и собранный сбор Юлдаша. Видно только администратору.",
-                        "Бөтә бандероль илтеүҙәре һәм йыйылған Юлдаш сборы. Тик админға күренә.",
-                    ),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
-                )
-            }
-            statement?.let { s -> item { ParcelStatementCard(s) } }
-            when {
-                loading && list.isEmpty() -> {
-                    item { SkeletonCard(lines = 3) }
-                    item { SkeletonCard(lines = 3) }
-                }
-                error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
-                list.isEmpty() -> item {
-                    ListedEmpty(
-                        appText("Пока нет посылок", "Әлегә бандеролдәр юҡ"),
-                        appText("Здесь появятся все отправленные посылки.", "Бында бөтә ебәрелгән бандеролдәр күренер."),
+            LazyColumn(
+                Modifier.padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(vertical = 16.dp),
+            ) {
+                item {
+                    Text(
+                        appText(
+                            "Все доставки посылок и собранный сбор Юлдаша. Видно только администратору.",
+                            "Бөтә бандероль илтеүҙәре һәм йыйылған Юлдаш сборы. Тик админға күренә.",
+                        ),
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
                     )
                 }
-                else -> items(list.size, key = { "adp-" + list[it].id }) { i ->
-                    Box(Modifier.appearIn(i.coerceAtMost(6))) {
-                        AdminParcelCard(list[i], onAction = { action = it })
+                statement?.let { s -> item { ParcelStatementCard(s) } }
+                item(key = "state") {
+                    AnimatedContent(
+                        targetState = phase,
+                        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
+                        label = "admin-parcels-state",
+                    ) { p ->
+                        when (p) {
+                            "load" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                SkeletonCard(lines = 3)
+                                SkeletonCard(lines = 3)
+                            }
+                            "err" -> ListedError(error ?: "") { reload() }
+                            "empty" -> ListedEmpty(
+                                appText("Пока нет посылок", "Әлегә бандеролдәр юҡ"),
+                                appText("Здесь появятся все отправленные посылки.", "Бында бөтә ебәрелгән бандеролдәр күренер."),
+                            )
+                            // Сам список — lazy-элементами ниже: внутри AnimatedContent прокрутка
+                            // перестала бы быть ленивой.
+                            else -> Spacer(Modifier.height(0.dp))
+                        }
+                    }
+                }
+                if (phase == "ok") {
+                    items(list.size, key = { "adp-" + list[it].id }) { i ->
+                        Box(Modifier.appearIn(i.coerceAtMost(6))) {
+                            AdminParcelCard(list[i], onAction = { action = it })
+                        }
                     }
                 }
             }

@@ -13,6 +13,7 @@ import com.yuldash.app.R
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -112,6 +113,7 @@ internal fun PassengerModeHome(
     onClinicRides: () -> Unit = {},       // F22: раздел «Поездки к клинике» (проброс в карту попутки)
     onRouteWatch: (String?, String?) -> Unit = { _, _ -> },   // F13: «карауль поездку» из карты попутки
     onOpenScheduled: () -> Unit = {},     // «На время»: предзаказ создан → «Мои предзаказы»
+    onCourierMode: () -> Unit = {},       // «Хочу возить» → работа курьера (заказы, линия, заработок)
     onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → форма создания поездки (аргумент — дата-шаблон)
 ) {
     val context = LocalContext.current
@@ -138,6 +140,7 @@ internal fun PassengerModeHome(
             mode = mode,
             onSelect = selectMode,
             onExplain = { showHint = true },
+            onCourierMode = onCourierMode,
         )
         Box(Modifier.fillMaxWidth().weight(1f)) {
             AnimatedContent(
@@ -200,6 +203,7 @@ private fun ModeSwitchBar(
     mode: RideMode,
     onSelect: (RideMode) -> Unit,
     onExplain: () -> Unit,
+    onCourierMode: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 2.dp)) {
         // Три режима в ряд — подписи короткие: в треть ширины длинная фраза не читается.
@@ -235,7 +239,24 @@ private fun ModeSwitchBar(
                 onClick = { onSelect(RideMode.Courier) },
             )
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Вторая сторона курьера — сама работа. Раньше «Возить» жило вкладкой внутри «Посылок»,
+            // но там оно показывалось всем подряд и работало по другому списку заказов. Теперь работа
+            // курьера — отдельный экран, и дверь к ней должна быть там же, где человек выбрал «Курьер»,
+            // а не только в глубине профиля: иначе курьер свою работу просто не найдёт.
+            AnimatedVisibility(visible = mode == RideMode.Courier) {
+                TextButton(onClick = onCourierMode) {
+                    Text(
+                        appText("Хочу возить", "Йөрөтөргә теләйем"),
+                        color = CanonCourier, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
             TextButton(onClick = onExplain) {
                 Text(appText("Чем отличается?", "Айырмаһы нимәлә?"), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }

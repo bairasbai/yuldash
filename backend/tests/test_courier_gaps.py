@@ -26,8 +26,10 @@ def _courier_on():
 
 @pytest.fixture(autouse=True)
 def _quiet(monkeypatch):
-    """Пуши/телеграм глушим — проверяем состояние заказов, а не доставку уведомлений."""
-    monkeypatch.setattr("app.routers.parcels.send_push", lambda *a, **k: None)
+    """Пуши/телеграм глушим — проверяем состояние заказов, а не доставку уведомлений.
+    Глушим у источника (services.send_push): parcels.py шлёт всё через push_notification,
+    чтобы у каждого события был data-payload для перехода на экран посылки."""
+    monkeypatch.setattr("app.services.send_push", lambda *a, **k: None)
     monkeypatch.setattr("app.routers.parcels.notify_admin_telegram", lambda *a, **k: None)
 
 

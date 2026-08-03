@@ -8,8 +8,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -34,6 +32,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -78,6 +77,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -99,7 +99,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -119,9 +121,12 @@ import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.InstantEstimateDto
 import com.yuldash.app.data.InstantOrderDto
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 // ============================ «Быстрый заказ» (такси-режим, Фаза 2) ============================
 // Отдельный поток от плановых поездок. Пассажир: «Куда едем?» → цена → «Ищем машину» → «Водитель едет».
@@ -409,6 +414,9 @@ internal fun InstantRouteMap(
     // Цвет маршрута берём из токена темы, а не из константы: в тёмной теме CanonGreen2 светлее,
     // иначе линия сливается с тёмной картой. Альфа 0.8 = прежняя 0xCC.
     val routeArgb = CanonGreen2.copy(alpha = 0.8f).toArgb()
+    // Подпись минут на машинке считаем ЗДЕСЬ: внутри DisposableEffect appText не позвать
+    // (он @Composable), и раньше «мин» уезжало в бабл мимо двуязычия (аудит P1-6).
+    val etaMinWord = appText("мин", "мин")
     val mapView = remember {
         runCatching { MapKitFactory.initialize(ctx) }
         MapView(ctx).also { v ->
@@ -510,14 +518,14 @@ internal fun InstantRouteMap(
     }
     // «Честные машины рядом»: показываем ТОЛЬКО до выбора адреса (to == null), чтобы не мешать
     // маршруту. Каждая машинка — реальная точка из presence + ≈ETA (без цены и без личности).
-    DisposableEffect(nearbyDrivers, to) {
+    DisposableEffect(nearbyDrivers, to, etaMinWord) {
         val map = mapView.mapWindow.map
         val carObjs = mutableListOf<com.yandex.mapkit.map.MapObject>()
         if (to == null) {
             nearbyDrivers.forEach { d ->
                 runCatching {
                     carObjs += map.mapObjects.addPlacemark(Point(d.lat, d.lng)).apply {
-                        setIcon(ImageProvider.fromBitmap(carEtaBitmap("≈${d.etaMin} мин")))
+                        setIcon(ImageProvider.fromBitmap(carEtaBitmap("≈${d.etaMin} $etaMinWord")))
                         setIconStyle(IconStyle().setAnchor(PointF(0.5f, 1f)))
                     }
                 }
@@ -529,6 +537,14 @@ internal fun InstantRouteMap(
 }
 
 // ==================================== ПАССАЖИР ====================================
+
+/**
+ * Потолок первой загрузки экрана такси. Сеть внутри повторяет попытки с паузами, и без общего
+ * бюджета скелетон мог висеть больше минуты. Лучше через 12 секунд честно сказать «не получилось,
+ * повторить», чем держать человека в вечной загрузке.
+ */
+private const val BOOT_BUDGET_MS = 12_000L
+
 /**
  * «Быстрый заказ» пассажира. Один экран с внутренней машиной состояний по статусу заказа:
  * нет заказа → «Куда едем?» (A=моя позиция, B=поиск/карта, оценка цены) → создать →
@@ -587,15 +603,33 @@ internal fun InstantOrderScreen(
         restoreError = false
         val lat = LocationPrefs.lastLat ?: InstantDefaultPoint.latitude
         val lng = LocationPrefs.lastLng ?: InstantDefaultPoint.longitude
-        // Доступность: сеть упала → фолбэк «доступно» (сервер всё равно гейтит). А вот список заказов
-        // важен: если он не загрузился, НЕ роняем в пикер молча — вдруг есть живой заказ.
-        ApiClient.getTaxiAvailability(lat, lng).onSuccess { availability = it }
-        ApiClient.getMyInstantOrders(limit = 5)
-            // Предзаказы (scheduled) сюда не тянем — они живут в «Моих предзаказах», а не как активный заказ.
-            // isWaitingQueue: заказ формально expired, но человек нажал «Подожду машину» —
-            // воркер ещё ищет, и такой заказ надо восстановить как живой.
-            .onSuccess { list -> order = list.firstOrNull { (!it.isTerminal || it.isWaitingQueue) && !it.isScheduled } }
-            .onFailure { restoreError = true }
+        // Два независимых запроса — параллельно, а не друг за другом. Последовательно они складывали
+        // свои ожидания: у каждого таймаут 15с и до трёх попыток с паузами, то есть экран мог честно
+        // «грузиться» больше минуты, показывая всё это время скелетон.
+        //
+        // И общий бюджет на первую загрузку: что бы ни случилось с сетью, экран обязан выйти из
+        // загрузки и сказать человеку правду. Вечная «загрузка» — это не состояние, это тупик:
+        // человек на морозе не понимает, ждать ему или закрывать приложение.
+        val restored = withTimeoutOrNull(BOOT_BUDGET_MS) {
+            coroutineScope {
+                // Доступность: сеть упала → фолбэк «доступно» (сервер всё равно гейтит).
+                val availabilityJob = async { ApiClient.getTaxiAvailability(lat, lng) }
+                // А вот список заказов важен: не загрузился — НЕ роняем в пикер молча, вдруг есть живой заказ.
+                val ordersJob = async { ApiClient.getMyInstantOrders(limit = 5) }
+                availabilityJob.await().onSuccess { availability = it }
+                ordersJob.await()
+            }
+        }
+        when {
+            // Не уложились в бюджет — это тоже сбой связи, показываем ошибку с «Повторить».
+            restored == null -> restoreError = true
+            else -> restored
+                // Предзаказы (scheduled) сюда не тянем — они живут в «Моих предзаказах», а не как активный заказ.
+                // isWaitingQueue: заказ формально expired, но человек нажал «Подожду машину» —
+                // воркер ещё ищет, и такой заказ надо восстановить как живой.
+                .onSuccess { list -> order = list.firstOrNull { (!it.isTerminal || it.isWaitingQueue) && !it.isScheduled } }
+                .onFailure { restoreError = true }
+        }
         checking = false
     }
 
@@ -617,7 +651,12 @@ internal fun InstantOrderScreen(
     // контекст задаёт сам переключатель. Самостоятельный экран (из кабинета) — с шапкой и «Назад».
     Scaffold(
         containerColor = CanonBg,
-        topBar = { if (!embedded) ScreenTopBar(appText("Быстрый заказ", "Тиҙ заказ"), onBack) }
+        topBar = { if (!embedded) ScreenTopBar(appText("Быстрый заказ", "Тиҙ заказ"), onBack) },
+        // Встроенный режим: системные отступы уже учёл хаб над нами — второй раз их добавлять
+        // нельзя, иначе под переключателем режимов зияет пустая полоса. Отдельный экран (из
+        // кабинета) отступы сохраняет, иначе шапка залезет под статус-бар. Так же сделано
+        // в «Попутке» — см. MapScreen.kt.
+        contentWindowInsets = if (embedded) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             val current = order
@@ -928,13 +967,18 @@ private fun InstantNearbyBadge(count: Int, loaded: Boolean, modifier: Modifier =
 private fun InstantAddressResults(
     query: String,
     searching: Boolean,
+    failed: Boolean,
     hits: List<com.yuldash.app.data.GeoHit>,
     onPick: (com.yuldash.app.data.GeoHit) -> Unit,
+    onRetry: () -> Unit,
 ) {
     // Короче двух букв не ищем вообще (дебаунс в пикере) — значит и «не нашли» показывать не за что.
     val asked = query.trim().length >= 2
     val state = when {
         searching -> "loading"
+        // «Не смогли спросить» ≠ «не нашли» (аудит P0-4). Человек в лифте вводил правильный
+        // адрес, а мы уверенно отвечали «такого адреса нет» — теперь честно: нет связи, повторить.
+        failed -> "error"
         asked && hits.isEmpty() -> "empty"
         hits.isEmpty() -> "idle"
         else -> "hits"
@@ -952,6 +996,14 @@ private fun InstantAddressResults(
                         SkeletonBox(widthFraction = if (i == 2) 0.52f else 0.86f, height = 14.dp, shape = CircleShape)
                     }
                 }
+                "error" -> AppErrorState(
+                    onRetry = onRetry,
+                    title = appText("Не получилось поискать адрес", "Адресты эҙләп булманы"),
+                    text = appText(
+                        "Похоже, пропала связь — адрес ты ввёл верно. Проверь интернет и повтори.",
+                        "Бәйләнеш өҙөлгән буғай — адресты дөрөҫ яҙғанһың. Интернетты тикшереп ҡабатла.",
+                    ),
+                )
                 "empty" -> Row(
                     Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1014,6 +1066,9 @@ private fun InstantDestinationPicker(
     // Идёт ли сейчас поиск адреса. Без этого флага «ничего не нашли» мигало бы во время
     // дебаунса на каждой букве — а «пусто» обязано отличаться от «ещё ищем».
     var searchingAddr by remember { mutableStateOf(false) }
+    // Поиск сорвался по сети — это третье состояние, не «не нашли» (аудит P0-4).
+    var searchFailed by remember { mutableStateOf(false) }
+    var searchTick by remember { mutableIntStateOf(0) }   // ручной «Повторить» после сбоя
 
     var estimate by remember { mutableStateOf<InstantEstimateDto?>(null) }
     var estimating by remember { mutableStateOf(false) }
@@ -1039,10 +1094,15 @@ private fun InstantDestinationPicker(
     var savedPlaces by remember { mutableStateOf<List<com.yuldash.app.data.SavedPlaceDto>>(emptyList()) }
     var recentPlaces by remember { mutableStateOf<List<com.yuldash.app.data.RecentPlaceDto>>(emptyList()) }
     var placesReload by remember { mutableIntStateOf(0) }
+    // Раньше обрабатывали только успех: при сбое блок «Дом/Работа/недавние» просто не рисовался,
+    // и человек думал, что потерял свои адреса (аудит P1-8). Теперь сбой видно, и есть «Повторить».
+    var placesFailed by remember { mutableStateOf(false) }
     LaunchedEffect(placesReload) {
         if (ApiClient.isLoggedIn()) {
-            ApiClient.getSavedPlaces().onSuccess { savedPlaces = it }
-            ApiClient.getRecentPlaces().onSuccess { recentPlaces = it }
+            var failed = false
+            ApiClient.getSavedPlaces().onSuccess { savedPlaces = it }.onFailure { failed = true }
+            ApiClient.getRecentPlaces().onSuccess { recentPlaces = it }.onFailure { failed = true }
+            placesFailed = failed
         }
     }
     // Быстрый выбор точки Б: подставляем адрес и координаты сразу (без сети).
@@ -1056,18 +1116,31 @@ private fun InstantDestinationPicker(
     val myPosText = appText("Моя позиция", "Минең урын")
     val mapPointText = appText("Точка на карте", "Картала нөктә")
 
-    val locationPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) LocationPrefs.sharingEnabled = true
-    }
+    // Единый путь запроса (Permissions.kt): объясняем зачем → просим → если система больше
+    // не спрашивает, ведём в настройки. Раньше был голый launch(): после двух отказов кнопка
+    // «Включить» переставала делать что-либо вообще, и выхода из тупика не было (аудит P0-3).
+    val askMyLocation = rememberPermissionGate(
+        permission = Manifest.permission.ACCESS_FINE_LOCATION,
+        titleRu = "Откуда тебя забрать?",
+        titleBa = "Һине ҡайҙан алырға?",
+        whyRu = "По геолокации мы сами подставим точку подачи и покажем свободные машины рядом — не придётся набирать свой адрес руками. Точку видит только водитель твоего заказа.",
+        whyBa = "Геолокация буйынса килеү нөктәһен үҙебеҙ ҡуябыҙ һәм яҡындағы буш машиналарҙы күрһәтәбеҙ — адресты ҡулдан яҙырға кәрәкмәй. Нөктәне тик һинең заказ водителе генә күрә.",
+        onGranted = { LocationPrefs.sharingEnabled = true },
+    )
     val hasLocPerm = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-    // Поиск адреса Б (дебаунс 350мс).
-    LaunchedEffect(query) {
-        if (query.trim().length < 2) { suggestions = emptyList(); searchingAddr = false; return@LaunchedEffect }
-        searchingAddr = true
+    // Поиск адреса Б (дебаунс 350мс). searchTick — ручной повтор после сетевого сбоя.
+    LaunchedEffect(query, searchTick) {
+        if (query.trim().length < 2) {
+            suggestions = emptyList(); searchingAddr = false; searchFailed = false
+            return@LaunchedEffect
+        }
+        searchingAddr = true; searchFailed = false
         delay(350)
-        suggestions = GeocoderClient.suggest(query).take(6)
+        GeocoderClient.suggestResult(query)
+            .onSuccess { suggestions = it.take(6) }
+            .onFailure { suggestions = emptyList(); searchFailed = true }
         searchingAddr = false
     }
 
@@ -1168,7 +1241,7 @@ private fun InstantDestinationPicker(
                 // человек промахивается в перчатках, стоя на остановке.
                 if (!hasLocPerm && !fromManual) {
                     TextButton(
-                        onClick = { locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
+                        onClick = { askMyLocation() },
                         modifier = Modifier.heightIn(min = 48.dp),
                     ) {
                         Text(
@@ -1189,11 +1262,24 @@ private fun InstantDestinationPicker(
 
         // Быстрый выбор: Дом/Работа + недавние (до ввода адреса). Тап подставляет адрес и координаты сразу.
         if (toPoint == null) {
-            QuickPlacesBlock(
-                saved = savedPlaces,
-                recent = recentPlaces,
-                onPick = { address, lat, lng -> pickDestination(address, lat, lng) },
-            )
+            // Ничего не загрузилось и была ошибка → честно говорим об этом. Загрузилась хотя бы
+            // часть — показываем её и не пугаем: адреса на месте, просто связь моргнула.
+            if (placesFailed && savedPlaces.isEmpty() && recentPlaces.isEmpty()) {
+                AppErrorState(
+                    onRetry = { placesReload++ },
+                    title = appText("Не удалось загрузить твои адреса", "Адрестарыңды йөкләп булманы"),
+                    text = appText(
+                        "Дом, работа и недавние поездки никуда не делись — просто пропала связь.",
+                        "Өй, эш һәм һуңғы сәфәрҙәр юғалманы — тик бәйләнеш өҙөлдө.",
+                    ),
+                )
+            } else {
+                QuickPlacesBlock(
+                    saved = savedPlaces,
+                    recent = recentPlaces,
+                    onPick = { address, lat, lng -> pickDestination(address, lat, lng) },
+                )
+            }
         }
 
         // Точка Б: поиск + «на карте»
@@ -1210,10 +1296,12 @@ private fun InstantDestinationPicker(
                 InstantAddressResults(
                     query = query,
                     searching = searchingAddr,
+                    failed = searchFailed,
                     hits = suggestions,
                     onPick = { hit ->
                         toPoint = Point(hit.lat, hit.lon); toText = hit.title; query = ""; suggestions = emptyList()
                     },
+                    onRetry = { searchTick++ },
                 )
                 OutlinedButton(
                     onClick = { pickOnMap = true },
@@ -1830,9 +1918,11 @@ private fun InstantWaitingRow(order: InstantOrderDto) {
                 Spacer(Modifier.width(10.dp))
                 if (isFree) {
                     val left = freeSec - elapsedSec
+                    // Locale явно: без него в локалях с восточно-арабскими цифрами таймер
+                    // рисуется чужими знаками. В остальных местах такси Locale уже указан.
+                    val leftMmSs = String.format(java.util.Locale.US, "%d:%02d", left / 60, left % 60)
                     Text(
-                        appText("Бесплатное ожидание %d:%02d".format(left / 60, left % 60),
-                            "Бушлай көтөү %d:%02d".format(left / 60, left % 60)),
+                        appText("Бесплатное ожидание $leftMmSs", "Бушлай көтөү $leftMmSs"),
                         color = CanonText, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
                     )
                 } else {
@@ -1950,7 +2040,7 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
         MobilityProgressRail(
             labels = listOf(
                 appText("Запрос", "Һорау"),
-                appText("Водитель", "Водитель"),
+                appText("Водитель", "Йөрөтөүсе"),
                 appText("Подача", "Килеү"),
             ),
             currentIndex = 0,
@@ -2085,7 +2175,7 @@ internal fun InstantDriverEnRouteCard(
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                order.driverName.ifBlank { appText("Водитель", "Водитель") },
+                                order.driverName.ifBlank { appText("Водитель", "Йөрөтөүсе") },
                                 color = CanonText, fontSize = TxBody, lineHeight = LhBody,
                                 fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false),
@@ -2321,13 +2411,17 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     var contacts by remember { mutableStateOf<List<com.yuldash.app.data.ContactDto>?>(null) }
     var loadError by remember { mutableStateOf(false) }
+    // Это единственный путь дать близкому live-ссылку во время поездки: ошибка без «Повторить»
+    // была тупиком прямо посреди дороги (аудит P1-7).
+    var contactsTick by remember { mutableIntStateOf(0) }
     var liveLink by remember { mutableStateOf<String?>(null) }   // ссылка после share (B7c)
     // Приватность: активные ссылки этого заказа (сервер отдаёт GET shares) + отозвать.
     var activeShares by remember { mutableStateOf<List<com.yuldash.app.data.TripShareDto>>(emptyList()) }
     val sharedMsg = appText("Близкий получит SMS о поездке", "Яҡын кеше сәфәр тураһында SMS алыр")
     val shareFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
     val revokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
-    LaunchedEffect(Unit) {
+    LaunchedEffect(contactsTick) {
+        contacts = null; loadError = false   // повтор начинается с честной загрузки, а не с ошибки
         ApiClient.getContacts()
             .onSuccess { contacts = it }
             .onFailure { loadError = true; contacts = emptyList() }
@@ -2354,8 +2448,14 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                         Spacer(Modifier.width(10.dp))
                         Text(appText("Загружаем близких…", "Яҡындарҙы йөкләйбеҙ…"), color = CanonMuted, fontSize = 14.sp)
                     }
-                    loadError -> Text(appText("Не удалось загрузить контакты. Проверь сеть и попробуй ещё раз.",
-                        "Контакттарҙы йөкләп булманы. Селтәрҙе тикшереп ҡабат ҡара."), color = CanonMuted, fontSize = 14.sp)
+                    loadError -> AppErrorState(
+                        onRetry = { contactsTick++ },
+                        title = appText("Не удалось загрузить близких", "Яҡындарҙы йөкләп булманы"),
+                        text = appText(
+                            "Проверь интернет и повтори — список никуда не пропал.",
+                            "Интернетты тикшереп ҡабатла — исемлек юғалманы.",
+                        ),
+                    )
                     list.isEmpty() -> Text(appText("Добавь близкого в «Доверенные контакты» в профиле — и делись поездкой в одно касание.",
                         "Профилдә «Ышаныслы кешеләр»гә яҡыныңды өҫтә — сәфәр менән бер баҫыуҙа бүлеш."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
                     else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -3202,6 +3302,11 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
 // ------------------------------ Полноэкранный входящий оффер ------------------------------
 @Composable
 internal fun InstantOfferOverlay(order: InstantOrderDto, accepting: Boolean = false, onAccept: () -> Unit, onDecline: () -> Unit) {
+    // Водитель за рулём смотрит на дорогу, а не в телефон: у оффера в приложении не было
+    // ни звука, ни вибрации — заказ можно было просто не заметить (аудит P1-10).
+    // Короткий «тук» в момент появления карточки; на новый заказ — новый «тук».
+    val haptic = LocalHapticFeedback.current
+    LaunchedEffect(order.id) { haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
     val nowMillis by rememberNowMs()
     val initialWindowMillis = remember(order.id, order.offerExpiresAt) {
         instantOfferRemainingMillis(order.offerExpiresAt, System.currentTimeMillis()).coerceAtLeast(1L)

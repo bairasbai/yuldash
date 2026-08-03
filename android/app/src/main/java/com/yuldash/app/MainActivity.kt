@@ -241,6 +241,7 @@ import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.FcmService
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
@@ -307,6 +308,17 @@ class MainActivity : ComponentActivity() {
             i.removeExtra("type")
             NavSignals.openInstantOrder.value = true
         }
+        // Пуш о ходе посылки. Те же два пути, что у такси: наше уведомление (extra) либо системный
+        // трей FCM в фоне (data-ключи приходят как extras). Без этого отправитель узнавал, что
+        // курьер взял посылку, только если сам заходил в приложение и переключал вкладку.
+        val parcelType = i?.getStringExtra("type")
+        if (i?.getBooleanExtra(FcmService.EXTRA_OPEN_PARCELS, false) == true ||
+            (parcelType != null && parcelType.startsWith("parcel"))
+        ) {
+            i.removeExtra(FcmService.EXTRA_OPEN_PARCELS)
+            i.removeExtra("type")
+            DeepLink.pendingParcels.value = true
+        }
     }
 
     /** F16 deep-link: из https://yulbash.ru/r/{id} достаём id поездки и кладём в DeepLink —
@@ -326,7 +338,25 @@ class MainActivity : ComponentActivity() {
  *  YuldashApp читает как snapshot-состояние и открывает поездку. */
 internal object DeepLink {
     val pendingRideId = mutableStateOf<Int?>(null)
+    /** Тап по пушу о посылке → открыть «Посылки». Сбрасывается тем, кто открыл (одноразовый сигнал). */
+    val pendingParcels = mutableStateOf(false)
+
+    /**
+     * Открыть чат по посылке. Кнопка «Написать» живёт глубоко внутри карточки, а карточка —
+     * внутри списка внутри вкладки: тянуть колбэк через все три слоя ради одного перехода незачем.
+     * Тот же приём уже применён для чата такси-заказа (см. `NavSignals.openInstantChat`).
+     *
+     * `null` = сигнала нет. Роль и статус кладёт карточка — она их и так знает.
+     */
+    val pendingParcelChat = mutableStateOf<ParcelChatTarget?>(null)
 }
+
+/** Куда открыть чат посылки: id, с кем говорим и в каком состоянии доставка. */
+internal data class ParcelChatTarget(
+    val parcelId: Int,
+    val peerIsCourier: Boolean,   // true = я отправитель, пишу курьеру
+    val status: String,
+)
 
 internal enum class Screen {
     Splash,
@@ -416,7 +446,9 @@ internal enum class Screen {
     SupportTickets, // «Поддержка Юлдаш» — список моих обращений (замена ссылки «Написать в Telegram»)
     SupportTicket,  // Тред обращения в поддержку (пузыри user/admin, ответ, закрыть/переоткрыть)
     ScheduledOrders, // «Мои предзаказы» — такси «на время»: список, обратный отсчёт, начать поиск/отменить
-    DriverResponses // «Мои отклики» (водитель): торг о цене — принять встречную или предложить свою
+    DriverResponses, // «Мои отклики» (водитель): торг о цене — принять встречную или предложить свою
+    MyTaxiTrips,    // «Мои поездки на такси» (пассажир): история + чек за каждую (чек больше не теряется)
+    ParcelChat      // Чат по посылке: отправитель ↔ курьер (до этого была только кнопка «позвонить»)
 }
 
 /** Действие «открыть публичный профиль водителя» — прокинуто из YuldashApp,

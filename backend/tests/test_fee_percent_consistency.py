@@ -87,3 +87,42 @@ def test_cashless_fee_matches_debt_fee_when_order_crosses_tier_boundary(client, 
 def _snapshot(order_id: int) -> InstantOrder:
     with Session(engine) as s:
         return s.get(InstantOrder, order_id)
+
+
+# --------------------------------------------------------------------------------------
+# Лесенка комиссии у такси и у курьера — одно обещание, одни цифры
+# --------------------------------------------------------------------------------------
+def test_courier_fee_ladder_matches_taxi_by_default():
+    """Курьеру обещано «как у такси» — значит по умолчанию цифры обязаны совпадать.
+
+    До аудита 2026-08-03 лесенка курьера была захардкожена в routers/courier.py: правка
+    ставки в .env меняла такси и НЕ трогала курьера, хотя комментарий обещал одинаковые
+    правила. Теперь у курьера свои настройки (экономика другая — свой транспорт, свои деньги
+    на товар), но дефолты общие. Если кто-то поменяет одну сторону и забудет вторую —
+    падает этот тест, а не доверие курьера.
+    """
+    assert settings.courier_service_fee_percent == settings.service_fee_percent
+    assert settings.courier_fee_tier1_percent == settings.fee_tier1_percent
+    assert settings.courier_fee_tier2_percent == settings.fee_tier2_percent
+    assert settings.courier_fee_tier1_days == settings.fee_tier1_days
+    assert settings.courier_fee_tier2_days == settings.fee_tier2_days
+
+
+def test_courier_ladder_reads_config_not_hardcode(client, user_factory, monkeypatch):
+    """Ставка курьера берётся из конфига на КАЖДЫЙ расчёт: поправил .env — поменялось сразу."""
+    from app import models as M
+    from app.routers import courier as cr
+
+    cour = user_factory("КурьерСтупень")
+    with Session(engine) as s:
+        s.add(M.CourierApplication(user_id=cour["id"], transport="car", status="approved",
+                                   reviewed_at=utcnow() - timedelta(days=10)))
+        s.commit()
+
+    with Session(engine) as s:
+        assert cr.courier_fee_tier(s, cour["id"])[0] == settings.courier_fee_tier1_percent
+        monkeypatch.setattr(settings, "courier_fee_tier1_percent", 1.5)
+        assert cr.courier_fee_tier(s, cour["id"])[0] == 1.5, "ставка не читается из конфига"
+        # Граница ступени тоже из конфига: сузили окно 1-й ступени → тот же курьер уже на 2-й.
+        monkeypatch.setattr(settings, "courier_fee_tier1_days", 5)
+        assert cr.courier_fee_tier(s, cour["id"])[1] == "tier2"

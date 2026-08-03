@@ -99,10 +99,11 @@ class AdminIncidentOut(BaseModel):
     severe: bool
     status: str
     reporter_role: str
-    reporter_id: int
+    # None = сторона удалила аккаунт: спор обезличен, но жив (см. account.py, 3.7-bis).
+    reporter_id: Optional[int]
     reporter_name: str
     reporter_phone: str
-    respondent_id: int
+    respondent_id: Optional[int]
     respondent_name: str
     respondent_phone: str
     description: str
@@ -151,6 +152,17 @@ def _name(u: Optional[User]) -> str:
     return (u.name if u and u.name else "Пользователь")
 
 
+# Сторона спора удалила аккаунт (её ссылка обезличена) — так и подписываем, чтобы админ
+# не искал «Пользователя», которого больше нет.
+_GONE_NAME = "Удалённый аккаунт · Юйылған аккаунт"
+
+
+def _party_name(session: Session, uid: Optional[int]) -> str:
+    if uid is None:
+        return _GONE_NAME
+    return _name(session.get(User, uid))
+
+
 def _incident_out(session: Session, inc: Incident, viewer: User) -> IncidentOut:
     if viewer.id == inc.reporter_id:
         my_role, other_id = "reporter", inc.respondent_id
@@ -158,7 +170,6 @@ def _incident_out(session: Session, inc: Incident, viewer: User) -> IncidentOut:
         my_role, other_id = "respondent", inc.reporter_id
     else:
         my_role, other_id = "admin", inc.respondent_id
-    other = session.get(User, other_id)
     return IncidentOut(
         id=inc.id, booking_id=inc.booking_id, type=inc.type, severe=inc.type in SEVERE_TYPES,
         status=inc.status, reporter_role=inc.reporter_role, description=inc.description,
@@ -166,7 +177,8 @@ def _incident_out(session: Session, inc: Incident, viewer: User) -> IncidentOut:
         resolution=inc.resolution, fault=inc.fault, resolution_note=inc.resolution_note,
         compensation_kop=inc.compensation_kop, appeal_text=inc.appeal_text, appeal_status=inc.appeal_status,
         created_at=inc.created_at, updated_at=inc.updated_at, resolved_at=inc.resolved_at,
-        my_role=my_role, other_name=_name(other),
+        # other_id может быть None: вторая сторона удалила аккаунт (спор обезличен, но жив).
+        my_role=my_role, other_name=_party_name(session, other_id),
         evidence_urls=urls_from_csv(inc.evidence_urls),
         respondent_evidence_urls=urls_from_csv(inc.respondent_evidence_urls),
         booking_route=_context_route(session, inc),
@@ -314,7 +326,8 @@ def respond_incident(incident_id: int, body: RespondIn,
     session.add(inc)
     session.commit()
     session.refresh(inc)
-    send_push(session, inc.reporter_id, "Ответ по спору", "Вторая сторона описала свою версию.")
+    if inc.reporter_id is not None:   # заявитель мог удалить аккаунт — спор жив, писать некому
+        send_push(session, inc.reporter_id, "Ответ по спору", "Вторая сторона описала свою версию.")
     return _incident_out(session, inc, user)
 
 
@@ -371,6 +384,8 @@ def withdraw_incident(incident_id: int, user: User = Depends(current_user), sess
     session.commit()
     session.refresh(inc)
     for uid in (inc.reporter_id, inc.respondent_id):
+        if uid is None:          # сторона удалила аккаунт — писать некому
+            continue
         send_push(session, uid, "Спор закрыт миром", "Спасибо, что договорились по-соседски 🤝")
     return _incident_out(session, inc, user)
 
@@ -412,18 +427,22 @@ def admin_incidents(status: Optional[str] = None, user: User = Depends(current_u
     rows = session.exec(q.limit(300)).all()
     ids: set = set()
     for r in rows:
-        ids.add(r.reporter_id)
-        ids.add(r.respondent_id)
+        # None = сторона удалила аккаунт (спор обезличен, но жив) — в выборку юзеров не берём.
+        ids.update(i for i in (r.reporter_id, r.respondent_id) if i is not None)
     users = {u.id: u for u in session.exec(select(User).where(User.id.in_(ids))).all()} if ids else {}
     out: List[AdminIncidentOut] = []
     for inc in rows:
-        rep = users.get(inc.reporter_id)
-        resp = users.get(inc.respondent_id)
+        rep = users.get(inc.reporter_id) if inc.reporter_id is not None else None
+        resp = users.get(inc.respondent_id) if inc.respondent_id is not None else None
         out.append(AdminIncidentOut(
             id=inc.id, booking_id=inc.booking_id, type=inc.type, severe=inc.type in SEVERE_TYPES,
             status=inc.status, reporter_role=inc.reporter_role,
-            reporter_id=inc.reporter_id, reporter_name=_name(rep), reporter_phone=(rep.phone if rep else ""),
-            respondent_id=inc.respondent_id, respondent_name=_name(resp), respondent_phone=(resp.phone if resp else ""),
+            reporter_id=inc.reporter_id,
+            reporter_name=(_name(rep) if inc.reporter_id is not None else _GONE_NAME),
+            reporter_phone=(rep.phone if rep else ""),
+            respondent_id=inc.respondent_id,
+            respondent_name=(_name(resp) if inc.respondent_id is not None else _GONE_NAME),
+            respondent_phone=(resp.phone if resp else ""),
             description=inc.description, respondent_statement=inc.respondent_statement,
             responded_at=inc.responded_at, resolution=inc.resolution, fault=inc.fault,
             resolution_note=inc.resolution_note, compensation_kop=inc.compensation_kop,
@@ -464,6 +483,8 @@ def resolve_incident(incident_id: int, body: ResolveIn,
     # Прозрачность: обе стороны получают решение с человеческим объяснением.
     note = inc.resolution_note or "Решение принято."
     for uid in (inc.reporter_id, inc.respondent_id):
+        if uid is None:          # сторона удалила аккаунт — писать некому
+            continue
         send_push(session, uid, "Решение по спору", note)
     return _incident_out(session, inc, user)
 

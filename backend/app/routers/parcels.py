@@ -35,7 +35,7 @@ from ..models import ParcelDelivery, User, UserRole
 from ..safety_logic import (ensure_active,
                             is_own_media_url)
 from ..security import current_user
-from ..services import notify_admin_telegram, push_notification, send_push
+from ..services import notify_admin_telegram, push_notification
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["parcels"])
@@ -83,12 +83,29 @@ _PARCEL_INCIDENT_TYPES = ("parcel_damage", "parcel_lost", "parcel_delay",
 # жалоба шла в двусторонний разбор (обвинённый объясняется), а не будила админа среди ночи.
 _DEFAULT_INCIDENT_TYPE = "parcel_damage"
 
+# data-payload пуша: по нему клиент понимает, КУДА вести человека по тапу. Android открывает
+# экран «Посылки», когда type начинается на "parcel". Без этого пуш «Курьер найден» вёл просто
+# в приложение, и отправитель узнавал статус, только если сам догадывался переключить вкладку
+# (аудит 2026-08-03). Тип держим один на весь жизненный цикл доставки — маршрут-то один.
+_PARCEL_PUSH_TYPE = "parcel_status"
+# Отдельный тип для рассылки курьерам о НОВОЙ заявке: экран тот же, но это не «мой статус».
+_PARCEL_NEW_PUSH_TYPE = "parcel_new"
+
+
+def _parcel_data(parcel_id: Optional[int], ptype: str = _PARCEL_PUSH_TYPE) -> dict:
+    """data для FCM: тип события + id посылки (клиент открывает нужную карточку)."""
+    return {"type": ptype, "id": parcel_id}
+
 
 # ---------- Тела запросов ----------
 
 class ParcelIn(BaseModel):
     from_city: str = Field("", max_length=80)
     to_city: str = Field("", max_length=80)
+    # «Куда именно» — дом/квартира/ориентир. Опциональны (старый клиент их не шлёт), свободный
+    # текст: в селе адрес чаще ориентир («у мечети», «синие ворота»), чем улица с табличкой.
+    from_address: str = Field("", max_length=200)
+    to_address: str = Field("", max_length=200)
     size: str = Field("small", max_length=16)
     description: str = Field("", max_length=2000)
     receiver_name: str = Field("", max_length=120)
@@ -154,11 +171,14 @@ def _settlement(p: ParcelDelivery) -> Optional[dict]:
 
 
 def _parcel_base(p: ParcelDelivery, blur_coords: bool = False) -> dict:
-    """Общие поля заявки БЕЗ приватного телефона и БЕЗ кода вручения.
+    """Общие поля заявки БЕЗ приватного телефона, БЕЗ кода вручения и БЕЗ адресов.
 
     blur_coords=True — округляем точки отправления/получения до ~1 км (2 знака): в открытом
     списке заявок (до принятия) точный адрес дома отправителя/получателя показывать нельзя
-    (152-ФЗ, приватность). Точные координаты открываются только принявшему курьеру."""
+    (152-ФЗ, приватность). Точные координаты открываются только принявшему курьеру.
+
+    from_address/to_address («у мечети», «синие ворота») сюда НЕ кладём по той же причине, что
+    и телефон получателя: до принятия заявку видит любой курьер. Их добавляет _addresses()."""
     def _blur(v):
         return round(v, 2) if (blur_coords and v is not None) else v
     return {
@@ -208,6 +228,17 @@ def _photos(p: ParcelDelivery) -> dict:
     }
 
 
+def _addresses(p: ParcelDelivery) -> dict:
+    """«Куда именно»: точка забора и точка вручения (дом/квартира/ориентир). Персональные данные —
+    отдаём ровно тем же, кому уже отдаём receiver_phone: принявшему курьеру, отправителю и админу.
+    В открытом списке заявок (_parcel_available) адресов нет вообще; получателю по трекинг-ссылке
+    уходит только его собственный to_address (см. routers/share._parcel_state)."""
+    return {
+        "from_address": getattr(p, "from_address", "") or "",
+        "to_address": getattr(p, "to_address", "") or "",
+    }
+
+
 def _courier_public(courier: Optional[User], session: Optional[Session] = None) -> Optional[dict]:
     """Публичная карточка курьера для отправителя (без приватного — только имя/рейтинг/телефон водителя).
     C3: rating — реальный агрегат оценок доставки (средний stars по Rating где ratee=курьер) +
@@ -232,6 +263,7 @@ def _parcel_for_sender(p: ParcelDelivery, session: Session) -> dict:
     Телефон ПОЛУЧАТЕЛЯ отправитель и так знает сам — возвращаем как есть (это его собственные данные)."""
     out = _parcel_base(p)
     out.update(_photos(p))
+    out.update(_addresses(p))          # отправитель их сам вводил — отдаём как есть
     out["receiver_phone"] = p.receiver_phone
     out["confirm_code"] = p.confirm_code
     out["courier"] = _courier_public(session.get(User, p.courier_id), session) if p.courier_id else None
@@ -239,8 +271,8 @@ def _parcel_for_sender(p: ParcelDelivery, session: Session) -> dict:
 
 
 def _parcel_available(p: ParcelDelivery) -> dict:
-    """Для курьера в списке открытых заявок: БЕЗ телефона получателя (скрыт до принятия), БЕЗ кода
-    и с ОКРУГЛёнными координатами (точный адрес — только принявшему курьеру)."""
+    """Для курьера в списке открытых заявок: БЕЗ телефона получателя (скрыт до принятия), БЕЗ кода,
+    БЕЗ адресов «куда именно» и с ОКРУГЛёнными координатами (точная точка — только принявшему)."""
     return _parcel_base(p, blur_coords=True)
 
 
@@ -250,9 +282,12 @@ def _parcel_for_courier(p: ParcelDelivery, session: Optional[Session] = None) ->
 
     sender_phone (аудит 2026-07-26): раньше курьеру отдавали ТОЛЬКО receiver_phone — приехал
     забирать, дома никого, позвонить отправителю нечем, разворачивается. До accept телефон
-    по-прежнему скрыт (этот сериализатор используется только после принятия заказа)."""
+    по-прежнему скрыт (этот сериализатор используется только после принятия заказа).
+
+    from_address/to_address — по той же логике: «куда именно» нужно только тому, кто уже везёт."""
     out = _parcel_base(p)
     out.update(_photos(p))
+    out.update(_addresses(p))
     out["receiver_phone"] = p.receiver_phone
     sender = session.get(User, p.sender_id) if (session is not None and p.sender_id) else None
     out["sender_phone"] = (sender.phone or "") if sender else ""
@@ -299,6 +334,10 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
         sender_id=user.id,
         from_city=from_city,
         to_city=to_city,
+        # «Куда именно»: дом/квартира/ориентир. Не обязательны (город остаётся минимумом), но
+        # без них курьер ехал «в Баймак» и искал получателя по телефону уже на месте.
+        from_address=body.from_address.strip(),
+        to_address=body.to_address.strip(),
         from_lat=body.from_lat,
         from_lng=body.from_lng,
         to_lat=body.to_lat,
@@ -361,6 +400,7 @@ def _notify_couriers_new_parcel(session: Session, parcel: ParcelDelivery) -> int
                 f"{parcel.from_city} → {parcel.to_city}. Открой «Курьер», чтобы взять.",
                 f"{parcel.from_city} → {parcel.to_city}. Алыр өсөн «Курьер»ҙы ас.",
                 ref_kind="parcel", ref_id=parcel.id,
+                data=_parcel_data(parcel.id, _PARCEL_NEW_PUSH_TYPE),
             )
             sent += 1
         return sent
@@ -423,14 +463,14 @@ def parcel_cancel(parcel_id: int, user: User = Depends(current_user), session: S
                     "Доставка отменена", "Доставка кире алынды",
                     f"{route} · отправитель отменил. Компенсация {fee_kop // 100} ₽ — договоритесь напрямую.",
                     f"{route} · ебәреүсе кире алды. Компенсация {fee_kop // 100} һ — үҙ-ара килешегеҙ.",
-                    ref_kind="parcel", ref_id=parcel.id,
+                    ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
                 )
             else:
                 push_notification(
                     session, prev_courier, "parcel",
                     "Доставка отменена", "Доставка кире алынды",
                     f"Отправитель отменил посылку {route}.", f"Ебәреүсе {route} бандеролен кире алды.",
-                    ref_kind="parcel", ref_id=parcel.id,
+                    ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
                 )
         except Exception:
             pass
@@ -505,8 +545,15 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
     session.commit()
     session.refresh(parcel)
     try:  # отправителю — best-effort, без телефонов
-        send_push(session, parcel.sender_id, "Курьер найден",
-                  f"{user.name or 'Курьер'} везёт твою посылку {parcel.from_city} → {parcel.to_city}.")
+        route = f"{parcel.from_city} → {parcel.to_city}"
+        who = user.name or "Курьер"
+        push_notification(
+            session, parcel.sender_id, "parcel",
+            "Курьер найден 📦", "Курьер табылды 📦",
+            f"{who} везёт твою посылку {route}.",
+            f"{who} һинең бандеролеңде {route} алып бара.",
+            ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
+        )
     except Exception:
         pass
     return _parcel_for_courier(parcel, session)
@@ -556,12 +603,28 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
     session.add(parcel)
     session.commit()
     session.refresh(parcel)
-    if parcel.status == "delivered":
-        try:  # отправителю — best-effort, без телефонов
-            send_push(session, parcel.sender_id, "Посылка доставлена",
-                      f"Твоя посылка {parcel.from_city} → {parcel.to_city} вручена получателю. Спасибо!")
-        except Exception:
-            pass
+    # Отправителю — на каждом шаге, а не только в конце. Раньше про «курьер забрал и поехал»
+    # он не узнавал вообще: посылка молча висела «принята» до самой доставки (аудит 2026-08-03).
+    route = f"{parcel.from_city} → {parcel.to_city}"
+    try:  # best-effort, без телефонов
+        if parcel.status == "in_transit":
+            push_notification(
+                session, parcel.sender_id, "parcel",
+                "Посылка в пути 🚗", "Бандероль юлда 🚗",
+                f"Курьер забрал посылку и повёз её {route}.",
+                f"Курьер бандерольде алды һәм {route} юлға сыҡты.",
+                ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
+            )
+        elif parcel.status == "delivered":
+            push_notification(
+                session, parcel.sender_id, "parcel",
+                "Посылка доставлена ✅", "Бандероль еткерелде ✅",
+                f"Твоя посылка {route} вручена получателю. Спасибо!",
+                f"Һинең бандеролең {route} алыусыға тапшырылды. Рәхмәт!",
+                ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
+            )
+    except Exception:
+        pass
     return _parcel_for_courier(parcel, session)
 
 
@@ -585,6 +648,19 @@ def parcel_release(parcel_id: int, body: Optional[ParcelReasonIn] = None,
     if parcel.status not in _COURIER_HOLDS:
         raise herr(409, "На этом этапе сняться уже нельзя — открой спор",
                    "Был этапта баш тартып булмай — бәхәс ас")
+    # «Купи и привези» после закупки: курьер уже потратил СВОИ деньги (до 5000 ₽). Отправителю
+    # отмену на этом шаге запретили давно (см. parcel_cancel), а курьер мог сняться — и заказ
+    # уходил в общий список без единой записи о том, что платформа (или получатель) должна ему
+    # за товар: деньги просто терялись (аудит 2026-08-03).
+    # Почему запрет, а не «зафиксируем компенсацию»: компенсация за отмену — это фиксированные
+    # 100 ₽ за бензин, она не возвращает стоимость товара. Курьеру честнее оставить дело живым
+    # и увести его в спор: там есть и разбор человеком, и поле компенсации (Incident.
+    # compensation_kop), то есть реальный путь получить свои деньги. Молчаливое «снялся» —
+    # это гарантированный минус курьеру.
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") == "buy_bring" \
+            and (getattr(parcel, "goods_actual_kop", 0) or 0) > 0:
+        raise herr(409, "Ты уже купил товар — сняться нельзя. Открой спор, чтобы вернуть деньги",
+                   "Һин тауарҙы һатып алғанһың — баш тартып булмай. Аҡсаны ҡайтарыр өсөн бәхәс ас")
     reason = ((body.reason if body else "") or "").strip()[:200]
     sender_id = parcel.sender_id
     parcel.courier_id = None
@@ -602,14 +678,14 @@ def parcel_release(parcel_id: int, body: Optional[ParcelReasonIn] = None,
             "Ты снялся с доставки", "Доставканан баш тарттың",
             f"{parcel.from_city} → {parcel.to_city}. Посылка снова в общем списке.",
             f"{parcel.from_city} → {parcel.to_city}. Бандероль кире дөйөм исемлектә.",
-            ref_kind="parcel", ref_id=parcel.id, push=False,
+            ref_kind="parcel", ref_id=parcel.id, push=False, data=_parcel_data(parcel.id),
         )
         push_notification(
             session, sender_id, "parcel",
             "Курьер не смог везти", "Курьер алып бара алманы",
             (f"Причина: {reason}. " if reason else "") + "Ищем другого курьера — посылка снова в поиске.",
             (f"Сәбәбе: {reason}. " if reason else "") + "Башҡа курьер эҙләйбеҙ.",
-            ref_kind="parcel", ref_id=parcel.id,
+            ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
         )
     except Exception:  # noqa: BLE001 — уведомления вторичны
         pass
@@ -667,7 +743,7 @@ def parcel_return_start(parcel_id: int, body: Optional[ParcelReasonIn] = None,
             + "Курьер возвращает посылку тебе.",
             (f"Сәбәбе: {parcel.return_reason}. " if parcel.return_reason else "")
             + "Курьер бандерольде һиңә кире ҡайтара.",
-            ref_kind="parcel", ref_id=parcel.id,
+            ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
         )
     except Exception:  # noqa: BLE001
         pass
@@ -702,7 +778,7 @@ def parcel_return_done(parcel_id: int, user: User = Depends(current_user),
             "Посылка вернулась к тебе", "Бандероль һиңә ҡайтты",
             "Курьер вернул посылку. Комиссию за возврат мы не берём.",
             "Курьер бандерольде кире ҡайтарҙы. Кире ҡайтарыу өсөн комиссия алмайбыҙ.",
-            ref_kind="parcel", ref_id=parcel.id,
+            ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
         )
     except Exception:  # noqa: BLE001
         pass
@@ -801,6 +877,7 @@ def _require_admin(user: User) -> None:
 def _parcel_admin(p: ParcelDelivery) -> dict:
     """Карточка заявки для админ-контроля (со всем, включая приватное — для поддержки/споров)."""
     out = _parcel_base(p)
+    out.update(_addresses(p))          # адреса нужны для разбора «не довёз / не открыли»
     out["receiver_phone"] = p.receiver_phone
     out["confirm_code"] = p.confirm_code
     return out
@@ -865,7 +942,8 @@ def _notify_parties(session: Session, parcel: ParcelDelivery, title_ru: str, tit
     for uid in {parcel.sender_id, parcel.courier_id} - {None}:
         try:
             push_notification(session, uid, "parcel", title_ru, title_ba, body_ru, body_ba,
-                              ref_kind="parcel", ref_id=parcel.id)
+                              ref_kind="parcel", ref_id=parcel.id,
+                              data=_parcel_data(parcel.id))
         except Exception:  # noqa: BLE001 — уведомления вторичны
             pass
 
@@ -919,7 +997,8 @@ def admin_release_courier(parcel_id: int, body: Optional[ParcelReasonIn] = None,
                               "Тебя сняли с доставки", "Һине доставканан алдылар",
                               (f"Причина: {reason}. " if reason else "") + "Вопросы — напиши в поддержку.",
                               (f"Сәбәбе: {reason}. " if reason else "") + "Һорауҙар — ярҙамға яҙ.",
-                              ref_kind="parcel", ref_id=parcel.id)
+                              ref_kind="parcel", ref_id=parcel.id,
+                              data=_parcel_data(parcel.id))
         except Exception:  # noqa: BLE001
             pass
     try:
@@ -927,7 +1006,8 @@ def admin_release_courier(parcel_id: int, body: Optional[ParcelReasonIn] = None,
                           "Ищем другого курьера", "Башҡа курьер эҙләйбеҙ",
                           "Прежний курьер снят с доставки, посылка снова в поиске.",
                           "Элекке курьер алынды, бандероль яңынан эҙләүҙә.",
-                          ref_kind="parcel", ref_id=parcel.id)
+                          ref_kind="parcel", ref_id=parcel.id,
+                          data=_parcel_data(parcel.id))
     except Exception:  # noqa: BLE001
         pass
     return {"ok": True, "status": parcel.status, "released_courier_id": prev_courier}

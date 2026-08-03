@@ -65,6 +65,15 @@
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_stat_notification" />
 
+        <!-- Sentry поднимаем ВРУЧНУЮ в YuldashApplication и только при заданном DSN.
+             Без этого флага библиотека стартует сама из своего ContentProvider — раньше
+             Application.onCreate() — и при пустом DSN валит процесс на старте
+             («DSN is required»). У кого нет YULDASH_SENTRY_DSN в local.properties
+             (это норма — ключ не в git), приложение не запускалось вообще. -->
+        <meta-data
+            android:name="io.sentry.auto-init"
+            android:value="false" />
+
         <!-- Foreground-сервис live-позиции в активной поездке. -->
         <service
             android:name=".TripLocationService"
@@ -74,6 +83,13 @@
         <!-- Foreground-сервис «Я на линии» (такси): presence-heartbeat + опрос оффера из фона. -->
         <service
             android:name=".TaxiLineService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- Foreground-сервис живой позиции курьера: отправитель видит, где его посылка, даже
+             когда курьер свернул приложение или погасил экран. -->
+        <service
+            android:name=".CourierLocationService"
             android:exported="false"
             android:foregroundServiceType="location" />
         <!-- Шеринг картинки статистики «Мой Юлдаш»: отдаём PNG из кэша через content:// URI. -->

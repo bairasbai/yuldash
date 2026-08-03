@@ -71,7 +71,7 @@ def test_available_shows_commission_of_this_courier_not_default_tier(client, use
     price_kop = created["price_kop"]
     stored_commission = created["commission_kop"]
     # При создании — верхняя ступень (курьер ещё не назначен).
-    assert stored_commission == cr.courier_commission_kop(price_kop, cr.COURIER_COMMISSION_PERCENT)
+    assert stored_commission == cr.courier_commission_kop(price_kop, settings.courier_service_fee_percent)
 
     newbie = _make_courier(client, user_factory, name="Новичок")
     _set_tenure_days(newbie["id"], 10)          # стаж 10 дней → tier1 = 3%
@@ -80,7 +80,7 @@ def test_available_shows_commission_of_this_courier_not_default_tier(client, use
     assert rows.status_code == 200, rows.text
     card = next(p for p in rows.json() if p["id"] == created["id"])
 
-    expected = cr.courier_commission_kop(price_kop, cr.COURIER_FEE_TIER1_PERCENT)
+    expected = cr.courier_commission_kop(price_kop, settings.courier_fee_tier1_percent)
     assert card["commission_kop"] == expected
     assert card["commission_kop"] < stored_commission   # новичку выгоднее — он это и видит
     assert card["commission_estimated"] is True         # финал считается при вручении
@@ -115,5 +115,5 @@ def test_available_buy_bring_keeps_extra_percent_for_newbie(client, user_factory
     card = next(p for p in client.get("/courier/available", headers=newbie["auth"]).json()
                 if p["id"] == created["id"])
     expected = cr.courier_commission_kop(
-        created["price_kop"], cr.COURIER_FEE_TIER1_PERCENT + cr.COURIER_BUY_BRING_EXTRA_PERCENT)
+        created["price_kop"], settings.courier_fee_tier1_percent + cr.COURIER_BUY_BRING_EXTRA_PERCENT)
     assert card["commission_kop"] == expected

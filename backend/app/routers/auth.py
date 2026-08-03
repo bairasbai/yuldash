@@ -11,7 +11,7 @@ from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from ..account import delete_user_account
+from ..account import delete_user_account, guard_can_delete
 from ..antifraud import guard_device_not_banned, remember_login_device
 from ..config import settings
 from ..db import engine, get_session
@@ -552,7 +552,11 @@ def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Ses
 @router.post("/me/delete")
 def delete_me(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Необратимое удаление аккаунта и ВСЕХ персональных данных пользователя (152-ФЗ,
-    право на удаление). Каскад по всем таблицам — в app/account.py. После — токен 401."""
+    право на удаление). Каскад по всем таблицам — в app/account.py. После — токен 401.
+
+    Сначала — честные гейты (409 с объяснением): нельзя уйти с неоплаченной комиссией,
+    посреди поездки или с чужой посылкой в руках (см. guard_can_delete)."""
+    guard_can_delete(session, user)
     delete_user_account(session, user)
     return {"ok": True}
 

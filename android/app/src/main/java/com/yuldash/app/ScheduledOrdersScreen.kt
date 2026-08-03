@@ -73,6 +73,9 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
     var data by remember { mutableStateOf(ScheduledOrdersDto(emptyList(), emptyList())) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
+    // Данные на экране есть, но последнее обновление не дошло: показываем честную плашку
+    // вместо молчаливого вранья тикающим отсчётом.
+    var stale by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
     var busyId by remember { mutableStateOf(0) }   // id, по которому идёт activate/cancel (гард двойного тапа)
     var cancelTarget by remember { mutableStateOf<InstantOrderDto?>(null) }
@@ -86,6 +89,7 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
         val scheduledResult = ApiClient.getScheduledOrders()
         val loaded = scheduledResult.getOrNull()
         if (loaded != null) {
+            stale = false
             // Воркер мог активировать заказ до открытия этого экрана. GET /scheduled уже не вернёт
             // его как scheduled, поэтому дочитываем последние заказы и не оставляем человека без входа
             // в живой статус поездки.
@@ -101,14 +105,23 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
     }
 
     // Тикаем раз в 30с — обратный отсчёт живой, а наступившие ко времени подтягиваются с сервера.
+    // Сбой сети тут ОБЯЗАН быть виден: раньше поллинг обрабатывал только удачу, и при пропаже
+    // связи отсчёт «через 10 мин» продолжал тикать по замороженным данным, а отменённый на
+    // сервере предзаказ так и висел в списке. Человек шёл к дороге к несуществующей машине.
     LaunchedEffect(Unit) {
         while (isActive) {
             delay(30_000)
-            ApiClient.getScheduledOrders().onSuccess { loaded ->
-                val alreadyActive = ApiClient.getMyInstantOrders(limit = 5).getOrNull().orEmpty()
-                    .filter { shouldShowActivatedScheduled(it.status, it.scheduledAt, it.waitUntil) }
-                data = loaded.copy(activated = (loaded.activated + alreadyActive).distinctBy { it.id })
-            }
+            ApiClient.getScheduledOrders()
+                .onSuccess { loaded ->
+                    val alreadyActive = ApiClient.getMyInstantOrders(limit = 5).getOrNull().orEmpty()
+                        .filter { shouldShowActivatedScheduled(it.status, it.scheduledAt, it.waitUntil) }
+                    data = loaded.copy(activated = (loaded.activated + alreadyActive).distinctBy { it.id })
+                    stale = false
+                }
+                .onFailure { e ->
+                    // 401 — это «вышел из аккаунта», а не сбой связи: там свой путь, не пугаем.
+                    if ((e as? ApiException)?.status != 401) stale = true
+                }
         }
     }
 
@@ -151,11 +164,27 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Мои предзаказы", "Минең алдан заказдар"), onBack) },
     ) { padding ->
+        AppPullRefresh(
+            refreshing = loading && (data.scheduled.isNotEmpty() || data.activated.isNotEmpty()),
+            onRefresh = { reload++ },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).fillMaxSize().padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
+            // Связь пропала, а на экране тикает обратный отсчёт — предупреждаем прямо, а не молчим.
+            if (stale) {
+                item {
+                    AppNoticeCard(
+                        text = appText(
+                            "Не удалось обновить — время могло измениться. Потяни вниз.",
+                            "Яңырта алманыҡ — ваҡыт үҙгәргән булыуы мөмкин. Аҫҡа тарт.",
+                        ),
+                    )
+                }
+            }
             item {
                 MobilityScreenIntro(
                     mode = MobilityMode.Taxi,
@@ -172,13 +201,13 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                 loading -> item {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(2) { SkeletonCard(lines = 3) } }
                 }
+                // Ошибка — это ошибка, а не «пусто»: у неё свой вид (AppErrorState), иначе человек
+                // читает сбой сети как «предзаказов нет» и заказывает такси второй раз.
                 error -> item {
-                    EmptyStateCard(
+                    AppErrorState(
+                        onRetry = { reload++ },
                         title = appText("Не удалось загрузить предзаказы", "Алдан заказдарҙы йөкләп булманы"),
                         text = appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"),
-                        icon = Icons.Default.Refresh,
-                        action = appText("Повторить", "Ҡабатлау"),
-                        onAction = { reload++ },
                     )
                 }
                 data.scheduled.isEmpty() && data.activated.isEmpty() -> item {
@@ -227,6 +256,7 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                     }
                 }
             }
+        }
         }
     }
 

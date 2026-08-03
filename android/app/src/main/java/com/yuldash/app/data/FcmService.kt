@@ -52,13 +52,20 @@ class FcmService : FirebaseMessagingService() {
         val mgr = getSystemService(NotificationManager::class.java) ?: return
         val silent = !AppPrefs.sounds(this)   // тумблер «Звуки» выключен → беззвучно
         // Раздельные каналы: чат отдельно от поездок/прочего → пользователь глушит/настраивает раздельно.
-        val channelId = if (type == "chat") CHANNEL_CHAT else CHANNEL_DEFAULT
+        // Переписка по посылке — это тоже чат: без этой ветки сообщение курьера звенело бы в канале
+        // «Поездки» у того, кто его специально приглушил, а в «Сообщениях» не появлялось вовсе.
+        val channelId = if (type == "chat" || type == "parcel_chat") CHANNEL_CHAT else CHANNEL_DEFAULT
         ensureChannels(this)
         // Ход такси-заказа (B9b-2): тап открывает экран заказа пассажира (extra ловит MainActivity).
         val openInstantOrder = type == "instant_status"
+        // Ход посылки: «курьер найден / забрал / в пути / вручил / возврат». Раньше эти пуши
+        // приходили без типа — тап вёл просто в приложение, а отправитель узнавал статус, только
+        // если сам догадывался переключить вкладку. Теперь тап открывает «Посылки».
+        val openParcels = type != null && type.startsWith("parcel")
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
             if (openInstantOrder) putExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, true)
+            if (openParcels) putExtra(EXTRA_OPEN_PARCELS, true)
             // Общий deep-link для остальных пушей: тип+id → MainActivity сможет открыть нужный экран
             // (чат/бронь). Потребитель роутинга в MainActivity — следующий шаг; extras уже несём.
             if (!type.isNullOrBlank()) putExtra(EXTRA_PUSH_TYPE, type)
@@ -95,6 +102,8 @@ class FcmService : FirebaseMessagingService() {
         const val CHANNEL_CHAT = "yuldash_chat"         // сообщения чата — отдельный канал, мьютится независимо
         const val EXTRA_PUSH_TYPE = "push_type"
         const val EXTRA_PUSH_ID = "push_id"
+        /** Тап по пушу о посылке → открыть экран «Посылки» (ловит MainActivity). */
+        const val EXTRA_OPEN_PARCELS = "yuldash_open_parcels"
 
         /**
          * Создать каналы уведомлений. Идемпотентно (повторный вызов только обновляет имя).

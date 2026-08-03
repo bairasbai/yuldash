@@ -3,6 +3,7 @@ package com.yuldash.app.data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -22,10 +23,17 @@ object GeocoderClient {
         override fun removeEldestEntry(eldest: Map.Entry<String, List<GeoHit>>) = size > CACHE_MAX
     }
 
-    suspend fun suggest(query: String): List<GeoHit> = withContext(Dispatchers.IO) {
+    /**
+     * Поиск, который честно различает ДВА разных «пусто»:
+     *  • success(emptyList()) — спросили и правда ничего не нашли;
+     *  • failure(...)         — спросить не смогли (нет сети, сервер молчит, лифт/подвал).
+     * Раньше оба случая возвращали пустой список, и человеку с ПРАВИЛЬНЫМ адресом уверенно
+     * писали «Такого адреса не нашли» — экран врал вместо «нет связи, повторить?».
+     */
+    suspend fun suggestResult(query: String): Result<List<GeoHit>> = withContext(Dispatchers.IO) {
         val q = query.trim()
-        if (q.length < 2) return@withContext emptyList()
-        synchronized(cache) { cache[q] }?.let { return@withContext it }
+        if (q.length < 2) return@withContext Result.success(emptyList())
+        synchronized(cache) { cache[q] }?.let { return@withContext Result.success(it) }
         var conn: HttpURLConnection? = null
         try {
             val enc = URLEncoder.encode(q, "UTF-8")
@@ -35,9 +43,10 @@ object GeocoderClient {
                 readTimeout = 8000
                 requestMethod = "GET"
             }
-            if (conn.responseCode !in 200..299) return@withContext emptyList()
+            val code = conn.responseCode
+            if (code !in 200..299) return@withContext Result.failure(IOException("geocode HTTP $code"))
             val body = conn.inputStream.bufferedReader().use { it.readText() }
-            val items = JSONObject(body).optJSONArray("items") ?: return@withContext emptyList()
+            val items = JSONObject(body).optJSONArray("items") ?: return@withContext Result.success(emptyList())
             val hits = (0 until items.length()).mapNotNull { i ->
                 val o = items.getJSONObject(i)
                 val title = o.optString("title")
@@ -46,11 +55,17 @@ object GeocoderClient {
                 if (title.isBlank()) null else GeoHit(title, lat, lon)
             }
             synchronized(cache) { cache[q] = hits }
-            hits
+            Result.success(hits)
         } catch (e: Exception) {
-            emptyList()
+            Result.failure(e)
         } finally {
             conn?.disconnect()
         }
     }
+
+    /**
+     * Короткий вход для мест, где сбой и «не нашли» равноценны (одна подсказка в фоне,
+     * разбор города при отправке формы). Экранам с полем адреса нужен suggestResult.
+     */
+    suspend fun suggest(query: String): List<GeoHit> = suggestResult(query).getOrDefault(emptyList())
 }

@@ -7,7 +7,7 @@
 
 Красные линии (как в M3):
 - ЦЕНА — на сервере. Клиенту не верим: расстояние по haversine между гео-точками × тариф. Без суржа.
-- Комиссия платформы маленькая и прозрачная (COURIER_COMMISSION_PERCENT), «на доверии» (оплата фейк — СБП).
+- Комиссия платформы маленькая и прозрачная (settings.courier_service_fee_percent), «на доверии» (оплата фейк — СБП).
 - Приватность: телефон получателя скрыт из /courier/available до принятия заказа (как в M3).
 - Проверка курьера Уровень 1: селфи с документом + «кто пригласил» (invited_by по User.referred_by).
 - Все пользовательские 4xx — двуязычные через herr(status, ru, ba).
@@ -51,7 +51,9 @@ COURIER_TARIFF = {
     "size_add_kop": {"small": 0, "medium": 5000, "large": 15000},  # надбавка за размер
     "urgency_now_kop": 10000,          # надбавка «нужен курьер сейчас» (+100 ₽)
 }
-COURIER_COMMISSION_PERCENT = 8.0       # дефолт/фолбэк комиссии (верхняя ступень) и % для ОЦЕНКИ
+# Ставки лесенки живут в КОНФИГЕ (settings.courier_*), а не здесь: до аудита 2026-08-03 они
+# были захардкожены, и правка комиссии в .env меняла такси, а курьера — нет, хотя комментарий
+# ниже обещал «как у такси». Значения по умолчанию совпадают с такси (3% → 5% → 8%).
 
 # C4 — умные правила комиссии (правятся ЗДЕСЬ, без пересборки; продуктовые параметры, не .env).
 # Идея: плоские 8% на мелкой доставке — копейки (8% от 150 ₽ = 12 ₽). Не задираем процент
@@ -64,11 +66,9 @@ COURIER_COMMISSION_PERCENT = 8.0       # дефолт/фолбэк комисс�
 # при создании заказа комиссия — лишь ОЦЕНКА (по дефолтной ступени), для показа в breakdown.
 COURIER_COMMISSION_MIN_KOP = 2500      # пол комиссии = 25 ₽ (комиссия ≥ этого, но ≤ цены доставки)
 
-# Лесенка по стажу курьера (дни от одобрения заявки CourierApplication.reviewed_at):
-COURIER_FEE_TIER_DAYS = 30             # граница 1-й ступени; 2-я ступень — до 2×этого (60 дней)
-COURIER_FEE_TIER1_PERCENT = 3.0        # стаж ≤ 30 дней — 3%
-COURIER_FEE_TIER2_PERCENT = 5.0        # стаж 31–60 дней — 5%
-COURIER_FEE_TIER3_PERCENT = 8.0        # стаж > 60 дней — 8% (как дефолт)
+# Лесенка по стажу курьера (дни от одобрения заявки CourierApplication.reviewed_at) —
+# в конфиге: settings.courier_fee_tier1_days/courier_fee_tier2_days и соответствующие проценты,
+# верхняя ступень = settings.courier_service_fee_percent.
 
 # Промо запуска «первым курьерам — 0%» (по образцу такси). Пусто = выключено.
 COURIER_LAUNCH_PROMO_PERCENT = 0.0     # ставка на время промо (0% = бесплатно)
@@ -243,17 +243,18 @@ def _launch_promo_active(session: Session, courier_id: int, now) -> bool:
 def courier_fee_tier(session: Session, courier_id: int, now=None) -> Tuple[float, str]:
     """Базовая ступень лесенки по стажу курьера (БЕЗ промо и БЕЗ buy_bring надбавки).
     Стаж = дни от одобрения (reviewed_at): ≤30 → 3% (tier1); 31–60 → 5% (tier2); дальше → 8% (tier3).
-    Стаж неизвестен (нет одобренной заявки) → консервативно верхняя ступень (дефолт 8%)."""
+    Стаж неизвестен (нет одобренной заявки) → консервативно верхняя ступень (дефолт 8%).
+    Все цифры — из конфига (settings.courier_*), правятся в .env без пересборки."""
     now = now or utcnow()
     reviewed = _courier_reviewed_at(session, courier_id)
     if reviewed is None:
-        return COURIER_COMMISSION_PERCENT, "tier3"
+        return settings.courier_service_fee_percent, "tier3"
     days = (now - reviewed).days
-    if days <= COURIER_FEE_TIER_DAYS:
-        return COURIER_FEE_TIER1_PERCENT, "tier1"
-    if days <= COURIER_FEE_TIER_DAYS * 2:
-        return COURIER_FEE_TIER2_PERCENT, "tier2"
-    return COURIER_FEE_TIER3_PERCENT, "tier3"
+    if days <= settings.courier_fee_tier1_days:
+        return settings.courier_fee_tier1_percent, "tier1"
+    if days <= settings.courier_fee_tier2_days:
+        return settings.courier_fee_tier2_percent, "tier2"
+    return settings.courier_service_fee_percent, "tier3"
 
 
 def courier_commission_percent(session: Session, courier_id: int,
@@ -290,10 +291,13 @@ def finalize_commission_kop(session: Session, parcel, now=None) -> int:
 # ---------------------------------------------------------------------------
 def _price(from_lat: Optional[float], from_lng: Optional[float],
            to_lat: Optional[float], to_lng: Optional[float],
-           size: str, urgency: str, percent: float = COURIER_COMMISSION_PERCENT) -> dict:
+           size: str, urgency: str, percent: Optional[float] = None) -> dict:
     """Честная цена доставки: haversine × road_k × тариф + размер + срочность. Возвращает
     price_kop, commission_kop (ОЦЕНКА по `percent`), distance_km и breakdown (прозрачно для UI).
-    Без суржа. Комиссия здесь — ориентировочная (commission_estimated=True); финал — при вручении."""
+    Без суржа. Комиссия здесь — ориентировочная (commission_estimated=True); финал — при вручении.
+    `percent` не задан → верхняя ступень из конфига (консервативная оценка, как и раньше)."""
+    if percent is None:
+        percent = settings.courier_service_fee_percent
     t = COURIER_TARIFF
     if None in (from_lat, from_lng, to_lat, to_lng):
         distance_km = 0.0
@@ -652,6 +656,10 @@ def courier_estimate(from_lat: float, from_lng: float, to_lat: float, to_lng: fl
     """Оценка цены доставки курьером. Сервер — источник истины (haversine × тариф). Без суржа.
     Комиссия — ОРИЕНТИРОВОЧНАЯ: по дефолтной ступени (8%) + минимум + надбавка buy_bring; точный
     процент зависит от стажа НАЗНАЧЕННОГО курьера и считается при вручении."""
+    # Тот же персональный потолок, что у оценки такси: ручка дешёвая для нас сегодня, но стоит
+    # рядом с /instant/estimate в клиенте и в лимитере — держим их правила одинаковыми.
+    from .instant import guard_estimate_budget
+    guard_estimate_budget(user.id)
     if size not in _SIZES:
         raise herr(422, "Выбери размер посылки", "Бандероль үлсәмен һайла")
     if urgency not in _URGENCIES:
@@ -659,7 +667,7 @@ def courier_estimate(from_lat: float, from_lng: float, to_lat: float, to_lng: fl
     dtype = (delivery_type or "courier").strip()
     if dtype not in _COURIER_TYPES:
         raise herr(422, "Выбери тип доставки", "Доставка төрөн һайла")
-    percent = COURIER_COMMISSION_PERCENT + (
+    percent = settings.courier_service_fee_percent + (
         COURIER_BUY_BRING_EXTRA_PERCENT if dtype == "buy_bring" else 0.0)
     return _price(from_lat, from_lng, to_lat, to_lng, size, urgency, percent=percent)
 
@@ -670,6 +678,10 @@ def courier_estimate(from_lat: float, from_lng: float, to_lat: float, to_lng: fl
 class CourierOrderIn(BaseModel):
     from_city: str = Field("", max_length=80)
     to_city: str = Field("", max_length=80)
+    # «Куда именно» — дом/квартира/ориентир (как в ParcelIn). В платном курьере это нужнее, чем
+    # в попутке: курьер едет на конкретный адрес за деньги, а не «по пути в Баймак».
+    from_address: str = Field("", max_length=200)
+    to_address: str = Field("", max_length=200)
     # Границы координат (как в instant): без них серверная цена (haversine) считалась от чего угодно.
     from_lat: Optional[float] = Field(None, ge=-90, le=90)
     from_lng: Optional[float] = Field(None, ge=-180, le=180)
@@ -733,7 +745,7 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
 
     # Комиссия при создании — ОЦЕНКА (курьер ещё не назначен, лесенка зависит от ЕГО стажа):
     # дефолтная ступень (8%) + надбавка buy_bring + минимум. Финал пересчитается при вручении.
-    est_percent = COURIER_COMMISSION_PERCENT + (
+    est_percent = settings.courier_service_fee_percent + (
         COURIER_BUY_BRING_EXTRA_PERCENT if dtype == "buy_bring" else 0.0)
     priced = _price(body.from_lat, body.from_lng, body.to_lat, body.to_lng, size, urgency,
                     percent=est_percent)
@@ -742,6 +754,10 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
         sender_id=user.id,
         from_city=from_city,
         to_city=to_city,
+        # «Куда именно»: дом/квартира/ориентир. Опциональны (город остаётся минимумом), приватность
+        # общая с посылками — в открытом списке заказов их нет, открываются принявшему курьеру.
+        from_address=body.from_address.strip(),
+        to_address=body.to_address.strip(),
         from_lat=body.from_lat,
         from_lng=body.from_lng,
         to_lat=body.to_lat,

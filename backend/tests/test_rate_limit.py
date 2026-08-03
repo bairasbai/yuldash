@@ -11,7 +11,8 @@ import pytest
 def rl_settings():
     """Правит настройки лимитера на время теста и откатывает после."""
     from app.config import settings
-    keys = ("rate_limit_enabled", "rate_limit_per_min", "rate_limit_auth_per_min")
+    keys = ("rate_limit_enabled", "rate_limit_per_min", "rate_limit_auth_per_min",
+            "rate_limit_estimate_per_min", "rate_limit_estimate_per_user_per_min")
     saved = {k: getattr(settings, k) for k in keys}
     yield settings
     for k, v in saved.items():
@@ -82,6 +83,72 @@ def test_webhook_not_hard_limited(client, rl_settings):
 
     codes = [client.post("/auth/telegram/webhook", json={}, headers=ip).status_code for _ in range(10)]
     assert 429 not in codes, codes
+
+
+def test_estimate_has_its_own_tight_budget(client, rl_settings, user_factory):
+    """Оценка цены режется своим бюджетом, пока общий ещё далёк.
+
+    Почему отдельный: за каждым /instant/estimate может стоять платный запрос в Yandex
+    Routing и Weather, а кэш обходится чуть сдвинутыми координатами — один клиент с одного
+    IP превращался в усилитель расхода платного API (аудит 2026-08-03).
+    """
+    rl_settings.rate_limit_enabled = True
+    rl_settings.rate_limit_per_min = 10_000        # общий заведомо не мешает
+    rl_settings.rate_limit_auth_per_min = 10_000   # строгий тоже
+    rl_settings.rate_limit_estimate_per_min = 3
+    rl_settings.rate_limit_estimate_per_user_per_min = 10_000   # проверяем именно IP-бюджет
+    u = user_factory("ОценщикЦены")
+    ip = {"X-Real-IP": "203.0.113.20", **u["auth"]}
+    body = {"from_lat": 54.73, "from_lng": 55.95, "to_lat": 53.63, "to_lng": 55.95}
+
+    codes = [client.post("/instant/estimate", json=body, headers=ip).status_code for _ in range(6)]
+    assert codes[0] != 429, codes
+    assert 429 in codes, codes
+
+    # Обычная ручка с того же IP при этом работает — режем только дорогую.
+    assert client.get("/rides", headers=ip).status_code != 429
+
+
+def test_courier_estimate_is_limited_too(client, rl_settings, user_factory):
+    """У курьерской оценки тот же бюджет — она стоит рядом в клиенте и в лимитере."""
+    rl_settings.rate_limit_enabled = True
+    rl_settings.rate_limit_per_min = 10_000
+    rl_settings.rate_limit_auth_per_min = 10_000
+    rl_settings.rate_limit_estimate_per_min = 3
+    rl_settings.rate_limit_estimate_per_user_per_min = 10_000
+    u = user_factory("ОценщикДоставки")
+    ip = {"X-Real-IP": "203.0.113.21", **u["auth"]}
+    q = "?from_lat=54.73&from_lng=55.95&to_lat=53.63&to_lng=55.95"
+
+    codes = [client.get(f"/courier/estimate{q}", headers=ip).status_code for _ in range(6)]
+    assert 429 in codes, codes
+
+
+def test_estimate_limited_per_user_even_when_ip_changes(client, rl_settings, user_factory):
+    """Смена IP через прокси не помогает: у аккаунта свой потолок.
+
+    IP — расходник, аккаунт — нет. Без персонального бюджета один пользователь с пулом прокси
+    спокойно качал бы нам счёт за платный внешний API.
+    """
+    rl_settings.rate_limit_enabled = True
+    rl_settings.rate_limit_per_min = 10_000
+    rl_settings.rate_limit_auth_per_min = 10_000
+    rl_settings.rate_limit_estimate_per_min = 10_000     # IP-бюджет заведомо не мешает
+    rl_settings.rate_limit_estimate_per_user_per_min = 3
+    u = user_factory("ОценщикСПрокси")
+    body = {"from_lat": 54.73, "from_lng": 55.95, "to_lat": 53.63, "to_lng": 55.95}
+
+    codes = []
+    for i in range(6):                                    # каждый запрос — с нового IP
+        headers = {"X-Real-IP": f"198.51.100.{i}", **u["auth"]}
+        codes.append(client.post("/instant/estimate", json=body, headers=headers).status_code)
+    assert 429 in codes, codes
+    # Отказ — понятный и на двух языках (это видит живой человек, а не бот).
+    last = client.post("/instant/estimate", json=body,
+                       headers={"X-Real-IP": "198.51.100.200", **u["auth"]})
+    assert last.status_code == 429
+    detail = last.json()["detail"]
+    assert detail["ru"] and detail["ba"] and detail["ru"] != detail["ba"]
 
 
 def test_works_without_redis(client, rl_settings):

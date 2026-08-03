@@ -169,5 +169,7 @@ def test_run_once_is_safe_on_empty_and_dry_run(client, user_factory):
     assert _get(oid).status == S.scheduled, "сухой прогон не должен менять состояние"
     with Session(engine) as s:
         res2 = tw.run_once(s)
+    # parcels_handled — разбор зависших посылок: воркер обслуживает и такси, и доставку
+    # (аудит 2026-08-03; детали ветки — в test_parcel_worker.py).
     assert set(res2) == {"scheduled_activated", "stuck_closed", "waits_retried",
-                         "waits_finished", "offers_advanced"}
+                         "waits_finished", "offers_advanced", "parcels_handled"}

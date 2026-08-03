@@ -54,6 +54,7 @@ import com.yuldash.app.data.PayoutStatusDto
 import com.yuldash.app.data.WalletBalanceDto
 import com.yuldash.app.data.WalletLedgerEntryDto
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.abs
 
 /**
@@ -97,8 +98,15 @@ internal fun WalletScreen(onBack: () -> Unit) {
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кошелёк", "Янсыҡ"), onBack) },
     ) { padding ->
+        // Потянуть вниз = обновить. Баланс и история грузились ровно один раз за вход на экран:
+        // вернулся из фона через час — цифры старые, и понять это было нельзя.
+        AppPullRefresh(
+            refreshing = loading && balance != null,
+            onRefresh = { scope.launch { load() } },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
         ) {
@@ -151,6 +159,7 @@ internal fun WalletScreen(onBack: () -> Unit) {
                 else -> items(ledger, key = { it.id }) { entry -> WalletLedgerRow(entry) }
             }
         }
+        }
     }
 }
 
@@ -171,21 +180,21 @@ private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean, payo
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = Color.White.copy(alpha = 0.18f), shape = CircleShape) {
+                Surface(color = CanonOnAccent.copy(alpha = 0.18f), shape = CircleShape) {
                     Icon(
                         Icons.Default.AccountBalanceWallet, contentDescription = null,
-                        tint = Color.White, modifier = Modifier.padding(11.dp).size(22.dp),
+                        tint = CanonOnAccent, modifier = Modifier.padding(11.dp).size(22.dp),
                     )
                 }
                 Spacer(Modifier.width(12.dp))
                 Text(
                     appText("Баланс кошелька", "Янсыҡ балансы"),
-                    color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                    color = CanonOnAccent.copy(alpha = 0.9f), fontSize = 14.sp, fontWeight = FontWeight.Medium,
                 )
             }
             Text(
                 if (loading && balance == null) "…" else "${fmtRub(balance?.balanceRub ?: 0)} ₽",
-                color = Color.White, fontSize = 44.sp, lineHeight = 48.sp, fontWeight = FontWeight.Black,
+                color = CanonOnAccent, fontSize = 44.sp, lineHeight = 48.sp, fontWeight = FontWeight.Black,
             )
             Text(
                 when (payoutEnabled) {
@@ -198,7 +207,7 @@ private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean, payo
                     )
                     else -> appText("Бонусы и возвраты", "Бонустар һәм ҡайтарыуҙар")
                 },
-                color = Color.White.copy(alpha = 0.82f), fontSize = 13.sp, lineHeight = 17.sp,
+                color = CanonOnAccent.copy(alpha = 0.82f), fontSize = 13.sp, lineHeight = 17.sp,
             )
         }
     }
@@ -542,5 +551,15 @@ private fun ledgerKindLabel(kind: String): String = when (kind) {
     else -> appText("Операция", "Операция")
 }
 
-/** Разряды пробелом: 12 500 ₽. */
-internal fun fmtRub(n: Int): String = "%,d".format(n).replace(',', ' ')
+/**
+ * Разряды пробелом: 12 500 ₽. Единственный денежный форматтер приложения — им напечатаны
+ * баланс, вывод средств, чек за такси и итоги водителя.
+ *
+ * Локаль задана ЯВНО и не зависит от телефона. Было `"%,d".format(n)`, а это
+ * `Locale.getDefault()`: на локали с точкой-разделителем «12 500 ₽» превращалось в
+ * «12.500 ₽» — сумма читается как двенадцать с половиной рублей. Замена `,` → ` ` это
+ * не спасала (там уже точка), а на русской локали не срабатывала вовсе: системный
+ * разделитель там — неразрывный пробел, и совпадение шло мимо. С [Locale.US] разделитель
+ * всегда запятая, значит замена детерминирована, и сумма выглядит одинаково везде.
+ */
+internal fun fmtRub(n: Int): String = String.format(Locale.US, "%,d", n).replace(',', ' ')

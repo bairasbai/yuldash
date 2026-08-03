@@ -335,6 +335,10 @@ internal fun YuldashApp() {
     var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
     var receiptBookingId by rememberSaveable { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
     var taxiReceiptOrderId by rememberSaveable { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
+    // Чат по посылке: id + с кем говорим + статус (по нему чат уходит в read-only после закрытия).
+    var parcelChatId by rememberSaveable { mutableStateOf(0) }
+    var parcelChatPeerIsCourier by rememberSaveable { mutableStateOf(true) }
+    var parcelChatStatus by rememberSaveable { mutableStateOf("") }
     var incidentId by rememberSaveable { mutableStateOf(0) }           // «Справедливость»: id открытого спора
     var supportTicketId by rememberSaveable { mutableStateOf(0) }      // Поддержка: id открытого обращения (deep-link/список)
     // F13 «карауль поездку»: предзаполнение экрана «Мои подписки» маршрутом из карты (может быть пустым).
@@ -455,6 +459,23 @@ internal fun YuldashApp() {
             selectedBookingStatus = ""
             screen = Screen.Booking
         }
+    }
+    // Кнопка «Написать» из карточки посылки → чат с второй стороной доставки.
+    LaunchedEffect(DeepLink.pendingParcelChat.value) {
+        val target = DeepLink.pendingParcelChat.value ?: return@LaunchedEffect
+        DeepLink.pendingParcelChat.value = null   // одноразово — не переоткрываем при рекомпозиции
+        parcelChatId = target.parcelId
+        parcelChatPeerIsCourier = target.peerIsCourier
+        parcelChatStatus = target.status
+        screen = Screen.ParcelChat
+    }
+    // Пуш о ходе посылки → открываем «Посылки». Отправитель не должен догадываться, что для
+    // проверки статуса надо самому зайти в приложение и переключить вкладку: тап по уведомлению
+    // ведёт прямо туда, где видно, где его посылка. Не вошёл — сначала вход.
+    LaunchedEffect(DeepLink.pendingParcels.value) {
+        if (!DeepLink.pendingParcels.value) return@LaunchedEffect
+        DeepLink.pendingParcels.value = false   // одноразово — не переоткрываем при рекомпозиции
+        screen = if (ApiClient.isLoggedIn()) Screen.Parcels else Screen.Login
     }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
     var partnerAds by vm.partnerAds
@@ -840,6 +861,7 @@ internal fun YuldashApp() {
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
                 onOpenScheduled = { screen = Screen.ScheduledOrders },
+                onCourierMode = { if (ApiClient.isLoggedIn()) screen = Screen.Courier else screen = Screen.Login },
                 onNotifications = { screen = Screen.Notifications },
                 onRouteWatch = { from, to ->
                     routeWatchPrefillFrom = from ?: ""
@@ -1082,6 +1104,7 @@ internal fun YuldashApp() {
                 onCreateRequest = { screen = Screen.CreateRequest },
                 onInstantOrder = { if (ApiClient.isLoggedIn()) screen = Screen.InstantOrder else screen = Screen.Login },
                 onScheduledOrders = { if (ApiClient.isLoggedIn()) screen = Screen.ScheduledOrders else screen = Screen.Login },
+                onMyTaxiTrips = { if (ApiClient.isLoggedIn()) screen = Screen.MyTaxiTrips else screen = Screen.Login },
                 onWallet = { if (ApiClient.isLoggedIn()) screen = Screen.Wallet else screen = Screen.Login },
                 onSavedPlaces = { if (ApiClient.isLoggedIn()) screen = Screen.SavedPlaces else screen = Screen.Login },
                 onSafety = { screen = Screen.Safety }
@@ -1244,6 +1267,20 @@ internal fun YuldashApp() {
             Screen.DriverTaxiRides -> DriverTaxiRidesScreen(
                 onBack = { goBack() },
                 onOpenReceipt = { id -> taxiReceiptOrderId = id; screen = Screen.TaxiReceipt },
+            )
+            // История поездок пассажира: у водителя такой экран был (DriverTaxiRides), у того,
+            // кто платит, — нет. Чек жил одну сессию и терялся вместе с экраном заказа.
+            Screen.MyTaxiTrips -> MyTaxiTripsScreen(
+                onBack = { goBack() },
+                onOpenReceipt = { id -> taxiReceiptOrderId = id; screen = Screen.TaxiReceipt },
+            )
+            // Чат по посылке. Роль и статус передаёт карточка, из которой пришли, — она их знает,
+            // и лишний запрос к серверу ради заголовка экрана тут не нужен.
+            Screen.ParcelChat -> ParcelChatScreen(
+                parcelId = parcelChatId,
+                peerIsCourier = parcelChatPeerIsCourier,
+                parcelStatus = parcelChatStatus,
+                onBack = { goBack() },
             )
             Screen.AdminSos -> AdminSosScreen(onBack = { goBack() })
             Screen.TaxiDocuments -> TaxiDocumentsScreen(onBack = { goBack() })
@@ -1977,6 +2014,7 @@ internal fun HomeScreen(
     onInstantLogin: () -> Unit = {},
     onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Такси скоро» водитель уходит в онбординг
     onOpenScheduled: () -> Unit = {},    // «На время»: предзаказ создан из встроенного такси → «Мои предзаказы»
+    onCourierMode: () -> Unit = {},      // из режима «Курьер» — к работе курьера (заказы, линия, заработок)
     onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → создать поездку с датой-шаблоном
     onTabChange: (HomeTab) -> Unit = {}
 ) {
@@ -2010,6 +2048,7 @@ internal fun HomeScreen(
                     onClinicRides = onClinicRides,
                     onRouteWatch = onRouteWatch,
                     onOpenScheduled = onOpenScheduled,
+                    onCourierMode = onCourierMode,
                     onSeasonalPublish = onSeasonalPublish,   // F15: баннер «на праздник» → создать поездку (с датой-шаблоном)
                 )
                 HomeTab.Rides -> RidesScreen(

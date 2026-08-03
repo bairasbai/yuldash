@@ -399,9 +399,9 @@ internal fun MobilityProgressRail(
                         contentAlignment = Alignment.Center,
                     ) {
                         if (index < currentIndex) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonOnAccent, modifier = Modifier.size(12.dp))
                         } else if (index == currentIndex) {
-                            Box(Modifier.size(6.dp).background(Color.White, CircleShape))
+                            Box(Modifier.size(6.dp).background(CanonOnAccent, CircleShape))
                         }
                     }
                     if (index < labels.lastIndex) {
@@ -480,17 +480,17 @@ internal fun CourierLineHero(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Surface(shape = RoundedCornerShape(17.dp), color = if (online) Color.White.copy(alpha = 0.14f) else CanonBg) {
+                    Surface(shape = RoundedCornerShape(17.dp), color = if (online) CanonOnAccent.copy(alpha = 0.14f) else CanonBg) {
                         Icon(
                             Icons.Default.LocalShipping,
                             contentDescription = null,
-                            tint = if (online) Color.White else accent,
+                            tint = if (online) CanonOnAccent else accent,
                             modifier = Modifier.padding(11.dp).size(24.dp),
                         )
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(title, color = if (online) Color.White else CanonText, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                        Text(subtitle, color = if (online) Color.White.copy(alpha = 0.76f) else CanonMutedStrong, fontSize = 12.sp, lineHeight = 16.sp)
+                        Text(title, color = if (online) CanonOnAccent else CanonText, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                        Text(subtitle, color = if (online) CanonOnAccent.copy(alpha = 0.76f) else CanonMutedStrong, fontSize = 12.sp, lineHeight = 16.sp)
                     }
                     val switchLabel = appText("Работа курьера", "Курьер эше")
                     val switchState = if (online) appText("На линии", "Линияла")
@@ -504,7 +504,7 @@ internal fun CourierLineHero(
                             stateDescription = switchState
                         },
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
+                            checkedThumbColor = CanonOnAccent,
                             checkedTrackColor = CanonGreen2,
                             uncheckedThumbColor = CanonMuted,
                             uncheckedTrackColor = CanonBg,
@@ -591,7 +591,11 @@ internal fun CourierOfferCard(
             MobilityRouteTimeline(from = from, to = to, compact = true)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MobilitySmallTag(sizeLabel)
-                MobilitySmallTag(appText("Адреса видны", "Адреслар күренә"))
+                // Раньше тут стояло «Адреса видны» — и это перестало быть правдой, как только
+                // у посылки появился точный адрес: в открытой ленте его нет, он раскрывается
+                // только принявшему курьеру (приватность, §8). Тег теперь обещает ровно то,
+                // что произойдёт, а не то, что уже есть.
+                MobilitySmallTag(appText("Адрес — когда возьмёшь", "Алғас — адрес күренә"))
             }
             if (description.isNotBlank()) {
                 Text(description, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -640,7 +644,7 @@ internal fun CourierServiceTypeTile(
                 Icon(
                     icon,
                     contentDescription = null,
-                    tint = if (selected) Color.White else CanonGreen2,
+                    tint = if (selected) CanonOnAccent else CanonGreen2,
                     modifier = Modifier.padding(11.dp).size(22.dp),
                 )
             }
@@ -650,7 +654,7 @@ internal fun CourierServiceTypeTile(
             }
             if (selected) {
                 Surface(shape = CircleShape, color = CanonGreen2) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.padding(4.dp).size(16.dp))
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonOnAccent, modifier = Modifier.padding(4.dp).size(16.dp))
                 }
             }
         }

@@ -406,10 +406,12 @@ class Booking(SQLModel, table=True):
 
 class Message(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    # Ровно ОДНА привязка: booking_id (чат брони попутки) ИЛИ order_id (чат такси-заказа, B7b-1).
-    # Старые строки — все с booking_id, колонка стала nullable без потери данных.
+    # Ровно ОДНА привязка из трёх: booking_id (чат брони попутки), order_id (чат такси-заказа,
+    # B7b-1) ИЛИ parcel_id (чат отправитель ↔ курьер по посылке). Старые строки — все с
+    # booking_id, колонка стала nullable без потери данных.
     booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")
     order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
+    parcel_id: Optional[int] = Field(default=None, index=True, foreign_key="parceldelivery.id")
     sender_id: int = Field(foreign_key="user.id")
     text: str = ""
     voice_url: Optional[str] = None
@@ -512,8 +514,11 @@ class Incident(SQLModel, table=True):
     # код требовал booking_id и отвечал 400. Ровно один из двух контекстов заполнен.
     parcel_id: Optional[int] = Field(default=None, index=True, foreign_key="parceldelivery.id")
     order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
-    reporter_id: int = Field(index=True, foreign_key="user.id")     # кто заявил
-    respondent_id: int = Field(index=True, foreign_key="user.id")   # на кого (обвиняемый)
+    # NULL у любой из сторон = эта сторона удалила аккаунт: строку НЕ стираем, а обезличиваем
+    # (см. account.py, шаг 3.7-bis). Иначе обвинённый одним тапом уничтожал заявление жертвы
+    # вместе с её фото-уликами и решением админа (аудит 2026-08-03). Тот же приём, что у Report.
+    reporter_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id")     # кто заявил
+    respondent_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id")   # на кого (обвиняемый)
     type: str = Field(index=True)            # код (passenger_no_show, harassment, parcel_damage, …)
     reporter_role: str = ""                  # passenger/driver/courier/sender/recipient
     description: str = ""                    # версия заявителя (≤2000)
@@ -930,7 +935,7 @@ class TaxiApplication(SQLModel, table=True):
 
     Возить ТАКСИ (instant) может только водитель с approved-заявкой; ПОПУТКА этого не требует.
     Документы: ИНН (самозанятость), № разрешения на такси, фото разрешения/ОСАГО (приватное
-    хранилище /secure/docs, как license_url водителя). Требования: возраст 20+, стаж от 2 лет.
+    хранилище /secure/docs, как license_url водителя). Требования: возраст 20+, стаж от 3 лет (580-ФЗ).
     Проверка — вручную админом (Александр). Одна заявка на пользователя (user_id unique);
     повторная подача после reject обновляет эту же строку (status → pending)."""
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -944,6 +949,11 @@ class TaxiApplication(SQLModel, table=True):
     criminal_record_url: Optional[str] = None      # справка о несудимости (Госуслуги/МВД) — опц., рекомендуется
     birth_date: date_type = date_type(1970, 1, 1)  # для проверки «возраст 20+»
     license_since_year: int = 0                    # год получения прав (стаж от 3 лет, 580-ФЗ)
+    # Точная дата выдачи прав (аудит 2026-08-03). Год в одиночку врал: права от 31.12.2023
+    # проходили 01.01.2026 как «3 года стажа», хотя реального стажа 2 года и 1 день. Поле
+    # опциональное — старые клиенты шлют только год, и для них стаж считаем от 31 декабря
+    # этого года (консервативно, в пользу безопасности пассажира).
+    license_since_date: Optional[date_type] = None
     # Сроки документов (аудит 2026-07-26). Раньше документы были ТОЛЬКО картинками: одобрили
     # в июле — человек возит с просроченным ОСАГО в декабре, а мы «проверенная служба».
     # Фоновая проверка (app/doc_check.py) напоминает за 14/3 дня и снимает допуск к такси.
@@ -1279,6 +1289,15 @@ class ParcelDelivery(SQLModel, table=True):
     courier_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id")  # курьер, взявший посылку
     from_city: str = Field(default="", index=True)                           # откуда (город/село отправления)
     to_city: str = Field(default="", index=True)                             # куда (город/село назначения)
+    # «Куда именно», а не только город: раньше курьер брал заказ и ехал «в Баймак» — ни дома, ни
+    # квартиры, ни ориентира. У заказа ТАКСИ это давно решено полями comment/entrance; здесь та же
+    # идиома для посылок. СВОБОДНЫЙ текст, а не улица/дом/квартира: в селе адрес чаще ориентир
+    # («у мечети», «синие ворота», «за магазином»), чем табличка с номером.
+    # ПРИВАТНО — правило ровно как у receiver_phone: в открытом списке заявок адресов нет вообще,
+    # отдаём принявшему курьеру, отправителю (его собственные данные) и админу; получателю по
+    # трекинг-ссылке — только его to_address (см. routers/parcels._addresses, share._parcel_state).
+    from_address: str = Field(default="", max_length=200)                    # где забрать (дом, квартира, ориентир)
+    to_address: str = Field(default="", max_length=200)                      # где вручить
     from_lat: Optional[float] = None                                         # координаты точки забора (опц.)
     from_lng: Optional[float] = None
     to_lat: Optional[float] = None                                           # координаты точки вручения (опц.)

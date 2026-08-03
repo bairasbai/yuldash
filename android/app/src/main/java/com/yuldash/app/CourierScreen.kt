@@ -44,6 +44,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AltRoute
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.LocalShipping
@@ -79,6 +80,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -88,6 +91,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.CourierApplicationDto
 import com.yuldash.app.data.CourierMeDto
@@ -99,6 +105,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val COURIER_REFRESH_INTERVAL_MS = 25_000L
+
+// Две ленты свободных заказов на одном экране (раньше жили на разных и на разных эндпоинтах).
+private const val COURIER_FEED_PRO = 0        // /courier/available — courier | buy_bring, только на линии
+private const val COURIER_FEED_POPUTKA = 1    // /parcels/available — «по пути», линия не нужна
+
+/** Как часто курьер шлёт свою позицию отправителям (мс). */
+private const val COURIER_LOC_INTERVAL_MS = 5_000L
 
 @Composable
 internal fun CourierScreen(
@@ -172,7 +185,7 @@ internal fun CourierScreen(
                 m == null -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center) {
                     AppErrorState(onRetry = { reloadKey++ })
                 }
-                else -> CourierWorkContent(m, onReloadMe = { reloadKey++ }, onEarnings = onEarnings)
+                else -> CourierWorkContent(m, onReloadMe = { reloadKey++ }, onEarnings = onEarnings, reloadingMe = loading)
             }
         }
     }
@@ -282,7 +295,12 @@ private fun CourierRefreshStrip(text: String, onRetry: () -> Unit) {
 
 // ─────────────────────────── Одобрен → работа ───────────────────────────
 @Composable
-private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit, onEarnings: () -> Unit = {}) {
+private fun CourierWorkContent(
+    me: CourierMeDto,
+    onReloadMe: () -> Unit,
+    onEarnings: () -> Unit = {},
+    reloadingMe: Boolean = false,
+) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
 
@@ -296,6 +314,18 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit, onEarni
     var configSaving by remember { mutableStateOf(false) }
     var sub by rememberSaveable { mutableIntStateOf(0) }   // 0 = доступные, 1 = везу, 2 = кабинет
     val lineBusy = toggling || configSaving
+    // Что курьер везёт прямо сейчас — состояние поднято сюда из вкладки «Везу» специально:
+    // от него зависит живая отправка GPS отправителям, а она обязана пережить и прокрутку
+    // списка, и переход на другую под-вкладку.
+    var carrying by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
+    // Первое чтение «что везу» — сразу на входе в режим, не дожидаясь, пока курьер откроет
+    // вкладку «Везу»: от этого списка зависит живая точка, которую видит отправитель.
+    LaunchedEffect(Unit) {
+        if (carrying.isEmpty()) {
+            ApiClient.getCarryingParcels()
+                .onSuccess { carrying = it.sortedByDescending { p -> p.acceptedAt ?: p.createdAt } }
+        }
+    }
 
     val toggleErr = appText("Не получилось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшер.")
     val needCityMsg = appText("Укажи город работы", "Эш ҡалаһын күрһәт")
@@ -471,10 +501,56 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit, onEarni
                     workCity = if (confirmedZone == "city") workCity else "",
                     onGoOnline = { setOnline(true) },
                 )
-                1 -> CourierCarryingTab(online = online)
-                else -> CourierCabinetTab(me, onReloadMe, onEarnings)
+                1 -> CourierCarryingTab(online = online, list = carrying, onList = { carrying = it })
+                else -> CourierCabinetTab(me, onReloadMe, onEarnings, reloadingMe)
             }
         }
+        // Живая позиция отправителям. Ничего не рисует — держит каналы открытыми, пока курьер
+        // в режиме курьера, независимо от прокрутки и выбранной под-вкладки.
+        CourierLiveLocationLink(carrying)
+    }
+}
+
+/**
+ * Курьер шлёт свой GPS отправителям всех активных доставок.
+ *
+ * Раньше это жило внутри карточки карты, а карта лежала item-ом внутри LazyColumn: курьер
+ * прокручивал список, переключал под-вкладку или сворачивал приложение — карта уничтожалась,
+ * сокет закрывался, и у отправителя точка ЗАМИРАЛА (аудит 2026-08-03). Теперь отправка висит
+ * на уровне всего режима курьера и не зависит от того, что сейчас на экране. Бонусом: шлём
+ * во ВСЕ активные доставки, а не только в ту, чья карта открыта, — раньше остальные отправители
+ * не видели курьера вообще.
+ *
+ * Чего этот слой всё ещё не умеет: пережить сворачивание приложения и погасший экран — Compose
+ * усыпляют вместе с процессом. Для этого нужен foreground-сервис, как TripLocationService
+ * у поездок (отдельная задача, файл вне этой зоны).
+ *
+ * Приватность как была: канал открыт только пока посылка в работе (accepted / in_transit),
+ * координаты сервер не хранит, чужим канал закрыт.
+ */
+@Composable
+private fun CourierLiveLocationLink(parcels: List<ParcelDto>) {
+    val ctx = LocalContext.current
+    val activeIds = remember(parcels) {
+        parcels.filter { it.status == "accepted" || it.status == "in_transit" }.map { it.id }
+    }
+    // Отправку ведёт foreground-сервис, а не composable: экран может уйти с глаз (курьер свернул
+    // приложение, погасил экран, переключил вкладку) — доставка от этого не заканчивается, и точка
+    // у отправителя не должна замирать. Тот же приём, что у поездок (TripLocationService).
+    // Нет точной геолокации — сервис не поднимаем: он бы показал нотификацию «отправитель видит,
+    // где посылка», ничего при этом не отправляя.
+    val lang = AppPrefs.language(ctx)
+    DisposableEffect(activeIds, lang) {
+        val allowed = ContextCompat.checkSelfPermission(
+            ctx, android.Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (activeIds.isNotEmpty() && allowed) {
+            CourierLocationService.start(ctx, activeIds, lang)
+        } else {
+            CourierLocationService.stop(ctx)
+        }
+        // Уходим из режима курьера — трансляцию гасим (приватность: канал живёт только под доставку).
+        onDispose { CourierLocationService.stop(ctx) }
     }
 }
 
@@ -505,16 +581,25 @@ private fun CourierZoneChip(icon: ImageVector, label: String, active: Boolean, e
     }
 }
 
-/** Выбор доставки, чью карту показывать: курьер часто везёт сразу несколько посылок. */
+/**
+ * Чип выбора «одно из нескольких»: какую ленту заказов смотреть, из какого города возить,
+ * чью доставку показывать на карте. Один вид на все три ряда — курьер не гадает, что тут кнопка,
+ * а что фильтр. Цвета переезжают, а не подменяются кадром.
+ */
 @Composable
-private fun TrackTargetChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "trk")
-    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "trk-line")
-    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonMutedStrong, tween(200), label = "trk-ink")
+private fun CourierPickChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "pick")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "pick-line")
+    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonMutedStrong, tween(200), label = "pick-ink")
     Surface(
         onClick = onClick, color = bg, shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, line),
-        modifier = Modifier.height(48.dp),
+        modifier = Modifier
+            .height(48.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.RadioButton
+                this.selected = selected
+            },
     ) {
         Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
             Text(
@@ -537,6 +622,19 @@ private fun CourierSubTab(label: String, active: Boolean, modifier: Modifier = M
 }
 
 // ─────────────────────────── Доступные заказы ───────────────────────────
+/**
+ * Две ленты свободных заказов в одном месте.
+ *
+ * Раньше их было две в РАЗНЫХ экранах и с разными правилами: «Возить» в «Посылках» показывала
+ * только заказы «по пути» (`/parcels/available`) и была открыта вообще всем, а этот экран —
+ * только профессиональные (`/courier/available`), с одобрением, зоной и паузой. Человек не мог
+ * знать, что половина заказов лежит на другом экране. Теперь обе ленты здесь, переключателем
+ * (аудит 2026-08-03).
+ *
+ * Разница по смыслу сохранена: профи-лента живёт только на включённой линии (случайно заказ
+ * не возьмёшь), «по пути» — обычная подработка попутчика, линия для неё не нужна, зато есть
+ * фильтр по городу отправления.
+ */
 @Composable
 private fun CourierAvailableTab(
     online: Boolean,
@@ -547,120 +645,168 @@ private fun CourierAvailableTab(
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
+    var feed by rememberSaveable { mutableIntStateOf(COURIER_FEED_PRO) }
+    var cityFilter by rememberSaveable { mutableStateOf("") }
     var list by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var loadedQuery by remember { mutableStateOf<String?>(null) }
     var refreshKey by remember { mutableIntStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
     var busyId by remember { mutableIntStateOf(0) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось взять. Проверь сеть.", "Алып булманы. Селтәрҙе тикшер.")
     val tookMsg = appText("Заказ у тебя. Он во вкладке «Везу».", "Заказ һиндә. Ул «Илтәм» бүлегендә.")
 
-    val queryKey = "$zone|${workCity.trim()}"
+    val poputka = feed == COURIER_FEED_POPUTKA
+    // Линия нужна только профи-ленте: «по пути» человек берёт заодно со своей дорогой.
+    val feedReady = poputka || online
+    val queryKey = "$feed|$zone|${workCity.trim()}|${cityFilter.trim()}"
     val hasLoadedCurrentQuery = loadedQuery == queryKey
     val visibleList = if (hasLoadedCurrentQuery) list else emptyList()
+    // Города берём из того, что реально пришло: выбранный оставляем, даже если он опустел,
+    // иначе фильтр исчезал вместе с последним заказом и сбросить его было нечем.
+    val cities = remember(visibleList, cityFilter) {
+        (visibleList.map { it.fromCity }.filter { it.isNotBlank() } +
+            listOfNotNull(cityFilter.takeIf { it.isNotBlank() })).distinct()
+    }
 
-    // Один последовательный цикл на текущий фильтр. Смена ключа отменяет старый запрос,
+    // Один последовательный цикл на текущую ленту+фильтр. Смена ключа отменяет старый запрос,
     // поэтому таймер, ручной retry и подтверждённая смена зоны не создают дублей.
-    LaunchedEffect(online, zone, workCity, refreshKey) {
-        if (!online) {
+    // В фоне цикл стоит (repeatOnLifecycle RESUMED) — не жжём батарею и трафик; возврат на экран
+    // сразу тянет свежее.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(feed, online, zone, workCity, cityFilter, refreshKey, lifecycleOwner) {
+        if (!feedReady) {
             // Доступные заказы быстро устаревают: после новой сессии линии сначала подтверждаем их сервером.
             loadedQuery = null
             error = null
+            refreshing = false
             return@LaunchedEffect
         }
         error = null
-        while (true) {
-            ApiClient.getCourierAvailable(fromCity = workCity.takeIf { it.isNotBlank() })
-                .onSuccess {
-                    list = it
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                val res = if (poputka) {
+                    ApiClient.getAvailableParcels(fromCity = cityFilter.takeIf { it.isNotBlank() })
+                } else {
+                    ApiClient.getCourierAvailable(fromCity = workCity.takeIf { it.isNotBlank() })
+                }
+                res.onSuccess { fresh ->
+                    list = fresh
                     loadedQuery = queryKey
                     error = null
+                }.onFailure { e ->
+                    error = (e as? com.yuldash.app.data.ApiException)?.message ?: loadErr
                 }
-                .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }
-            delay(COURIER_REFRESH_INTERVAL_MS)
+                refreshing = false
+                delay(COURIER_REFRESH_INTERVAL_MS)
+            }
         }
     }
 
-    LazyColumn(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(bottom = 96.dp),
+    AppPullRefresh(
+        refreshing = refreshing,
+        onRefresh = { if (!refreshing) { refreshing = true; refreshKey++ } },
     ) {
-        item {
-            MobilityScreenIntro(
-                mode = MobilityMode.Courier,
-                title = appText("Заказы рядом", "Яҡындағы заказдар"),
-                subtitle = appText(
-                    "Маршрут и твой доход видны до принятия. Контакты откроются после.",
-                    "Маршрут һәм килем заказды алғансы күренә. Контакттар һуңынан асыла.",
-                ),
-            )
-        }
-        if (online && error != null && hasLoadedCurrentQuery) {
+        LazyColumn(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(bottom = 96.dp),
+        ) {
             item {
-                CourierRefreshStrip(
-                    text = appText(
-                        "Не удалось обновить заказы — показываем последний список.",
-                        "Заказдарҙы яңыртып булманы — һуңғы исемлекте күрһәтәбеҙ.",
+                MobilityScreenIntro(
+                    mode = MobilityMode.Courier,
+                    title = appText("Заказы рядом", "Яҡындағы заказдар"),
+                    subtitle = if (poputka) appText(
+                        "Едешь в другой город? Захвати посылку по пути — сумму от отправителя увидишь до принятия.",
+                        "Икенсе ҡалаға бараһыңмы? Юл ыңғайы бандероль ал — ебәреүсе тәҡдим иткән сумманы алдан күрерһең.",
+                    ) else appText(
+                        "Маршрут и твой доход видны до принятия. Контакты откроются после.",
+                        "Маршрут һәм килем заказды алғансы күренә. Контакттар һуңынан асыла.",
                     ),
-                    onRetry = { refreshKey++ },
                 )
             }
-        }
-        when {
-            !online -> {
+            item {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CourierPickChip(appText("Курьерские", "Курьер заказдары"), !poputka) { feed = COURIER_FEED_PRO }
+                    CourierPickChip(appText("По пути", "Юл ыңғайы"), poputka) { feed = COURIER_FEED_POPUTKA }
+                }
+            }
+            if (poputka && cities.isNotEmpty()) {
                 item {
-                    AppEmptyState(
-                        title = appText("Сначала включи линию", "Тәүҙә линияны ҡабыҙ"),
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CourierPickChip(appText("Все города", "Бөтә ҡалалар"), cityFilter == "") { cityFilter = "" }
+                        cities.forEach { city ->
+                            CourierPickChip(city, cityFilter == city) { cityFilter = if (cityFilter == city) "" else city }
+                        }
+                    }
+                }
+            }
+            if (feedReady && error != null && hasLoadedCurrentQuery) {
+                item {
+                    CourierRefreshStrip(
                         text = appText(
-                            "Доступные заказы появятся только на линии — так никто не возьмёт заказ случайно.",
-                            "Буш заказдар тик линияла күренә — шулай заказды осраҡлы алып булмай.",
+                            "Не удалось обновить заказы — показываем последний список.",
+                            "Заказдарҙы яңыртып булманы — һуңғы исемлекте күрһәтәбеҙ.",
                         ),
-                        icon = Icons.Default.LocalShipping,
-                    )
-                }
-                item {
-                    AppButton(
-                        text = appText("Включить линию", "Линияны ҡабыҙыу"),
-                        onClick = onGoOnline,
-                        style = AppButtonStyle.Primary,
-                        icon = Icons.Default.LocalShipping,
-                        enabled = !lineBusy,
-                        loading = lineBusy,
+                        onRetry = { refreshKey++ },
                     )
                 }
             }
-            !hasLoadedCurrentQuery && error == null -> {
-                item { SkeletonCard(lines = 3) }
-                item { SkeletonCard(lines = 3) }
-            }
-            error != null && !hasLoadedCurrentQuery -> item { ListedError(error ?: "") { refreshKey++ } }
-            visibleList.isEmpty() -> item {
-                AppEmptyState(
-                    title = appText("Свободных заказов нет", "Буш заказдар юҡ"),
-                    text = appText("Загляни позже — соседи скоро что-нибудь отправят.", "Һуңыраҡ кер — күршеләр тиҙҙән берәй нәмә ебәрер."),
-                    icon = Icons.Default.LocalShipping,
-                )
-            }
-            else -> items(visibleList.size, key = { "cav-" + visibleList[it].id }) { i ->
-                val parcel = visibleList[i]
-                Box(Modifier.appearIn(i.coerceAtMost(6))) {
-                    CourierAvailableCard(
-                        p = parcel,
-                        busy = busyId == parcel.id,
-                        canTake = online && !lineBusy,
-                        onTake = {
-                            if (!online || lineBusy || busyId != 0) return@CourierAvailableCard
-                            busyId = parcel.id
-                            scope.launch {
-                                ApiClient.acceptParcel(parcel.id)
-                                    .onSuccess { Toast.makeText(ctx, tookMsg, Toast.LENGTH_SHORT).show(); refreshKey++ }
-                                    .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr, Toast.LENGTH_SHORT).show() }
-                                busyId = 0
-                            }
-                        },
+            when {
+                !feedReady -> {
+                    item {
+                        AppEmptyState(
+                            title = appText("Сначала включи линию", "Тәүҙә линияны ҡабыҙ"),
+                            text = appText(
+                                "Курьерские заказы появятся только на линии — так никто не возьмёт заказ случайно. Заказы «по пути» можно смотреть и без линии.",
+                                "Курьер заказдары тик линияла күренә — шулай заказды осраҡлы алып булмай. «Юл ыңғайы» заказдарын линияһыҙ ҙа ҡарарға була.",
+                            ),
+                            icon = Icons.Default.LocalShipping,
+                        )
+                    }
+                    item {
+                        AppButton(
+                            text = appText("Включить линию", "Линияны ҡабыҙыу"),
+                            onClick = onGoOnline,
+                            style = AppButtonStyle.Primary,
+                            icon = Icons.Default.LocalShipping,
+                            enabled = !lineBusy,
+                            loading = lineBusy,
+                        )
+                    }
+                }
+                !hasLoadedCurrentQuery && error == null -> {
+                    item { SkeletonCard(lines = 3) }
+                    item { SkeletonCard(lines = 3) }
+                }
+                error != null && !hasLoadedCurrentQuery -> item { ListedError(error ?: "") { refreshKey++ } }
+                visibleList.isEmpty() -> item {
+                    AppEmptyState(
+                        title = appText("Свободных заказов нет", "Буш заказдар юҡ"),
+                        text = appText("Загляни позже — соседи скоро что-нибудь отправят.", "Һуңыраҡ кер — күршеләр тиҙҙән берәй нәмә ебәрер."),
+                        icon = Icons.Default.LocalShipping,
                     )
+                }
+                else -> items(visibleList.size, key = { "cav-" + visibleList[it].id }) { i ->
+                    val parcel = visibleList[i]
+                    Box(Modifier.appearIn(i.coerceAtMost(6))) {
+                        CourierAvailableCard(
+                            p = parcel,
+                            busy = busyId == parcel.id,
+                            canTake = !lineBusy,
+                            onTake = {
+                                if (lineBusy || busyId != 0) return@CourierAvailableCard
+                                busyId = parcel.id
+                                scope.launch {
+                                    ApiClient.acceptParcel(parcel.id)
+                                        .onSuccess { Toast.makeText(ctx, tookMsg, Toast.LENGTH_SHORT).show(); refreshKey++ }
+                                        .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr, Toast.LENGTH_SHORT).show() }
+                                    busyId = 0
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -690,6 +836,10 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, canTake: Boolean, 
         priceLabel = priceLabel,
         description = p.description,
     ) {
+        // Приватность (§8): в открытой ленте сервер адресов НЕ отдаёт — до «Взять заказ» блок
+        // молчит сам собой. Как только заказ станет своим, ориентиры появятся здесь же, без
+        // отдельной ветки кода: рисуем ровно то, что прислал сервер.
+        ParcelAddressBlock(fromAddress = p.fromAddress, toAddress = p.toAddress, prominent = true)
         if (p.priceKop > 0) {
             Surface(shape = RoundedCornerShape(14.dp), color = CanonMint) {
                 Text(
@@ -728,14 +878,24 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, canTake: Boolean, 
 }
 
 // ─────────────────────────── Везу ───────────────────────────
+/**
+ * Что курьер везёт сейчас (+ короткая история).
+ *
+ * Список приходит сверху и туда же возвращается ([onList]): его вторым потребителем стала живая
+ * отправка GPS, которая живёт выше уровнем и не должна умирать вместе с этой вкладкой.
+ */
 @Composable
-private fun CourierCarryingTab(online: Boolean) {
+private fun CourierCarryingTab(
+    online: Boolean,
+    list: List<ParcelDto>,
+    onList: (List<ParcelDto>) -> Unit,
+) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    var list by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    var loading by remember { mutableStateOf(list.isEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
     var refreshKey by remember { mutableIntStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
     var busyId by remember { mutableIntStateOf(0) }
     var deliverTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var goodsTarget by remember { mutableStateOf<ParcelDto?>(null) }
@@ -753,112 +913,122 @@ private fun CourierCarryingTab(online: Boolean) {
 
     // Историю/активную доставку грузим и оффлайн один раз; на линии держим один
     // последовательный polling-цикл без перекрывающихся getCarryingParcels.
-    LaunchedEffect(online, refreshKey) {
-        while (true) {
-            loading = true
-            ApiClient.getCarryingParcels()
-                .onSuccess {
-                    list = it.sortedByDescending { p -> p.acceptedAt ?: p.createdAt }
-                    error = null
-                }
-                .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }
-            loading = false
-            if (!online) return@LaunchedEffect
-            delay(COURIER_REFRESH_INTERVAL_MS)
+    // В фоне цикл на паузе (repeatOnLifecycle RESUMED); вернулся на экран — сразу свежее.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(online, refreshKey, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                loading = true
+                ApiClient.getCarryingParcels()
+                    .onSuccess {
+                        onList(it.sortedByDescending { p -> p.acceptedAt ?: p.createdAt })
+                        error = null
+                    }
+                    .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }
+                loading = false
+                refreshing = false
+                if (!online) return@repeatOnLifecycle
+                delay(COURIER_REFRESH_INTERVAL_MS)
+            }
         }
     }
 
-    LazyColumn(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(bottom = 96.dp),
+    AppPullRefresh(
+        refreshing = refreshing,
+        onRefresh = { if (!refreshing) { refreshing = true; reload() } },
     ) {
-        if (error != null && list.isNotEmpty()) {
-            item {
-                CourierRefreshStrip(
-                    text = appText(
-                        "Не удалось обновить доставки — показываем последние данные.",
-                        "Илтеүҙәрҙе яңыртып булманы — һуңғы мәғлүмәтте күрһәтәбеҙ.",
-                    ),
-                    onRetry = { reload() },
-                )
+        LazyColumn(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(bottom = 96.dp),
+        ) {
+            if (error != null && list.isNotEmpty()) {
+                item {
+                    CourierRefreshStrip(
+                        text = appText(
+                            "Не удалось обновить доставки — показываем последние данные.",
+                            "Илтеүҙәрҙе яңыртып булманы — һуңғы мәғлүмәтте күрһәтәбеҙ.",
+                        ),
+                        onRetry = { reload() },
+                    )
+                }
             }
-        }
-        when {
-            loading && list.isEmpty() -> {
-                item { SkeletonCard(lines = 3) }
-                item { SkeletonCard(lines = 3) }
-            }
-            error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
-            list.isEmpty() -> item {
-                AppEmptyState(
-                    title = appText("Ты пока ничего не везёшь", "Әлегә бер нәмә лә илтмәйһең"),
-                    text = appText("Возьми заказ во вкладке «Заказы» — он появится здесь.", "«Заказдар» бүлегендә заказ ал — ул бында күренер."),
-                    icon = Icons.Default.LocalShipping,
-                )
-            }
-            else -> {
-                // Онлайн-трекинг: карта активной доставки (курьер шлёт свой GPS отправителю).
-                // Карта одна — MapKit тяжёлый, три карты в одном списке подвесят прокрутку.
-                // Но раньше она молча показывала ПЕРВУЮ посылку: курьер вёз три, вручал вторую,
-                // а на карте был чужой маршрут. Теперь при нескольких доставках он выбирает, чью
-                // карту смотреть, а по умолчанию открыта та, что уже в пути.
-                val activeParcels = list.filter { it.status == "accepted" || it.status == "in_transit" }
-                if (activeParcels.isNotEmpty()) {
-                    item(key = "ccar-track") {
-                        val defaultId = (activeParcels.firstOrNull { it.status == "in_transit" }
-                            ?: activeParcels.first()).id
-                        var trackedId by remember(activeParcels.map { it.id }) { mutableIntStateOf(defaultId) }
-                        val tracked = activeParcels.firstOrNull { it.id == trackedId } ?: activeParcels.first()
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                if (activeParcels.size > 1) appText(
-                                    "Ты в пути — отправители видят тебя на карте. Выбери доставку:",
-                                    "Һин юлда — ебәреүселәр һине картала күрә. Илтеүҙе һайла:",
-                                ) else appText(
-                                    "Ты в пути — отправитель видит тебя на карте",
-                                    "Һин юлда — ебәреүсе һине картала күрә",
-                                ),
-                                color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
-                            )
-                            if (activeParcels.size > 1) {
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    items(activeParcels, key = { "track-chip-${it.id}" }) { p ->
-                                        TrackTargetChip(
-                                            label = p.toCity.ifBlank { appText("Доставка", "Илтеү") } + " · №${p.id}",
-                                            selected = p.id == tracked.id,
-                                            onClick = { trackedId = p.id },
-                                        )
+            when {
+                loading && list.isEmpty() -> {
+                    item { SkeletonCard(lines = 3) }
+                    item { SkeletonCard(lines = 3) }
+                }
+                error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
+                list.isEmpty() -> item {
+                    AppEmptyState(
+                        title = appText("Ты пока ничего не везёшь", "Әлегә бер нәмә лә илтмәйһең"),
+                        text = appText("Возьми заказ во вкладке «Заказы» — он появится здесь.", "«Заказдар» бүлегендә заказ ал — ул бында күренер."),
+                        icon = Icons.Default.LocalShipping,
+                    )
+                }
+                else -> {
+                    // Онлайн-трекинг: карта активной доставки (курьер шлёт свой GPS отправителю).
+                    // Карта одна — MapKit тяжёлый, три карты в одном списке подвесят прокрутку.
+                    // Но раньше она молча показывала ПЕРВУЮ посылку: курьер вёз три, вручал вторую,
+                    // а на карте был чужой маршрут. Теперь при нескольких доставках он выбирает, чью
+                    // карту смотреть, а по умолчанию открыта та, что уже в пути.
+                    val activeParcels = list.filter { it.status == "accepted" || it.status == "in_transit" }
+                    if (activeParcels.isNotEmpty()) {
+                        item(key = "ccar-track") {
+                            val defaultId = (activeParcels.firstOrNull { it.status == "in_transit" }
+                                ?: activeParcels.first()).id
+                            var trackedId by remember(activeParcels.map { it.id }) { mutableIntStateOf(defaultId) }
+                            val tracked = activeParcels.firstOrNull { it.id == trackedId } ?: activeParcels.first()
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    if (activeParcels.size > 1) appText(
+                                        "Ты в пути — отправители видят тебя на карте. Выбери доставку:",
+                                        "Һин юлда — ебәреүселәр һине картала күрә. Илтеүҙе һайла:",
+                                    ) else appText(
+                                        "Ты в пути — отправитель видит тебя на карте",
+                                        "Һин юлда — ебәреүсе һине картала күрә",
+                                    ),
+                                    color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                                )
+                                if (activeParcels.size > 1) {
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(activeParcels, key = { "track-chip-${it.id}" }) { p ->
+                                            CourierPickChip(
+                                                label = p.toCity.ifBlank { appText("Доставка", "Илтеү") } + " · №${p.id}",
+                                                selected = p.id == tracked.id,
+                                                onClick = { trackedId = p.id },
+                                            )
+                                        }
                                     }
                                 }
+                                ParcelTrackMap(tracked, asCourier = true)
                             }
-                            ParcelTrackMap(tracked, asCourier = true)
                         }
                     }
-                }
-                items(list.size, key = { "ccar-" + list[it].id }) { i ->
-                    val parcel = list[i]
-                    Box(Modifier.appearIn(i.coerceAtMost(6))) {
-                        CourierCarryingCard(
-                            p = parcel,
-                            busy = busyId == parcel.id,
-                            onTransit = {
-                                if (busyId != 0) return@CourierCarryingCard
-                                busyId = parcel.id
-                                scope.launch {
-                                    ApiClient.setParcelStatus(parcel.id, "in_transit")
-                                        .onSuccess { Toast.makeText(ctx, transitMsg, Toast.LENGTH_SHORT).show(); reload() }
-                                        .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr, Toast.LENGTH_SHORT).show() }
-                                    busyId = 0
-                                }
-                            },
-                            onDeliver = { deliverTarget = parcel },
-                            onSetGoods = { goodsTarget = parcel },
-                            onDispute = { disputeTarget = parcel },
-                            onTrouble = { troubleTarget = parcel },
-                            rated = ratedIds.contains(parcel.id),
-                            onRate = { rateTarget = parcel },
-                        )
+                    items(list.size, key = { "ccar-" + list[it].id }) { i ->
+                        val parcel = list[i]
+                        Box(Modifier.appearIn(i.coerceAtMost(6))) {
+                            CourierCarryingCard(
+                                p = parcel,
+                                busy = busyId == parcel.id,
+                                onTransit = {
+                                    if (busyId != 0) return@CourierCarryingCard
+                                    busyId = parcel.id
+                                    scope.launch {
+                                        ApiClient.setParcelStatus(parcel.id, "in_transit")
+                                            .onSuccess { Toast.makeText(ctx, transitMsg, Toast.LENGTH_SHORT).show(); reload() }
+                                            .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr, Toast.LENGTH_SHORT).show() }
+                                        busyId = 0
+                                    }
+                                },
+                                onDeliver = { deliverTarget = parcel },
+                                onSetGoods = { goodsTarget = parcel },
+                                onDispute = { disputeTarget = parcel },
+                                onTrouble = { troubleTarget = parcel },
+                                rated = ratedIds.contains(parcel.id),
+                                onRate = { rateTarget = parcel },
+                            )
+                        }
                     }
                 }
             }
@@ -1023,8 +1193,14 @@ private fun CourierCarryingTab(online: Boolean) {
 
 /**
  * Онлайн-трекинг доставки на карте (курьер ↔ отправитель) — тот же движок, что у такси.
- * asCourier=true: этот телефон ШЛЁТ свой GPS (курьер) и видит себя на маршруте.
+ * asCourier=true: курьер видит СЕБЯ на маршруте (позицию берём с этого же телефона).
  * asCourier=false: отправитель ВИДИТ движущегося курьера (принимает позицию по WS).
+ *
+ * Отправку позиции курьера этот компонент больше НЕ держит: она переехала в
+ * [CourierLiveLocationLink] уровнем выше. Карта лежит item-ом внутри LazyColumn, и вместе с
+ * прокруткой умирал весь поток — у отправителя точка замирала (аудит 2026-08-03). Карта теперь
+ * отвечает только за картинку, поток живёт своей жизнью.
+ *
  * Приватность как у такси-трека: поток живёт лишь пока посылка в работе (accepted/in_transit),
  * координаты сервер не хранит, канал закрыт для чужих.
  */
@@ -1035,47 +1211,49 @@ internal fun ParcelTrackMap(parcel: ParcelDto, asCourier: Boolean, modifier: Mod
     if (from == null && to == null) return   // без координат карту не рисуем
     val active = parcel.status == "accepted" || parcel.status == "in_transit"
 
-    var courierPoint by remember(parcel.id) { mutableStateOf<com.yandex.mapkit.geometry.Point?>(null) }
-    var courierBearing by remember(parcel.id) { mutableStateOf<Double?>(null) }
+    var peerPoint by remember(parcel.id) { mutableStateOf<com.yandex.mapkit.geometry.Point?>(null) }
+    var peerBearing by remember(parcel.id) { mutableStateOf<Double?>(null) }
 
-    val sock = remember(parcel.id) {
-        com.yuldash.app.data.InstantLocationSocket.forParcel(parcel.id, onPeer = { peer ->
-            if (peer.role == "courier") {
-                courierPoint = com.yandex.mapkit.geometry.Point(peer.lat, peer.lng)
-                courierBearing = peer.bearing
-            }
-        })
-    }
-    DisposableEffect(parcel.id, active) {
-        if (!active) return@DisposableEffect onDispose { }
-        sock.connect()
-        onDispose { sock.close() }
-    }
-
-    // Курьер: раз в ~5с шлём свою позицию отправителю (координаты не логируем) + показываем себя.
-    val myPoint by rememberMyPoint(active = asCourier && active)
-    if (asCourier) {
-        var lastSent by remember { mutableStateOf(0L) }
-        var prev by remember { mutableStateOf<com.yandex.mapkit.geometry.Point?>(null) }
-        LaunchedEffect(myPoint) {
-            val p = myPoint ?: return@LaunchedEffect
-            val now = System.currentTimeMillis()
-            if (now - lastSent < 5_000) return@LaunchedEffect
-            lastSent = now
-            val bearing = prev?.let { q ->
-                val dLat = p.latitude - q.latitude; val dLng = p.longitude - q.longitude
-                if (kotlin.math.abs(dLat) + kotlin.math.abs(dLng) < 0.00005) null
-                else (Math.toDegrees(kotlin.math.atan2(dLng * kotlin.math.cos(Math.toRadians(p.latitude)), dLat)) + 360) % 360
-            }
-            prev = p
-            sock.sendLoc(p.latitude, p.longitude, bearing)
-            courierPoint = p; courierBearing = bearing
+    // Отправитель: слушаем канал доставки, пока карта на экране, — это ровно та ситуация,
+    // когда поток и нужен. Курьеру приёмник ни к чему: он и так знает, где он.
+    if (!asCourier) {
+        val sock = remember(parcel.id) {
+            com.yuldash.app.data.InstantLocationSocket.forParcel(parcel.id, onPeer = { peer ->
+                if (peer.role == "courier") {
+                    peerPoint = com.yandex.mapkit.geometry.Point(peer.lat, peer.lng)
+                    peerBearing = peer.bearing
+                }
+            })
         }
+        DisposableEffect(parcel.id, active) {
+            if (!active) return@DisposableEffect onDispose { }
+            sock.connect()
+            onDispose { sock.close() }
+        }
+    }
+
+    // Курьер видит себя: позиция с этого телефона, отправляет её CourierLiveLocationLink.
+    val myPoint by rememberMyPoint(active = asCourier && active)
+    // Куда он повёрнут — считаем по смещению между точками, иначе стрелка на карте застыла бы носом на север.
+    var myBearing by remember(parcel.id) { mutableStateOf<Double?>(null) }
+    var prevMy by remember(parcel.id) { mutableStateOf<com.yandex.mapkit.geometry.Point?>(null) }
+    LaunchedEffect(myPoint, asCourier) {
+        if (!asCourier) return@LaunchedEffect
+        val p = myPoint ?: return@LaunchedEffect
+        prevMy?.let { q ->
+            val dLat = p.latitude - q.latitude
+            val dLng = p.longitude - q.longitude
+            if (kotlin.math.abs(dLat) + kotlin.math.abs(dLng) >= 0.00005) {
+                myBearing = (Math.toDegrees(kotlin.math.atan2(dLng * kotlin.math.cos(Math.toRadians(p.latitude)), dLat)) + 360) % 360
+            }
+        }
+        prevMy = p
     }
 
     InstantRouteMap(
         from = from, to = to,
-        car = courierPoint, carBearing = courierBearing,
+        car = if (asCourier) myPoint else peerPoint,
+        carBearing = if (asCourier) myBearing else peerBearing,
         modifier = modifier.fillMaxWidth().height(192.dp).clip(CanonItemShape),
     )
 }
@@ -1114,6 +1292,9 @@ private fun CourierCarryingCard(
             }
             CourierDeliveryProgress(status = p.status)
             ParcelReturnNotice(status = p.status, reason = p.returnReason, forCourier = true)
+            // Главное на карточке взятого заказа: по этим ориентирам курьер и едет. Стоит выше
+            // контактов — сначала «куда рулить», потом «кому звонить». Пусто → блок не рисуется.
+            ParcelAddressBlock(fromAddress = p.fromAddress, toAddress = p.toAddress, prominent = true)
             Surface(color = CanonMint, shape = CanonItemShape) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     CourierContactDetails(
@@ -1131,6 +1312,20 @@ private fun CourierCarryingCard(
                             },
                             name = p.senderName,
                             phone = p.senderPhone,
+                        )
+                    }
+                    // Половина вопросов доставки — одна фраза: «оставь у соседей», «я до шести
+                    // на работе». Звонок ради этого тяжёлый, и следа не остаётся, если потом спор.
+                    if (showSenderContact) {
+                        AppButton(
+                            text = appText("Написать отправителю", "Ебәреүсегә яҙырға"),
+                            onClick = {
+                                DeepLink.pendingParcelChat.value =
+                                    ParcelChatTarget(p.id, peerIsCourier = false, status = p.status)
+                            },
+                            style = AppButtonStyle.Secondary,
+                            icon = Icons.Default.ChatBubble,
+                            height = 48.dp,
                         )
                     }
                 }
@@ -1266,7 +1461,12 @@ private fun CourierContactDetails(label: String, name: String, phone: String) {
 
 // ─────────────────────────── Кабинет курьера ───────────────────────────
 @Composable
-private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnings: () -> Unit = {}) {
+private fun CourierCabinetTab(
+    me: CourierMeDto,
+    onReloadMe: () -> Unit,
+    onEarnings: () -> Unit = {},
+    reloading: Boolean = false,
+) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var paying by remember { mutableStateOf(false) }
@@ -1281,203 +1481,207 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
     // равно 0.0, и курьеру объявлялся «сбор Юлдаша (0%)» — обещание, которого мы не давали.
     val feeShare = if (st.feeTier.isNotBlank()) " ($currentFeePercent%)" else ""
 
-    LazyColumn(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(bottom = 96.dp),
-    ) {
-        // «Мой заработок» — первым делом: курьер должен видеть, СКОЛЬКО он получил, а не только
-        // сколько должен. До этого раунда экрана не было вовсе (аудит 2026-07-26).
-        item {
-            AppButton(
-                text = appText("Мой заработок", "Минең табыш"),
-                onClick = onEarnings,
-                style = AppButtonStyle.Secondary,
-                icon = Icons.Default.Payments,
-            )
-        }
-        // Пауза по качеству (если задана) — тёплая плашка, не ругательно.
-        me.pausedUntil?.takeIf { it.isNotBlank() }?.let { until ->
+    // Кабинет тоже тянется вниз: «Обновить» кнопкой в самом низу списка — не то место,
+    // куда человек тянется рефлекторно.
+    AppPullRefresh(refreshing = reloading, onRefresh = onReloadMe) {
+        LazyColumn(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(bottom = 96.dp),
+        ) {
+            // «Мой заработок» — первым делом: курьер должен видеть, СКОЛЬКО он получил, а не только
+            // сколько должен. До этого раунда экрана не было вовсе (аудит 2026-07-26).
             item {
-                Surface(color = CanonWarnBg, shape = CanonCardShape, border = BorderStroke(1.dp, CanonWarn)) {
-                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.PauseCircle, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(24.dp))
+                AppButton(
+                    text = appText("Мой заработок", "Минең табыш"),
+                    onClick = onEarnings,
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.Payments,
+                )
+            }
+            // Пауза по качеству (если задана) — тёплая плашка, не ругательно.
+            me.pausedUntil?.takeIf { it.isNotBlank() }?.let { until ->
+                item {
+                    Surface(color = CanonWarnBg, shape = CanonCardShape, border = BorderStroke(1.dp, CanonWarn)) {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.PauseCircle, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.width(16.dp))
+                            val until10 = until.take(10)
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(appText("Пауза по качеству", "Сифат буйынса пауза"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                                Text(
+                                    appText("Пауза до $until10. Подтяни рейтинг — и снова в строю. Мы рядом, поможем.", "$until10 тиклем пауза. Рейтингты күтәр — һәм ҡабат сафта. Беҙ янда, ярҙам итербеҙ."),
+                                    color = CanonWarn, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            // Рейтинг курьера.
+            item {
+                val avg = me.rating.avg
+                Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
+                            Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.padding(12.dp).size(24.dp))
+                        }
                         Spacer(Modifier.width(16.dp))
-                        val until10 = until.take(10)
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(appText("Пауза по качеству", "Сифат буйынса пауза"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
-                            Text(
-                                appText("Пауза до $until10. Подтяни рейтинг — и снова в строю. Мы рядом, поможем.", "$until10 тиклем пауза. Рейтингты күтәр — һәм ҡабат сафта. Беҙ янда, ярҙам итербеҙ."),
-                                color = CanonWarn, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
-                            )
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(appText("Твой рейтинг", "Һинең рейтинг"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
+                            if (avg != null && me.rating.count > 0) {
+                                Text(deliveryDecimal(avg) + " ★", color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
+                                Text(appText("оценок: ${me.rating.count}", "баһа: ${me.rating.count}"), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
+                            } else {
+                                Text(appText("Пока нет оценок", "Әлегә оценка юҡ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                                Text(appText("Первые доставки — и рейтинг появится.", "Тәүге илтеүҙәр — һәм рейтинг күренер."), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
+                            }
                         }
                     }
                 }
             }
-        }
-        // Рейтинг курьера.
-        item {
-            val avg = me.rating.avg
-            Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder)) {
-                Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
-                        Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.padding(12.dp).size(24.dp))
-                    }
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(appText("Твой рейтинг", "Һинең рейтинг"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
-                        if (avg != null && me.rating.count > 0) {
-                            Text(String.format("%.1f", avg) + " ★", color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
-                            Text(appText("оценок: ${me.rating.count}", "баһа: ${me.rating.count}"), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
-                        } else {
-                            Text(appText("Пока нет оценок", "Әлегә оценка юҡ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
-                            Text(appText("Первые доставки — и рейтинг появится.", "Тәүге илтеүҙәр — һәм рейтинг күренер."), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
-                        }
-                    }
-                }
-            }
-        }
-        // Доставлено заказов.
-        item {
-            Surface(color = CanonMint, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2)) {
-                Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp)) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
-                    }
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(appText("Доставлено заказов", "Тапшырылған заказдар"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
-                        Text("${st.deliveredCount}", color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
-                    }
-                }
-            }
-        }
-        // Текущая ступень комиссии — курьер видит, сколько платит и почему.
-        if (st.feeTier.isNotBlank()) {
+            // Доставлено заказов.
             item {
-                val tierLine = when (st.feeTier) {
-                    "promo" -> appText("🎁 Промо для первых: 0% — пользуйся!", "🎁 Тәүгеләр өсөн промо: 0% — файҙалан!")
-                    "tier1" -> appText("Новичок: 3% — самая низкая ставка", "Яңы башлаусы: 3% — иң түбән ставка")
-                    "tier2" -> appText("Опытный курьер: 5%", "Тәжрибәле курьер: 5%")
-                    "tier3" -> appText("8% — обычная ставка", "8% — ғәҙәти ставка")
-                    else -> appText("Комиссия по твоей ступени", "Баҫҡысың буйынса комиссия")
-                }
-                val promo = st.feeTier == "promo"
-                Surface(
-                    color = if (promo) CanonMint else CanonSurface,
-                    shape = CanonCardShape,
-                    border = BorderStroke(1.dp, if (promo) CanonGreen2 else CanonBorder),
-                ) {
-                    Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Surface(color = if (promo) CanonSurface else CanonMint, shape = RoundedCornerShape(14.dp)) {
-                                Icon(Icons.Default.Percent, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
-                            }
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(appText("Сейчас ты платишь $currentFeePercent% комиссии", "Хәҙер һин $currentFeePercent% комиссия түләйһең"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
-                                Text(tierLine, color = if (promo) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
-                            }
+                Surface(color = CanonMint, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2)) {
+                    Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp)) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
                         }
-                        if (st.commissionMinKop > 0) {
-                            DeliveryHint(
-                                appText(
-                                    "Комиссия минимум ${kopToRub(st.commissionMinKop)} за доставку. Всё прозрачно — видно, сколько и за что.",
-                                    "Комиссия иң кәме ${kopToRub(st.commissionMinKop)} бер илтеү өсөн. Барыһы ла асыҡ — күпме һәм ни өсөн икәне күренә.",
-                                ),
-                            )
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(appText("Доставлено заказов", "Тапшырылған заказдар"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
+                            Text("${st.deliveredCount}", color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
                         }
                     }
                 }
             }
-        }
-        // Комиссия: заработали · к оплате (крупно) · оплачено.
-        item {
-            Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, if (owed > 0) CanonGreen2 else CanonBorder)) {
-                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
-                        Text(appText("Наша комиссия за доставки", "Илтеүҙәр өсөн беҙҙең комиссия"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+            // Текущая ступень комиссии — курьер видит, сколько платит и почему.
+            if (st.feeTier.isNotBlank()) {
+                item {
+                    val tierLine = when (st.feeTier) {
+                        "promo" -> appText("🎁 Промо для первых: 0% — пользуйся!", "🎁 Тәүгеләр өсөн промо: 0% — файҙалан!")
+                        "tier1" -> appText("Новичок: 3% — самая низкая ставка", "Яңы башлаусы: 3% — иң түбән ставка")
+                        "tier2" -> appText("Опытный курьер: 5%", "Тәжрибәле курьер: 5%")
+                        "tier3" -> appText("8% — обычная ставка", "8% — ғәҙәти ставка")
+                        else -> appText("Комиссия по твоей ступени", "Баҫҡысың буйынса комиссия")
                     }
-                    DeliveryHint(
-                        appText("Это сбор Юлдаша$feeShare за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.", "Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы$feeShare. Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш."),
-                    )
-                    StatementRow(appText("Всего заработали мы", "Барлығы беҙ эшләнек"), kopToRub(st.commissionEarnedKop), CanonMuted)
-                    StatementRow(appText("Уже оплачено", "Түләнгән"), kopToRub(st.commissionPaidKop), CanonGreen2)
-                    // К оплате сейчас — крупно.
-                    Surface(color = if (owed > 0) CanonMint else CanonBg, shape = CanonItemShape) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                appText("К оплате сейчас", "Хәҙер түләргә"), color = CanonText, fontWeight = FontWeight.Black,
-                                fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, modifier = Modifier.weight(1f),
-                            )
-                            Text(kopToRub(owed), color = if (owed > 0) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
-                        }
-                    }
-                    if (owed > 0) {
-                        AppButton(
-                            text = appText("Оплатить комиссию", "Комиссияны түләү"),
-                            onClick = {
-                                if (paying) return@AppButton
-                                paying = true
-                                scope.launch {
-                                    ApiClient.payCommission()
-                                        .onSuccess onPaid@{ res ->
-                                            when {
-                                                // ЮKassa (по флажку): в браузер оплаты, статус — поллингом.
-                                                res.method == "yookassa" && res.status == "pending" && !res.confirmationUrl.isNullOrBlank() -> {
-                                                    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(res.confirmationUrl))) }
-                                                    paying = false
-                                                    repeat(6) {
-                                                        kotlinx.coroutines.delay(4000)
-                                                        if (ApiClient.getPaymentStatus(res.paymentId).getOrNull()?.status == "succeeded") {
-                                                            Toast.makeText(ctx, commissionPaidMsg, Toast.LENGTH_LONG).show(); onReloadMe(); return@onPaid
-                                                        }
-                                                    }
-                                                    onReloadMe()
-                                                    return@onPaid
-                                                }
-                                                res.status == "succeeded" -> { Toast.makeText(ctx, commissionPaidMsg, Toast.LENGTH_LONG).show(); onReloadMe() }
-                                                else -> payResult = res   // СБП «на доверии» → показать реквизиты
-                                            }
-                                        }
-                                        .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: payErr, Toast.LENGTH_LONG).show() }
-                                    paying = false
+                    val promo = st.feeTier == "promo"
+                    Surface(
+                        color = if (promo) CanonMint else CanonSurface,
+                        shape = CanonCardShape,
+                        border = BorderStroke(1.dp, if (promo) CanonGreen2 else CanonBorder),
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Surface(color = if (promo) CanonSurface else CanonMint, shape = RoundedCornerShape(14.dp)) {
+                                    Icon(Icons.Default.Percent, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
                                 }
-                            },
-                            style = AppButtonStyle.Accent,
-                            icon = Icons.Default.Payments,
-                            loading = paying,
-                        )
-                        DeliveryHint(
-                            appText("Переведи сумму по СБП на реквизиты Юлдаша — админ подтвердит оплату вручную.", "Сумманы СБП аша Юлдаш реквизиттарына күсер — админ түләүҙе ҡулдан раҫлар."),
-                        )
-                    } else {
-                        Text(
-                            appText("Долгов нет — спасибо, что возишь по-честному.", "Бурыс юҡ — намыҫлы илткәнең өсөн рәхмәт."),
-                            color = CanonGreen2, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, fontWeight = FontWeight.Bold,
-                        )
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(appText("Сейчас ты платишь $currentFeePercent% комиссии", "Хәҙер һин $currentFeePercent% комиссия түләйһең"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                                    Text(tierLine, color = if (promo) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
+                                }
+                            }
+                            if (st.commissionMinKop > 0) {
+                                DeliveryHint(
+                                    appText(
+                                        "Комиссия минимум ${kopToRub(st.commissionMinKop)} за доставку. Всё прозрачно — видно, сколько и за что.",
+                                        "Комиссия иң кәме ${kopToRub(st.commissionMinKop)} бер илтеү өсөн. Барыһы ла асыҡ — күпме һәм ни өсөн икәне күренә.",
+                                    ),
+                                )
+                            }
+                        }
                     }
                 }
             }
-        }
-        me.profile?.let { pr ->
+            // Комиссия: заработали · к оплате (крупно) · оплачено.
             item {
-                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            appText("Транспорт: ", "Транспорт: ") + courierTransportLabel(me.application?.transport ?: ""),
-                            color = CanonText, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, if (owed > 0) CanonGreen2 else CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
+                            Text(appText("Наша комиссия за доставки", "Илтеүҙәр өсөн беҙҙең комиссия"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                        }
+                        DeliveryHint(
+                            appText("Это сбор Юлдаша$feeShare за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.", "Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы$feeShare. Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш."),
                         )
-                        Text(
-                            appText("Статус: ", "Статус: ") + if (pr.online) appText("на линии", "линияла") else appText("не на линии", "линияла түгел"),
-                            color = if (pr.online) CanonGreen2 else CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, fontWeight = FontWeight.Bold,
-                        )
+                        StatementRow(appText("Всего заработали мы", "Барлығы беҙ эшләнек"), kopToRub(st.commissionEarnedKop), CanonMuted)
+                        StatementRow(appText("Уже оплачено", "Түләнгән"), kopToRub(st.commissionPaidKop), CanonGreen2)
+                        // К оплате сейчас — крупно.
+                        Surface(color = if (owed > 0) CanonMint else CanonBg, shape = CanonItemShape) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    appText("К оплате сейчас", "Хәҙер түләргә"), color = CanonText, fontWeight = FontWeight.Black,
+                                    fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, modifier = Modifier.weight(1f),
+                                )
+                                Text(kopToRub(owed), color = if (owed > 0) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
+                            }
+                        }
+                        if (owed > 0) {
+                            AppButton(
+                                text = appText("Оплатить комиссию", "Комиссияны түләү"),
+                                onClick = {
+                                    if (paying) return@AppButton
+                                    paying = true
+                                    scope.launch {
+                                        ApiClient.payCommission()
+                                            .onSuccess onPaid@{ res ->
+                                                when {
+                                                    // ЮKassa (по флажку): в браузер оплаты, статус — поллингом.
+                                                    res.method == "yookassa" && res.status == "pending" && !res.confirmationUrl.isNullOrBlank() -> {
+                                                        runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(res.confirmationUrl))) }
+                                                        paying = false
+                                                        repeat(6) {
+                                                            kotlinx.coroutines.delay(4000)
+                                                            if (ApiClient.getPaymentStatus(res.paymentId).getOrNull()?.status == "succeeded") {
+                                                                Toast.makeText(ctx, commissionPaidMsg, Toast.LENGTH_LONG).show(); onReloadMe(); return@onPaid
+                                                            }
+                                                        }
+                                                        onReloadMe()
+                                                        return@onPaid
+                                                    }
+                                                    res.status == "succeeded" -> { Toast.makeText(ctx, commissionPaidMsg, Toast.LENGTH_LONG).show(); onReloadMe() }
+                                                    else -> payResult = res   // СБП «на доверии» → показать реквизиты
+                                                }
+                                            }
+                                            .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: payErr, Toast.LENGTH_LONG).show() }
+                                        paying = false
+                                    }
+                                },
+                                style = AppButtonStyle.Accent,
+                                icon = Icons.Default.Payments,
+                                loading = paying,
+                            )
+                            DeliveryHint(
+                                appText("Переведи сумму по СБП на реквизиты Юлдаша — админ подтвердит оплату вручную.", "Сумманы СБП аша Юлдаш реквизиттарына күсер — админ түләүҙе ҡулдан раҫлар."),
+                            )
+                        } else {
+                            Text(
+                                appText("Долгов нет — спасибо, что возишь по-честному.", "Бурыс юҡ — намыҫлы илткәнең өсөн рәхмәт."),
+                                color = CanonGreen2, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
             }
-        }
-        item {
-            AppButton(appText("Обновить", "Яңыртыу"), onReloadMe, style = AppButtonStyle.Secondary)
+            me.profile?.let { pr ->
+                item {
+                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                appText("Транспорт: ", "Транспорт: ") + courierTransportLabel(me.application?.transport ?: ""),
+                                color = CanonText, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                            )
+                            Text(
+                                appText("Статус: ", "Статус: ") + if (pr.online) appText("на линии", "линияла") else appText("не на линии", "линияла түгел"),
+                                color = if (pr.online) CanonGreen2 else CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                AppButton(appText("Обновить", "Яңыртыу"), onReloadMe, style = AppButtonStyle.Secondary)
+            }
         }
     }
 
@@ -1523,9 +1727,12 @@ private fun CourierRouteRow(from: String, to: String) {
     }
 }
 
-/** Ставка комиссии в проценты без лишних нулей: 0.0→«0», 3.0→«3», 7.5→«7,5». */
+/** Ставка комиссии в проценты без лишних нулей: 0.0→«0», 3.0→«3», 7.5→«7,5».
+ *  Это цифра про деньги, поэтому разделитель задаём явно (deliveryDecimal), а не отдаём локали
+ *  телефона: старая замена точки на запятую под ru-локалью не срабатывала вовсе, а под en-локалью
+ *  курьер видел «7.5» там, где остальной экран пишет «7,5» (аудит 2026-08-03). */
 private fun courierFeePercentText(pct: Double): String =
-    if (pct % 1.0 == 0.0) pct.toInt().toString() else String.format("%.1f", pct).replace('.', ',')
+    if (pct % 1.0 == 0.0) pct.toInt().toString() else deliveryDecimal(pct)
 
 /** Ярлык типа доставки + срочности (для карточек курьера). */
 @Composable

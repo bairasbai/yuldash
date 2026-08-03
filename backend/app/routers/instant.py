@@ -10,8 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
+from ..config import settings as app_settings
 from ..db import get_session
 from ..errors import herr
+from ..middleware import user_over_limit
 from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, Rating, Settlement, User
 from ..safety_logic import ensure_active
 from ..security import current_user
@@ -213,9 +215,19 @@ def presence(body: PresenceIn, user: User = Depends(current_user), session: Sess
 
 
 # ------------------------------ оценка цены ------------------------------
+def guard_estimate_budget(user_id: int) -> None:
+    """Персональный потолок на оценку цены. За каждым вызовом может стоять платный запрос в
+    Yandex Routing/Weather, а кэш обходится чуть сдвинутыми координатами. IP-лимит стоит в
+    middleware, но IP меняется прокси — аккаунт нет, поэтому потолок и здесь (аудит 2026-08-03)."""
+    if user_over_limit("estimate", user_id, app_settings.rate_limit_estimate_per_user_per_min):
+        raise herr(429, "Слишком много расчётов подряд. Подожди минуту и попробуй снова.",
+                   "Артыҡ күп иҫәпләү. Бер минут көт тә яңынан ҡабатла.")
+
+
 @router.post("/instant/estimate")
 def estimate(body: EstimateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Оценка цены ДО заказа. Сервер считает сам (haversine × road_k) — цена из клиента игнорируется."""
+    guard_estimate_budget(user.id)
     _guard_taxi_available(session, body.from_lat, body.from_lng)   # пассажиру — только гейт (a)
     return isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category)
 

@@ -243,6 +243,10 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.viewinterop.AndroidView
+// Плашка «Ты на линии» перечитывает разрешения на возврате из системных настроек.
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Circle
 import com.yandex.mapkit.geometry.Point
@@ -987,6 +991,7 @@ internal fun PassengerCabinetScreen(
     onCreateRequest: () -> Unit,
     onInstantOrder: () -> Unit = {},
     onScheduledOrders: () -> Unit = {},
+    onMyTaxiTrips: () -> Unit = {},
     onWallet: () -> Unit = {},
     onSavedPlaces: () -> Unit = {},
     onSafety: () -> Unit
@@ -1047,6 +1052,7 @@ internal fun PassengerCabinetScreen(
             onCreateRequest = onCreateRequest,
             onInstantOrder = onInstantOrder,
             onScheduledOrders = onScheduledOrders,
+            onMyTaxiTrips = onMyTaxiTrips,
             onWallet = onWallet,
             onSavedPlaces = onSavedPlaces,
             onSafety = onSafety,
@@ -1078,6 +1084,7 @@ internal fun PassengerCabinetContent(
     onInstantOrder: () -> Unit,
     onSafety: () -> Unit,
     onScheduledOrders: () -> Unit = {},
+    onMyTaxiTrips: () -> Unit = {},
     onWallet: () -> Unit = {},
     onSavedPlaces: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -1193,6 +1200,9 @@ internal fun PassengerCabinetContent(
             SettingsGroup {
                 SettingsNavRow(Icons.Default.Search, appText("Найти поездку", "Сәфәр табыу"), appText("Открыть список ближайших маршрутов", "Яҡындағы маршруттарҙы асыу"), onClick = onFindRide)
                 SettingsNavRow(Icons.Default.Schedule, appText("Мои предзаказы", "Минең алдан заказдар"), appText("Такси «на время»: обратный отсчёт и поиск", "«Ваҡытҡа» такси: кире иҫәп һәм эҙләү"), onClick = onScheduledOrders)
+                // Чек за такси раньше жил ровно до закрытия экрана заказа. А нужен он позже:
+                // справка на работу, спор по сумме, «забыл вещь в машине».
+                SettingsNavRow(Icons.Default.History, appText("Мои поездки на такси", "Такситағы сәфәрҙәрем"), appText("История и чек за каждую поездку", "Тарих һәм һәр сәфәр өсөн чек"), onClick = onMyTaxiTrips)
                 SettingsNavRow(Icons.Default.AddRoad, appText("Создать заявку", "Заявка булдырыу"), appText("Если готовой поездки нет", "Әҙер сәфәр булмаһа"), onClick = onCreateRequest)
                 SettingsNavRow(Icons.Default.Bookmark, appText("Мои адреса", "Минең адрестар"), appText("Дом, работа и любимые места", "Өй, эш һәм яратҡан урындар"), onClick = onSavedPlaces)
                 SettingsNavRow(Icons.Default.AccountBalanceWallet, appText("Кошелёк", "Янсыҡ"), appText("Баланс и история операций", "Баланс һәм операциялар тарихы"), onClick = onWallet)
@@ -1332,10 +1342,27 @@ internal fun DriverCabinetScreen(
         }
         if (zone?.workZone == null) showZoneSheet = true
     }
-    val locPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) goOnlineConfirmed()
-        else Toast.makeText(ctx, geoOnlineMsg, Toast.LENGTH_LONG).show()
-    }
+    // Отдельный текст под «Примерное» (Android 12+): общий «включи геолокацию» тут врал бы —
+    // геолокация-то включена, не хватает именно точности.
+    val geoCoarseMsg = appText(
+        "Выбрано «Примерное» — для линии нужно «Точное»: иначе заказы уйдут тем, кто ближе, а машину на карте покажет не там.",
+        "«Яҡынса» һайланған — линия өсөн «Теүәл» кәрәк: юғиһә заказдар яҡыныраҡтарға китә, машина ла картала башҡа урында күренә.",
+    )
+    // Единый путь запроса (Permissions.kt): сначала объясняем зачем, а когда система больше
+    // не спрашивает — ведём в настройки приложения. Раньше здесь был голый launch(): после
+    // двух отказов человек видел только Toast и не мог выбраться.
+    val askLineLocation = rememberPermissionGate(
+        permission = Manifest.permission.ACCESS_FINE_LOCATION,
+        titleRu = "Нужна точная геолокация",
+        titleBa = "Теүәл геолокация кәрәк",
+        whyRu = "Пока ты на линии, по ней тебе подбирают ближайшие заказы, считают время подачи и показывают твою машину пассажиру на карте. Сойдёшь с линии — слежение выключится.",
+        whyBa = "Һин линияла саҡта уның буйынса һиңә иң яҡын заказдар һайлана, килеү ваҡыты иҫәпләнә һәм машинаң пассажирға картала күрһәтелә. Линиянан төшһәң — күҙәтеү һүнә.",
+        onGranted = { goOnlineConfirmed() },
+        onDenied = {
+            val coarseOnly = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            Toast.makeText(ctx, if (coarseOnly) geoCoarseMsg else geoOnlineMsg, Toast.LENGTH_LONG).show()
+        },
+    )
     val womanLoginMsg = appText("Войдите, чтобы изменить профиль", "Профильде үҙгәртер өсөн инегеҙ")
     Box(Modifier.fillMaxSize()) {
     Scaffold(
@@ -1405,12 +1432,14 @@ internal fun DriverCabinetScreen(
                     }
                     return@onToggleOnline
                 }
-                // D1: выход на линию без геолокации = водитель невидим и молча без заказов. Просим разрешение.
-                val hasGeo = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                    ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                if (!hasGeo) {
-                    Toast.makeText(ctx, geoOnlineMsg, Toast.LENGTH_LONG).show()
-                    locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                // D1: линия без ТОЧНОЙ геолокации = водитель невидим и молча без заказов.
+                // Раньше сюда пускало и «примерное» (COARSE), а фоновый сервис требует точную и
+                // тихо выключался: тумблер горел, плашка обещала заказы, presence протухал через
+                // минуту — водитель час «работал» впустую (аудит такси, P0-1). Одна правда:
+                // на линию — только с точной, и с честным объяснением зачем.
+                val hasPrecise = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (!hasPrecise) {
+                    askLineLocation()
                     return@onToggleOnline
                 }
                 goOnlineConfirmed()
@@ -1535,31 +1564,129 @@ internal fun DriverCabinetScreen(
 }
 
 /**
- * Подтверждение статуса линии под тумблером: пока водитель онлайн — спокойная мятная плашка
- * «Ты на линии». Выносим отдельной функцией: AnimatedVisibility по месту внутри Column взял бы
- * ColumnScope-версию, а внутри Box получателя бы не нашёл (ловили на карте).
+ * Подтверждение статуса линии под тумблером. Выносим отдельной функцией: AnimatedVisibility
+ * по месту внутри Column взял бы ColumnScope-версию, а внутри Box получателя бы не нашёл
+ * (ловили на карте).
+ *
+ * Плашка обязана говорить правду (аудит такси, P0-1/P0-2). «Ты на линии — заказы придут сюда»
+ * зелёным можно писать, только когда заказ действительно дойдёт: есть точная геолокация (иначе
+ * фоновый сервис не живёт и presence протухает) и разрешены уведомления (на погасшем экране
+ * это единственный канал доставки оффера). Что-то из этого выключено — вместо обещания
+ * показываем, что именно сломано и как это починить в один тап.
  */
 @Composable
 private fun DriverOnlineHint(online: Boolean) {
+    val ctx = LocalContext.current
+    // Разрешения меняют ВНЕ приложения (ушёл в настройки — вернулся). Без перечитывания на
+    // возврате плашка застыла бы на старой правде, а это ровно тот случай, которого мы избегаем.
+    var permTick by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) permTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val precise = remember(permTick, online) {
+        ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    }
+    val notifOk = remember(permTick, online) { notificationsAllowed(ctx) }
+    val fullScreenOk = remember(permTick, online) { fullScreenOfferAllowed(ctx) }
+    // Порядок = по тяжести: без геолокации заказов не будет вообще, без уведомлений они не
+    // дойдут на погасший экран, без «поверх всего» дойдут, но тише.
+    val state = when {
+        !precise -> "geo"
+        !notifOk -> "notif"
+        !fullScreenOk -> "fullscreen"
+        else -> "ok"
+    }
     AnimatedVisibility(
         visible = online,
         enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { -it / 3 },
         exit = fadeOut(tween(160)),
     ) {
-        Surface(color = CanonMint, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(CanonGreen2))
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    appText(
-                        "Ты на линии — заказы придут сюда, экран можно погасить.",
-                        "Һин линияла — заказдар бында килә, экранды һүндерергә була.",
-                    ),
-                    color = CanonGreen2, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold,
-                )
+        AnimatedContent(
+            targetState = state,
+            transitionSpec = { fadeIn(tween(220)).togetherWith(fadeOut(tween(140))) },
+            label = "lineStatus",
+        ) { s ->
+            if (s == "ok") {
+                Surface(color = CanonMint, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(CanonGreen2))
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            appText(
+                                "Ты на линии — заказы придут сюда, экран можно погасить.",
+                                "Һин линияла — заказдар бында килә, экранды һүндерергә була.",
+                            ),
+                            color = CanonGreen2, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            } else {
+                val icon = when (s) {
+                    "geo" -> Icons.Default.LocationOn
+                    "notif" -> Icons.Default.Notifications
+                    else -> Icons.Default.VisibilityOff
+                }
+                val title = when (s) {
+                    "geo" -> appText("Заказы не придут: нет точной геолокации", "Заказдар килмәй: теүәл геолокация юҡ")
+                    "notif" -> appText("Заказы не придут: уведомления выключены", "Заказдар килмәй: хәбәрҙәр һүнгән")
+                    else -> appText("Заказ может остаться незамеченным", "Заказ иғтибарҙан ситтә ҡалыуы мөмкин")
+                }
+                val note = when (s) {
+                    "geo" -> appText(
+                        "Без неё тебя не видно на линии — заказы уходят другим. Включи «Точное местоположение».",
+                        "Унһыҙ һин линияла күренмәйһең — заказдар башҡаларға китә. «Теүәл урын»ды ҡабыҙ.",
+                    )
+                    "notif" -> appText(
+                        "На погашенном экране заказ приходит уведомлением. Пока они выключены, ты его не увидишь.",
+                        "Һүнгән экранда заказ хәбәр менән килә. Улар һүнгәндә һин уны күрмәйәсәкһең.",
+                    )
+                    else -> appText(
+                        "Карточка заказа не сможет всплыть поверх погашенного экрана — только звук и шторка.",
+                        "Заказ карточкаһы һүнгән экран өҫтөнә сыға алмай — тик тауыш һәм пәрҙә генә.",
+                    )
+                }
+                val action = when (s) {
+                    "geo" -> appText("Включить в настройках", "Көйләүҙәрҙә ҡабыҙыу")
+                    "notif" -> appText("Включить уведомления", "Хәбәрҙәрҙе ҡабыҙыу")
+                    else -> appText("Разрешить показ поверх", "Өҫтән күрһәтеүгә рөхсәт")
+                }
+                Surface(
+                    color = CanonWarnBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth(),
+                    border = BorderStroke(1.dp, CanonWarn.copy(alpha = 0.35f)),
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(icon, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text(title, color = CanonWarn, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Black)
+                        }
+                        Text(note, color = CanonText, fontSize = 13.sp, lineHeight = 17.sp)
+                        TextButton(
+                            onClick = {
+                                // Сюда попадают, когда разрешение уже отклонили (иначе тумблер
+                                // на линию не пустил бы), поэтому ведём сразу в настройки —
+                                // системный диалог в этом состоянии уже не появится.
+                                when (s) {
+                                    "geo" -> openAppSettings(ctx)
+                                    "notif" -> openNotificationSettings(ctx)
+                                    else -> openFullScreenIntentSettings(ctx)
+                                }
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { Text(action, color = CanonWarn, fontSize = 14.sp, fontWeight = FontWeight.Black) }
+                    }
+                }
             }
         }
     }

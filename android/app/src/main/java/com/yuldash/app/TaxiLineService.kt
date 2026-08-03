@@ -58,7 +58,13 @@ class TaxiLineService : Service() {
         intent?.getStringExtra(EXTRA_LANG)?.let {
             currentLang = runCatching { AppLanguage.valueOf(it) }.getOrDefault(AppLanguage.Ru)
         }
-        // Не вошёл или нет гео-разрешения → на линии стоять нечем (presence без координат мёртв).
+        // Не вошёл или нет ТОЧНОЙ геолокации → на линии стоять нечем (presence без координат мёртв).
+        // Почему именно FINE, а не «примерное» (аудит такси, P0-1): по presence matcher выбирает
+        // ближайшего водителя, считает подачу и рисует машину пассажиру на карте. Примерное
+        // местоположение — это километры погрешности: заказы уходили бы мимо, ETA врало бы,
+        // а машина на карте стояла бы не там. Честнее один раз попросить точную, чем тихо
+        // работать «как получится». Поэтому ProfileScreen НЕ включает тумблер без FINE — здесь
+        // это только страховка (разрешение могли отозвать в настройках, пока сервис жил).
         if (!ApiClient.isLoggedIn() ||
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
         ) {

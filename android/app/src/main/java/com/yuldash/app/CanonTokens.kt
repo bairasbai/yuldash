@@ -113,5 +113,11 @@ internal val CanonHairlineGreen: Color @Composable get() = if (appIsDark()) Colo
 // Тонкая красная рамка danger-карточек (SOS) — была хардкод 0x33D93025 в SafetyScreen.
 // Адаптивна: в тёмной теме чуть светлее и заметнее на тёмном danger-bg.
 internal val CanonDangerBorder: Color @Composable get() = if (appIsDark()) Color(0x55F25A4D) else Color(0x33D93025)
+// Текст и иконки ПОВЕРХ фиксированно-тёмных акцентных подложек (CanonGreenInk/CanonGreenInkDark,
+// CanonRed, тёмные градиенты шапок). Раньше в таких местах писали голый Color.White — 15+ раз
+// по экранам такси и кошелька. Токен плоский (одинаков в обеих темах) сознательно: подложка
+// под ним тоже не меняется по теме, и «адаптивный» цвет тут сделал бы текст невидимым —
+// ровно та ошибка, на которой уже обожглись с CanonTaxiInk (см. комментарий выше).
+internal val CanonOnAccent: Color = Color(0xFFFFFFFF)
 internal val CanonCardShape = RoundedCornerShape(28.dp)
 internal val CanonItemShape = RoundedCornerShape(22.dp)

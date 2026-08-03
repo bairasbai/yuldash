@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Фоновый воркер такси: доводит заказы до конца, когда живой человек этого сделать не может.
+"""Фоновый воркер такси и доставки: доводит заказы до конца, когда живой человек не может.
 
 Зачем (аудит 2026-07-26, три блокера одной работой):
 1. **Предзаказ «на утро» не срабатывал сам.** Активация была ленивой — только когда пассажир
@@ -14,6 +14,13 @@
 
 Плюс четвёртая, техническая: протухшие офферы двигались только «лениво» (когда кто-нибудь
 опросит заказ) — при закрытом приложении подбор стоял.
+
+5. **То же самое было с посылками** (аудит 2026-08-03). Доставку чинили только для такси:
+   посылка, принятая курьером, который пропал, висела «в пути» вечно — закрыть или переназначить
+   её мог только админ вручную. Бабушка из Темясово ждёт лекарство и не понимает, что делать.
+   Теперь: курьер взял и не тронулся с места — снимаем его, посылка возвращается в общий список;
+   везёт слишком долго — закрываем разбор и говорим обеим сторонам честно, БЕЗ потери следа,
+   кто вёз (courier_id на закрытой посылке остаётся — иначе спор потом не с кем разбирать).
 
 Запуск (systemd-таймер, см. deploy/yuldash-taxi-worker.*):
     python -m app.taxi_worker            # реальный прогон
@@ -31,8 +38,8 @@ from . import instant_service as isv
 from .config import settings
 from .db import engine
 from .logs import log
-from .models import InstantOrder, InstantOrderStatus as S
-from .services import send_push
+from .models import InstantOrder, InstantOrderStatus as S, ParcelDelivery
+from .services import push_notification, send_push
 from .timeutil import utcnow
 
 # Статусы, из которых заказ уже никуда не уедет сам (терминальные).
@@ -233,6 +240,100 @@ def advance_stale_offers(session: Session, dry_run: bool = False) -> list:
     return moved
 
 
+# ----------------------------- 5. Зависшие посылки -----------------------------
+# Посылка на руках у курьера. `returning` сюда НЕ входит намеренно: коробку физически везут
+# обратно отправителю, и «закрыть» такую доставку из фона значило бы соврать обоим — этот
+# случай остаётся админу.
+_PARCEL_STUCK_STATUSES = ("accepted", "in_transit")
+# Закрытая ветка: дальше посылка сама не двинется.
+_PARCEL_FINAL = ("delivered", "canceled", "returned")
+
+
+def _last_parcel_move_at(p: ParcelDelivery):
+    """Момент последнего осмысленного движения посылки.
+
+    Отдельной отметки времени у перехода в `in_transit` в модели нет, поэтому берём принятие
+    заказа (а до него — создание). Это консервативно: курьер, взявший посылку три дня назад
+    и не закрывший её, попадает в разбор, даже если статус двигал."""
+    return (p.accepted_at or p.created_at)
+
+
+def close_stuck_parcels(session: Session, dry_run: bool = False) -> list:
+    """Посылка у курьера без движения дольше parcel_stuck_hours → разводим ситуацию.
+
+    Два разных случая — два разных честных исхода:
+      • `accepted` (взял, но так и не поехал) → снимаем курьера, посылка возвращается в общий
+        список. Отправитель ничего не теряет: её сможет взять другой;
+      • `in_transit` (коробка уехала с ним) → возвращать в список нечего, закрываем разбор
+        как «отменена» и говорим обеим сторонам прямо. courier_id НЕ обнуляем: след «кто вёз»
+        — единственное, по чему потом можно открыть спор и найти посылку.
+    Денег не двигаем и страйков не ставим (Модель А): пропавшая связь — не доказанная вина.
+    """
+    cutoff = utcnow() - timedelta(hours=settings.parcel_stuck_hours)
+    rows = session.exec(
+        select(ParcelDelivery).where(
+            ParcelDelivery.status.in_(_PARCEL_STUCK_STATUSES),
+            ParcelDelivery.created_at <= cutoff,         # грубый предфильтр по индексу
+        ).limit(500)
+    ).all()
+    handled = []
+    for p in rows:
+        if _last_parcel_move_at(p) > cutoff:
+            continue                                    # двигалась недавно — не трогаем
+        if dry_run:
+            handled.append(p.id)
+            continue
+        try:
+            fresh = session.exec(
+                select(ParcelDelivery).where(ParcelDelivery.id == p.id).with_for_update()
+            ).first()
+            if (not fresh or fresh.status in _PARCEL_FINAL
+                    or fresh.status not in _PARCEL_STUCK_STATUSES
+                    or _last_parcel_move_at(fresh) > cutoff):
+                continue                                # успели закрыть/сдвинуть параллельно
+            prev_courier = fresh.courier_id
+            route = f"{fresh.from_city} → {fresh.to_city}"
+            released = fresh.status == "accepted"
+            if released:
+                fresh.courier_id = None
+                fresh.status = "created"
+                fresh.accepted_at = None
+                fresh.pickup_photo_url = ""             # фото относилось к снятому курьеру
+                fresh.return_reason = "stuck_timeout"
+            else:
+                fresh.status = "canceled"               # courier_id оставляем — это след «кто вёз»
+                fresh.return_reason = "stuck_timeout"
+            session.add(fresh)
+            session.commit()
+            session.refresh(fresh)
+            handled.append(fresh.id)
+            if released:
+                title = ("Ищем другого курьера", "Башҡа курьер эҙләйбеҙ")
+                body_sender = (f"{route} · курьер долго не выходил на связь. Посылка снова в поиске.",
+                               f"{route} · курьер оҙаҡ бәйләнешкә сыҡманы. Бандероль яңынан эҙләүҙә.")
+                body_courier = (f"{route} · мы сняли тебя с доставки: долго не было движения.",
+                                f"{route} · һине доставканан алдыҡ: оҙаҡ хәрәкәт булманы.")
+            else:
+                title = ("Доставка закрыта", "Доставка ябылды")
+                body_sender = (f"{route} · долго не было связи, доставку закрыли автоматически. "
+                               "Свяжитесь напрямую или напишите в поддержку.",
+                               f"{route} · оҙаҡ бәйләнеш булманы, доставка автоматик ябылды. "
+                               "Туранан-тура бәйләнегеҙ йәки ярҙамға яҙығыҙ.")
+                body_courier = body_sender
+            for uid, body in ((fresh.sender_id, body_sender), (prev_courier, body_courier)):
+                if not uid:
+                    continue
+                try:
+                    push_notification(session, uid, "parcel", title[0], title[1], body[0], body[1],
+                                      ref_kind="parcel", ref_id=fresh.id,
+                                      data={"type": "parcel_status", "id": fresh.id})
+                except Exception:  # noqa: BLE001 — уведомление вторично
+                    pass
+        except Exception as e:  # noqa: BLE001 — одна посылка не должна ронять прогон
+            log.warning(f"[TAXI-WORKER] зависшая посылка #{p.id}: {type(e).__name__}: {e}")
+    return handled
+
+
 def run_once(session: Session, dry_run: bool = False) -> dict:
     """Один полный прогон всех задач. Возврат — сводка для лога/тестов."""
     return {
@@ -241,13 +342,14 @@ def run_once(session: Session, dry_run: bool = False) -> dict:
         "waits_retried": retry_waiting_orders(session, dry_run),
         "waits_finished": finish_expired_waits(session, dry_run),
         "offers_advanced": advance_stale_offers(session, dry_run),
+        "parcels_handled": close_stuck_parcels(session, dry_run),
     }
 
 
 def main():
     dry = "--dry-run" in sys.argv
     mode = "СУХОЙ ПРОГОН (ничего не меняется)" if dry else "РЕАЛЬНЫЙ прогон"
-    print(f"=== Воркер такси · {mode} · {utcnow().isoformat()} ===")
+    print(f"=== Воркер такси и доставки · {mode} · {utcnow().isoformat()} ===")
     if not settings.taxi_worker_enabled:
         print("  выключен (taxi_worker_enabled=false) — пропуск")
         return
@@ -259,6 +361,7 @@ def main():
         "waits_retried": "поисков перезапущено",
         "waits_finished": "ожиданий завершено",
         "offers_advanced": "офферов сдвинуто",
+        "parcels_handled": "зависших посылок разобрано",
     }
     for key, label in labels.items():
         print(f"  {label}: {len(res[key])}")

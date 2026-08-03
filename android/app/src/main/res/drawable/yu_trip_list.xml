@@ -7,4 +7,19 @@
         android:strokeColor="#FF0B6B4B"
         android:strokeWidth="2.2"
         android:pathData="M11 11c0-1.66 1.34-3 3-3h20c1.66 0 3 1.34 3 3v26c0 1.66-1.34 3-3 3h-20c-1.66 0-3-1.34-3-3z"/>
+    <path
+        android:strokeColor="#FF0B6B4B"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M17 17H31"/>
+    <path
+        android:strokeColor="#FF0B6B4B"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M17 24H31"/>
+    <path
+        android:strokeColor="#FF0B6B4B"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M17 31H25"/>
 </vector>

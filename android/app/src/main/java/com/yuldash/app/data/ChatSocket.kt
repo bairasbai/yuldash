@@ -51,6 +51,16 @@ class ChatSocket(
         fun forOrder(orderId: Int, onMessage: (Incoming) -> Unit, onConnected: (Boolean) -> Unit = {}) =
             ChatSocket(orderId, onMessage, onConnected, path = "/ws/instant/$orderId/chat")
 
+        /**
+         * Чат доставки: отправитель ↔ курьер. Тот же протокол, путь /ws/parcel/{parcelId}/chat.
+         *
+         * Зачем отдельный канал: до него по посылке можно было только позвонить. «Оставь у соседей»,
+         * «домофон не работает, звони», «я на работе до шести» — вещи, которые в селе решаются
+         * одной фразой, а без чата превращаются в звонок или в потерянную посылку.
+         */
+        fun forParcel(parcelId: Int, onMessage: (Incoming) -> Unit, onConnected: (Boolean) -> Unit = {}) =
+            ChatSocket(parcelId, onMessage, onConnected, path = "/ws/parcel/$parcelId/chat")
+
         // ОДИН клиент на всё приложение: пул соединений и пул потоков переиспользуются.
         private val client: OkHttpClient by lazy {
             OkHttpClient.Builder()

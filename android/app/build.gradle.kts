@@ -240,7 +240,11 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     // Sentry (сбор ошибок/крашей). Инициализируется вручную в YuldashApplication ТОЛЬКО
     // при заданном BuildConfig.SENTRY_DSN (без Gradle-плагина — меньше риска для сборки).
-    implementation("io.sentry:sentry-android:7.14.0")
+    // 8.x обязателен из-за 16 KB страниц памяти: нативные `libsentry*.so` версии 7.x не выровнены,
+    // и Google Play такое приложение больше не принимает (проверено на эмуляторе — система сама
+    // показывает предупреждение о несовместимости). Поддержка 16 KB появилась в Sentry 8.0.0.
+    // Наш способ инициализации (`SentryAndroid.init` вручную, только при заданном DSN) в 8.x не изменился.
+    implementation("io.sentry:sentry-android:8.51.0")
     // ZXing core (только генерация QR-матрицы, без Android-модуля) — QR оплаты Сбербанка (СБП по номеру).
     implementation("com.google.zxing:core:3.5.3")
     // Lifecycle-aware корутины в Compose (LocalLifecycleOwner + repeatOnLifecycle):

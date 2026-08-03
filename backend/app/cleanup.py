@@ -106,13 +106,17 @@ def _rules(now):
          "AND NOT EXISTS (SELECT 1 FROM sosevent se WHERE se.order_id = instantorder.id) "
          "AND NOT EXISTS (SELECT 1 FROM report rp WHERE rp.order_id = instantorder.id)",
          {"c": cut(TRIP_DAYS)}),
-        # Доставки: старые терминальные с ЗАКРЫТОЙ комиссией и без спора/оценки (финансы/репутацию бережём).
-        ("старые доставки >180д (комиссия закрыта, без спора/оценки)",
+        # Доставки: старые терминальные с ЗАКРЫТОЙ комиссией и без спора/оценки (финансы/репутацию
+        # бережём). message.parcel_id — жёсткий FK (чат отправитель ↔ курьер): без гарда чистка
+        # падает на внешнем ключе, пока переписке нет 30 дней (сообщения удаляются раньше — их
+        # правило первое в списке, — но у свежих доставок они ещё живы).
+        ("старые доставки >180д (комиссия закрыта, без спора/оценки/переписки)",
          "parceldelivery",
          "status IN ('delivered', 'canceled') AND created_at < :c "
          "AND (commission_kop = 0 OR commission_paid = true) "
          "AND NOT EXISTS (SELECT 1 FROM report rp WHERE rp.parcel_id = parceldelivery.id) "
-         "AND NOT EXISTS (SELECT 1 FROM rating rt WHERE rt.parcel_id = parceldelivery.id)",
+         "AND NOT EXISTS (SELECT 1 FROM rating rt WHERE rt.parcel_id = parceldelivery.id) "
+         "AND NOT EXISTS (SELECT 1 FROM message m WHERE m.parcel_id = parceldelivery.id)",
          {"c": cut(TRIP_DAYS)}),
     ]
 

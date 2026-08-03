@@ -1,5 +1,5 @@
 """Чат по броне: REST (история/отправка), WebSocket (реальное время),
-инбокс диалогов, лента уведомлений."""
+инбокс диалогов, лента уведомлений. Плюс зеркальные чаты такси-заказа и посылки."""
 import json
 from datetime import datetime
 from typing import List, Optional
@@ -11,8 +11,10 @@ from starlette.concurrency import run_in_threadpool
 
 from ..antifraud import phishing_flag
 from ..db import engine, get_session
+from ..errors import herr
 from ..models import (
-    Booking, BookingStatus, InstantOrder, InstantOrderStatus, Message, Ride, User, UserRole,
+    Booking, BookingStatus, InstantOrder, InstantOrderStatus, Message, ParcelDelivery, Ride,
+    User, UserRole,
 )
 from ..security import authenticate_ws, current_user
 from ..services import (
@@ -34,8 +36,50 @@ ORDER_CHAT_WRITABLE = (InstantOrderStatus.accepted, InstantOrderStatus.arriving,
 ORDER_CHAT_READABLE = ORDER_CHAT_WRITABLE + (InstantOrderStatus.done, InstantOrderStatus.cancelled)
 
 
+# ---- Чат посылки: отправитель ↔ назначенный курьер ----
+# Зачем: половина вопросов доставки — одна фраза («оставь у соседей», «я на работе до шести»,
+# «звони, домофон не работает»). До этого по посылке можно было только ПОЗВОНИТЬ: тяжело для
+# одной фразы и не оставляет следа, если потом спор. Чат — зеркало такси-чата, ничего своего.
+# Namespace ключей ConnectionManager (см. карту выше + location.py): booking-чат — booking_id (>0),
+# трек брони — отрицательные, INSTANT_LOC_BASE = 1e9, чат заказа = 1.5e9, /ws/map = 2e9,
+# трек посылки = 3e9. Чат посылки кладём на 4e9 — не пересекается ни с чем.
+PARCEL_CHAT_KEY_BASE = 4_000_000_000
+# Писать можно, пока посылка В РАБОТЕ: курьер её взял и ещё не закрыл (в т.ч. везёт обратно —
+# именно тогда договориться нужнее всего).
+PARCEL_CHAT_WRITABLE = ("accepted", "in_transit", "returning")
+# Читать историю можно и после закрытия (delivered/returned/canceled) — по ней разбирают спор.
+PARCEL_CHAT_READABLE = PARCEL_CHAT_WRITABLE + ("delivered", "returned", "canceled")
+
+
 def _order_chat_key(order_id: int) -> int:
     return INSTANT_CHAT_KEY_BASE + order_id
+
+
+def _parcel_chat_key(parcel_id: int) -> int:
+    return PARCEL_CHAT_KEY_BASE + parcel_id
+
+
+def _parcel_for_chat(session: Session, parcel_id: int, user_id: int, write: bool) -> ParcelDelivery:
+    """Доступ к чату посылки: ТОЛЬКО участники (отправитель + НАЗНАЧЕННЫЙ курьер; пока курьера
+    нет — чата нет). Окно статусов: писать — accepted/in_transit/returning, читать — плюс
+    delivered/returned/canceled (read-only). 403 чужому, 409 вне окна. Зеркало _order_for_chat."""
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel:
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    is_sender = user_id == parcel.sender_id
+    is_courier = parcel.courier_id is not None and user_id == parcel.courier_id
+    if not (is_sender or is_courier):
+        raise herr(403, "Нет доступа к переписке по этой доставке",
+                   "Был доставка буйынса яҙышыуға рөхсәт юҡ")
+    allowed = PARCEL_CHAT_WRITABLE if write else PARCEL_CHAT_READABLE
+    if parcel.status not in allowed:
+        # До accept курьера ещё нет — писать некому; после закрытия запись закрыта (история цела).
+        if write and parcel.status in PARCEL_CHAT_READABLE:
+            raise herr(409, "Доставка завершена — переписка только для чтения",
+                       "Доставка тамамланған — яҙышыу тик уҡыу өсөн")
+        raise herr(409, "Переписка откроется, когда курьер примет доставку",
+                   "Курьер доставканы алғас, яҙышыу асыла")
+    return parcel
 
 
 def _order_for_chat(session: Session, order_id: int, user_id: int, write: bool) -> InstantOrder:
@@ -292,6 +336,143 @@ def list_order_messages(order_id: int, limit: int = 500, user: User = Depends(cu
     limit = max(1, min(limit, 1000))
     rows = session.exec(
         select(Message).where(Message.order_id == order_id).order_by(Message.id.desc()).limit(limit)
+    ).all()
+    rows = list(reversed(rows))
+    return [m for m in rows if user.id not in _hidden_ids(m)]
+
+
+# ============================ Чат посылки (отправитель ↔ курьер) ============================
+@router.websocket("/ws/parcel/{parcel_id}/chat")
+async def parcel_chat_ws(websocket: WebSocket, parcel_id: int):
+    """WebSocket чата посылки — зеркало чата такси-заказа. Токен ТОЛЬКО первым сообщением
+    {"type":"auth","token":...} (query-string утекает в логи прокси). Доступ: отправитель и
+    назначенный курьер, писать можно, пока посылка в работе (accepted/in_transit/returning)."""
+    await websocket.accept()
+    token = None
+    try:
+        first = json.loads(await websocket.receive_text())
+        if first.get("type") == "auth":
+            token = first.get("token")
+    except Exception:
+        token = None
+    with Session(engine) as s:
+        try:
+            user_id = authenticate_ws(token or "", s).id
+        except Exception:
+            await websocket.close(code=1008, reason="Invalid token")
+            return
+        try:
+            parcel = _parcel_for_chat(s, parcel_id, user_id, write=True)
+        except HTTPException:
+            await websocket.close(code=1008, reason="Forbidden")
+            return
+        sender_id, courier_id = parcel.sender_id, parcel.courier_id
+
+    other_id = courier_id if user_id == sender_id else sender_id
+    key = _parcel_chat_key(parcel_id)
+    manager.register(key, websocket)
+    msgs = 0
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                payload = json.loads(data)
+            except (json.JSONDecodeError, ValueError):
+                continue   # битый кадр — игнор, соединение не роняем (как в чате заказа)
+            if payload.get("type") == "message":
+                msgs += 1
+                if msgs % 15 == 0:   # ревокация читается и в открытом сокете (как в чате заказа)
+                    with Session(engine) as s2:
+                        try:
+                            authenticate_ws(token or "", s2)
+                        except Exception:
+                            await websocket.close(code=1008, reason="Token revoked")
+                            break
+                with Session(engine) as session:
+                    if is_blocked(session, user_id, other_id):
+                        continue
+                    # Доставка могла закрыться, пока сокет висел: перепроверяем окно записи —
+                    # после вручения/возврата/отмены новые сообщения не принимаем (read-only).
+                    p2 = session.get(ParcelDelivery, parcel_id)
+                    if not p2 or p2.status not in PARCEL_CHAT_WRITABLE or p2.courier_id != courier_id:
+                        break
+                    sender = session.get(User, user_id)
+                    text = (payload.get("text") or "")[:4000]
+                    # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
+                    msg = Message(parcel_id=parcel_id, sender_id=user_id, text=text,
+                                  flag=phishing_flag(text),
+                                  from_admin=bool(sender and sender.role == UserRole.admin))
+                    session.add(msg)
+                    session.commit()
+                    session.refresh(msg)
+                    await manager.broadcast(key, {
+                        "type": "message",
+                        "id": msg.id,
+                        "sender_id": msg.sender_id,
+                        "text": msg.text,
+                        "flag": msg.flag,
+                        "from_admin": msg.from_admin,
+                        "timestamp": msg.created_at.isoformat(),
+                    })
+                    # Пуш второй стороне (может быть офлайн) — как в чате заказа; send_push
+                    # блокирующий → через threadpool, чтобы не морозить event-loop.
+                    await run_in_threadpool(
+                        send_push, session, other_id,
+                        (sender.name if sender else None) or "Новое сообщение",
+                        (msg.text or "Сообщение")[:120],
+                        # parcel_chat (не parcel_status): клиент кладёт пуш в канал «Сообщения»,
+                        # а не в «Поездки», и открывает переписку по этой доставке.
+                        {"type": "parcel_chat", "id": parcel_id},
+                    )
+    except WebSocketDisconnect:
+        pass
+    finally:
+        manager.disconnect(key, websocket)
+
+
+@router.post("/parcels/{parcel_id}/messages", response_model=Message)
+def send_parcel_message(parcel_id: int, body: MessageIn, user: User = Depends(current_user),
+                        session: Session = Depends(get_session)):
+    """REST-отправка в чат посылки (фолбэк, когда WS лежит). Голос/медиа — только наш URL."""
+    parcel = _parcel_for_chat(session, parcel_id, user.id, write=True)
+    other_id = parcel.courier_id if user.id == parcel.sender_id else parcel.sender_id
+    if is_blocked(session, user.id, other_id):
+        raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
+    if body.voice_url and not body.voice_url.startswith(public_media_url("")):
+        raise herr(422, "Недопустимая ссылка на медиа", "Ярамаған медиа һылтанмаһы")
+    # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
+    msg = Message(parcel_id=parcel_id, sender_id=user.id, flag=phishing_flag(body.text),
+                  from_admin=(user.role == UserRole.admin), **body.model_dump())
+    session.add(msg)
+    session.commit()
+    session.refresh(msg)
+    # Живая доставка открытым чатам (WS) — поля совместимы с клиентским ChatSocket.
+    notify_chat_message(_parcel_chat_key(parcel_id), {
+        "type": "message",
+        "id": msg.id,
+        "sender_id": msg.sender_id,
+        "text": msg.text or "",
+        "voice_url": msg.voice_url or "",
+        "transcript": msg.transcript or "",
+        "flag": msg.flag,
+        "from_admin": msg.from_admin,
+        "timestamp": msg.created_at.isoformat(),
+    })
+    send_push(session, other_id, user.name or "Новое сообщение",
+              (msg.text or "Голосовое сообщение")[:120],
+              {"type": "parcel_chat", "id": parcel_id})   # канал «Сообщения» + deep-link
+    return msg
+
+
+@router.get("/parcels/{parcel_id}/messages", response_model=List[Message])
+def list_parcel_messages(parcel_id: int, limit: int = 500, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)):
+    """История чата посылки. После вручения/возврата/отмены — read-only (читать можно, писать нет).
+    Отдаём последние `limit` сообщений в хронологическом порядке (защита от гигантской истории)."""
+    _parcel_for_chat(session, parcel_id, user.id, write=False)
+    limit = max(1, min(limit, 1000))
+    rows = session.exec(
+        select(Message).where(Message.parcel_id == parcel_id).order_by(Message.id.desc()).limit(limit)
     ).all()
     rows = list(reversed(rows))
     return [m for m in rows if user.id not in _hidden_ids(m)]

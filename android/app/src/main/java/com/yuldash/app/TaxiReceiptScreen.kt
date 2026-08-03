@@ -152,7 +152,11 @@ private fun TaxiReceiptCard(r: InstantReceiptDto) {
                     TaxiReceiptLine(
                         Icons.Default.Route,
                         appText("Расстояние", "Ара"),
-                        String.format(java.util.Locale.US, "%.1f", r.distanceKm) + " " + appText("км", "км"),
+                        // Дробь пишем через запятую: и по-русски, и по-башкирски «12,5 км».
+                        // Locale.US тут нужен только чтобы число не поехало на чужом телефоне —
+                        // вид разделителя задаём сами, а не отдаём на волю системной локали.
+                        String.format(java.util.Locale.US, "%.1f", r.distanceKm).replace('.', ',') +
+                            " " + appText("км", "км"),
                     )
                 }
                 if (r.driverName.isNotBlank()) {
@@ -259,10 +263,10 @@ private fun TaxiReceiptHeader(route: String, orderLabel: String) {
                     scaleY = s
                     alpha = stamp.coerceIn(0f, 1f)
                 }
-                .background(Color.White.copy(alpha = 0.16f), CircleShape),
+                .background(CanonOnAccent.copy(alpha = 0.16f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonOnAccent, modifier = Modifier.size(32.dp))
         }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -270,17 +274,17 @@ private fun TaxiReceiptHeader(route: String, orderLabel: String) {
         ) {
             Text(
                 appText("Поездка завершена", "Сәфәр тамамланды"),
-                color = Color.White, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
+                color = CanonOnAccent, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
                 fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
             )
             Text(
                 route,
-                color = Color.White.copy(alpha = 0.92f), fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
+                color = CanonOnAccent.copy(alpha = 0.92f), fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
                 textAlign = TextAlign.Center,
             )
             Text(
                 orderLabel,
-                color = Color.White.copy(alpha = 0.7f), fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine,
+                color = CanonOnAccent.copy(alpha = 0.7f), fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine,
                 textAlign = TextAlign.Center,
             )
         }

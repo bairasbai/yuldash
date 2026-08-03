@@ -27,6 +27,16 @@ _STRICT_PREFIXES = (
     "/api/v1/boost/create", "/api/v1/waitlist",
 )
 
+# Оценка цены — САМЫЙ дорогой для нас запрос: каждый вызов может уйти в платные Yandex Routing
+# и Weather. Кэш там по координатам, поэтому подобранные точки его обходят: один клиент с одного
+# IP превращался в усилитель расхода платного API (аудит 2026-08-03). Бюджет отдельный от auth:
+# у него другая природа (не перебор кодов, а деньги за внешний вызов) и другой нормальный объём —
+# человек тыкает точки на карте десятки раз за сессию, но не сотни.
+_ESTIMATE_PREFIXES = (
+    "/instant/estimate", "/courier/estimate",
+    "/api/v1/instant/estimate", "/api/v1/courier/estimate",
+)
+
 # Освобождены от ЖЁСТКОГО лимита: пробы мониторинга (их долбит uptime-чек и деплой-гейт)
 # и вебхуки внешних сервисов (Telegram/ЮKassa) — у них своя защита (секрет/подпись), а объём
 # легитимного трафика может кратно превышать пользовательский. Важно: /auth/telegram/webhook
@@ -55,7 +65,8 @@ def _client_ip(request: Request) -> str:
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Лимит запросов на IP, окно 60с. Два бюджета: общий и строгий (auth/sos).
+    """Лимит запросов на IP, окно 60с. Три бюджета: общий, строгий (auth/sos) и оценка цены
+    (`/instant/estimate`, `/courier/estimate` — за ними платный внешний API).
 
     Пробы мониторинга (`/health`, `/version`) и вебхуки (Telegram/ЮKassa) освобождены
     от жёсткого лимита (`_EXEMPT_PREFIXES`) — у них своя защита и высокий легитимный поток.
@@ -68,6 +79,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._hits: dict[str, deque] = defaultdict(deque)
         self._hits_strict: dict[str, deque] = defaultdict(deque)
+        self._hits_estimate: dict[str, deque] = defaultdict(deque)
         self._redis = None
         self._redis_tried = False
 
@@ -114,12 +126,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         ip = _client_ip(request)
         strict = path.startswith(_STRICT_PREFIXES)
+        estimate = path.startswith(_ESTIMATE_PREFIXES)
         client = self._get_redis()
         over, retry_after = False, 0
         if client is not None:
             try:
                 if strict:
                     over, retry_after = await self._over_redis(client, f"rl:s:{ip}", settings.rate_limit_auth_per_min)
+                if not over and estimate:
+                    over, retry_after = await self._over_redis(client, f"rl:e:{ip}",
+                                                               settings.rate_limit_estimate_per_min)
                 if not over:
                     over, retry_after = await self._over_redis(client, f"rl:g:{ip}", settings.rate_limit_per_min)
             except Exception as e:  # noqa: BLE001 — Redis недоступен → in-memory
@@ -130,6 +146,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             now = time.monotonic()
             if strict:
                 over, retry_after = self._over_mem(self._hits_strict, ip, settings.rate_limit_auth_per_min, now)
+            if not over and estimate:
+                over, retry_after = self._over_mem(self._hits_estimate, ip,
+                                                   settings.rate_limit_estimate_per_min, now)
             if not over:
                 over, retry_after = self._over_mem(self._hits, ip, settings.rate_limit_per_min, now)
         if over:
@@ -140,6 +159,31 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 headers={"Retry-After": str(retry_after)},
             )
         return await call_next(request)
+
+
+# ----------------------------- Лимит НА ПОЛЬЗОВАТЕЛЯ -----------------------------
+# Лимитер выше считает по IP, но IP — расходник: прокси меняет его на каждый запрос, и один
+# аккаунт спокойно качает нам счёт за платный Yandex API. Аккаунт сменить дороже — поэтому
+# у дорогих ручек есть и второй, персональный бюджет. Хранилище in-memory, как и у IP-лимитера
+# (на воркер): для MVP достаточно, точность здесь не нужна — нужен потолок.
+_user_hits: dict[str, deque] = defaultdict(deque)
+
+
+def user_over_limit(bucket: str, user_id: int, limit: int, window_sec: int = _WINDOW_SEC) -> bool:
+    """Превышен ли персональный бюджет `bucket` у пользователя. Лимитер выключен глобально
+    (RATE_LIMIT_ENABLED=false) → всегда False: тесты и dev не должны упираться в потолок."""
+    if not settings.rate_limit_enabled or limit <= 0:
+        return False
+    key = f"{bucket}:{user_id}"
+    dq = _user_hits[key]
+    now = time.monotonic()
+    edge = now - window_sec
+    while dq and dq[0] < edge:
+        dq.popleft()
+    if len(dq) >= limit:
+        return True
+    dq.append(now)
+    return False
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

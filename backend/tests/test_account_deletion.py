@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Полное удаление аккаунта (152-ФЗ + требование Google Play) — НИЧЕГО не остаётся.
+"""Полное удаление аккаунта (152-ФЗ + требование Google Play) — от личности не остаётся следов.
 
 Ключевой инвариант: после delete_user_account ни одна строка ни в одной таблице не ссылается
 на удалённого пользователя (любая колонка с FK на user.id → 0 строк с этим uid). Проверка
 ГЕНЕРИЧЕСКАЯ (интроспекция метаданных) — она сама поймает НОВУЮ таблицу, если её забыли
 добавить в удаление. На Postgres тест ещё и доказывает FK-безопасный порядок удаления.
+
+ВАЖНО (аудит 2026-08-03): «нет следов» ≠ «нет строк». Разборы, где есть ПОСТРАДАВШАЯ вторая
+сторона — жалобы (Report) и споры «Справедливости» (Incident) — не стираются, а обезличиваются:
+ссылка на удалённого и его текст уходят, а сам факт, решение админа и улики второй стороны
+живут дальше. Иначе нарушитель одним тапом уничтожал доказательства против себя.
 """
 from datetime import date, timedelta
 
@@ -70,10 +75,15 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         s.add(M.CommissionDebt(driver_id=uid, order_id=order.id, amount_kop=200))
         s.add(M.LedgerEntry(driver_id=uid, order_id=order.id, kind="earn", amount_kop=200))
         s.add(M.TripShare(order_id=order.id, contact_id=contact.id, token="del-order-share-token-123456"))
-        # --- посылка + рейтинг курьера по parcel_id ---
-        parcel = M.ParcelDelivery(sender_id=uid, from_city="A", to_city="B")
+        # --- посылка + рейтинг курьера по parcel_id + чат отправитель ↔ курьер ---
+        parcel = M.ParcelDelivery(sender_id=uid, from_city="A", to_city="B", courier_id=oid)
         s.add(parcel); s.commit(); s.refresh(parcel)
         s.add(M.Rating(parcel_id=parcel.id, rater_id=oid, ratee_id=uid, stars=5))
+        # Сообщения по посылке: моё И курьера. Второе — ключевое: оно держит FK на посылку,
+        # но по sender_id не ловится, поэтому без явного гарда по parcel_id удаление аккаунта
+        # падало бы на Postgres (посылка удаляется, сообщение курьера на неё ещё ссылается).
+        s.add(M.Message(parcel_id=parcel.id, sender_id=uid, text="Оставь у соседей"))
+        s.add(M.Message(parcel_id=parcel.id, sender_id=oid, text="Понял, буду через час"))
         # --- бизнес: партнёр → купон → погашение ---
         partner = M.Partner(owner_id=uid, name="Biz", city="Уфа")
         s.add(partner); s.commit(); s.refresh(partner)
@@ -93,8 +103,16 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         s.add(ride); s.commit(); s.refresh(ride)
         my_booking = M.Booking(ride_id=ride.id, passenger_id=oid, status=M.BookingStatus.done)
         s.add(my_booking); s.commit(); s.refresh(my_booking)
-        s.add(M.Incident(booking_id=my_booking.id, reporter_id=oid, respondent_id=uid, type="rude"))
-        s.add(M.Incident(reporter_id=uid, respondent_id=oid, type="harassment"))
+        inc_against_me = M.Incident(booking_id=my_booking.id, reporter_id=oid, respondent_id=uid,
+                                    type="rude", description="Нахамил в дороге",
+                                    evidence_urls="/secure/evidence/victim.jpg")
+        inc_by_me = M.Incident(reporter_id=uid, respondent_id=oid, type="harassment",
+                               description="Моя версия", evidence_urls="/secure/evidence/mine.jpg",
+                               respondent_statement="Версия второй стороны",
+                               respondent_evidence_urls="/secure/evidence/other.jpg")
+        s.add(inc_against_me); s.add(inc_by_me); s.commit()
+        s.refresh(inc_against_me); s.refresh(inc_by_me)
+        inc_against_me_id, inc_by_me_id = inc_against_me.id, inc_by_me.id
         s.add(M.SafetyProfile(user_id=uid, strikes=1))
         # Чужой спор, решённый удаляемым как админом → должен ОСТАТЬСЯ, но resolved_by → NULL.
         other2 = M.User(phone=f"{phone}-o2", name="Other2", verified=True)
@@ -139,6 +157,117 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # «Справедливость»: чужой спор жив, но ссылка «решил я» отвязана (данные чужие — не наши).
         fi = s.get(M.Incident, foreign_inc_id)
         assert fi is not None and fi.resolved_by is None
+        # Спор ПРОТИВ меня НЕ исчез — обезличена только моя сторона. Заявление второй стороны,
+        # её улики и суть разбора целы (иначе «удалить аккаунт» = стереть доказательства).
+        against = s.get(M.Incident, inc_against_me_id)
+        assert against is not None, "спор против удаляемого не должен исчезать вместе с ним"
+        assert against.respondent_id is None                     # моей ссылки нет
+        assert against.reporter_id == oid                        # заявитель на месте
+        assert against.description == "Нахамил в дороге"         # текст жертвы цел
+        assert against.evidence_urls == "/secure/evidence/victim.jpg"   # улики жертвы целы
+        assert against.type == "rude"                            # суть спора цела
+        assert against.booking_id is None                        # контекст удалён вместе с бронёй
+        # Мой спор на другого тоже жив (вторая сторона — пострадавшая от МОЕЙ жалобы), но
+        # мои личные данные из него вычищены.
+        mine = s.get(M.Incident, inc_by_me_id)
+        assert mine is not None
+        assert mine.reporter_id is None and mine.respondent_id == oid
+        assert mine.description == "" and mine.evidence_urls == ""      # мой текст и мои фото — стёрты
+        assert mine.respondent_statement == "Версия второй стороны"     # объяснение второй стороны цело
+        assert mine.respondent_evidence_urls == "/secure/evidence/other.jpg"
         # G1: шеринг посылки не осиротел (FK на parceldelivery, user-скан его не видит).
         ps = s.exec(select(M.TripShare).where(M.TripShare.parcel_id == parcel_id)).all()
         assert ps == []
+        # Чат по посылке тоже вычищен целиком, включая сообщения ВТОРОЙ стороны: у них
+        # sender_id чужой, поэтому generic-скан по user.id их не видит, а FK на удалённую
+        # посылку они держат — на Postgres это ровно то, что роняло /me/delete.
+        pm = s.exec(select(M.Message).where(M.Message.parcel_id == parcel_id)).all()
+        assert pm == []
+
+
+def test_accused_deleting_account_does_not_destroy_victims_case(client, user_factory, monkeypatch):
+    """Атака «удалю аккаунт — и разбирать нечего».
+
+    Сценарий: пассажирку обидели в поездке, она открыла спор с фотографиями, админ вынес
+    решение. Обвинённый нажимает «удалить аккаунт». Раньше строка спора стиралась целиком —
+    вместе с её заявлением, её фото и вердиктом. Теперь исчезает только ЕГО личность.
+    """
+    victim = user_factory("Жертва")
+    accused = user_factory("Обвинённый", role=UserRole.driver)
+    vid, aid = victim["id"], accused["id"]
+
+    erased: list = []   # какие медиа реально пошли под нож
+    monkeypatch.setattr("app.account._safe_unlink_media", lambda url: erased.append(url))
+
+    with Session(engine) as s:
+        inc = M.Incident(
+            reporter_id=vid, respondent_id=aid, type="harassment",
+            description="Приставал всю дорогу", evidence_urls="/secure/evidence/victim-photo.jpg",
+            respondent_statement="Это неправда", respondent_evidence_urls="/secure/evidence/his.jpg",
+            status="resolved", resolution="strike", fault="respondent",
+            resolution_note="Разобрались: страйк обвинённому.", resolved_by=vid,
+        )
+        s.add(inc); s.commit(); s.refresh(inc)
+        inc_id = inc.id
+        s.add(M.SafetyProfile(user_id=aid, strikes=1))
+        s.commit()
+        delete_user_account(s, s.get(User, aid))
+
+    with Session(engine) as s:
+        kept = s.get(M.Incident, inc_id)
+        assert kept is not None, "обвинённый не должен уносить с собой заявление жертвы"
+        # Личности обвинённого нет — ни ссылки, ни его слов, ни его фото.
+        assert kept.respondent_id is None
+        assert kept.respondent_statement == "" and kept.respondent_evidence_urls == ""
+        # Дело жертвы и решение админа целы.
+        assert kept.reporter_id == vid
+        assert kept.description == "Приставал всю дорогу"
+        assert kept.evidence_urls == "/secure/evidence/victim-photo.jpg"
+        assert kept.resolution == "strike" and kept.fault == "respondent"
+        assert kept.resolution_note == "Разобрались: страйк обвинённому."
+        # Профиль безопасности обвинённого ушёл вместе с аккаунтом (это его данные).
+        assert s.exec(select(M.SafetyProfile).where(M.SafetyProfile.user_id == aid)).first() is None
+
+    # Фото жертвы не тронуты (иначе улики уничтожал бы тот, против кого они собраны),
+    # а фото обвинённого стёрты вместе с ним — и не остались сиротой на диске.
+    assert "/secure/evidence/victim-photo.jpg" not in erased
+    assert "/secure/evidence/his.jpg" in erased
+
+
+def test_admin_can_resolve_incident_after_accused_deleted_account(client, user_factory):
+    """Обвинённый удалил аккаунт до вердикта → админ всё равно может закрыть разбор.
+
+    Наказывать некого, но решение должно записаться: это документ для жертвы (и для полиции,
+    если дойдёт). Раньше такой строки просто не существовало, теперь она есть — и код разбора
+    не должен на ней падать (наказание уходит в пустоту, а не в 500-ю)."""
+    victim = user_factory("Жертва2")
+    accused = user_factory("Обвинённый2", role=UserRole.driver)
+    admin = user_factory("Админ", role=UserRole.admin)
+    vid, aid = victim["id"], accused["id"]
+
+    with Session(engine) as s:
+        inc = M.Incident(reporter_id=vid, respondent_id=aid, type="harassment",
+                         description="Версия жертвы", status="under_review")
+        s.add(inc); s.commit(); s.refresh(inc)
+        inc_id = inc.id
+        delete_user_account(s, s.get(User, aid))
+
+    r = client.post(f"/admin/incidents/{inc_id}/resolve",
+                    json={"resolution": "strike", "fault": "respondent",
+                          "note": "Виноват, но аккаунта уже нет.", "strike": True},
+                    headers=admin["auth"])
+    assert r.status_code == 200, r.text
+
+    with Session(engine) as s:
+        kept = s.get(M.Incident, inc_id)
+        assert kept.status == "resolved" and kept.resolution == "strike"
+        assert kept.resolution_note == "Виноват, но аккаунта уже нет."
+        # Страйк наложить не на кого — профиль-заглушку в БД не создаём.
+        assert s.exec(select(M.SafetyProfile).where(M.SafetyProfile.user_id == 0)).first() is None
+
+    # Админ-список споров тоже не должен падать на обезличенной стороне.
+    lst = client.get("/admin/incidents", headers=admin["auth"])
+    assert lst.status_code == 200, lst.text
+    row = next(i for i in lst.json() if i["id"] == inc_id)
+    assert row["respondent_id"] is None
+    assert "далённ" in row["respondent_name"]      # «Удалённый аккаунт …»

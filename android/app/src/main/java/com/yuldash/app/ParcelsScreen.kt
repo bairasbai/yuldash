@@ -1,11 +1,14 @@
 package com.yuldash.app
 
-// ═══════════════════ M3: Доставка посылок (пользователь) ═══════════════════
-// Попутчик везёт бандероль «между своими». Три вкладки:
+// ═══════════════════ M3: Доставка посылок (отправитель) ═══════════════════
+// Экран того, кто ОТПРАВЛЯЕТ бандероль «между своими». Две вкладки:
 //  • «Отправить» — форма (города, размер, что за посылка, получатель) + обязательный чекбокс правил →
 //                  createParcel → крупный КОД вручения (передать получателю).
-//  • «Мои» — мои посылки со статусом, кодом вручения, курьером (если принята), «Отменить».
-//  • «Возить» — доступные посылки (курьер берёт) + «Везу» (телефон получателя, «В пути»/«Доставлено» + код).
+//  • «Мои» — мои посылки: шкала доставки «Забрать → В пути → Вручить», статус, код вручения,
+//            курьер (если принята), «Отменить». Список сам освежается раз в 25 с (в фоне — пауза)
+//            и тянется вниз для обновления.
+// Работа курьера (взять заказ, «Везу») живёт в CourierScreen. Раньше она дублировалась и здесь —
+// вкладкой «Возить», но на ДРУГОМ фиде: только «по пути» и без гейта одобрения (аудит 2026-08-03).
 // Всё двуязычно, все состояния (загрузка/пусто/ошибка), только Canon*, анимации плавные, тон тёплый на «ты».
 
 import android.widget.Toast
@@ -23,7 +26,6 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +34,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,17 +47,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.ReportProblem
@@ -65,6 +69,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
@@ -83,6 +88,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -98,13 +104,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.CourierEstimateDto
 import com.yuldash.app.data.GeocoderClient
+import com.yuldash.app.data.PARCEL_ADDRESS_MAX_LEN
 import com.yuldash.app.data.ParcelDto
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** Как часто список отправителя сам подтягивает свежие статусы (в фоне цикл стоит на паузе). */
+private const val MY_PARCELS_REFRESH_INTERVAL_MS = 25_000L
 
 // ───────────────── Типографика доставки: ровно ЧЕТЫРЕ размера ─────────────────
 // Больше кеглей = «самоделка»: до этого прохода на трёх экранах доставки жило 16 разных
@@ -172,6 +186,14 @@ internal fun parcelSizeLabel(size: String): String = when (size.lowercase()) {
     "large" -> appText("Большая", "Ҙур")
     else -> size
 }
+
+/**
+ * Одно правило на все дробные числа доставки: разделитель — запятая, независимо от локали телефона.
+ * Раньше формат брал локаль устройства: на английской «4.8», на русской «4,8», а ставка комиссии
+ * ещё и «чинилась» заменой точки, которой на этой локали в строке не было (аудит 2026-08-03).
+ */
+internal fun deliveryDecimal(value: Double, digits: Int = 1): String =
+    String.format(java.util.Locale.US, "%.${digits}f", value).replace('.', ',')
 
 /** Короткий намёк на габарит размера. */
 @Composable
@@ -279,6 +301,97 @@ private fun ParcelRouteRow(from: String, to: String) {
             fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
         )
+    }
+}
+
+/**
+ * «Где забрать» и «Куда привезти» — свободный ориентир от отправителя.
+ *
+ * Город без ориентира курьеру бесполезен: он брал заказ и ехал «в Баймак» — ни дома, ни калитки.
+ * В башкирском селе адрес чаще ориентир, чем улица с табличкой («у мечети», «синие ворота»,
+ * «за магазином»), поэтому это ОДНА свободная строка на сторону, а не разбор на улицу-дом-квартиру.
+ *
+ * Приватность (§8): в открытой ленте свободных заказов сервер адресов не отдаёт — они приходят
+ * только принявшему курьеру и самому отправителю. Пустая строка = «не пришло»: строку не рисуем
+ * вовсе — ни прочерка, ни заглушки, иначе курьер решит, что отправитель поленился написать.
+ *
+ * [prominent] = карточка курьера: он по этому едет, поэтому зелёная рамка и жирное начертание.
+ * false = карточка отправителя, ему достаточно спокойно свериться с тем, что он сам указал.
+ */
+@Composable
+internal fun ParcelAddressBlock(
+    fromAddress: String,
+    toAddress: String,
+    prominent: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val hasFrom = fromAddress.isNotBlank()
+    val hasTo = toAddress.isNotBlank()
+    if (!hasFrom && !hasTo) return
+    Surface(
+        color = CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(if (prominent) 2.dp else 1.dp, if (prominent) CanonGreen2 else CanonBorder),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (hasFrom) {
+                ParcelAddressRow(
+                    icon = Icons.Default.Place,
+                    tint = CanonGreen2,
+                    label = appText("Где забрать", "Ҡайҙан алырға"),
+                    value = fromAddress,
+                    prominent = prominent,
+                )
+            }
+            // Волосок между точками только когда их правда две — одинокая линия под одной строкой
+            // читалась бы как «вторую забыли показать».
+            if (hasFrom && hasTo) {
+                Surface(color = CanonHairlineGreen, modifier = Modifier.fillMaxWidth().height(1.dp)) {}
+            }
+            if (hasTo) {
+                ParcelAddressRow(
+                    icon = Icons.Default.Flag,
+                    tint = CanonCourier,
+                    label = appText("Куда привезти", "Ҡайҙа илтергә"),
+                    value = toAddress,
+                    prominent = prominent,
+                )
+            }
+        }
+    }
+}
+
+/** Одна точка блока адресов: иконка · подпись · сам ориентир. Читается голосом целиком. */
+@Composable
+private fun ParcelAddressRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    label: String,
+    value: String,
+    prominent: Boolean,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) { contentDescription = "$label. $value" },
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                label, color = CanonMutedStrong, fontWeight = FontWeight.Bold,
+                fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+            )
+            Text(
+                value, color = CanonText,
+                fontWeight = if (prominent) FontWeight.Black else FontWeight.Bold,
+                fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+            )
+        }
     }
 }
 
@@ -725,11 +838,18 @@ internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDism
 
 @Composable
 internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
-    var tab by rememberSaveable { mutableStateOf(0) }   // 0 = отправить, 1 = мои, 2 = возить
+    var tab by rememberSaveable { mutableStateOf(0) }   // 0 = отправить, 1 = мои
 
     // embedded = экран открыт внутри хаба режимов (над ним уже есть переключатель Попутка/Такси/Курьер),
     // поэтому своя шапка с «назад» была бы вторым заголовком подряд. Тот же приём, что в InstantOrderScreen.
-    Scaffold(containerColor = CanonBg, topBar = { if (!embedded) ScreenTopBar(appText("Посылки", "Бандеролдәр"), onBack) }) { padding ->
+    Scaffold(
+        containerColor = CanonBg,
+        topBar = { if (!embedded) ScreenTopBar(appText("Посылки", "Бандеролдәр"), onBack) },
+        // Встроенный режим: системные отступы уже учёл хаб над нами — второй раз их добавлять
+        // нельзя, иначе под переключателем режимов зияет пустая полоса. Отдельный экран (вход из
+        // профиля) отступы сохраняет, иначе шапка залезет под статус-бар. Так же в MapScreen.kt.
+        contentWindowInsets = if (embedded) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
+    ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             Surface(
                 color = CanonSurface,
@@ -743,7 +863,6 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
                 ) {
                     ParcelTab(appText("Отправить", "Ебәреү"), tab == 0, Modifier.weight(1f)) { tab = 0 }
                     ParcelTab(appText("Мои", "Минеке"), tab == 1, Modifier.weight(1f)) { tab = 1 }
-                    ParcelTab(appText("Возить", "Илтеү"), tab == 2, Modifier.weight(1f)) { tab = 2 }
                 }
             }
             AnimatedContent(
@@ -754,8 +873,7 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
             ) { t ->
                 when (t) {
                     0 -> SendParcelTab(onSent = { tab = 1 })
-                    1 -> MyParcelsTab()
-                    else -> CarryTab()
+                    else -> MyParcelsTab()
                 }
             }
         }
@@ -803,6 +921,10 @@ private fun SendParcelTab(onSent: () -> Unit) {
     var deliveryType by rememberSaveable { mutableStateOf("poputka") }   // poputka | courier | buy_bring
     var fromCity by rememberSaveable { mutableStateOf("") }
     var toCity by rememberSaveable { mutableStateOf("") }
+    // Где именно забрать и куда привезти. Города мало: курьер брал заказ и ехал «в Баймак» —
+    // ни дома, ни калитки. Оба поля необязательные: без ориентира заказ всё равно должен уходить.
+    var fromAddress by rememberSaveable { mutableStateOf("") }
+    var toAddress by rememberSaveable { mutableStateOf("") }
     var size by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
     var receiverName by rememberSaveable { mutableStateOf("") }
@@ -863,7 +985,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
 
         // A successful submit starts a fresh draft, preventing accidental duplicate orders.
         deliveryType = "poputka"
-        fromCity = ""; toCity = ""; size = ""; description = ""
+        fromCity = ""; toCity = ""; fromAddress = ""; toAddress = ""; size = ""; description = ""
         receiverName = ""; receiverPhone = ""; rulesAccepted = false
         urgency = "bypath"; shoppingList = ""; declaredRub = ""
         priceRub = ""; productRub = ""; estimate = null
@@ -935,12 +1057,45 @@ private fun SendParcelTab(onSent: () -> Unit) {
                 ) { deliveryType = "buy_bring"; estimate = null }
             }
         }
-        // Маршрут
+        // Маршрут. Каждый город идёт в паре со своим ориентиром: «Откуда» — это село целиком,
+        // «Где забрать» — конкретная калитка в нём. Порядок не декоративный: человек заполняет
+        // сверху вниз ровно так, как рассказывал бы дорогу вслух.
         if (step == stepRoute) item {
             ParcelField(fromCity, { fromCity = it; estimate = null }, appText("Откуда", "Ҡайҙан"), appText("Город отправления", "Ебәреү ҡалаһы"), cap = true)
         }
         if (step == stepRoute) item {
+            ParcelField(
+                fromAddress, { fromAddress = it.take(PARCEL_ADDRESS_MAX_LEN) },
+                appText("Где забрать", "Ҡайҙан алырға"),
+                appText("У мечети, синие ворота", "Мәсет янында, зәңгәр ҡапҡа"),
+                minLines = 2,
+            )
+        }
+        if (step == stepRoute) item {
             ParcelField(toCity, { toCity = it; estimate = null }, appText("Куда", "Ҡайҙа"), appText("Город получения", "Алыу ҡалаһы"), cap = true)
+        }
+        if (step == stepRoute) item {
+            ParcelField(
+                toAddress, { toAddress = it.take(PARCEL_ADDRESS_MAX_LEN) },
+                appText("Куда привезти", "Ҡайҙа илтергә"),
+                appText("За школой, белый дом с зелёной крышей", "Мәктәп артында, йәшел түбәле аҡ йорт"),
+                minLines = 2,
+            )
+        }
+        // Одна честная строка про оба поля: кто это увидит и когда. Про «необязательно» не пишем
+        // отдельно — важнее объяснить, что писать, иначе человек напишет городской адрес.
+        if (step == stepRoute) item {
+            val atLimit = fromAddress.length >= PARCEL_ADDRESS_MAX_LEN || toAddress.length >= PARCEL_ADDRESS_MAX_LEN
+            DeliveryHint(
+                if (atLimit) appText(
+                    "Больше $PARCEL_ADDRESS_MAX_LEN символов не влезет — оставь самое главное.",
+                    "$PARCEL_ADDRESS_MAX_LEN символдан артыҡ һыймай — иң мөһимен ҡалдыр.",
+                ) else appText(
+                    "Не улица с табличкой, а как объясняешь соседу: «у мечети», «синие ворота», «за магазином». Курьер увидит это, когда возьмёт посылку.",
+                    "Таблицалы урам түгел, ә күршегә аңлатҡан кеүек: «мәсет янында», «зәңгәр ҡапҡа», «кибет артында». Курьер быны бандеролде алғас күрер.",
+                ),
+                tone = if (atLimit) CanonRed else CanonMuted,
+            )
         }
         // ── Шаг 2: сама посылка ────────────────────────────────────────────────────
         // Размер
@@ -1107,6 +1262,9 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                 // цифр в поле давали 422 вместо понятного ответа.
                                 priceKop = ((priceRub.toIntOrNull() ?: 0) * 100).coerceIn(0, 100_000_00),
                                 declaredValueKop = ((declaredRub.toIntOrNull() ?: 0) * 100).coerceIn(0, 100_000_00),
+                                // Где забрать и куда привезти. Пустые до сервера не доедут —
+                                // их отсекает сам ApiClient, чтобы не слать пустой шум.
+                                fromAddress = fromAddress.trim(), toAddress = toAddress.trim(),
                             )
                                 .onSuccess { showCreatedReceipt(it) }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
@@ -1174,6 +1332,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                 // Потолок как на сервере — шесть цифр в поле иначе дают 422.
                                 declaredValueKop = declaredRub.toIntOrNull()?.takeIf { it > 0 }
                                     ?.let { (it * 100).coerceAtMost(100_000_00) },
+                                fromAddress = fromAddress.trim(), toAddress = toAddress.trim(),
                             )
                                 .onSuccess { showCreatedReceipt(it) }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
@@ -1365,7 +1524,7 @@ private fun EstimateCard(est: CourierEstimateDto) {
             Surface(color = CanonMint, shape = CanonItemShape) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     EstimateRow(appText("Подача", "Килеү"), kopToRub(est.breakdown.baseKop))
-                    EstimateRow(appText("Расстояние", "Ара") + " (${String.format("%.0f", est.distanceKm)} км)", kopToRub(est.breakdown.distanceKop))
+                    EstimateRow(appText("Расстояние", "Ара") + " (${deliveryDecimal(est.distanceKm, 0)} км)", kopToRub(est.breakdown.distanceKop))
                     EstimateRow(appText("Размер", "Ҙурлыҡ"), kopToRub(est.breakdown.sizeKop))
                     if (est.breakdown.urgencyKop > 0) {
                         EstimateRow(appText("Срочность", "Ашығыслыҡ"), kopToRub(est.breakdown.urgencyKop))
@@ -1570,49 +1729,85 @@ private fun MyParcelsTab() {
     var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var rateTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var ratedIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var refreshing by remember { mutableStateOf(false) }
     val loadErr = appText("Не удалось загрузить посылки. Проверь интернет.", "Бандеролдәрҙе йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val canceledMsg = appText("Посылка отменена", "Бандероль кире алынды")
 
+    // Одна точка правды, как ответ сервера ложится на экран. Тихое обновление НЕ затирает уже
+    // показанный список ошибкой: у отправителя в дороге связь рвётся, а карточка с кодом вручения
+    // нужна ему прямо сейчас.
+    fun applyParcels(res: Result<List<ParcelDto>>) {
+        res.onSuccess { fresh -> list = fresh.sortedByDescending { p -> p.createdAt }; error = null }
+            .onFailure { e ->
+                if (list.isEmpty()) error = (e as? com.yuldash.app.data.ApiException)?.message ?: loadErr
+            }
+    }
+
     fun reload() {
         loading = true; error = null
         scope.launch {
-            ApiClient.getMyParcels()
-                .onSuccess { list = it.sortedByDescending { p -> p.createdAt } }
-                .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }
+            applyParcels(ApiClient.getMyParcels())
             loading = false
         }
     }
     LaunchedEffect(Unit) { reload() }
 
-    LazyColumn(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
+    // Авто-обновление списка отправителя. Раньше здесь было ровно одно разовое чтение при входе:
+    // курьер брал посылку и выходил в путь, а отправитель об этом не узнавал, пока не переключит
+    // вкладку туда-обратно. Теперь как у курьера — раз в 25 с, и с паузой, пока приложение в фоне
+    // (repeatOnLifecycle RESUMED): не жжём батарею и трафик впустую.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var skipFirstAuto by remember { mutableStateOf(true) }
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            // Первый показ грузит reload() выше — не дублируем. Возврат из фона → сразу свежее.
+            if (skipFirstAuto) skipFirstAuto = false else applyParcels(ApiClient.getMyParcels())
+            while (true) {
+                delay(MY_PARCELS_REFRESH_INTERVAL_MS)
+                applyParcels(ApiClient.getMyParcels())
+            }
+        }
+    }
+
+    AppPullRefresh(
+        refreshing = refreshing,
+        onRefresh = {
+            if (!refreshing) {
+                refreshing = true
+                scope.launch { applyParcels(ApiClient.getMyParcels()); refreshing = false }
+            }
+        },
     ) {
-        when {
-            loading && list.isEmpty() -> {
-                item { SkeletonCard(lines = 3) }
-                item { SkeletonCard(lines = 3) }
-            }
-            error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
-            list.isEmpty() -> item {
-                AppEmptyState(
-                    title = appText("Пока нет посылок", "Әлегә бандеролдәр юҡ"),
-                    text = appText("Отправь первую на вкладке «Отправить» — код появится здесь.", "«Ебәреү» бүлегендә беренсеһен ебәр — код бында күренер."),
-                    icon = Icons.Default.Inventory2,
-                )
-            }
-            else -> items(list.size, key = { "myp-" + list[it].id }) { i ->
-                Box(Modifier.appearIn(i.coerceAtMost(6))) {
-                    MyParcelCard(
-                        p = list[i],
-                        busy = busyId == list[i].id,
-                        rated = ratedIds.contains(list[i].id),
-                        onCancel = { cancelTarget = list[i] },
-                        onDispute = { disputeTarget = list[i] },
-                        onRate = { rateTarget = list[i] },
+        LazyColumn(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
+        ) {
+            when {
+                loading && list.isEmpty() -> {
+                    item { SkeletonCard(lines = 3) }
+                    item { SkeletonCard(lines = 3) }
+                }
+                error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
+                list.isEmpty() -> item {
+                    AppEmptyState(
+                        title = appText("Пока нет посылок", "Әлегә бандеролдәр юҡ"),
+                        text = appText("Отправь первую на вкладке «Отправить» — код появится здесь.", "«Ебәреү» бүлегендә беренсеһен ебәр — код бында күренер."),
+                        icon = Icons.Default.Inventory2,
                     )
+                }
+                else -> items(list.size, key = { "myp-" + list[it].id }) { i ->
+                    Box(Modifier.appearIn(i.coerceAtMost(6))) {
+                        MyParcelCard(
+                            p = list[i],
+                            busy = busyId == list[i].id,
+                            rated = ratedIds.contains(list[i].id),
+                            onCancel = { cancelTarget = list[i] },
+                            onDispute = { disputeTarget = list[i] },
+                            onRate = { rateTarget = list[i] },
+                        )
+                    }
                 }
             }
         }
@@ -1701,7 +1896,16 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                 }
                 ParcelStatusChip(p.status)
             }
+            // Тот, кто волнуется за посылку, до этого видел одно слово в маленьком чипе, а курьер —
+            // полноценный таймлайн. Теперь шкала одна на двоих: «Забрать → В пути → Вручить»
+            // (с ветками «Возврат/Возвращено»). У отменённой шкалы нет — первый шаг там врал бы.
+            if (p.status != "canceled" && p.status != "cancelled") {
+                CourierDeliveryProgress(status = p.status)
+            }
             ParcelReturnNotice(status = p.status, reason = p.returnReason, forCourier = false)
+            // То, что отправитель сам написал курьеру. Спокойный вариант блока: ему не ехать
+            // по этим ориентирам, ему нужно сверить — не перепутал ли он ворота.
+            ParcelAddressBlock(fromAddress = p.fromAddress, toAddress = p.toAddress, prominent = false)
             if (p.cancelFeeKop > 0) {
                 Surface(color = CanonWarnBg, shape = CanonItemShape) {
                     Text(
@@ -1753,7 +1957,7 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                                 if (crRating != null && crRating > 0) {
                                     Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text(String.format("%.1f", crRating) + (if (cr.ratingCount > 0) " · ${cr.ratingCount}" else ""), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
+                                    Text(deliveryDecimal(crRating) + (if (cr.ratingCount > 0) " · ${cr.ratingCount}" else ""), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                                     Spacer(Modifier.width(8.dp))
                                 } else {
                                     Text(appText("новый курьер", "яңы курьер"), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
@@ -1764,6 +1968,18 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                         }
                     }
                 }
+                // «Оставь у соседей», «я на работе до шести» — на такое звонить незачем, а раньше
+                // другого способа не было вовсе. Переписка ещё и остаётся, если дойдёт до спора.
+                AppButton(
+                    text = appText("Написать курьеру", "Курьерға яҙырға"),
+                    onClick = {
+                        DeepLink.pendingParcelChat.value =
+                            ParcelChatTarget(p.id, peerIsCourier = true, status = p.status)
+                    },
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.ChatBubble,
+                    height = 48.dp,
+                )
             }
             // Existing privacy scope: live map is available only during the forward delivery.
             if (p.courier != null && (p.status == "accepted" || p.status == "in_transit")) {
@@ -1824,490 +2040,6 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
         }
     }
 }
-
-// ─────────────────────────── Вкладка «Возить» (курьер) ───────────────────────────
-
-@Composable
-private fun CarryTab() {
-    var sub by rememberSaveable { mutableStateOf(0) }   // 0 = доступные, 1 = везу
-
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ParcelTab(appText("Доступные", "Буш"), sub == 0, Modifier.weight(1f)) { sub = 0 }
-            ParcelTab(appText("Везу", "Илтәм"), sub == 1, Modifier.weight(1f)) { sub = 1 }
-        }
-        Spacer(Modifier.height(12.dp))
-        AnimatedContent(
-            targetState = sub,
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(140)) },
-            label = "carry-sub",
-        ) { s -> if (s == 0) AvailableParcelsTab() else CarryingParcelsTab() }
-    }
-}
-
-@Composable
-private fun AvailableParcelsTab() {
-    val scope = rememberCoroutineScope()
-    val ctx = LocalContext.current
-    var list by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var cityFilter by rememberSaveable { mutableStateOf("") }
-    var busyId by remember { mutableStateOf(0) }
-    val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
-    val actionErr = appText("Не получилось взять. Проверь сеть.", "Алып булманы. Селтәрҙе тикшер.")
-    val tookMsg = appText("Ты взял посылку. Она во вкладке «Везу».", "Бандеролде алдың. Ул «Илтәм» бүлегендә.")
-
-    fun reload() {
-        loading = true; error = null
-        scope.launch {
-            ApiClient.getAvailableParcels(fromCity = cityFilter.takeIf { it.isNotBlank() })
-                .onSuccess { list = it }
-                .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }
-            loading = false
-        }
-    }
-    LaunchedEffect(cityFilter) { reload() }
-
-    val cities = remember(list, cityFilter) {
-        (list.map { it.fromCity }.filter { it.isNotBlank() } + listOfNotNull(cityFilter.takeIf { it.isNotBlank() })).distinct()
-    }
-
-    LazyColumn(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(bottom = 96.dp),
-    ) {
-        item {
-            Text(
-                appText(
-                    "Едешь в другой город? Захвати посылку по пути — сумму от отправителя увидишь до принятия.",
-                    "Икенсе ҡалаға бараһыңмы? Юл ыңғайы бандероль ал — ебәреүсе тәҡдим иткән сумманы алдан күрерһең.",
-                ),
-                color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
-            )
-        }
-        if (cities.isNotEmpty()) {
-            item {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ParcelFilterChip(appText("Все города", "Бөтә ҡалалар"), cityFilter == "") { cityFilter = "" }
-                    cities.forEach { city -> ParcelFilterChip(city, cityFilter == city) { cityFilter = if (cityFilter == city) "" else city } }
-                }
-            }
-        }
-        when {
-            loading && list.isEmpty() -> {
-                item { SkeletonCard(lines = 3) }
-                item { SkeletonCard(lines = 3) }
-            }
-            error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
-            list.isEmpty() -> item {
-                AppEmptyState(
-                    title = appText("Свободных посылок нет", "Буш бандеролдәр юҡ"),
-                    text = appText("Загляни позже — соседи скоро что-нибудь отправят.", "Һуңыраҡ кер — күршеләр тиҙҙән берәй нәмә ебәрер."),
-                    icon = Icons.Default.LocalShipping,
-                )
-            }
-            else -> items(list.size, key = { "avp-" + list[it].id }) { i ->
-                Box(Modifier.appearIn(i.coerceAtMost(6))) {
-                    AvailableParcelCard(
-                        p = list[i],
-                        busy = busyId == list[i].id,
-                        onTake = {
-                            if (busyId != 0) return@AvailableParcelCard
-                            busyId = list[i].id
-                            scope.launch {
-                                ApiClient.acceptParcel(list[i].id)
-                                    .onSuccess { Toast.makeText(ctx, tookMsg, Toast.LENGTH_SHORT).show(); reload() }
-                                    .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr, Toast.LENGTH_SHORT).show() }
-                                busyId = 0
-                            }
-                        },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ParcelFilterChip(label: String, active: Boolean, onClick: () -> Unit) {
-    // Фильтр городов переключается часто — цвета переезжают, а не подменяются кадром.
-    val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(200), label = "pchip-bg")
-    val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(200), label = "pchip-line")
-    val ink by animateColorAsState(if (active) CanonGreen2 else CanonMutedStrong, tween(200), label = "pchip-ink")
-    Surface(
-        onClick = onClick,
-        color = bg,
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, line),
-        modifier = Modifier
-            .height(48.dp)
-            .semantics(mergeDescendants = true) {
-                role = Role.RadioButton
-                selected = active
-            },
-    ) {
-        Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
-            Text(
-                label, color = ink, fontWeight = FontWeight.Bold,
-                fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-@Composable
-private fun AvailableParcelCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit) {
-    AppCard {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
-                    Icon(Icons.Default.Inventory2, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ParcelRouteRow(p.fromCity, p.toCity)
-                    Text(parcelSizeLabel(p.size), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
-                }
-                // Что получит попутчик. Раньше здесь стоял НАШ сбор — курьер видел «30 ₽» и
-                // думал, что это его деньги, а про свою оплату не знал ничего (аудит 2026-07-26).
-                if (p.priceKop > 0) {
-                    Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine)
-                } else {
-                    Text(
-                        appText("По-соседски", "Күрше хаҡы"), color = CanonMuted, fontWeight = FontWeight.Bold,
-                        fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
-                    )
-                }
-            }
-            if (p.description.isNotBlank()) {
-                Text(p.description, color = CanonText, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
-            }
-            Text(
-                appText("Телефон получателя откроется, когда возьмёшь посылку.", "Алыусы телефоны бандеролде алғас асыла."),
-                color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
-            )
-            AppButton(
-                text = appText("Взять посылку", "Бандеролде алыу"),
-                onClick = onTake,
-                style = AppButtonStyle.Primary,
-                icon = Icons.Default.LocalShipping,
-                enabled = !busy,
-                loading = busy,
-            )
-        }
-    }
-}
-
-@Composable
-private fun CarryingParcelsTab() {
-    val scope = rememberCoroutineScope()
-    val ctx = LocalContext.current
-    var list by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var busyId by remember { mutableStateOf(0) }
-    var deliverTarget by remember { mutableStateOf<ParcelDto?>(null) }
-    var goodsTarget by remember { mutableStateOf<ParcelDto?>(null) }
-    var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
-    var troubleTarget by remember { mutableStateOf<ParcelDto?>(null) }
-    var rateTarget by remember { mutableStateOf<ParcelDto?>(null) }
-    var ratedIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
-    val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
-    val transitMsg = appText("Статус обновлён: в пути", "Статус яңырҙы: юлда")
-    val deliveredMsg = appText("Посылка вручена. Спасибо!", "Бандероль тапшырылды. Рәхмәт!")
-    val goodsSavedMsg = appText("Стоимость покупки сохранена", "Һатып алыу хаҡы һаҡланды")
-
-    fun reload() {
-        loading = true; error = null
-        scope.launch {
-            ApiClient.getCarryingParcels()
-                .onSuccess { list = it.sortedByDescending { p -> p.acceptedAt ?: p.createdAt } }
-                .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }
-            loading = false
-        }
-    }
-    LaunchedEffect(Unit) { reload() }
-
-    LazyColumn(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(bottom = 96.dp),
-    ) {
-        when {
-            loading && list.isEmpty() -> {
-                item { SkeletonCard(lines = 3) }
-                item { SkeletonCard(lines = 3) }
-            }
-            error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
-            list.isEmpty() -> item {
-                AppEmptyState(
-                    title = appText("Ты пока ничего не везёшь", "Әлегә бер нәмә лә илтмәйһең"),
-                    text = appText("Возьми посылку во вкладке «Доступные» — она появится здесь.", "«Буш» бүлегендә бандероль ал — ул бында күренер."),
-                    icon = Icons.Default.LocalShipping,
-                )
-            }
-            else -> items(list.size, key = { "carp-" + list[it].id }) { i ->
-                Box(Modifier.appearIn(i.coerceAtMost(6))) {
-                    CarryingParcelCard(
-                        p = list[i],
-                        busy = busyId == list[i].id,
-                        onTransit = {
-                            if (busyId != 0) return@CarryingParcelCard
-                            busyId = list[i].id
-                            scope.launch {
-                                ApiClient.setParcelStatus(list[i].id, "in_transit")
-                                    .onSuccess { Toast.makeText(ctx, transitMsg, Toast.LENGTH_SHORT).show(); reload() }
-                                    .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr, Toast.LENGTH_SHORT).show() }
-                                busyId = 0
-                            }
-                        },
-                        onDeliver = { deliverTarget = list[i] },
-                        onSetGoods = { goodsTarget = list[i] },
-                        onDispute = { disputeTarget = list[i] },
-                        onTrouble = { troubleTarget = list[i] },
-                        rated = ratedIds.contains(list[i].id),
-                        onRate = { rateTarget = list[i] },
-                    )
-                }
-            }
-        }
-    }
-
-    // C2: курьер вводит фактическую стоимость купленного товара (buy_bring).
-    goodsTarget?.let { target ->
-        var rub by remember(target.id) { mutableStateOf(((target.settlement?.goodsActualKop ?: 0) / 100).takeIf { it > 0 }?.toString() ?: "") }
-        var goodsError by remember(target.id) { mutableStateOf<String?>(null) }
-        var saving by remember(target.id) { mutableStateOf(false) }
-        val rubInt = rub.filter(Char::isDigit).toIntOrNull()
-        val goodsOk = rubInt != null && rubInt in 1..5000
-        AlertDialog(
-            onDismissRequest = { if (!saving) goodsTarget = null },
-            containerColor = CanonSurface,
-            title = { Text(appText("Стоимость покупки", "Һатып алыу хаҡы"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    DeliveryHint(appText("Сколько ты потратил на товар? Получатель вернёт эту сумму плюс доставку.", "Тауарға күпме тотондоң? Алыусы был сумманы һәм илтеүҙе кире ҡайтарыр."))
-                    OutlinedTextField(
-                        value = rub,
-                        onValueChange = { rub = it.filter(Char::isDigit).take(5); goodsError = null },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(appText("Сумма покупки, ₽", "Һатып алыу суммаһы, ₽")) },
-                        placeholder = { Text("0", color = CanonMuted) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        shape = RoundedCornerShape(14.dp),
-                        singleLine = true,
-                        isError = goodsError != null,
-                    )
-                    DeliveryHint(appText("Лимит покупки — 5000 ₽.", "Һатып алыу лимиты — 5000 ₽."))
-                    DialogErrorLine(goodsError)
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    enabled = !saving && goodsOk,
-                    onClick = {
-                        val kop = (rubInt ?: 0) * 100
-                        saving = true; goodsError = null
-                        scope.launch {
-                            ApiClient.setGoodsCost(target.id, kop)
-                                .onSuccess {
-                                    Toast.makeText(ctx, goodsSavedMsg, Toast.LENGTH_SHORT).show()
-                                    goodsTarget = null; reload()
-                                }
-                                .onFailure { goodsError = (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr }
-                            saving = false
-                        }
-                    },
-                ) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryBody) }
-            },
-            dismissButton = { TextButton(modifier = Modifier.heightIn(min = 48.dp), enabled = !saving, onClick = { goodsTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted, fontSize = DeliveryBody) } },
-        )
-    }
-
-    // C2: спор по заказу.
-    disputeTarget?.let { target ->
-        ParcelDisputeDialog(
-            parcel = target,
-            onDismiss = { disputeTarget = null },
-            onOpened = { disputeTarget = null; reload() },
-        )
-    }
-
-    troubleTarget?.let { target ->
-        CourierTroubleDialog(
-            parcel = target,
-            onDismiss = { troubleTarget = null },
-            onDone = { troubleTarget = null; reload() },
-        )
-    }
-
-    // C3: курьер оценивает отправителя после вручения.
-    rateTarget?.let { target ->
-        ParcelRateDialog(
-            parcel = target,
-            raterIsCourier = true,
-            onDismiss = { rateTarget = null },
-            onRated = { ratedIds = ratedIds + target.id; rateTarget = null },
-        )
-    }
-
-    deliverTarget?.let { target ->
-        var code by remember(target.id) { mutableStateOf("") }
-        var codeError by remember(target.id) { mutableStateOf<String?>(null) }
-        var submitting by remember(target.id) { mutableStateOf(false) }
-        AlertDialog(
-            onDismissRequest = { if (!submitting) deliverTarget = null },
-            containerColor = CanonSurface,
-            title = { Text(appText("Код вручения", "Тапшырыу коды"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    DeliveryHint(appText("Спроси код у получателя и введи его. Так подтвердим, что посылка попала по адресу.", "Кодты алыусынан һора һәм индер. Шулай бандероль дөрөҫ ергә барғанын раҫлайбыҙ."))
-                    OutlinedTextField(
-                        value = code,
-                        onValueChange = { code = it; codeError = null },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(appText("Код от получателя", "Алыусы коды")) },
-                        shape = RoundedCornerShape(14.dp),
-                        singleLine = true,
-                        isError = codeError != null,
-                    )
-                    DialogErrorLine(codeError)
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    enabled = !submitting && code.isNotBlank(),
-                    onClick = {
-                        submitting = true; codeError = null
-                        scope.launch {
-                            ApiClient.setParcelStatus(target.id, "delivered", code.trim())
-                                .onSuccess {
-                                    Toast.makeText(ctx, deliveredMsg, Toast.LENGTH_SHORT).show()
-                                    deliverTarget = null; reload()
-                                }
-                                .onFailure { codeError = (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr }
-                            submitting = false
-                        }
-                    },
-                ) { Text(appText("Подтвердить вручение", "Тапшырыуҙы раҫлау"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryBody) }
-            },
-            dismissButton = { TextButton(modifier = Modifier.heightIn(min = 48.dp), enabled = !submitting, onClick = { deliverTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted, fontSize = DeliveryBody) } },
-        )
-    }
-}
-
-@Composable
-private fun CarryingParcelCard(
-    p: ParcelDto,
-    busy: Boolean,
-    onTransit: () -> Unit,
-    onDeliver: () -> Unit,
-    onSetGoods: () -> Unit,
-    onDispute: () -> Unit,
-    onTrouble: () -> Unit,
-    rated: Boolean,
-    onRate: () -> Unit,
-) {
-    val delivered = p.status == "delivered"
-    val canDeliver = canCourierDeliverParcel(p.status)
-    val buyBring = p.deliveryType == "buy_bring"
-    val needGoods = buyBring && (p.settlement?.goodsActualKop ?: 0) == 0
-    AppCard {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ParcelRouteRow(p.fromCity, p.toCity)
-                    Text(
-                        parcelSizeLabel(p.size) + (if (p.description.isNotBlank()) "  ·  ${p.description}" else ""),
-                        color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
-                    )
-                }
-                ParcelStatusChip(p.status)
-            }
-            CourierDeliveryProgress(status = p.status)
-            ParcelReturnNotice(status = p.status, reason = p.returnReason, forCourier = true)
-            Surface(color = CanonMint, shape = CanonItemShape) {
-                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            p.receiverName, color = CanonText, fontWeight = FontWeight.Bold,
-                            fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    if (p.receiverPhone.isNotBlank()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Phone, contentDescription = appText("Телефон получателя", "Алыусы телефоны"), tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(p.receiverPhone, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
-                        }
-                    }
-                }
-            }
-            if (buyBring) {
-                p.settlement?.let { ParcelSettlementBlock(it, forCourier = true) }
-            }
-            if (p.priceKop > 0) {
-                DeliveryHint(appText("Тебе заплатят: ", "Һиңә түләйәсәктәр: ") + kopToRub(p.priceKop))
-            } else {
-                DeliveryHint(appText("По-соседски, без оплаты", "Күрше хаҡы, түләүһеҙ"))
-            }
-            if (canDeliver) {
-                if (needGoods) {
-                    AppButton(
-                        text = appText("Указать стоимость покупки", "Һатып алыу хаҡын күрһәтеү"),
-                        onClick = onSetGoods,
-                        style = AppButtonStyle.Accent,
-                        icon = Icons.Default.ShoppingBag,
-                        enabled = !busy,
-                    )
-                    DeliveryHint(appText("Сначала укажи стоимость покупки — потом сможешь вручить.", "Тәүҙә һатып алыу хаҡын күрһәт — шунан тапшыра алырһың."))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (p.status == "accepted") {
-                        AppButton(
-                            text = appText("В пути", "Юлда"),
-                            onClick = onTransit,
-                            style = AppButtonStyle.Secondary,
-                            fillWidth = false,
-                            modifier = Modifier.weight(1f),
-                            enabled = !busy,
-                            loading = busy,
-                        )
-                    }
-                    AppButton(
-                        text = appText("Доставлено", "Тапшырылды"),
-                        onClick = onDeliver,
-                        style = AppButtonStyle.Primary,
-                        icon = Icons.Default.CheckCircle,
-                        fillWidth = false,
-                        modifier = Modifier.weight(1f),
-                        enabled = !busy && !needGoods,
-                    )
-                }
-            }
-            if (canCourierResolveParcelTrouble(p.status)) {
-                CourierTroubleButton(returning = p.status == "returning", onClick = onTrouble)
-            }
-            if (delivered) {
-                if (rated) ParcelRatedRow() else ParcelRateButton(onClick = onRate)
-            }
-            if (canOpenParcelDispute(p.status)) {
-                ParcelDisputeButton(onClick = onDispute)
-            }
-        }
-    }
-}
-
 
 /**
  * «Отправить ссылку получателю» — он следит за доставкой в браузере, без установки приложения.

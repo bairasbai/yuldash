@@ -15,10 +15,16 @@ import androidx.core.app.NotificationCompat
  * Полноэкранное уведомление «Новый заказ 🚕» (такси, B7a). Общая точка для ДВУХ источников:
  *  • push от matcher'а (FcmService, data type=instant_offer) — мгновенно;
  *  • фоновый опрос оффера из TaxiLineService (~5с) — страховка, если пуш не дошёл.
- * Канал «Заказы такси» — важность MAX: звук + вибрация + full-screen intent, чтобы карточка
- * оффера всплыла даже на погасшем экране (как входящий звонок — эталон Яндекс Про).
+ * Канал «Заказы такси» — важность MAX: звук + вибрация, чтобы оффер нельзя было проспать.
+ * Карточка поверх погасшего экрана (full-screen intent) — только если система это РАЗРЕШИЛА:
+ * с Android 14 это отдельное право, и по умолчанию оно есть лишь у звонилок и будильников
+ * (аудит такси, P1-5). Нет права — уведомление всё равно всплывает «шторкой» сверху.
  * Тап/фуллскрин → MainActivity с extra → YuldashApp открывает кабинет водителя,
  * где InstantDriverOnlineController уже рисует существующий InstantOfferOverlay.
+ *
+ * Если уведомления запрещены совсем (отказ в POST_NOTIFICATIONS на Android 13+ либо выключены
+ * в настройках) — показать нечего, и молчать об этом нельзя: водителю на экране линии
+ * говорит об этом предупреждение (DriverOnlineHint в ProfileScreen).
  */
 internal object TaxiOfferNotifier {
     const val CHANNEL_ID = "taxi_offers"
@@ -75,6 +81,11 @@ internal object TaxiOfferNotifier {
         ttlSec: Int = 20,
     ) {
         if (!AppPrefs.notifications(ctx)) return   // тумблер «Уведомления» в Настройках
+        // Разрешения нет → notify() молча ничего не сделает. Раньше мы этого даже не замечали:
+        // на погасшем экране уведомление — единственный способ доставить оффер, и водитель мог
+        // час «работать» без единого заказа (аудит такси, P0-2). Теперь выходим честно, а на
+        // экране линии человек видит предупреждение и кнопку «Включить».
+        if (!notificationsAllowed(ctx)) return
         ensureChannel(ctx, lang)
         val mgr = ctx.getSystemService(NotificationManager::class.java) ?: return
         val open = Intent(ctx, MainActivity::class.java).apply {
@@ -88,6 +99,9 @@ internal object TaxiOfferNotifier {
         val from = fromText.ifBlank { appTextFor(lang, "Точка А", "А нөктәһе") }
         val to = toText.ifBlank { appTextFor(lang, "Точка Б", "Б нөктәһе") }
         val silent = !AppPrefs.sounds(ctx)   // тумблер «Звуки» — беззвучно, но всплывает
+        // Android 14+: без права на full-screen intent система молча проглатывает такой вызов.
+        // Ставим его только когда право есть — иначе полагаемся на обычный heads-up.
+        val fullScreen = fullScreenOfferAllowed(ctx)
         val notif = NotificationCompat.Builder(ctx, CHANNEL_ID)
             // Иконка статус-бара обязана быть МОНОХРОМНОЙ (Android красит её в один цвет по альфе).
             // Было R.mipmap.ic_launcher — цветной лаунчер превращался в белый квадрат.
@@ -99,7 +113,7 @@ internal object TaxiOfferNotifier {
             .setAutoCancel(true)
             .setSilent(silent)
             .setContentIntent(pi)
-            .setFullScreenIntent(pi, true)                   // погасший экран → карточка сразу на весь экран
+            .apply { if (fullScreen) setFullScreenIntent(pi, true) }   // погасший экран → карточка на весь экран
             .setTimeoutAfter(ttlSec.coerceAtLeast(5) * 1000L)
             .build()
         mgr.notify(NOTIF_ID, notif)

@@ -26,7 +26,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -52,12 +55,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.TaxiApplicationDto
 import com.yuldash.app.data.TaxiCityDto
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 @Composable
 internal fun AdminTaxiScreen(onBack: () -> Unit) {
@@ -79,6 +84,14 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
     var rejectingId by remember { mutableStateOf<Int?>(null) }
     var rejectComment by remember { mutableStateOf("") }
 
+    // Журнал предрейсовых подтверждений (580-ФЗ). Сервер вёл его всё это время, но показать
+    // было негде: при разборе ДТП или проверке единственным способом достать запись был curl.
+    // dayShift: 0 = сегодня, 1 = вчера и так далее — админ листает назад стрелкой.
+    var dayShift by remember { mutableStateOf(0) }
+    var pretrip by remember { mutableStateOf<com.yuldash.app.data.PretripJournalDto?>(null) }
+    var pretripLoading by remember { mutableStateOf(true) }
+    var pretripError by remember { mutableStateOf(false) }
+
     val approvedMsg = appText("Таксист одобрен", "Таксист раҫланды")
     val rejectedMsg = appText("Заявка отклонена", "Заявка кире ҡағылды")
     val actionErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
@@ -97,8 +110,18 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
             ApiClient.adminTaxiCities().onSuccess { cities = it }.onFailure { citiesError = true }
         }
     }
+    fun reloadPretrip() {
+        pretripLoading = true; pretripError = false
+        scope.launch {
+            ApiClient.adminPretripJournal(pretripDayParam(dayShift))
+                .onSuccess { pretrip = it }
+                .onFailure { pretripError = true }
+            pretripLoading = false
+        }
+    }
     LaunchedEffect(filter) { reloadApps() }
     LaunchedEffect(Unit) { reloadCities() }
+    LaunchedEffect(dayShift) { reloadPretrip() }
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Таксисты", "Таксистар"), onBack) }) { padding ->
         LazyColumn(
@@ -320,8 +343,111 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                     }
                 }
             }
+
+            // ------------------ Журнал предрейсовых подтверждений (580-ФЗ) ------------------
+            item { Spacer(Modifier.height(6.dp)) }
+            item {
+                SectionHeader(
+                    appText("Готовность к работе", "Эшкә әҙерлек"),
+                    appText(
+                        "Кто отметился перед сменой. Это след для разбора ДТП и проверки.",
+                        "Смена алдынан кем билдәләнгән. Был — юл ваҡиғаһын тикшереү өсөн эҙ.",
+                    ),
+                )
+            }
+            // Переключатель дня: назад по дням, вперёд — не дальше сегодня.
+            item {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { dayShift += 1 }) {
+                        Icon(
+                            Icons.Default.ChevronLeft,
+                            contentDescription = appText("День раньше", "Иртәрәк көн"),
+                            tint = CanonText,
+                        )
+                    }
+                    Text(
+                        pretripDayLabel(dayShift, pretrip?.day),
+                        color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                        modifier = Modifier.weight(1f), textAlign = TextAlign.Center,
+                    )
+                    IconButton(onClick = { if (dayShift > 0) dayShift -= 1 }, enabled = dayShift > 0) {
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = appText("День позже", "Һуңғараҡ көн"),
+                            tint = if (dayShift > 0) CanonText else CanonMuted,
+                        )
+                    }
+                }
+            }
+            when {
+                pretripLoading && pretrip == null -> item { SkeletonCard(lines = 2) }
+                pretripError && pretrip == null -> item { ListedError(loadErr) { reloadPretrip() } }
+                pretrip?.items.isNullOrEmpty() -> item {
+                    Text(
+                        appText(
+                            "В этот день никто не отмечался.",
+                            "Был көндә бер кем дә билдәләнмәгән.",
+                        ),
+                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                    )
+                }
+                else -> items(
+                    pretrip!!.items.size,
+                    key = { "pretrip-" + pretrip!!.items[it].driverId + "-" + pretrip!!.day },
+                ) { i ->
+                    val e = pretrip!!.items[i]
+                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Default.HealthAndSafety, contentDescription = null,
+                                tint = CanonGreen2, modifier = Modifier.size(22.dp),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(e.name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text(
+                                    appText("Отметился в ", "Билдәләнгән: ") + shortTimeOf(e.confirmedAt),
+                                    color = CanonMuted, fontSize = 12.sp,
+                                )
+                                if (e.note.isNotBlank()) {
+                                    Text(e.note, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+/** Дата для запроса журнала: 0 = сегодня (пусто — день выбирает сервер), иначе ГГГГ-ММ-ДД. */
+private fun pretripDayParam(shift: Int): String? {
+    if (shift <= 0) return null
+    val cal = java.util.Calendar.getInstance()
+    cal.add(java.util.Calendar.DAY_OF_YEAR, -shift)
+    return java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
+}
+
+/** Подпись дня: «Сегодня» / «Вчера» / дата с сервера — чтобы админ не считал дни в уме. */
+@Composable
+private fun pretripDayLabel(shift: Int, serverDay: String?): String = when (shift) {
+    0 -> appText("Сегодня", "Бөгөн")
+    1 -> appText("Вчера", "Кисә")
+    else -> serverDay ?: pretripDayParam(shift).orEmpty()
+}
+
+/** «14:35» из ISO-времени. Не разобралось — отдаём как есть, лишь бы не пусто. */
+private fun shortTimeOf(iso: String): String {
+    val t = iso.substringAfter('T', "")
+    return if (t.length >= 5) t.take(5) else iso
 }
 
 /** Чип фильтра статуса заявок (тач-цель ≥48dp). */

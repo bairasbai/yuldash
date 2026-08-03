@@ -154,7 +154,11 @@ def _finished(first_name: str, *, kind: str = "ride", phases: dict = _PHASES) ->
 def _parcel_state(session: Session, share: TripShare) -> dict:
     """G1: состояние ДОСТАВКИ для получателя. Статус посылки → упрощённая фаза; позиция
     курьера (livepos «parcel», пишется в location.py) — пока курьер назначен и едет. После
-    вручения/отмены — «Посылка доставлена ✅» БЕЗ координат. Телефоны наружу не идут."""
+    вручения/отмены — «Посылка доставлена ✅» БЕЗ координат. Телефоны наружу не идут.
+
+    to_address («куда именно» — дом/квартира/ориентир) отдаём: это СОБСТВЕННЫЙ адрес получателя,
+    он по нему и ждёт. from_address (адрес отправителя) — чужие персональные данные: по публичной
+    ссылке не уходит никогда. После вручения адреса тоже нет — там уже нет и маршрута."""
     parcel = session.get(ParcelDelivery, share.parcel_id)
     if not parcel:
         raise HTTPException(404, "Ссылка не найдена")
@@ -163,10 +167,12 @@ def _parcel_state(session: Session, share: TripShare) -> dict:
         return _finished(name, kind="parcel", phases=_PARCEL_PHASES)
     phase = _PARCEL_STATUS_PHASE.get(parcel.status, "searching")
     car = livepos_get("parcel", parcel.id) if parcel.status in _PARCEL_LIVE_CAR else None
-    return _live(name, phase,
-                 frm={"lat": parcel.from_lat, "lng": parcel.from_lng, "text": parcel.from_city or "Точка А"},
-                 to={"lat": parcel.to_lat, "lng": parcel.to_lng, "text": parcel.to_city or "Точка Б"},
-                 car=car, kind="parcel", phases=_PARCEL_PHASES)
+    out = _live(name, phase,
+                frm={"lat": parcel.from_lat, "lng": parcel.from_lng, "text": parcel.from_city or "Точка А"},
+                to={"lat": parcel.to_lat, "lng": parcel.to_lng, "text": parcel.to_city or "Точка Б"},
+                car=car, kind="parcel", phases=_PARCEL_PHASES)
+    out["to_address"] = getattr(parcel, "to_address", "") or ""
+    return out
 
 
 def _state(session: Session, share: TripShare) -> dict:

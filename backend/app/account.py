@@ -13,11 +13,13 @@
 полученные), доверенные контакты, шеринги поездок, SOS, жалобы, блокировки, платежи,
 события/объявления рекламы, FCM-токены, refresh-токены, коды входа, telegram-сессии,
 события загрузок, отзывы о приложении, обращения в поддержку (тикеты + весь тред),
-споры «Справедливости» (я — сторона) + профиль безопасности (страйки/паузы).
+профиль безопасности (страйки/паузы).
 
 Что ОТВЯЗЫВАЕТСЯ (не удаляем чужое, лишь убираем ссылку на юзера): у тех, кого он
 пригласил, `User.referred_by` → NULL; объявления, созданные им как админом для других
-(`Ad.created_by`) → NULL.
+(`Ad.created_by`) → NULL; жалобы НА него (3.5) и споры «Справедливости», где жива вторая
+сторона (3.7-bis), — ОБЕЗЛИЧИВАЮТСЯ: ссылка на него и его текст стираются, сам разбор,
+решение админа и улики второй стороны живут дальше.
 
 Медиа: аватар + документы водителя (их ретеншен-чистка НЕ трогает) + его голосовые
 стираем здесь. Чат-фото/голос и так подметает ретеншен по возрасту.
@@ -25,13 +27,15 @@
 import os
 from urllib.parse import urlparse
 
-from sqlalchemy import delete, or_, update
+from sqlalchemy import and_, delete, func, or_, update
 from sqlmodel import Session, select
 
+from .errors import herr
 from .models import (
     Ad, AdEvent, AppReview, Block, Booking, CommissionDebt, Consent, Coupon,
-    CouponRedemption, CourierApplication, CourierProfile, DeviceBan, DeviceToken,
-    DriverProfile, DriverSchedule, Incident, InstantOrder, InviteCode, LedgerEntry, Message,
+    CouponRedemption, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
+    DriverProfile, DriverSchedule, Incident, InstantOrder, InstantOrderStatus, InviteCode,
+    LedgerEntry, Message,
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
     Rating, RecentPlace, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
     RouteWatch, SafetyProfile, SavedPlace, SosEvent, SupportMessage, SupportTicket,
@@ -40,6 +44,89 @@ from .models import (
     WaitlistEntry,
 )
 from .storage import get_storage
+
+# Заказ такси ещё «живой»: он либо ищет машину, либо кто-то уже едет.
+_LIVE_ORDER_STATUSES = (
+    InstantOrderStatus.created, InstantOrderStatus.scheduled, InstantOrderStatus.searching,
+    InstantOrderStatus.offered, InstantOrderStatus.accepted, InstantOrderStatus.arriving,
+    InstantOrderStatus.onboard,
+)
+# Посылка физически в работе: курьер её взял и ещё не закрыл (везёт туда или обратно).
+_LIVE_PARCEL_STATUSES = ("accepted", "in_transit", "returning")
+
+
+def guard_can_delete(session: Session, user: User) -> None:
+    """Честные условия удаления аккаунта. Нарушено — 409 с объяснением на двух языках.
+
+    Зачем (аудит 2026-08-03): у `/me/delete` не было ни одной проверки, а каскад ниже
+    сносит долги и активные заказы. На практике это три дыры:
+      • водитель с неоплаченной комиссией жал «удалить» — долг исчезал вместе с ним;
+      • пассажир удалялся посреди поездки — заказ пропадал у водителя прямо в дороге;
+      • курьер удалялся с чужой посылкой в руках — у посылки обнулялся курьер, и не
+        оставалось даже следа, кто её вёз.
+    Мы не отказываем «навсегда»: текст говорит, что именно закрыть, чтобы удалиться.
+    """
+    # 1) Комиссия такси (Модель А, «на доверии»). paid — закрыто; unpaid/pending — нет.
+    owed_taxi = int(session.exec(
+        select(func.coalesce(func.sum(CommissionDebt.amount_kop), 0)).where(
+            CommissionDebt.driver_id == user.id,
+            CommissionDebt.status != DebtStatus.paid,
+        )
+    ).one() or 0)
+    if owed_taxi > 0:
+        rub = owed_taxi // 100
+        raise herr(409,
+                   f"Сначала закрой комиссию — {rub} ₽. Оплати её в разделе «Деньги», "
+                   "и аккаунт можно будет удалить.",
+                   f"Башта комиссияны яп — {rub} һум. «Аҡса» бүлегендә түлә, "
+                   "шунан аккаунтты юйып була.")
+
+    # 2) Комиссия курьера — та же логика, только считается по доставленным заказам.
+    # Формулу не дублируем: берём единственный источник из кабинета курьера (ленивый импорт —
+    # courier.py тянет parcels.py, на уровне модуля это был бы цикл).
+    from .routers.courier import _commission_owed_kop
+    owed_courier = _commission_owed_kop(session, user.id)
+    if owed_courier > 0:
+        rub = owed_courier // 100
+        raise herr(409,
+                   f"Сначала оплати комиссию курьера — {rub} ₽. Она в кабинете курьера, "
+                   "после оплаты аккаунт можно удалить.",
+                   f"Башта курьер комиссияһын түлә — {rub} һум. Ул курьер кабинетында, "
+                   "түләгәс аккаунтты юйып була.")
+
+    # 3) Живой такси-заказ — хоть пассажиром, хоть водителем.
+    live_order = session.exec(
+        select(InstantOrder.id).where(
+            or_(InstantOrder.passenger_id == user.id, InstantOrder.driver_id == user.id),
+            InstantOrder.status.in_(_LIVE_ORDER_STATUSES),
+        ).limit(1)
+    ).first()
+    if live_order is not None:
+        raise herr(409,
+                   "У тебя есть активный заказ такси (или предзаказ). Заверши или отмени его — "
+                   "и возвращайся к удалению аккаунта.",
+                   "Һинең әүҙем такси заказың (йәки алдан заказың) бар. Уны тамамла йәки кире ал — "
+                   "шунан аккаунтты юйырға ҡайт.")
+
+    # 4) Посылка в работе: моя (я отправитель) или чужая, которую везу я.
+    live_parcel = session.exec(
+        select(ParcelDelivery.sender_id, ParcelDelivery.courier_id).where(
+            or_(ParcelDelivery.sender_id == user.id, ParcelDelivery.courier_id == user.id),
+            ParcelDelivery.status.in_(_LIVE_PARCEL_STATUSES),
+        ).limit(1)
+    ).first()
+    if live_parcel is not None:
+        if live_parcel[1] == user.id:
+            raise herr(409,
+                       "Ты везёшь посылку. Доставь её или сними себя с доставки — "
+                       "и возвращайся к удалению аккаунта.",
+                       "Һин бандероль алып бараһың. Уны еткер йәки доставканан баш тарт — "
+                       "шунан аккаунтты юйырға ҡайт.")
+        raise herr(409,
+                   "Твоя посылка сейчас у курьера. Дождись доставки или отмени заявку — "
+                   "и возвращайся к удалению аккаунта.",
+                   "Һинең бандеролең хәҙер курьерҙа. Еткереүен көт йәки заявканы кире ал — "
+                   "шунан аккаунтты юйырға ҡайт.")
 
 
 def _safe_unlink_media(url: str) -> None:
@@ -114,12 +201,17 @@ def delete_user_account(session: Session, user: User) -> None:
         session.execute(delete(model).where(or_(*conds)))
 
     # 3) Удаляем строго дети → родители (порядок важен: Postgres проверяет внешние ключи).
-    # 3.1 Сообщения: мои + в удаляемых бронях + в удаляемых такси-заказах.
+    # 3.1 Сообщения: мои + в удаляемых бронях + в удаляемых такси-заказах + в удаляемых посылках
+    # (чат отправитель ↔ курьер: сообщения ВТОРОЙ стороны тоже держат FK на посылку — без этой
+    # строки delete(ParcelDelivery) на шаге 3.12 падал бы по внешнему ключу на Postgres,
+    # и аккаунт становился неудаляемым, а это 152-ФЗ).
     msg = [Message.sender_id == uid]
     if booking_ids:
         msg.append(Message.booking_id.in_(booking_ids))
     if order_ids:
         msg.append(Message.order_id.in_(order_ids))
+    if parcel_ids:
+        msg.append(Message.parcel_id.in_(parcel_ids))
     dele(Message, *msg)
     # 3.2 Рейтинги: мной поставленные/полученные + по удаляемым броням/заказам/посылкам.
     rating = [Rating.rater_id == uid, Rating.ratee_id == uid]
@@ -176,6 +268,12 @@ def delete_user_account(session: Session, user: User) -> None:
     if rep_ctx:
         session.execute(update(Report).where(or_(*rep_ctx))
                         .values(order_id=None, parcel_id=None))
+    # Жалоба может быть привязана и к БРОНИ (safety.py передаёт booking_id) — эту ссылку тоже
+    # снимаем, иначе выжившая обезличенная жалоба держит FK на удаляемую бронь и delete(Booking)
+    # падает на Postgres (аудит 2026-08-03: шаг закрывал только order_id/parcel_id).
+    if booking_ids:
+        session.execute(update(Report).where(Report.booking_id.in_(booking_ids))
+                        .values(booking_id=None))
     # 3.6 Платежи: мои + по моим поездкам/объявлениям/броням/заказам/подпискам бизнеса.
     pay = [Payment.user_id == uid]
     if ride_ids:
@@ -197,14 +295,44 @@ def delete_user_account(session: Session, user: User) -> None:
         ledg.append(LedgerEntry.order_id.in_(order_ids))
     dele(CommissionDebt, *debt)
     dele(LedgerEntry, *ledg)
-    # 3.7-bis «Справедливость»: споры, где я сторона (тексты обеих сторон = ПДн), + споры по
-    # удаляемым броням (FK incident.booking_id). В чужих спорах, решённых мной как админом,
-    # само решение не трогаем — только отвязываем ссылку (FK resolved_by). Профиль безопасности
-    # (страйки/паузы) удаляем целиком. Без этого шага delete(Booking)/delete(User) падает по FK.
-    inc = [Incident.reporter_id == uid, Incident.respondent_id == uid]
+    # 3.7-bis «Справедливость»: споры, где я сторона.
+    #
+    # Почему НЕ удаляем (аудит 2026-08-03): раньше стиралась любая строка, где человек —
+    # заявитель ИЛИ обвинённый. Обвинённый одним тапом «удалить аккаунт» уничтожал заявление
+    # жертвы, её фото-улики и уже вынесенное решение админа — ровно та дыра, которую для жалоб
+    # (Report) закрыли на шаге 3.5. Переносим тот же приём:
+    #   • обе стороны — это я (второй уже нет) → спор бессмыслен, удаляем;
+    #   • вторая сторона жива → ОБЕЗЛИЧИВАЕМ мою сторону: ссылка на меня → NULL, мой свободный
+    #     текст и список МОИХ фото — пусто. Суть спора (тип, статус, решение, объяснение админа,
+    #     компенсация) и улики второй стороны остаются: это её данные и её защита.
+    # Мои файлы-улики стираются с диска отдельно (см. п.1) — ссылок на них больше нет; файлы
+    # второй стороны, наоборот, перестают быть сиротами (раньше строка исчезала, а фото жило).
+    # Обезличенная строка не содержит ни ссылки на пользователя, ни его текста, поэтому
+    # generic-инвариант «ноль ссылок на user.id» по-прежнему держится.
+    # appeal_text не трогаем: апелляцию подаёт любая из сторон, автор в модели не хранится —
+    # это часть решения по спору (как объяснение админа), а не текст конкретной стороны.
+    dele(Incident,
+         and_(Incident.reporter_id == uid, Incident.respondent_id.is_(None)),
+         and_(Incident.respondent_id == uid, Incident.reporter_id.is_(None)))
+    session.execute(update(Incident).where(Incident.reporter_id == uid)
+                    .values(reporter_id=None, description="", evidence_urls="", reporter_role=""))
+    session.execute(update(Incident).where(Incident.respondent_id == uid)
+                    .values(respondent_id=None, respondent_statement="",
+                            respondent_evidence_urls=""))
+    # Контекст спора (бронь/такси-заказ/посылка) уходит вместе с аккаунтом — на выживших строках
+    # ссылку снимаем, иначе внешний ключ повиснет и delete(Booking)/delete(InstantOrder) упадёт.
+    inc_ctx = []
     if booking_ids:
-        inc.append(Incident.booking_id.in_(booking_ids))
-    dele(Incident, *inc)
+        inc_ctx.append(Incident.booking_id.in_(booking_ids))
+    if order_ids:
+        inc_ctx.append(Incident.order_id.in_(order_ids))
+    if parcel_ids:
+        inc_ctx.append(Incident.parcel_id.in_(parcel_ids))
+    if inc_ctx:
+        session.execute(update(Incident).where(or_(*inc_ctx))
+                        .values(booking_id=None, order_id=None, parcel_id=None))
+    # В чужих спорах, решённых мной как админом, само решение не трогаем — только отвязываем
+    # ссылку (FK resolved_by). Профиль безопасности (страйки/паузы) удаляем целиком.
     session.execute(update(Incident).where(Incident.resolved_by == uid).values(resolved_by=None))
     session.execute(delete(SafetyProfile).where(SafetyProfile.user_id == uid))
     # 3.8 Брони (после всех детей, что на них ссылаются).

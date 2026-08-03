@@ -14,5 +14,13 @@
         android:strokeWidth="2.2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M10 27H38Q41 27 41 30V36H7V30Q7 27 10 27"/>
+        android:pathData="M10 27H38Q41 27 41 30V33H7V30Q7 27 10 27"/>
+    <path
+        android:strokeColor="#FF0B6B4B"
+        android:strokeWidth="2.2"
+        android:pathData="M11.6 34.5a3.4 3.4 0 1 0 6.8 0a3.4 3.4 0 1 0 -6.8 0Z"/>
+    <path
+        android:strokeColor="#FF0B6B4B"
+        android:strokeWidth="2.2"
+        android:pathData="M29.6 34.5a3.4 3.4 0 1 0 6.8 0a3.4 3.4 0 1 0 -6.8 0Z"/>
 </vector>
