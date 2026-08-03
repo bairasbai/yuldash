@@ -75,19 +75,19 @@ internal fun SeasonalBanner(
                     Surface(color = CanonMint, shape = CircleShape) {
                         Text(
                             event.emoji.ifBlank { "🎉" },
-                            fontSize = 22.sp,
-                            modifier = Modifier.padding(10.dp),
+                            fontSize = 24.sp,
+                            modifier = Modifier.padding(8.dp),
                         )
                     }
-                    Spacer(Modifier.width(13.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             title,
                             color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp,
                             maxLines = 2, overflow = TextOverflow.Ellipsis,
                         )
                         if (subtitle.isNotBlank()) {
-                            Text(subtitle, color = CanonMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(subtitle, color = CanonMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                     Spacer(Modifier.width(8.dp))
@@ -105,7 +105,7 @@ internal fun SeasonalBanner(
                         "Едешь на праздник? Опубликуй поездку — попутчики уже ищут.",
                         "Байрамға бараһыңмы? Сәфәреңде ҡуй — юлдаштар эҙләй.",
                     ),
-                    color = CanonMutedStrong, fontSize = 13.sp, lineHeight = 18.sp,
+                    color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 20.sp,
                 )
                 AppButton(
                     text = appText("Опубликовать поездку", "Сәфәр булдырыу"),

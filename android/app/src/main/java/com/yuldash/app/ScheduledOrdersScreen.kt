@@ -222,7 +222,7 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                     // «Пора ехать» — активированные ко времени (сервер уже перевёл в поиск).
                     if (data.activated.isNotEmpty()) {
                         item {
-                            Text(appText("Пора ехать", "Барыр ваҡыт"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                            Text(appText("Пора ехать", "Барыр ваҡыт"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
                         items(data.activated, key = { "act-${it.id}" }) { order ->
                             ActivatedOrderCard(order = order, onOpen = onActivated)
@@ -230,8 +230,8 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                     }
                     if (data.scheduled.isNotEmpty()) {
                         item {
-                            Text(appText("Ждут своего времени", "Ваҡытын көтә"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp,
-                                modifier = Modifier.padding(top = if (data.activated.isNotEmpty()) 6.dp else 0.dp))
+                            Text(appText("Ждут своего времени", "Ваҡытын көтә"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                                modifier = Modifier.padding(top = if (data.activated.isNotEmpty()) 4.dp else 0.dp))
                         }
                         items(data.scheduled, key = { it.id }) { order ->
                             ScheduledOrderCard(
@@ -279,7 +279,7 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                     ),
                     color = CanonMuted,
                     fontSize = 14.sp,
-                    lineHeight = 19.sp,
+                    lineHeight = 20.sp,
                 )
             },
             confirmButton = {
@@ -324,20 +324,20 @@ private fun ScheduledOrderCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
         border = if (ready) BorderStroke(1.5.dp, CanonGreen2) else null,
     ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             RouteLine(order)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                Text(order.scheduledAt?.let { formatDepart(it) } ?: "—", color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(order.scheduledAt?.let { formatDepart(it) } ?: "—", color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
                 CountdownChip(order.scheduledAt, nowMs)
             }
             if (order.priceEstimate > 0) {
                 Text(appText("≈ ${order.priceEstimate} ₽ · цену уточним при подаче", "≈ ${order.priceEstimate} ₽ · хаҡты килгәндә асыҡлайбыҙ"),
-                    color = CanonMuted, fontSize = 13.sp)
+                    color = CanonMuted, fontSize = 14.sp)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 AppButton(
@@ -376,21 +376,21 @@ private fun ActivatedOrderCard(order: InstantOrderDto, onOpen: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonGreen2),
         shape = CanonCardShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.raised),
     ) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(10.dp).alpha(a).background(CanonBg, CircleShape))
             Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(activatedScheduledTitle(order.status),
                     color = CanonBg, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Text("${order.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}",
-                    color = CanonBg.copy(alpha = 0.9f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    color = CanonBg.copy(alpha = 0.9f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(8.dp))
             Surface(color = CanonBg.copy(alpha = 0.22f), shape = RoundedCornerShape(999.dp)) {
-                Text(appText("Открыть", "Асыу"), color = CanonBg, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                Text(appText("Открыть", "Асыу"), color = CanonBg, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
             }
         }
     }
@@ -432,7 +432,7 @@ private fun CountdownChip(iso: String?, nowMs: Long) {
         border = BorderStroke(1.dp, if (ready) CanonGreen2 else CanonBorder),
     ) {
         Text(label, color = if (ready) CanonGreen2 else CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
     }
 }
 

@@ -95,7 +95,7 @@ internal fun SupportTicketsScreen(onBack: () -> Unit, onOpenTicket: (Int) -> Uni
     ) { padding ->
         AnimatedContent(
             targetState = composing,
-            transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+            transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
             modifier = Modifier.padding(padding).fillMaxSize(),
             label = "support-list-compose",
         ) { isComposing ->
@@ -133,10 +133,10 @@ private fun SupportTicketsList(
         contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
     ) {
         item {
-            Text(appText("Мы рядом", "Беҙ янда"), color = CanonGreen, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
+            Text(appText("Мы рядом", "Беҙ янда"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             Text(appText("Напиши нам — ответим и поможем. Обычно отвечаем в течение дня.",
                 "Беҙгә яҙ — яуап бирербеҙ һәм ярҙам итербеҙ. Ғәҙәттә көн эсендә яуаплайбыҙ."),
-                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 4.dp))
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 4.dp))
         }
         item {
             // Заметная кнопка «Новое обращение».
@@ -145,17 +145,17 @@ private fun SupportTicketsList(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = CanonGreen2),
                 shape = CanonCardShape,
-                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.raised),
             ) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Surface(shape = CircleShape, color = CanonBg.copy(alpha = 0.22f)) {
-                        Icon(Icons.Default.Add, contentDescription = null, tint = CanonBg, modifier = Modifier.padding(11.dp).size(24.dp))
+                        Icon(Icons.Default.Add, contentDescription = null, tint = CanonBg, modifier = Modifier.padding(12.dp).size(24.dp))
                     }
-                    Spacer(Modifier.width(14.dp))
+                    Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(appText("Новое обращение", "Яңы мөрәжәғәт"), color = CanonBg, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(appText("Новое обращение", "Яңы мөрәжәғәт"), color = CanonBg, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                         Text(appText("Опиши вопрос — мы разберёмся", "Һорауыңды яҙ — беҙ асыҡлайбыҙ"),
-                            color = CanonBg.copy(alpha = 0.9f), fontSize = 13.sp, lineHeight = 17.sp)
+                            color = CanonBg.copy(alpha = 0.9f), fontSize = 14.sp, lineHeight = 20.sp)
                     }
                 }
             }
@@ -201,10 +201,10 @@ private fun SupportTicketRow(row: SupportTicketRowDto, onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
     ) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (row.unread) {
                         Box(Modifier.size(9.dp).background(CanonGreen2, CircleShape))
@@ -224,7 +224,7 @@ private fun SupportTicketRow(row: SupportTicketRowDto, onClick: () -> Unit) {
                     if (row.lastSender == "admin") append(appText("Поддержка: ", "Ярҙам: "))
                     append(row.lastMessage.ifBlank { appText("Нет сообщений", "Хәбәрҙәр юҡ") })
                 }
-                Text(preview, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(preview, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SupportStatusChip(closed)
                     if (row.updatedAt.isNotBlank()) {
@@ -232,7 +232,7 @@ private fun SupportTicketRow(row: SupportTicketRowDto, onClick: () -> Unit) {
                     }
                 }
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(8.dp))
             Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
         }
     }
@@ -246,7 +246,7 @@ private fun SupportStatusChip(closed: Boolean) {
         Text(
             if (closed) appText("Закрыто", "Ябыҡ") else appText("Открыто", "Асыҡ"),
             color = fg, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
         )
     }
 }
@@ -264,12 +264,12 @@ private fun NewTicketForm(onCancel: () -> Unit, onCreated: (Int) -> Unit) {
 
     Column(
         Modifier.fillMaxSize().padding(16.dp).imePadding(),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(appText("Новое обращение", "Яңы мөрәжәғәт"), color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(appText("Новое обращение", "Яңы мөрәжәғәт"), color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text(appText("Расскажи, что случилось — чем подробнее, тем быстрее поможем.",
             "Нимә булғанын яҙ — ни тиклем ентеклерәк, шул тиклем тиҙерәк ярҙам итәбеҙ."),
-            color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+            color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
 
         OutlinedTextField(
             value = subject,
@@ -277,7 +277,7 @@ private fun NewTicketForm(onCancel: () -> Unit, onCreated: (Int) -> Unit) {
             label = { Text(appText("Тема (необязательно)", "Тема (мотлаҡ түгел)")) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
         )
         OutlinedTextField(
             value = body,
@@ -285,11 +285,11 @@ private fun NewTicketForm(onCancel: () -> Unit, onCreated: (Int) -> Unit) {
             label = { Text(appText("Сообщение", "Хәбәр")) },
             placeholder = { Text(appText("Опиши вопрос…", "Һорауыңды яҙ…")) },
             modifier = Modifier.fillMaxWidth().height(160.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
         )
         if (errorText != null) Text(errorText!!, color = CanonRed, fontSize = 14.sp)
 
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(4.dp))
         AppButton(
             text = appText("Отправить", "Ебәреү"),
             onClick = {
@@ -394,14 +394,14 @@ internal fun SupportTicketScreen(ticketId: Int, onBack: () -> Unit) {
             AnimatedVisibility(visible = closed && !loading) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                        .background(CanonSurface, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 10.dp),
+                        .background(CanonSurface, RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(appText("Обращение закрыто. Напиши — и оно снова откроется.",
                         "Мөрәжәғәт ябылды. Яҙ — ул ҡабат асыла."),
-                        color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                 }
             }
             when {

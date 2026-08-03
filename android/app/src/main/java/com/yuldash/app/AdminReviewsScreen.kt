@@ -110,7 +110,7 @@ internal fun AdminReviewsContent(
                 CircularProgressIndicator(color = CanonGreen)
             }
             error != null -> Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Text(error, color = CanonRed, fontSize = 15.sp)
+                Text(error, color = CanonRed, fontSize = 16.sp)
                 Spacer(Modifier.height(14.dp))
                 Button(onClick = onRetry, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg)) {
                     Text(appText("Повторить", "Ҡабатларға"), fontWeight = FontWeight.Bold)
@@ -119,19 +119,19 @@ internal fun AdminReviewsContent(
             reviews.isEmpty() -> Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen, modifier = Modifier.size(48.dp))
                 Spacer(Modifier.height(12.dp))
-                Text(appText("Новых отзывов нет", "Яңы фекерҙәр юҡ"), color = CanonText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(appText("Новых отзывов нет", "Яңы фекерҙәр юҡ"), color = CanonText, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 Text(appText("Всё разобрано", "Барыһы ла ҡаралған"), color = CanonMuted, fontSize = 14.sp)
             }
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item { Spacer(Modifier.height(6.dp)) }
+                item { Spacer(Modifier.height(4.dp)) }
                 items(reviews, key = { it.id }) { r ->
                     Card(
                         colors = CardDefaults.cardColors(containerColor = CanonSurface),
                         shape = CanonCardShape,
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
                     ) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -139,10 +139,10 @@ internal fun AdminReviewsContent(
                                     Icon(Icons.Default.Star, contentDescription = null, tint = CanonGold, modifier = Modifier.size(16.dp))
                                 }
                             }
-                            Text("«${r.text}»", color = CanonText, fontSize = 15.sp, lineHeight = 20.sp)
+                            Text("«${r.text}»", color = CanonText, fontSize = 16.sp, lineHeight = 23.sp)
                             Text(
                                 listOfNotNull(r.name.ifBlank { null }, r.city.ifBlank { null }).joinToString(", ").ifBlank { appText("Аноним", "Аноним") },
-                                color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold,
                             )
                             Button(
                                 onClick = { onApprove(r) },
@@ -154,13 +154,13 @@ internal fun AdminReviewsContent(
                                 if (publishingId == r.id) {
                                     CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                                 } else {
-                                    Text(appText("Одобрить для сайта", "Сайт өсөн раҫларға"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                    Text(appText("Одобрить для сайта", "Сайт өсөн раҫларға"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 }
                             }
                         }
                     }
                 }
-                item { Spacer(Modifier.height(20.dp)) }
+                item { Spacer(Modifier.height(16.dp)) }
             }
         }
     }

@@ -771,7 +771,7 @@ internal fun mapFeedFrom(popular: List<PopularRoute>, feed: FeedDto? = null): Li
 internal fun Modifier.bounceClick(onClick: () -> Unit): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(120), label = "bounce")
+    val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(CanonMotion.QUICK), label = "bounce")
     return this
         .graphicsLayer { scaleX = scale; scaleY = scale }
         .clickable(interactionSource = interaction, indication = null, onClick = onClick)
@@ -781,8 +781,8 @@ internal fun Modifier.bounceClick(onClick: () -> Unit): Modifier {
 @Composable
 internal fun Modifier.appearIn(index: Int = 0): Modifier {
     var shown by remember { mutableStateOf(false) }
-    val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(380, delayMillis = index * 55), label = "appearAlpha")
-    val ty by animateFloatAsState(if (shown) 0f else 40f, tween(380, delayMillis = index * 55), label = "appearY")
+    val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(CanonMotion.SLOW, delayMillis = index * 55), label = "appearAlpha")
+    val ty by animateFloatAsState(if (shown) 0f else 40f, tween(CanonMotion.SLOW, delayMillis = index * 55), label = "appearY")
     LaunchedEffect(Unit) { shown = true }
     return this.graphicsLayer { this.alpha = alpha; translationY = ty }
 }
@@ -802,15 +802,15 @@ internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () 
     val name = payeeName?.takeIf { it.isNotBlank() } ?: SBP_NAME
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 28.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(appText("Перевод по СБП", "СБП аша күсереү"), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = CanonText)
-            Text("$amountRub ₽", fontSize = 42.sp, fontWeight = FontWeight.Bold, color = CanonGreen2)
+            Text(appText("Перевод по СБП", "СБП аша күсереү"), fontSize = 24.sp, fontWeight = FontWeight.Bold, color = CanonText)
+            Text("$amountRub ₽", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = CanonGreen2)
             Surface(color = CanonMint, shape = CanonItemShape) {
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(appText("Получатель · СБП", "Алыусы · СБП"), color = CanonMuted, fontSize = 13.sp)
-                    Text(phone, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(appText("Получатель · СБП", "Алыусы · СБП"), color = CanonMuted, fontSize = 14.sp)
+                    Text(phone, color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                     Text("$name · $bank", color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -819,7 +819,7 @@ internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () 
                     "Откройте банк → Переводы → По номеру телефона (СБП) → банк получателя $bank → вставьте номер и сумму $amountRub ₽.",
                     "Банк ҡушымтаһын асығыҙ → Күсереүҙәр → Телефон номеры буйынса (СБП) → алыусы банкы $bank → номерҙы һәм $amountRub ₽ сумманы ҡуйығыҙ."
                 ),
-                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
             )
             Button(
                 onClick = {
@@ -827,14 +827,14 @@ internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () 
                     Toast.makeText(context, copied, Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {
                 Text(appText("Скопировать номер", "Номерҙы күсереү"), fontWeight = FontWeight.Bold)
             }
             // Быстрая оплата: QR + кнопка «Оплатить в Сбербанке» (открывает перевод по номеру).
             SberPayBlock(phone)
-            OutlinedButton(onClick = onPaid, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(16.dp)) {
+            OutlinedButton(onClick = onPaid, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp)) {
                 Text(appText("Я перевёл", "Күсерҙем"))
             }
         }
@@ -873,11 +873,11 @@ internal fun SberPayBlock(phone: String, modifier: Modifier = Modifier) {
                 Image(
                     bmp.asImageBitmap(),
                     contentDescription = appText("QR для оплаты Сбербанком", "Сбербанк аша түләү QR-ы"),
-                    modifier = Modifier.padding(10.dp).size(150.dp)
+                    modifier = Modifier.padding(8.dp).size(150.dp)
                 )
             }
             Text(appText("Наведи камеру телефона — откроется Сбербанк", "Телефон камераһын төҙә — Сбербанк асыла"),
-                color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp, textAlign = TextAlign.Center)
+                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp, textAlign = TextAlign.Center)
         }
         Button(
             onClick = {
@@ -887,7 +887,7 @@ internal fun SberPayBlock(phone: String, modifier: Modifier = Modifier) {
                 if (!ok) Toast.makeText(context, noAppMsg, Toast.LENGTH_LONG).show()
             },
             modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
         ) {
             Text(appText("Оплатить в Сбербанке", "Сбербанкта түләү"), fontWeight = FontWeight.Bold)

@@ -90,7 +90,7 @@ internal fun rememberPermissionGate(
             onDismissRequest = { step = PermissionStep.Idle },
             containerColor = CanonSurface,
             title = { Text(title, color = CanonText, fontWeight = FontWeight.Bold) },
-            text = { Text(why, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) },
+            text = { Text(why, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) },
             confirmButton = {
                 TextButton(onClick = {
                     step = PermissionStep.Idle
@@ -107,7 +107,7 @@ internal fun rememberPermissionGate(
             onDismissRequest = { step = PermissionStep.Idle },
             containerColor = CanonSurface,
             title = { Text(title, color = CanonText, fontWeight = FontWeight.Bold) },
-            text = { Text(blockedText, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) },
+            text = { Text(blockedText, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) },
             confirmButton = {
                 TextButton(onClick = {
                     step = PermissionStep.Idle

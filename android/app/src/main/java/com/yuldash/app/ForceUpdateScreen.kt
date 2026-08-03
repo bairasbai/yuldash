@@ -78,7 +78,7 @@ internal fun ForceUpdateScreen(storeUrl: String) {
             Text(
                 appText("Обнови Юлдаш", "Юлдашты яңырт"),
                 color = CanonText,
-                fontSize = 26.sp,
+                fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
             )

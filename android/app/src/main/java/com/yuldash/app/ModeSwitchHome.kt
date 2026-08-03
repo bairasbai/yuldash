@@ -152,8 +152,8 @@ internal fun PassengerModeHome(
                 transitionSpec = {
                     // Едем в ту сторону, где сегмент стоит на панели: слева направо Попутка → Такси → Курьер.
                     val forward = targetState.ordinal > initialState.ordinal
-                    (fadeIn(tween(240)) + slideInHorizontally(tween(280)) { if (forward) it / 6 else -it / 6 })
-                        .togetherWith(fadeOut(tween(160)) + slideOutHorizontally(tween(280)) { if (forward) -it / 6 else it / 6 })
+                    (fadeIn(tween(CanonMotion.NORMAL)) + slideInHorizontally(tween(CanonMotion.NORMAL)) { if (forward) it / 6 else -it / 6 })
+                        .togetherWith(fadeOut(tween(CanonMotion.QUICK)) + slideOutHorizontally(tween(CanonMotion.NORMAL)) { if (forward) -it / 6 else it / 6 })
                 },
                 label = "rideMode",
             ) { m ->
@@ -242,17 +242,17 @@ private fun ModeSwitchBar(
         RideMode.Taxi -> appText("машина сейчас", "машина хәҙер")
         RideMode.Courier -> appText("отправить посылку", "бандероль ебәреү")
     }
-    Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 2.dp)) {
+    Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp)) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
             color = CanonSurface,
             border = BorderStroke(1.dp, CanonBorder),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            BoxWithConstraints(Modifier.padding(3.dp)) {
+            BoxWithConstraints(Modifier.padding(4.dp)) {
                 // Ширина одного сегмента известна только здесь — от неё считается сдвиг пилюли.
                 val segW = maxWidth / items.size
-                val offset by animateDpAsState(segW * index, tween(260), label = "mode_pill")
+                val offset by animateDpAsState(segW * index, tween(CanonMotion.NORMAL), label = "mode_pill")
                 // ПОДЛОЖКА выбранного режима. Тонкая рамка цветом режима — не украшение.
                 // Проверка контраста (2026-08-03): подложка и фон контрола — соседние токены,
                 // в тёмной теме CanonPoolingBg на CanonSurface дают 1.02:1, то есть пилюли
@@ -264,14 +264,14 @@ private fun ModeSwitchBar(
                         .offset(x = offset)
                         .width(segW)
                         .height(MODE_SEG_HEIGHT)
-                        .clip(RoundedCornerShape(13.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(activeBg)
-                        .border(1.dp, accent.copy(alpha = 0.55f), RoundedCornerShape(13.dp))
+                        .border(1.dp, accent.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
                 )
                 Row(Modifier.fillMaxWidth()) {
                     items.forEachIndexed { i, (m, iconRes, title) ->
                         val on = i == index
-                        val tint by animateColorAsState(if (on) accent else CanonMuted, tween(220), label = "mode_tint")
+                        val tint by animateColorAsState(if (on) accent else CanonMuted, tween(CanonMotion.QUICK), label = "mode_tint")
                         val cd = appText(
                             if (on) "$title, выбрано" else "$title, выбрать",
                             if (on) "$title, һайланды" else "$title, һайлау",
@@ -280,7 +280,7 @@ private fun ModeSwitchBar(
                             Modifier
                                 .weight(1f)
                                 .height(MODE_SEG_HEIGHT)
-                                .clip(RoundedCornerShape(13.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .clickable(onClickLabel = cd) { onSelect(m) }
                                 .semantics { contentDescription = cd },
                             horizontalArrangement = Arrangement.Center,
@@ -288,7 +288,7 @@ private fun ModeSwitchBar(
                         ) {
                             Icon(painterResource(iconRes), contentDescription = null,
                                 tint = tint, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(4.dp))
                             Text(
                                 title,
                                 color = if (on) CanonText else CanonMuted,
@@ -306,17 +306,17 @@ private fun ModeSwitchBar(
         // плитке (три штуки разом), а ссылки жили отдельной строкой ниже: две строки там,
         // где хватает одной.
         Row(
-            Modifier.fillMaxWidth().padding(top = 2.dp),
+            Modifier.fillMaxWidth().padding(top = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AnimatedContent(
                 targetState = subtitle,
-                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
+                transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                 label = "mode_subtitle",
                 modifier = Modifier.weight(1f),
             ) { text ->
-                Text(text, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                Text(text, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = 4.dp))
             }
@@ -325,12 +325,12 @@ private fun ModeSwitchBar(
             AnimatedVisibility(visible = mode == RideMode.Courier) {
                 TextButton(onClick = onCourierMode, contentPadding = PaddingValues(horizontal = 8.dp)) {
                     Text(appText("Хочу возить", "Йөрөтөргә теләйем"),
-                        color = CanonCourier, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        color = CanonCourier, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }
             TextButton(onClick = onExplain, contentPadding = PaddingValues(horizontal = 8.dp)) {
                 Text(appText("Чем отличается?", "Айырмаһы нимәлә?"),
-                    color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
         }
     }
@@ -350,12 +350,12 @@ private fun ModeHintSheet(onDismiss: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = CanonSurface) {
         Column(
-            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
                 appText("Три режима", "Өс режим"),
-                color = CanonText, fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold,
+                color = CanonText, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
             )
             HintRow(
                 iconRes = R.drawable.yu_mode_taxi,
@@ -384,14 +384,14 @@ private fun ModeHintSheet(onDismiss: () -> Unit) {
                     "Һин түгел, бандеролең бара. Юлда булған кеше илтә.",
                 ),
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             Button(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height(54.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonPooling),
             ) {
-                Text(appText("Понятно", "Аңлашылды"), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text(appText("Понятно", "Аңлашылды"), fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -406,9 +406,9 @@ private fun HintRow(iconRes: Int, accent: Color, title: String, body: String) {
             }
         }
         Column(Modifier.weight(1f)) {
-            Text(title, color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(2.dp))
-            Text(body, color = CanonText, fontSize = 16.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium)
+            Text(title, color = accent, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(body, color = CanonText, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.Medium)
         }
     }
 }

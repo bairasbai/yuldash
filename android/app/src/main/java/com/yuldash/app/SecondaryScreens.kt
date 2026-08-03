@@ -343,13 +343,13 @@ internal fun NotificationsScreen(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 18.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = 16.dp)
         ) {
-            item { Spacer(Modifier.height(10.dp)) }
+            item { Spacer(Modifier.height(8.dp)) }
             item {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(appText("Уведомления", "Хәбәрҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text(appText("Уведомления", "Хәбәрҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     // «Прочитать всё» — только когда есть непрочитанные (тач-цель 48dp через padding).
                     AnimatedVisibility(visible = feed.unread > 0) {
                         Text(
@@ -367,10 +367,10 @@ internal fun NotificationsScreen(
                         Surface(color = CanonMint, shape = CircleShape) {
                             Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(22.dp))
                         }
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(appText("Мои подписки на маршрут", "Маршрут яҙылыуҙарым"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                            Text(appText("Караулим поездку и сообщим первыми", "Сәфәрҙе күҙәтеп, беренсе булып хәбәр итәбеҙ"), color = CanonMuted, fontSize = 13.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(appText("Мои подписки на маршрут", "Маршрут яҙылыуҙарым"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(appText("Караулим поездку и сообщим первыми", "Сәфәрҙе күҙәтеп, беренсе булып хәбәр итәбеҙ"), color = CanonMuted, fontSize = 14.sp)
                         }
                         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = CanonMuted)
                     }
@@ -391,7 +391,7 @@ internal fun NotificationsScreen(
             }
             when {
                 loading && feed.items.isEmpty() -> {
-                    items(4) { SkeletonCard(lines = 2, modifier = Modifier.padding(vertical = 2.dp)) }
+                    items(4) { SkeletonCard(lines = 2, modifier = Modifier.padding(vertical = 4.dp)) }
                 }
                 error && feed.items.isEmpty() -> {
                     item { AppErrorState(onRetry = { reload++ }) }
@@ -457,18 +457,18 @@ internal fun NotificationRow(notif: NotifDto, onClick: () -> Unit) {
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = if (notif.read) CanonMint else CanonSurface, shape = CircleShape) {
-                Icon(notifIcon(notif.type), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(14.dp).size(22.dp))
+                Icon(notifIcon(notif.type), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(22.dp))
             }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 23.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (subtitle.isNotBlank()) {
-                    Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (time.isNotBlank()) Text(time, color = CanonMuted, fontSize = 13.sp, maxLines = 1)
+                if (time.isNotBlank()) Text(time, color = CanonMuted, fontSize = 14.sp, maxLines = 1)
                 if (!notif.read) Box(Modifier.size(9.dp).background(CanonGreen2, CircleShape))
             }
         }
@@ -527,7 +527,7 @@ internal fun RouteWatchesScreen(
                         "Подпишись на маршрут — пришлём уведомление, как только водитель опубликует подходящую поездку.",
                         "Маршрутҡа яҙыл — йөрөтөүсе тап килгән сәфәр баҫтырһа, шунда уҡ хәбәр итәбеҙ."
                     ),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
                 )
             }
             // --- Форма подписки ---
@@ -547,7 +547,7 @@ internal fun RouteWatchesScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text(appText("И в обратную сторону", "Кире яҡҡа ла"), color = CanonText, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                            Text(appText("И в обратную сторону", "Кире яҡҡа ла"), color = CanonText, fontSize = 16.sp, modifier = Modifier.weight(1f))
                             Switch(checked = bothWays, onCheckedChange = { bothWays = it })
                         }
                         val needBothMsg = appText("Укажи откуда и куда", "Ҡайҙан һәм ҡайҙа икәнен яҙ")
@@ -582,7 +582,7 @@ internal fun RouteWatchesScreen(
             }
             // --- Список активных подписок ---
             item {
-                Text(appText("Активные подписки", "Әүҙем яҙылыуҙар"), color = CanonGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(top = 6.dp))
+                Text(appText("Активные подписки", "Әүҙем яҙылыуҙар"), color = CanonGreen, fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.padding(top = 4.dp))
             }
             when {
                 loading && watches.isEmpty() -> item { AppLoading(appText("Загрузка…", "Йөкләнә…")) }
@@ -618,16 +618,16 @@ private fun RouteWatchRow(watch: com.yuldash.app.data.RouteWatchDto, onDelete: (
             Surface(color = CanonMint, shape = CircleShape) {
                 Icon(Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(22.dp))
             }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     if (watch.direction == "both") "${watch.fromCity}  ⇄  ${watch.toCity}" else "${watch.fromCity}  →  ${watch.toCity}",
-                    color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp
+                    color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp
                 )
                 Text(
                     if (watch.direction == "both") appText("Туда и обратно", "Бара һәм ҡайта")
                     else appText("Караулим поездку", "Сәфәрҙе күҙәтәбеҙ"),
-                    color = CanonMuted, fontSize = 13.sp
+                    color = CanonMuted, fontSize = 14.sp
                 )
             }
             IconButton(onClick = onDelete) {
@@ -656,33 +656,33 @@ internal fun SafetyScreen(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 18.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = 16.dp)
         ) {
-            item { Spacer(Modifier.height(10.dp)) }
+            item { Spacer(Modifier.height(8.dp)) }
             item {
                 Text(
                     appText("Ваши данные и поездки под защитой", "Һеҙҙең мәғлүмәт һәм сәфәрҙәр һаҡланған"),
                     color = CanonMuted,
-                    fontSize = 15.sp
+                    fontSize = 16.sp
                 )
             }
             item {
                 Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonDangerBorder)) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = CanonDangerBg, shape = RoundedCornerShape(18.dp)) {
-                            Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Surface(color = CanonDangerBg, shape = RoundedCornerShape(14.dp)) {
+                            Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                 // Sos-иконка сама рисует «SOS» → с Text("SOS") был дубль. Щит (как кнопка SOS).
                                 Icon(Icons.Default.Shield, contentDescription = appText("Экстренный вызов", "Ашығыс саҡырыу"), tint = CanonRed, modifier = Modifier.size(34.dp))
                                 Text("SOS", color = CanonRed, fontWeight = FontWeight.Bold)
                             }
                         }
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Text(appText("Нужна помощь?", "Ярҙәм кәрәкме?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                            Text(appText("Свяжитесь с экстренными службами и поддержкой Юлдаш.", "Ашығыс хеҙмәттәр һәм Юлдаш ярҙамы менән бәйләнегеҙ."), color = CanonMuted, lineHeight = 19.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(appText("Нужна помощь?", "Ярҙәм кәрәкме?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                            Text(appText("Свяжитесь с экстренными службами и поддержкой Юлдаш.", "Ашығыс хеҙмәттәр һәм Юлдаш ярҙамы менән бәйләнегеҙ."), color = CanonMuted, lineHeight = 25.sp)
                         }
-                        Button(onClick = onSos, colors = ButtonDefaults.buttonColors(containerColor = CanonRed), shape = RoundedCornerShape(16.dp)) {
+                        Button(onClick = onSos, colors = ButtonDefaults.buttonColors(containerColor = CanonRed), shape = RoundedCornerShape(14.dp)) {
                             Text("SOS", fontWeight = FontWeight.Bold)
                         }
                     }
@@ -761,13 +761,13 @@ internal fun SettingsScreen(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 18.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = 16.dp)
         ) {
-            item { Spacer(Modifier.height(10.dp)) }
+            item { Spacer(Modifier.height(8.dp)) }
             item {
-                Text(appText("Настройки", "Көйләүҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold)
-                Text(appText("Настройте приложение под себя", "Ҡушымтаны үҙегеҙгә көйләгеҙ"), color = CanonMuted, fontSize = 15.sp)
+                Text(appText("Настройки", "Көйләүҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold)
+                Text(appText("Настройте приложение под себя", "Ҡушымтаны үҙегеҙгә көйләгеҙ"), color = CanonMuted, fontSize = 16.sp)
             }
             item { CompactProfileBanner() }
             item {
@@ -809,7 +809,7 @@ internal fun SettingsScreen(
                 }
             }
             item {
-                Text("Юлдаш © 2026", modifier = Modifier.fillMaxWidth(), color = CanonMuted, fontSize = 13.sp)
+                Text("Юлдаш © 2026", modifier = Modifier.fillMaxWidth(), color = CanonMuted, fontSize = 14.sp)
             }
         }
     }
@@ -829,7 +829,7 @@ internal fun ThemePickerDialog(current: Boolean?, onPick: (Boolean?) -> Unit, on
         confirmButton = { TextButton(onClick = onDismiss) { Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold) } },
         title = { Text(appText("Тема оформления", "Биҙәлеш темаһы"), color = CanonText, fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 options.forEach { (value, label) ->
                     Row(
                         Modifier.fillMaxWidth().bounceClick { onPick(value) }.padding(vertical = 12.dp, horizontal = 4.dp),
@@ -869,10 +869,10 @@ internal fun FontScalePickerDialog(current: FontScaleOption, onPick: (FontScaleO
         confirmButton = { TextButton(onClick = onDismiss) { Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold) } },
         title = { Text(appText("Размер текста", "Текст ҙурлығы"), color = CanonText, fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     appText("Увеличь текст во всём приложении — так удобнее читать.", "Бөтә ҡушымтала текстты ҙурайт — уҡырға уңайлыраҡ."),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 18.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                 )
                 FontScaleOption.values().forEach { option ->
@@ -926,13 +926,13 @@ internal fun RulesScreen(onBack: () -> Unit) {
                 val (t, d) = rules[i]
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
-                        Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
-                            Text("${i + 1}", Modifier.padding(horizontal = 13.dp, vertical = 8.dp), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                        Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+                            Text("${i + 1}", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = CanonGreen2, fontWeight = FontWeight.Bold)
                         }
-                        Spacer(Modifier.width(14.dp))
+                        Spacer(Modifier.width(12.dp))
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(t, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text(d, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+                            Text(d, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                         }
                     }
                 }
@@ -947,24 +947,24 @@ internal fun PaymentInfoScreen(onBack: () -> Unit, onOpenPricing: () -> Unit = {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Оплата поездок", "Сәфәр түләүе"), onBack) }) { padding ->
         LazyColumn(
             Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
             item {
                 Surface(color = CanonMint, shape = CanonItemShape) {
-                    Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.CreditCard, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(32.dp))
-                        Spacer(Modifier.width(14.dp))
+                        Spacer(Modifier.width(12.dp))
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(appText("Оплата напрямую водителю", "Тура водителгә түләү"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                            Text(appText("Сейчас оплата — переводом по СБП на карту водителя, как договоритесь в чате.", "Хәҙер түләү — СБП аша водитель картаһына, чатта килешеүсә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+                            Text(appText("Оплата напрямую водителю", "Тура водителгә түләү"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(appText("Сейчас оплата — переводом по СБП на карту водителя, как договоритесь в чате.", "Хәҙер түләү — СБП аша водитель картаһына, чатта килешеүсә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                         }
                     }
                 }
             }
             item {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(appText("Как это работает", "Был нисек эшләй"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         PaymentStepRow("1", appText("Договоритесь о цене в чате", "Хаҡты чатта килешегеҙ"))
                         PaymentStepRow("2", appText("После поездки переведите по СБП", "Сәфәрҙән һуң СБП аша күсерегеҙ"))
@@ -975,17 +975,17 @@ internal fun PaymentInfoScreen(onBack: () -> Unit, onOpenPricing: () -> Unit = {
             item {
                 // Честно о риске (не только о плюсе «без комиссии»): деньги мимо приложения.
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Row(Modifier.padding(18.dp), verticalAlignment = Alignment.Top) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
                         Icon(Icons.Default.Info, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
                         Spacer(Modifier.width(12.dp))
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(appText("Важно знать", "Белеп ҡуйығыҙ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(appText("Важно знать", "Белеп ҡуйығыҙ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Text(
                                 appText(
                                     "Деньги идут напрямую между вами — Юлдаш их не держит и не может вернуть. Это доверие «между своими»: плати после поездки, смотри рейтинг и отзывы, а при споре напиши в поддержку — разберёмся по-человечески.",
                                     "Аҡса тура үҙ-ара күсә — Юлдаш уны тотмай һәм кире ҡайтара алмай. Был «үҙ-ара» ышаныс: сәфәрҙән һуң түлә, баһа менән фекерҙәргә ҡара, бәхәс сыҡһа ярҙамға яҙ — кешеләрсә асыҡларбыҙ.",
                                 ),
-                                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                             )
                         }
                     }
@@ -999,17 +999,17 @@ internal fun PaymentInfoScreen(onBack: () -> Unit, onOpenPricing: () -> Unit = {
                 ) {
                     Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Info, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(26.dp))
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(appText("Честно о цене", "Хаҡ тураһында асыҡтан-асыҡ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text(appText("Как считается цена и куда идёт комиссия", "Хаҡ нисек иҫәпләнә һәм комиссия ҡайҙа китә"), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+                            Text(appText("Как считается цена и куда идёт комиссия", "Хаҡ нисек иҫәпләнә һәм комиссия ҡайҙа китә"), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                         }
                         Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
                     }
                 }
             }
             item {
-                Text(appText("Скоро: оплата картой прямо в приложении.", "Тиҙҙән: ҡушымтала карта менән түләү."), color = CanonMuted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
+                Text(appText("Скоро: оплата картой прямо в приложении.", "Тиҙҙән: ҡушымтала карта менән түләү."), color = CanonMuted, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp))
             }
         }
     }
@@ -1025,14 +1025,14 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Честно о цене", "Хаҡ тураһында"), onBack) }) { padding ->
         LazyColumn(
             Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
             item {
                 Surface(color = CanonMint, shape = CanonItemShape) {
-                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(appText("Мы не прячем, на что живём", "Нимә менән йәшәгәнде йәшермәйбеҙ"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 18.sp, lineHeight = 22.sp)
-                        Text(appText("Юлдаш — между своими. Здесь ты всегда видишь, из чего цена и куда уходит каждая копейка.", "Юлдаш — үҙ кешеләр араһында. Бында хаҡтың нимәнән торғанын һәм һәр тин ҡайҙа киткәнен күрәһең."), color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(appText("Мы не прячем, на что живём", "Нимә менән йәшәгәнде йәшермәйбеҙ"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 19.sp, lineHeight = 25.sp)
+                        Text(appText("Юлдаш — между своими. Здесь ты всегда видишь, из чего цена и куда уходит каждая копейка.", "Юлдаш — үҙ кешеләр араһында. Бында хаҡтың нимәнән торғанын һәм һәр тин ҡайҙа киткәнен күрәһең."), color = CanonText, fontSize = 14.sp, lineHeight = 20.sp)
                     }
                 }
             }
@@ -1062,16 +1062,16 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
             item {
                 Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
-                        Text("⚡", fontSize = 22.sp)
+                        Text("⚡", fontSize = 24.sp)
                         Spacer(Modifier.width(12.dp))
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(appText("Честный сурж: максимум ×1.5", "Намыҫлы сурж: күп тигәндә ×1.5"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(appText("Честный сурж: максимум ×1.5", "Намыҫлы сурж: күп тигәндә ×1.5"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Text(
                                 appText(
                                     "Когда машин мало, цена может подрасти — но у нас потолок ×1.5, а не ×3, как у больших сервисов. И мы честно пишем, почему дороже, ещё до того, как ты вызовешь.",
                                     "Машина аҙ булғанда хаҡ бер аҙ үҫә ала — тик бездә түшәм ×1.5, ҙур сервистарҙағыса ×3 түгел. Һәм ниңә ҡиммәтерәк икәнен саҡырғанға тиклем үк яҙабыҙ.",
                                 ),
-                                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                             )
                         }
                     }
@@ -1090,12 +1090,12 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
             }
             item {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(appText("Куда идёт комиссия", "Комиссия ҡайҙа китә"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         PricingWhereRow(Icons.Default.Info, appText("Серверы и связь", "Серверҙар һәм бәйләнеш"), appText("чтобы карта, чат и заказы работали без сбоев", "карта, чат һәм заказдар өҙлөкһөҙ эшләһен"))
                         PricingWhereRow(Icons.Default.Map, appText("Карты и маршруты", "Карталар һәм маршруттар"), appText("оплата картографии, по которой строятся поездки", "сәфәрҙәр төҙөлгән картография түләүе"))
                         PricingWhereRow(Icons.Default.TrendingUp, appText("Развитие приложения", "Ҡушымтаны үҫтереү"), appText("новые функции и поддержка — чтобы Юлдаш рос", "яңы мөмкинлектәр һәм ярҙам — Юлдаш үҫһен өсөн"))
-                        Text(appText("Мы не прячем, на что живём — сервис должен окупаться честно, без скрытых наценок.", "Нимә менән йәшәгәнде йәшермәйбеҙ — сервис йәшерен өҫтәмәләрһеҙ, намыҫлы аҡланырға тейеш."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                        Text(appText("Мы не прячем, на что живём — сервис должен окупаться честно, без скрытых наценок.", "Нимә менән йәшәгәнде йәшермәйбеҙ — сервис йәшерен өҫтәмәләрһеҙ, намыҫлы аҡланырға тейеш."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                     }
                 }
             }
@@ -1111,7 +1111,7 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
                 )
             }
             item {
-                Text(appText("Цифры могут меняться — но правило одно: ты всегда видишь, за что платишь.", "Һандар үҙгәрергә мөмкин — тик ҡағиҙә бер: нимә өсөн түләгәнеңде һәр ваҡыт күрәһең."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(horizontal = 4.dp))
+                Text(appText("Цифры могут меняться — но правило одно: ты всегда видишь, за что платишь.", "Һандар үҙгәрергә мөмкин — тик ҡағиҙә бер: нимә өсөн түләгәнеңде һәр ваҡыт күрәһең."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(horizontal = 4.dp))
             }
         }
     }
@@ -1120,12 +1120,12 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
 @Composable
 private fun PricingBlock(icon: ImageVector, title: String, body: String, accent: Color? = null) {
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-        Row(Modifier.padding(18.dp), verticalAlignment = Alignment.Top) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
             Icon(icon, contentDescription = null, tint = accent ?: CanonGreen2, modifier = Modifier.size(26.dp))
-            Spacer(Modifier.width(14.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Spacer(Modifier.width(12.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text(body, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+                Text(body, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
             }
         }
     }
@@ -1136,9 +1136,9 @@ private fun PricingWhereRow(icon: ImageVector, title: String, sub: String) {
     Row(verticalAlignment = Alignment.Top) {
         Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(12.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Text(sub, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+            Text(sub, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
     }
 }
@@ -1146,11 +1146,11 @@ private fun PricingWhereRow(icon: ImageVector, title: String, sub: String) {
 @Composable
 internal fun PaymentStepRow(n: String, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Surface(color = CanonMint, shape = RoundedCornerShape(10.dp)) {
-            Text(n, Modifier.padding(horizontal = 11.dp, vertical = 6.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Surface(color = CanonMint, shape = RoundedCornerShape(8.dp)) {
+            Text(n, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
         Spacer(Modifier.width(12.dp))
-        Text(text, color = CanonText, fontSize = 15.sp)
+        Text(text, color = CanonText, fontSize = 16.sp)
     }
 }
 
@@ -1197,10 +1197,10 @@ internal fun FiltersScreen(onBack: () -> Unit) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Фильтры по умолчанию", "Ғәҙәти фильтрҙар"), onBack) }) { padding ->
         LazyColumn(
             Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            item { Text(appText("Эти условия применятся к «Ближайшим поездкам» автоматически при открытии карты.", "Был шарттар карта асылғанда «Яҡын сәфәрҙәргә» автомат ҡулланыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+            item { Text(appText("Эти условия применятся к «Ближайшим поездкам» автоматически при открытии карты.", "Был шарттар карта асылғанда «Яҡын сәфәрҙәргә» автомат ҡулланыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
             item {
                 SettingsGroup {
                     SettingSwitchRow(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"), appText("Показывать только поездки для женщин", "Тик ҡатын-ҡыҙ өсөн сәфәрҙәр"), "women" in sel) { toggle("women") }
@@ -1218,9 +1218,9 @@ internal fun FiltersScreen(onBack: () -> Unit) {
 @Composable
 internal fun PersonRow(name: String, actionLabel: String, danger: Boolean, onAction: () -> Unit) {
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
-                Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp))
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp))
             }
             Spacer(Modifier.width(12.dp))
             Text(name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
@@ -1239,7 +1239,7 @@ private fun DocImage(url: String, token: String) {
     coil.compose.AsyncImage(
         model = coil.request.ImageRequest.Builder(ctx).data(url).addHeader("Authorization", "Bearer $token").crossfade(true).build(),
         contentDescription = null,
-        modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp)),
+        modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(14.dp)),
         contentScale = ContentScale.Crop,
     )
 }
@@ -1292,8 +1292,8 @@ internal fun AdminDriversContent(
     onReject: (com.yuldash.app.data.PendingDriverDto) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-        item { Text(appText("Проверь права и фото авто. Одобри или отклони.", "Права һәм авто фотоһын тикшер. Раҫла йәки кире ҡаҡ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+    LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+        item { Text(appText("Проверь права и фото авто. Одобри или отклони.", "Права һәм авто фотоһын тикшер. Раҫла йәки кире ҡаҡ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
         if (loading) {
             item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
         } else if (error != null) {
@@ -1304,13 +1304,13 @@ internal fun AdminDriversContent(
             items(drivers.size, key = { drivers[it].userId }) { i ->
                 val d = drivers[i]
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(d.name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                        Text((d.car.ifBlank { "—" }) + " · " + d.phone, color = CanonMuted, fontSize = 13.sp)
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(d.name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text((d.car.ifBlank { "—" }) + " · " + d.phone, color = CanonMuted, fontSize = 14.sp)
                         AutoCheckRow(d.autocheckResult, d.autocheckData)
-                        Text(appText("Водительское удостоверение", "Водитель таныҡлығы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(appText("Водительское удостоверение", "Водитель таныҡлығы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         DocImage(d.licenseUrl, token)
-                        Text(appText("Фото автомобиля", "Автомобиль фотоһы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(appText("Фото автомобиля", "Автомобиль фотоһы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         DocImage(d.carPhotoUrl, token)
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button(onClick = { onApprove(d) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Одобрить", "Раҫлау"), fontWeight = FontWeight.Bold) }
@@ -1340,9 +1340,9 @@ internal fun AutoCheckRow(result: String, dataJson: String) {
     }
     val numLabel = appText("№ прав ", "права № ")
     val expLabel = appText("срок до ", "ваҡыты ")
-    Surface(color = color.copy(alpha = 0.10f), shape = RoundedCornerShape(10.dp)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(label, color = color, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+    Surface(color = color.copy(alpha = 0.10f), shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, color = color, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             if (num.isNotBlank() || expiry.isNotBlank()) {
                 val recog = buildString {
                     if (num.isNotBlank()) append(numLabel).append(num)
@@ -1421,7 +1421,7 @@ internal fun AdminReportsContent(
     onUnpause: (Int) -> Unit = {},
 ) {
     LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-        item { Text(appText("Жалобы пользователей. Подтверди или отклони — лестница наказаний дальше считается сама. Автора видишь только ты.", "Ҡулланыусы ялыуҙары. Раҫла йәки кире ҡаҡ — язалар баҫҡысы артабан үҙе иҫәпләнә. Авторҙы тик һин күрәһең."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        item { Text(appText("Жалобы пользователей. Подтверди или отклони — лестница наказаний дальше считается сама. Автора видишь только ты.", "Ҡулланыусы ялыуҙары. Раҫла йәки кире ҡаҡ — язалар баҫҡысы артабан үҙе иҫәпләнә. Авторҙы тик һин күрәһең."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
         if (loading) {
             item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
         } else if (error != null) {
@@ -1434,11 +1434,11 @@ internal fun AdminReportsContent(
                 val severe = r.category in severeReportCategories
                 val open = r.status == "new" || r.status == "reviewing"
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, if (severe && open) CanonRed.copy(alpha = 0.45f) else CanonBorder)) {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             // Категория (⛔ тяжёлая — красным) + статус разбора.
                             Surface(shape = RoundedCornerShape(8.dp), color = (if (severe) CanonRed else CanonGreen2).copy(alpha = 0.12f)) {
-                                Text(reportCategoryLabel(r.category), color = if (severe) CanonRed else CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                                Text(reportCategoryLabel(r.category), color = if (severe) CanonRed else CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                             }
                             val (stLabel, stColor) = when (r.status) {
                                 "resolved" -> appText("Подтверждена", "Раҫланған") to CanonGreen2
@@ -1450,23 +1450,23 @@ internal fun AdminReportsContent(
                             Spacer(Modifier.weight(1f))
                             if (r.createdAt.length >= 10) Text(r.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
                         }
-                        Text("${r.reporterName}  →  ${r.targetName}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        if (r.targetPhone.isNotBlank()) Text(r.targetPhone, color = CanonMuted, fontSize = 13.sp)
-                        Text(r.reason.ifBlank { appText("без деталей", "ентекһеҙ") }, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
-                        if (r.resolution.isNotBlank()) Text(appText("Решение: ", "Ҡарар: ") + r.resolution, color = CanonMuted, fontSize = 13.sp)
+                        Text("${r.reporterName}  →  ${r.targetName}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        if (r.targetPhone.isNotBlank()) Text(r.targetPhone, color = CanonMuted, fontSize = 14.sp)
+                        Text(r.reason.ifBlank { appText("без деталей", "ентекһеҙ") }, color = CanonText, fontSize = 14.sp, lineHeight = 20.sp)
+                        if (r.resolution.isNotBlank()) Text(appText("Решение: ", "Ҡарар: ") + r.resolution, color = CanonMuted, fontSize = 14.sp)
                         if (open) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { onResolve(r, false) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
-                                    Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Button(onClick = { onResolve(r, false) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                                    Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 }
-                                OutlinedButton(onClick = { onReject(r) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(12.dp)) {
-                                    Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                OutlinedButton(onClick = { onReject(r) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(14.dp)) {
+                                    Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 }
                             }
                             if (severe) {
                                 // ⛔ Тяжёлая: пауза стоит «до разбора» — можно подтвердить, ОСТАВИВ паузу.
                                 TextButton(onClick = { onResolve(r, true) }, modifier = Modifier.fillMaxWidth()) {
-                                    Text(appText("Подтвердить и оставить паузу такси", "Раҫлап такси паузаһын ҡалдырыу"), color = CanonWarn, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    Text(appText("Подтвердить и оставить паузу такси", "Раҫлап такси паузаһын ҡалдырыу"), color = CanonWarn, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -1491,8 +1491,8 @@ internal fun AdminReportsContent(
 @Composable
 internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onTaxi: () -> Unit = {}, onWaitlist: () -> Unit = {}, onTaxiPulse: () -> Unit = {}, onPartners: () -> Unit = {}, onPromoAdmin: () -> Unit = {}, onParcelsAdmin: () -> Unit = {}, onCourierAdmin: () -> Unit = {}, onIncomeCalc: () -> Unit = {}, onSosFeed: () -> Unit = {}, onIncidents: () -> Unit = {}, onRatings: () -> Unit = {}) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Кабинет админа", "Админ кабинеты"), onBack) }) { padding ->
-        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-            item { Text(appText("Единый центр управления Юлдашем. Виден только администратору.", "Юлдашты идара итеү үҙәге. Тик админға күренә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+            item { Text(appText("Единый центр управления Юлдашем. Виден только администратору.", "Юлдашты идара итеү үҙәге. Тик админға күренә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
             item {
                 SettingsGroup {
                     SettingsNavRow(Icons.Default.HeadsetMic, appText("Заявка за пользователя", "Ҡулланыусы өсөн заявка"), appText("Создать заявку после звонка «перезвоните мне»", "«Шылтыратығыҙ» һуңында заявка булдырыу"), onClick = onAdminRequest)
@@ -1555,8 +1555,8 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
     }
     LaunchedEffect(Unit) { reload() }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заявки на оплату", "Түләү заявкалары"), onBack) }) { padding ->
-        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-            item { Text(appText("Сверь свою карту по сумме и имени, потом подтверди — буст запустится. Донаты просто засчитываются.", "Картаңды сумма һәм исем буйынса тикшер, аҙаҡ раҫла — буст эшләй. Донаттар иҫәпләнә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+            item { Text(appText("Сверь свою карту по сумме и имени, потом подтверди — буст запустится. Донаты просто засчитываются.", "Картаңды сумма һәм исем буйынса тикшер, аҙаҡ раҫла — буст эшләй. Донаттар иҫәпләнә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
             // Оплата от партнёров: QR раскрывается по нажатию (не висит всегда над списком заявок).
             item {
                 var showPartnerPay by remember { mutableStateOf(false) }
@@ -1566,9 +1566,9 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                             Modifier.fillMaxWidth().clickable { showPartnerPay = !showPartnerPay },
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(appText("Оплата от партнёра", "Партнёр түләүе"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                Text(appText("QR/номер для оплаты рекламы — показать партнёру", "Реклама түләүе өсөн QR/номер — партнёрға күрһәт"), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                                Text(appText("QR/номер для оплаты рекламы — показать партнёру", "Реклама түләүе өсөн QR/номер — партнёрға күрһәт"), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                             }
                             Icon(
                                 if (showPartnerPay) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
@@ -1585,9 +1585,9 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
             summary?.let { s ->
                 item {
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(appText("Донаты подтверждённые", "Раҫланған донаттар"), color = CanonMuted, fontSize = 13.sp)
-                            Text("${s.donateCount} " + appText("чел.", "кеше") + " · ${s.donateSum} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(appText("Донаты подтверждённые", "Раҫланған донаттар"), color = CanonMuted, fontSize = 14.sp)
+                            Text("${s.donateCount} " + appText("чел.", "кеше") + " · ${s.donateSum} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                         }
                     }
                 }
@@ -1598,7 +1598,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                     Text(appText("Долги за такси", "Такси бурыстары"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
                 item {
-                    Text(appText("Водитель перевёл комиссию по СБП и нажал «Я оплатил». Сверь по имени и сумме — подтверди, и такси у него разблокируется.", "Водитель комиссияны СБП аша күсереп «Мин түләнем» баҫҡан. Исем һәм сумма буйынса тикшер — раҫла, такси блокан асыла."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                    Text(appText("Водитель перевёл комиссию по СБП и нажал «Я оплатил». Сверь по имени и сумме — подтверди, и такси у него разблокируется.", "Водитель комиссияны СБП аша күсереп «Мин түләнем» баҫҡан. Исем һәм сумма буйынса тикшер — раҫла, такси блокан асыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                 }
                 items(debts.size, key = { debts[it].debtId }) { i ->
                     val g = debts[i]
@@ -1607,9 +1607,9 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(appText("Долг за такси", "Такси бурысы"), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text("${g.amount} ₽", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                Text("${g.amount} ₽", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                             }
-                            Text((g.driverName.ifBlank { noName }) + (if (g.driverPhone.isNotBlank()) " · ${g.driverPhone}" else ""), color = CanonMuted, fontSize = 13.sp)
+                            Text((g.driverName.ifBlank { noName }) + (if (g.driverPhone.isNotBlank()) " · ${g.driverPhone}" else ""), color = CanonMuted, fontSize = 14.sp)
                             if (g.weeks.isNotEmpty()) Text(appText("Недели: ", "Аҙналар: ") + g.weeks.joinToString(", "), color = CanonMuted, fontSize = 12.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(onClick = { val id = g.debtId; scope.launch { ApiClient.confirmDebt(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
@@ -1639,10 +1639,10 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(label, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text("${p.amount} ₽", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                Text("${p.amount} ₽", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                             }
-                            Text((p.payerName.ifBlank { noName }) + (if (p.payerPhone.isNotBlank()) " · ${p.payerPhone}" else ""), color = CanonMuted, fontSize = 13.sp)
-                            if (p.note.isNotBlank()) Text(p.note, color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text((p.payerName.ifBlank { noName }) + (if (p.payerPhone.isNotBlank()) " · ${p.payerPhone}" else ""), color = CanonMuted, fontSize = 14.sp)
+                            if (p.note.isNotBlank()) Text(p.note, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             if (p.createdAt.length >= 10) Text(p.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(onClick = { val id = p.paymentId; scope.launch { ApiClient.confirmPayment(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
@@ -1677,7 +1677,7 @@ internal fun AdminRequestScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            item { Text(appText("После звонка «перезвоните мне» заполни заявку за человека — водители увидят её как обычную.", "«Шылтыратығыҙ» һуңында кеше өсөн заявка тултыр — водителдәр уны ғәҙәти күрер."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+            item { Text(appText("После звонка «перезвоните мне» заполни заявку за человека — водители увидят её как обычную.", "«Шылтыратығыҙ» һуңында кеше өсөн заявка тултыр — водителдәр уны ғәҙәти күрер."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
             item { OutlinedTextField(phone, { phone = it }, label = { Text(appText("Телефон пользователя", "Ҡулланыусы телефоны")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
             item { OutlinedTextField(name, { name = it }, label = { Text(appText("Имя (необязательно)", "Исем (мотлаҡ түгел)")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
             item { OutlinedTextField(from, { from = it }, label = { Text(appText("Откуда", "Ҡайҙан")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
@@ -1701,7 +1701,7 @@ internal fun AdminRequestScreen(onBack: () -> Unit) {
                     },
                     enabled = !sending,
                     modifier = Modifier.fillMaxWidth().height(54.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) { Text(appText("Создать заявку", "Заявка булдырыу"), fontWeight = FontWeight.Bold) }
             }
@@ -1731,7 +1731,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики по заявке", "Заявка буйынса яуаптар"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-            item { Text(appText("Из Telegram-уведомления возьми № заявки. Открой отклики и прими за пользователя после звонка.", "Telegram хәбәренән заявка № ал. Шылтыратҡас яуаптарҙы ас, ҡулланыусы өсөн ҡабул ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+            item { Text(appText("Из Telegram-уведомления возьми № заявки. Открой отклики и прими за пользователя после звонка.", "Telegram хәбәренән заявка № ал. Шылтыратҡас яуаптарҙы ас, ҡулланыусы өсөн ҡабул ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(reqId, { reqId = it.filter { c -> c.isDigit() }.take(8) }, label = { Text(appText("№ заявки", "Заявка №")) }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(14.dp))
@@ -1746,15 +1746,15 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             SmallAvatar(r.driverAvatar, r.driverName, 42)
-                            Spacer(Modifier.width(10.dp))
+                            Spacer(Modifier.width(8.dp))
                             Text(r.driverName, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            r.driverRating?.let { Spacer(Modifier.width(6.dp)); Text("★ $it", color = CanonMuted, fontSize = 13.sp) }
+                            r.driverRating?.let { Spacer(Modifier.width(4.dp)); Text("★ $it", color = CanonMuted, fontSize = 14.sp) }
                             Spacer(Modifier.weight(1f))
-                            if (r.price > 0) Text("${r.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            if (r.price > 0) Text("${r.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                         }
                         if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
                         if (r.status == "accepted") {
-                            Text(appText("Принято", "Ҡабул ителде"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(appText("Принято", "Ҡабул ителде"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         } else {
                             Button(
                                 onClick = {
@@ -1831,7 +1831,7 @@ internal fun BlocklistContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(vertical = 16.dp)
     ) {
-        item { Text(appText("Заблокированные не видят ваши поездки и не могут писать.", "Блоктағылар сәфәрегеҙҙе күрмәй һәм яҙа алмай."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        item { Text(appText("Заблокированные не видят ваши поездки и не могут писать.", "Блоктағылар сәфәрегеҙҙе күрмәй һәм яҙа алмай."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
         if (loading) {
             item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
         } else if (error != null) {
@@ -1840,7 +1840,7 @@ internal fun BlocklistContent(
             if (blocks.isEmpty()) {
                 item {
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                        Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Icon(Icons.Default.Block, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
                             Text(appText("Чёрный список пуст", "Ҡара исемлек буш"), color = CanonText, fontWeight = FontWeight.Bold)
                         }
@@ -1853,7 +1853,7 @@ internal fun BlocklistContent(
                 }
             }
             if (addable.isNotEmpty()) {
-                item { Text(appText("Ваши попутчики", "Юлдаштарығыҙ"), color = CanonGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(top = 8.dp)) }
+                item { Text(appText("Ваши попутчики", "Юлдаштарығыҙ"), color = CanonGreen, fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.padding(top = 8.dp)) }
                 items(addable.size, key = { addable[it].id }) { i ->
                     val p = addable[i]
                     PersonRow(p.name, appText("Заблокировать", "Блоклау"), danger = true) { onBlock(p.id) }
@@ -1959,31 +1959,31 @@ internal fun ReportCategoryDialog(
         containerColor = CanonSurface,
         title = { Text(title, color = CanonText, fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     appText("Что случилось? Выбери категорию:", "Ни булды? Категорияны һайла:"),
-                    color = CanonMuted, fontSize = 13.sp,
+                    color = CanonMuted, fontSize = 14.sp,
                 )
                 Column(
                     Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     categories.forEach { c ->
                         val active = selected == c.id
                         val tint by animateColorAsState(if (active) CanonGreen2 else CanonMuted, label = "repCat")
                         Surface(
                             onClick = { selected = c.id },
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             color = if (active) CanonGreen2.copy(alpha = 0.10f) else Color.Transparent,
                         ) {
                             Row(
-                                Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 10.dp),
+                                Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(c.icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(12.dp))
                                 Text(
-                                    appText(c.ru, c.ba), color = CanonText, fontSize = 15.sp,
+                                    appText(c.ru, c.ba), color = CanonText, fontSize = 16.sp,
                                     fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
                                     modifier = Modifier.weight(1f),
                                 )
@@ -2007,7 +2007,7 @@ internal fun ReportCategoryDialog(
                 Text(
                     appText("Жалоба анонимна: человек не узнает, что она от тебя. Разбирает живой человек.",
                         "Ялыу аноним: кеше уның һинән икәнен белмәйәсәк. Тере кеше тикшерә."),
-                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                 )
             }
         },
@@ -2040,7 +2040,7 @@ internal fun ReportListContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(vertical = 16.dp)
     ) {
-        item { Text(appText("Выберите, на кого пожаловаться. Видят только модераторы Юлдаша.", "Кемгә ялыу икәнен һайлағыҙ. Тик Юлдаш модераторҙары күрә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        item { Text(appText("Выберите, на кого пожаловаться. Видят только модераторы Юлдаша.", "Кемгә ялыу икәнен һайлағыҙ. Тик Юлдаш модераторҙары күрә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
         if (loading) {
             item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
         } else if (error != null) {
@@ -2048,10 +2048,10 @@ internal fun ReportListContent(
         } else if (partners.isEmpty()) {
             item {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Icon(Icons.Default.Report, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
                         Text(appText("Пока не на кого жаловаться", "Әлегә ялыу итергә кеше юҡ"), color = CanonText, fontWeight = FontWeight.Bold)
-                        Text(appText("Здесь появятся попутчики после поездок.", "Бында сәфәрҙән һуң юлдаштар күренер."), color = CanonMuted, fontSize = 13.sp)
+                        Text(appText("Здесь появятся попутчики после поездок.", "Бында сәфәрҙән һуң юлдаштар күренер."), color = CanonMuted, fontSize = 14.sp)
                     }
                 }
             }
@@ -2108,13 +2108,13 @@ internal fun HelpScreen(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 18.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = 16.dp)
         ) {
-            item { Spacer(Modifier.height(10.dp)) }
+            item { Spacer(Modifier.height(8.dp)) }
             item {
-                Text(appText("Помощь", "Ярдам"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold)
-                Text(appText("Ответы на частые вопросы и поддержка", "Йыш һорауҙарға яуаптар һәм ярҙам"), color = CanonMuted, fontSize = 15.sp)
+                Text(appText("Помощь", "Ярдам"), color = CanonGreen, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold)
+                Text(appText("Ответы на частые вопросы и поддержка", "Йыш һорауҙарға яуаптар һәм ярҙам"), color = CanonMuted, fontSize = 16.sp)
             }
             item {
                 OutlinedTextField(
@@ -2126,7 +2126,7 @@ internal fun HelpScreen(
                     shape = RoundedCornerShape(999.dp)
                 )
             }
-            item { Text(appText("Популярные вопросы", "Популяр һорауҙар"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp) }
+            item { Text(appText("Популярные вопросы", "Популяр һорауҙар"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
             if (faqFiltered.isEmpty()) {
                 item { InfoCard(appText("Ничего не найдено", "Бер ни ҙә табылманы"), appText("Попробуйте другой запрос или напишите в поддержку ниже.", "Башҡа һорау яҙығыҙ йәки түбәндә ярҙамға мөрәжәғәт итегеҙ."), Icons.Default.Search) }
             } else {
@@ -2139,20 +2139,20 @@ internal fun HelpScreen(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = CanonMint),
                     shape = CanonItemShape,
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.flat),
                 ) {
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.HeadsetMic, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.width(14.dp))
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(appText("Не нашёл ответ?", "Яуап тапманыңмы?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text(appText("Напиши в поддержку — поможем", "Ярҙамға яҙ — ярҙам итербеҙ"), color = CanonGreen2, fontSize = 13.sp)
+                            Text(appText("Напиши в поддержку — поможем", "Ярҙамға яҙ — ярҙам итербеҙ"), color = CanonGreen2, fontSize = 14.sp)
                         }
                         Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonGreen2)
                     }
                 }
             }
-            item { Text(appText("Связаться с поддержкой", "Ярдам менән бәйләнеү"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp) }
+            item { Text(appText("Связаться с поддержкой", "Ярдам менән бәйләнеү"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
             item {
                 SettingsGroup {
                     // Основной способ — внутренний чат поддержки Юлдаш (переписка сохраняется, ответы приходят сюда же).
@@ -2195,14 +2195,14 @@ internal fun HelpScreen(
 @Composable
 private fun ExpandableHelpRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, answer: String) {
     var expanded by remember { mutableStateOf(false) }
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
         Column(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
-                    Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(13.dp))
+                Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+                    Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp))
                 }
-                Spacer(Modifier.width(14.dp))
-                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(12.dp))
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
                 Icon(if (expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
             }
             AnimatedVisibility(visible = expanded) {

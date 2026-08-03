@@ -113,14 +113,14 @@ private val BottomPad = 32.dp   // воздух под последним эле
  * Ровно четыре размера, у каждого одна роль. Больше не заводим: экран
  * законный и скучный, читаться должен по иерархии, а не по разнобою кеглей.
  */
-private val TitleSize = 18.sp   // заголовок карточки (один на карточку)
-private val BodySize = 15.sp    // название документа/пункта и значение (дата)
-private val SubSize = 13.sp     // пояснение под заголовком, текст плашек
+private val TitleSize = 19.sp   // заголовок карточки (один на карточку)
+private val BodySize = 16.sp    // название документа/пункта и значение (дата)
+private val SubSize = 14.sp     // пояснение под заголовком, текст плашек
 private val CapSize = 12.sp     // служебное: подпись секции, пилюля, сноска, счётчик
-private val TitleLead = 24.sp
-private val BodyLead = 20.sp
-private val SubLead = 18.sp
-private val CapLead = 16.sp
+private val TitleLead = 25.sp
+private val BodyLead = 23.sp
+private val SubLead = 20.sp
+private val CapLead = 17.sp
 
 /*
  * ── contentDescription ─────────────────────────────────────────────────────
@@ -321,8 +321,8 @@ private fun InlineNotice(text: String?, ok: Boolean) {
     val shownOk = memo.ok
     AnimatedVisibility(
         visible = text != null,
-        enter = fadeIn(tween(220)) + expandVertically(tween(220)),
-        exit = fadeOut(tween(140)) + shrinkVertically(tween(140)),
+        enter = fadeIn(tween(CanonMotion.QUICK)) + expandVertically(tween(CanonMotion.QUICK)),
+        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
     ) {
         Surface(
             color = if (shownOk) CanonMint else CanonDangerBg,
@@ -361,11 +361,11 @@ private fun TaxiDocsHeader(a: TaxiApplicationDto) {
     // Цвет статуса анимируем: продлил документ — шапка сама переезжает из красной в зелёную.
     val bg by animateColorAsState(
         when { expired -> CanonDangerBg; soon || attention -> CanonWarnBg; else -> CanonMint },
-        tween(320), label = "docsHeroBg",
+        tween(CanonMotion.SLOW), label = "docsHeroBg",
     )
     val fg by animateColorAsState(
         when { expired -> CanonRed; soon || attention -> CanonWarn; else -> CanonGreen2 },
-        tween(320), label = "docsHeroFg",
+        tween(CanonMotion.SLOW), label = "docsHeroFg",
     )
     val icon = when {
         expired -> Icons.Default.ErrorOutline
@@ -394,14 +394,14 @@ private fun TaxiDocsHeader(a: TaxiApplicationDto) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GapXs)) {
                 AnimatedContent(
                     targetState = title,
-                    transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                    transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                     label = "docsHeroTitle",
                 ) { t ->
                     Text(t, color = CanonText, fontWeight = FontWeight.Bold, fontSize = TitleSize, lineHeight = TitleLead)
                 }
                 AnimatedContent(
                     targetState = subtitle,
-                    transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                    transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                     label = "docsHeroSubtitle",
                 ) { s ->
                     Text(s, color = CanonMuted, fontSize = SubSize, lineHeight = SubLead)
@@ -435,14 +435,14 @@ private fun TaxiDocRow(
     // Смена статуса после продления — переездом цвета, а не рывком.
     val accent by animateColorAsState(
         when { expired -> CanonRed; soon -> CanonWarn; missing -> CanonMuted; else -> CanonGreen2 },
-        tween(320), label = "docAccent",
+        tween(CanonMotion.SLOW), label = "docAccent",
     )
     val accentBg by animateColorAsState(
         when { expired -> CanonDangerBg; soon -> CanonWarnBg; missing -> CanonBg; else -> CanonMint },
-        tween(320), label = "docAccentBg",
+        tween(CanonMotion.SLOW), label = "docAccentBg",
     )
     // Пока идёт сохранение — карточки приглушены и не ловят нажатия (раньше просто гасли кнопки).
-    val dim by animateFloatAsState(if (busy) 0.55f else 1f, tween(200), label = "docBusy")
+    val dim by animateFloatAsState(if (busy) 0.55f else 1f, tween(CanonMotion.QUICK), label = "docBusy")
     val dateText = shortDate(iso) ?: iso.orEmpty()
     val dateLine = if (missing) appText("Дата не указана", "Дата күрһәтелмәгән") else appText("до $dateText", "$dateText тиклем")
     val action = if (missing) appText("Указать", "Күрһәтеү") else appText("Изменить", "Үҙгәртеү")
@@ -471,8 +471,8 @@ private fun TaxiDocRow(
                 }
                 AnimatedVisibility(
                     visible = expired || soon,
-                    enter = fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.8f),
-                    exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.8f),
+                    enter = fadeIn(tween(CanonMotion.QUICK)) + scaleIn(tween(CanonMotion.QUICK), initialScale = 0.8f),
+                    exit = fadeOut(tween(CanonMotion.QUICK)) + scaleOut(tween(CanonMotion.QUICK), targetScale = 0.8f),
                 ) {
                     DocStatusPill(text = pill, fg = accent, bg = accentBg)
                 }
@@ -480,7 +480,7 @@ private fun TaxiDocRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AnimatedContent(
                     targetState = dateLine,
-                    transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                    transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                     label = "docDate",
                     modifier = Modifier.weight(1f),
                 ) { line ->
@@ -516,8 +516,8 @@ internal fun TaxiDocDateField(label: String, hint: String, iso: String?, onPicke
     val lang = LocalAppLanguage.current
     val left = daysUntilIso(iso)
     val filled = !iso.isNullOrBlank()
-    val accent by animateColorAsState(if (filled) CanonGreen2 else CanonMuted, tween(240), label = "dateFieldAccent")
-    val line by animateColorAsState(if (filled) CanonGreen2 else CanonBorder, tween(240), label = "dateFieldLine")
+    val accent by animateColorAsState(if (filled) CanonGreen2 else CanonMuted, tween(CanonMotion.NORMAL), label = "dateFieldAccent")
+    val line by animateColorAsState(if (filled) CanonGreen2 else CanonBorder, tween(CanonMotion.NORMAL), label = "dateFieldLine")
     // Подпись в форме уже заканчивается на «до», поэтому значение — просто дата, без повтора предлога.
     val value = if (filled) (shortDate(iso) ?: iso.orEmpty()) else hint
     Column {
@@ -535,7 +535,7 @@ internal fun TaxiDocDateField(label: String, hint: String, iso: String?, onPicke
                     Text(label, color = CanonText, fontWeight = FontWeight.Bold, fontSize = BodySize, lineHeight = BodyLead)
                     AnimatedContent(
                         targetState = value,
-                        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
+                        transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                         label = "dateFieldValue",
                     ) { v ->
                         Text(v, color = accent, fontSize = SubSize, lineHeight = SubLead)
@@ -556,8 +556,8 @@ internal fun TaxiDocDateField(label: String, hint: String, iso: String?, onPicke
         // отдал просроченную — честно подсвечиваем, а не делаем вид, что всё хорошо.
         AnimatedVisibility(
             visible = left != null && left < 0,
-            enter = fadeIn(tween(220)) + expandVertically(tween(220)),
-            exit = fadeOut(tween(140)) + shrinkVertically(tween(140)),
+            enter = fadeIn(tween(CanonMotion.QUICK)) + expandVertically(tween(CanonMotion.QUICK)),
+            exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
         ) {
             Row(Modifier.padding(start = GapXs, top = GapS), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CanonRed, modifier = Modifier.size(16.dp))
@@ -704,7 +704,7 @@ internal fun PretripCheckScreen(onBack: () -> Unit, onConfirmed: () -> Unit = {}
                             minLines = 2,
                             maxLines = 4,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(14.dp),
                         )
                     }
                     // Кнопка, подсказка и ошибка — одним блоком: скрытые части не оставляют
@@ -786,7 +786,7 @@ private fun PretripIntroCard(required: Boolean) {
 private fun PretripProgress(done: Int, total: Int) {
     val fraction by animateFloatAsState(
         if (total == 0) 0f else (done.toFloat() / total).coerceIn(0f, 1f),
-        tween(320), label = "pretripProgress",
+        tween(CanonMotion.SLOW), label = "pretripProgress",
     )
     Column(
         verticalArrangement = Arrangement.spacedBy(GapS),
@@ -801,7 +801,7 @@ private fun PretripProgress(done: Int, total: Int) {
             Spacer(Modifier.weight(1f))
             AnimatedContent(
                 targetState = done,
-                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
+                transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                 label = "pretripDone",
             ) { d ->
                 Text(
@@ -822,8 +822,8 @@ private fun PretripProgress(done: Int, total: Int) {
 private fun PretripHint(visible: Boolean) {
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(220)) + expandVertically(tween(220)),
-        exit = fadeOut(tween(140)) + shrinkVertically(tween(140)),
+        enter = fadeIn(tween(CanonMotion.QUICK)) + expandVertically(tween(CanonMotion.QUICK)),
+        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
     ) {
         Text(
             appText(
@@ -842,10 +842,10 @@ private fun PretripHint(visible: Boolean) {
  */
 @Composable
 private fun PretripCheckItem(icon: ImageVector, title: String, subtitle: String, checked: Boolean, onToggle: () -> Unit) {
-    val bg by animateColorAsState(if (checked) CanonMint else CanonSurface, tween(240), label = "pretripBg")
-    val line by animateColorAsState(if (checked) CanonGreen2 else CanonBorder, tween(240), label = "pretripLine")
-    val bubble by animateColorAsState(if (checked) CanonSurface else CanonMint, tween(240), label = "pretripBubble")
-    val tint by animateColorAsState(if (checked) CanonGreen2 else CanonMuted, tween(240), label = "pretripTint")
+    val bg by animateColorAsState(if (checked) CanonMint else CanonSurface, tween(CanonMotion.NORMAL), label = "pretripBg")
+    val line by animateColorAsState(if (checked) CanonGreen2 else CanonBorder, tween(CanonMotion.NORMAL), label = "pretripLine")
+    val bubble by animateColorAsState(if (checked) CanonSurface else CanonMint, tween(CanonMotion.NORMAL), label = "pretripBubble")
+    val tint by animateColorAsState(if (checked) CanonGreen2 else CanonMuted, tween(CanonMotion.NORMAL), label = "pretripTint")
     Surface(
         color = bg,
         shape = CanonItemShape,
@@ -867,8 +867,8 @@ private fun PretripCheckItem(icon: ImageVector, title: String, subtitle: String,
             AnimatedContent(
                 targetState = checked,
                 transitionSpec = {
-                    (fadeIn(tween(180)) + scaleIn(tween(180), initialScale = 0.7f)) togetherWith
-                        (fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.7f))
+                    (fadeIn(tween(CanonMotion.QUICK)) + scaleIn(tween(CanonMotion.QUICK), initialScale = 0.7f)) togetherWith
+                        (fadeOut(tween(CanonMotion.QUICK)) + scaleOut(tween(CanonMotion.QUICK), targetScale = 0.7f))
                 },
                 label = "pretripCheckMark",
             ) { on ->
@@ -896,8 +896,8 @@ private fun PretripDoneCard(confirmedAt: String?) {
         ) {
             AnimatedVisibility(
                 visible = shown,
-                enter = fadeIn(tween(360)) + scaleIn(tween(360), initialScale = 0.6f),
-                exit = fadeOut(tween(160)),
+                enter = fadeIn(tween(CanonMotion.SLOW)) + scaleIn(tween(CanonMotion.SLOW), initialScale = 0.6f),
+                exit = fadeOut(tween(CanonMotion.QUICK)),
             ) {
                 Surface(color = CanonMint, shape = CircleShape) {
                     // Ровно то же написано заголовком ниже — второй раз не читаем.

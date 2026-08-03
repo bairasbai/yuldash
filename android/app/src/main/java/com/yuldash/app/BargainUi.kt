@@ -106,7 +106,7 @@ internal val BargainGapHair = 4.dp      // пара «подпись + знач�
 internal val BargainTouch = 48.dp       // минимальная тач-цель
 internal val BargainIcon = 20.dp        // иконка заголовка/диалога
 internal val BargainIconSmall = 16.dp   // иконка внутри строки и пилюли
-private val BargainFieldShape = RoundedCornerShape(16.dp)
+private val BargainFieldShape = RoundedCornerShape(14.dp)
 
 /**
  * «Как шёл торг» одной строкой: `d:500,p:400,d:450` → «500 ₽ → 400 ₽ → 450 ₽».
@@ -150,8 +150,8 @@ internal fun BargainSummary(r: ResponseDto) {
         // на высоту новой строки.
         AnimatedVisibility(
             visible = r.haggled,
-            enter = fadeIn(tween(260)) + expandVertically(tween(260)),
-            exit = fadeOut(tween(140)) + shrinkVertically(tween(140)),
+            enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL)),
+            exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
         ) {
             BargainChainRow(r.bargainHistory)
         }
@@ -178,7 +178,7 @@ private fun BargainChainRow(history: String) {
     LaunchedEffect(steps, scroll.maxValue) { scroll.animateScrollTo(scroll.maxValue) }
     AnimatedContent(
         targetState = steps,
-        transitionSpec = { fadeIn(tween(280)) togetherWith fadeOut(tween(140)) },
+        transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
         label = "bargainChain",
     ) { row ->
         Row(
@@ -252,7 +252,7 @@ private fun BargainTurnLine(r: ResponseDto) {
             mine -> CanonGreen2
             else -> CanonMutedStrong
         },
-        tween(320),
+        tween(CanonMotion.SLOW),
         label = "bargainTurnAccent",
     )
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -265,7 +265,7 @@ private fun BargainTurnLine(r: ResponseDto) {
         Spacer(Modifier.width(BargainGapTight))
         AnimatedContent(
             targetState = bargainTurnHint(r),
-            transitionSpec = { fadeIn(tween(280)) togetherWith fadeOut(tween(140)) },
+            transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
             label = "bargainTurn",
         ) { hint ->
             Text(
@@ -357,12 +357,12 @@ internal fun CounterPriceDialog(
                         // чтобы «минус полтинник» было видно до нажатия, а не после ответа сервера.
                         AnimatedVisibility(
                             visible = ok && price != current,
-                            enter = fadeIn(tween(220)),
-                            exit = fadeOut(tween(140)),
+                            enter = fadeIn(tween(CanonMotion.QUICK)),
+                            exit = fadeOut(tween(CanonMotion.QUICK)),
                         ) {
                             AnimatedContent(
                                 targetState = (price ?: current) - current,
-                                transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                                transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                                 label = "bargainDelta",
                             ) { delta ->
                                 Text(
@@ -427,7 +427,7 @@ internal fun CounterPriceDialog(
                 // Отправка не должна выглядеть как «ничего не произошло»: подпись сменяется спиннером.
                 AnimatedContent(
                     targetState = busy,
-                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                    transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                     label = "bargainSending",
                 ) { sending ->
                     if (sending) {

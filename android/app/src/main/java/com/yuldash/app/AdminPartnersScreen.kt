@@ -83,7 +83,7 @@ internal fun AdminPartnersScreen(onBack: () -> Unit) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Бизнесы-партнёры", "Партнёр-бизнестар"), onBack) }) { padding ->
         LazyColumn(
             Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp),
         ) {
             item {
@@ -92,15 +92,15 @@ internal fun AdminPartnersScreen(onBack: () -> Unit) {
                         "Проверь заведения, которые хотят размещать купоны. Одобри — бизнес сможет публиковать скидки.",
                         "Купон ҡуйырға теләгән урындарҙы тикшер. Раҫла — бизнес ташлама баҫтыра алыр.",
                     ),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
             if (pendingCount > 0) {
                 item {
-                    Surface(color = CanonWarnBg, shape = RoundedCornerShape(12.dp)) {
+                    Surface(color = CanonWarnBg, shape = RoundedCornerShape(14.dp)) {
                         Text(
                             appText("Ждут проверки: $pendingCount", "Тикшереүҙе көтә: $pendingCount"),
-                            color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                            color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 14.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         )
                     }
@@ -150,8 +150,8 @@ internal fun AdminPartnersScreen(onBack: () -> Unit) {
             containerColor = CanonSurface,
             title = { Text(appText("Отклонить бизнес", "Бизнесты кире ҡағыу"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(appText("Напиши причину — заведение увидит её и сможет исправить.", "Сәбәпте яҙ — урын уны күрер һәм төҙәтә алыр."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(appText("Напиши причину — заведение увидит её и сможет исправить.", "Сәбәпте яҙ — урын уны күрер һәм төҙәтә алыр."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                     OutlinedTextField(
                         value = reason, onValueChange = { reason = it },
                         modifier = Modifier.fillMaxWidth(),
@@ -186,38 +186,38 @@ internal fun AdminPartnersScreen(onBack: () -> Unit) {
 @Composable
 private fun AdminPartnerCard(p: AdminPartnerDto, busy: Boolean, onApprove: () -> Unit, onReject: () -> Unit) {
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
-                    Icon(couponCategoryIcon(p.category), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
+                    Icon(couponCategoryIcon(p.category), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(22.dp))
                 }
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(p.name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(couponCategoryLabel(p.category) + (if (p.city.isNotBlank()) "  ·  ${p.city}" else ""), color = CanonMuted, fontSize = 13.sp)
+                    Text(couponCategoryLabel(p.category) + (if (p.city.isNotBlank()) "  ·  ${p.city}" else ""), color = CanonMuted, fontSize = 14.sp)
                 }
                 AdminPartnerStatusChip(p.status)
             }
             if (p.address.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Place, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(p.address, color = CanonText, fontSize = 13.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Text(p.address, color = CanonText, fontSize = 14.sp)
                 }
             }
             if (p.phone.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Phone, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(p.phone, color = CanonText, fontSize = 13.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Text(p.phone, color = CanonText, fontSize = 14.sp)
                 }
             }
             if (p.description.isNotBlank()) {
-                Text(p.description, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                Text(p.description, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
             }
             if (p.status == "rejected" && p.rejectReason.isNotBlank()) {
-                Surface(color = CanonDangerBg, shape = RoundedCornerShape(12.dp)) {
-                    Text(appText("Отклонён: ", "Кире ҡағылды: ") + p.rejectReason, color = CanonRed, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                Surface(color = CanonDangerBg, shape = RoundedCornerShape(14.dp)) {
+                    Text(appText("Отклонён: ", "Кире ҡағылды: ") + p.rejectReason, color = CanonRed, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
                 }
             }
             // Действия — только для тех, кого ещё можно модерировать
@@ -227,14 +227,14 @@ private fun AdminPartnerCard(p: AdminPartnerDto, busy: Boolean, onApprove: () ->
                         Button(
                             onClick = onApprove, enabled = !busy,
                             modifier = Modifier.weight(1f).height(46.dp),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                         ) { Text(appText("Одобрить", "Раҫлау"), fontWeight = FontWeight.Bold, fontSize = 14.sp) }
                     }
                     OutlinedButton(
                         onClick = onReject, enabled = !busy,
                         modifier = Modifier.weight(1f).height(46.dp),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                     ) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
                 }
             }
@@ -251,8 +251,8 @@ private fun AdminPartnerStatusChip(status: String) {
         "archived" -> PStatus(CanonWarnBg, CanonMuted, "Архив", "Архив")
         else -> PStatus(CanonWarnBg, CanonWarn, "На проверке", "Тикшереүҙә")
     }
-    Surface(color = bg, shape = RoundedCornerShape(10.dp)) {
-        Text(appText(ru, ba), color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+    Surface(color = bg, shape = RoundedCornerShape(8.dp)) {
+        Text(appText(ru, ba), color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
     }
 }
 

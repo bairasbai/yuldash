@@ -73,11 +73,11 @@ internal fun BrandHero(
 ) {
     Box(modifier.size(224.dp, 158.dp)) {
         Surface(
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 22.dp).size(132.dp)
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp).size(132.dp)
                 .graphicsLayer { scaleX = logoScale; scaleY = logoScale; alpha = logoAlpha },
-            shape = CircleShape, color = Color.White, shadowElevation = 0.dp,
+            shape = CircleShape, color = Color.White, shadowElevation = CanonDepth.flat,
         ) {
-            Image(painterResource(R.drawable.yuldash_logo), "Юлдаш", Modifier.padding(22.dp))
+            Image(painterResource(R.drawable.yuldash_logo), "Юлдаш", Modifier.padding(24.dp))
         }
     }
 }

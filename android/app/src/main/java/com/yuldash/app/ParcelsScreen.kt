@@ -173,8 +173,8 @@ internal fun DeliveryHint(text: String, modifier: Modifier = Modifier, tone: Col
 internal fun DeliveryErrorCard(message: String?, modifier: Modifier = Modifier) {
     AnimatedVisibility(
         visible = message != null,
-        enter = fadeIn(tween(220)) + expandVertically(tween(220)),
-        exit = fadeOut(tween(140)) + shrinkVertically(tween(160)),
+        enter = fadeIn(tween(CanonMotion.QUICK)) + expandVertically(tween(CanonMotion.QUICK)),
+        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
         modifier = modifier,
     ) {
         Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonDangerBorder)) {
@@ -341,12 +341,12 @@ private fun parcelStatusStyle(status: String): ParcelStatusStyle = when (status.
 @Composable
 internal fun ParcelStatusChip(status: String) {
     val s = parcelStatusStyle(status)
-    val bg by animateColorAsState(s.bg, tween(320), label = "pstatus-bg")
-    val fg by animateColorAsState(s.fg, tween(320), label = "pstatus-fg")
-    Surface(color = bg, shape = RoundedCornerShape(12.dp)) {
+    val bg by animateColorAsState(s.bg, tween(CanonMotion.SLOW), label = "pstatus-bg")
+    val fg by animateColorAsState(s.fg, tween(CanonMotion.SLOW), label = "pstatus-fg")
+    Surface(color = bg, shape = RoundedCornerShape(14.dp)) {
         AnimatedContent(
             targetState = appText(s.ru, s.ba),
-            transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(160)) },
+            transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
             label = "pstatus-label",
         ) { label ->
             Text(
@@ -380,7 +380,7 @@ internal fun ParcelReturnNotice(
         )
     }
     Surface(color = CanonWarnBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonWarn)) {
-        Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 title, color = CanonWarn, fontWeight = FontWeight.Bold,
                 fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
@@ -419,8 +419,8 @@ internal fun ParcelDeadlineNote(
     if (date.isBlank() || isParcelTerminal(status)) return
     // Просрочка наступает у человека на глазах (список сам обновляется раз в 25 с) — цвет
     // переезжает плавно, иначе спокойная карточка «щёлкает» в тревожную одним кадром.
-    val bg by animateColorAsState(if (overdue) CanonDangerBg else CanonCourierBg, tween(320), label = "pdue-bg")
-    val ink by animateColorAsState(if (overdue) CanonRed else CanonCourier, tween(320), label = "pdue-ink")
+    val bg by animateColorAsState(if (overdue) CanonDangerBg else CanonCourierBg, tween(CanonMotion.SLOW), label = "pdue-bg")
+    val ink by animateColorAsState(if (overdue) CanonRed else CanonCourier, tween(CanonMotion.SLOW), label = "pdue-ink")
     val label = if (overdue) appText("Срок вышел · было нужно", "Ваҡыт үтте · кәрәк ине")
     else appText("Нужно доставить", "Илтергә кәрәк")
     val day = deliveryDayName(date)
@@ -441,16 +441,16 @@ internal fun ParcelDeadlineNote(
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(12.dp)
                 // Голосом блок читается одной мыслью: «Нужно доставить. Завтра» — а не тремя
                 // обрывками, между которыми проваливается смысл.
                 .semantics(mergeDescendants = true) {
                     contentDescription = "$label. $day" + if (overdue) ". $calmNote" else ""
                 },
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(Icons.Default.Schedule, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     label, color = ink, fontWeight = FontWeight.Bold,
                     fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
@@ -526,12 +526,12 @@ internal fun ParcelPhotoStrip(pickupUrl: String, deliveryUrl: String) {
     val ctx = LocalContext.current
     val token = remember { ApiClient.currentToken() ?: "" }
 
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             appText("Как выглядела посылка", "Бандероль ниндәй ине"),
             color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             shots.forEach { (url, isPickup) ->
                 val label = if (isPickup) appText("Когда забрал", "Алғанда")
                 else appText("Когда вручил", "Тапшырғанда")
@@ -543,12 +543,12 @@ internal fun ParcelPhotoStrip(pickupUrl: String, deliveryUrl: String) {
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(84.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(14.dp))
                             .background(CanonBg)
                             .clickable { viewing = url },
                     )
                     Spacer(Modifier.height(4.dp))
-                    Text(label, color = CanonMuted, fontSize = 11.sp, lineHeight = 14.sp)
+                    Text(label, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
                 }
             }
         }
@@ -590,8 +590,8 @@ internal fun ParcelAddressBlock(
         modifier = modifier.fillMaxWidth(),
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (hasFrom) {
                 ParcelAddressRow(
@@ -633,10 +633,10 @@ private fun ParcelAddressRow(
         Modifier
             .fillMaxWidth()
             .semantics(mergeDescendants = true) { contentDescription = "$label. $value" },
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 label, color = CanonMutedStrong, fontWeight = FontWeight.Bold,
                 fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
@@ -668,7 +668,7 @@ internal fun ParcelSettlementBlock(s: com.yuldash.app.data.ParcelSettlementDto, 
             if (hasGoods) {
                 // Итог получателя — главная цифра блока, поэтому в колонку: длинная башкирская
                 // подпись и сумма в одной строке отжимали друг друга.
-                Surface(color = CanonSurface, shape = RoundedCornerShape(12.dp)) {
+                Surface(color = CanonSurface, shape = RoundedCornerShape(14.dp)) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(appText("Получатель платит", "Алыусы түләй"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                         Text(kopToRub(s.totalDueKop), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
@@ -820,7 +820,7 @@ internal fun ParcelDisputeDialog(parcel: ParcelDto, onDismiss: () -> Unit, onOpe
                     },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(appText("Подробности (обязательно)", "Ентекле мәғлүмәт (мотлаҡ)")) },
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(14.dp),
                     minLines = 3,
                     isError = reason.isNotBlank() && !reasonOk,
                 )
@@ -949,9 +949,9 @@ private fun ParcelDisputeTypeOption(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonBg, tween(200), label = "parcel-dispute-type-bg")
-    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "parcel-dispute-type-line")
-    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonMuted, tween(200), label = "parcel-dispute-type-ink")
+    val bg by animateColorAsState(if (selected) CanonMint else CanonBg, tween(CanonMotion.QUICK), label = "parcel-dispute-type-bg")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "parcel-dispute-type-line")
+    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonMuted, tween(CanonMotion.QUICK), label = "parcel-dispute-type-ink")
     Surface(
         onClick = onClick,
         enabled = enabled,
@@ -985,7 +985,7 @@ private fun ParcelDisputeTypeOption(
 /** Ошибка внутри диалога: одинаковая на всех диалогах доставки, появляется плавно, а не рывком. */
 @Composable
 internal fun DialogErrorLine(message: String?) {
-    AnimatedVisibility(visible = message != null, enter = fadeIn(tween(200)), exit = fadeOut(tween(140))) {
+    AnimatedVisibility(visible = message != null, enter = fadeIn(tween(CanonMotion.QUICK)), exit = fadeOut(tween(CanonMotion.QUICK))) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CanonRed, modifier = Modifier.size(16.dp))
             Text(message ?: "", color = CanonRed, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, fontWeight = FontWeight.Bold)
@@ -1047,7 +1047,7 @@ internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDism
                         val starDesc = appText("Поставить $i из 5", "5-тән $i ҡуйырға")
                         // Цвет звезды догоняет палец, а не перещёлкивается: 5 звёзд разом
                         // меняли тон рывком — дёшево выглядело именно в момент благодарности.
-                        val tint by animateColorAsState(if (filled) CanonStar else CanonMuted, tween(220), label = "star$i")
+                        val tint by animateColorAsState(if (filled) CanonStar else CanonMuted, tween(CanonMotion.QUICK), label = "star$i")
                         Icon(
                             if (filled) Icons.Default.Star else Icons.Default.StarBorder,
                             contentDescription = starDesc,
@@ -1063,7 +1063,7 @@ internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDism
                     onValueChange = { comment = it.take(300); err = null },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(appText("Пару слов (необязательно)", "Бер-ике һүҙ (мотлаҡ түгел)")) },
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(14.dp),
                     minLines = 2,
                 )
                 DialogErrorLine(err)
@@ -1108,7 +1108,7 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
         Column(Modifier.padding(padding).fillMaxSize()) {
             Surface(
                 color = CanonSurface,
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(14.dp),
                 border = BorderStroke(1.dp, CanonBorder),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
@@ -1123,7 +1123,7 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
             AnimatedContent(
                 targetState = tab,
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+                transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                 label = "parcel-tab",
             ) { t ->
                 when (t) {
@@ -1137,11 +1137,11 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
 
 @Composable
 private fun ParcelTab(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(220), label = "ptab-bg")
-    val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(220), label = "ptab-line")
-    val ink by animateColorAsState(if (active) CanonGreen2 else CanonMutedStrong, tween(220), label = "ptab-ink")
+    val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "ptab-bg")
+    val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "ptab-line")
+    val ink by animateColorAsState(if (active) CanonGreen2 else CanonMutedStrong, tween(CanonMotion.QUICK), label = "ptab-ink")
     Surface(
-        onClick = onClick, color = bg, shape = RoundedCornerShape(16.dp),
+        onClick = onClick, color = bg, shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, line),
         modifier = modifier
             .heightIn(min = 48.dp)
@@ -1747,9 +1747,9 @@ private fun ParcelRouteSummary(fromCity: String, toCity: String, onEdit: () -> U
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(Icons.Default.LocalShipping, contentDescription = null, tint = CanonCourier, modifier = Modifier.size(20.dp))
             Text(
@@ -1765,7 +1765,7 @@ private fun ParcelRouteSummary(fromCity: String, toCity: String, onEdit: () -> U
                 Text(
                     appText("изменить", "үҙгәртергә"),
                     color = CanonCourier,
-                    fontSize = 13.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                 )
             }
@@ -1778,11 +1778,11 @@ private fun ParcelRouteSummary(fromCity: String, toCity: String, onEdit: () -> U
 @Composable
 private fun ParcelStepProgress(step: Int, total: Int, title: String) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
             repeat(total) { i ->
                 val passed = i <= step
                 val barColor by animateColorAsState(
-                    if (passed) CanonCourier else CanonBorder, tween(240), label = "parcelStep$i",
+                    if (passed) CanonCourier else CanonBorder, tween(CanonMotion.NORMAL), label = "parcelStep$i",
                 )
                 Surface(
                     color = barColor,
@@ -1794,7 +1794,7 @@ private fun ParcelStepProgress(step: Int, total: Int, title: String) {
         Text(
             appText("Шаг ${step + 1} из $total · $title", "${step + 1}-се аҙым, барыһы $total · $title"),
             color = CanonMuted,
-            fontSize = 13.sp,
+            fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
         )
     }
@@ -1810,11 +1810,11 @@ private fun DeliveryTypeCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
 ) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "dtype-bg")
-    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "dtype-line")
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "dtype-bg")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "dtype-line")
     // Толщина рамки тоже переезжает плавно: скачок 1→2dp читался как «дёрнулось».
-    val lineWidth by animateDpAsState(if (selected) 2.dp else 1.dp, tween(200), label = "dtype-w")
-    val iconBg by animateColorAsState(if (selected) CanonGreen2 else CanonMint, tween(200), label = "dtype-ic")
+    val lineWidth by animateDpAsState(if (selected) 2.dp else 1.dp, tween(CanonMotion.QUICK), label = "dtype-w")
+    val iconBg by animateColorAsState(if (selected) CanonGreen2 else CanonMint, tween(CanonMotion.QUICK), label = "dtype-ic")
     Surface(
         onClick = onClick, color = bg, shape = CanonItemShape,
         border = BorderStroke(lineWidth, line),
@@ -1827,7 +1827,7 @@ private fun DeliveryTypeCard(
             },
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = iconBg, shape = RoundedCornerShape(12.dp)) {
+            Surface(color = iconBg, shape = RoundedCornerShape(14.dp)) {
                 Icon(icon, contentDescription = null, tint = if (selected) Color.White else CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
             }
             Spacer(Modifier.width(12.dp))
@@ -1835,7 +1835,7 @@ private fun DeliveryTypeCard(
                 Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
                 Text(subtitle, color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
             }
-            AnimatedVisibility(visible = selected, enter = scaleIn(tween(200)) + fadeIn(tween(200)), exit = fadeOut(tween(120))) {
+            AnimatedVisibility(visible = selected, enter = scaleIn(tween(CanonMotion.QUICK)) + fadeIn(tween(CanonMotion.QUICK)), exit = fadeOut(tween(CanonMotion.QUICK))) {
                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(start = 12.dp).size(24.dp))
             }
         }
@@ -1846,9 +1846,9 @@ private fun DeliveryTypeCard(
  *  русского, и при крупном системном шрифте вторая строка обрезалась жёсткой высотой. */
 @Composable
 private fun UrgencyChip(title: String, subtitle: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "urg-bg")
-    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "urg-line")
-    val lineWidth by animateDpAsState(if (selected) 2.dp else 1.dp, tween(200), label = "urg-w")
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "urg-bg")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "urg-line")
+    val lineWidth by animateDpAsState(if (selected) 2.dp else 1.dp, tween(CanonMotion.QUICK), label = "urg-w")
     Surface(
         onClick = onClick,
         color = bg,
@@ -1907,7 +1907,7 @@ private fun DeliveryWaitNote(deliveryType: String) {
         AnimatedContent(
             targetState = text,
             modifier = Modifier.weight(1f),
-            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
+            transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
             label = "delivery-wait-note",
         ) { line -> DeliveryHint(line) }
     }
@@ -1979,7 +1979,7 @@ private fun EstimateCard(est: CourierEstimateDto) {
         ""
     }
     Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(2.dp, CanonGreen2)) {
-        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(appText("Доставка", "Илтеү"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
             Text("≈ " + kopToRub(est.priceKop), color = CanonGreen, fontWeight = FontWeight.Bold, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
             Text(
@@ -2045,7 +2045,7 @@ private fun ParcelField(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ParcelCargoTypePicker(value: String, onValue: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             appText("Что внутри", "Эсендә нимә"),
             color = CanonText, fontWeight = FontWeight.Bold,
@@ -2078,10 +2078,10 @@ private fun ParcelCargoTypePicker(value: String, onValue: (String) -> Unit) {
 /** Один чип типа груза. Тач-цель 48dp, цвета переезжают плавно — как у остальных выборов формы. */
 @Composable
 private fun ParcelCargoChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "cargo-bg")
-    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "cargo-line")
-    val lineWidth by animateDpAsState(if (selected) 2.dp else 1.dp, tween(200), label = "cargo-w")
-    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonText, tween(200), label = "cargo-ink")
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "cargo-bg")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "cargo-line")
+    val lineWidth by animateDpAsState(if (selected) 2.dp else 1.dp, tween(CanonMotion.QUICK), label = "cargo-w")
+    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonText, tween(CanonMotion.QUICK), label = "cargo-ink")
     Surface(
         onClick = onClick, color = bg, shape = CanonItemShape,
         border = BorderStroke(lineWidth, line),
@@ -2109,10 +2109,10 @@ private fun ParcelCargoChip(label: String, selected: Boolean, onClick: () -> Uni
  */
 @Composable
 private fun ParcelFragileSwitch(checked: Boolean, onToggle: () -> Unit) {
-    val bg by animateColorAsState(if (checked) CanonWarnBg else CanonSurface, tween(200), label = "fragile-bg")
-    val line by animateColorAsState(if (checked) CanonWarn else CanonBorder, tween(200), label = "fragile-line")
-    val lineWidth by animateDpAsState(if (checked) 2.dp else 1.dp, tween(200), label = "fragile-w")
-    val ink by animateColorAsState(if (checked) CanonWarn else CanonMuted, tween(200), label = "fragile-ink")
+    val bg by animateColorAsState(if (checked) CanonWarnBg else CanonSurface, tween(CanonMotion.QUICK), label = "fragile-bg")
+    val line by animateColorAsState(if (checked) CanonWarn else CanonBorder, tween(CanonMotion.QUICK), label = "fragile-line")
+    val lineWidth by animateDpAsState(if (checked) 2.dp else 1.dp, tween(CanonMotion.QUICK), label = "fragile-w")
+    val ink by animateColorAsState(if (checked) CanonWarn else CanonMuted, tween(CanonMotion.QUICK), label = "fragile-ink")
     Surface(
         onClick = onToggle, color = bg, shape = CanonItemShape,
         border = BorderStroke(lineWidth, line),
@@ -2155,7 +2155,7 @@ private fun ParcelFragileSwitch(checked: Boolean, onToggle: () -> Unit) {
 
 @Composable
 private fun ParcelSizeCard(size: String, selected: Boolean, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "psize")
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "psize")
     Surface(
         onClick = onClick, color = bg, shape = CanonItemShape,
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
@@ -2167,7 +2167,7 @@ private fun ParcelSizeCard(size: String, selected: Boolean, onClick: () -> Unit)
             },
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = if (selected) CanonGreen2 else CanonMint, shape = RoundedCornerShape(12.dp)) {
+            Surface(color = if (selected) CanonGreen2 else CanonMint, shape = RoundedCornerShape(14.dp)) {
                 Icon(Icons.Default.Inventory2, contentDescription = null, tint = if (selected) Color.White else CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
             }
             Spacer(Modifier.width(12.dp))
@@ -2176,7 +2176,7 @@ private fun ParcelSizeCard(size: String, selected: Boolean, onClick: () -> Unit)
                 Text(parcelSizeHint(size), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
             }
             // Галочка не выскакивает рывком: как в карточке типа доставки — вырастает с затуханием.
-            AnimatedVisibility(visible = selected, enter = scaleIn(tween(200)) + fadeIn(tween(200)), exit = fadeOut(tween(120))) {
+            AnimatedVisibility(visible = selected, enter = scaleIn(tween(CanonMotion.QUICK)) + fadeIn(tween(CanonMotion.QUICK)), exit = fadeOut(tween(CanonMotion.QUICK))) {
                 Icon(Icons.Default.CheckCircle, contentDescription = appText("Выбрано", "Һайланды"), tint = CanonGreen2, modifier = Modifier.padding(start = 12.dp).size(24.dp))
             }
         }
@@ -2199,16 +2199,16 @@ private fun RulesCheckbox(checked: Boolean, onToggle: () -> Unit) {
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             // Заливка квадратика переезжает плавно — иначе согласие «щёлкает» рывком.
-            val boxBg by animateColorAsState(if (checked) CanonGreen2 else Color.Transparent, tween(200), label = "rules-box")
-            val boxLine by animateColorAsState(if (checked) CanonGreen2 else CanonMuted, tween(200), label = "rules-line")
+            val boxBg by animateColorAsState(if (checked) CanonGreen2 else Color.Transparent, tween(CanonMotion.QUICK), label = "rules-box")
+            val boxLine by animateColorAsState(if (checked) CanonGreen2 else CanonMuted, tween(CanonMotion.QUICK), label = "rules-line")
             Surface(
                 color = boxBg,
                 shape = RoundedCornerShape(8.dp),
                 border = BorderStroke(2.dp, boxLine),
                 modifier = Modifier.size(24.dp),
             ) {
-                AnimatedVisibility(visible = checked, enter = scaleIn(tween(180)) + fadeIn(tween(180)), exit = fadeOut(tween(120))) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.padding(2.dp))
+                AnimatedVisibility(visible = checked, enter = scaleIn(tween(CanonMotion.QUICK)) + fadeIn(tween(CanonMotion.QUICK)), exit = fadeOut(tween(CanonMotion.QUICK))) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.padding(4.dp))
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -2243,7 +2243,7 @@ private fun ParcelCreatedView(
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 40.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         item {
@@ -2273,7 +2273,7 @@ private fun ParcelCreatedView(
                         fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine, textAlign = TextAlign.Center,
                     )
                     if (confirmCode.isNotBlank()) {
-                        Surface(onClick = { clipboard.setText(AnnotatedString(confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                        Surface(onClick = { clipboard.setText(AnnotatedString(confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                             Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(8.dp))
@@ -2615,7 +2615,7 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                                 p.confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
                                 fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine, modifier = Modifier.weight(1f),
                             )
-                            Surface(onClick = { clipboard.setText(AnnotatedString(p.confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                            Surface(onClick = { clipboard.setText(AnnotatedString(p.confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
                             }
                         }
@@ -2679,7 +2679,7 @@ private fun ParcelTrackLinkBlock(parcelId: Int) {
             // Теперь надпись меняется — и меняется плавно, а не подменяется кадром.
             AnimatedContent(
                 targetState = busy,
-                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(140)) },
+                transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                 label = "tracklink-cta",
             ) { working ->
                 Text(
@@ -2734,7 +2734,7 @@ private fun ParcelTrackLinkBlock(parcelId: Int) {
                     "Номерҙа хата булдымы? Һылтанманы кире ал — ул шунда уҡ эшләмәй башлай.",
                 ),
             )
-            err?.let { Text(it, color = CanonRed, fontSize = 12.sp, lineHeight = 16.sp) }
+            err?.let { Text(it, color = CanonRed, fontSize = 12.sp, lineHeight = 17.sp) }
         }
     }
 }

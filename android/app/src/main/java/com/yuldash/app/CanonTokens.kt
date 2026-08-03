@@ -125,8 +125,13 @@ internal val CanonOnAccent: Color = Color(0xFFFFFFFF)
 // Затемнение под полноэкранным просмотром фото. Плоское и в обеих темах одинаковое: подложка
 // нужна, чтобы снимок читался, а не чтобы следовать теме — на светлом фоне фото «поплывёт».
 internal val CanonScrim: Color = Color(0xE6000000)
-internal val CanonCardShape = RoundedCornerShape(28.dp)
-internal val CanonItemShape = RoundedCornerShape(22.dp)
+// Лестница скруглений. Замер 2026-08-04: по экранам жило 18 разных радиусов (2,4,6,8,9,10,12,13,
+// 14,15,16,17,18,20,22,24,26 dp) — глаз читает такой разнобой как несобранность, даже когда
+// не может назвать причину. Четыре ступени: чем крупнее элемент, тем мягче угол.
+internal val CanonCardShape = RoundedCornerShape(28.dp)   // крупная карточка, шторка
+internal val CanonItemShape = RoundedCornerShape(22.dp)   // элемент списка, кнопка во всю ширину
+internal val CanonFieldShape = RoundedCornerShape(14.dp)  // поле ввода, чип, плашка
+internal val CanonTinyShape = RoundedCornerShape(8.dp)    // бейдж, счётчик, мелкая метка
 
 
 // ============================== ШКАЛЫ: отступы, текст, глубина, движение ==============================

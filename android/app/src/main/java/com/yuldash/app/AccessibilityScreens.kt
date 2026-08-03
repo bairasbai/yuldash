@@ -279,14 +279,14 @@ internal fun SimpleModeScreen(
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Простой режим", "Ябай режим"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(appText("Юлдаш без сложностей", "Юлдаш еңел"), color = CanonGreen, fontSize = 27.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold)
-                        Text(appText("Большие кнопки для родителей, бабушек и дедушек. Можно говорить голосом или попросить звонок.", "Ата-әсә, өләсәй һәм олатайҙар өсөн ҙур төймәләр. Тауыш менән әйтергә йәки шылтыратыу һорарға була."), color = CanonMuted, fontSize = 16.sp, lineHeight = 21.sp)
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(appText("Юлдаш без сложностей", "Юлдаш еңел"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
+                        Text(appText("Большие кнопки для родителей, бабушек и дедушек. Можно говорить голосом или попросить звонок.", "Ата-әсә, өләсәй һәм олатайҙар өсөн ҙур төймәләр. Тауыш менән әйтергә йәки шылтыратыу һорарға була."), color = CanonMuted, fontSize = 16.sp, lineHeight = 23.sp)
                     }
                 }
             }
@@ -297,14 +297,14 @@ internal fun SimpleModeScreen(
             item { Box(Modifier.appearIn(4)) { SeniorBigAction(Icons.Default.FormatSize, appText("Крупный шрифт", "Эре шрифт"), fontScaleLabel(FontScalePrefs.option), { showFontDialog = true }) } }
             item { Text(appText("Ещё", "Тағы"), color = CanonMuted, fontWeight = FontWeight.Bold) }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SimpleSmallAction(appText("За близкого", "Яҡын өсөн"), Icons.Default.Person, onFamilyOrder, Modifier.weight(1f))
                     SimpleSmallAction(appText("Контакты", "Контакттар"), Icons.Default.PhoneLocked, onTrustedContacts, Modifier.weight(1f))
                     SimpleSmallAction(appText("Чат", "Чат"), Icons.Default.ChatBubble, onChat, Modifier.weight(1f))
                 }
             }
             if (latestRequests.isNotEmpty()) {
-                item { Text(appText("Последние заявки", "Һуңғы заявкалар"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+                item { Text(appText("Последние заявки", "Һуңғы заявкалар"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp) }
                 // Индекс в ключе: повтор того же маршрута даёт одинаковый route+time+passenger → дубль ключа = краш.
                 itemsIndexed(latest3, key = { i, it -> it.route + it.time + it.passenger + "#" + i }) { _, request ->
                     LocalRequestCard(request)
@@ -320,16 +320,16 @@ internal fun SeniorBigAction(icon: ImageVector, title: String, subtitle: String,
         modifier = Modifier.bounceClick(onClick).fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = if (danger) CanonDangerBg else CanonSurface),
         shape = CanonItemShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CanonMint, shape = RoundedCornerShape(18.dp)) {
-                Icon(icon, contentDescription = null, tint = if (danger) CanonRed else CanonGreen2, modifier = Modifier.padding(14.dp).size(32.dp))
+            Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+                Icon(icon, contentDescription = null, tint = if (danger) CanonRed else CanonGreen2, modifier = Modifier.padding(12.dp).size(32.dp))
             }
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 24.sp)
-                Text(subtitle, color = CanonMuted, fontSize = 15.sp, lineHeight = 19.sp)
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 30.sp)
+                Text(subtitle, color = CanonMuted, fontSize = 16.sp, lineHeight = 23.sp)
             }
             Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = if (danger) CanonRed else CanonMuted)
         }
@@ -341,17 +341,17 @@ internal fun SimpleSmallAction(title: String, icon: ImageVector, onClick: () -> 
     Surface(
         modifier = modifier.bounceClick(onClick),
         color = CanonSurface,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, CanonBorder),
-        shadowElevation = 1.dp
+        shadowElevation = CanonDepth.card
     ) {
         Column(
-            modifier = Modifier.heightIn(min = 64.dp).padding(vertical = 14.dp, horizontal = 8.dp),
+            modifier = Modifier.heightIn(min = 64.dp).padding(vertical = 12.dp, horizontal = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(26.dp))
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
             Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -394,13 +394,13 @@ internal fun AddressSuggestField(
             label = { Text(label) },
             leadingIcon = { Icon(leadingIcon, contentDescription = null) },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
             singleLine = true
         )
-        AnimatedVisibility(visible = towns.isNotEmpty() || hits.isNotEmpty(), enter = fadeIn(tween(150)), exit = fadeOut(tween(120))) {
+        AnimatedVisibility(visible = towns.isNotEmpty() || hits.isNotEmpty(), enter = fadeIn(tween(CanonMotion.QUICK)), exit = fadeOut(tween(CanonMotion.QUICK))) {
             Surface(
                 color = CanonSurface,
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 border = BorderStroke(1.dp, CanonBorder),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
             ) {
@@ -412,7 +412,7 @@ internal fun AddressSuggestField(
                                 .fillMaxWidth()
                                 .clickable { pick(title) }
                                 .heightIn(min = 48.dp)
-                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
@@ -430,12 +430,12 @@ internal fun AddressSuggestField(
                                 .fillMaxWidth()
                                 .clickable { pick(hit.title) }
                                 .heightIn(min = 48.dp)
-                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text(hit.title, color = CanonText, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(hit.title, color = CanonText, fontSize = 14.sp, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -446,12 +446,12 @@ internal fun AddressSuggestField(
 
 @Composable
 internal fun LocalRequestCard(request: LocalRequest) {
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(request.title, modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text(request.title, modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
-                    Text(request.status, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(request.status, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
             Text(request.route, color = CanonGreen, fontWeight = FontWeight.Bold)
@@ -489,7 +489,7 @@ private fun VoiceRequestPlayRow(url: String) {
             ) {
                 Icon(if (playing) Icons.Default.Close else Icons.Default.PlayArrow, contentDescription = appText("Слушать заявку", "Заявканы тыңлау"), tint = CanonGreen2)
             }
-            Text(appText("Голосовая заявка", "Тауыш заявкаһы"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(appText("Голосовая заявка", "Тауыш заявкаһы"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
     }
 }
@@ -543,7 +543,7 @@ internal fun VoiceRequestScreen(
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Голосовая заявка", "Тауыш заявкаһы"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             item {
@@ -568,10 +568,10 @@ internal fun VoiceRequestScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = if (recording) CanonRed else CanonGreen2)
                 ) {
                     Icon(Icons.Default.HeadsetMic, contentDescription = null, modifier = Modifier.size(30.dp))
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(
                         if (recording) appText("Стоп — готово", "Туҡта — әҙер") else if (recordedPath != null) appText("Записать заново", "Ҡабат яҙыу") else appText("Сказать заявку", "Заявканы әйтеү"),
-                        fontWeight = FontWeight.Bold, fontSize = 20.sp
+                        fontWeight = FontWeight.Bold, fontSize = 19.sp
                     )
                 }
             }
@@ -579,7 +579,7 @@ internal fun VoiceRequestScreen(
                 OutlinedButton(
                     onClick = { recognizeRu() },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = RoundedCornerShape(18.dp)
+                    shape = RoundedCornerShape(14.dp)
                 ) {
                     Icon(Icons.Default.HeadsetMic, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
@@ -844,14 +844,14 @@ internal fun CreatePassengerRequestContent(
     val extrasChevron by animateFloatAsState(if (extrasExpanded) 180f else 0f, label = "extrasChevron")
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         item {
             Text(
                 appText("Заявка пассажира", "Пассажир заявкаһы"),
                 color = CanonGreen,
-                fontSize = 28.sp,
+                fontSize = 24.sp,
                 lineHeight = 30.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -868,7 +868,7 @@ internal fun CreatePassengerRequestContent(
                 value = from, onValueChange = {},
                 label = { Text(appText("Откуда", "Ҡайҙан")) },
                 leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
             )
         }
         item {
@@ -876,7 +876,7 @@ internal fun CreatePassengerRequestContent(
                 value = to, onValueChange = {},
                 label = { Text(appText("Куда", "Ҡайҙа")) },
                 leadingIcon = { Icon(Icons.Default.NearMe, contentDescription = null) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
             )
         }
         if (pickupChips != null) item { pickupChips() }   // F14: чипы «частые точки сбора» для города отправления
@@ -893,7 +893,7 @@ internal fun CreatePassengerRequestContent(
                     placeholder = { Text(appText("Выберите дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
                     trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(14.dp)
                 )
                 Box(Modifier.matchParentSize().clickable { openDateTimePicker(ctxDt, dtLocale, onTimeChange) })
             }
@@ -906,7 +906,7 @@ internal fun CreatePassengerRequestContent(
                     label = { Text(appText("Мест", "Урын")) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(14.dp)
                 )
                 OutlinedTextField(
                     value = price,
@@ -914,7 +914,7 @@ internal fun CreatePassengerRequestContent(
                     label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(14.dp)
                 )
             }
         }
@@ -925,13 +925,13 @@ internal fun CreatePassengerRequestContent(
                     if (category == key) {
                         Button(
                             onClick = { onCategoryChange(key) },
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                         ) { Text(labelText, fontWeight = FontWeight.Bold) }
                     } else {
                         OutlinedButton(
                             onClick = { onCategoryChange(key) },
-                            shape = RoundedCornerShape(16.dp)
+                            shape = RoundedCornerShape(14.dp)
                         ) { Text(labelText, fontWeight = FontWeight.Bold) }
                     }
                 }
@@ -947,7 +947,7 @@ internal fun CreatePassengerRequestContent(
                             .fillMaxWidth()
                             .heightIn(min = 56.dp)
                             .bounceClick { extrasExpanded = !extrasExpanded }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Default.Tune, contentDescription = null, tint = CanonGreen2)
@@ -956,7 +956,7 @@ internal fun CreatePassengerRequestContent(
                             Text(appText("Дополнительно", "Өҫтәмә"), fontWeight = FontWeight.Bold, color = CanonText, fontSize = 16.sp)
                             Text(
                                 appText("Условия поездки, «только для своих», комментарий", "Сәфәр шарттары, «үҙебеҙҙекеләр өсөн», комментарий"),
-                                color = CanonMuted, fontSize = 13.sp, lineHeight = 16.sp,
+                                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                             )
                         }
                         Icon(
@@ -968,8 +968,8 @@ internal fun CreatePassengerRequestContent(
                     }
                     AnimatedVisibility(
                         visible = extrasExpanded,
-                        enter = expandVertically(tween(220)) + fadeIn(tween(180)),
-                        exit = shrinkVertically(tween(200)) + fadeOut(tween(140)),
+                        enter = expandVertically(tween(CanonMotion.QUICK)) + fadeIn(tween(CanonMotion.QUICK)),
+                        exit = shrinkVertically(tween(CanonMotion.QUICK)) + fadeOut(tween(CanonMotion.QUICK)),
                     ) {
                         Column(Modifier.padding(bottom = 8.dp)) {
                             PrefToggleRow(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"), womenOnly, onWomenOnlyChange)
@@ -985,16 +985,16 @@ internal fun CreatePassengerRequestContent(
                                     "Заявку увидят и возьмут только проверенные «свои» (уровень «Свой»).",
                                     "Заявканы тик тикшерелгән «үҙебеҙҙекеләр» (Үҙебеҙҙеке кимәле) күрер һәм алыр.",
                                 ),
-                                modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 12.dp),
-                                color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
+                                modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp),
+                                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                             )
                             OutlinedTextField(
                                 value = comment,
                                 onValueChange = onCommentChange,
                                 label = { Text(appText("Комментарий", "Комментарий")) },
                                 placeholder = { Text(appText("Например: буду с ребёнком", "Мәҫәлән: бала менән булам")) },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp).heightIn(min = 96.dp),
-                                shape = RoundedCornerShape(16.dp)
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).heightIn(min = 96.dp),
+                                shape = RoundedCornerShape(14.dp)
                             )
                         }
                     }
@@ -1136,19 +1136,19 @@ internal fun FamilyOrderFormContent(
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
-        item { Text(appText("Кто поедет?", "Кем бара?"), color = CanonGreen, fontSize = 28.sp, fontWeight = FontWeight.Bold) }
-        item { OutlinedTextField(value = passenger, onValueChange = onPassengerChange, label = { Text(appText("Имя пассажира", "Пассажир исеме")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
-        item { OutlinedTextField(value = phone, onValueChange = onPhoneChange, label = { Text(appText("Телефон пассажира", "Пассажир телефоны")) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+        item { Text(appText("Кто поедет?", "Кем бара?"), color = CanonGreen, fontSize = 24.sp, fontWeight = FontWeight.Bold) }
+        item { OutlinedTextField(value = passenger, onValueChange = onPassengerChange, label = { Text(appText("Имя пассажира", "Пассажир исеме")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) }
+        item { OutlinedTextField(value = phone, onValueChange = onPhoneChange, label = { Text(appText("Телефон пассажира", "Пассажир телефоны")) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) }
         item { Text(appText("Маршрут", "Маршрут"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
         item {
             if (fromField != null) fromField() else OutlinedTextField(
                 value = from, onValueChange = {},
                 label = { Text(appText("Откуда", "Ҡайҙан")) },
                 leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
             )
         }
         item {
@@ -1156,7 +1156,7 @@ internal fun FamilyOrderFormContent(
                 value = to, onValueChange = {},
                 label = { Text(appText("Куда", "Ҡайҙа")) },
                 leadingIcon = { Icon(Icons.Default.NearMe, contentDescription = null) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
             )
         }
         item {
@@ -1169,7 +1169,7 @@ internal fun FamilyOrderFormContent(
         }
         item {
             error?.let {
-                Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(bottom = 8.dp))
+                Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(bottom = 8.dp))
             }
             AppButton(
                 text = appText("Создать заявку", "Заявка булдырыу"),
@@ -1267,7 +1267,7 @@ internal fun TrustedContactsContent(
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         item {
@@ -1284,20 +1284,20 @@ internal fun TrustedContactsContent(
                 }
             }
             loadError && contacts.isEmpty() -> item {
-                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(36.dp))
-                        Text(loadErrorText, color = CanonText, fontSize = 15.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
+                        Text(loadErrorText, color = CanonText, fontSize = 16.sp, lineHeight = 23.sp, textAlign = TextAlign.Center)
                         AppButton(appText("Повторить", "Ҡабатларға"), onClick = onRetry, style = AppButtonStyle.Secondary, fillWidth = false)
                     }
                 }
             }
             contacts.isEmpty() -> item {
-                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(36.dp))
-                        Text(appText("Пока нет контактов", "Әлегә контакттар юҡ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp, textAlign = TextAlign.Center)
-                        Text(appText("Добавь близкого — он сможет видеть статус твоей поездки.", "Яҡыныңды өҫтә — ул сәфәреңдең статусын күрә алыр."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
+                        Text(appText("Пока нет контактов", "Әлегә контакттар юҡ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center)
+                        Text(appText("Добавь близкого — он сможет видеть статус твоей поездки.", "Яҡыныңды өҫтә — ул сәфәреңдең статусын күрә алыр."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
                     }
                 }
             }
@@ -1316,15 +1316,15 @@ internal fun TrustedContactsContent(
 
 @Composable
 private fun TrustedContactCard(contact: TrustedContact) {
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = CircleShape) {
-                Text(contact.name.take(1).ifBlank { "?" }, modifier = Modifier.padding(14.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Text(contact.name.take(1).ifBlank { "?" }, modifier = Modifier.padding(12.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 19.sp)
             }
             Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(contact.name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                Text("${contact.relationText()} · ${contact.phone}", color = CanonMuted, fontSize = 13.sp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(contact.name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("${contact.relationText()} · ${contact.phone}", color = CanonMuted, fontSize = 14.sp)
             }
             Text(if (contact.notifyByDefault) appText("Статус", "Статус") else appText("Только SOS", "Тик SOS"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
@@ -1443,7 +1443,7 @@ internal fun RepeatTripContent(
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         item {
@@ -1533,16 +1533,16 @@ internal fun RepeatTripContent(
 
 @Composable
 private fun FrequentTripCard(trip: FrequentTrip, loading: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    Card(modifier = Modifier.bounceClick { if (enabled && !loading) onClick() }.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(modifier = Modifier.bounceClick { if (enabled && !loading) onClick() }.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
+            Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                 Icon(if (trip.categoryKey == "hospital") Icons.Default.LocalHospital else Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(28.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(trip.titleText(), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(trip.titleText(), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                 Text("${trip.from} → ${trip.to}", color = CanonGreen, fontWeight = FontWeight.Bold)
-                Text(trip.timeHintText(), color = CanonMuted, fontSize = 13.sp)
+                Text(trip.timeHintText(), color = CanonMuted, fontSize = 14.sp)
             }
             if (loading) {
                 CircularProgressIndicator(color = CanonGreen2, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
@@ -1603,7 +1603,7 @@ internal fun CallbackHelpContent(
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         item {
@@ -1613,7 +1613,7 @@ internal fun CallbackHelpContent(
                 icon = Icons.Default.HeadsetMic
             )
         }
-        item { OutlinedTextField(value = reason, onValueChange = onReasonChange, label = { Text(appText("Что нужно?", "Нимә кәрәк?")) }, minLines = 3, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+        item { OutlinedTextField(value = reason, onValueChange = onReasonChange, label = { Text(appText("Что нужно?", "Нимә кәрәк?")) }, minLines = 3, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) }
         if (requested) {
             item {
                 InfoCard(
@@ -1627,7 +1627,7 @@ internal fun CallbackHelpContent(
             Button(
                 onClick = onPrimaryAction,
                 modifier = Modifier.fillMaxWidth().height(58.dp).testTag("callback_btn"),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {
                 if (hasSupportPhone) {
@@ -1636,7 +1636,7 @@ internal fun CallbackHelpContent(
                 }
                 Text(
                     if (hasSupportPhone) appText("Позвонить в поддержку", "Ярҙамға шылтыратыу") else appText("Попросить звонок", "Шылтыратыу һорау"),
-                    fontWeight = FontWeight.Bold, fontSize = 17.sp
+                    fontWeight = FontWeight.Bold, fontSize = 16.sp
                 )
             }
         }
@@ -1648,9 +1648,9 @@ internal data class CheckLine(val text: String, val done: Boolean = true)
 
 @Composable
 internal fun VoiceParsedCard(title: String, lines: List<CheckLine>) {
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
             lines.forEach { line ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -1660,7 +1660,7 @@ internal fun VoiceParsedCard(title: String, lines: List<CheckLine>) {
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text(line.text, color = if (line.done) CanonText else CanonMuted, fontSize = 15.sp, lineHeight = 19.sp)
+                    Text(line.text, color = if (line.done) CanonText else CanonMuted, fontSize = 16.sp, lineHeight = 23.sp)
                 }
             }
         }

@@ -160,28 +160,28 @@ internal fun ParcelChatScreen(
             AnimatedVisibility(visible = !wsConnected && !readOnly && !historyLoading) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                        .background(CanonMint, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+                        .background(CanonMint, RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = CanonGreen2)
-                    Spacer(Modifier.width(10.dp))
-                    Text(appText("Соединение восстанавливается…", "Бәйләнеш тергеҙелә…"), color = CanonGreen2, fontSize = 13.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(appText("Соединение восстанавливается…", "Бәйләнеш тергеҙелә…"), color = CanonGreen2, fontSize = 14.sp)
                 }
             }
             AnimatedVisibility(visible = readOnly) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                        .background(CanonSurface, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 10.dp),
+                        .background(CanonSurface, RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Default.Lock, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(
                         appText(
                             "Доставка закрыта — переписка осталась только для чтения",
                             "Илтеү ябылды — яҙышыу уҡыу өсөн генә ҡалды",
                         ),
-                        color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                     )
                 }
             }

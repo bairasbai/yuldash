@@ -166,8 +166,8 @@ internal fun TaxiOnboardingScreen(onBack: () -> Unit, onOpenDriverCabinet: () ->
             AnimatedContent(
                 targetState = ui,
                 transitionSpec = {
-                    (fadeIn(tween(260)) + slideInVertically(tween(300)) { it / 14 })
-                        .togetherWith(fadeOut(tween(160)))
+                    (fadeIn(tween(CanonMotion.NORMAL)) + slideInVertically(tween(CanonMotion.SLOW)) { it / 14 })
+                        .togetherWith(fadeOut(tween(CanonMotion.QUICK)))
                 },
                 label = "taxiGate",
             ) { state ->
@@ -177,7 +177,7 @@ internal fun TaxiOnboardingScreen(onBack: () -> Unit, onOpenDriverCabinet: () ->
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) { AppLoading(appText("Проверяем твою заявку…", "Заявкаңды тикшерәбеҙ…")) }
-                    TaxiGateUi.LoadError -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center) {
+                    TaxiGateUi.LoadError -> Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
                         AppErrorState(onRetry = { reloadKey++ })
                     }
                     is TaxiGateUi.Pending -> TaxiPendingContent(state.app, onRefresh = { reloadKey++ }, onDone = onBack)
@@ -289,13 +289,13 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
 
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
     ) {
         // Герой: тёплое приглашение.
         item {
             Surface(color = CanonTaxiBg, shape = CanonCardShape, border = BorderStroke(1.dp, CanonTaxi.copy(alpha = 0.4f))) {
-                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(shape = CircleShape, color = CanonTaxi) {
                             Icon(
@@ -406,7 +406,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
             )
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = licenseYear,
                     onValueChange = { licenseYear = it.filter(Char::isDigit).take(4) },
@@ -438,7 +438,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
         // Класс машины (§6): Эконом на старте у всех; Комфорт — авто новее/чище, подтвердит админ.
         item { Text(appText("Класс машины", "Машина класы"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine) }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TaxiClassChip(
                     title = appText("Эконом", "Эконом"),
                     subtitle = appText("обычная машина", "ғәҙәти машина"),
@@ -508,9 +508,9 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
         item {
             AnimatedVisibility(visible = submitError != null) {
                 Surface(color = CanonDangerBg, shape = CanonItemShape) {
-                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Info, contentDescription = null, tint = CanonRed, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(8.dp))
                         Text(submitError ?: "", color = CanonText, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine)
                     }
                 }
@@ -588,9 +588,9 @@ private fun TaxiCommissionSteps() {
 private fun TaxiCommissionStep(value: String, label: String, modifier: Modifier = Modifier) {
     Surface(color = CanonMint, shape = RoundedCornerShape(14.dp), modifier = modifier) {
         Column(
-            Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(value, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = TaxiType.Hero, lineHeight = TaxiType.HeroLine)
             Text(label, color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine, maxLines = 1)
@@ -602,11 +602,11 @@ private fun TaxiCommissionStep(value: String, label: String, modifier: Modifier 
 @Composable
 private fun TaxiRuleRow(emoji: String, title: String, body: String) {
     Row(verticalAlignment = Alignment.Top) {
-        Surface(color = CanonBg, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(40.dp)) {
+        Surface(color = CanonBg, shape = RoundedCornerShape(14.dp), modifier = Modifier.size(40.dp)) {
             Box(contentAlignment = Alignment.Center) { Text(emoji, fontSize = TaxiType.EmojiRow) }
         }
         Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine)
             Text(body, color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine)
         }
@@ -688,7 +688,7 @@ private fun TaxiStatusScaffold(
     onSecondary: (() -> Unit)?,
 ) {
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        Modifier.fillMaxSize().padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         contentPadding = PaddingValues(vertical = 24.dp),
@@ -697,18 +697,18 @@ private fun TaxiStatusScaffold(
             Surface(shape = CircleShape, color = tintBg, border = BorderStroke(1.dp, tint.copy(alpha = 0.3f))) {
                 Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) { Text(emoji, fontSize = TaxiType.EmojiHero) }
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
         }
         item {
             Text(title, color = CanonText, fontSize = TaxiType.Hero, lineHeight = TaxiType.HeroLine, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             Spacer(Modifier.height(8.dp))
             Text(body, color = CanonMuted, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
         }
         if (summary != null) {
             item {
                 AppCard {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         TaxiSummaryRow(appText("ИНН", "ИНН"), summary.inn)
                         TaxiSummaryRow(appText("Разрешение", "Рөхсәт"), summary.permitNumber)
                         if (summary.licenseSinceYear > 0) TaxiSummaryRow(appText("Права с", "Права алынған йыл"), summary.licenseSinceYear.toString())
@@ -718,7 +718,7 @@ private fun TaxiStatusScaffold(
                         )
                     }
                 }
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(16.dp))
             }
         }
         item {

@@ -107,8 +107,8 @@ internal fun WalletScreen(onBack: () -> Unit) {
         ) {
         LazyColumn(
             modifier = Modifier.padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
             // Подпись под балансом зависит от того, включены ли выплаты. В Модели А деньги идут
             // мимо платформы, и обещание «доступно к выводу» под нулевым балансом читалось как
@@ -170,20 +170,20 @@ private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean, payo
         modifier = Modifier.fillMaxWidth().appearIn(0),
         shape = CanonCardShape,
         colors = CardDefaults.cardColors(containerColor = CanonGreenInk),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.raised),
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
                 .background(Brush.verticalGradient(listOf(CanonGreenInk, CanonGreenInkDark)))
-                .padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(color = CanonOnAccent.copy(alpha = 0.18f), shape = CircleShape) {
                     Icon(
                         Icons.Default.AccountBalanceWallet, contentDescription = null,
-                        tint = CanonOnAccent, modifier = Modifier.padding(11.dp).size(22.dp),
+                        tint = CanonOnAccent, modifier = Modifier.padding(12.dp).size(22.dp),
                     )
                 }
                 Spacer(Modifier.width(12.dp))
@@ -194,7 +194,7 @@ private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean, payo
             }
             Text(
                 if (loading && balance == null) "…" else "${fmtRub(balance?.balanceRub ?: 0)} ₽",
-                color = CanonOnAccent, fontSize = 44.sp, lineHeight = 48.sp, fontWeight = FontWeight.Bold,
+                color = CanonOnAccent, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold,
             )
             Text(
                 when (payoutEnabled) {
@@ -207,7 +207,7 @@ private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean, payo
                     )
                     else -> appText("Бонусы и возвраты", "Бонустар һәм ҡайтарыуҙар")
                 },
-                color = CanonOnAccent.copy(alpha = 0.82f), fontSize = 13.sp, lineHeight = 17.sp,
+                color = CanonOnAccent.copy(alpha = 0.82f), fontSize = 14.sp, lineHeight = 20.sp,
             )
         }
     }
@@ -224,7 +224,7 @@ private fun WalletLedgerRow(e: WalletLedgerEntryDto) {
     val noteText = e.note.ifBlank { fallbackNote }
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
         Row(
-            Modifier.fillMaxWidth().padding(14.dp),
+            Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -233,11 +233,11 @@ private fun WalletLedgerRow(e: WalletLedgerEntryDto) {
                     if (income) Icons.Default.CallReceived else Icons.Default.CallMade,
                     contentDescription = if (income) appText("Приход", "Килем") else appText("Списание", "Сығым"),
                     tint = if (income) CanonGreen2 else CanonMutedStrong,
-                    modifier = Modifier.padding(10.dp).size(20.dp),
+                    modifier = Modifier.padding(8.dp).size(20.dp),
                 )
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(noteText, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 19.sp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(noteText, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 23.sp)
                 Text(formatDepart(e.createdAt), color = CanonMuted, fontSize = 12.sp)
             }
             Text(
@@ -255,27 +255,27 @@ private fun WalletLedgerRow(e: WalletLedgerEntryDto) {
 private fun PayoutSoonCard() {
     Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder)) {
         Row(
-            Modifier.fillMaxWidth().padding(18.dp),
+            Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Surface(color = CanonWarnBg, shape = CircleShape) {
                 Icon(
                     Icons.Default.Schedule, contentDescription = null,
-                    tint = CanonWarn, modifier = Modifier.padding(10.dp).size(20.dp),
+                    tint = CanonWarn, modifier = Modifier.padding(8.dp).size(20.dp),
                 )
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     appText("Выплаты на карту — скоро", "Картаға түләүҙәр — оҙаҡламай"),
-                    color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                    color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp,
                 )
                 Text(
                     appText(
                         "Готовим вывод на карту. Пока комиссия и расчёты работают как раньше.",
                         "Картаға сығарыуҙы әҙерләйбеҙ. Әлегә комиссия һәм иҫәпләшеүҙәр элеккесә эшләй.",
                     ),
-                    color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
         }
@@ -321,15 +321,15 @@ private fun PayoutCard(
     val netErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
 
     Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder)) {
-        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(color = CanonMint, shape = CircleShape) {
                     Icon(
                         Icons.Default.CreditCard, contentDescription = null,
-                        tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(20.dp),
+                        tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp),
                     )
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         appText("Вывод на карту", "Картаға сығарыу"),
                         color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp,
@@ -337,12 +337,12 @@ private fun PayoutCard(
                     Text(
                         if (status.hasRequisite) appText("Карта ····${status.cardLast4}", "Карта ····${status.cardLast4}")
                         else appText("Карта пока не добавлена", "Карта әлегә өҫтәлмәгән"),
-                        color = CanonMuted, fontSize = 13.sp,
+                        color = CanonMuted, fontSize = 14.sp,
                     )
                 }
                 if (status.hasRequisite) {
                     TextButton(onClick = { if (!busy) showCardDialog = true }) {
-                        Text(appText("Изменить", "Үҙгәртеү"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(appText("Изменить", "Үҙгәртеү"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
             }
@@ -380,7 +380,7 @@ private fun PayoutCard(
                                 amountText = (minOf(status.balanceKop, status.maxKop) / 100).toString()
                                 idemKey = null
                             }) {
-                                Text(appText("Всё", "Барыһы"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(appText("Всё", "Барыһы"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                         }
                     },
@@ -488,7 +488,7 @@ private fun PayoutCardDialog(onDismiss: () -> Unit, onSaved: (String) -> Unit) {
             Text(appText("Карта для выплат", "Түләүҙәр өсөн карта"), color = CanonText, fontWeight = FontWeight.Bold)
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = cardText,
                     onValueChange = { v -> cardText = v.filter { it.isDigit() || it == ' ' }.take(23); failed = false },
@@ -504,7 +504,7 @@ private fun PayoutCardDialog(onDismiss: () -> Unit, onSaved: (String) -> Unit) {
                         "Мы сохраним только последние 4 цифры — полный номер не покидает телефон.",
                         "Беҙ һуңғы 4 һанды ғына һаҡлайбыҙ — тулы номер телефондан китмәй.",
                     ),
-                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                 )
                 if (failed) {
                     Text(

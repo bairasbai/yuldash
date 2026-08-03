@@ -119,14 +119,14 @@ import kotlinx.coroutines.withContext
 // Вес тоже закреплён за ролью: Black — Title и числа, Bold — акцентная мета (пилюля,
 // «твоя очередь», подпись стороны), Normal — весь Body и спокойная мета.
 // Двух весов, делающих одно и то же, в файле нет.
-private val FairMetric = 26.sp
-private val FairTitle = 17.sp
+private val FairMetric = 24.sp
+private val FairTitle = 16.sp
 private val FairBody = 14.sp
 private val FairMeta = 12.sp
 private val FairMetricLine = 30.sp
-private val FairTitleLine = 22.sp
+private val FairTitleLine = 23.sp
 private val FairBodyLine = 20.sp
-private val FairMetaLine = 16.sp
+private val FairMetaLine = 17.sp
 
 // ─────────────────────────── Ритм раздела (сетка 4dp) ───────────────────────────
 private val FairCardPad = 20.dp    // внутренний воздух крупной карточки
@@ -254,7 +254,7 @@ private fun fairFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedLabelColor = CanonGreen2,
 )
 
-private val FairFieldShape = RoundedCornerShape(16.dp)
+private val FairFieldShape = RoundedCornerShape(14.dp)
 
 // ─────────────────────────── Центр справедливости ───────────────────────────
 
@@ -305,7 +305,7 @@ internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> U
                 item(key = "standing") {
                     AnimatedContent(
                         targetState = standing,
-                        transitionSpec = { fadeIn(tween(280)) togetherWith fadeOut(tween(140)) },
+                        transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                         label = "fair-standing",
                     ) { st ->
                         if (st == null) SkeletonCard(lines = 2) else StandingCard(st)
@@ -329,8 +329,8 @@ internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> U
                     // Row без spacedBy → скрытая пилюля не оставляет «фантомного» отступа.
                     AnimatedVisibility(
                         visible = waitingForMe > 0,
-                        enter = fadeIn(tween(240)),
-                        exit = fadeOut(tween(140)),
+                        enter = fadeIn(tween(CanonMotion.NORMAL)),
+                        exit = fadeOut(tween(CanonMotion.QUICK)),
                     ) {
                         StatusPill(
                             appText("Ждут тебя: $waitingForMe", "Һине көтә: $waitingForMe"),
@@ -377,8 +377,8 @@ internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> U
 private fun StandingCard(st: StandingDto) {
     val paused = !st.canAct
     // Акцент шапки меняется плавно: «всё в порядке» ↔ «пауза» без резкого перекраса.
-    val accent by animateColorAsState(if (paused) CanonRed else CanonGreen2, tween(320), label = "fair-accent")
-    val accentBg by animateColorAsState(if (paused) CanonDangerBg else CanonMint, tween(320), label = "fair-accentBg")
+    val accent by animateColorAsState(if (paused) CanonRed else CanonGreen2, tween(CanonMotion.SLOW), label = "fair-accent")
+    val accentBg by animateColorAsState(if (paused) CanonDangerBg else CanonMint, tween(CanonMotion.SLOW), label = "fair-accentBg")
     // Надёжность подрастает до своего значения — число «оживает», а не подставляется.
     var counted by remember { mutableStateOf(false) }
     LaunchedEffect(st.reliability) { counted = true }
@@ -400,7 +400,7 @@ private fun StandingCard(st: StandingDto) {
                 Spacer(Modifier.width(FairGap))
                 AnimatedContent(
                     targetState = paused,
-                    transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                    transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                     label = "fair-standingTitle",
                     modifier = Modifier.weight(1f),
                 ) { isPaused ->
@@ -578,8 +578,8 @@ private fun StandingCounter(label: String, value: String, tint: Color) {
 private fun IncidentRow(inc: IncidentDto, onClick: () -> Unit) {
     val (bg, fg) = statusColors(inc.status)
     // Статус меняется после действия (объяснил → «На разборе») — цвет переезжает плавно.
-    val pillBg by animateColorAsState(bg, tween(300), label = "fair-rowBg")
-    val pillFg by animateColorAsState(fg, tween(300), label = "fair-rowFg")
+    val pillBg by animateColorAsState(bg, tween(CanonMotion.SLOW), label = "fair-rowBg")
+    val pillFg by animateColorAsState(fg, tween(CanonMotion.SLOW), label = "fair-rowFg")
     val statusText = incidentStatusLabel(inc.status)
 
     AppCard(onClick = onClick, shape = CanonItemShape) {
@@ -901,8 +901,8 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
                     item(key = "act-error") {
                         AnimatedVisibility(
                             visible = errText != null,
-                            enter = fadeIn(tween(220)),
-                            exit = fadeOut(tween(140)),
+                            enter = fadeIn(tween(CanonMotion.QUICK)),
+                            exit = fadeOut(tween(CanonMotion.QUICK)),
                         ) {
                             FairNotice(errText.orEmpty(), CanonDangerBg, CanonRed)
                         }
@@ -1021,8 +1021,8 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
 @Composable
 private fun IncidentHeaderCard(i: IncidentDto) {
     val (bg, fg) = statusColors(i.status)
-    val badgeBg by animateColorAsState(bg, tween(300), label = "fair-headBg")
-    val badgeFg by animateColorAsState(fg, tween(300), label = "fair-headFg")
+    val badgeBg by animateColorAsState(bg, tween(CanonMotion.SLOW), label = "fair-headBg")
+    val badgeFg by animateColorAsState(fg, tween(CanonMotion.SLOW), label = "fair-headFg")
     val statusText = incidentStatusLabel(i.status)
 
     AppCard {
@@ -1040,7 +1040,7 @@ private fun IncidentHeaderCard(i: IncidentDto) {
                     )
                     AnimatedContent(
                         targetState = statusText,
-                        transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                        transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                         label = "fair-headStatus",
                     ) { s ->
                         Text(s, color = badgeFg, fontSize = FairMeta, lineHeight = FairMetaLine, fontWeight = FontWeight.Bold)
@@ -1123,7 +1123,7 @@ private fun EvidenceThumb(url: String, index: Int, total: Int, onClick: () -> Un
         contentScale = ContentScale.Crop,
         modifier = Modifier
             .size(84.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(CanonBg)
             .clickable(onClick = onClick),
     )
@@ -1402,7 +1402,7 @@ internal fun FileIncidentDialog(
                 )
                 AnimatedContent(
                     targetState = typesOpen,
-                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
+                    transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                     label = "fair-types",
                 ) { open ->
                     if (open) {
@@ -1443,8 +1443,8 @@ internal fun FileIncidentDialog(
                 EvidencePicker(photos, uploading) { pickPhoto.launch("image/*") }
                 AnimatedVisibility(
                     visible = err != null,
-                    enter = fadeIn(tween(220)),
-                    exit = fadeOut(tween(140)),
+                    enter = fadeIn(tween(CanonMotion.QUICK)),
+                    exit = fadeOut(tween(CanonMotion.QUICK)),
                 ) {
                     FairNotice(err.orEmpty(), CanonDangerBg, CanonRed)
                 }
@@ -1467,7 +1467,7 @@ internal fun FileIncidentDialog(
                 // Отправка не должна выглядеть как «ничего не произошло»: подпись сменяется спиннером.
                 AnimatedContent(
                     targetState = busy,
-                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                    transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                     label = "fair-fileBusy",
                 ) { sending ->
                     if (sending) {
@@ -1498,9 +1498,9 @@ internal fun FileIncidentDialog(
 /** Один тип спора в списке выбора. Тач-цель 48dp, выбор подсвечивается плавно. */
 @Composable
 private fun IncidentTypeOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonBg, tween(220), label = "fair-typeBg")
-    val border by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(220), label = "fair-typeBorder")
-    val tint by animateColorAsState(if (selected) CanonGreen2 else CanonMuted, tween(220), label = "fair-typeTint")
+    val bg by animateColorAsState(if (selected) CanonMint else CanonBg, tween(CanonMotion.QUICK), label = "fair-typeBg")
+    val border by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "fair-typeBorder")
+    val tint by animateColorAsState(if (selected) CanonGreen2 else CanonMuted, tween(CanonMotion.QUICK), label = "fair-typeTint")
     Surface(
         onClick = onClick,
         color = bg,

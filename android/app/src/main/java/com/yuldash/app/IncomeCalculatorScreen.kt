@@ -88,13 +88,13 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
     ) { padding ->
         LazyColumn(
             Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp),
         ) {
             // ── Результат (большая карточка сверху) ──
             item {
                 Surface(color = CanonGreenInk, shape = RoundedCornerShape(22.dp)) {
-                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(appText("Чистыми тебе в месяц", "Айына таҙа килем"), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         Text(rub(animatedNet.toDouble()), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 34.sp)
                         Spacer(Modifier.height(4.dp))
@@ -109,8 +109,8 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
             // ── Из чего складывается ──
             item {
                 Surface(color = CanonSurface, shape = CanonItemShape) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(appText("Из чего доход", "Килем нимәнән"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(appText("Из чего доход", "Килем нимәнән"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         BreakdownRow(appText("Купоны и реклама бизнеса", "Купондар һәм бизнес рекламаһы"), rub(couponsIncome * routes))
                         BreakdownRow(appText("Boost водителей", "Водителдәр Boost'ы"), rub(boostIncome * routes))
                         if (taxiOn) BreakdownRow(appText("Комиссия такси", "Такси комиссияһы"), rub(taxiIncome * routes))
@@ -127,11 +127,11 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
             // ── Такси (опционально) ──
             item {
                 Surface(color = CanonSurface, shape = CanonItemShape) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.LocalTaxi, contentDescription = null, tint = CanonTaxi, modifier = Modifier.height(22.dp))
                             Spacer(Modifier.height(0.dp))
-                            Text(appText("  Включить такси (комиссия)", "  Таксины ҡабыҙыу (комиссия)"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                            Text(appText("  Включить такси (комиссия)", "  Таксины ҡабыҙыу (комиссия)"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
                             Switch(checked = taxiOn, onCheckedChange = { taxiOn = it }, colors = SwitchDefaults.colors(checkedTrackColor = CanonGreen2))
                         }
                         if (taxiOn) {
@@ -142,8 +142,8 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
                             CalcSlider(appText("Расход бензина, л/100 км", "Бензин сарыфы, л/100 км"), fuelPer100, 4f..15f, "${fuelPer100.roundToInt()} л") { fuelPer100 = it }
                             CalcSlider(appText("Цена бензина, ₽/л", "Бензин хаҡы, ₽/л"), fuelPrice, 40f..80f, "${fuelPrice.roundToInt()} ₽") { fuelPrice = it }
                             // «Чистыми после бензина» рядом с валовым — прозрачно, что именно вычли.
-                            Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
-                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(appText("Сколько остаётся водителю", "Водителгә күпме ҡала"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
@@ -152,13 +152,13 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
                                         }
                                         Column(Modifier.weight(1f)) {
                                             Text(appText("Чистыми после бензина", "Бензиндан һуң таҙа"), color = CanonMuted, fontSize = 12.sp)
-                                            Text(rub(driverNetMonth), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                            Text(rub(driverNetMonth), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                                         }
                                     }
                                     Text(
                                         appText("Из валового вычли: бензин ${rub(fuelMonth)} + комиссия ${commissionPct.roundToInt()}% (${rub(driverCommissionMonth)}).",
                                                 "Ялпынан алдыҡ: бензин ${rub(fuelMonth)} + комиссия ${commissionPct.roundToInt()}% (${rub(driverCommissionMonth)})."),
-                                        color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                                     )
                                 }
                             }
@@ -197,11 +197,11 @@ private fun BreakdownRow(label: String, value: String) {
 @Composable
 private fun CalcSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, valueText: String, onChange: (Float) -> Unit) {
     Surface(color = CanonSurface, shape = CanonItemShape) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(label, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 Surface(color = CanonMint, shape = RoundedCornerShape(8.dp)) {
-                    Text(valueText, Modifier.padding(horizontal = 10.dp, vertical = 4.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(valueText, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
             Slider(

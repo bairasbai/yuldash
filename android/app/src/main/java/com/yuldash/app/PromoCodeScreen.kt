@@ -125,20 +125,20 @@ private fun PromoInputCard(onApplied: (PromoApplyResultDto) -> Unit) {
     var err by remember { mutableStateOf<String?>(null) }
     val defaultErr = appText("Не получилось применить. Повтори.", "Ҡулланып булманы. Ҡабатла.")
 
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
+            Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                 Icon(Icons.Default.Redeem, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(26.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(appText("Есть промокод?", "Промокодың бармы?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Text(appText("Есть промокод?", "Промокодың бармы?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                 Text(appText("Код друга или акции", "Дуҫ йәки акция коды"), color = CanonMuted, fontSize = 14.sp)
             }
         }
 
         AppCard {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = code,
                     onValueChange = { new -> code = new.uppercase().filter { !it.isWhitespace() }; err = null },
@@ -147,7 +147,7 @@ private fun PromoInputCard(onApplied: (PromoApplyResultDto) -> Unit) {
                     label = { Text(appText("Промокод", "Промокод")) },
                     placeholder = { Text("YULDASH", color = CanonMuted, fontFamily = FontFamily.Monospace) },
                     textStyle = androidx.compose.ui.text.TextStyle(
-                        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = CanonText,
+                        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 19.sp, color = CanonText,
                     ),
                     shape = CanonItemShape,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
@@ -157,8 +157,8 @@ private fun PromoInputCard(onApplied: (PromoApplyResultDto) -> Unit) {
                     ),
                 )
                 if (err != null) {
-                    Surface(color = CanonDangerBg, shape = RoundedCornerShape(12.dp)) {
-                        Text(err ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                    Surface(color = CanonDangerBg, shape = RoundedCornerShape(14.dp)) {
+                        Text(err ?: "", color = CanonRed, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
                     }
                 }
                 AppButton(
@@ -200,19 +200,19 @@ private fun PromoSuccessCard(res: PromoApplyResultDto) {
                 Icon(
                     Icons.Default.CheckCircle, contentDescription = appText("Успешно", "Уңышлы"),
                     tint = CanonGreen2,
-                    modifier = Modifier.padding(18.dp).size(44.dp),
+                    modifier = Modifier.padding(16.dp).size(44.dp),
                 )
             }
         }
         Text(
             appText("Промокод применён!", "Промокод ҡулланылды!"),
-            color = CanonText, fontWeight = FontWeight.Bold, fontSize = 22.sp, textAlign = TextAlign.Center,
+            color = CanonText, fontWeight = FontWeight.Bold, fontSize = 24.sp, textAlign = TextAlign.Center,
         )
         if (message.isNotBlank()) {
             Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2)) {
                 Text(
-                    message, color = CanonText, fontSize = 16.sp, lineHeight = 22.sp, textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                    message, color = CanonText, fontSize = 16.sp, lineHeight = 23.sp, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
                 )
             }
         }
@@ -230,13 +230,13 @@ private fun PromoSuccessCard(res: PromoApplyResultDto) {
 private fun PromoTaxiDiscountNote(discountKop: Int) {
     if (discountKop <= 0) return
     Surface(color = CanonMint, shape = CanonCardShape, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.LocalTaxi, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 Text(
                     appText("Вводить больше ничего не нужно", "Башҡа бер нәмә лә индерергә кәрәкмәй"),
-                    color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                    color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 16.sp,
                 )
             }
             Text(
@@ -244,21 +244,21 @@ private fun PromoTaxiDiscountNote(discountKop: Int) {
                     "Скидка ${kopToRub(discountKop)} сработает сама при следующем заказе такси — ты увидишь её в цене ещё до кнопки «Вызвать».",
                     "${kopToRub(discountKop)} ташлама киләһе такси заказында үҙе эшләй — уны «Саҡырыу» төймәһенә тиклем үк хаҡта күрәһең.",
                 ),
-                color = CanonGreen2, fontSize = 14.sp, lineHeight = 19.sp,
+                color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
             )
             Text(
                 appText(
                     "Скидку оплачивает Юлдаш из своей комиссии — водитель получит своё полностью.",
                     "Ташламаны Юлдаш үҙ комиссияһынан түләй — водитель үҙенекен тулыһынса ала.",
                 ),
-                color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp,
+                color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
             )
             Text(
                 appText(
                     "Скидка одноразовая. Поездка не состоялась — вернём её тебе.",
                     "Ташлама бер тапҡырлыҡ. Сәфәр булмаһа — уны һиңә кире ҡайтарабыҙ.",
                 ),
-                color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp,
+                color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
             )
         }
     }
@@ -269,24 +269,24 @@ private fun PromoTaxiDiscountNote(discountKop: Int) {
 @Composable
 private fun PromoAppliedCard(m: MyPromoDto) {
     val thanksFallback = appText("Спасибо, что с нами", "Беҙҙең менән булғаныңа рәхмәт")
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
+            Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(26.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(appText("Промокод активен", "Промокод актив"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Text(appText("Промокод активен", "Промокод актив"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                 Text(m.title.ifBlank { thanksFallback }, color = CanonMuted, fontSize = 14.sp)
             }
         }
         AppCard {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(appText("Твой промокод", "Һинең промокодың"), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(appText("Твой промокод", "Һинең промокодың"), color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
                     Text(
-                        m.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 26.sp,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), textAlign = TextAlign.Center,
+                        m.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 24.sp,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), textAlign = TextAlign.Center,
                     )
                 }
                 PromoPerkChip(m.kind, m.perkValue, m.discountKop)
@@ -298,7 +298,7 @@ private fun PromoAppliedCard(m: MyPromoDto) {
         Surface(color = CanonMint, shape = CanonItemShape) {
             Text(
                 appText("Один промокод на аккаунт — этот уже с тобой. Хорошей дороги!", "Бер аккаунтҡа бер промокод — был һинеке инде. Юлың уңышлы булһын!"),
-                color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(14.dp),
+                color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(12.dp),
             )
         }
     }
@@ -332,7 +332,7 @@ private fun PromoPerkChip(kind: String, perkValue: Int, discountKop: Int = 0) {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(icon, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.size(22.dp))
             Text(label, color = CanonGoldInk, fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -377,7 +377,7 @@ private fun PromoDiscountStatus(m: MyPromoDto) {
         border = BorderStroke(1.dp, if (waiting) CanonGreen2 else CanonBorder),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Default.LocalTaxi, contentDescription = null,
@@ -386,12 +386,12 @@ private fun PromoDiscountStatus(m: MyPromoDto) {
                 Spacer(Modifier.width(8.dp))
                 Text(
                     title, color = if (waiting) CanonGreen2 else CanonText,
-                    fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold, fontSize = 16.sp,
                 )
             }
             Text(
                 note, color = if (waiting) CanonGreen2 else CanonMuted,
-                fontSize = 13.sp, lineHeight = 18.sp,
+                fontSize = 14.sp, lineHeight = 20.sp,
             )
         }
     }
@@ -407,7 +407,7 @@ private fun PromoHonestNote() {
                 "Промокод — по желанию. Без него всё работает так же. Никаких обязательных условий.",
                 "Промокод — теләккә ҡарап. Уныһыҙ ҙа бөтәһе шулай уҡ эшләй. Мәжбүри шарттар юҡ.",
             ),
-            color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(14.dp),
+            color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(12.dp),
         )
     }
 }

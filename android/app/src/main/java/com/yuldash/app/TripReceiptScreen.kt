@@ -87,7 +87,7 @@ internal fun TripReceiptScreen(bookingId: Int, onBack: () -> Unit) {
     ) { padding ->
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             when {
                 loading -> ReceiptSkeleton()
@@ -118,24 +118,24 @@ private fun ReceiptCard(r: TripReceiptDto) {
         if (r.driverName.isNotBlank()) appendLine("$shDriver: ${r.driverName}")
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Шапка «Поездка завершена» — фиксированный ink-зелёный (белый текст читаем в обеих темах).
         Surface(shape = CanonCardShape, color = Color.Transparent) {
             Column(
                 Modifier
                     .fillMaxWidth()
                     .background(Brush.verticalGradient(listOf(CanonGreenInk, CanonGreenInkDark)), CanonCardShape)
-                    .padding(20.dp),
+                    .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                AnimatedVisibility(visible = true, enter = scaleIn(tween(300)) + fadeIn()) {
+                AnimatedVisibility(visible = true, enter = scaleIn(tween(CanonMotion.SLOW)) + fadeIn()) {
                     Box(Modifier.size(56.dp).background(Color.White.copy(alpha = 0.16f), CircleShape), contentAlignment = Alignment.Center) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
                     }
                 }
-                Text(appText("Поездка завершена", "Сәфәр тамамланды"), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("${r.fromCity} → ${r.toCity}", color = Color.White.copy(alpha = 0.92f), fontSize = 15.sp, textAlign = TextAlign.Center)
+                Text(appText("Поездка завершена", "Сәфәр тамамланды"), color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text("${r.fromCity} → ${r.toCity}", color = Color.White.copy(alpha = 0.92f), fontSize = 16.sp, textAlign = TextAlign.Center)
             }
         }
 
@@ -160,18 +160,18 @@ private fun ReceiptCard(r: TripReceiptDto) {
 
         // Сумма + способ оплаты (акцент)
         AppCard {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(appText("Сумма поездки", "Сәфәр суммаһы"), color = CanonMuted, fontSize = 13.sp)
+                        Text(appText("Сумма поездки", "Сәфәр суммаһы"), color = CanonMuted, fontSize = 14.sp)
                         Text("${r.amount} ₽", color = CanonText, fontSize = 34.sp, fontWeight = FontWeight.Bold)
                     }
                     if (r.paid) {
                         Surface(shape = RoundedCornerShape(999.dp), color = CanonMint) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(5.dp))
-                                Text(appText("Оплачено", "Түләнгән"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(4.dp))
+                                Text(appText("Оплачено", "Түләнгән"), color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -184,7 +184,7 @@ private fun ReceiptCard(r: TripReceiptDto) {
                 Text(
                     appText("Это запись о поездке, как вы договорились. Оплата — напрямую между вами.",
                         "Был — килешкәнсә сәфәр яҙмаһы. Түләү — туранан-тура араларҙа."),
-                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                 )
             }
         }
@@ -192,7 +192,7 @@ private fun ReceiptCard(r: TripReceiptDto) {
         // Тёплое спасибо + шеринг
         Text(
             appText("Спасибо, что едешь с Юлдашем 💚", "Юлдаш менән йөрөгәнең өсөн рәхмәт 💚"),
-            color = CanonMuted, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+            color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
         )
         AppButton(
             text = appText("Поделиться", "Бүлешеү"),
@@ -205,44 +205,44 @@ private fun ReceiptCard(r: TripReceiptDto) {
 
 @Composable
 internal fun ReceiptRow(icon: ImageVector, label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(color = CanonMint, shape = CircleShape) {
-            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(18.dp))
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(18.dp))
         }
         Spacer(Modifier.width(12.dp))
         Text(label, color = CanonMuted, fontSize = 14.sp)
         Spacer(Modifier.weight(1f))
-        Text(value, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
+        Text(value, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
     }
 }
 
 @Composable
 internal fun ReceiptDriverRow(name: String, verified: Boolean) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(color = CanonMint, shape = CircleShape) {
-            Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(18.dp))
+            Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(18.dp))
         }
         Spacer(Modifier.width(12.dp))
         Text(appText("Водитель", "Йөрөтөүсе"), color = CanonMuted, fontSize = 14.sp)
         Spacer(Modifier.weight(1f))
         if (verified) {
             Icon(Icons.Default.Verified, contentDescription = appText("Проверен", "Тикшерелгән"), tint = CanonGreen2, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(5.dp))
+            Spacer(Modifier.width(4.dp))
         }
-        Text(name, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
+        Text(name, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
     }
 }
 
 @Composable
 internal fun ReceiptDivider() {
-    Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(CanonHairlineGreen))
+    Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(1.dp).background(CanonHairlineGreen))
 }
 
 // ─────────────────── Состояния ───────────────────
 
 @Composable
 private fun ReceiptSkeleton() {
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SkeletonBox(widthFraction = 1f, height = 120.dp, shape = CanonCardShape)
         SkeletonCard(lines = 4)
         SkeletonCard(lines = 2)
@@ -254,17 +254,17 @@ private fun ReceiptSkeleton() {
 private fun ReceiptPendingCard() {
     AppCard {
         Column(
-            Modifier.padding(22.dp),
+            Modifier.padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Surface(color = CanonMint, shape = CircleShape) {
                 Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp).size(30.dp))
             }
-            Text(appText("Квитанция ещё не готова", "Квитанция әҙер түгел"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center)
+            Text(appText("Квитанция ещё не готова", "Квитанция әҙер түгел"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp, textAlign = TextAlign.Center)
             Text(
                 appText("Она появится после завершения поездки. Хорошей дороги!", "Ул сәфәр тамамланғас барлыҡҡа килер. Юлың уң булһын!"),
-                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center,
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
             )
         }
     }

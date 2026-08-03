@@ -72,9 +72,9 @@ internal fun AppReviewScreen(onBack: () -> Unit) {
                     .padding(padding)
                     .padding(horizontal = 16.dp)
                     .fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
                 ReviewThanksCard(onDone = onBack)
             }
         } else {
@@ -133,16 +133,16 @@ internal fun AppReviewFormContent(
             .fillMaxSize()
             .imePadding()   // поле отзыва/кнопка не прячутся за клавиатурой
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(4.dp))
 
         Text(
             appText(
                 "Как тебе Юлдаш? Оцени и напиши пару слов — это поможет другим решиться.",
                 "Юлдаш нисек? Баһала һәм бер-ике һүҙ яҙ — был башҡаларға ҡарар итергә ярҙам итер.",
             ),
-            color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+            color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
         )
 
         // Звёзды
@@ -192,9 +192,9 @@ internal fun AppReviewFormContent(
                 "Отзыв появится на сайте после короткой проверки — чтобы не было спама.",
                 "Фекер ҡыҫҡа тикшереүҙән һуң сайтта күренер — спам булмаһын өсөн.",
             ),
-            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
         )
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
     }
 }
 
@@ -208,7 +208,7 @@ internal fun ReviewStarsRow(selected: Int, onSelect: (Int) -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
     ) {
         Row(
             Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -237,7 +237,7 @@ internal fun ReviewThanksCard(onDone: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
     ) {
         Column(
             Modifier.fillMaxWidth().padding(24.dp),
@@ -247,14 +247,14 @@ internal fun ReviewThanksCard(onDone: () -> Unit) {
             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen, modifier = Modifier.size(52.dp))
             Text(
                 appText("Спасибо за отзыв!", "Фекерең өсөн рәхмәт!"),
-                color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold,
+                color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold,
             )
             Text(
                 appText(
                     "Мы прочитаем его лично. Лучшие отзывы попадут на сайт Юлдаша.",
                     "Уны шәхсән уҡыйбыҙ. Иң яҡшы фекерҙәр Юлдаш сайтына эләгер.",
                 ),
-                color = CanonMuted, fontSize = 15.sp, lineHeight = 20.sp,
+                color = CanonMuted, fontSize = 16.sp, lineHeight = 23.sp,
             )
             Button(
                 onClick = onDone,

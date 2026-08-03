@@ -360,15 +360,15 @@ internal fun SupportContent(
     val errMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     LazyColumn(
         modifier = modifier.padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = CanonSurface),
-                shape = RoundedCornerShape(24.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                shape = RoundedCornerShape(22.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
             ) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(appText("Добровольная поддержка", "Ирекле ярҙам"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(appText("Помогает оплачивать серверы, карты, SMS и поддержку.", "Серверҙарҙы, карталарҙы, SMS һәм ярҙам хеҙмәтен түләргә ярҙам итә."), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -649,7 +649,7 @@ internal fun BoostContent(
             ) {
                 item {
                     Text(appText("Какую поездку поднять", "Ҡайһы сәфәрҙе күтәрергә"),
-                        fontWeight = FontWeight.Bold, fontSize = 15.sp, color = CanonText)
+                        fontWeight = FontWeight.Bold, fontSize = 16.sp, color = CanonText)
                 }
                 items(rides, key = { it.id }) { ride ->
                     BoostRideRow(ride, selected = ride.id == selectedRideId,
@@ -657,7 +657,7 @@ internal fun BoostContent(
                 }
                 item {
                     Text(appText("Тариф поднятия", "Күтәреү тарифы"),
-                        fontWeight = FontWeight.Bold, fontSize = 15.sp, color = CanonText,
+                        fontWeight = FontWeight.Bold, fontSize = 16.sp, color = CanonText,
                         modifier = Modifier.padding(top = 4.dp))
                 }
                 itemsIndexed(plans, key = { i, it -> "${it.tier}#$i" }) { i, plan ->
@@ -695,11 +695,11 @@ internal fun BoostContent(
                 result?.let { res ->
                     if (res.method == "yookassa" && res.status != "succeeded") {
                         item {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 if (checkingPayment) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen)
-                                        Spacer(Modifier.width(10.dp))
+                                        Spacer(Modifier.width(8.dp))
                                         Text(appText("Проверяем оплату…", "Түләүҙе тикшерәбеҙ…"),
                                             fontSize = 14.sp, color = CanonMuted)
                                     }
@@ -718,7 +718,7 @@ internal fun BoostContent(
                 item {
                     Text(
                         appText("Поднятие не гарантирует бронирование и влияет только на релевантные результаты.", "Күтәреү бронде гарантияламай һәм тик тура килгән һөҙөмтәләргә генә йоғонто яһай."),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp
                     )
                 }
             }
@@ -730,18 +730,18 @@ internal fun BoostContent(
 internal fun BoostRideRow(ride: RideDto, selected: Boolean, onClick: () -> Unit) {
     val border by animateColorAsState(if (selected) CanonGreen else Color.Transparent, label = "rideBorder")
     Card(
-        modifier = Modifier.fillMaxWidth().bounceClick(onClick).border(2.dp, border, RoundedCornerShape(18.dp)),
+        modifier = Modifier.fillMaxWidth().bounceClick(onClick).border(2.dp, border, RoundedCornerShape(14.dp)),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
-        shape = RoundedCornerShape(18.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = RoundedCornerShape(14.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(if (selected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
                 contentDescription = null, tint = if (selected) CanonGreen else CanonMuted)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("${ride.fromCity} → ${ride.toCity}", fontWeight = FontWeight.Bold, color = CanonText)
-                Text("${seatsText(ride.seatsLeft)} · ${ride.price} ₽", fontSize = 13.sp, color = CanonMuted)
+                Text("${seatsText(ride.seatsLeft)} · ${ride.price} ₽", fontSize = 14.sp, color = CanonMuted)
             }
             if (ride.boosted) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -764,17 +764,17 @@ internal fun BoostPlanCard(plan: BoostPlanDto, selected: Boolean, onClick: () ->
         else -> appText("${plan.hours} ч выше в списке", "${plan.hours} сәғәт өҫтәрәк")
     }
     Card(
-        modifier = Modifier.fillMaxWidth().bounceClick(onClick).border(2.dp, border, RoundedCornerShape(20.dp)),
+        modifier = Modifier.fillMaxWidth().bounceClick(onClick).border(2.dp, border, RoundedCornerShape(22.dp)),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
-        shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = RoundedCornerShape(22.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.TrendingUp, contentDescription = null, tint = if (selected) CanonGreen else CanonMuted)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(plan.title, fontWeight = FontWeight.Bold, color = CanonText)
-                Text(sub, fontSize = 13.sp, color = CanonMuted)
+                Text(sub, fontSize = 14.sp, color = CanonMuted)
             }
             Surface(color = if (selected) CanonGreen else CanonGreen.copy(alpha = 0.12f), shape = RoundedCornerShape(50)) {
                 Text("${plan.price} ₽", color = if (selected) Color.White else CanonGreen,
@@ -817,19 +817,19 @@ internal fun BoostResultContent(
         )
         res.method == "sbp_manual" -> Card(
             colors = CardDefaults.cardColors(containerColor = CanonSurface),
-            shape = RoundedCornerShape(20.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            shape = RoundedCornerShape(22.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
         ) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(appText("Переведи ${res.amount} ₽ по СБП", "СБП аша ${res.amount} ₽ күсер"),
                     fontWeight = FontWeight.Bold, fontSize = 16.sp, color = CanonText)
                 val payPhone = res.payeePhone?.takeIf { it.isNotBlank() }
                 if (payPhone != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(payPhone, fontWeight = FontWeight.Bold, color = CanonText, fontSize = 17.sp)
+                            Text(payPhone, fontWeight = FontWeight.Bold, color = CanonText, fontSize = 16.sp)
                             Text(listOfNotNull(res.payeeBank, res.payeeName).joinToString(" · "),
-                                fontSize = 13.sp, color = CanonMuted)
+                                fontSize = 14.sp, color = CanonMuted)
                         }
                         OutlinedButton(onClick = { onCopyPhone(payPhone) }) {
                             Text(appText("Скопировать", "Күсереп алыу"))
@@ -842,13 +842,13 @@ internal fun BoostResultContent(
                     Text(
                         appText("Реквизиты для перевода ещё не подгрузились — напиши в поддержку, поможем перевести.",
                                 "Күсереү реквизиттары әле килмәне — ярҙам хеҙмәтенә яҙ, күсерергә ярҙам итәбеҙ."),
-                        fontSize = 13.sp, color = CanonMuted
+                        fontSize = 14.sp, color = CanonMuted
                     )
                 }
                 Text(
                     appText("После перевода поднятие включим вручную — обычно быстро. Чек придёт от самозанятого.",
                             "Күсергәндән һуң күтәреүҙе ҡулдан ҡабыҙабыҙ — ғәҙәттә тиҙ. Чек самозанятыйҙан килер."),
-                    fontSize = 13.sp, color = CanonMuted
+                    fontSize = 14.sp, color = CanonMuted
                 )
             }
         }
@@ -869,8 +869,8 @@ internal fun StateMessage(icon: ImageVector, title: String, text: String, action
         verticalArrangement = Arrangement.Center
     ) {
         Icon(icon, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(48.dp))
-        Spacer(Modifier.height(14.dp))
-        Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = CanonText, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(12.dp))
+        Text(title, fontWeight = FontWeight.Bold, fontSize = 19.sp, color = CanonText, textAlign = TextAlign.Center)
         Spacer(Modifier.height(6.dp))
         Text(text, color = CanonMuted, textAlign = TextAlign.Center, fontSize = 14.sp)
         Spacer(Modifier.height(18.dp))

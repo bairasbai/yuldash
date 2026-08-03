@@ -102,12 +102,12 @@ internal fun DriverZoneChip(zone: InstantZoneDto?, onClick: () -> Unit) {
             Modifier.heightIn(min = 48.dp).padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(zoneEmoji(zone), fontSize = 17.sp)
-            Spacer(Modifier.width(10.dp))
+            Text(zoneEmoji(zone), fontSize = 16.sp)
+            Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     appText("Где вожу", "Ҡайҙа йөрөтәм"),
-                    color = CanonMuted, fontSize = 11.sp, lineHeight = 13.sp
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp
                 )
                 Text(
                     zoneLabel(zone),
@@ -115,7 +115,7 @@ internal fun DriverZoneChip(zone: InstantZoneDto?, onClick: () -> Unit) {
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
-            Text(appText("Изменить", "Үҙгәртергә"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(appText("Изменить", "Үҙгәртергә"), color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -151,11 +151,11 @@ internal fun SettlementPickField(
             } else null,
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
         )
         AnimatedVisibility(hits.isNotEmpty(), enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Surface(
-                color = CanonSurface, shape = RoundedCornerShape(12.dp),
+                color = CanonSurface, shape = RoundedCornerShape(14.dp),
                 border = BorderStroke(1.dp, CanonBorder),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
             ) {
@@ -204,13 +204,13 @@ internal fun DriverZoneSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = CanonBg) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding().padding(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(appText("Где вожу", "Ҡайҙа йөрөтәм"), color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text(appText("Где вожу", "Ҡайҙа йөрөтәм"), color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(
                 appText("Заказы придут только по выбранной зоне. Поменять можно в любой момент.",
                     "Заказдар һайланған зона буйынса ғына килә. Теләһә ҡасан үҙгәртеп була."),
-                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
             )
             ZoneOptionCard(
                 emoji = "🏙", selected = zone == "city",
@@ -239,7 +239,7 @@ internal fun DriverZoneSheet(
                 onClick = { zone = "region" },
             )
             AnimatedVisibility(error != null) {
-                Text(error ?: "", color = CanonRed, fontSize = 13.sp)
+                Text(error ?: "", color = CanonRed, fontSize = 14.sp)
             }
             Button(
                 onClick = {
@@ -258,7 +258,7 @@ internal fun DriverZoneSheet(
                     }
                 },
                 enabled = !saving,
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2, contentColor = Color.White),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
             ) {
@@ -303,7 +303,7 @@ private fun CitySuggestInput(value: String, onChange: (String) -> Unit) {
                         Icon(Icons.Default.LocationCity, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(title, color = CanonText, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(s.region, color = CanonMuted, fontSize = 11.sp)
+                        Text(s.region, color = CanonMuted, fontSize = 12.sp)
                     }
                 }
             }
@@ -331,12 +331,12 @@ private fun ZoneOptionCard(
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(38.dp).background(if (selected) CanonSurface else CanonMint, CircleShape), contentAlignment = Alignment.Center) {
-                    Text(emoji, fontSize = 18.sp)
+                    Text(emoji, fontSize = 19.sp)
                 }
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f).heightIn(min = 48.dp), verticalArrangement = Arrangement.Center) {
-                    Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text(text, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                    Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(text, color = CanonMuted, fontSize = 12.sp, lineHeight = 23.sp)
                 }
                 if (selected) Icon(Icons.Default.Check, contentDescription = appText("Выбрано", "Һайланған"), tint = CanonGreen2)
             }

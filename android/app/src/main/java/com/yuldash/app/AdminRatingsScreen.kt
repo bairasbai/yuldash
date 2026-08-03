@@ -158,7 +158,7 @@ private fun RatingsRulesCard(headline: String) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AnimatedContent(targetState = headline, label = "ratingsHeadline") { t ->
-                    Text(t, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp)
+                    Text(t, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 23.sp)
                 }
                 Text(
                     appText(
@@ -167,7 +167,7 @@ private fun RatingsRulesCard(headline: String) {
                         "Йондоҙҙар шунда уҡ иҫәпләнә, текст профилдә тик һин раҫлағас күренә. " +
                             "Раҫламайһыңмы — үтеп кит: текст йәшерен ҡала.",
                     ),
-                    color = CanonMutedStrong, fontSize = 13.sp, lineHeight = 18.sp,
+                    color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
         }
@@ -200,13 +200,13 @@ private fun PendingRatingCard(r: PendingRatingDto, busy: Boolean, onPublish: () 
                     Text(
                         if (r.ratee.isNotBlank()) appText("${r.author} → о ${r.ratee}", "${r.author} → ${r.ratee} тураһында")
                         else r.author,
-                        color = CanonText, fontSize = 13.sp, lineHeight = 18.sp,
+                        color = CanonText, fontSize = 14.sp, lineHeight = 20.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         formatDepart(r.createdAt),
-                        color = CanonMuted, fontSize = 11.sp, lineHeight = 16.sp,
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                     )
                 }
             }
@@ -215,7 +215,7 @@ private fun PendingRatingCard(r: PendingRatingDto, busy: Boolean, onPublish: () 
             Surface(color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                 Text(
                     r.text.ifBlank { appText("Текста нет — только звёзды.", "Текст юҡ — тик йондоҙҙар.") },
-                    color = CanonText, fontSize = 16.sp, lineHeight = 22.sp,
+                    color = CanonText, fontSize = 16.sp, lineHeight = 23.sp,
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                 )
             }
@@ -238,7 +238,7 @@ private fun PendingRatingCard(r: PendingRatingDto, busy: Boolean, onPublish: () 
                 Spacer(Modifier.width(8.dp))
                 Text(
                     appText("Оценка мстительная — снять из рейтинга", "Баһа үс алыу өсөн — рейтингтан алыу"),
-                    color = CanonMutedStrong, fontSize = 13.sp, fontWeight = FontWeight.Bold, lineHeight = 18.sp,
+                    color = CanonMutedStrong, fontSize = 14.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp,
                     modifier = Modifier.weight(1f),
                 )
             }

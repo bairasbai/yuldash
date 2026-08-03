@@ -367,7 +367,7 @@ internal fun BookingScreen(
             modifier = Modifier
                 .padding(padding)
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 116.dp)
         ) {
             item {
@@ -378,7 +378,7 @@ internal fun BookingScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Кире"), tint = CanonText)
                     }
-                    Text(appText("Детали поездки", "Сәфәр тураһында"), modifier = Modifier.weight(1f), color = CanonGreen, fontSize = 26.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold)
+                    Text(appText("Детали поездки", "Сәфәр тураһында"), modifier = Modifier.weight(1f), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
                     val shareTitle = appText("Позвать соседа", "Күршене саҡырырға")
                     val shareText = appText(
                         "Еду ${displayRide.from} → ${displayRide.to}, ${displayRide.timeText()}. ${displayRide.price} ₽. Поехали вместе в Юлдаше 👇\nhttps://yulbash.ru",
@@ -390,19 +390,19 @@ internal fun BookingScreen(
                 }
             }
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         RouteMiniIcon()
                         Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                            Text("${displayRide.from}  →  ${displayRide.to}", color = CanonText, fontSize = 19.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("${displayRide.from}  →  ${displayRide.to}", color = CanonText, fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 DetailMeta(Icons.Default.CalendarMonth, displayRide.timeText(), modifier = Modifier.weight(1.45f))
                                 DetailMeta(Icons.Default.Person, seatsText(displayRide.seats), modifier = Modifier.weight(0.8f))
                             }
                         }
-                        Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
-                            Text("${displayRide.price} ₽", modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+                            Text("${displayRide.price} ₽", modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
                 }
@@ -410,7 +410,7 @@ internal fun BookingScreen(
             if (detailsLoading) {
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
-                        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             CircularProgressIndicator(modifier = Modifier.size(22.dp), color = CanonGreen2, strokeWidth = 2.dp)
                             Text(appText("Обновляем подтверждение поездки", "Сәфәр раҫланыуын яңыртабыҙ"), color = CanonMuted, fontSize = 14.sp)
                         }
@@ -429,21 +429,21 @@ internal fun BookingScreen(
                 }
             }
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         // Двуязычный дефолт имени водителя (toUiRide больше не кладёт русский литерал). BA-draft: «Йөрөтөүсе».
                         val driverFallback = appText("Водитель", "Йөрөтөүсе")
                         val driverName = displayRide.driver.ifBlank { driverFallback }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(color = CanonMint, shape = CircleShape) {
-                                Text(driverName.firstOrNull()?.uppercase() ?: "?", modifier = Modifier.padding(22.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                                Text(driverName.firstOrNull()?.uppercase() ?: "?", modifier = Modifier.padding(24.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 24.sp)
                             }
-                            Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(driverName, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 21.sp)
+                                    Text(driverName, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                                     if (displayRide.verified) {
-                                        Spacer(Modifier.width(6.dp))
+                                        Spacer(Modifier.width(4.dp))
                                         Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
                                     }
                                 }
@@ -545,7 +545,7 @@ internal fun BookingScreen(
                             OutlinedButton(
                                 onClick = onMessage,
                                 modifier = Modifier.weight(1f).height(54.dp),
-                                shape = RoundedCornerShape(18.dp),
+                                shape = RoundedCornerShape(14.dp),
                                 border = BorderStroke(1.dp, CanonGreen2)
                             ) {
                                 Icon(Icons.Default.ChatBubble, contentDescription = null, tint = CanonGreen2)
@@ -556,7 +556,7 @@ internal fun BookingScreen(
                                 onClick = { onConfirmRide(payMethod, payAmountText.trim().toIntOrNull()) },
                                 enabled = bookingId == null || canOpenActiveTrip,
                                 modifier = Modifier.weight(1.15f).height(54.dp),
-                                shape = RoundedCornerShape(18.dp),
+                                shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = CanonGreen2,
                                     disabledContainerColor = CanonMint,
@@ -572,7 +572,7 @@ internal fun BookingScreen(
                                         else -> appText("Ждём водителя", "Водителде көтәбеҙ")
                                     },
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
+                                    fontSize = 14.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -629,20 +629,20 @@ internal fun PayAgreementBlock(
             .fillMaxWidth()
             .border(1.dp, CanonBorder, CanonItemShape)
             .background(CanonBg, CanonItemShape)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Handshake, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text(appText("Как договорились платить", "Түләү тураһында нисек килешкәнбеҙ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text(appText("Как договорились платить", "Түләү тураһында нисек килешкәнбеҙ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
         Text(
             appText(
                 "Это просто запись договорённости — деньги через приложение не проходят.",
                 "Был — тик килешеү яҙмаһы, аҡса ҡулланма аша үтмәй."
             ),
-            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp
+            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp
         )
         if (editable) {
             Row(
@@ -668,10 +668,10 @@ internal fun PayAgreementBlock(
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
-                    Row(Modifier.padding(horizontal = 11.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(payMethodIcon(method), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text(payMethodLabel(method), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Spacer(Modifier.width(4.dp))
+                        Text(payMethodLabel(method), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
                 if (summaryAmount != null && summaryAmount > 0) {
@@ -726,18 +726,18 @@ internal fun BookingRouteMapPreview(   // internal: живой MapKit-ренде
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .border(1.dp, CanonBorder, RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(22.dp))
+            .border(1.dp, CanonBorder, RoundedCornerShape(22.dp))
     ) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
-        BookingMapLabel(from, Modifier.align(Alignment.TopStart).padding(14.dp))
-        BookingMapLabel(to, Modifier.align(Alignment.CenterEnd).padding(14.dp))
+        BookingMapLabel(from, Modifier.align(Alignment.TopStart).padding(12.dp))
+        BookingMapLabel(to, Modifier.align(Alignment.CenterEnd).padding(12.dp))
         if (!contactUnlocked) {
             Card(
-                modifier = Modifier.align(Alignment.BottomCenter).padding(14.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
                 colors = CardDefaults.cardColors(containerColor = CanonSurface),
-                shape = RoundedCornerShape(18.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                shape = RoundedCornerShape(14.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
             ) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Lock, contentDescription = null, tint = CanonText)
@@ -749,7 +749,7 @@ internal fun BookingRouteMapPreview(   // internal: живой MapKit-ренде
                         ),
                         color = CanonText,
                         fontSize = 14.sp,
-                        lineHeight = 18.sp
+                        lineHeight = 20.sp
                     )
                 }
             }
@@ -763,11 +763,11 @@ internal fun BookingMapLabel(text: String, modifier: Modifier) {
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
         color = CanonSurface,
-        shadowElevation = 3.dp
+        shadowElevation = CanonDepth.raised
     ) {
         Text(
             text,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             color = CanonText,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
@@ -792,7 +792,7 @@ internal fun RouteMapUnavailableCard(modifier: Modifier = Modifier) {
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
         border = BorderStroke(1.dp, CanonBorder),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -815,8 +815,8 @@ internal fun RouteMapUnavailableCard(modifier: Modifier = Modifier) {
                         "Сервер координаталарҙы биргәс, ысын маршрутты күрһәтербеҙ."
                     ),
                     color = CanonMuted,
-                    fontSize = 13.sp,
-                    lineHeight = 17.sp
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
                 )
             }
         }
@@ -825,7 +825,7 @@ internal fun RouteMapUnavailableCard(modifier: Modifier = Modifier) {
 
 @Composable
 internal fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
         Column(Modifier.padding(vertical = 8.dp), content = content)
     }
 }
@@ -839,21 +839,21 @@ internal fun SettingsNavRow(
     badge: Int = 0,   // >0 → зелёный бейдж непрочитанного (напр. новые ответы поддержки)
 ) {
     val modifier = if (onClick != null) Modifier.bounceClick(onClick) else Modifier
-    Row(modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
-            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(11.dp))
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp))
         }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(subtitle, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+            Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
         if (badge > 0) {
             Surface(color = CanonGreen2, shape = RoundedCornerShape(999.dp)) {
                 Text(
                     if (badge > 99) "99+" else badge.toString(),
                     color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
             Spacer(Modifier.width(8.dp))
@@ -872,14 +872,14 @@ internal fun SettingSwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
-            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(11.dp))
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp))
         }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(subtitle, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+            Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
@@ -887,7 +887,7 @@ internal fun SettingSwitchRow(
 
 @Composable
 internal fun CompactProfileBanner() {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.Transparent), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color.Transparent), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
         Row(
             modifier = Modifier
                 .background(Brush.linearGradient(listOf(CanonGreenInk, CanonGreenInkDark)), CanonItemShape)  // фикс тёмной темы: белый текст на фиксированном ink-зелёном
@@ -897,12 +897,12 @@ internal fun CompactProfileBanner() {
             Box(Modifier.size(62.dp).background(Color.White.copy(alpha = 0.18f), CircleShape), contentAlignment = Alignment.Center) {
                 Text((ApiClient.cachedName() ?: appText("Я", "Мин")).take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp)
             }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(ApiClient.cachedName() ?: appText("Я", "Мин"), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(ApiClient.cachedName() ?: appText("Я", "Мин"), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                 // Настоящая роль из кеша /me (города в профиле нет — не выдумываем «Баймаҡ»).
-                Text(roleLabel(ApiClient.cachedRole() ?: ""), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
-                Text(appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерен"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
+                Text(roleLabel(ApiClient.cachedRole() ?: ""), color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp)
+                Text(appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерен"), color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp)
             }
         }
     }
@@ -1147,7 +1147,7 @@ internal fun ActiveTripScreen(
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp).imePadding(),  // поднимаем контент над клавиатурой (композер чата не перекрывается)
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(bottom = 28.dp)
+            contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             item {
                 TripRouteHeaderCard(
@@ -1259,10 +1259,10 @@ internal fun ActiveTripScreen(
                 // Кого оцениваем: пассажир → водителя, водитель → пассажира.
                 val rateTitle = if (isDriver) appText("Оцените попутчика", "Юлдашты баһалағыҙ")
                                 else appText("Оцените водителя", "Водителде баһалағыҙ")
-                Card(modifier = Modifier.appearIn(2), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Card(modifier = Modifier.appearIn(2), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(rateTitle, fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             (1..5).forEach { n ->
                                 val starCd = starsText(n)
                                 // Тач-цель ≥48dp (иконка визуально 38dp внутри), клик на всей зоне.
@@ -1336,7 +1336,7 @@ internal fun ActiveTripScreen(
                             }
                         }
                         if (reviewSent) {
-                            Text(appText("✓ Отзыв отправлен на проверку", "✓ Фекер тикшереүгә ебәрелде"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(appText("✓ Отзыв отправлен на проверку", "✓ Фекер тикшереүгә ебәрелде"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
                 }
@@ -1371,9 +1371,9 @@ internal fun ActiveTripScreen(
                         modifier = Modifier.appearIn(3),
                         colors = CardDefaults.cardColors(containerColor = CanonGreen.copy(alpha = 0.10f)),
                         shape = CanonItemShape,
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.flat)
                     ) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Icon(Icons.Default.VolunteerActivism, contentDescription = null, tint = CanonGreen)
                                 Text(appText("Юлдаш делают для своих 🌱", "Юлдашты үҙебеҙ өсөн эшләйбеҙ 🌱"), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -1383,7 +1383,7 @@ internal fun ActiveTripScreen(
                             }
                             Text(
                                 appText("Если нравится — поддержи, это по желанию.", "Оҡшаһа — ярҙам ит, был ирекле."),
-                                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp
+                                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 FilledTonalButton(
@@ -1417,21 +1417,21 @@ internal fun ActiveTripScreen(
                     OutlinedButton(
                         onClick = { showCancel = true },
                         modifier = Modifier.fillMaxWidth().height(50.dp),
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(14.dp),
                         border = BorderStroke(1.dp, CanonRed)
                     ) {
                         Icon(Icons.Default.Close, contentDescription = null, tint = CanonRed)
                         Spacer(Modifier.width(8.dp))
                         Text(appText("Отменить поездку", "Сәфәрҙе кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold)
                     }
-                    Text(appText("Отмена бесплатна до начала поездки — место вернётся в поездку.", "Сәфәр башланғанға тиклем кире алыу бушлай — урын кире ҡайта."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                    Text(appText("Отмена бесплатна до начала поездки — место вернётся в поездку.", "Сәфәр башланғанға тиклем кире алыу бушлай — урын кире ҡайта."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
                 }
                 if (showCancel) {
                     AlertDialog(
                         onDismissRequest = { showCancel = false },
                         title = { Text(appText("Отменить поездку?", "Сәфәрҙе кире аларғамы?")) },
                         text = {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(appText("Бронь будет отменена, место освободится для других.", "Брон кире алына, урын башҡаларға бушай."))
                                 Text(appText("Причина (по желанию):", "Сәбәбе (теләгәнсә):"), color = CanonMuted, fontSize = 12.sp)
                                 listOf(
@@ -1445,7 +1445,7 @@ internal fun ActiveTripScreen(
                                         color = if (on) CanonGreen2 else CanonText,
                                         fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
                                         fontSize = 14.sp,
-                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                                             .clickable { cancelReason = if (on) "" else code }
                                             .background(if (on) CanonMint else Color.Transparent)
                                             .padding(horizontal = 10.dp, vertical = 8.dp)
@@ -1481,13 +1481,13 @@ internal fun ActiveTripScreen(
             item {
                 AnimatedVisibility(visible = bookingId != null && !wsConnected) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp)
-                            .background(CanonMint, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                            .background(CanonMint, RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = CanonGreen2)
-                        Spacer(Modifier.width(10.dp))
-                        Text(appText("Соединение восстанавливается…", "Бәйләнеш тергеҙелә…"), color = CanonGreen2, fontSize = 13.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(appText("Соединение восстанавливается…", "Бәйләнеш тергеҙелә…"), color = CanonGreen2, fontSize = 14.sp)
                     }
                 }
             }
@@ -1502,9 +1502,9 @@ internal fun ActiveTripScreen(
                     }
                     historyError -> item {
                         Column(
-                            Modifier.fillMaxWidth().padding(vertical = 20.dp),
+                            Modifier.fillMaxWidth().padding(vertical = 16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
                                 appText("Не удалось загрузить чат", "Чатты йөкләп булманы"),
@@ -1525,7 +1525,7 @@ internal fun ActiveTripScreen(
                         Column(
                             Modifier.fillMaxWidth().padding(vertical = 24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(30.dp))
                             Text(
@@ -1570,15 +1570,15 @@ internal fun ActiveTripScreen(
                 val voiceSoon = appText("Голос записан", "Тауыш яҙылды")
                 if (editingId != null) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
-                            .background(CanonWarnBg, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                            .background(CanonWarnBg, RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Default.Edit, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(appText("Редактирование сообщения", "Хәбәрҙе үҙгәртеү"), color = CanonWarn, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text(appText("Редактирование сообщения", "Хәбәрҙе үҙгәртеү"), color = CanonWarn, fontSize = 14.sp, modifier = Modifier.weight(1f))
                         Text(
-                            appText("Отмена", "Кире алыу"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                            appText("Отмена", "Кире алыу"), color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold,
                             modifier = Modifier.bounceClick { editingId = null; draft = "" }
                         )
                     }
@@ -1677,7 +1677,7 @@ internal fun ActiveTripScreen(
                 Button(
                     onClick = onSos,
                     modifier = Modifier.fillMaxWidth().height(50.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
                 ) {
                     // Icons.Default.Sos сам рисует буквы «SOS» → с Text("SOS") выходило «SOS SOS». Щит (как на карте).
@@ -1700,7 +1700,7 @@ internal fun ActiveTripScreen(
                 Text(
                     appText("Отметь, что всё хорошо — и близкие не будут волноваться.",
                         "Бөтәһе лә яҡшы тип билдәлә — яҡындарың борсолмаҫ."),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             },
             confirmButton = {
@@ -1730,7 +1730,7 @@ internal fun ActiveTripScreen(
             Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
                 val link = liveLink
                 if (activeShares.isNotEmpty() && !showContacts) {
-                    Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+                    Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
                     if (!link.isNullOrBlank()) LiveLinkCard(link)
                     ActiveSharesList(activeShares) { share ->
                         val bid = bookingId
@@ -1755,7 +1755,7 @@ internal fun ActiveTripScreen(
                         }
                     }
                 } else {
-                Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+                Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
                 if (contacts.isEmpty()) {
                     Text(appText("Сначала добавьте доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтәгеҙ"), color = CanonMuted)
                 }
@@ -1787,7 +1787,7 @@ internal fun ActiveTripScreen(
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(c.name, fontWeight = FontWeight.Bold)
-                            Text(c.relation, color = CanonMuted, fontSize = 13.sp)
+                            Text(c.relation, color = CanonMuted, fontSize = 14.sp)
                         }
                         Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
                     }
@@ -1870,19 +1870,19 @@ internal fun FrostyNightBanner(modifier: Modifier = Modifier) {
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = CanonMint),
         shape = CanonItemShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.flat),
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.AcUnit, contentDescription = appText("Морозная ночь", "Һыуыҡ төн"), tint = CanonGreen2, modifier = Modifier.size(26.dp))
             Spacer(Modifier.width(12.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(appText("Морозная ночь", "Һыуыҡ төн"), fontWeight = FontWeight.Bold, color = CanonGreen2)
                 Text(
                     appText(
                         "Возьми тёплые вещи и проверь заряд телефона перед дорогой. Поделись поездкой со своими.",
                         "Йылы кейем ал һәм юлға сыҡҡанға тиклем телефон зарядын тикшер. Сәфәреңде үҙеңдекеләр менән уртаҡлаш.",
                     ),
-                    color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp,
+                    color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
         }
@@ -1897,7 +1897,7 @@ internal fun RoadsideHelpButton(sending: Boolean, sent: Boolean, onClick: () -> 
         onClick = onClick,
         enabled = !sending && !sent,
         modifier = modifier.fillMaxWidth().height(50.dp),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.outlinedButtonColors(containerColor = CanonWarnBg, contentColor = CanonWarn),
         border = BorderStroke(1.dp, CanonWarn),
     ) {
@@ -1925,14 +1925,14 @@ internal fun TripRouteHeaderCard(
     time: String?,
     modifier: Modifier = Modifier,
 ) {
-    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("${from ?: "—"}  →  ${to ?: "—"}", fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("${from ?: "—"}  →  ${to ?: "—"}", fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(4.dp))
                 Text(driver ?: appText("Водитель", "Водитель"), color = CanonMuted)
-                time?.let { Spacer(Modifier.width(10.dp)); Text(it, color = CanonMuted) }
+                time?.let { Spacer(Modifier.width(8.dp)); Text(it, color = CanonMuted) }
             }
         }
     }
@@ -1949,7 +1949,7 @@ internal fun DriverApproachingBanner(
         color = if (arriving) CanonGreen2 else CanonMint,
         shape = CanonCardShape
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = if (arriving) Color.White else CanonGreen2, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(12.dp))
             Text(
@@ -1969,13 +1969,13 @@ internal fun BoardingCodeCard(
     Surface(modifier = modifier, color = CanonMint, shape = CanonCardShape) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Pin, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(28.dp))
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(appText("Код посадки", "Ултырыу коды"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                Text(appText("Назовите водителю — он сверит. Это та самая машина.", "Водителгә әйтегеҙ — ул тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(appText("Код посадки", "Ултырыу коды"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(appText("Назовите водителю — он сверит. Это та самая машина.", "Водителгә әйтегеҙ — ул тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
             }
-            Spacer(Modifier.width(10.dp))
-            Text(code, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 30.sp, letterSpacing = 4.sp)
+            Spacer(Modifier.width(8.dp))
+            Text(code, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 34.sp, letterSpacing = 4.sp)
         }
     }
 }
@@ -1987,15 +1987,15 @@ internal fun BoardingCodeCard(
 @Composable
 internal fun OfflineTripBanner(modifier: Modifier = Modifier) {
     Surface(modifier = modifier.fillMaxWidth(), color = CanonWarnBg, shape = CanonCardShape) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.CloudOff, contentDescription = appText("Нет сети", "Селтәр юҡ"), tint = CanonWarn, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(12.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(appText("Офлайн — данные сохранены", "Офлайн — мәғлүмәт һаҡланған"), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(appText("Офлайн — данные сохранены", "Офлайн — мәғлүмәт һаҡланған"), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(
                     appText("Показываем сохранённую поездку. Сообщения и статусы отправим, как появится сеть.",
                         "Һаҡланған сәфәрҙе күрһәтәбеҙ. Хәбәр һәм хәлдәрҙе селтәр булғас ебәрербеҙ."),
-                    color = CanonWarn, fontSize = 13.sp, lineHeight = 17.sp
+                    color = CanonWarn, fontSize = 14.sp, lineHeight = 20.sp
                 )
             }
         }
@@ -2014,13 +2014,13 @@ internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifie
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Lock, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(appText("Паспорт поездки", "Сәфәр паспорты"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text(appText("Паспорт поездки", "Сәфәр паспорты"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             TripPassRow(Icons.Default.Route, appText("Маршрут", "Юл"), "${pass.fromCity} → ${pass.toCity}")
             if (pass.departAt.isNotBlank()) TripPassRow(Icons.Default.Schedule, appText("Время", "Ваҡыт"), formatDepart(pass.departAt))
@@ -2034,12 +2034,12 @@ internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifie
                             runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${pass.driverPhone}"))) }
                         },
                         shape = RoundedCornerShape(14.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonMint, contentColor = CanonGreen2)
                     ) {
                         Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(appText("Позвонить", "Шылтыратыу"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Spacer(Modifier.width(4.dp))
+                        Text(appText("Позвонить", "Шылтыратыу"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
             }
@@ -2058,9 +2058,9 @@ private fun TripPassRow(icon: androidx.compose.ui.graphics.vector.ImageVector, l
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(12.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, color = CanonMuted, fontSize = 12.sp)
-            Text(value, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 19.sp)
+            Text(value, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, lineHeight = 23.sp)
         }
     }
 }
@@ -2088,7 +2088,7 @@ internal fun TripStatusButtons(
             FilledTonalButton(
                 onClick = { onStatus(st) },
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
                 colors = ButtonDefaults.filledTonalButtonColors(
                     containerColor = if (role != "driver" && selectedStatus == st) CanonMint else CanonSurface,
@@ -2105,18 +2105,18 @@ internal fun ShareTripRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
         Row(
             modifier.fillMaxWidth().clickable { onClick() }.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(color = CanonMint, shape = CircleShape) {
-                Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
+                Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(22.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(appText("Поделиться поездкой с близким", "Сәфәрҙе яҡының менән уртаҡлашыу"), fontWeight = FontWeight.Bold)
-                Text(appText("Близкий будет видеть статус поездки", "Яҡының сәфәр хәлен күреп торор"), color = CanonMuted, fontSize = 13.sp)
+                Text(appText("Близкий будет видеть статус поездки", "Яҡының сәфәр хәлен күреп торор"), color = CanonMuted, fontSize = 14.sp)
             }
             Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
         }
@@ -2130,12 +2130,12 @@ private fun ActiveSharesList(
     onRevoke: (com.yuldash.app.data.TripShareDto) -> Unit,
 ) {
     if (shares.isEmpty()) return
-    Spacer(Modifier.height(14.dp))
+    Spacer(Modifier.height(12.dp))
     Text(
         appText("Активные ссылки", "Әүҙем һылтанмалар"),
-        color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+        color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold,
     )
-    Spacer(Modifier.height(6.dp))
+    Spacer(Modifier.height(4.dp))
     shares.forEach { (share, name) ->
         Row(
             Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -2150,7 +2150,7 @@ private fun ActiveSharesList(
             ) {
                 Icon(Icons.Default.Close, contentDescription = appText("Отозвать ссылку", "Һылтанманы кире алыу"), tint = CanonRed, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
         }
     }
@@ -2181,20 +2181,20 @@ internal fun MessageBubble(
     var menu by remember { mutableStateOf(false) }
     val showMenu = !deleted && (canEdit || canDeleteAll || canDeleteMine)
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
-    if (fromAdmin && !deleted) YuldashOfficialBadge(Modifier.padding(bottom = 2.dp))
+    if (fromAdmin && !deleted) YuldashOfficialBadge(Modifier.padding(bottom = 4.dp))
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         Box {
         Surface(
             color = if (deleted) CanonSurface else if (mine) CanonGreen2 else CanonSurface,
-            shape = RoundedCornerShape(18.dp),
-            shadowElevation = 1.dp,
+            shape = RoundedCornerShape(14.dp),
+            shadowElevation = CanonDepth.card,
             border = if (deleted) BorderStroke(1.dp, CanonBorder) else null,
             modifier = if (showMenu) Modifier.combinedClickable(onClick = {}, onLongClick = { menu = true }) else Modifier
         ) {
             if (deleted) {
                 Text(
                     appText("Сообщение удалено", "Хәбәр юйылды"),
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                     color = CanonMuted, fontSize = 14.sp, fontStyle = FontStyle.Italic
                 )
             } else if (voiceUrl != null) {
@@ -2233,9 +2233,9 @@ internal fun MessageBubble(
             } else {
                 Text(
                     text,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     color = if (mine) Color.White else CanonText,
-                    fontSize = 15.sp
+                    fontSize = 16.sp
                 )
             }
         }
@@ -2261,13 +2261,13 @@ internal fun MessageBubble(
         if (flag.isNotEmpty() && !deleted) {
             // Кому показывать — решает сама плашка: фишинг и грубость видит получатель,
             // предупреждение про телефон — отправитель (рискует именно он).
-            ChatFlagPlate(flag, mine, Modifier.padding(top = 3.dp))
+            ChatFlagPlate(flag, mine, Modifier.padding(top = 4.dp))
         }
         if (edited && !deleted) {
             Text(
                 appText("изменено", "үҙгәртелде"),
-                color = CanonMuted, fontSize = 13.sp,
-                modifier = Modifier.padding(top = 2.dp, end = 4.dp)
+                color = CanonMuted, fontSize = 14.sp,
+                modifier = Modifier.padding(top = 4.dp, end = 4.dp)
             )
         }
         if (failed) {
@@ -2276,12 +2276,12 @@ internal fun MessageBubble(
                 color = CanonRed,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 2.dp, end = 4.dp).bounceClick { onRetry() }
+                modifier = Modifier.padding(top = 4.dp, end = 4.dp).bounceClick { onRetry() }
             )
         } else if (queued) {
             // F11: сообщение в очереди — уйдёт само, когда вернётся сеть.
             Row(
-                modifier = Modifier.padding(top = 2.dp, end = 4.dp),
+                modifier = Modifier.padding(top = 4.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {

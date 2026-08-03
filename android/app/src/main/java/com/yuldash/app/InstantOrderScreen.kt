@@ -162,19 +162,19 @@ private val InstantPointStateSaver = Saver<MutableState<Point?>, DoubleArray>(
 // но главное — МЕЖСТРОЧНЫЕ: было 1.33 у тела и 1.38 у подписи, стало 1.44 и 1.43. Строки
 // перестают слипаться, и экран читается спокойнее, хотя кегль вырос всего на единицу.
 // Hero оставлен 28: это цена, у неё своя роль, и 34 из общей шкалы тут переполнит карточку.
-private val TxHero = 28.sp        // ДОМИНАНТА: цена и статус. Ровно одна такая надпись на экран.
+private val TxHero = 34.sp        // ДОМИНАНТА: цена и статус. Ровно одна такая надпись на экран.
 private val TxTitle = 19.sp       // заголовок экрана или карточки (= CanonHeading)
 private val TxBody = 16.sp        // тело: адреса, имена, значения, надписи кнопок (= CanonBody)
 private val TxCaption = 14.sp     // подпись: мета, пояснения, лейблы полей (= CanonCaption)
 // Межстрочные — кратны 4dp, чтобы вертикальный ритм не плыл на длинном башкирском.
-private val LhHero = 34.sp
+private val LhHero = 40.sp
 private val LhTitle = 25.sp
 private val LhBody = 23.sp
 private val LhCaption = 20.sp
 
 // Единая форма интерактивных элементов внутри карточек (поля, кнопки-строки, чипы).
 // Отдельная от CanonCardShape(28)/CanonItemShape(22) — это «мелкая» ступень той же лестницы.
-private val InstantControlShape = RoundedCornerShape(16.dp)
+private val InstantControlShape = RoundedCornerShape(14.dp)
 
 /**
  * Тон финальной карточки. До этого раунда крестик отмены был ЗЕЛЁНЫМ: цвет говорил «всё
@@ -198,18 +198,18 @@ private fun InstantTripPhaseBar(step: Int, modifier: Modifier = Modifier) {
         appText("На месте", "Урынында"),
         appText("В пути", "Юлда"),
     )
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         labels.forEachIndexed { i, label ->
             val passed = i <= step
             val segment by animateColorAsState(
-                if (passed) CanonGreen2 else CanonBorder, tween(340), label = "phaseSeg$i",
+                if (passed) CanonGreen2 else CanonBorder, tween(CanonMotion.SLOW), label = "phaseSeg$i",
             )
             val ink by animateColorAsState(
-                if (i == step) CanonText else CanonMuted, tween(340), label = "phaseInk$i",
+                if (i == step) CanonText else CanonMuted, tween(CanonMotion.SLOW), label = "phaseInk$i",
             )
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(segment))
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
                 Text(
                     label, color = ink, fontSize = TxCaption, lineHeight = LhCaption,
                     fontWeight = if (i == step) FontWeight.Bold else FontWeight.Normal,
@@ -274,10 +274,10 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         appText("Цена рассчитана программой", "Хаҡ программа менән иҫәпләнде"),
-                        color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                        color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
                     )
                     Text(
                         appText(
@@ -288,13 +288,13 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("${estimate.price} ₽", color = CanonGreen2, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text("${estimate.price} ₽", color = CanonGreen2, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                     // Иначе рядом две разные суммы без объяснения: тут расчёт поездки, а промокод
                     // вычитается уже сверху — человек не должен гадать, какая цифра настоящая.
                     if (estimate.hasPromoDiscount) {
                         Text(
                             appText("до скидки по промокоду", "промокод ташламаһына тиклем"),
-                            color = CanonMuted, fontSize = 11.sp,
+                            color = CanonMuted, fontSize = 12.sp,
                         )
                     }
                 }
@@ -303,21 +303,21 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
             estimate.priceFactors.forEach { factor ->
                 Row(verticalAlignment = Alignment.Top) {
                     Surface(shape = CircleShape, color = CanonTaxiBg, modifier = Modifier.size(9.dp)) {}
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             appText(
                                 factor.titleRu.ifBlank { factor.code },
                                 factor.titleBa.ifBlank { factor.titleRu.ifBlank { factor.code } },
                             ),
-                            color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                            color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold,
                         )
                         Text(
                             appText(
                                 factor.descriptionRu,
                                 factor.descriptionBa.ifBlank { factor.descriptionRu },
                             ),
-                            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                         )
                     }
                     val badge = when (factor.kind) {
@@ -326,9 +326,9 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                         "notice" -> "!"
                         else -> appText("учтено", "иҫәптә")
                     }
-                    Surface(shape = RoundedCornerShape(9.dp), color = CanonTaxiBg) {
+                    Surface(shape = RoundedCornerShape(8.dp), color = CanonTaxiBg) {
                         Text(
-                            badge, color = CanonTaxiText, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                            badge, color = CanonTaxiText, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
@@ -351,7 +351,7 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                             "Цену считаем мы — по расстоянию, времени и спросу. Вручную её никто не накручивает.",
                             "Хаҡты беҙ иҫәпләйбеҙ — ара, ваҡыт һәм һорау буйынса. Уны ҡулдан берәү ҙә арттырмай.",
                         ),
-                        color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp,
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                     )
                 }
             }
@@ -378,14 +378,14 @@ private fun TaxiPromoSavingsCard(estimate: InstantEstimateDto?) {
     LaunchedEffect(est.promoCode, est.promoDiscountKop) { shown = true }
     AnimatedVisibility(
         visible = shown,
-        enter = expandVertically(tween(260)) + fadeIn(tween(260)),
-        exit = shrinkVertically(tween(160)) + fadeOut(tween(160)),
+        enter = expandVertically(tween(CanonMotion.NORMAL)) + fadeIn(tween(CanonMotion.NORMAL)),
+        exit = shrinkVertically(tween(CanonMotion.QUICK)) + fadeOut(tween(CanonMotion.QUICK)),
     ) {
         Surface(color = CanonMint, shape = CanonCardShape, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Redeem, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
                             appText("Промокод сработал", "Промокод эшләне"),
@@ -827,8 +827,8 @@ internal fun InstantOrderScreen(
                 // Спокойный кросс-фейд с еле заметным подъёмом: смена фазы читается как движение,
                 // а не как подмена экрана. Уход быстрее прихода — так переход кажется отзывчивее.
                 transitionSpec = {
-                    (fadeIn(tween(280)) + slideInVertically(tween(320)) { it / 20 })
-                        .togetherWith(fadeOut(tween(160)))
+                    (fadeIn(tween(CanonMotion.NORMAL)) + slideInVertically(tween(CanonMotion.SLOW)) { it / 20 })
+                        .togetherWith(fadeOut(tween(CanonMotion.QUICK)))
                 },
                 label = "instantPhase",
             ) { p ->
@@ -991,7 +991,7 @@ private fun InstantOfflineBanner() {
         color = CanonWarnBg,
         contentColor = CanonText,
         shape = CanonItemShape,
-        shadowElevation = 4.dp,
+        shadowElevation = CanonDepth.raised,
         modifier = Modifier.statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Row(
@@ -1043,9 +1043,9 @@ private fun InstantRetryCard(onRetry: () -> Unit, onBack: () -> Unit) {
         verticalArrangement = Arrangement.Center,
     ) {
         Surface(shape = CircleShape, color = CanonWarnBg, modifier = Modifier.appearIn(0)) {
-            Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonWarn, modifier = Modifier.padding(20.dp).size(40.dp))
+            Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonWarn, modifier = Modifier.padding(16.dp).size(40.dp))
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
         Text(
             appText("Не удалось проверить заказ", "Заказды тикшереп булманы"),
             color = CanonText, fontWeight = FontWeight.Bold, fontSize = TxTitle, lineHeight = LhTitle,
@@ -1093,13 +1093,13 @@ private fun carsWordRu(n: Int): String {
 private fun InstantNearbyBadge(count: Int, loaded: Boolean, modifier: Modifier = Modifier) {
     AnimatedVisibility(
         visible = loaded,
-        enter = fadeIn(tween(280)) + expandVertically(),
-        exit = fadeOut(tween(160)) + shrinkVertically(),
+        enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(),
+        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(),
         modifier = modifier,
     ) {
-        Surface(color = CanonSurface, shape = CircleShape, shadowElevation = 2.dp) {
+        Surface(color = CanonSurface, shape = CircleShape, shadowElevation = CanonDepth.card) {
             Row(
-                Modifier.padding(horizontal = 12.dp, vertical = 6.dp).heightIn(min = 20.dp),
+                Modifier.padding(horizontal = 12.dp, vertical = 4.dp).heightIn(min = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
@@ -1107,7 +1107,7 @@ private fun InstantNearbyBadge(count: Int, loaded: Boolean, modifier: Modifier =
                     contentDescription = appText("Машины рядом", "Яҡындағы машиналар"),
                     tint = if (count > 0) CanonTaxi else CanonMuted, modifier = Modifier.size(16.dp),
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(4.dp))
                 AnimatedContent(targetState = count, label = "nearbyCount") { n ->
                     Text(
                         if (n > 0) appText("$n ${carsWordRu(n)} рядом", "$n машина яҡында")
@@ -1150,7 +1150,7 @@ private fun InstantAddressResults(
     }
     AnimatedContent(
         targetState = state,
-        transitionSpec = { fadeIn(tween(220)).togetherWith(fadeOut(tween(120))) },
+        transitionSpec = { fadeIn(tween(CanonMotion.QUICK)).togetherWith(fadeOut(tween(CanonMotion.QUICK))) },
         label = "addrResults",
     ) { s ->
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1174,7 +1174,7 @@ private fun InstantAddressResults(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Default.Search, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(
                         appText("Такого адреса не нашли. Попробуй короче — «Ленина 12» — или выбери точку на карте.",
                             "Бындай адрес табылманы. Ҡыҫҡараҡ яҙып ҡара — «Ленина 12» — йәки картанан нөктә һайла."),
@@ -1193,7 +1193,7 @@ private fun InstantAddressResults(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(8.dp))
                         Text(
                             hit.title, color = CanonText, fontSize = TxBody, lineHeight = LhBody,
                             maxLines = 2, overflow = TextOverflow.Ellipsis,
@@ -1363,7 +1363,7 @@ private fun InstantDestinationPicker(
         // Показываем, только когда знаем позицию. Машинки — из presence, ≈ETA до подачи.
         if (effFrom != null) {
             Card(shape = CanonItemShape, colors = CardDefaults.cardColors(containerColor = CanonSurface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
                 Box {
                     InstantRouteMap(
                         from = effFrom, to = null, nearbyDrivers = nearbyDrivers,
@@ -1372,7 +1372,7 @@ private fun InstantDestinationPicker(
                     InstantNearbyBadge(
                         count = nearbyDrivers.size,
                         loaded = nearbyLoaded,
-                        modifier = Modifier.align(Alignment.TopStart).padding(10.dp),
+                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                     )
                 }
             }
@@ -1380,7 +1380,7 @@ private fun InstantDestinationPicker(
 
         // Точка А
         Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
-            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.MyLocation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -1449,7 +1449,7 @@ private fun InstantDestinationPicker(
 
         // Точка Б: поиск + «на карте»
         Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
-            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = if (toPoint != null && query.isBlank()) toText else query,
                     onValueChange = { query = it; if (it.isBlank()) { toPoint = null; estimate = null } },
@@ -1499,7 +1499,7 @@ private fun InstantDestinationPicker(
         // Класс машины (§6): Эконом / Комфорт — обе цены сразу, выбранная уходит в заказ.
         if (toPoint != null) {
             val opts = estimate?.options.orEmpty().associate { it.category to it.price }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 InstantClassCard(
                     title = appText("Эконом", "Эконом"),
                     subtitle = appText("обычная машина", "ғәҙәти машина"),
@@ -1528,9 +1528,9 @@ private fun InstantDestinationPicker(
             val est = estimate
             val pct = (((est?.surgeK ?: 1.0) - 1.0) * 100).toInt()
             Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
-                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("⚡", fontSize = TxTitle, lineHeight = LhTitle)
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
                             // Серверный текст (двуязычный) — источник правды; локальный — фолбэк.
@@ -1559,10 +1559,10 @@ private fun InstantDestinationPicker(
                 }
                 AnimatedContent(
                     targetState = estPhase,
-                    transitionSpec = { fadeIn(tween(240)).togetherWith(fadeOut(tween(140))) },
+                    transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)).togetherWith(fadeOut(tween(CanonMotion.QUICK))) },
                     label = "estimatePhase",
                 ) { phase ->
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         when (phase) {
                             "calc" -> {
                                 SkeletonBox(widthFraction = 0.42f, height = 30.dp, shape = InstantControlShape)
@@ -1584,7 +1584,7 @@ private fun InstantDestinationPicker(
                                         "Интернетты тикшер — хаҡһыҙ заказ итеп булмай."),
                                     color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
                                 )
-                                Spacer(Modifier.height(2.dp))
+                                Spacer(Modifier.height(4.dp))
                                 AppButton(
                                     text = appText("Повторить", "Ҡабатларға"),
                                     onClick = { estimateTick++ },
@@ -1606,7 +1606,7 @@ private fun InstantDestinationPicker(
                                             fontWeight = FontWeight.Bold,
                                         )
                                     }
-                                    Spacer(Modifier.width(10.dp))
+                                    Spacer(Modifier.width(8.dp))
                                     Column {
                                         // «Было столько» — только когда скидка реально есть.
                                         // Нет скидки → нет ни перечёркнутой цены, ни пустого места.
@@ -1674,7 +1674,7 @@ private fun InstantDestinationPicker(
         }
 
         val scheduled = scheduledAtMs != null
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(4.dp))
         Button(
             onClick = {
                 val f = effFrom ?: return@Button
@@ -1796,7 +1796,7 @@ private fun InstantOrderDetails(
                     Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(appText("Как меня найти", "Мине нисек табырға"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(appText("Как меня найти", "Мине нисек табырға"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         if (!open && filled) {
                             Text(
                                 listOf(entrance, comment).filter { it.isNotBlank() }.joinToString(" · ")
@@ -1812,17 +1812,17 @@ private fun InstantOrderDetails(
                     }
                     Text(
                         if (open) appText("Скрыть", "Йәшереү") else appText("Указать", "Күрһәтеү"),
-                        color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                        color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp,
                     )
                 }
             }
 
             AnimatedVisibility(
                 visible = open,
-                enter = expandVertically(tween(220)) + fadeIn(tween(220)),
-                exit = shrinkVertically(tween(180)) + fadeOut(tween(180)),
+                enter = expandVertically(tween(CanonMotion.QUICK)) + fadeIn(tween(CanonMotion.QUICK)),
+                exit = shrinkVertically(tween(CanonMotion.QUICK)) + fadeOut(tween(CanonMotion.QUICK)),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = entrance,
                         onValueChange = onEntrance,
@@ -1849,29 +1849,29 @@ private fun InstantOrderDetails(
                         border = BorderStroke(1.dp, if (forOther) CanonGreen2 else CanonBorder),
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     ) {
-                        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 if (forOther) Icons.Default.CheckCircle else Icons.Default.Person,
                                 contentDescription = null,
                                 tint = if (forOther) CanonGreen2 else CanonMuted,
                                 modifier = Modifier.size(20.dp),
                             )
-                            Spacer(Modifier.width(10.dp))
+                            Spacer(Modifier.width(8.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(appText("Заказ для другого человека", "Икенсе кеше өсөн заказ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 Text(
                                     appText("Водитель будет звонить ему, а не тебе", "Водитель һиңә түгел, уға шылтырата"),
-                                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                                 )
                             }
                         }
                     }
                     AnimatedVisibility(
                         visible = forOther,
-                        enter = expandVertically(tween(200)) + fadeIn(tween(200)),
-                        exit = shrinkVertically(tween(160)) + fadeOut(tween(160)),
+                        enter = expandVertically(tween(CanonMotion.QUICK)) + fadeIn(tween(CanonMotion.QUICK)),
+                        exit = shrinkVertically(tween(CanonMotion.QUICK)) + fadeOut(tween(CanonMotion.QUICK)),
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
                                 value = forName,
                                 onValueChange = onForName,
@@ -1894,7 +1894,7 @@ private fun InstantOrderDetails(
                                     "Телефон увидит только водитель и только после того, как примет заказ.",
                                     "Телефонды тик водитель, тик заказды алғандан һуң күрә.",
                                 ),
-                                color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                             )
                         }
                     }
@@ -1914,9 +1914,9 @@ private fun InstantTimingPicker(
     val ctx = LocalContext.current
     val scheduled = scheduledAtMs != null
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(appText("Когда подать машину?", "Машина ҡасан килһен?"), color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(appText("Когда подать машину?", "Машина ҡасан килһен?"), color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TimingChoiceChip(
                     title = appText("Сейчас", "Хәҙер"),
                     selected = !scheduled,
@@ -1954,7 +1954,7 @@ private fun TimingChoiceChip(title: String, selected: Boolean, onClick: () -> Un
         modifier = modifier.heightIn(min = 48.dp),
     ) {
         Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-            Text(title, color = if (selected) CanonGreen2 else CanonMuted, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(title, color = if (selected) CanonGreen2 else CanonMuted, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -1975,22 +1975,22 @@ private fun InstantScheduledCreatedCard(
         verticalArrangement = Arrangement.Center,
     ) {
         Surface(color = CanonMint, shape = CircleShape) {
-            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(18.dp).size(38.dp))
+            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp).size(38.dp))
         }
         Spacer(Modifier.height(16.dp))
         Text(
             scheduledAt?.let { appText("Предзаказ на ${formatDepart(it)} создан", "${formatDepart(it)}-ға алдан заказ булдырылды") }
                 ?: appText("Предзаказ создан", "Алдан заказ булдырылды"),
-            fontWeight = FontWeight.Bold, fontSize = 20.sp, textAlign = TextAlign.Center, color = CanonText,
+            fontWeight = FontWeight.Bold, fontSize = 19.sp, textAlign = TextAlign.Center, color = CanonText,
         )
         Spacer(Modifier.height(8.dp))
         Text("${fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}",
             color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(4.dp))
         Text(appText("Поиск машины запустится автоматически ко времени подачи. Мы напомним.",
             "Машина эҙләү килеү ваҡытына автоматик башланыр. Беҙ иҫкә төшөрөрбөҙ."),
-            color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(22.dp))
+            color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(24.dp))
         AppButton(text = appText("Мои предзаказы", "Минең алдан заказдар"), onClick = onOpenScheduled, style = AppButtonStyle.Primary)
         Spacer(Modifier.height(8.dp))
         AppButton(text = appText("Новый заказ", "Яңы заказ"), onClick = onNewOrder, style = AppButtonStyle.Secondary)
@@ -2066,7 +2066,7 @@ private fun InstantClassCard(
 ) {
     // Сохраняем общий Mobility-компонент с radio-семантикой и добавляем
     // мягкий тактильный масштаб из входящей ветки.
-    val scale by animateFloatAsState(if (selected) 1f else 0.98f, tween(200), label = "clsScale")
+    val scale by animateFloatAsState(if (selected) 1f else 0.98f, tween(CanonMotion.QUICK), label = "clsScale")
     TaxiServiceClassTile(
         title = title,
         subtitle = subtitle,
@@ -2087,7 +2087,7 @@ private fun InstantWaitingRow(order: InstantOrderDto) {
     val elapsedSec = ((now - startMs) / 1000).coerceAtLeast(0)
     val freeSec = order.waitFreeMin * 60L
     val isFree = elapsedSec < freeSec
-    val accent by animateColorAsState(if (isFree) CanonGreen2 else CanonRed, tween(300), label = "waitAccent")
+    val accent by animateColorAsState(if (isFree) CanonGreen2 else CanonRed, tween(CanonMotion.SLOW), label = "waitAccent")
     // Доля бесплатного окна, что ещё осталась. Тикает раз в секунду — тянем плавно, чтобы
     // полоска ползла, а не дёргалась. Стартовое значение = реальный остаток (это обратный
     // отсчёт, а не «рост»: анимировать его с нуля было бы враньём).
@@ -2095,12 +2095,12 @@ private fun InstantWaitingRow(order: InstantOrderDto) {
     val freeProgress by animateFloatAsState(freeLeftFraction, tween(1000, easing = LinearEasing), label = "waitFree")
     Surface(shape = CanonItemShape, color = accent.copy(alpha = 0.08f), border = BorderStroke(1.dp, accent.copy(alpha = 0.4f))) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(Modifier.fillMaxWidth().heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.AccessTime, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 if (isFree) {
                     val left = freeSec - elapsedSec
                     // Locale явно: без него в локалях с восточно-арабскими цифрами таймер
@@ -2161,7 +2161,7 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
     // подтверждено сервером — выдуманных чисел на экране быть не должно.
     val showElapsed = serverSec != null && serverSec >= 70L
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -2171,7 +2171,7 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
                 Icon(
                     painterResource(R.drawable.yu_map_car),
                     contentDescription = appText("Ищем машину", "Машина эҙләйбеҙ"),
-                    tint = CanonBg, modifier = Modifier.padding(20.dp).size(34.dp),
+                    tint = CanonBg, modifier = Modifier.padding(16.dp).size(34.dp),
                 )
             }
         }
@@ -2207,7 +2207,7 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
         // честно меняется, и человек видит, что приложение про него не забыло.
         AnimatedContent(
             targetState = waitStage,
-            transitionSpec = { fadeIn(tween(260)).togetherWith(fadeOut(tween(160))) },
+            transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)).togetherWith(fadeOut(tween(CanonMotion.QUICK))) },
             label = "searchStage",
         ) { stage ->
             Text(
@@ -2222,12 +2222,12 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
                 color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption, textAlign = TextAlign.Center,
             )
         }
-        AnimatedVisibility(visible = showElapsed, enter = fadeIn(tween(300)), exit = fadeOut(tween(160))) {
+        AnimatedVisibility(visible = showElapsed, enter = fadeIn(tween(CanonMotion.SLOW)), exit = fadeOut(tween(CanonMotion.QUICK))) {
             Text(
                 appText("Ищем уже ${mmSs(watchedSec)}", "Инде ${mmSs(watchedSec)} эҙләйбеҙ"),
                 color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 6.dp),
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
         Spacer(Modifier.height(24.dp))
@@ -2331,8 +2331,8 @@ internal fun InstantDriverEnRouteCard(
                     AnimatedContent(
                         targetState = phaseTitle,
                         transitionSpec = {
-                            (fadeIn(tween(280)) + slideInVertically(tween(320)) { it / 3 })
-                                .togetherWith(fadeOut(tween(150)))
+                            (fadeIn(tween(CanonMotion.NORMAL)) + slideInVertically(tween(CanonMotion.SLOW)) { it / 3 })
+                                .togetherWith(fadeOut(tween(CanonMotion.QUICK)))
                         },
                         modifier = Modifier.weight(1f),
                         label = "enroutePhaseTitle",
@@ -2365,7 +2365,7 @@ internal fun InstantDriverEnRouteCard(
                 // Карточка водителя
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(shape = CircleShape, color = CanonBg, modifier = Modifier.size(46.dp)) {
-                        Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(11.dp))
+                        Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp))
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -2377,7 +2377,7 @@ internal fun InstantDriverEnRouteCard(
                                 modifier = Modifier.weight(1f, fill = false),
                             )
                             if (order.driverVerified) {
-                                Spacer(Modifier.width(5.dp))
+                                Spacer(Modifier.width(4.dp))
                                 Icon(Icons.Default.Verified, contentDescription = appText("Проверен", "Тикшерелгән"), tint = CanonGreen2, modifier = Modifier.size(16.dp))
                             }
                         }
@@ -2401,7 +2401,7 @@ internal fun InstantDriverEnRouteCard(
                                     // номер на ней давал контраст 1.05, то есть был не виден совсем.
                                     color = CanonTaxiText, fontSize = TxBody, lineHeight = LhBody,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 )
                             }
                         }
@@ -2411,7 +2411,7 @@ internal fun InstantDriverEnRouteCard(
                         onClick = { NavSignals.openInstantChat.value = order.id },
                         shape = CircleShape, color = CanonMint,
                     ) {
-                        Icon(Icons.Default.ChatBubble, contentDescription = appText("Написать водителю", "Водителгә яҙырға"), tint = CanonGreen2, modifier = Modifier.padding(14.dp).size(20.dp))
+                        Icon(Icons.Default.ChatBubble, contentDescription = appText("Написать водителю", "Водителгә яҙырға"), tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(20.dp))
                     }
                     Spacer(Modifier.width(8.dp))
                     // Телефон — ТОЛЬКО после accept (сервер отдаёт его непустым).
@@ -2420,7 +2420,7 @@ internal fun InstantDriverEnRouteCard(
                             onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${order.driverPhone}"))) } },
                             shape = CircleShape, color = CanonGreen2,
                         ) {
-                            Icon(Icons.Default.Phone, contentDescription = appText("Позвонить водителю", "Водителгә шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(14.dp).size(20.dp))
+                            Icon(Icons.Default.Phone, contentDescription = appText("Позвонить водителю", "Водителгә шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(12.dp).size(20.dp))
                         }
                     }
                 }
@@ -2432,7 +2432,7 @@ internal fun InstantDriverEnRouteCard(
                 } else {
                     Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
@@ -2490,7 +2490,7 @@ internal fun InstantDriverEnRouteCard(
                         "Водитель уже приехал и ждёт. Отмена — $cancelFeeRub ₽ (подача), переведи водителю напрямую. Частые платные отмены ставят такси на паузу.",
                         "Водитель килде инде һәм көтә. Кире алыу — $cancelFeeRub ₽ (килеү хаҡы), водителгә туранан күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.",
                     ),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             },
             confirmButton = {
@@ -2524,8 +2524,8 @@ private fun InstantReasonChip(
 ) {
     // Выбранная причина подсвечивается мятой не для красоты: палец должен получить ответ
     // «попал» раньше, чем экран успеет смениться. Переход цвета — плавный, без мигания.
-    val bg by animateColorAsState(if (picked) CanonMint else CanonBg, tween(200), label = "reasonBg")
-    val fg by animateColorAsState(if (picked) CanonGreen2 else CanonText, tween(200), label = "reasonFg")
+    val bg by animateColorAsState(if (picked) CanonMint else CanonBg, tween(CanonMotion.QUICK), label = "reasonBg")
+    val fg by animateColorAsState(if (picked) CanonGreen2 else CanonText, tween(CanonMotion.QUICK), label = "reasonFg")
     Surface(
         onClick = onClick,
         enabled = enabled,
@@ -2586,7 +2586,7 @@ private fun InstantCancelReasonDialog(
     // подъём на 20dp с проявлением — то же спокойное движение, что у смены фаз заказа выше.
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
-    val appear by animateFloatAsState(if (shown) 1f else 0f, tween(280), label = "cancelReasonAppear")
+    val appear by animateFloatAsState(if (shown) 1f else 0f, tween(CanonMotion.NORMAL), label = "cancelReasonAppear")
     // Защёлка от второго касания: отмена — необратимое действие, и на медленном телефоне палец
     // успевает нажать дважды, пока окно закрывается. Второй тап должен уйти в никуда.
     var picked by remember { mutableStateOf<String?>(null) }
@@ -2620,7 +2620,7 @@ private fun InstantCancelReasonDialog(
                             ),
                             color = CanonWarn, fontSize = TxCaption, lineHeight = LhCaption,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                         )
                     }
                 }
@@ -2694,7 +2694,7 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
                 contentDescription = appText("Экстренная помощь", "Ашығыс ярҙам"),
                 tint = CanonRed, modifier = Modifier.size(18.dp),
             )
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(4.dp))
             Text(
                 appText("SOS", "SOS"), color = CanonRed,
                 fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
@@ -2711,7 +2711,7 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
                     contentDescription = appText("Поделиться поездкой с близким", "Сәфәр менән яҡыныңа бүлешеү"),
                     tint = CanonGreen2, modifier = Modifier.size(18.dp),
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(4.dp))
                 Text(
                     appText("Поделиться поездкой", "Сәфәр менән бүлешеү"), color = CanonGreen2,
                     fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
@@ -2748,7 +2748,7 @@ private fun InstantRoadsideButton(orderId: Int) {
                     "Помощь вызвана: близкие и поддержка получили твои координаты.",
                     "Ярҙам саҡырылды: яҡындар һәм ярҙам хеҙмәте координаталарыңды алды.",
                 ),
-                color = CanonWarn, fontSize = 13.sp, lineHeight = 18.sp,
+                color = CanonWarn, fontSize = 14.sp, lineHeight = 20.sp,
                 modifier = Modifier.fillMaxWidth().padding(14.dp),
             )
         }
@@ -2756,7 +2756,7 @@ private fun InstantRoadsideButton(orderId: Int) {
     }
     TextButton(onClick = { confirm = true }, modifier = Modifier.fillMaxWidth()) {
         Text(appText("Застряли на трассе — нужна помощь", "Юлда ҡалдыҡ — ярҙам кәрәк"),
-            color = CanonWarn, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            color = CanonWarn, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
     if (confirm) {
         AlertDialog(
@@ -2769,7 +2769,7 @@ private fun InstantRoadsideButton(orderId: Int) {
                         "Твоим доверенным контактам уйдёт SMS с координатами, а поддержка Юлдаша увидит сигнал. Если угрожает опасность — звони 112.",
                         "Ышаныслы контакттарыңа координаталар менән SMS китә, Юлдаш ярҙамы сигналды күрә. Хәүеф янаһа — 112-гә шылтырат.",
                     ),
-                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             },
             confirmButton = {
@@ -2836,12 +2836,12 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
         text = {
             val list = contacts
             val link = liveLink
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 when {
                     link != null -> LiveLinkCard(link)
                     list == null -> Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(8.dp))
                         Text(appText("Загружаем близких…", "Яҡындарҙы йөкләйбеҙ…"), color = CanonMuted, fontSize = 14.sp)
                     }
                     loadError -> AppErrorState(
@@ -2853,11 +2853,11 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                         ),
                     )
                     list.isEmpty() -> Text(appText("Добавь близкого в «Доверенные контакты» в профиле — и делись поездкой в одно касание.",
-                        "Профилдә «Ышаныслы кешеләр»гә яҡыныңды өҫтә — сәфәр менән бер баҫыуҙа бүлеш."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+                        "Профилдә «Ышаныслы кешеләр»гә яҡыныңды өҫтә — сәфәр менән бер баҫыуҙа бүлеш."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                     else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         list.forEach { c ->
                             Row(
-                                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
                                     .clickable {
                                         scope.launch {
                                             ApiClient.shareInstantTrip(orderId, c.id)
@@ -2878,9 +2878,9 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(10.dp))
+                                Spacer(Modifier.width(8.dp))
                                 Column {
-                                    Text(c.name, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    Text(c.name, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                     if (c.relation.isNotBlank()) Text(c.relation, color = CanonMuted, fontSize = 12.sp)
                                 }
                             }
@@ -2889,8 +2889,8 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                 }
                 // Приватность (B7c): активные ссылки заказа + «Отозвать» (сгорит /t/{token}, SMS-статусы стоп).
                 if (activeShares.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(appText("Активные ссылки", "Әүҙем һылтанмалар"), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(appText("Активные ссылки", "Әүҙем һылтанмалар"), color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     activeShares.forEach { share ->
                         val name = contacts?.firstOrNull { it.id == share.contactId }?.name
                             ?: appText("Близкий", "Яҡын кеше")
@@ -2908,7 +2908,7 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                                         .onFailure { Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show() }
                                 }
                             }, modifier = Modifier.heightIn(min = 44.dp)) {
-                                Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                         }
                     }
@@ -2978,7 +2978,7 @@ private fun InstantNoDriversCard(
         onAction = onRetry,
         onSecondary = onDone,
         extra = {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Очередь ожидания: живая полоска — единственное доказательство, что поиск идёт,
                 // когда экран статичен, а телефон лежит в кармане.
                 if (waiting) InstantQueuePulse()
@@ -3021,7 +3021,7 @@ private fun InstantNoDriversCard(
 @Composable
 private fun InstantQueuePulse() {
     Surface(shape = CanonItemShape, color = CanonMint, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 appText("Поиск идёт прямо сейчас", "Эҙләү нәҡ хәҙер бара"),
                 color = CanonGreen2, fontSize = TxCaption, lineHeight = LhCaption,
@@ -3063,14 +3063,14 @@ private fun TaxiDisputeLink(order: InstantOrderDto, isDriver: Boolean) {
                     "Разбор открыт. Мы позовём вторую сторону объясниться и напишем решение вам обоим.",
                     "Ҡарау асылды. Икенсе яҡты аңлатырға саҡырабыҙ һәм ҡарарҙы икегеҙгә лә яҙабыҙ.",
                 ),
-                color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp,
+                color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
                 modifier = Modifier.fillMaxWidth().padding(14.dp),
             )
         }
         return
     }
     TextButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
-        Text(appText("Открыть разбор", "Ҡарауҙы асыу"), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text(appText("Открыть разбор", "Ҡарауҙы асыу"), color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
     if (open) {
         FileIncidentDialog(
@@ -3129,9 +3129,9 @@ private fun InstantFinalCard(
         verticalArrangement = Arrangement.Center,
     ) {
         Surface(shape = CircleShape, color = accentBg, modifier = Modifier.appearIn(0)) {
-            Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.padding(22.dp).size(40.dp))
+            Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.padding(24.dp).size(40.dp))
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
         Text(
             title, color = CanonText, fontSize = TxTitle, lineHeight = LhTitle,
             fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
@@ -3192,9 +3192,9 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
             Text(
                 if (isDriver) appText("Как прошла поездка с пассажиром?", "Пассажир менән сәфәр нисек үтте?")
                 else appText("Как прошла поездка?", "Сәфәр нисек үтте?"),
-                color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 (1..5).forEach { n ->
                     val filled = n <= stars
                     val scale by animateFloatAsState(if (filled) 1f else 0.86f, label = "star$n")
@@ -3230,7 +3230,7 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
                 Text(
                     if (isDriver) appText("Пожаловаться на пассажира", "Пассажирға ялыу")
                     else appText("Пожаловаться на водителя", "Водителгә ялыу"),
-                    color = CanonMuted, fontSize = 13.sp,
+                    color = CanonMuted, fontSize = 14.sp,
                 )
             }
         }
@@ -3260,8 +3260,8 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
 @Composable
 internal fun ContactCancelSoftBanner(modifier: Modifier = Modifier) {
     Row(
-        modifier = modifier.fillMaxWidth().background(CanonMint, RoundedCornerShape(12.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier = modifier.fillMaxWidth().background(CanonMint, RoundedCornerShape(14.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -3269,7 +3269,7 @@ internal fun ContactCancelSoftBanner(modifier: Modifier = Modifier) {
                 "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
                 "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚",
             ),
-            color = CanonGreen2, fontSize = 13.sp, lineHeight = 17.sp,
+            color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
         )
     }
 }
@@ -3289,8 +3289,8 @@ internal fun UnpaidReportButton(orderId: Int? = null, bookingId: Int? = null, mo
     val failMsg = appText("Не получилось отметить. Проверь сеть.", "Билдәләп булманы. Селтәрҙе тикшер.")
     if (sent) {
         Row(
-            modifier = modifier.fillMaxWidth().background(CanonMint, RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = modifier.fillMaxWidth().background(CanonMint, RoundedCornerShape(14.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
@@ -3298,7 +3298,7 @@ internal fun UnpaidReportButton(orderId: Int? = null, bookingId: Int? = null, mo
             Text(
                 appText("Отмечено: пассажир не заплатил. Мы разберёмся.",
                         "Билдәләнде: пассажир түләмәгән. Беҙ тикшерербеҙ."),
-                color = CanonGreen2, fontSize = 13.sp, lineHeight = 17.sp,
+                color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
             )
         }
     } else {
@@ -3334,8 +3334,8 @@ internal fun NoShowButton(bookingId: Int, modifier: Modifier = Modifier) {
     val failMsg = appText("Не получилось отметить. Проверь сеть.", "Билдәләп булманы. Селтәрҙе тикшер.")
     if (sent) {
         Row(
-            modifier = modifier.fillMaxWidth().background(CanonMint, RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = modifier.fillMaxWidth().background(CanonMint, RoundedCornerShape(14.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
@@ -3343,7 +3343,7 @@ internal fun NoShowButton(bookingId: Int, modifier: Modifier = Modifier) {
             Text(
                 appText("Отмечена неявка. Место вернулось в поездку.",
                         "Килмәгәнлек билдәләнде. Урын сәфәргә ҡайтты."),
-                color = CanonGreen2, fontSize = 13.sp, lineHeight = 17.sp,
+                color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
             )
         }
     } else {
@@ -3372,7 +3372,7 @@ internal fun NoShowButton(bookingId: Int, modifier: Modifier = Modifier) {
 private fun InstantCenterLoader(text: String) {
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         CircularProgressIndicator(color = CanonGreen2, strokeWidth = 3.dp)
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
         Text(text, color = CanonMuted, fontSize = 14.sp)
     }
 }
@@ -3439,16 +3439,16 @@ private fun TaxiComingSoonCard(
         Surface(shape = CircleShape, color = CanonTaxiBg) {
             Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) { Text("🚕", fontSize = 44.sp) }
         }
-        Spacer(Modifier.height(20.dp))
-        Text(title, color = CanonText, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(16.dp))
+        Text(title, color = CanonText, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(body, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
         Spacer(Modifier.height(24.dp))
 
         // ---------- Ранний доступ: форма или «Ты в списке!» ----------
-        AnimatedVisibility(visible = sent, enter = fadeIn(tween(300)) + expandVertically(tween(300))) {
+        AnimatedVisibility(visible = sent, enter = fadeIn(tween(CanonMotion.SLOW)) + expandVertically(tween(CanonMotion.SLOW))) {
             Surface(color = CanonMint, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(appText("Ты в списке! 🎉", "Һин исемлектә! 🎉"), color = CanonGreen2, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text(
                         if (role == "driver")
@@ -3459,13 +3459,13 @@ private fun TaxiComingSoonCard(
                 }
             }
         }
-        AnimatedVisibility(visible = !sent, exit = fadeOut(tween(200)) + shrinkVertically(tween(250))) {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        AnimatedVisibility(visible = !sent, exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.NORMAL))) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
                             appText("Оставь номер — сообщим, когда включим", "Номерыңды ҡалдыр — ҡабыҙғас та хәбәр итербеҙ"),
-                            color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 21.sp,
+                            color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 23.sp,
                         )
                         // Роль: пассажир / водитель (тач-цель ≥48dp).
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -3490,7 +3490,7 @@ private fun TaxiComingSoonCard(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(14.dp),
                         )
-                        error?.let { Text(it, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp) }
+                        error?.let { Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp) }
                         Button(
                             onClick = { submit() },
                             enabled = phone.isNotBlank() && !sending,
@@ -3508,12 +3508,12 @@ private fun TaxiComingSoonCard(
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             appText("Стань первым таксистом города 🚖", "Ҡаланың беренсе таксисы бул 🚖"),
-                            color = CanonTaxiText, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 21.sp,
+                            color = CanonTaxiText, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 23.sp,
                         )
                         Text(
                             appText("Первым водителям — 0% комиссии первые 3 месяца. Оставь номер как водитель, и город твой.",
                                 "Тәүге водителдәргә — тәүге 3 айҙа 0% комиссия. Номерыңды водитель итеп ҡалдыр — ҡала һинеке."),
-                            color = CanonTaxiText, fontSize = 13.sp, lineHeight = 19.sp,
+                            color = CanonTaxiText, fontSize = 14.sp, lineHeight = 20.sp,
                         )
                         if (role != "driver") {
                             OutlinedButton(
@@ -3541,7 +3541,7 @@ private fun TaxiComingSoonCard(
         Button(
             onClick = onBackToPooling,
             modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
         ) {
             Icon(Icons.Default.DirectionsCar, contentDescription = null)
@@ -3708,14 +3708,14 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
         ) {
             Surface(shape = CircleShape, color = CanonGold.copy(alpha = 0.16f)) {
                 Row(
-                    Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonGold, modifier = Modifier.size(16.dp))
                     Text(
                         appText("Нет связи — переподключаемся…", "Бәйләнеш юҡ — ҡабат тоташабыҙ…"),
-                        color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                        color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Medium,
                     )
                 }
             }
@@ -3774,14 +3774,14 @@ private fun InstantDeclineReasonPanel(
         AnimatedVisibility(
             visible = orderId != null,
             // Панель выезжает снизу и так же спокойно уходит — как системные подсказки iOS.
-            enter = fadeIn(tween(240)) + slideInVertically(tween(320)) { it / 2 },
-            exit = fadeOut(tween(160)) + shrinkVertically(tween(220)),
+            enter = fadeIn(tween(CanonMotion.NORMAL)) + slideInVertically(tween(CanonMotion.SLOW)) { it / 2 },
+            exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
         ) {
             Surface(
                 color = CanonSurface,
                 shape = CanonCardShape,
                 border = BorderStroke(1.dp, CanonBorder),
-                shadowElevation = 12.dp,
+                shadowElevation = CanonDepth.sheet,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -3876,7 +3876,7 @@ internal fun InstantOfferOverlay(
         Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = CircleShape, color = CanonGreen2) {
@@ -3884,17 +3884,17 @@ internal fun InstantOfferOverlay(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(appText("Новый заказ!", "Яңы заказ!"), color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text(appText("Новый заказ!", "Яңы заказ!"), color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                     Text(
                         if (canAccept) appText("Ответь за $secondsLeft с", "$secondsLeft секундта яуап бир")
                         else appText("Время вышло", "Ваҡыт үтте"),
-                        color = CanonMuted, fontSize = 13.sp,
+                        color = CanonMuted, fontSize = 14.sp,
                     )
                 }
                 Surface(shape = CircleShape, color = CanonSurface) {
                     // Плавная смена цифры таймера (в такт анимированной полоске), без рывка.
                     AnimatedContent(targetState = secondsLeft, label = "offerTimer") { s ->
-                        Text("$s", color = CanonGreen2, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                        Text("$s", color = CanonGreen2, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                     }
                 }
             }
@@ -3904,9 +3904,9 @@ internal fun InstantOfferOverlay(
                 color = CanonGreen2, trackColor = CanonSurface,
             )
             Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             val hasServerNet = order.driverGrossKop > 0
                             Text(
                                 if (hasServerNet) appText("Тебе чистыми", "Һиңә таҙа килем")
@@ -3927,7 +3927,7 @@ internal fun InstantOfferOverlay(
                                         "Пассажир: ${formatTaxiKop(order.driverGrossKop)} · комиссия ${formatTaxiKop(order.driverFeeKop)} (${formatTaxiMultiplier(order.driverFeePercent)}%)",
                                         "Пассажир: ${formatTaxiKop(order.driverGrossKop)} · комиссия ${formatTaxiKop(order.driverFeeKop)} (${formatTaxiMultiplier(order.driverFeePercent)}%)",
                                     ),
-                                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                                 )
                             }
                             // «Тебе чистыми» посчитано с полной цены — и это верно: скидку пассажира
@@ -3939,14 +3939,14 @@ internal fun InstantOfferOverlay(
                                         "На руки от пассажира: ${formatTaxiKop(order.passengerPayKop)} — у него промокод −${order.promoDiscountKop / 100} ₽, разницу платит Юлдаш. Твой доход прежний.",
                                         "Пассажирҙан ҡулға: ${formatTaxiKop(order.passengerPayKop)} — унда промокод −${order.promoDiscountKop / 100} ₽, айырманы Юлдаш түләй. Һинең килемең үҙгәрмәй.",
                                     ),
-                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold,
+                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold,
                                 )
                             }
                         }
                         if (order.category == "comfort") {
-                            Surface(shape = RoundedCornerShape(10.dp), color = CanonMint) {
-                                Text(appText("Комфорт", "Комфорт"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+                            Surface(shape = RoundedCornerShape(8.dp), color = CanonMint) {
+                                Text(appText("Комфорт", "Комфорт"), color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                             }
                         }
                     }
@@ -3961,7 +3961,7 @@ internal fun InstantOfferOverlay(
                     // Агрегат анонимен; имя/телефон откроются только после «Взять заказ».
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(8.dp))
                         val rating = order.passengerRating
                         Text(
                             if (rating != null) {
@@ -3976,10 +3976,10 @@ internal fun InstantOfferOverlay(
                         if (order.distanceKm > 0) add(appText("≈ ${order.distanceKm.toInt()} км поездка", "≈ ${order.distanceKm.toInt()} км сәфәр"))
                         if (order.etaMin > 0) add(appText("≈ ${order.etaMin.toInt()} мин", "≈ ${order.etaMin.toInt()} мин"))
                     }.joinToString("  ·  ")
-                    if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 13.sp)
+                    if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 14.sp)
                 }
             }
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(4.dp))
             }
             Spacer(Modifier.height(12.dp))
             // Решение всегда остаётся под пальцем; детали заказа прокручиваются независимо.
@@ -4014,10 +4014,10 @@ internal fun InstantOfferOverlay(
 private fun InstantPointRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(8.dp))
         Column {
-            Text(label, color = CanonMuted, fontSize = 11.sp)
-            Text(value, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(label, color = CanonMuted, fontSize = 12.sp)
+            Text(value, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
@@ -4128,7 +4128,7 @@ internal fun InstantDriverTripScreen(
                     ),
                     action = appText("Готово", "Әҙер"), onAction = onFinished, onSecondary = onFinished,
                     extra = {
-                        Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             // Промокод пассажира: почему на руки пришло меньше и где остальное.
                             TaxiPromoPayRow(order = current, forDriver = true)
                             InstantReceiptReminder()   // B7b-4: чек самозанятого — мягко, не назидательно
@@ -4178,13 +4178,13 @@ internal fun InstantDriverTripScreen(
                     Card(
                         colors = CardDefaults.cardColors(containerColor = CanonSurface),
                         shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.sheet),
                         modifier = Modifier.fillMaxWidth().weight(0.64f),
                     ) {
                         Column(Modifier.fillMaxSize()) {
                         Column(
                             Modifier.weight(1f).verticalScroll(rememberScrollState())
-                                .padding(start = 18.dp, top = 18.dp, end = 18.dp, bottom = 10.dp),
+                                .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             TaxiTripProgress(status = current.status)
@@ -4198,26 +4198,26 @@ internal fun InstantDriverTripScreen(
                                         // Заказ ДЛЯ ДРУГОГО: везём не заказчика. Имя и телефон выше — уже
                                         // того, кого забираем, но водитель должен это ПОНИМАТЬ заранее.
                                         if (current.forOther) {
-                                            Spacer(Modifier.width(6.dp))
+                                            Spacer(Modifier.width(4.dp))
                                             Surface(color = CanonTaxiBg, shape = RoundedCornerShape(8.dp)) {
                                                 Text(
                                                     appText("заказ для другого", "икенсе кеше өсөн"),
-                                                    color = CanonTaxiText, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                                    color = CanonTaxiText, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                                 )
                                             }
                                         }
                                     }
-                                    Text("${current.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${current.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}", color = CanonMuted, fontSize = 13.sp, maxLines = 1)
+                                    Text("${current.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${current.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}", color = CanonMuted, fontSize = 14.sp, maxLines = 1)
                                 }
                                 // «Написать» (B7b-1): чат заказа — водителю удобнее коротким текстом на месте.
                                 Surface(onClick = { NavSignals.openInstantChat.value = current.id }, shape = CircleShape, color = CanonMint) {
-                                    Icon(Icons.Default.ChatBubble, contentDescription = appText("Написать пассажиру", "Пассажирға яҙырға"), tint = CanonGreen2, modifier = Modifier.padding(14.dp).size(20.dp))
+                                    Icon(Icons.Default.ChatBubble, contentDescription = appText("Написать пассажиру", "Пассажирға яҙырға"), tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(20.dp))
                                 }
                                 Spacer(Modifier.width(8.dp))
                                 if (current.passengerPhone.isNotBlank()) {
                                     Surface(onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${current.passengerPhone}"))) } }, shape = CircleShape, color = CanonGreen2) {
-                                        Icon(Icons.Default.Phone, contentDescription = appText("Позвонить пассажиру", "Пассажирға шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(14.dp).size(20.dp))
+                                        Icon(Icons.Default.Phone, contentDescription = appText("Позвонить пассажиру", "Пассажирға шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(12.dp).size(20.dp))
                                     }
                                 }
                             }
@@ -4229,14 +4229,14 @@ internal fun InstantDriverTripScreen(
                                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(appText("Как найти", "Нисек табырға"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(appText("Как найти", "Нисек табырға"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                         }
                                         if (current.entrance.isNotBlank()) {
                                             Text(current.entrance, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                         }
                                         if (current.comment.isNotBlank()) {
-                                            Text(current.comment, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
+                                            Text(current.comment, color = CanonText, fontSize = 14.sp, lineHeight = 20.sp)
                                         }
                                     }
                                 }
@@ -4251,7 +4251,7 @@ internal fun InstantDriverTripScreen(
                                     "Пассажир платит: $payToDriver" + (if (waitRub > 0) " + $waitRub ₽ ожидание" else "") + " · наличными/переводом",
                                     "Пассажир түләй: $payToDriver" + (if (waitRub > 0) " + $waitRub ₽ көтөү" else "") + " · аҡсалата/күсереп",
                                 ),
-                                color = CanonMuted, fontSize = 13.sp,
+                                color = CanonMuted, fontSize = 14.sp,
                             )
                             TaxiPromoPayRow(order = current, forDriver = true)
                             if (current.driverGrossKop > 0) {
@@ -4260,7 +4260,7 @@ internal fun InstantDriverTripScreen(
                                         "Ориентир чистыми: ${formatTaxiKop(current.driverNetKop)} до платного ожидания",
                                         "Таҙа килем самаһы: ${formatTaxiKop(current.driverNetKop)} түләүле көтөүгә тиклем",
                                     ),
-                                    color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                    color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold,
                                 )
                             }
                             // «Навигатор» (B7a-3): до посадки ведём к подаче (А), после — к назначению (Б).
@@ -4304,7 +4304,7 @@ internal fun InstantDriverTripScreen(
                                 }
                             }
                             if (actionError != null) {
-                                Text(actionError!!, color = CanonRed, fontSize = 13.sp)
+                                Text(actionError!!, color = CanonRed, fontSize = 14.sp)
                             }
                             // SOS (B7b-2): безопасность водителя — тоже продукт (обе стороны заказа).
                             InstantSafetyRow(orderId = current.id)
@@ -4343,7 +4343,7 @@ internal fun InstantDriverTripScreen(
                                 if (busy) {
                                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = CanonBg)
                                 } else {
-                                    Text(primaryLabel, fontSize = 16.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                    Text(primaryLabel, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                                 }
                             }
                         }
@@ -4384,7 +4384,7 @@ internal fun InstantDriverTripScreen(
                     },
                     color = CanonMuted,
                     fontSize = 14.sp,
-                    lineHeight = 19.sp,
+                    lineHeight = 20.sp,
                 )
             },
             confirmButton = {
@@ -4420,7 +4420,7 @@ internal fun InstantDriverTripScreen(
                         "Заказ закроется, пассажиру зафиксируется плата за подачу. Позвони ему перед этим — вдруг уже бежит.",
                         "Заказ ябыла, пассажирға килеү хаҡы яҙыла. Тәүҙә шылтыратып ҡара — бәлки, йүгереп килә лә.",
                     ),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             },
             confirmButton = {
@@ -4447,13 +4447,13 @@ internal fun InstantDriverTripScreen(
 @Composable
 private fun InstantReceiptReminder() {
     Surface(shape = CanonItemShape, color = CanonMint, modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("🧾", fontSize = 22.sp)
-            Spacer(Modifier.width(10.dp))
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("🧾", fontSize = 24.sp)
+            Spacer(Modifier.width(8.dp))
             Text(
                 appText("Не забудь чек в «Мой налог» — пара касаний, и обязанность самозанятого выполнена 💚",
                     "«Мой налог»да чек бирергә онотма — бер-ике баҫыу, һәм үҙмәшғүл бурысы үтәлде 💚"),
-                color = CanonText, fontSize = 13.sp, lineHeight = 18.sp,
+                color = CanonText, fontSize = 14.sp, lineHeight = 20.sp,
             )
         }
     }

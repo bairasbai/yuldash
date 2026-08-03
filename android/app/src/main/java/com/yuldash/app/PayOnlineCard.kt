@@ -138,7 +138,7 @@ internal fun PayOnlineCard(
     AppCard(modifier = modifier) {
         AnimatedContent(
             targetState = stage,
-            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+            transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
             label = "payOnlineStage",
         ) { st ->
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -153,7 +153,7 @@ internal fun PayOnlineCard(
                             ),
                         )
                         if (amountRub != null && amountRub > 0) {
-                            Text("${fmtRub(amountRub)} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 26.sp)
+                            Text("${fmtRub(amountRub)} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 24.sp)
                         }
                         // Выбор способа оплаты — не мелкий фильтр, а решение про деньги:
                         // тач-цель ≥ 48dp (§4.5), иначе палец промахивается и платит «не тем».
@@ -180,7 +180,7 @@ internal fun PayOnlineCard(
                                 "Наличными или переводом напрямую — тоже можно, как договорились.",
                                 "Нәҡзләй йәки туранан-тура күсереп тә була — нисек һөйләшкәнһегеҙ.",
                             ),
-                            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                         )
                     }
                     PayOnlineStage.Waiting -> {
@@ -198,7 +198,7 @@ internal fun PayOnlineCard(
                             loading = busy,
                         )
                         TextButton(onClick = { if (!busy) stage = PayOnlineStage.Idle }) {
-                            Text(appText("Выбрать другой способ", "Икенсе ысул һайлау"), color = CanonMuted, fontSize = 13.sp)
+                            Text(appText("Выбрать другой способ", "Икенсе ысул һайлау"), color = CanonMuted, fontSize = 14.sp)
                         }
                     }
                     PayOnlineStage.Paid -> {
@@ -206,15 +206,15 @@ internal fun PayOnlineCard(
                             Surface(color = CanonMint, shape = CircleShape) {
                                 Icon(
                                     Icons.Default.CheckCircle, contentDescription = null,
-                                    tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(26.dp),
+                                    tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(26.dp),
                                 )
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(appText("Оплачено — спасибо!", "Түләнде — рәхмәт!"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                                Text(appText("Оплачено — спасибо!", "Түләнде — рәхмәт!"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 Text(
                                     appText("Деньги уйдут водителю.", "Аҡса водителгә китә."),
-                                    color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
+                                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                                 )
                             }
                         }
@@ -229,12 +229,12 @@ internal fun PayOnlineCard(
 private fun PayOnlineHeader(icon: ImageVector, tint: Color, bg: Color, title: String, subtitle: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Surface(color = bg, shape = CircleShape) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.padding(10.dp).size(22.dp))
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.padding(8.dp).size(22.dp))
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-            Text(subtitle, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
     }
 }

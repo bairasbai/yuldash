@@ -144,14 +144,14 @@ private fun CouponsListScreen(tab: Int, onTab: (Int) -> Unit, onOpen: (CouponDto
             // Переключатель вкладок
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 CouponTab(appText("Скидки рядом", "Яҡындағы ташламалар"), tab == 0, Modifier.weight(1f)) { onTab(0) }
                 CouponTab(appText("Мои купоны", "Минең купондар"), tab == 1, Modifier.weight(1f)) { onTab(1) }
             }
             AnimatedContent(
                 targetState = tab,
-                transitionSpec = { (fadeIn(tween(220)) togetherWith fadeOut(tween(160))) },
+                transitionSpec = { (fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK))) },
                 label = "coupon-tab",
             ) { t ->
                 if (t == 0) NearbyCouponsTab(onOpen) else MyCouponsTab()
@@ -162,9 +162,9 @@ private fun CouponsListScreen(tab: Int, onTab: (Int) -> Unit, onOpen: (CouponDto
 
 @Composable
 private fun CouponTab(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(220), label = "tabBg")
+    val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "tabBg")
     Surface(
-        onClick = onClick, color = bg, shape = RoundedCornerShape(16.dp),
+        onClick = onClick, color = bg, shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
         modifier = modifier.height(48.dp),
     ) {
@@ -210,7 +210,7 @@ private fun NearbyCouponsTab(onOpen: (CouponDto) -> Unit) {
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
         item {
@@ -219,7 +219,7 @@ private fun NearbyCouponsTab(onOpen: (CouponDto) -> Unit) {
                     "Скидки от местных заведений по твоему маршруту. Активируй — покажешь код на месте.",
                     "Маршрутың буйынса ерле урындарҙан ташламалар. Активлаштыр — кодты урында күрһәтерһең.",
                 ),
-                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
             )
         }
         if (cities.isNotEmpty()) {
@@ -273,21 +273,21 @@ private fun CouponCard(c: CouponDto, onClick: () -> Unit) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
-                    Icon(couponCategoryIcon(c.partner.category), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
+                    Icon(couponCategoryIcon(c.partner.category), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(22.dp))
                 }
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(c.partner.name.ifBlank { c.title }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(couponCategoryLabel(c.partner.category) + (if (c.city.isNotBlank()) "  ·  ${c.city}" else ""), color = CanonMuted, fontSize = 13.sp)
+                    Text(couponCategoryLabel(c.partner.category) + (if (c.city.isNotBlank()) "  ·  ${c.city}" else ""), color = CanonMuted, fontSize = 14.sp)
                 }
                 if (c.premium) PremiumBadge()
             }
-            Text(c.title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 20.sp)
+            Text(c.title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 23.sp)
             DiscountBadge(c.discountText)
             // Метка партнёра + срок + остаток
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(color = CanonMint, shape = RoundedCornerShape(10.dp)) {
-                    Text(appText("Партнёр Юлдаша", "Юлдаш партнёры"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(color = CanonMint, shape = RoundedCornerShape(8.dp)) {
+                    Text(appText("Партнёр Юлдаша", "Юлдаш партнёры"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                 }
                 Spacer(Modifier.weight(1f))
                 if (c.remaining != null) {
@@ -306,19 +306,19 @@ private fun DiscountBadge(text: String) {
     if (text.isBlank()) return
     Surface(color = CanonGold, shape = RoundedCornerShape(14.dp)) {
         Text(
-            text, color = CanonGoldInk, fontWeight = FontWeight.Bold, fontSize = 22.sp,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            text, color = CanonGoldInk, fontWeight = FontWeight.Bold, fontSize = 24.sp,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
     }
 }
 
 @Composable
 private fun PremiumBadge() {
-    Surface(color = CanonGold, shape = RoundedCornerShape(10.dp)) {
+    Surface(color = CanonGold, shape = RoundedCornerShape(8.dp)) {
         Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.WorkspacePremium, contentDescription = appText("Премиум", "Премиум"), tint = CanonGoldInk, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(4.dp))
-            Text(appText("Премиум", "Премиум"), color = CanonGoldInk, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            Text(appText("Премиум", "Премиум"), color = CanonGoldInk, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
     }
 }
@@ -346,7 +346,7 @@ private fun MyCouponsTab() {
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
     ) {
         when {
@@ -374,11 +374,11 @@ private fun MyCouponCard(m: MyCouponDto) {
     val clipboard = LocalClipboardManager.current
     val c = m.coupon
     AppCard {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(c.partner.name.ifBlank { c.title }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(c.title, color = CanonMuted, fontSize = 13.sp)
+                    Text(c.title, color = CanonMuted, fontSize = 14.sp)
                 }
                 CouponStatusChip(m.status)
             }
@@ -388,12 +388,12 @@ private fun MyCouponCard(m: MyCouponDto) {
                 Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(m.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 24.sp, modifier = Modifier.weight(1f))
-                        Surface(onClick = { clipboard.setText(AnnotatedString(m.code)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonSurface, shape = RoundedCornerShape(12.dp)) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
+                        Surface(onClick = { clipboard.setText(AnnotatedString(m.code)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonSurface, shape = RoundedCornerShape(14.dp)) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
                         }
                     }
                 }
-                Text(appText("Покажи код в заведении. Скидку даёт заведение.", "Кодты урында күрһәт. Ташламаны урын бирә."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                Text(appText("Покажи код в заведении. Скидку даёт заведение.", "Кодты урында күрһәт. Ташламаны урын бирә."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
             }
             shortDate(c.validUntil)?.let { until ->
                 Text(appText("Действует до $until", "$until тиклем ғәмәлдә"), color = CanonMuted, fontSize = 12.sp)
@@ -410,8 +410,8 @@ private fun CouponStatusChip(status: String) {
         "expired" -> Quad(CanonWarnBg, CanonWarn, "Истёк", "Ваҡыты сыҡҡан")
         else -> Quad(CanonWarnBg, CanonWarn, "Ждёт показа", "Күрһәтеүҙе көтә")
     }
-    Surface(color = bg, shape = RoundedCornerShape(10.dp)) {
-        Text(appText(ru, ba), color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+    Surface(color = bg, shape = RoundedCornerShape(8.dp)) {
+        Text(appText(ru, ba), color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
     }
 }
 
@@ -437,26 +437,26 @@ private fun CouponDetailView(couponId: Int, preview: CouponDto, onBack: () -> Un
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(coupon.partner.name.ifBlank { couponTitleFallback }, onBack) }) { padding ->
         LazyColumn(
             Modifier.padding(padding).fillMaxWidth().padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp),
         ) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
+                    Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                         Icon(couponCategoryIcon(coupon.partner.category), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(26.dp))
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(coupon.partner.name.ifBlank { coupon.title }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text(couponCategoryLabel(coupon.partner.category), color = CanonMuted, fontSize = 13.sp)
+                        Text(coupon.partner.name.ifBlank { coupon.title }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text(couponCategoryLabel(coupon.partner.category), color = CanonMuted, fontSize = 14.sp)
                     }
                     if (coupon.premium) PremiumBadge()
                 }
             }
-            item { Text(coupon.title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 26.sp) }
+            item { Text(coupon.title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp, lineHeight = 25.sp) }
             item { DiscountBadge(coupon.discountText) }
             if (coupon.description.isNotBlank()) {
-                item { Text(coupon.description, color = CanonText, fontSize = 15.sp, lineHeight = 21.sp) }
+                item { Text(coupon.description, color = CanonText, fontSize = 16.sp, lineHeight = 23.sp) }
             }
             // Заведение: адрес + телефон
             if (coupon.partner.address.isNotBlank() || coupon.partner.phone.isNotBlank()) {
@@ -478,7 +478,7 @@ private fun CouponDetailView(couponId: Int, preview: CouponDto, onBack: () -> Un
                                 }
                             }
                             if (coupon.remaining != null) {
-                                Text(appText("Осталось купонов: ${coupon.remaining}", "Ҡалған купондар: ${coupon.remaining}"), color = CanonMuted, fontSize = 13.sp)
+                                Text(appText("Осталось купонов: ${coupon.remaining}", "Ҡалған купондар: ${coupon.remaining}"), color = CanonMuted, fontSize = 14.sp)
                             }
                         }
                     }
@@ -492,7 +492,7 @@ private fun CouponDetailView(couponId: Int, preview: CouponDto, onBack: () -> Un
                             "Скидку даёт заведение, а не Юлдаш. Мы только сводим тебя и местных партнёров.",
                             "Ташламаны Юлдаш түгел, урын бирә. Беҙ һине ерле партнёрҙар менән тик таныштырабыҙ.",
                         ),
-                        color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(14.dp),
+                        color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(12.dp),
                     )
                 }
             }
@@ -531,7 +531,7 @@ private fun ActivatedCodeView(a: ActivatedCouponDto, onDone: () -> Unit) {
         LazyColumn(
             Modifier.padding(padding).fillMaxWidth().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(vertical = 20.dp),
+            contentPadding = PaddingValues(vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             item {
@@ -540,21 +540,21 @@ private fun ActivatedCodeView(a: ActivatedCouponDto, onDone: () -> Unit) {
                 }
             }
             item {
-                Text(appText("Скидка активирована!", "Ташлама активлаштырылды!"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 22.sp, textAlign = TextAlign.Center)
+                Text(appText("Скидка активирована!", "Ташлама активлаштырылды!"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 24.sp, textAlign = TextAlign.Center)
             }
             item {
-                Text(appText("Покажи этот код в заведении", "Был кодты урында күрһәт"), color = CanonMuted, fontSize = 15.sp, textAlign = TextAlign.Center)
+                Text(appText("Покажи этот код в заведении", "Был кодты урында күрһәт"), color = CanonMuted, fontSize = 16.sp, textAlign = TextAlign.Center)
             }
             item { DiscountBadge(c.discountText) }
             // Крупный код
             item {
                 Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(2.dp, CanonGreen2)) {
                     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(a.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 40.sp, textAlign = TextAlign.Center)
-                        Surface(onClick = { clipboard.setText(AnnotatedString(a.code)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                        Text(a.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 34.sp, textAlign = TextAlign.Center)
+                        Surface(onClick = { clipboard.setText(AnnotatedString(a.code)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                             Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
+                                Spacer(Modifier.width(4.dp))
                                 Text(appText("Скопировать", "Күсереп алыу"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                         }
@@ -565,7 +565,7 @@ private fun ActivatedCodeView(a: ActivatedCouponDto, onDone: () -> Unit) {
                 Text(c.partner.name.ifBlank { c.title }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center)
             }
             shortDate(c.validUntil)?.let { until ->
-                item { Text(appText("Действует до $until", "$until тиклем ғәмәлдә"), color = CanonMuted, fontSize = 13.sp, textAlign = TextAlign.Center) }
+                item { Text(appText("Действует до $until", "$until тиклем ғәмәлдә"), color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center) }
             }
             item {
                 Text(

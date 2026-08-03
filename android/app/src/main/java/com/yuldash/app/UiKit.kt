@@ -118,7 +118,7 @@ internal fun AppButton(
     fillWidth: Boolean = true,
     height: Dp = 54.dp,
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(14.dp)
     val base = modifier
         .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
         .heightIn(min = height)   // тач-цель ≥ 48dp (доступность)
@@ -186,7 +186,7 @@ internal fun AppCard(
 /** Заголовок секции: жирный титул + опц. подпись. Единая типографика разделов. */
 @Composable
 internal fun SectionHeader(title: String, subtitle: String? = null, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // По шкале: заголовок раздела крупный, но НЕ жирный до крика (19 SemiBold вместо 20 Black).
         // Иерархию здесь держит размер, а не вес — так работает спокойная премиальность.
         Text(title, color = CanonText, style = CanonHeading)
@@ -222,7 +222,7 @@ internal fun SkeletonBox(
 @Composable
 internal fun SkeletonCard(lines: Int = 3, modifier: Modifier = Modifier) {
     AppCard(modifier = modifier) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SkeletonBox(widthFraction = 0.6f, height = 16.dp)
             repeat(lines) { i ->
                 SkeletonBox(widthFraction = if (i == lines - 1) 0.4f else 0.85f, height = 12.dp)
@@ -237,7 +237,7 @@ internal fun SkeletonCard(lines: Int = 3, modifier: Modifier = Modifier) {
 @Composable
 internal fun AppLoading(label: String? = null, modifier: Modifier = Modifier) {
     Column(
-        modifier.fillMaxWidth().padding(vertical = 28.dp),
+        modifier.fillMaxWidth().padding(vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -259,19 +259,19 @@ internal fun AppErrorState(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
         border = BorderStroke(1.dp, CanonBorder),
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier.padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Surface(color = CanonDangerBg, shape = CircleShape) {
-                Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CanonRed, modifier = Modifier.padding(15.dp).size(30.dp))
+                Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CanonRed, modifier = Modifier.padding(16.dp).size(30.dp))
             }
-            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center)
-            Text(text, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp, textAlign = TextAlign.Center)
+            Text(text, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
             AppButton(retryLabel, onRetry, style = AppButtonStyle.Primary, icon = Icons.Default.Refresh)
         }
     }
@@ -293,12 +293,12 @@ internal fun AppNoticeCard(text: String, modifier: Modifier = Modifier, icon: Im
         shape = CanonItemShape,
     ) {
         Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(icon, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(20.dp))
-            Text(text, color = CanonWarn, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text(text, color = CanonWarn, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }

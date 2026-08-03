@@ -280,8 +280,8 @@ internal const val TAG_LOGIN_SMS_PRIMARY_BTN = "login_sms_primary_btn" // SMS-ф
 // касание, разнобой кеглей читается как «самоделка». Аудитория — сёла, много пожилых, поэтому
 // нижняя ступень 14sp (а не 12sp), а основной текст крупнее обычного.
 private val LoginDisplay = 52.sp    // 1 · витрина  — только слово «Юлдаш» на геро, один раз на экране
-private val LoginTitle = 26.sp      // 2 · заголовок — «Войти в Юлдаш», слоган на геро, введённый код
-private val LoginBody = 18.sp       // 3 · основной — кнопки, поля, подписи фич, ошибки, подсказки
+private val LoginTitle = 24.sp      // 2 · заголовок — «Войти в Юлдаш», слоган на геро, введённый код
+private val LoginBody = 16.sp       // 3 · основной — кнопки, поля, подписи фич, ошибки, подсказки
 private val LoginCaption = 14.sp    // 4 · сноска   — согласие, вторичные ссылки, «или», описания фич
 
 // Ритм экрана — кратно 4dp. Боковое поле одно и то же у геро и у формы: текст на фото и текст
@@ -541,14 +541,14 @@ internal fun LoginFormContent(
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.sheet),
         shape = RoundedCornerShape(topStart = 44.dp, topEnd = 44.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = LoginGutter, vertical = 28.dp),
+                .padding(horizontal = LoginGutter, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -582,8 +582,8 @@ internal fun LoginFormContent(
                 // действительно анимируется (не мёртвый AnimatedVisibility(visible = true)).
                 AnimatedVisibility(
                     visible = needPhone,
-                    enter = fadeIn(tween(240)) + expandVertically(tween(280, easing = EaseOutExpo)),
-                    exit = fadeOut(tween(160)) + shrinkVertically(tween(200)),
+                    enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL, easing = EaseOutExpo)),
+                    exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
                 ) {
                     Surface(color = CanonWarnBg, shape = CanonItemShape) {
                         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -655,7 +655,7 @@ internal fun LoginFormContent(
             val tgPress = remember { MutableInteractionSource() }
             val tgPressed by tgPress.collectIsPressedAsState()
             val tgScale by animateFloatAsState(
-                if (tgPressed) 0.97f else 1f, tween(150, easing = EaseOutExpo), label = "tgPress",
+                if (tgPressed) 0.97f else 1f, tween(CanonMotion.QUICK, easing = EaseOutExpo), label = "tgPress",
             )
             Button(
                 onClick = onTelegramStart,
@@ -750,8 +750,8 @@ internal fun LoginErrorBanner(
     LaunchedEffect(text) { if (text != null) shownText = text }
     AnimatedVisibility(
         visible = text != null,
-        enter = fadeIn(tween(240)) + expandVertically(tween(280, easing = EaseOutExpo)),
-        exit = fadeOut(tween(160)) + shrinkVertically(tween(200)),
+        enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL, easing = EaseOutExpo)),
+        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
         modifier = modifier,
     ) {
         Surface(color = CanonDangerBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
@@ -792,8 +792,8 @@ internal fun LoginErrorBanner(
 private fun LoginLoadingHint(visible: Boolean, text: String) {
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(200)) + expandVertically(tween(240, easing = EaseOutExpo)),
-        exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
+        enter = fadeIn(tween(CanonMotion.QUICK)) + expandVertically(tween(CanonMotion.NORMAL, easing = EaseOutExpo)),
+        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
     ) {
         Text(text, color = CanonMuted, fontSize = LoginCaption, lineHeight = 19.sp, textAlign = TextAlign.Center)
     }
@@ -1028,9 +1028,9 @@ private fun BrandHero(
                 .statusBarsPadding()
                 .padding(top = 16.dp, start = LoginGutter)
                 .size(56.dp),
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(22.dp),
             color = Color.White,
-            shadowElevation = 6.dp
+            shadowElevation = CanonDepth.raised
         ) {
             Image(
                 painter = painterResource(R.drawable.yuldash_logo),
@@ -1108,9 +1108,9 @@ private fun LoginHeroFeature(icon: ImageVector, title: String, body: String) {
     ) {
         Surface(
             modifier = Modifier.size(56.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
             color = CanonGreen2.copy(alpha = 0.92f),
-            shadowElevation = 4.dp
+            shadowElevation = CanonDepth.raised
         ) {
             // Иконка декоративная: смысл несёт заголовок рядом, дублировать его для TalkBack не нужно.
             Icon(
@@ -1138,7 +1138,7 @@ internal fun LoginLangToggle(
         shape = RoundedCornerShape(999.dp),
         color = CanonSurface,
         border = BorderStroke(1.dp, CanonBorder),
-        shadowElevation = 3.dp
+        shadowElevation = CanonDepth.raised
     ) {
         Row(Modifier.padding(4.dp)) {
             LoginLangChip("РУС", currentLanguage == AppLanguage.Ru) { if (currentLanguage != AppLanguage.Ru) onToggleLanguage() }
@@ -1154,10 +1154,10 @@ internal fun LoginLangToggle(
 @Composable
 private fun LoginLangChip(text: String, active: Boolean, onClick: () -> Unit) {
     val bg by animateColorAsState(
-        if (active) CanonGreen2 else Color.Transparent, tween(240, easing = EaseOutExpo), label = "langChipBg",
+        if (active) CanonGreen2 else Color.Transparent, tween(CanonMotion.NORMAL, easing = EaseOutExpo), label = "langChipBg",
     )
     val fg by animateColorAsState(
-        if (active) Color.White else CanonMuted, tween(240, easing = EaseOutExpo), label = "langChipFg",
+        if (active) Color.White else CanonMuted, tween(CanonMotion.NORMAL, easing = EaseOutExpo), label = "langChipFg",
     )
     Box(
         modifier = Modifier

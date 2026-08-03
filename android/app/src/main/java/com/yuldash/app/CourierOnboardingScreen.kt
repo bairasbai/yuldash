@@ -120,8 +120,8 @@ internal fun CourierOnboardingScreen(onBack: () -> Unit, onOpenCourier: () -> Un
             AnimatedContent(
                 targetState = ui,
                 transitionSpec = {
-                    (fadeIn(tween(260)) + slideInVertically(tween(300)) { it / 14 })
-                        .togetherWith(fadeOut(tween(160)))
+                    (fadeIn(tween(CanonMotion.NORMAL)) + slideInVertically(tween(CanonMotion.SLOW)) { it / 14 })
+                        .togetherWith(fadeOut(tween(CanonMotion.QUICK)))
                 },
                 label = "courierGate",
             ) { state ->
@@ -131,7 +131,7 @@ internal fun CourierOnboardingScreen(onBack: () -> Unit, onOpenCourier: () -> Un
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) { AppLoading(appText("Проверяем твою заявку…", "Заявкаңды тикшерәбеҙ…")) }
-                    CourierGateUi.LoadError -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center) {
+                    CourierGateUi.LoadError -> Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
                         AppErrorState(onRetry = { reloadKey++ })
                     }
                     is CourierGateUi.Pending -> CourierPendingContent(state.app, onRefresh = { reloadKey++ }, onDone = onBack)
@@ -187,12 +187,12 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp),
+        contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
     ) {
         // Герой: тёплое приглашение.
         item {
             Surface(color = CanonMint, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2.copy(alpha = 0.35f))) {
-                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(shape = CircleShape, color = CanonGreen2) {
                             Icon(
@@ -314,7 +314,7 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
                 label = { Text(appText("Фамилия и имя как в документе", "Документтағыса фамилия һәм исем")) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
             )
         }
         item {
@@ -325,7 +325,7 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
                 placeholder = { Text("Х123УХ102") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
             )
         }
         item {
@@ -338,7 +338,7 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
             ) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     // Галочка согласия — единственный «замок» формы: она должна отзываться живо.
-                    val agreeTint by animateColorAsState(if (rulesAccepted) CanonGreen2 else CanonMuted, tween(200), label = "agree-tint")
+                    val agreeTint by animateColorAsState(if (rulesAccepted) CanonGreen2 else CanonMuted, tween(CanonMotion.QUICK), label = "agree-tint")
                     Icon(
                         if (rulesAccepted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
                         contentDescription = null,
@@ -407,10 +407,10 @@ private fun CourierTransportChip(
 ) {
     // Выбор транспорта — самый «кликаемый» элемент формы: подложка, рамка и надпись переезжают
     // плавно, иначе выбор читается как мигание, а не как отклик.
-    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "transport-bg")
-    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "transport-line")
-    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonText, tween(200), label = "transport-ink")
-    val iconTint by animateColorAsState(if (selected) CanonGreen2 else CanonMuted, tween(200), label = "transport-icon")
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "transport-bg")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "transport-line")
+    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonText, tween(CanonMotion.QUICK), label = "transport-ink")
+    val iconTint by animateColorAsState(if (selected) CanonGreen2 else CanonMuted, tween(CanonMotion.QUICK), label = "transport-icon")
     Surface(
         onClick = onClick,
         shape = CanonItemShape,
@@ -438,7 +438,7 @@ private fun CourierTransportChip(
 @Composable
 private fun CourierRuleRow(emoji: String, title: String, body: String) {
     Row(verticalAlignment = Alignment.Top) {
-        Surface(color = CanonBg, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(40.dp)) {
+        Surface(color = CanonBg, shape = RoundedCornerShape(14.dp), modifier = Modifier.size(40.dp)) {
             Box(contentAlignment = Alignment.Center) { Text(emoji, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) }
         }
         Spacer(Modifier.width(12.dp))
@@ -524,7 +524,7 @@ private fun CourierStatusScaffold(
     onSecondary: (() -> Unit)?,
 ) {
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        Modifier.fillMaxSize().padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         contentPadding = PaddingValues(vertical = 24.dp),
@@ -541,13 +541,13 @@ private fun CourierStatusScaffold(
                     }
                 }
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
         }
         item {
             Text(title, color = CanonText, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             Spacer(Modifier.height(8.dp))
             Text(body, color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
         }
         if (summary != null) {
             item {
@@ -563,7 +563,7 @@ private fun CourierStatusScaffold(
                         }
                     }
                 }
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(16.dp))
             }
         }
         item {

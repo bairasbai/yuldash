@@ -115,7 +115,7 @@ internal fun TrustScreen(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
         ) {
             item {
@@ -124,7 +124,7 @@ internal fun TrustScreen(
                         "Юлдаш — поездки между своими. Чем выше доверие, тем шире круг.",
                         "Юлдаш — үҙебеҙҙекеләр араһында сәфәр. Ышаныс күпме юғары — түңәрәк шул тиклем киң.",
                     ),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
             val d = data
@@ -180,15 +180,15 @@ private fun TrustLevelCard(d: TrustSummaryDto) {
     val badgeBg = if (isTop) CanonGold else CanonMint
     val badgeTint = if (isTop) CanonGoldInk else CanonGreen2
     AppCard {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(color = badgeBg, shape = CircleShape) {
-                    Icon(levelIcon(d.level), contentDescription = null, tint = badgeTint, modifier = Modifier.padding(14.dp).size(28.dp))
+                    Icon(levelIcon(d.level), contentDescription = null, tint = badgeTint, modifier = Modifier.padding(12.dp).size(28.dp))
                 }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(appText("Твой уровень", "Кимәлең"), color = CanonMuted, fontSize = 13.sp)
-                    Text(d.title.localized(), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 26.sp, lineHeight = 28.sp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(appText("Твой уровень", "Кимәлең"), color = CanonMuted, fontSize = 14.sp)
+                    Text(d.title.localized(), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 30.sp)
                 }
             }
             TrustLadder(d.level)
@@ -198,12 +198,12 @@ private fun TrustLevelCard(d: TrustSummaryDto) {
                         "Ты полноправный участник Юлдаша. Уровень открывает новые возможности — двигайся в своём темпе.",
                         "Һин Юлдаштың тулы хоҡуҡлы ҡатнашыусыһы. Кимәл яңы мөмкинлектәр аса — үҙ тиҙлегеңдә бар.",
                     ),
-                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
             if (d.benefits.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(appText("Что тебе доступно", "Һиңә нимә асыҡ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(appText("Что тебе доступно", "Һиңә нимә асыҡ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     d.benefits.forEach { BenefitRow(it.localized()) }
                 }
             }
@@ -215,7 +215,7 @@ private fun TrustLevelCard(d: TrustSummaryDto) {
 @Composable
 private fun TrustLadder(level: Int) {
     val titles = trustLadderTitles()
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         titles.forEachIndexed { i, t ->
             val reached = i <= level
             val fill by animateFloatAsState(
@@ -226,7 +226,7 @@ private fun TrustLadder(level: Int) {
             Column(
                 Modifier.weight(1f),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(CanonBorder)) {
                     Box(
@@ -237,8 +237,8 @@ private fun TrustLadder(level: Int) {
                 Text(
                     t,
                     color = if (reached) CanonText else CanonMuted,
-                    fontSize = 11.sp,
-                    lineHeight = 13.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
                     fontWeight = if (i == level) FontWeight.Bold else FontWeight.Medium,
                     textAlign = TextAlign.Center,
                     maxLines = 2,
@@ -252,8 +252,8 @@ private fun TrustLadder(level: Int) {
 private fun BenefitRow(text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(10.dp))
-        Text(text, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(8.dp))
+        Text(text, color = CanonText, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.weight(1f))
     }
 }
 
@@ -267,14 +267,14 @@ private fun TrustNextCard(d: TrustSummaryDto, onAction: () -> Unit) {
         else -> appText("Ввести код приглашения", "Саҡырыу кодын индер")
     }
     Surface(color = CanonMint, shape = CanonCardShape) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(appText("Следующий уровень", "Киләһе кимәл"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Text(next.title.localized(), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                Text(next.how.localized(), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+                Text(appText("Следующий уровень", "Киләһе кимәл"), color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(next.title.localized(), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                Text(next.how.localized(), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
             }
             if (next.benefits.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     next.benefits.forEach { BenefitRow(it.localized()) }
                 }
             }
@@ -287,15 +287,15 @@ private fun TrustNextCard(d: TrustSummaryDto, onAction: () -> Unit) {
 @Composable
 private fun TrustInviteCallout(onOpenInvites: () -> Unit) {
     AppCard {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(color = CanonMint, shape = CircleShape) {
-                    Icon(Icons.Default.PersonAdd, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(11.dp).size(22.dp))
+                    Icon(Icons.Default.PersonAdd, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(22.dp))
                 }
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(appText("Ты можешь звать своих", "Һин үҙеңдекеләрҙе саҡыра алаһың"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(appText("Приглашай тех, кому доверяешь", "Ышанған кешеләреңде саҡыр"), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+                    Text(appText("Приглашай тех, кому доверяешь", "Ышанған кешеләреңде саҡыр"), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                 }
             }
             AppButton(appText("Позвать своего", "Үҙеңдекен саҡыр"), onOpenInvites, style = AppButtonStyle.Secondary, icon = Icons.Default.PersonAdd)
@@ -359,7 +359,7 @@ internal fun InvitesScreen(onBack: () -> Unit) {
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
         ) {
             val t = trust
@@ -371,11 +371,11 @@ internal fun InvitesScreen(onBack: () -> Unit) {
                     if (!t.isInsider) {
                         item {
                             AppCard {
-                                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text(appText("У тебя есть код?", "Кодың бармы?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text(appText("У тебя есть код?", "Кодың бармы?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                                     Text(
                                         appText("Введи код от своего — и войдёшь в круг доверия.", "Үҙеңдекенән кодты индер — ышаныс түңәрәгенә инерһең."),
-                                        color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                                     )
                                     OutlinedTextField(
                                         value = codeInput,
@@ -386,7 +386,7 @@ internal fun InvitesScreen(onBack: () -> Unit) {
                                         modifier = Modifier.fillMaxWidth(),
                                     )
                                     if (redeemMsg != null) {
-                                        Text(redeemMsg!!, color = CanonRed, fontSize = 13.sp)
+                                        Text(redeemMsg!!, color = CanonRed, fontSize = 14.sp)
                                     }
                                     AppButton(
                                         appText("Активировать код", "Кодты активлаштыр"),
@@ -417,14 +417,14 @@ internal fun InvitesScreen(onBack: () -> Unit) {
                     } else {
                         item {
                             AppCard {
-                                Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Surface(color = CanonGold, shape = CircleShape) {
                                         Icon(Icons.Default.Groups, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.padding(12.dp).size(24.dp))
                                     }
-                                    Spacer(Modifier.width(14.dp))
-                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(appText("Ты в кругу своих", "Һин үҙебеҙҙекеләр араһында"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                                        Text(appText("Видишь поездки «только для своих»", "«Үҙебеҙҙекеләр өсөн генә» сәфәрҙәрҙе күрәһең"), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(appText("Ты в кругу своих", "Һин үҙебеҙҙекеләр араһында"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                        Text(appText("Видишь поездки «только для своих»", "«Үҙебеҙҙекеләр өсөн генә» сәфәрҙәрҙе күрәһең"), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                                     }
                                 }
                             }
@@ -435,12 +435,12 @@ internal fun InvitesScreen(onBack: () -> Unit) {
                     if (justJoined) {
                         item {
                             Surface(color = CanonMint, shape = CanonCardShape) {
-                                Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(30.dp))
                                     Spacer(Modifier.width(12.dp))
-                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(appText("Теперь ты свой!", "Хәҙер һин үҙебеҙҙеке!"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                                        Text(appText("Добро пожаловать в круг доверия 💚", "Ышаныс түңәрәгенә рәхим ит 💚"), color = CanonMuted, fontSize = 13.sp)
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(appText("Теперь ты свой!", "Хәҙер һин үҙебеҙҙеке!"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                        Text(appText("Добро пожаловать в круг доверия 💚", "Ышаныс түңәрәгенә рәхим ит 💚"), color = CanonMuted, fontSize = 14.sp)
                                     }
                                 }
                             }
@@ -459,7 +459,7 @@ internal fun InvitesScreen(onBack: () -> Unit) {
                             item {
                                 Text(
                                     appText("Пока нет кодов. Создай первый — и позови своего.", "Әлегә код юҡ. Беренсеһен булдыр — үҙеңдекен саҡыр."),
-                                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                                 )
                             }
                         } else {
@@ -492,7 +492,7 @@ internal fun InvitesScreen(onBack: () -> Unit) {
                         // Ещё не проверен — объясняем деликатно, без «нельзя».
                         item {
                             Surface(color = CanonMint, shape = CanonCardShape) {
-                                Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.Lock, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
                                     Spacer(Modifier.width(12.dp))
                                     Text(
@@ -500,7 +500,7 @@ internal fun InvitesScreen(onBack: () -> Unit) {
                                             "Приглашать своих смогут проверенные участники. Пройди проверку — и откроется.",
                                             "Үҙеңдекеләрҙе тикшерелгән ҡатнашыусылар саҡыра ала. Тикшереүҙе үт — асыла.",
                                         ),
-                                        color = CanonText, fontSize = 14.sp, lineHeight = 19.sp,
+                                        color = CanonText, fontSize = 14.sp, lineHeight = 20.sp,
                                     )
                                 }
                             }
@@ -516,13 +516,13 @@ internal fun InvitesScreen(onBack: () -> Unit) {
 private fun InviteCodeRow(inv: InviteDto, onShare: () -> Unit) {
     val used = inv.usesLeft <= 0
     AppCard {
-        Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(inv.code, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(inv.code, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                 Text(
                     if (used) appText("Уже использован", "Ҡулланылған")
                     else appText("Ждёт активации", "Активлаштырыуҙы көтә"),
-                    color = if (used) CanonMuted else CanonGreen2, fontSize = 13.sp,
+                    color = if (used) CanonMuted else CanonGreen2, fontSize = 14.sp,
                 )
             }
             if (!used) {
@@ -531,7 +531,7 @@ private fun InviteCodeRow(inv: InviteDto, onShare: () -> Unit) {
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.bounceClick(onShare),
                 ) {
-                    Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Share, contentDescription = appText("Поделиться", "Уртаҡлашыу"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(appText("Поделиться", "Уртаҡлашыу"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -579,7 +579,7 @@ internal fun ConsentsScreen(onBack: () -> Unit) {
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
         ) {
             item {
@@ -588,7 +588,7 @@ internal fun ConsentsScreen(onBack: () -> Unit) {
                         "Мы храним минимум данных и фиксируем твои согласия — это твоё право знать и контролировать.",
                         "Беҙ мәғлүмәтте минимум һаҡлайбыҙ һәм ризалыҡтарыңды теркәйбеҙ — был һинең белеү һәм контролдә тотоу хоҡуғың.",
                     ),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
             when {
@@ -628,14 +628,14 @@ private fun ConsentRow(meta: ConsentKindMeta, grantedAt: String?, saving: Boolea
         "privacy" -> appText("Политика конфиденциальности", "Йәшерен сәйәсәт") to appText("Как мы обрабатываем твои данные", "Мәғлүмәтеңде нисек эшкәртәбеҙ")
         else -> appText("Обработка геолокации", "Геолокацияны эшкәртеү") to appText("Только во время активной поездки", "Тик актив сәфәр ваҡытында")
     }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
-            Icon(meta.icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(11.dp))
+            Icon(meta.icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp))
         }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(subtitle, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+            Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
             if (grantedAt != null) {
                 Text(
                     appText("Согласие дано ", "Ризалыҡ бирелгән ") + prettyDate(grantedAt),
@@ -643,7 +643,7 @@ private fun ConsentRow(meta: ConsentKindMeta, grantedAt: String?, saving: Boolea
                 )
             }
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(8.dp))
         if (grantedAt != null) {
             Icon(Icons.Default.CheckCircle, contentDescription = appText("Согласие дано", "Ризалыҡ бирелгән"), tint = CanonGreen2, modifier = Modifier.size(26.dp))
         } else {

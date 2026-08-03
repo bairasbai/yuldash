@@ -501,7 +501,7 @@ internal fun CreateRideFormContent(
                 value = from, onValueChange = onFromChange,
                 label = { Text(appText("Откуда", "Ҡайҙан")) },
                 leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
             )
         }
         item {
@@ -509,11 +509,11 @@ internal fun CreateRideFormContent(
                 value = to, onValueChange = onToChange,
                 label = { Text(appText("Куда", "Ҡайҙа")) },
                 leadingIcon = { Icon(Icons.Default.NearMe, contentDescription = null) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
             )
         }
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(appText("Тип поездки", "Сәфәр төрө"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 val rideTypeKeys = remember { listOf("regular", "parcel", "cargo", "urgent", "hospital") }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -529,7 +529,7 @@ internal fun CreateRideFormContent(
         if (isHospital) {
             item {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.LocalHospital, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
@@ -538,7 +538,7 @@ internal fun CreateRideFormContent(
                         Text(
                             appText("Выбери, к какой клинике едешь — попутчики к ней смогут подсесть. Это просто точка назначения.",
                                 "Ҡайһы клиникаға бараһың — юлдаштар ҡушыла алһын. Был бары тик билдәләнгән нөктә."),
-                            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                         )
                         when {
                             partners.isEmpty() -> Text(appText("Список клиник загружается…", "Клиникалар исемлеге йөкләнә…"), color = CanonMuted, fontSize = 12.sp)
@@ -553,7 +553,7 @@ internal fun CreateRideFormContent(
                                             contentColor = if (selectedPartnerId == p.id) CanonGreen2 else CanonText,
                                         ),
                                     ) {
-                                        Text("${p.name} · ${p.city}", fontSize = 13.sp, maxLines = 1)
+                                        Text("${p.name} · ${p.city}", fontSize = 14.sp, maxLines = 1)
                                     }
                                 }
                             }
@@ -573,7 +573,7 @@ internal fun CreateRideFormContent(
                     leadingIcon = { Icon(Icons.Default.Schedule, null) },
                     trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(14.dp)
                 )
                 Box(Modifier.matchParentSize().clickable { onOpenDatePicker() })
             }
@@ -596,20 +596,20 @@ internal fun CreateRideFormContent(
                                 containerColor = if (recurrence == key) CanonMint else CanonSurface,
                                 contentColor = if (recurrence == key) CanonGreen2 else CanonText
                             )
-                        ) { Text(label, fontSize = 13.sp, maxLines = 1) }
+                        ) { Text(label, fontSize = 14.sp, maxLines = 1) }
                     }
                 }
                 if (recurrence != "none") Text(appText("Создадим ближайшие 4 рейса этой серии.", "Был серияның иң яҡын 4 рейсын булдырабыҙ."), color = CanonMuted, fontSize = 12.sp)
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(value = seats, onValueChange = onSeatsChange, label = { Text(appText("Мест", "Урын")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
-                OutlinedTextField(value = price, onValueChange = onPriceChange, label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = seats, onValueChange = onSeatsChange, label = { Text(appText("Мест", "Урын")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp))
+                OutlinedTextField(value = price, onValueChange = onPriceChange, label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp))
             }
         }
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (priceHint > 0) {
                     PriceHintChip(price = priceHint) { onUsePriceHint() }
                 }
@@ -622,7 +622,7 @@ internal fun CreateRideFormContent(
                     val km = fuelDistanceKm?.let { it.roundToInt() } ?: 0
                     FuelHintBlock(km = km, fuelRub = fuelRub, perPerson = perPerson, seats = seatsInt)
                 }
-                Text(appText("Цену ставишь ты. Оплата — напрямую тебе после поездки. Юлдаш комиссию не берёт.", "Хаҡты үҙең ҡуяһың. Түләү — сәфәрҙән һуң тура һиңә. Юлдаш комиссия алмай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                Text(appText("Цену ставишь ты. Оплата — напрямую тебе после поездки. Юлдаш комиссию не берёт.", "Хаҡты үҙең ҡуяһың. Түләү — сәфәрҙән һуң тура һиңә. Юлдаш комиссия алмай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
             }
         }
         item {
@@ -636,7 +636,7 @@ internal fun CreateRideFormContent(
                     leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(14.dp)
                 )
                 OutlinedButton(
                     onClick = onOpenPicker,
@@ -658,7 +658,7 @@ internal fun CreateRideFormContent(
                 placeholder = { Text(if (isCargo) appText("Напр.: диван и 2 коробки, хрупкое", "Мәҫәлән: диван һәм 2 ҡумта, һынғыс") else appText("Например: могу взять посылку, заеду через Темясово", "Мәҫәлән: посылка ала алам, Темясово аша инәм")) },
                 minLines = 3,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(14.dp)
             )
         }
         // Посылка: получатель + габарит/вес (только parcel/cargo).
@@ -671,7 +671,7 @@ internal fun CreateRideFormContent(
                     placeholder = { Text(appText("Напр.: Айгуль, заберёт на автовокзале", "Мәҫәлән: Айгүл, автовокзалда алыр")) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(14.dp)
                 )
             }
             item {
@@ -682,7 +682,7 @@ internal fun CreateRideFormContent(
                     placeholder = { Text(appText("Напр.: до 5 кг, коробка 40×30", "Мәҫәлән: 5 кг ҡәҙәр, ҡумта 40×30")) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(14.dp)
                 )
             }
         }
@@ -690,18 +690,18 @@ internal fun CreateRideFormContent(
             // Остановки по пути (несколько точек): A → точки → B. Заезды по дороге, чтобы
             // попутчики с этих мест могли найти поездку. До 4 остановок.
             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                Column(Modifier.padding(vertical = 6.dp)) {
-                    Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.padding(vertical = 4.dp)) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(painterResource(R.drawable.yu_multi_stop), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(appText("Остановки по пути", "Юл буйындағы туҡталыштар"), fontWeight = FontWeight.Bold, color = CanonText, fontSize = 16.sp)
                     }
                     Text(
                         appText("Куда заезжаешь по дороге — так тебя найдут попутчики с этих мест.", "Юлда ҡайҙа туҡтайһың — шул урындарҙан юлдаштар һине табыр."),
-                        color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 14.dp),
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(horizontal = 12.dp),
                     )
                     waypoints.forEachIndexed { i, wp ->
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(
                                 value = wp,
                                 onValueChange = { v -> onWaypointsChange(waypoints.toMutableList().also { it[i] = v.take(80) }) },
@@ -725,8 +725,8 @@ internal fun CreateRideFormContent(
         }
         item {
             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                Column(Modifier.padding(vertical = 6.dp)) {
-                    Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Bold, color = CanonText, fontSize = 16.sp)
+                Column(Modifier.padding(vertical = 4.dp)) {
+                    Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontWeight = FontWeight.Bold, color = CanonText, fontSize = 16.sp)
                     PrefToggleRow(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ өсөн"), womenOnly) { onWomenOnly(it) }
                     PrefToggleRow(R.drawable.yu_child_seat, appText("Детское кресло / бустер", "Балалар ултырғысы / бустер"), childSeat) { onChildSeat(it) }
                     PrefToggleRow(R.drawable.yu_pet, appText("Можно с животным", "Хайуан менән"), petsAllowed) { onPetsAllowed(it) }
@@ -739,15 +739,15 @@ internal fun CreateRideFormContent(
         }
         item {
             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                Column(Modifier.padding(vertical = 6.dp)) {
+                Column(Modifier.padding(vertical = 4.dp)) {
                     PrefToggleRow(Icons.Default.Groups, appText("Только для своих", "Тик үҙебеҙҙекеләр өсөн"), onlyTrusted) { onOnlyTrusted(it) }
                     Text(
                         appText(
                             "Поездку увидят и возьмут только проверенные «свои» (уровень «Свой»).",
                             "Сәфәрҙе тик тикшерелгән «үҙебеҙҙекеләр» (Үҙебеҙҙеке кимәле) күрер һәм алыр.",
                         ),
-                        modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 8.dp),
-                        color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp),
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                     )
                 }
             }
@@ -761,7 +761,7 @@ internal fun CreateRideFormContent(
         }
         item {
             error?.let {
-                Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(bottom = 8.dp))
+                Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(bottom = 8.dp))
             }
             AppButton(
                 text = appText("Опубликовать", "Баҫтырыу"),
@@ -789,19 +789,19 @@ internal fun PrivacyScreen(onBack: () -> Unit) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Конфиденциальность", "Хосусилыҡ"), onBack) }) { padding ->
         Column(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp).fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Spacer(Modifier.height(6.dp))
-            Text(appText("Управляй тем, что видят другие", "Башҡалар нимә күрә — үҙең хәл ит"), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
-            Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+            Spacer(Modifier.height(4.dp))
+            Text(appText("Управляй тем, что видят другие", "Башҡалар нимә күрә — үҙең хәл ит"), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+            Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(appText("Моя геолокация", "Минең геолокация"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text(appText("Показывать мою точку на карте", "Картала минең нөктәне күрһәтеү"), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+                        Text(appText("Показывать мою точку на карте", "Картала минең нөктәне күрһәтеү"), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                     }
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(8.dp))
                     Switch(
                         checked = LocationPrefs.sharingEnabled,
                         onCheckedChange = { on ->
@@ -837,8 +837,8 @@ internal fun RideTypeChip(icon: ImageVector, ru: String, ba: String, selected: B
         )
     ) {
         Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(appText(ru, ba), fontSize = 13.sp, maxLines = 1)
+        Spacer(Modifier.width(4.dp))
+        Text(appText(ru, ba), fontSize = 14.sp, maxLines = 1)
     }
 }
 
@@ -852,10 +852,10 @@ internal fun PopularRouteChips(routes: List<SettlementRouteDto>, onPick: (String
     val language = LocalAppLanguage.current
     AnimatedVisibility(
         visible = routes.isNotEmpty(),
-        enter = fadeIn(tween(220)) + expandVertically(tween(220)),
-        exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+        enter = fadeIn(tween(CanonMotion.QUICK)) + expandVertically(tween(CanonMotion.QUICK)),
+        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(appText("Популярные направления", "Популяр йүнәлештәр"), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = CanonText)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(routes, key = { "${it.from.id}-${it.to.id}" }) { r ->
@@ -869,8 +869,8 @@ internal fun PopularRouteChips(routes: List<SettlementRouteDto>, onPick: (String
                         colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonMint, contentColor = CanonGreen2)
                     ) {
                         Icon(painterResource(R.drawable.yu_route), contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("$f → $t", fontSize = 13.sp, maxLines = 1)
+                        Spacer(Modifier.width(4.dp))
+                        Text("$f → $t", fontSize = 14.sp, maxLines = 1)
                     }
                 }
             }
@@ -883,13 +883,13 @@ internal fun PopularRouteChips(routes: List<SettlementRouteDto>, onPick: (String
 @Composable
 internal fun PriceHintChip(price: Int, onClick: () -> Unit) {
     Surface(
-        color = CanonMint, shape = RoundedCornerShape(12.dp),
+        color = CanonMint, shape = RoundedCornerShape(14.dp),
         modifier = Modifier.minimumInteractiveComponentSize().clickable { onClick() }
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.TrendingUp, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
-            Text(appText("Обычно по маршруту ~$price ₽ · нажми, чтобы подставить", "Был юл буйынса ғәҙәттә ~$price ₽ · ҡуйыр өсөн баҫ"), color = CanonGreen2, fontSize = 12.sp, lineHeight = 16.sp)
+            Text(appText("Обычно по маршруту ~$price ₽ · нажми, чтобы подставить", "Был юл буйынса ғәҙәттә ~$price ₽ · ҡуйыр өсөн баҫ"), color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp)
         }
     }
 }
@@ -902,18 +902,18 @@ internal fun PriceHintChip(price: Int, onClick: () -> Unit) {
 @Composable
 internal fun FuelHintBlock(km: Int, fuelRub: Int, perPerson: Int, seats: Int) {
     Surface(color = CanonSurface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, CanonBorder)) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.Top) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.Top) {
             Icon(Icons.Default.LocalGasStation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Spacer(Modifier.width(8.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     if (km > 0) appText("≈ $km км · бензин ≈ $fuelRub ₽", "≈ $km км · бензин ≈ $fuelRub ₽")
                     else appText("Бензин на маршрут ≈ $fuelRub ₽", "Юлға бензин ≈ $fuelRub ₽"),
-                    color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold, lineHeight = 17.sp,
+                    color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp,
                 )
                 Text(
                     appText("По-соседски: ≈ $perPerson ₽ с человека, если разделить на $seats.", "Күршеләрсә: бүлешһәгеҙ, ≈ $perPerson ₽ бер кешенән ($seats кешегә)."),
-                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                 )
             }
         }
@@ -945,7 +945,7 @@ internal fun PickupSuggestionChips(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 appText("Частые точки сбора рядом", "Яҡындағы йыш осрашыу нөктәләре"),
-                fontSize = 13.sp, fontWeight = FontWeight.Medium, color = CanonMuted
+                fontSize = 14.sp, fontWeight = FontWeight.Medium, color = CanonMuted
             )
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(points, key = { it.id }) { p ->
@@ -965,7 +965,7 @@ internal fun PickupSuggestionChips(
                         Row(
                             Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Icon(
                                 if (selected) Icons.Default.CheckCircle else Icons.Default.LocationOn,

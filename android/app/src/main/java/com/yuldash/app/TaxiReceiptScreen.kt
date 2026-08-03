@@ -169,7 +169,7 @@ private fun TaxiReceiptCard(r: InstantReceiptDto) {
         // Сумма + способ оплаты. Одна крупная цифра на экран — она и есть ответ на вопрос
         // «сколько с меня взяли».
         AppCard(modifier = Modifier.appearIn(2)) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         appText("Сумма поездки", "Сәфәр суммаһы"),
@@ -404,7 +404,7 @@ private fun TaxiAfterRideActions(
         // Пассажир: тёплое спасибо. Денег не двигаем — это жест, а не чаевые.
         if (!isDriver) {
             AppCard(modifier = Modifier.appearIn(4)) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TaxiActionHead(
                         icon = Icons.Default.Favorite,
                         iconBg = CanonMint,
@@ -439,7 +439,7 @@ private fun TaxiAfterRideActions(
         // пассажир вышел и закрыл приложение (аудит 2026-07-26).
         if (isDriver && !r.paid) {
             AppCard(modifier = Modifier.appearIn(4)) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TaxiActionHead(
                         icon = Icons.Default.Payments,
                         iconBg = CanonWarnBg,
@@ -472,7 +472,7 @@ private fun TaxiAfterRideActions(
         // Забытая вещь — обеим сторонам. Телефон второй стороны после поездки скрыт,
         // а чат был только на чтение: телефон с заднего сиденья терялся навсегда.
         AppCard(modifier = Modifier.appearIn(5)) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TaxiActionHead(
                     icon = Icons.Default.Search,
                     iconBg = CanonWarnBg,
@@ -512,8 +512,8 @@ private fun TaxiAfterRideActions(
 
         AnimatedVisibility(
             visible = errText != null,
-            enter = fadeIn(tween(200)) + expandVertically(tween(200)),
-            exit = fadeOut(tween(160)) + shrinkVertically(tween(160)),
+            enter = fadeIn(tween(CanonMotion.QUICK)) + expandVertically(tween(CanonMotion.QUICK)),
+            exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
         ) {
             Surface(color = CanonDangerBg, shape = CanonItemShape) {
                 Text(

@@ -96,7 +96,7 @@ private fun AdminPromoList(onBack: () -> Unit, onCreate: () -> Unit) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Промокоды и кампании", "Промокодтар һәм акциялар"), onBack) }) { padding ->
         LazyColumn(
             Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
         ) {
             item {
@@ -105,7 +105,7 @@ private fun AdminPromoList(onBack: () -> Unit, onCreate: () -> Unit) {
                         "Коды для блогеров и акций. Applied — сколько ввели, Active — сколько стали активными.",
                         "Блогерҙар һәм акциялар өсөн кодтар. Applied — нисә кеше индерҙе, Active — нисәһе актив булды.",
                     ),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
             item {
@@ -160,12 +160,12 @@ private fun AdminPromoCard(p: AdminPromoDto, busy: Boolean, onToggle: (Boolean) 
                 Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                     Icon(
                         if (isBoost) Icons.Default.RocketLaunch else Icons.Default.CardGiftcard,
-                        contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp),
+                        contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(22.dp),
                     )
                 }
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(p.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(p.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                     Text(p.title.ifBlank { p.campaign }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
                 Switch(
@@ -174,18 +174,18 @@ private fun AdminPromoCard(p: AdminPromoDto, busy: Boolean, onToggle: (Boolean) 
                 )
             }
             // Тип + бонус
-            Surface(color = CanonMint, shape = RoundedCornerShape(10.dp)) {
+            Surface(color = CanonMint, shape = RoundedCornerShape(8.dp)) {
                 Text(
                     if (isBoost) appText("Boost · ${p.perkValue} поднятий", "Boost · ${p.perkValue} күтәреү")
                     else appText("Приветствие", "Сәләмләү"),
                     color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
             // Воронка applied → active
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PromoMetric(appText("Ввели", "Индерҙе"), p.applied.toString())
-                Text("→", color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("→", color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                 PromoMetric(appText("Активны", "Актив"), p.active.toString())
                 Spacer(Modifier.weight(1f))
                 Text(
@@ -199,7 +199,7 @@ private fun AdminPromoCard(p: AdminPromoDto, busy: Boolean, onToggle: (Boolean) 
                     "Лимит: ${p.limitTotal} всего · ${p.limitPerUser} на человека",
                     "Лимит: ${p.limitTotal} бөтәһе · ${p.limitPerUser} кешегә",
                 ),
-                color = CanonMuted, fontSize = 13.sp,
+                color = CanonMuted, fontSize = 14.sp,
             )
             if (p.ownerId != null) {
                 Text(appText("Код блогера (владелец #${p.ownerId})", "Блогер коды (эйәһе #${p.ownerId})"), color = CanonMuted, fontSize = 12.sp)
@@ -209,8 +209,8 @@ private fun AdminPromoCard(p: AdminPromoDto, busy: Boolean, onToggle: (Boolean) 
                 Text(appText("Действует до $until", "$until тиклем ғәмәлдә"), color = CanonMuted, fontSize = 12.sp)
             }
             if (!p.activeFlag) {
-                Surface(color = CanonWarnBg, shape = RoundedCornerShape(10.dp)) {
-                    Text(appText("Выключен", "Һүндерелгән"), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+                Surface(color = CanonWarnBg, shape = RoundedCornerShape(8.dp)) {
+                    Text(appText("Выключен", "Һүндерелгән"), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                 }
             }
         }
@@ -220,8 +220,8 @@ private fun AdminPromoCard(p: AdminPromoDto, busy: Boolean, onToggle: (Boolean) 
 @Composable
 private fun PromoMetric(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-        Text(label, color = CanonMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+        Text(label, color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -278,7 +278,7 @@ private fun PromoCreateForm(onBack: () -> Unit, onCreated: () -> Unit) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Новый промокод", "Яңы промокод"), onBack) }) { padding ->
         LazyColumn(
             Modifier.padding(padding).fillMaxWidth().padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
         ) {
             item {
@@ -292,8 +292,8 @@ private fun PromoCreateForm(onBack: () -> Unit, onCreated: () -> Unit) {
             // Тип
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(appText("Что даёт код", "Код нимә бирә"), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(appText("Что даёт код", "Код нимә бирә"), color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         PromoKindChip(appText("Приветствие", "Сәләмләү"), Icons.Default.CardGiftcard, kind == "welcome", Modifier.weight(1f)) { kind = "welcome" }
                         PromoKindChip(appText("Поднятия", "Күтәреү"), Icons.Default.RocketLaunch, kind == "boost", Modifier.weight(1f)) { kind = "boost" }
                     }
@@ -314,7 +314,7 @@ private fun PromoCreateForm(onBack: () -> Unit, onCreated: () -> Unit) {
                 )
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.weight(1f)) {
                         PromoField(value = limitTotal, onChange = { limitTotal = it.filter { c -> c.isDigit() } }, label = appText("Лимит всего", "Бөтә лимит"), placeholder = "100", number = true)
                     }
@@ -331,8 +331,8 @@ private fun PromoCreateForm(onBack: () -> Unit, onCreated: () -> Unit) {
             }
             if (err != null) {
                 item {
-                    Surface(color = CanonDangerBg, shape = RoundedCornerShape(12.dp)) {
-                        Text(err ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                    Surface(color = CanonDangerBg, shape = RoundedCornerShape(14.dp)) {
+                        Text(err ?: "", color = CanonRed, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
                     }
                 }
             }
@@ -361,7 +361,7 @@ private fun PromoField(
         singleLine = true,
         label = { Text(label) },
         placeholder = { if (placeholder.isNotBlank()) Text(placeholder, color = CanonMuted) },
-        textStyle = if (mono) androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = CanonText)
+        textStyle = if (mono) androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 19.sp, color = CanonText)
         else androidx.compose.ui.text.TextStyle(fontSize = 16.sp, color = CanonText),
         shape = CanonItemShape,
         keyboardOptions = KeyboardOptions(

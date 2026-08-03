@@ -737,11 +737,11 @@ internal fun YuldashApp() {
         AnimatedContent(
             targetState = screen,
             transitionSpec = {
-                (fadeIn(animationSpec = tween(260)) +
-                    slideInHorizontally(animationSpec = tween(300)) { it / 12 })
+                (fadeIn(animationSpec = tween(CanonMotion.NORMAL)) +
+                    slideInHorizontally(animationSpec = tween(CanonMotion.SLOW)) { it / 12 })
                     .togetherWith(
-                        fadeOut(animationSpec = tween(200)) +
-                            slideOutHorizontally(animationSpec = tween(300)) { -it / 12 }
+                        fadeOut(animationSpec = tween(CanonMotion.QUICK)) +
+                            slideOutHorizontally(animationSpec = tween(CanonMotion.SLOW)) { -it / 12 }
                     )
             },
             label = "screen"
@@ -1393,7 +1393,7 @@ internal fun OnboardingContent(
                 .navigationBarsPadding()
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 6.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
                 horizontalArrangement = Arrangement.End
             ) {
                 OnboardingLangToggle(language, onSelectLanguage)
@@ -1409,8 +1409,8 @@ internal fun OnboardingContent(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    contentPadding = PaddingValues(bottom = 14.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(bottom = 12.dp)
                 ) {
                     item { Spacer(Modifier.height(8.dp)) }
                     item { OnboardingHeroCard(slide) { (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction } }
@@ -1419,8 +1419,8 @@ internal fun OnboardingContent(
                             text = appText(slide.titleRu, slide.titleBa),
                             modifier = Modifier.onbAppear(0, played),
                             color = CanonText,
-                            fontSize = 30.sp,
-                            lineHeight = 33.sp,
+                            fontSize = 34.sp,
+                            lineHeight = 40.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -1429,8 +1429,8 @@ internal fun OnboardingContent(
                             text = appText(slide.bodyRu, slide.bodyBa),
                             modifier = Modifier.onbAppear(1, played),
                             color = CanonMuted,
-                            fontSize = 17.sp,
-                            lineHeight = 24.sp,
+                            fontSize = 16.sp,
+                            lineHeight = 23.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
@@ -1503,13 +1503,13 @@ internal fun OnboardingContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(58.dp),
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(22.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
                     Text(
                         text = if (isLastPage) appText("Войти через Telegram", "Telegram аша инеү") else appText("Далее", "Артабан"),
                         fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
+                        fontSize = 19.sp
                     )
                 }
             }
@@ -1524,7 +1524,7 @@ internal fun OnboardingLangToggle(language: AppLanguage, onSelect: (AppLanguage)
         color = CanonSurface,
         border = BorderStroke(1.dp, CanonBorder)
     ) {
-        Row(Modifier.padding(2.dp)) {
+        Row(Modifier.padding(4.dp)) {
             OnboardingLangChip("РУС", language == AppLanguage.Ru) { onSelect(AppLanguage.Ru) }
             OnboardingLangChip("БАШ", language == AppLanguage.Ba) { onSelect(AppLanguage.Ba) }
         }
@@ -1542,7 +1542,7 @@ internal fun OnboardingLangChip(text: String, active: Boolean, onClick: () -> Un
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = if (active) Color.White else CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text(text, color = if (active) Color.White else CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -1601,19 +1601,19 @@ internal fun OnboardingHeroCard(slide: OnboardingSlide, pageOffset: () -> Float 
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(18.dp),
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
                 modifier = Modifier.size(48.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = Color.White,
-                shadowElevation = 5.dp
+                shadowElevation = CanonDepth.raised
             ) {
                 Image(
                     painter = painterResource(R.drawable.yuldash_logo),
                     contentDescription = null,
-                    modifier = Modifier.padding(5.dp),
+                    modifier = Modifier.padding(4.dp),
                     contentScale = ContentScale.Fit
                 )
             }
@@ -1622,25 +1622,25 @@ internal fun OnboardingHeroCard(slide: OnboardingSlide, pageOffset: () -> Float 
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 18.dp, end = 92.dp, bottom = 18.dp)
+                .padding(start = 16.dp, end = 92.dp, bottom = 16.dp)
                 .graphicsLayer { translationX = pageOffset() * 62f },
             color = Color.White.copy(alpha = 0.18f),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(22.dp),
             border = BorderStroke(1.dp, Color.White.copy(alpha = 0.30f))
         ) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = "Юлдаш",
                     color = Color.White,
                     fontSize = 24.sp,
-                    lineHeight = 26.sp,
+                    lineHeight = 30.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = appText(slide.eyebrowRu, slide.eyebrowBa),
                     color = Color.White.copy(alpha = 0.94f),
                     fontSize = 16.sp,
-                    lineHeight = 20.sp,
+                    lineHeight = 23.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -1648,7 +1648,7 @@ internal fun OnboardingHeroCard(slide: OnboardingSlide, pageOffset: () -> Float 
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 18.dp, bottom = 22.dp)
+                .padding(end = 16.dp, bottom = 24.dp)
                 .graphicsLayer { translationX = pageOffset() * 120f; translationY = pageOffset() * -24f }
                 .size(72.dp)
                 .background(Color.White.copy(alpha = 0.20f), CircleShape)
@@ -1675,14 +1675,14 @@ internal fun OnboardingFeatureCard(item: OnboardingItem, index: Int) {
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         border = BorderStroke(1.dp, CanonBorder),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             OnboardingIconBubble(item.icon, index)
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(appText(item.titleRu, item.titleBa), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp, lineHeight = 21.sp)
-                Text(appText(item.bodyRu, item.bodyBa), color = CanonMuted, fontSize = 15.sp, lineHeight = 20.sp)
+                Text(appText(item.titleRu, item.titleBa), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp, lineHeight = 25.sp)
+                Text(appText(item.bodyRu, item.bodyBa), color = CanonMuted, fontSize = 16.sp, lineHeight = 23.sp)
             }
         }
     }
@@ -1721,7 +1721,7 @@ internal fun OnboardingSimpleModeCard(onEnable: () -> Unit) {
         Card(
             colors = CardDefaults.cardColors(containerColor = CanonMint),
             shape = CanonItemShape,
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1737,8 +1737,8 @@ internal fun OnboardingSimpleModeCard(onEnable: () -> Unit) {
                         modifier = Modifier.weight(1f),
                         color = CanonText,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
-                        lineHeight = 21.sp
+                        fontSize = 16.sp,
+                        lineHeight = 23.sp
                     )
                 }
                 Text(
@@ -1747,13 +1747,13 @@ internal fun OnboardingSimpleModeCard(onEnable: () -> Unit) {
                         "Ябай режим — эре төймәләр, аҙыраҡ аҙым һәм тауыш менән заказ. Һуңынан профилдә лә тоҡандырып була."
                     ),
                     color = CanonText.copy(alpha = 0.82f),
-                    fontSize = 15.sp,
-                    lineHeight = 20.sp
+                    fontSize = 16.sp,
+                    lineHeight = 23.sp
                 )
                 Button(
                     onClick = onEnable,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
                     Icon(Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
@@ -1769,7 +1769,7 @@ internal fun OnboardingSimpleModeCard(onEnable: () -> Unit) {
                     onClick = { dismissed = true },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) {
-                    Text(appText("Не сейчас", "Хәҙер түгел"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(appText("Не сейчас", "Хәҙер түгел"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
         }
@@ -1788,14 +1788,14 @@ internal fun OnboardingRoleCard(
         modifier = Modifier.bounceClick(onClick),
         colors = CardDefaults.cardColors(containerColor = if (selected) CanonMint else CanonSurface),
         shape = CanonItemShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             OnboardingIconBubble(icon)
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text(body, color = CanonMuted, fontSize = 15.sp, lineHeight = 20.sp)
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                Text(body, color = CanonMuted, fontSize = 16.sp, lineHeight = 23.sp)
             }
             Icon(
                 if (selected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
@@ -1808,7 +1808,7 @@ internal fun OnboardingRoleCard(
 
 @Composable
 internal fun OnboardingTrustStrip() {
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
             OnboardingMiniTrust(Icons.Default.Handshake, appText("Между\nсвоими", "Үҙ кеше\nараһында"), Modifier.weight(1f))
             OnboardingMiniTrust(Icons.Default.MoneyOff, appText("Без\nкомиссии", "Комиссия\nюҡ"), Modifier.weight(1f))
@@ -1821,8 +1821,8 @@ internal fun OnboardingTrustStrip() {
 internal fun OnboardingMiniTrust(icon: ImageVector, label: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, contentDescription = null, tint = CanonGreen2)
-        Spacer(Modifier.height(6.dp))
-        Text(label, color = CanonText, textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 13.sp, minLines = 2, maxLines = 2)
+        Spacer(Modifier.height(4.dp))
+        Text(label, color = CanonText, textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 17.sp, minLines = 2, maxLines = 2)
     }
 }
 
@@ -1854,10 +1854,10 @@ internal fun OnboardingIconBubble(icon: ImageVector, index: Int? = null) {
 @Composable
 internal fun OnboardingSafetyNote(text: String) {
     Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonHairlineGreen)) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Lock, contentDescription = null, tint = CanonGreen2)
             Spacer(Modifier.width(12.dp))
-            Text(text, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 19.sp)
+            Text(text, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 23.sp)
         }
     }
 }
@@ -1867,8 +1867,8 @@ internal fun OnboardingDots(count: Int, selected: Int, modifier: Modifier = Modi
     Row(modifier = modifier, horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
         repeat(count) { index ->
             val active = selected == index
-            val w by animateDpAsState(if (active) 26.dp else 8.dp, tween(320), label = "dotW")
-            val c by animateColorAsState(if (active) CanonGreen2 else CanonMuted.copy(alpha = 0.32f), tween(320), label = "dotC")
+            val w by animateDpAsState(if (active) 26.dp else 8.dp, tween(CanonMotion.SLOW), label = "dotW")
+            val c by animateColorAsState(if (active) CanonGreen2 else CanonMuted.copy(alpha = 0.32f), tween(CanonMotion.SLOW), label = "dotC")
             Box(
                 modifier = Modifier
                     .padding(horizontal = 4.dp)
@@ -2152,9 +2152,9 @@ internal fun HomeShell(
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
-                    (fadeIn(animationSpec = tween(260)) +
-                        slideInVertically(animationSpec = tween(260)) { it / 18 })
-                        .togetherWith(fadeOut(animationSpec = tween(180)))
+                    (fadeIn(animationSpec = tween(CanonMotion.NORMAL)) +
+                        slideInVertically(animationSpec = tween(CanonMotion.NORMAL)) { it / 18 })
+                        .togetherWith(fadeOut(animationSpec = tween(CanonMotion.QUICK)))
                 },
                 label = "homeTab"
             ) { tab ->
@@ -2172,14 +2172,14 @@ internal fun YuldashBottomBar(
     Surface(
         color = CanonSurface.copy(alpha = 0.98f),
         shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
-        shadowElevation = 12.dp
+        shadowElevation = CanonDepth.sheet
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()   // на жест-навигации иконки меню не уезжают под системную полосу
                 .height(78.dp)
-                .padding(horizontal = 6.dp, vertical = 5.dp),
+                .padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             YuldashBottomItem(
@@ -2223,10 +2223,10 @@ private fun RowScope.YuldashBottomItem(
     iconRes: Int,
     onClick: () -> Unit
 ) {
-    val pillColor by animateColorAsState(if (selected) CanonGold else Color.Transparent, tween(280), label = "navPill")
-    val iconTint by animateColorAsState(if (selected) CanonText else CanonMuted, tween(280), label = "navTint")
-    val labelColor by animateColorAsState(if (selected) CanonGold else CanonMutedStrong, tween(280), label = "navLabel")
-    val iconScale by animateFloatAsState(if (selected) 1.12f else 1f, tween(280), label = "navScale")
+    val pillColor by animateColorAsState(if (selected) CanonGold else Color.Transparent, tween(CanonMotion.NORMAL), label = "navPill")
+    val iconTint by animateColorAsState(if (selected) CanonText else CanonMuted, tween(CanonMotion.NORMAL), label = "navTint")
+    val labelColor by animateColorAsState(if (selected) CanonGold else CanonMutedStrong, tween(CanonMotion.NORMAL), label = "navLabel")
+    val iconScale by animateFloatAsState(if (selected) 1.12f else 1f, tween(CanonMotion.NORMAL), label = "navScale")
     val interaction = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
@@ -2234,17 +2234,17 @@ private fun RowScope.YuldashBottomItem(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Surface(
             color = pillColor,
-            shape = RoundedCornerShape(18.dp)
+            shape = RoundedCornerShape(14.dp)
         ) {
             Icon(
                 painterResource(iconRes),
                 contentDescription = label,
                 modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
                     .size(21.dp)
                     .graphicsLayer { scaleX = iconScale; scaleY = iconScale },
                 tint = iconTint

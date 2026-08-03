@@ -77,8 +77,8 @@ internal fun DriverEarningsScreen(onBack: () -> Unit) {
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
             // Переключатель периода.
             item {
@@ -141,7 +141,7 @@ private fun EarnPeriodChip(icon: ImageVector, label: String, active: Boolean, on
         shape = RoundedCornerShape(999.dp),
         border = BorderStroke(1.dp, if (active) Color.Transparent else CanonBorder),
     ) {
-        Row(Modifier.padding(horizontal = 13.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 13.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = if (active) Color.White else CanonGreen2, modifier = Modifier.size(16.dp))
             Spacer(Modifier.size(6.dp))
             Text(
@@ -156,7 +156,7 @@ private fun EarnPeriodChip(icon: ImageVector, label: String, active: Boolean, on
 @Composable
 private fun EarnTotalsCard(d: DriverEarningsDto) {
     AppCard {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     appText("Заработано", "Табыш"),
@@ -192,7 +192,7 @@ private fun EarnDayRow(day: DriverEarningsDayDto, maxSum: Int) {
     val target = if (grown) (day.sum.toFloat() / maxSum.toFloat()).coerceIn(0f, 1f) else 0f
     val animated by animateFloatAsState(target, animationSpec = tween(600), label = "earnBar")
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     shortDay(day.date), color = CanonText, fontWeight = FontWeight.Bold,
@@ -206,10 +206,10 @@ private fun EarnDayRow(day: DriverEarningsDayDto, maxSum: Int) {
             }
             // Бар: трек (мята) + заполнение (зелёный) шириной ∝ сумме дня.
             Box(
-                Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(6.dp)).background(CanonMint),
+                Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(8.dp)).background(CanonMint),
             ) {
                 Box(
-                    Modifier.fillMaxWidth(animated).height(8.dp).clip(RoundedCornerShape(6.dp)).background(CanonGreen2),
+                    Modifier.fillMaxWidth(animated).height(8.dp).clip(RoundedCornerShape(8.dp)).background(CanonGreen2),
                 )
             }
             Text(

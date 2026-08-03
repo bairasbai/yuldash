@@ -106,7 +106,7 @@ internal fun AdminParcelsScreen(onBack: () -> Unit) {
         ) {
             LazyColumn(
                 Modifier.padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(vertical = 16.dp),
             ) {
                 item {
@@ -115,18 +115,18 @@ internal fun AdminParcelsScreen(onBack: () -> Unit) {
                             "Все доставки посылок и собранный сбор Юлдаша. Видно только администратору.",
                             "Бөтә бандероль илтеүҙәре һәм йыйылған Юлдаш сборы. Тик админға күренә.",
                         ),
-                        color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                     )
                 }
                 statement?.let { s -> item { ParcelStatementCard(s) } }
                 item(key = "state") {
                     AnimatedContent(
                         targetState = phase,
-                        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
+                        transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                         label = "admin-parcels-state",
                     ) { p ->
                         when (p) {
-                            "load" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            "load" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 SkeletonCard(lines = 3)
                                 SkeletonCard(lines = 3)
                             }
@@ -203,9 +203,9 @@ private fun AdminParcelActionDialog(
         title = { Text(title, color = CanonText, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(hint, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                Text(hint, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                 if (kind == "close") {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         AdminCloseOption(appText("Вернулась отправителю", "Ебәреүсегә ҡайтты"), closeStatus == "returned") { closeStatus = "returned" }
                         AdminCloseOption(appText("Всё-таки доставлена", "Барыбер тапшырылған"), closeStatus == "delivered") { closeStatus = "delivered" }
                         AdminCloseOption(appText("Отменена", "Кире алынған"), closeStatus == "canceled") { closeStatus = "canceled" }
@@ -219,7 +219,7 @@ private fun AdminParcelActionDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                 )
-                err?.let { Text(it, color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                err?.let { Text(it, color = CanonRed, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
             }
         },
         confirmButton = {
@@ -252,14 +252,14 @@ private fun AdminCloseOption(label: String, selected: Boolean, onClick: () -> Un
         border = BorderStroke(1.dp, if (selected) CanonGreen2 else CanonBorder),
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
     ) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 if (selected) Icons.Default.CheckCircle else Icons.Default.Place,
                 contentDescription = null,
                 tint = if (selected) CanonGreen2 else CanonMuted,
                 modifier = Modifier.size(18.dp),
             )
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(8.dp))
             Text(label, color = CanonText, fontSize = 14.sp)
         }
     }
@@ -271,16 +271,16 @@ private fun AdminCloseOption(label: String, selected: Boolean, onClick: () -> Un
 @Composable
 private fun ParcelStatementCard(s: ParcelStatementDto) {
     Surface(color = CanonMint, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2)) {
-        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp)) {
+                Surface(color = CanonSurface, shape = RoundedCornerShape(14.dp)) {
                     Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(26.dp))
                 }
                 Spacer(Modifier.width(16.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(appText("Курьеры оплатили", "Курьерҙар түләне"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    Text(kopToRub(s.collectedFeeKop), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 26.sp)
-                    Text(appText("Доставлено посылок: ${s.deliveredCount}", "Тапшырылған бандеролдәр: ${s.deliveredCount}"), color = CanonMuted, fontSize = 13.sp)
+                    Text(appText("Курьеры оплатили", "Курьерҙар түләне"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(kopToRub(s.collectedFeeKop), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                    Text(appText("Доставлено посылок: ${s.deliveredCount}", "Тапшырылған бандеролдәр: ${s.deliveredCount}"), color = CanonMuted, fontSize = 14.sp)
                 }
             }
             if (s.owedCommissionKop > 0 || s.unbilledFeeKop > 0) {
@@ -309,21 +309,21 @@ private fun ParcelStatementCard(s: ParcelStatementDto) {
 @Composable
 private fun StatementRow(label: String, value: String, hint: String, accent: Color) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(label, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            Text(hint, color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(hint, color = CanonMuted, fontSize = 12.sp, lineHeight = 23.sp)
         }
         Spacer(Modifier.width(12.dp))
-        Text(value, color = accent, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        Text(value, color = accent, fontWeight = FontWeight.Bold, fontSize = 16.sp)
     }
 }
 
 @Composable
 private fun AdminParcelCard(p: ParcelDto, onAction: (Pair<ParcelDto, String>) -> Unit) {
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Default.Place, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
                     Text(p.fromCity.ifBlank { "—" }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Text("→", color = CanonMuted, fontSize = 14.sp)
@@ -332,30 +332,30 @@ private fun AdminParcelCard(p: ParcelDto, onAction: (Pair<ParcelDto, String>) ->
                 ParcelStatusChip(p.status)
             }
             if (p.description.isNotBlank()) {
-                Text(parcelSizeLabel(p.size) + "  ·  " + p.description, color = CanonMuted, fontSize = 13.sp)
+                Text(parcelSizeLabel(p.size) + "  ·  " + p.description, color = CanonMuted, fontSize = 14.sp)
             } else {
-                Text(parcelSizeLabel(p.size), color = CanonMuted, fontSize = 13.sp)
+                Text(parcelSizeLabel(p.size), color = CanonMuted, fontSize = 14.sp)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(15.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(appText("Получатель: ", "Алыусы: ") + p.receiverName, color = CanonText, fontSize = 13.sp)
+                Spacer(Modifier.width(4.dp))
+                Text(appText("Получатель: ", "Алыусы: ") + p.receiverName, color = CanonText, fontSize = 14.sp)
                 Spacer(Modifier.weight(1f))
                 // Сумма сделки — то, что отправитель платит курьеру. Наш сбор здесь не показываем:
                 // это разные деньги, и раньше их путали (аудит 2026-07-26).
-                if (p.priceKop > 0) Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                if (p.priceKop > 0) Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             p.courier?.let { cr ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.LocalShipping, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(appText("Курьер: ", "Курьер: ") + cr.name.ifBlank { "#${cr.id}" }, color = CanonMuted, fontSize = 13.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Text(appText("Курьер: ", "Курьер: ") + cr.name.ifBlank { "#${cr.id}" }, color = CanonMuted, fontSize = 14.sp)
                 }
             }
             shortDate(p.deliveredAt)?.let { d ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(4.dp))
                     Text(appText("Доставлена $d", "$d тапшырылды"), color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -382,7 +382,7 @@ private fun AdminParcelCard(p: ParcelDto, onAction: (Pair<ParcelDto, String>) ->
                     )
                 }
                 TextButton(onClick = { onAction(p to "close") }, modifier = Modifier.fillMaxWidth()) {
-                    Text(appText("Закрыть вручную", "Ҡулдан ябыу"), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(appText("Закрыть вручную", "Ҡулдан ябыу"), color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

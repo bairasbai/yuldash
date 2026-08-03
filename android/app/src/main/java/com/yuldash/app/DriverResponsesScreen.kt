@@ -159,7 +159,7 @@ internal fun DriverResponsesContent(
     // на список, а не на каждую перерисовку.
     val myTurn = remember(responses) { responses.count { it.canAccept } }
     // Пока уходит запрос, список приглушаем: видно, что ответ ещё в пути, и второй раз не жмут.
-    val liveness by animateFloatAsState(if (busy) 0.6f else 1f, tween(220), label = "responsesBusy")
+    val liveness by animateFloatAsState(if (busy) 0.6f else 1f, tween(CanonMotion.QUICK), label = "responsesBusy")
 
     LazyColumn(
         modifier
@@ -233,8 +233,8 @@ private fun ResponsesLede(myTurn: Int) {
         // обновления список дёргался бы вниз-вверх ровно на её высоту.
         AnimatedVisibility(
             visible = myTurn > 0,
-            enter = fadeIn(tween(240)) + expandVertically(tween(240)),
-            exit = fadeOut(tween(140)) + shrinkVertically(tween(140)),
+            enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL)),
+            exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
         ) {
             Surface(color = CanonMint, shape = CircleShape) {
                 Row(
@@ -250,7 +250,7 @@ private fun ResponsesLede(myTurn: Int) {
                     Spacer(Modifier.width(BargainGapHair))
                     AnimatedContent(
                         targetState = myTurn,
-                        transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                        transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                         label = "myTurnCount",
                     ) { count ->
                         Text(
@@ -330,7 +330,7 @@ private fun ResponseSkeletonCard() {
             }
             SkeletonBox(widthFraction = 0.8f, height = 12.dp)
             SkeletonBox(height = 72.dp, shape = CanonItemShape)          // плашка торга
-            SkeletonBox(height = 56.dp, shape = RoundedCornerShape(16.dp))   // кнопка действия
+            SkeletonBox(height = 56.dp, shape = RoundedCornerShape(14.dp))   // кнопка действия
         }
     }
 }
@@ -396,8 +396,8 @@ private fun DriverResponseCard(
                         AnimatedContent(
                             targetState = r.onTable,
                             transitionSpec = {
-                                (fadeIn(tween(280)) + slideInVertically(tween(280)) { it / 2 }) togetherWith
-                                    (fadeOut(tween(140)) + slideOutVertically(tween(140)) { -it / 2 })
+                                (fadeIn(tween(CanonMotion.NORMAL)) + slideInVertically(tween(CanonMotion.NORMAL)) { it / 2 }) togetherWith
+                                    (fadeOut(tween(CanonMotion.QUICK)) + slideOutVertically(tween(CanonMotion.QUICK)) { -it / 2 })
                             },
                             label = "onTablePrice",
                         ) { price ->
@@ -441,7 +441,7 @@ private fun DealPill(r: ResponseDto) {
             r.haggled -> CanonWarnBg
             else -> CanonBg
         },
-        tween(320),
+        tween(CanonMotion.SLOW),
         label = "dealPillBg",
     )
     val fg by animateColorAsState(
@@ -451,7 +451,7 @@ private fun DealPill(r: ResponseDto) {
             r.haggled -> CanonWarn
             else -> CanonMutedStrong
         },
-        tween(320),
+        tween(CanonMotion.SLOW),
         label = "dealPillFg",
     )
     val icon: ImageVector = when {
@@ -485,7 +485,7 @@ private fun DealPill(r: ResponseDto) {
             Spacer(Modifier.width(BargainGapHair))
             AnimatedContent(
                 targetState = label,
-                transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                 label = "dealPillLabel",
             ) { text ->
                 Text(

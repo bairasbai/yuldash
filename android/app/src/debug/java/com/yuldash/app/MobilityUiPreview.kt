@@ -60,7 +60,7 @@ private fun TaxiOrderPreview() {
                 from = appText("Текущая позиция · Баймак", "Хәҙерге урын · Баймаҡ"),
                 to = appText("Центральная районная больница", "Үҙәк район дауаханаһы"),
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TaxiServiceClassTile(
                     title = appText("Эконом", "Эконом"),
                     subtitle = appText("быстро и рядом", "тиҙ һәм яҡында"),
@@ -302,7 +302,7 @@ private fun CourierReturningAccessibilityPreview() {
     MobilityPreviewTheme {
         Column(
             Modifier.fillMaxSize().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             MobilityScreenIntro(
                 mode = MobilityMode.Courier,
@@ -350,7 +350,7 @@ private fun DeliveryOrderPreview() {
     MobilityPreviewTheme {
         Column(
             Modifier.fillMaxSize().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             MobilityScreenIntro(
                 mode = MobilityMode.Courier,
@@ -404,7 +404,7 @@ private fun MobilityResiliencePreview() {
     MobilityPreviewTheme {
         Column(
             Modifier.fillMaxSize().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             MobilityScreenIntro(
                 mode = MobilityMode.Taxi,

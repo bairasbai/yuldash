@@ -96,7 +96,7 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
                 CircularProgressIndicator(color = CanonGreen)
             }
             error != null -> Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Text(error ?: "", color = CanonRed, fontSize = 15.sp)
+                Text(error ?: "", color = CanonRed, fontSize = 16.sp)
                 Spacer(Modifier.height(14.dp))
                 Button(onClick = { scope.launch { reload() } }, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg)) {
                     Text(appText("Повторить", "Ҡабатларға"), fontWeight = FontWeight.Bold)
@@ -106,17 +106,17 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
                 modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item { Spacer(Modifier.height(6.dp)) }
+                item { Spacer(Modifier.height(4.dp)) }
                 // счётчик founder + кнопка создать
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = CanonGold.copy(alpha = 0.15f), shape = RoundedCornerShape(999.dp)) {
-                            Text("Founder $founderUsed/$founderLimit", color = CanonGold, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                            Text("Founder $founderUsed/$founderLimit", color = CanonGold, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
                         }
                         Spacer(Modifier.weight(1f))
                         Button(onClick = { editing = null; showForm = !showForm }, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg), shape = CanonCardShape) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(4.dp))
                             Text(appText("Создать", "Булдырыу"), fontWeight = FontWeight.Bold)
                         }
                     }
@@ -126,11 +126,11 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
                 }
                 if (items.isEmpty()) {
                     item {
-                        Column(Modifier.fillMaxWidth().padding(top = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(Modifier.fillMaxWidth().padding(top = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(40.dp))
-                            Spacer(Modifier.height(10.dp))
+                            Spacer(Modifier.height(8.dp))
                             Text(appText("Объявлений пока нет", "Иғландар юҡ әле"), color = CanonText, fontWeight = FontWeight.Bold)
-                            Text(appText("Создай первое — оно появится в приложении после публикации", "Беренсене булдыр — баҫтырғас ҡушымтала күренер"), color = CanonMuted, fontSize = 13.sp)
+                            Text(appText("Создай первое — оно появится в приложении после публикации", "Беренсене булдыр — баҫтырғас ҡушымтала күренер"), color = CanonMuted, fontSize = 14.sp)
                         }
                     }
                 }
@@ -192,16 +192,16 @@ internal fun AdAdminCard(
     }
     var showReject by remember(ad.id) { mutableStateOf(false) }
     var reason by remember(ad.id) { mutableStateOf(ad.rejectReason) }
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(ad.title.ifBlank { appText("Без названия", "Исемһеҙ") }, modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(ad.title.ifBlank { appText("Без названия", "Исемһеҙ") }, modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Surface(color = statusColor.copy(alpha = 0.14f), shape = RoundedCornerShape(999.dp)) {
-                    Text(statusLabel, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                    Text(statusLabel, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                 }
             }
             Text("${ad.partner.ifBlank { if (ad.ownerId != null) appText("Партнёр", "Партнёр") else "—" }} · ${planLabel(ad.plan)}", color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            if (ad.text.isNotBlank()) Text(ad.text, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+            if (ad.text.isNotBlank()) Text(ad.text, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
             Text(
                 appText("Места: ${ad.placements.ifBlank { "—" }}", "Урын: ${ad.placements.ifBlank { "—" }}") +
                     (ad.endsAt?.let { appText(" · до ${it.take(10)}", " · ${it.take(10)} тиклем") } ?: "") +
@@ -209,10 +209,10 @@ internal fun AdAdminCard(
                         "  ·  показы ${stat?.impressions ?: 0} · клики ${stat?.clicks ?: 0}",
                         "  ·  күрһәтеү ${stat?.impressions ?: 0} · баҫыу ${stat?.clicks ?: 0}",
                     ),
-                color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp,
+                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
             )
             if (ad.status == "rejected" && ad.rejectReason.isNotBlank()) {
-                Text(appText("Причина отказа: ${ad.rejectReason}", "Кире ҡағыу сәбәбе: ${ad.rejectReason}"), color = CanonRed, fontSize = 12.sp, lineHeight = 16.sp)
+                Text(appText("Причина отказа: ${ad.rejectReason}", "Кире ҡағыу сәбәбе: ${ad.rejectReason}"), color = CanonRed, fontSize = 12.sp, lineHeight = 17.sp)
             }
             // Модерация: pending_review → одобрить / отклонить (с причиной)
             if (ad.status == "pending_review") {
@@ -224,20 +224,20 @@ internal fun AdAdminCard(
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { showReject = false }, enabled = !busy, modifier = Modifier.weight(1f), shape = CanonCardShape) {
-                            Text(appText("Отмена", "Кире"), fontSize = 13.sp)
+                            Text(appText("Отмена", "Кире"), fontSize = 14.sp)
                         }
                         Button(onClick = { onReject(reason) }, enabled = !busy && reason.isNotBlank(), modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = CanonRed, contentColor = CanonBg), shape = CanonCardShape) {
-                            Text(appText("Отклонить", "Кире ҡағырға"), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(appText("Отклонить", "Кире ҡағырға"), fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onApprove, enabled = !busy, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg), shape = CanonCardShape) {
                             if (busy) CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            else Text(appText("Одобрить", "Раҫларға"), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            else Text(appText("Одобрить", "Раҫларға"), fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                         OutlinedButton(onClick = { showReject = true }, enabled = !busy, modifier = Modifier.weight(1f), shape = CanonCardShape) {
-                            Text(appText("Отклонить", "Кире ҡағырға"), color = CanonRed, fontSize = 13.sp)
+                            Text(appText("Отклонить", "Кире ҡағырға"), color = CanonRed, fontSize = 14.sp)
                         }
                     }
                 }
@@ -245,19 +245,19 @@ internal fun AdAdminCard(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (ad.status == "active") {
                     OutlinedButton(onClick = onPause, enabled = !busy, modifier = Modifier.weight(1f), shape = CanonCardShape) {
-                        Text(appText("Пауза", "Пауза"), fontSize = 13.sp)
+                        Text(appText("Пауза", "Пауза"), fontSize = 14.sp)
                     }
                 } else if (ad.status != "pending_review") {
                     Button(onClick = onPublish, enabled = !busy, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg), shape = CanonCardShape) {
                         if (busy) CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        else Text(appText("Опубликовать", "Баҫтырырға"), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        else Text(appText("Опубликовать", "Баҫтырырға"), fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
                 }
                 OutlinedButton(onClick = onEdit, enabled = !busy, shape = CanonCardShape) {
-                    Text(appText("Изменить", "Үҙгәртергә"), fontSize = 13.sp)
+                    Text(appText("Изменить", "Үҙгәртергә"), fontSize = 14.sp)
                 }
                 OutlinedButton(onClick = onDelete, enabled = !busy, shape = CanonCardShape) {
-                    Text(appText("Удалить", "Бөтөрөргә"), color = CanonRed, fontSize = 13.sp)
+                    Text(appText("Удалить", "Бөтөрөргә"), color = CanonRed, fontSize = 14.sp)
                 }
             }
         }
@@ -283,8 +283,8 @@ internal fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCrea
     val genericErr = appText("Не удалось сохранить", "Һаҡлап булманы")
     val canSave = partner.isNotBlank() && title.isNotBlank() && text.trim().length >= 3 && erid.isNotBlank() && !sending
 
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(appText(if (edit != null) "Изменить объявление" else "Новое объявление", if (edit != null) "Иғланды үҙгәртеү" else "Яңы иғлан"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             OutlinedTextField(partner, { partner = it }, label = { Text(appText("Рекламодатель", "Рекламала ҡатнашыусы")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(title, { title = it }, label = { Text(appText("Заголовок", "Башлыҡ")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -305,12 +305,12 @@ internal fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCrea
                     Surface(
                         color = if (sel) CanonGreen else CanonBg,
                         shape = RoundedCornerShape(999.dp),
-                        modifier = Modifier.padding(vertical = 2.dp),
+                        modifier = Modifier.padding(vertical = 4.dp),
                     ) {
                         Text(
                             planLabel(p) + if (disabled) appText(" (нет мест)", " (урын юҡ)") else "",
                             color = if (sel) CanonBg else if (disabled) CanonMuted else CanonText,
-                            fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp, fontWeight = FontWeight.Bold,
                             modifier = Modifier
                                 .padding(horizontal = 14.dp, vertical = 8.dp)
                                 .then(if (disabled) Modifier else Modifier.clickable { plan = p }),
@@ -324,10 +324,10 @@ internal fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCrea
                 PLACEMENT_OPTIONS.forEach { (key, label) ->
                     val (labelRu, labelBa) = label
                     val sel = places.contains(key)
-                    Surface(color = if (sel) CanonGreen2 else CanonBg, shape = RoundedCornerShape(999.dp), modifier = Modifier.padding(vertical = 2.dp)) {
+                    Surface(color = if (sel) CanonGreen2 else CanonBg, shape = RoundedCornerShape(999.dp), modifier = Modifier.padding(vertical = 4.dp)) {
                         Text(
-                            appText(labelRu, labelBa), color = if (sel) Color.White else CanonText, fontSize = 13.sp,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp).clickable {
+                            appText(labelRu, labelBa), color = if (sel) Color.White else CanonText, fontSize = 14.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).clickable {
                                 if (sel) places.remove(key) else places.add(key)
                             },
                         )
@@ -335,7 +335,7 @@ internal fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCrea
                 }
             }
 
-            err?.let { Text(it, color = CanonRed, fontSize = 13.sp) }
+            err?.let { Text(it, color = CanonRed, fontSize = 14.sp) }
             Button(
                 onClick = {
                     sending = true; err = null
@@ -356,7 +356,7 @@ internal fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCrea
                 if (sending) CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 else Text(appText(if (edit != null) "Сохранить" else "Создать (черновик)", if (edit != null) "Һаҡлау" else "Булдырыу (ҡаралама)"), fontWeight = FontWeight.Bold)
             }
-            if (edit == null) Text(appText("Указал цену → объявление попадёт в «Заявки на оплату». Партнёр заплатил → подтвердишь → реклама опубликуется. Цена 0 → публикуешь вручную.", "Хаҡ ҡуйһаң → иғлан «Түләү заявкалары»на эләгә. Партнёр түләне → раҫлайһың → реклама баҫтырыла. Хаҡ 0 → үҙең баҫтыр."), color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp)
+            if (edit == null) Text(appText("Указал цену → объявление попадёт в «Заявки на оплату». Партнёр заплатил → подтвердишь → реклама опубликуется. Цена 0 → публикуешь вручную.", "Хаҡ ҡуйһаң → иғлан «Түләү заявкалары»на эләгә. Партнёр түләне → раҫлайһың → реклама баҫтырыла. Хаҡ 0 → үҙең баҫтыр."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
         }
     }
 }

@@ -116,8 +116,8 @@ internal fun StaggerWord(text: String, visible: Boolean, fontSize: TextUnit) {
                 visible = visible,
                 enter = fadeIn(tween(620, i * 38, EaseOutExpo)) +
                     slideInVertically(tween(700, i * 38, EaseOutExpo)) { it / 2 },
-                exit = fadeOut(tween(260, i * 12)) +
-                    slideOutVertically(tween(300, i * 12)) { -it / 3 },
+                exit = fadeOut(tween(CanonMotion.NORMAL, i * 12)) +
+                    slideOutVertically(tween(CanonMotion.SLOW, i * 12)) { -it / 3 },
             ) {
                 Text(ch.toString(), color = Color.White, fontSize = fontSize, fontWeight = FontWeight.Medium, fontFamily = Montserrat, letterSpacing = 1.sp)
             }
@@ -277,7 +277,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
             Box(
                 Modifier.width(72.dp).height(4.dp)
                     .graphicsLayer { scaleX = underline }
-                    .background(CanonGold, RoundedCornerShape(2.dp)),
+                    .background(CanonGold, RoundedCornerShape(8.dp)),
             )
             Spacer(Modifier.height(16.dp))
             // Высота слота слогана зарезервирована ВСЕГДА → его появление НЕ меняет высоту колонки
@@ -289,13 +289,13 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                     transitionSpec = {
                         // Сначала русский УХОДИТ (240мс), потом башкирский ПРИХОДИТ (delay 240) — без наложения строк.
                         (fadeIn(tween(560, delayMillis = 240, easing = EaseOutExpo)) + slideInVertically(tween(560, delayMillis = 240, easing = EaseOutExpo)) { it / 4 })
-                            .togetherWith(fadeOut(tween(240, easing = EaseInOutSine)) + slideOutVertically(tween(240, easing = EaseInOutSine)) { -it / 4 })
+                            .togetherWith(fadeOut(tween(CanonMotion.NORMAL, easing = EaseInOutSine)) + slideOutVertically(tween(CanonMotion.NORMAL, easing = EaseInOutSine)) { -it / 4 })
                     },
                     label = "slo",
                 ) { ba ->
                     Text(
                         if (ba) INTRO_SLOGAN_BA else INTRO_SLOGAN_RU,
-                        color = Color.White.copy(0.92f), fontSize = 15.sp, lineHeight = 20.sp,
+                        color = Color.White.copy(0.92f), fontSize = 16.sp, lineHeight = 23.sp,
                         fontFamily = Montserrat, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.graphicsLayer { alpha = sloganAlpha },
@@ -310,7 +310,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
             visible = showSkip && !exiting,
             enter = fadeIn(tween(420, easing = EaseOutExpo)) +
                 slideInVertically(tween(520, easing = EaseOutExpo)) { it / 3 },
-            exit = fadeOut(tween(200)),
+            exit = fadeOut(tween(CanonMotion.QUICK)),
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 32.dp),
         ) {
             Box(
@@ -323,7 +323,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    skipLabel, color = Color.White, fontSize = 15.sp, fontFamily = Montserrat,
+                    skipLabel, color = Color.White, fontSize = 16.sp, fontFamily = Montserrat,
                     fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
                 )
             }
@@ -365,13 +365,13 @@ internal fun IntroBrandContent(
             )
         }
         Spacer(Modifier.height(12.dp))
-        Box(Modifier.width(72.dp).height(4.dp).background(CanonGold, RoundedCornerShape(2.dp)))
+        Box(Modifier.width(72.dp).height(4.dp).background(CanonGold, RoundedCornerShape(8.dp)))
         Spacer(Modifier.height(16.dp))
         if (showSlogan) {
             Box(modifier = Modifier.heightIn(min = 24.dp), contentAlignment = Alignment.Center) {
                 Text(
                     introSlogan(language),
-                    color = Color.White.copy(0.92f), fontSize = 15.sp, lineHeight = 20.sp,
+                    color = Color.White.copy(0.92f), fontSize = 16.sp, lineHeight = 23.sp,
                     fontFamily = Montserrat, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
                     textAlign = TextAlign.Center,
                 )

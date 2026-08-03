@@ -122,7 +122,7 @@ internal fun CourierEarningsScreen(onBack: () -> Unit) {
         // молча выдавать себя за сумму за месяц.
         val freshness by animateFloatAsState(
             targetValue = if (loading && d != null) 0.4f else 1f,
-            animationSpec = tween(220),
+            animationSpec = tween(CanonMotion.QUICK),
             label = "courierFreshness",
         )
         // Появление всего блока разом, а не карточка за карточкой: состояние живёт на уровне
@@ -130,7 +130,7 @@ internal fun CourierEarningsScreen(onBack: () -> Unit) {
         // пересоздаются, и покадровая анимация «на элемент» дёргалась бы каждый раз).
         val reveal by animateFloatAsState(
             targetValue = if (d != null) 1f else 0f,
-            animationSpec = tween(360),
+            animationSpec = tween(CanonMotion.SLOW),
             label = "courierReveal",
         )
         val enter = Modifier.graphicsLayer {
@@ -246,9 +246,9 @@ private fun MoneyPeriodSegment(
     // брендовым зелёным с белым текстом: белое на CanonGreen2 даёт в тёмной теме 3.19:1
     // (tools/contrast.py), и для подписи 14sp этого мало. Пара CanonGreen/CanonMint —
     // 10.7 в светлой и 10.5 в тёмной. Тонкая рамка держит границу пилюли на белой карточке.
-    val bg by animateColorAsState(if (active) CanonMint else Color.Transparent, tween(220), label = "segBg")
-    val fg by animateColorAsState(if (active) CanonGreen else CanonMutedStrong, tween(220), label = "segFg")
-    val edge by animateColorAsState(if (active) CanonHairlineGreen else Color.Transparent, tween(220), label = "segEdge")
+    val bg by animateColorAsState(if (active) CanonMint else Color.Transparent, tween(CanonMotion.QUICK), label = "segBg")
+    val fg by animateColorAsState(if (active) CanonGreen else CanonMutedStrong, tween(CanonMotion.QUICK), label = "segFg")
+    val edge by animateColorAsState(if (active) CanonHairlineGreen else Color.Transparent, tween(CanonMotion.QUICK), label = "segEdge")
     Surface(
         color = bg,
         shape = RoundedCornerShape(999.dp),
@@ -277,7 +277,7 @@ private fun MoneyPeriodSegment(
 @Composable
 private fun CourierTotalsCard(d: CourierEarningsDto, modifier: Modifier = Modifier) {
     AppCard(modifier = modifier) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     appText("Заработано чистыми", "Таҙа эшләнде"),
@@ -286,7 +286,7 @@ private fun CourierTotalsCard(d: CourierEarningsDto, modifier: Modifier = Modifi
                 // Сумма меняется по периоду — не подменяем цифру рывком, а проявляем новую.
                 AnimatedContent(
                     targetState = d.netKop,
-                    transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(160)) },
+                    transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                     label = "courierNet",
                 ) { net ->
                     Text(

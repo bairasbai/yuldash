@@ -86,7 +86,7 @@ private fun DriverProfileContent(d: DriverPublicDto, lang: AppLanguage) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Box(Modifier.appearIn(0)) { DriverHeaderCard(d) } }
         item { Box(Modifier.appearIn(1)) { DriverStatsRow(d, lang) } }
@@ -123,12 +123,12 @@ private fun DriverHeaderCard(d: DriverPublicDto) {
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
     ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SmallAvatar(d.avatarUrl, d.name, 64)
-                Spacer(Modifier.width(14.dp))
+                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         d.name.ifBlank { appText("Водитель", "Водитель") },
@@ -138,7 +138,7 @@ private fun DriverHeaderCard(d: DriverPublicDto) {
                     if (d.car.isNotBlank()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(15.dp))
-                            Spacer(Modifier.width(5.dp))
+                            Spacer(Modifier.width(4.dp))
                             Text(
                                 d.car, color = CanonMuted,
                                 fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
@@ -157,11 +157,11 @@ private fun DriverHeaderCard(d: DriverPublicDto) {
 private fun VerifiedPill() {
     Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Default.Verified, contentDescription = appText("Проверен", "Тикшерелгән"), tint = CanonGreen2, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(4.dp))
             Text(
                 appText("Проверен", "Тикшерелгән"), color = CanonGreen2, fontWeight = FontWeight.Bold,
                 fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
@@ -172,7 +172,7 @@ private fun VerifiedPill() {
 
 @Composable
 private fun DriverStatsRow(d: DriverPublicDto, lang: AppLanguage) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StatCell(
             modifier = Modifier.weight(1f),
             value = if (d.rating != null) String.format(java.util.Locale.US, "%.1f", d.rating) else "—",
@@ -199,17 +199,17 @@ private fun StatCell(modifier: Modifier, value: String, label: String, hint: Str
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 8.dp),
+            Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (star) {
                     Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(3.dp))
+                    Spacer(Modifier.width(4.dp))
                 }
                 Text(
                     value, fontWeight = FontWeight.Bold,
@@ -228,9 +228,9 @@ private fun DriverReviewCard(author: String, stars: Int, text: String, createdAt
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SmallAvatar("", author, 30)
                 Spacer(Modifier.width(8.dp))

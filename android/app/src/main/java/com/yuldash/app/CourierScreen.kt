@@ -182,14 +182,14 @@ private fun CourierCargoRow(p: ParcelDto) {
 @Composable
 private fun CourierCargoTag(text: String, bg: Color, ink: Color, bordered: Boolean = false) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         color = bg,
         border = if (bordered) BorderStroke(1.dp, ink) else null,
     ) {
         Text(
             text, color = ink, fontWeight = FontWeight.Bold,
             fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
-            modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         )
     }
 }
@@ -254,7 +254,7 @@ internal fun CourierScreen(
                     SkeletonCard(lines = 3)
                     SkeletonCard(lines = 3)
                 }
-                application?.status == "approved" && meError && m == null -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center) {
+                application?.status == "approved" && meError && m == null -> Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
                     AppErrorState(onRetry = { reloadKey++ })
                 }
                 // Без одобренной заявки человек ВСЁ РАВНО видит заказы «по пути» (найдено при
@@ -281,7 +281,7 @@ internal fun CourierScreen(
                         poputkaOnly = true,
                     )
                 }
-                m == null -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center) {
+                m == null -> Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
                     AppErrorState(onRetry = { reloadKey++ })
                 }
                 else -> CourierWorkContent(m, onReloadMe = { reloadKey++ }, onEarnings = onEarnings, reloadingMe = loading)
@@ -327,7 +327,7 @@ private fun CourierNotApprovedView(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Row(
-                Modifier.padding(14.dp),
+                Modifier.padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -359,7 +359,7 @@ private fun CourierNotApprovedView(
         return
     }
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        Modifier.fillMaxSize().padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         contentPadding = PaddingValues(vertical = 24.dp),
@@ -373,7 +373,7 @@ private fun CourierNotApprovedView(
                     ),
                     onRetry = onRetry,
                 )
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(16.dp))
             }
         }
         item {
@@ -384,13 +384,13 @@ private fun CourierNotApprovedView(
                     else Text(emoji, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
                 }
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
         }
         item {
             Text(title, color = CanonText, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(8.dp))
             Text(body, color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
         }
         item {
             AppButton(
@@ -617,7 +617,7 @@ private fun CourierWorkContent(
         // Под-вкладки.
         Surface(
             color = CanonSurface,
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(14.dp),
             border = BorderStroke(1.dp, CanonBorder),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         ) {
@@ -631,7 +631,7 @@ private fun CourierWorkContent(
         AnimatedContent(
             targetState = sub,
             modifier = Modifier.fillMaxWidth().weight(1f),
-            transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(140)) },
+            transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
             label = "courier-sub",
         ) { s ->
             when (s) {
@@ -697,10 +697,10 @@ private fun CourierLiveLocationLink(parcels: List<ParcelDto>) {
 
 @Composable
 private fun CourierZoneChip(icon: ImageVector, label: String, active: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (active) CanonGreen2 else CanonSurface, tween(200), label = "zone")
+    val bg by animateColorAsState(if (active) CanonGreen2 else CanonSurface, tween(CanonMotion.QUICK), label = "zone")
     // Рамка и надпись тоже переезжают: раньше фон плыл, а текст с обводкой щёлкали кадром.
-    val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(200), label = "zone-line")
-    val ink by animateColorAsState(if (active) Color.White else CanonMutedStrong, tween(200), label = "zone-ink")
+    val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "zone-line")
+    val ink by animateColorAsState(if (active) Color.White else CanonMutedStrong, tween(CanonMotion.QUICK), label = "zone-ink")
     Surface(
         onClick = onClick, enabled = enabled, color = bg, shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, line),
@@ -729,9 +729,9 @@ private fun CourierZoneChip(icon: ImageVector, label: String, active: Boolean, e
  */
 @Composable
 private fun CourierPickChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "pick")
-    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "pick-line")
-    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonMutedStrong, tween(200), label = "pick-ink")
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "pick")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "pick-line")
+    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonMutedStrong, tween(CanonMotion.QUICK), label = "pick-ink")
     Surface(
         onClick = onClick, color = bg, shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, line),
@@ -742,7 +742,7 @@ private fun CourierPickChip(label: String, selected: Boolean, onClick: () -> Uni
                 this.selected = selected
             },
     ) {
-        Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
             Text(
                 label, color = ink, fontWeight = FontWeight.Bold,
                 fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
@@ -1001,7 +1001,7 @@ private fun CourierAvailableTab(
  *  («Откуда» и «Куда»), и без неё курьер не понимает, что именно он сейчас сужает. */
 @Composable
 private fun CourierFilterRow(label: String, chips: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             label, color = CanonMutedStrong, fontWeight = FontWeight.Bold,
             fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
@@ -1060,7 +1060,7 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, canTake: Boolean, 
                     fontWeight = FontWeight.Bold,
                     fontSize = DeliveryCaption,
                     lineHeight = DeliveryCaptionLine,
-                    modifier = Modifier.fillMaxWidth().padding(11.dp),
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
                 )
             }
         }
@@ -1072,7 +1072,7 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, canTake: Boolean, 
                     fontWeight = FontWeight.Bold,
                     fontSize = DeliveryCaption,
                     lineHeight = DeliveryCaptionLine,
-                    modifier = Modifier.fillMaxWidth().padding(11.dp),
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
                 )
             }
         }
@@ -1893,7 +1893,7 @@ private fun CourierContactDetails(label: String, name: String, phone: String) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Column(
             Modifier.fillMaxWidth().semantics(mergeDescendants = true) { contentDescription = spokenContact },
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
                 label,
@@ -1936,11 +1936,11 @@ private fun CourierContactDetails(label: String, name: String, phone: String) {
                     },
             ) {
                 Row(
-                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Default.Phone, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(
                         phone,
                         color = CanonGreen2,
@@ -2029,8 +2029,8 @@ private fun CourierCabinetTab(
             item {
                 val avg = me.rating.avg
                 Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                             Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.padding(12.dp).size(24.dp))
                         }
                         Spacer(Modifier.width(16.dp))
@@ -2050,8 +2050,8 @@ private fun CourierCabinetTab(
             // Доставлено заказов.
             item {
                 Surface(color = CanonMint, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2)) {
-                    Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = CanonSurface, shape = RoundedCornerShape(14.dp)) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
                         }
                         Spacer(Modifier.width(16.dp))
@@ -2078,7 +2078,7 @@ private fun CourierCabinetTab(
                         shape = CanonCardShape,
                         border = BorderStroke(1.dp, if (promo) CanonGreen2 else CanonBorder),
                     ) {
-                        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Surface(color = if (promo) CanonSurface else CanonMint, shape = RoundedCornerShape(14.dp)) {
                                     Icon(Icons.Default.Percent, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
@@ -2103,7 +2103,7 @@ private fun CourierCabinetTab(
             // Комиссия: заработали · к оплате (крупно) · оплачено.
             item {
                 Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, if (owed > 0) CanonGreen2 else CanonBorder)) {
-                    Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
                             Text(appText("Наша комиссия за доставки", "Илтеүҙәр өсөн беҙҙең комиссия"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)

@@ -125,7 +125,7 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
         ) {
             LazyColumn(
                 Modifier.padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(vertical = 16.dp),
             ) {
                 item {
@@ -134,7 +134,7 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                             "Заявки «Стать курьером»: сверь селфи с документом, транспорт и кто пригласил, потом одобри или отклони с причиной.",
                             "«Курьер булыу» заявкалары: документ менән селфины, транспортты һәм кем саҡырғанын тикшер, аҙаҡ раҫла йәки сәбәп менән кире ҡаҡ.",
                         ),
-                        color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                     )
                 }
                 item {
@@ -148,11 +148,11 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                 item(key = "state") {
                     AnimatedContent(
                         targetState = phase,
-                        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
+                        transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                         label = "admin-courier-state",
                     ) { p ->
                         when (p) {
-                            "load" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            "load" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 SkeletonCard(lines = 4)
                                 SkeletonCard(lines = 4)
                             }
@@ -173,12 +173,12 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                         val noName = appText("Без имени", "Исемһеҙ")
                         Box(Modifier.appearIn(i.coerceAtMost(6))) {
                             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(a.name.ifBlank { noName }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                                        Text(a.name.ifBlank { noName }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
                                         CourierStatusBadge(a.status)
                                     }
-                                    if (a.phone.isNotBlank()) Text(a.phone, color = CanonMuted, fontSize = 13.sp)
+                                    if (a.phone.isNotBlank()) Text(a.phone, color = CanonMuted, fontSize = 14.sp)
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
                                             if (a.transport == "cargo") Icons.Default.LocalShipping else Icons.Default.TwoWheeler,
@@ -192,14 +192,14 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                                         Text(appText("Транспорт: ", "Транспорт: ") + courierTransportLabel(a.transport), color = CanonText, fontSize = 14.sp)
                                     }
                                     a.invitedBy?.takeIf { it.isNotBlank() }?.let {
-                                        Text(appText("Пригласил: ", "Саҡырҙы: ") + it, color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                        Text(appText("Пригласил: ", "Саҡырҙы: ") + it, color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                                     }
                                     if (a.selfieUrl.isNotBlank()) {
-                                        Text(appText("Селфи с документом (сверь лицо)", "Документ менән селфи (йөҙҙө сағыштыр)"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text(appText("Селфи с документом (сверь лицо)", "Документ менән селфи (йөҙҙө сағыштыр)"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                         CourierDocImage(a.selfieUrl, token)
                                     }
                                     if (a.status == "rejected" && a.rejectReason.isNotBlank()) {
-                                        Text(appText("Причина: ", "Сәбәбе: ") + a.rejectReason, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp)
+                                        Text(appText("Причина: ", "Сәбәбе: ") + a.rejectReason, color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp)
                                     }
                                     if (a.status == "pending") {
                                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -271,9 +271,9 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
  *  Админ щёлкает фильтрами часто — цвета переезжают, а не подменяются кадром (как на экранах курьера). */
 @Composable
 private fun CourierFilterChip(label: String, active: Boolean, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(200), label = "acf-bg")
-    val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(200), label = "acf-line")
-    val ink by animateColorAsState(if (active) CanonGreen2 else CanonMuted, tween(200), label = "acf-ink")
+    val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "acf-bg")
+    val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "acf-line")
+    val ink by animateColorAsState(if (active) CanonGreen2 else CanonMuted, tween(CanonMotion.QUICK), label = "acf-ink")
     Surface(
         onClick = onClick,
         color = bg,
@@ -300,8 +300,8 @@ private fun CourierStatusBadge(status: String) {
         "rejected" -> Triple(appText("Отклонён", "Кире ҡағылған"), CanonRed, CanonDangerBg)
         else -> Triple(appText("На проверке", "Тикшереүҙә"), CanonWarn, CanonWarnBg)
     }
-    Surface(color = bg, shape = RoundedCornerShape(10.dp)) {
-        Text(label, color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+    Surface(color = bg, shape = RoundedCornerShape(8.dp)) {
+        Text(label, color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
     }
 }
 
@@ -313,7 +313,7 @@ private fun CourierDocImage(url: String, token: String) {
         model = coil.request.ImageRequest.Builder(ctx).data(url).addHeader("Authorization", "Bearer $token").crossfade(true).build(),
         contentDescription = appText("Фото документа курьера", "Курьер документы фотоһы"),
         // Нейтральный фон = аккуратный плейсхолдер, пока грузится / если не загрузилось (не пустая дыра).
-        modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(12.dp)).background(CanonSurface),
+        modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(14.dp)).background(CanonSurface),
         contentScale = ContentScale.Crop,
     )
 }

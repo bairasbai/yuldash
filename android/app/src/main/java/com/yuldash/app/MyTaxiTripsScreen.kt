@@ -81,7 +81,7 @@ internal fun MyTaxiTripsScreen(onBack: () -> Unit, onOpenReceipt: (Int) -> Unit)
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(top = 12.dp, bottom = 28.dp),
+                contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp),
             ) {
                 when {
                     loading && orders.isEmpty() -> item {
@@ -128,14 +128,14 @@ private fun TaxiTripHistoryCard(order: InstantOrderDto, onClick: () -> Unit) {
                         Icons.Default.LocalTaxi,
                         contentDescription = null,
                         tint = if (done) CanonGreen2 else CanonWarn,
-                        modifier = Modifier.padding(9.dp).size(20.dp),
+                        modifier = Modifier.padding(8.dp).size(20.dp),
                     )
                 }
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         tripDayLabel(order.createdAt),
-                        color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                        color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
                     )
                     Text(
                         when (order.status) {
@@ -149,7 +149,7 @@ private fun TaxiTripHistoryCard(order: InstantOrderDto, onClick: () -> Unit) {
                 if (done && rub > 0) {
                     Text(
                         "${fmtRub(rub)} ₽",
-                        color = CanonText, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                        color = CanonText, fontSize = 19.sp, fontWeight = FontWeight.Bold,
                     )
                 }
             }
@@ -170,8 +170,8 @@ private fun TaxiTripHistoryCard(order: InstantOrderDto, onClick: () -> Unit) {
 private fun TripRouteLine(label: String, value: String) {
     if (value.isBlank()) return
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, color = CanonMuted, fontSize = 13.sp, modifier = Modifier.width(64.dp))
-        Text(value, color = CanonText, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.fillMaxWidth())
+        Text(label, color = CanonMuted, fontSize = 14.sp, modifier = Modifier.width(64.dp))
+        Text(value, color = CanonText, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.fillMaxWidth())
     }
 }
 

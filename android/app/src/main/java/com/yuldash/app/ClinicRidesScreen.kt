@@ -69,11 +69,11 @@ internal fun ClinicRidesEntryCard(onClick: () -> Unit) {
                     Icons.Default.LocalHospital,
                     contentDescription = appText("К клинике", "Клиникаға"),
                     tint = CanonGreen2,
-                    modifier = Modifier.padding(11.dp).size(24.dp),
+                    modifier = Modifier.padding(12.dp).size(24.dp),
                 )
             }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     appText("Поездки к клинике", "Клиникаға сәфәрҙәр"),
                     color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp,
@@ -81,7 +81,7 @@ internal fun ClinicRidesEntryCard(onClick: () -> Unit) {
                 Text(
                     appText("Кто-то уже едет к больнице — подсядь по пути",
                         "Кемдер клиникаға бара — юлда ҡушыл"),
-                    color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                     maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -140,15 +140,15 @@ internal fun ClinicRidesScreen(onBack: () -> Unit, onBookRide: (Ride) -> Unit) {
             // Деликатная плашка: честно объясняем, что это логистика, не медуслуга.
             item {
                 Surface(color = CanonMint, shape = CanonItemShape) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.Top) {
                         Icon(Icons.Default.LocalHospital, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(8.dp))
                         Text(
                             appText(
                                 "Помогаем доехать до нужной клиники вместе с попутчиками. Это обычная поездка до больницы — без записи к врачу и без медицинских данных.",
                                 "Кәрәкле клиникаға юлдаштар менән барырға ярҙам итәбеҙ. Был ябай сәфәр — врачҡа яҙылыуһыҙ һәм медицина мәғлүмәтенһеҙ.",
                             ),
-                            color = CanonText, fontSize = 13.sp, lineHeight = 18.sp,
+                            color = CanonText, fontSize = 14.sp, lineHeight = 20.sp,
                         )
                     }
                 }
@@ -170,7 +170,7 @@ internal fun ClinicRidesScreen(onBack: () -> Unit, onBookRide: (Ride) -> Unit) {
                 else -> {
                     // Выбор клиники — горизонтальные чипы.
                     item {
-                        Text(appText("Выбери клинику", "Клиниканы һайла"), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(appText("Выбери клинику", "Клиниканы һайла"), color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
                     item {
                         Row(
@@ -185,13 +185,13 @@ internal fun ClinicRidesScreen(onBack: () -> Unit, onBookRide: (Ride) -> Unit) {
                     // Заголовок + адрес выбранной клиники.
                     selected?.let { p ->
                         item {
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(appText("Кто едет в «${p.name}»", "«${p.name}»-ға кем бара"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(appText("Кто едет в «${p.name}»", "«${p.name}»-ға кем бара"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 if (p.address.isNotBlank()) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(14.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text("${p.city}, ${p.address}", color = CanonMuted, fontSize = 13.sp)
+                                        Text("${p.city}, ${p.address}", color = CanonMuted, fontSize = 14.sp)
                                     }
                                 }
                             }
@@ -246,7 +246,7 @@ private fun ClinicChip(partner: MedicalPartnerDto, selected: Boolean, onClick: (
                 Text(
                     partner.city,
                     color = if (selected) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f) else CanonMuted,
-                    fontSize = 13.sp,
+                    fontSize = 14.sp,
                 )
             }
         }
@@ -259,14 +259,14 @@ private fun ClinicRideCard(dto: RideDto, onBook: () -> Unit) {
     val ride = remember(dto.id) { dto.toUiRide() }
     val time = if (LocalAppLanguage.current == AppLanguage.Ba) (ride.timeBa ?: ride.time) else ride.time
     AppCard {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("${ride.from} → ${ride.to}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (ride.verified) {
                     Icon(Icons.Default.Verified, contentDescription = appText("Проверен", "Тикшерелгән"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MetaChip(Icons.Default.Schedule, time)
                 MetaChip(Icons.Default.EventSeat, appText("${ride.seats} мест", "${ride.seats} урын"))
                 MetaChip(Icons.Default.Star, String.format(java.util.Locale.US, "%.1f", ride.rating))
@@ -274,7 +274,7 @@ private fun ClinicRideCard(dto: RideDto, onBook: () -> Unit) {
             // Двуязычный дефолт имени водителя (toUiRide больше не кладёт русский литерал). BA-draft: «Йөрөтөүсе».
             val driverFallback = appText("Водитель", "Йөрөтөүсе")
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(ride.driver.ifBlank { driverFallback }, color = CanonMuted, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(ride.driver.ifBlank { driverFallback }, color = CanonMuted, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(if (ride.price > 0) "${ride.price} ₽" else appText("Бесплатно", "Бушлай"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             AppButton(appText("Поехать", "Барырға"), onBook, height = 46.dp)
@@ -287,6 +287,6 @@ private fun MetaChip(icon: androidx.compose.ui.graphics.vector.ImageVector, text
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(15.dp))
         Spacer(Modifier.width(4.dp))
-        Text(text, color = CanonMuted, fontSize = 13.sp)
+        Text(text, color = CanonMuted, fontSize = 14.sp)
     }
 }

@@ -113,7 +113,7 @@ internal fun MyStatsScreen(onBack: () -> Unit) {
     Scaffold(containerColor = CanonBg) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
         ) {
             item {
@@ -128,7 +128,7 @@ internal fun MyStatsScreen(onBack: () -> Unit) {
                     Spacer(Modifier.width(4.dp))
                     Text(
                         appText("Мой Юлдаш", "Минең Юлдаш"),
-                        color = CanonGreen, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold,
+                        color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
                     )
                 }
             }
@@ -181,8 +181,8 @@ internal fun MyStatsScreen(onBack: () -> Unit) {
                                 "Экономия и CO₂ — примерная оценка в сравнении с поездкой на такси.",
                                 "Янға ҡалыу һәм CO₂ — таксиға ҡарата яҡынса баһа.",
                             ),
-                            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
-                            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
+                            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                         )
                     }
 
@@ -221,13 +221,13 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
         modifier = Modifier.fillMaxWidth(),
         shape = CanonCardShape,
         colors = CardDefaults.cardColors(containerColor = StatsCardTop),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
                 .background(Brush.verticalGradient(listOf(StatsCardTop, StatsCardBottom)))
-                .padding(22.dp),
+                .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -236,10 +236,10 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
                         appTextFor(language, "МОЙ ЮЛДАШ", "МИНЕҢ ЮЛДАШ"),
                         color = StatsMint, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp,
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         rankTitle,
-                        color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
+                        color = Color.White, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
                     )
                     if (name.isNotBlank()) {
                         Text(name, color = StatsMintBright, fontSize = 14.sp, fontWeight = FontWeight.Medium)
@@ -257,7 +257,7 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
             Column {
                 Text(
                     fmtKmStat(s.km),
-                    color = Color.White, fontSize = 46.sp, lineHeight = 48.sp, fontWeight = FontWeight.Bold,
+                    color = Color.White, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold,
                 )
                 Text(
                     appTextFor(language, "километров вместе", "километр бергә"),
@@ -265,7 +265,7 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
                 )
             }
 
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MiniStat(Modifier.weight(1f), fmtInt(s.trips), appTextFor(language, "поездок", "сәфәр"))
                 MiniStat(Modifier.weight(1f), "${fmtInt(s.savedRub)} ₽", appTextFor(language, "сэкономил", "янға ҡалды"))
                 MiniStat(Modifier.weight(1f), fmtKg(s.co2SavedKg), appTextFor(language, "CO₂ меньше", "CO₂ кәм"))
@@ -290,9 +290,9 @@ private fun MiniStat(modifier: Modifier, value: String, label: String) {
             .padding(vertical = 12.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(value, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(2.dp))
-        Text(label, color = StatsMint, fontSize = 11.sp, textAlign = TextAlign.Center)
+        Text(value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(4.dp))
+        Text(label, color = StatsMint, fontSize = 12.sp, textAlign = TextAlign.Center)
     }
 }
 
@@ -308,15 +308,15 @@ private fun StatTile(
         modifier = modifier,
         shape = CanonCardShape,
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
         border = BorderStroke(1.dp, CanonBorder),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Surface(color = CanonMint, shape = CircleShape) {
-                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.padding(9.dp).size(20.dp))
+                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.padding(8.dp).size(20.dp))
             }
-            Text(value, color = CanonText, fontSize = 22.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
-            Text(label, color = CanonMuted, fontSize = 13.sp)
+            Text(value, color = CanonText, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
+            Text(label, color = CanonMuted, fontSize = 14.sp)
         }
     }
 }
@@ -331,27 +331,27 @@ private fun RankProgressCard(s: MyStatsDto, language: AppLanguage) {
         modifier = Modifier.fillMaxWidth(),
         shape = CanonCardShape,
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
         border = BorderStroke(1.dp, CanonBorder),
     ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.EmojiEvents, contentDescription = null, tint = CanonStar, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     appText("До звания «$nextTitle»", "«$nextTitle» исеменә тиклем"),
-                    color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                    color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
                 )
             }
             LinearProgressIndicator(
                 progress = { animated },
-                modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(6.dp)),
+                modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(8.dp)),
                 color = CanonGreen2,
                 trackColor = CanonMint,
             )
             Text(
                 appText("Осталось ${fmtInt(s.toNext)} ${tripsWord(s.toNext)}", "Тағы ${fmtInt(s.toNext)} сәфәр"),
-                color = CanonMuted, fontSize = 13.sp,
+                color = CanonMuted, fontSize = 14.sp,
             )
         }
     }
@@ -513,14 +513,14 @@ private fun AchievementsSection() {
     val d = data ?: return
     if (d.items.isEmpty()) return
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(appText("Твои значки", "Һинең билдәләрең"), color = CanonText,
-                fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                fontWeight = FontWeight.Bold, fontSize = 19.sp)
             Spacer(Modifier.width(8.dp))
             Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
                 Text("${d.earnedCount}/${d.items.size}", color = CanonGreen2, fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp))
+                    fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
             }
         }
         d.items.forEach { b -> AchievementRow(b) }
@@ -541,7 +541,7 @@ private fun AchievementRow(b: com.yuldash.app.data.AchievementDto) {
         shape = CanonItemShape,
         border = BorderStroke(1.dp, if (b.earned) CanonGreen2 else CanonBorder),
     ) {
-        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 if (b.earned) Icons.Default.EmojiEvents else Icons.Default.Lock,
                 contentDescription = null,
@@ -550,7 +550,7 @@ private fun AchievementRow(b: com.yuldash.app.data.AchievementDto) {
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(appText(b.ru, b.ba), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(appText(b.ru, b.ba), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 if (!b.earned) {
                     Text(
                         appText("Ещё ${(b.goal - b.value).coerceAtLeast(0)} до значка", "Билдәгә тағы ${(b.goal - b.value).coerceAtLeast(0)}"),

@@ -108,12 +108,12 @@ internal fun QuickPlacesBlock(
             color = CanonMint,
             modifier = modifier.fillMaxWidth(),
         ) {
-            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("🏠", fontSize = 20.sp)
+            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("🏠", fontSize = 19.sp)
                 Spacer(Modifier.width(12.dp))
                 Text(
                     appText("Добавь дом и работу — заказывать станет быстрее.", "Өй һәм эш адресын өҫтә — заказ биреүе тиҙерәк булыр."),
-                    color = CanonGreen, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium,
+                    color = CanonGreen, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium,
                 )
             }
         }
@@ -126,7 +126,7 @@ internal fun QuickPlacesBlock(
             Text(
                 appText("Недавние", "Һуңғылар"),
                 color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp),
             )
             recent.take(5).forEach { r ->
                 QuickPlaceRow(Icons.Default.History, r.address, null) { onPick(r.address, r.lat, r.lng) }
@@ -145,11 +145,11 @@ private fun QuickPlaceRow(icon: ImageVector, title: String, subtitle: String?, o
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = CircleShape) {
-                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
+                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(title, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 if (subtitle != null) Text(subtitle, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
             }
         }
@@ -187,8 +187,8 @@ internal fun SaveAsPlaceChips(
     }
 
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(appText("Сохранить как", "Былай һаҡлау"), color = CanonMuted, fontSize = 13.sp)
-        Spacer(Modifier.width(10.dp))
+        Text(appText("Сохранить как", "Былай һаҡлау"), color = CanonMuted, fontSize = 14.sp)
+        Spacer(Modifier.width(8.dp))
         SaveAsChip(
             icon = placeKindIcon("home"),
             label = appText("Дом", "Өй"),
@@ -220,10 +220,10 @@ private fun SaveAsChip(icon: ImageVector, label: String, active: Boolean, loadin
             } else {
                 Icon(icon, contentDescription = null, tint = if (active) CanonSurface else CanonGreen2, modifier = Modifier.size(16.dp))
             }
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(4.dp))
             Text(
                 if (active) appText("Сохранено", "Һаҡланды") else label,
-                color = if (active) CanonSurface else CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                color = if (active) CanonSurface else CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold,
             )
         }
     }
@@ -270,12 +270,12 @@ internal fun SavedPlacesScreen(onBack: () -> Unit) {
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(top = 6.dp, bottom = 28.dp),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
         ) {
             item {
                 Text(
                     appText("Дом, работа и любимые места — чтобы заказывать в один тап.", "Өй, эш һәм яратҡан урындар — бер тап менән заказ биреү өсөн."),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
 
@@ -301,7 +301,7 @@ internal fun SavedPlacesScreen(onBack: () -> Unit) {
                         ) {
                             Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(10.dp))
+                                Spacer(Modifier.width(8.dp))
                                 Text(hit.title, color = CanonText, fontSize = 14.sp, maxLines = 2)
                             }
                         }
@@ -311,7 +311,7 @@ internal fun SavedPlacesScreen(onBack: () -> Unit) {
 
             when {
                 loading && saved.isEmpty() -> item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         SkeletonCard(lines = 2); SkeletonCard(lines = 2)
                     }
                 }
@@ -368,14 +368,14 @@ private fun SavedPlaceRow(place: SavedPlaceDto, onDelete: () -> Unit) {
         border = BorderStroke(1.dp, CanonBorder),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = CircleShape) {
-                Icon(placeKindIcon(place.kind), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(20.dp))
+                Icon(placeKindIcon(place.kind), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(placeKindLabel(place.kind, place.label), color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                Text(place.address, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 2)
+                Text(placeKindLabel(place.kind, place.label), color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(place.address, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, maxLines = 2)
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Default.DeleteOutline, contentDescription = appText("Удалить", "Юйыу"), tint = CanonMuted)
@@ -399,8 +399,8 @@ private fun SavePlaceKindDialog(
         },
         title = { Text(appText("Сохранить адрес", "Адресты һаҡлау"), fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(address, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(address, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                 DialogKindRow(placeKindIcon("home"), appText("Дом", "Өй")) { onSave("home", "Дом") }
                 DialogKindRow(placeKindIcon("work"), appText("Работа", "Эш")) { onSave("work", "Работа") }
                 OutlinedTextField(
@@ -432,7 +432,7 @@ private fun DialogKindRow(icon: ImageVector, label: String, onClick: () -> Unit)
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(12.dp))
-            Text(label, color = CanonGreen, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(label, color = CanonGreen, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }

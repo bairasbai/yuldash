@@ -222,11 +222,11 @@ private fun SosAlarmBanner(count: Int) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     appText("Ждут помощи: $count", "Ярҙам көтә: $count"),
-                    color = CanonRed, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp,
+                    color = CanonRed, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 23.sp,
                 )
                 Text(
                     appText("Сначала позвони — разбираться будешь потом.", "Башта шылтырат — аҙаҡ асыҡларһың."),
-                    color = CanonMutedStrong, fontSize = 13.sp, lineHeight = 18.sp,
+                    color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
         }
@@ -247,7 +247,7 @@ private fun SosHistoryHint() {
                 "Видно, кто принял сигнал и что сделал.",
                 "Сигналды кем ҡабул иткәнен һәм нимә эшләгәнен күреп була.",
             ),
-            color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+            color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
         )
     }
 }
@@ -279,13 +279,13 @@ private fun AdminSosCard(
                 Icon(catIcon, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    catLabel, color = accent, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp,
+                    catLabel, color = accent, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 23.sp,
                     modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.width(12.dp))
                 Text(
                     if (open) appText("Открыт", "Асыҡ") else appText("Разобран", "Ҡаралған"),
-                    color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                    color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                 )
             }
 
@@ -294,10 +294,10 @@ private fun AdminSosCard(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         e.userName.ifBlank { appText("Без имени", "Исемһеҙ") },
-                        color = CanonText, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 24.sp,
+                        color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp, lineHeight = 25.sp,
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
-                    Text(formatDepart(e.createdAt), color = CanonMuted, fontSize = 13.sp)
+                    Text(formatDepart(e.createdAt), color = CanonMuted, fontSize = 14.sp)
                 }
 
                 if (e.route.isNotBlank()) {
@@ -309,7 +309,7 @@ private fun AdminSosCard(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            e.route, color = CanonMutedStrong, fontSize = 13.sp, lineHeight = 18.sp,
+                            e.route, color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 20.sp,
                             maxLines = 2, overflow = TextOverflow.Ellipsis,
                         )
                     }
@@ -332,7 +332,7 @@ private fun AdminSosCard(
                             "Телефон не передан — свяжись через чат поездки.",
                             "Телефон бирелмәгән — сәфәр чаты аша бәйләнеш ҡор.",
                         ),
-                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                     )
                 }
 
@@ -346,7 +346,7 @@ private fun AdminSosCard(
                         border = BorderStroke(1.dp, if (open) CanonDangerBorder else CanonBorder),
                     ) {
                         Text(
-                            e.note, color = CanonText, fontSize = 16.sp, lineHeight = 22.sp,
+                            e.note, color = CanonText, fontSize = 16.sp, lineHeight = 23.sp,
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
                         )
                     }
@@ -364,10 +364,10 @@ private fun AdminSosCard(
                                 Text(
                                     (if (e.handledNote.isNotBlank()) appText("Что сделали", "Нимә эшләнде")
                                     else appText("Принято", "Ҡабул ителгән")) + (stamp?.let { " · $it" } ?: ""),
-                                    color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                    color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                                 )
                                 if (e.handledNote.isNotBlank()) {
-                                    Text(e.handledNote, color = CanonText, fontSize = 16.sp, lineHeight = 22.sp)
+                                    Text(e.handledNote, color = CanonText, fontSize = 16.sp, lineHeight = 23.sp)
                                 }
                             }
                         }
@@ -385,7 +385,7 @@ private fun AdminSosCard(
                                     label = {
                                         Text(
                                             appText("Что сделали (для истории)", "Нимә эшләнде (тарих өсөн)"),
-                                            fontSize = 13.sp,
+                                            fontSize = 14.sp,
                                         )
                                     },
                                     minLines = 2,

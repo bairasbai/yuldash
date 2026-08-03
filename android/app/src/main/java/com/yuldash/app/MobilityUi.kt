@@ -85,7 +85,7 @@ internal fun MobilityScreenIntro(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Surface(
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(14.dp),
             color = accent.copy(alpha = 0.14f),
             border = BorderStroke(1.dp, accent.copy(alpha = 0.28f)),
         ) {
@@ -126,7 +126,7 @@ internal fun TaxiMapFrame(
     Card(
         shape = CanonCardShape,
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.raised),
         border = BorderStroke(1.dp, CanonBorder),
         modifier = modifier.fillMaxWidth(),
     ) {
@@ -135,13 +135,13 @@ internal fun TaxiMapFrame(
             Surface(
                 color = CanonSurface.copy(alpha = 0.96f),
                 shape = CircleShape,
-                shadowElevation = 4.dp,
+                shadowElevation = CanonDepth.raised,
                 modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
             ) {
                 Row(
                     Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Box(Modifier.size(8.dp).background(if (nearbyCount > 0) CanonGreen2 else CanonMuted, CircleShape))
                     Text(
@@ -156,16 +156,16 @@ internal fun TaxiMapFrame(
             Surface(
                 color = CanonSurface.copy(alpha = 0.96f),
                 shape = CircleShape,
-                shadowElevation = 4.dp,
+                shadowElevation = CanonDepth.raised,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
             ) {
                 Row(
-                    Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                    Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonTaxi, modifier = Modifier.size(15.dp))
-                    Text(appText("Подача по ETA", "ETA буйынса килеү"), color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(appText("Подача по ETA", "ETA буйынса килеү"), color = CanonMutedStrong, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -197,8 +197,8 @@ internal fun MobilityRouteTimeline(
             Box(Modifier.width(2.dp).height(if (compact) 29.dp else 39.dp).background(CanonBorder))
             Box(
                 Modifier.size(13.dp)
-                    .background(CanonTaxi, RoundedCornerShape(4.dp))
-                    .padding(2.dp),
+                    .background(CanonTaxi, RoundedCornerShape(8.dp))
+                    .padding(4.dp),
             )
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(rowGap)) {
@@ -210,8 +210,8 @@ internal fun MobilityRouteTimeline(
 
 @Composable
 private fun MobilityRouteText(label: String, value: String, compact: Boolean) {
-    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-        Text(label, color = CanonMuted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         Text(
             value,
             color = CanonText,
@@ -235,12 +235,12 @@ internal fun TaxiServiceClassTile(
 ) {
     val bg by animateColorAsState(
         if (selected) CanonTaxiBg else CanonSurface,
-        tween(180),
+        tween(CanonMotion.QUICK),
         label = "taxiClassBg",
     )
     val border by animateColorAsState(
         if (selected) CanonTaxi else CanonBorder,
-        tween(180),
+        tween(CanonMotion.QUICK),
         label = "taxiClassBorder",
     )
     val selectionState = if (selected) appText("Выбрано", "Һайланған")
@@ -258,10 +258,10 @@ internal fun TaxiServiceClassTile(
                 stateDescription = selectionState
             },
     ) {
-        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = if (selected) CanonTaxi else CanonBg,
                 ) {
                     Icon(
@@ -278,11 +278,11 @@ internal fun TaxiServiceClassTile(
                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonTaxiText, modifier = Modifier.size(18.dp))
                 }
             }
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 if (price != null) Text("$price ₽", color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
-            Text(subtitle, color = CanonMutedStrong, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = CanonMutedStrong, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -303,23 +303,23 @@ internal fun TaxiFareSummary(
         border = BorderStroke(1.dp, CanonBorder),
         modifier = modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(appText("Стоимость поездки", "Сәфәр хаҡы"), color = CanonMutedStrong, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     when {
                         loading -> Text(appText("Считаем…", "Иҫәпләйбеҙ…"), color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                        error != null -> Text(appText("Цена недоступна", "Хаҡ әлегә юҡ"), color = CanonRed, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        price != null -> Text("$price ₽", color = CanonText, fontSize = 34.sp, lineHeight = 38.sp, fontWeight = FontWeight.Bold)
-                        else -> Text("—", color = CanonMuted, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                        error != null -> Text(appText("Цена недоступна", "Хаҡ әлегә юҡ"), color = CanonRed, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        price != null -> Text("$price ₽", color = CanonText, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold)
+                        else -> Text("—", color = CanonMuted, fontSize = 34.sp, fontWeight = FontWeight.Bold)
                     }
                 }
-                Surface(shape = RoundedCornerShape(18.dp), color = CanonTaxiBg) {
-                    Icon(Icons.Default.Payments, contentDescription = null, tint = CanonTaxiText, modifier = Modifier.padding(13.dp).size(24.dp))
+                Surface(shape = RoundedCornerShape(14.dp), color = CanonTaxiBg) {
+                    Icon(Icons.Default.Payments, contentDescription = null, tint = CanonTaxiText, modifier = Modifier.padding(12.dp).size(24.dp))
                 }
             }
             if (error != null) {
-                Text(error, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp)
+                Text(error, color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp)
             } else {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MobilityMetricChip(Icons.Default.LocationOn, distance ?: "—", Modifier.weight(1f))
@@ -328,12 +328,12 @@ internal fun TaxiFareSummary(
                 if (!pickup.isNullOrBlank()) {
                     Surface(shape = RoundedCornerShape(14.dp), color = CanonMint) {
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp),
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Box(Modifier.size(7.dp).background(CanonGreen2, CircleShape))
-                            Text(pickup, color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(pickup, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -346,9 +346,9 @@ internal fun TaxiFareSummary(
 private fun MobilityMetricChip(icon: ImageVector, text: String, modifier: Modifier = Modifier) {
     Surface(shape = RoundedCornerShape(14.dp), color = CanonBg, border = BorderStroke(1.dp, CanonBorder), modifier = modifier) {
         Row(
-            Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(icon, contentDescription = null, tint = CanonMutedStrong, modifier = Modifier.size(15.dp))
             Text(text, color = CanonText, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -432,12 +432,12 @@ internal fun MobilityProgressRail(
                         )
                     } else Spacer(Modifier.weight(1f))
                 }
-                Spacer(Modifier.height(7.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     label,
                     color = if (index == currentIndex) CanonText else CanonMuted,
-                    fontSize = 10.sp,
-                    lineHeight = 13.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
                     fontWeight = if (index == currentIndex) FontWeight.Bold else FontWeight.Medium,
                     textAlign = TextAlign.Center,
                     maxLines = 2,
@@ -501,17 +501,17 @@ internal fun CourierLineHero(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Surface(shape = RoundedCornerShape(17.dp), color = if (online) CanonOnAccent.copy(alpha = 0.14f) else CanonBg) {
+                    Surface(shape = RoundedCornerShape(14.dp), color = if (online) CanonOnAccent.copy(alpha = 0.14f) else CanonBg) {
                         Icon(
                             Icons.Default.LocalShipping,
                             contentDescription = null,
                             tint = if (online) CanonOnAccent else accent,
-                            modifier = Modifier.padding(11.dp).size(24.dp),
+                            modifier = Modifier.padding(12.dp).size(24.dp),
                         )
                     }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(title, color = if (online) CanonOnAccent else CanonText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text(subtitle, color = if (online) CanonOnAccent.copy(alpha = 0.76f) else CanonMutedStrong, fontSize = 12.sp, lineHeight = 16.sp)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(title, color = if (online) CanonOnAccent else CanonText, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Text(subtitle, color = if (online) CanonOnAccent.copy(alpha = 0.76f) else CanonMutedStrong, fontSize = 12.sp, lineHeight = 17.sp)
                     }
                     val switchLabel = appText("Работа курьера", "Курьер эше")
                     val switchState = if (online) appText("На линии", "Линияла")
@@ -534,7 +534,7 @@ internal fun CourierLineHero(
                     )
                 }
             }
-            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp), content = zoneContent)
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = zoneContent)
         }
     }
 }
@@ -547,11 +547,11 @@ internal fun MobilitySegmentTab(
     modifier: Modifier = Modifier,
     badge: String? = null,
 ) {
-    val bg by animateColorAsState(if (active) CanonText else Color.Transparent, tween(180), label = "mobilitySegment")
+    val bg by animateColorAsState(if (active) CanonText else Color.Transparent, tween(CanonMotion.QUICK), label = "mobilitySegment")
     Surface(
         onClick = onClick,
         color = bg,
-        shape = RoundedCornerShape(15.dp),
+        shape = RoundedCornerShape(14.dp),
         modifier = modifier
             .height(48.dp)
             .semantics {
@@ -560,20 +560,20 @@ internal fun MobilitySegmentTab(
             },
     ) {
         Row(
-            Modifier.fillMaxSize().padding(horizontal = 9.dp),
+            Modifier.fillMaxSize().padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(label, color = if (active) CanonBg else CanonMutedStrong, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(label, color = if (active) CanonBg else CanonMutedStrong, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             if (!badge.isNullOrBlank()) {
-                Spacer(Modifier.width(5.dp))
+                Spacer(Modifier.width(4.dp))
                 Surface(shape = CircleShape, color = if (active) CanonTaxi else CanonMint) {
                     Text(
                         badge,
                         color = if (active) CanonTaxiInk else CanonGreen2,
-                        fontSize = 10.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                     )
                 }
             }
@@ -596,17 +596,17 @@ internal fun CourierOfferCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     AppCard(modifier = modifier) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(shape = RoundedCornerShape(15.dp), color = CanonMint) {
-                    Icon(Icons.Default.Inventory2, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(shape = RoundedCornerShape(14.dp), color = CanonMint) {
+                    Icon(Icons.Default.Inventory2, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(22.dp))
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(priceCaption, color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Text(priceLabel, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text(priceCaption, color = CanonMutedStrong, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(priceLabel, color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 }
-                Surface(shape = RoundedCornerShape(12.dp), color = CanonGreen2.copy(alpha = 0.12f)) {
-                    Text(deliveryLabel, color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
+                Surface(shape = RoundedCornerShape(14.dp), color = CanonGreen2.copy(alpha = 0.12f)) {
+                    Text(deliveryLabel, color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                 }
             }
             MobilityRouteTimeline(from = from, to = to, compact = true)
@@ -619,7 +619,7 @@ internal fun CourierOfferCard(
                 MobilitySmallTag(appText("Адрес — когда возьмёшь", "Алғас — адрес күренә"))
             }
             if (description.isNotBlank()) {
-                Text(description, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text(description, color = CanonText, fontSize = 14.sp, lineHeight = 20.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
             content()
         }
@@ -635,8 +635,8 @@ internal fun CourierServiceTypeTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(180), label = "courierServiceBg")
-    val border by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(180), label = "courierServiceBorder")
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "courierServiceBg")
+    val border by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "courierServiceBorder")
     val selectionState = if (selected) appText("Выбрано", "Һайланған")
     else appText("Не выбрано", "Һайланмаған")
     Surface(
@@ -654,24 +654,24 @@ internal fun CourierServiceTypeTile(
             },
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(13.dp),
+            Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Surface(
-                shape = RoundedCornerShape(15.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = if (selected) CanonGreen2 else CanonBg,
             ) {
                 Icon(
                     icon,
                     contentDescription = null,
                     tint = if (selected) CanonOnAccent else CanonGreen2,
-                    modifier = Modifier.padding(11.dp).size(22.dp),
+                    modifier = Modifier.padding(12.dp).size(22.dp),
                 )
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                Text(subtitle, color = CanonMutedStrong, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(subtitle, color = CanonMutedStrong, fontSize = 12.sp, lineHeight = 23.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             if (selected) {
                 Surface(shape = CircleShape, color = CanonGreen2) {
@@ -695,17 +695,17 @@ internal fun CourierFareSummary(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
         border = BorderStroke(1.dp, CanonGreen2.copy(alpha = 0.5f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
         modifier = modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(appText("Стоимость доставки", "Доставка хаҡы"), color = CanonMutedStrong, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text(total, color = CanonText, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold)
+                    Text(total, color = CanonText, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold)
                 }
-                Surface(shape = RoundedCornerShape(18.dp), color = CanonMint) {
-                    Icon(Icons.Default.LocalShipping, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(13.dp).size(25.dp))
+                Surface(shape = RoundedCornerShape(14.dp), color = CanonMint) {
+                    Icon(Icons.Default.LocalShipping, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(25.dp))
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -714,7 +714,7 @@ internal fun CourierFareSummary(
                 MobilityValueTile(appText("Маршрут", "Маршрут"), distance, CanonMutedStrong, Modifier.weight(1f))
             }
             Surface(shape = CanonItemShape, color = CanonMint) {
-                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp), content = breakdown)
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp), content = breakdown)
             }
         }
     }
@@ -723,8 +723,8 @@ internal fun CourierFareSummary(
 @Composable
 private fun MobilityValueTile(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
     Surface(shape = RoundedCornerShape(14.dp), color = CanonBg, border = BorderStroke(1.dp, CanonBorder), modifier = modifier) {
-        Column(Modifier.padding(horizontal = 9.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(label, color = CanonMuted, fontSize = 10.sp, maxLines = 1)
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
             Text(value, color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -733,7 +733,7 @@ private fun MobilityValueTile(label: String, value: String, color: Color, modifi
 @Composable
 private fun MobilitySmallTag(text: String) {
     Surface(shape = CircleShape, color = CanonBg, border = BorderStroke(1.dp, CanonBorder)) {
-        Text(text, color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
+        Text(text, color = CanonMutedStrong, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
     }
 }
 

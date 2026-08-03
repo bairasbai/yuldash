@@ -78,7 +78,7 @@ import kotlinx.coroutines.launch
 private val TroubleBody = 14.sp
 private val TroubleBodyLine = 20.sp
 private val TroubleMeta = 12.sp
-private val TroubleMetaLine = 16.sp
+private val TroubleMetaLine = 17.sp
 
 // Ритм: всё кратно 4dp.
 private val TroubleGap = 12.dp
@@ -92,11 +92,11 @@ private val TroubleIcon = 16.dp
 internal fun CourierTroubleButton(returning: Boolean, onClick: () -> Unit) {
     // Посылка перешла в возврат прямо на экране — подпись и цвет переезжают плавно,
     // без «подмены» кнопки под пальцем.
-    val tint by animateColorAsState(if (returning) CanonWarn else CanonMuted, tween(260), label = "trouble-tint")
+    val tint by animateColorAsState(if (returning) CanonWarn else CanonMuted, tween(CanonMotion.NORMAL), label = "trouble-tint")
     TextButton(onClick = onClick, modifier = Modifier.heightIn(min = TroubleTouch)) {
         AnimatedContent(
             targetState = returning,
-            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
+            transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
             label = "trouble-label",
         ) { isReturning ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -205,7 +205,7 @@ internal fun CourierTroubleDialog(
                         minLines = 2,
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = CanonGreen2,
                             cursorColor = CanonGreen2,
@@ -226,8 +226,8 @@ internal fun CourierTroubleDialog(
                 // Ошибка появляется плавно и стоит прямо над кнопками — там, где человек смотрит.
                 AnimatedVisibility(
                     visible = err != null,
-                    enter = fadeIn(tween(220)),
-                    exit = fadeOut(tween(140)),
+                    enter = fadeIn(tween(CanonMotion.QUICK)),
+                    exit = fadeOut(tween(CanonMotion.QUICK)),
                 ) {
                     TroubleNotice(err.orEmpty(), CanonDangerBg, CanonRed)
                 }

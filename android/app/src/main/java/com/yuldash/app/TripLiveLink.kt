@@ -48,14 +48,14 @@ internal fun LiveLinkCard(link: String, modifier: Modifier = Modifier) {
         Text(
             appText("Близкий откроет ссылку в браузере и увидит поездку на карте",
                 "Яҡын кеше һылтанманы браузерҙа асып сәфәрҙе картала күрер"),
-            color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+            color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
         )
-        Spacer(Modifier.height(10.dp))
-        Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+        Spacer(Modifier.height(8.dp))
+        Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
             Text(
                 link,
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
@@ -71,7 +71,7 @@ internal fun LiveLinkCard(link: String, modifier: Modifier = Modifier) {
             ) {
                 Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать ссылку", "Һылтанманы күсереү"),
                     tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(4.dp))
                 Text(appText("Скопировать", "Күсереү"), color = CanonGreen2, fontWeight = FontWeight.Bold, maxLines = 1)
             }
             Button(
@@ -88,7 +88,7 @@ internal fun LiveLinkCard(link: String, modifier: Modifier = Modifier) {
             ) {
                 Icon(Icons.Default.IosShare, contentDescription = appText("Отправить ссылку", "Һылтанманы ебәреү"),
                     tint = Color.White, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(4.dp))
                 Text(appText("Отправить", "Ебәреү"), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
             }
         }

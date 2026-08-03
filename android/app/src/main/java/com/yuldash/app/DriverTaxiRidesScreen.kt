@@ -83,7 +83,7 @@ internal fun DriverTaxiRidesScreen(onBack: () -> Unit, onOpenReceipt: (Int) -> U
         // прокрутка назад ничего не переигрывает (строки в LazyColumn пересоздаются).
         val reveal by animateFloatAsState(
             targetValue = if (d != null) 1f else 0f,
-            animationSpec = tween(360),
+            animationSpec = tween(CanonMotion.SLOW),
             label = "taxiRidesReveal",
         )
         val enter = Modifier.graphicsLayer {
@@ -159,7 +159,7 @@ internal fun DriverTaxiRidesScreen(onBack: () -> Unit, onOpenReceipt: (Int) -> U
 @Composable
 private fun TaxiRidesTotalsCard(d: DriverTaxiRidesDto, modifier: Modifier = Modifier) {
     AppCard(modifier = modifier) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     appText("Чистыми за последние поездки", "Һуңғы сәфәрҙәр өсөн таҙа"),

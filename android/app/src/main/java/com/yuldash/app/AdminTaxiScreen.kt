@@ -126,7 +126,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Таксисты", "Таксистар"), onBack) }) { padding ->
         LazyColumn(
             Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp),
         ) {
             item {
@@ -135,7 +135,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                         "Заявки «Стать таксистом» (580-ФЗ): сверь ИНН, разрешение и ОСАГО, потом одобри или отклони с комментарием.",
                         "«Таксист булыу» заявкалары (580-ФЗ): ИНН, рөхсәт һәм ОСАГО-ны тикшер, аҙаҡ раҫла йәки комментарий менән кире ҡаҡ.",
                     ),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
             // Фильтр по статусу.
@@ -163,14 +163,14 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                 items(apps.size, key = { "app-" + apps[it].id }) { i ->
                     val a = apps[i]
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(a.name.ifBlank { appText("Без имени", "Исемһеҙ") }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                                Text(a.name.ifBlank { appText("Без имени", "Исемһеҙ") }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
                                 TaxiStatusBadge(a.status)
                             }
-                            if (a.phone.isNotBlank()) Text(a.phone, color = CanonMuted, fontSize = 13.sp)
+                            if (a.phone.isNotBlank()) Text(a.phone, color = CanonMuted, fontSize = 14.sp)
                             // Доверие «между своими»: кто пригласил этого водителя (если по реф-коду).
-                            a.invitedBy?.let { Text(appText("Пригласил: ", "Саҡырҙы: ") + it, color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                            a.invitedBy?.let { Text(appText("Пригласил: ", "Саҡырҙы: ") + it, color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
                             // ИНН + разрешение + возраст/стаж.
                             val age = taxiAgeYears(a.birthDate)
                             val currentYear = remember { java.time.LocalDate.now().year }
@@ -181,25 +181,25 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                                 if (age != null) add(appText("$age лет", "$age йәш"))
                                 if (expYears != null) add(appText("стаж $expYears г.", "стаж $expYears йыл"))
                             }.joinToString("  ·  ")
-                            if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 13.sp)
+                            if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 14.sp)
                             if (a.permitPhotoUrl.isNotBlank()) {
-                                Text(appText("Разрешение на такси", "Такси рөхсәте"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(appText("Разрешение на такси", "Такси рөхсәте"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 TaxiDocImage(a.permitPhotoUrl, token)
                             }
                             if (a.osagoUrl.isNotBlank()) {
-                                Text(appText("Полис ОСАГО", "ОСАГО полисы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(appText("Полис ОСАГО", "ОСАГО полисы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 TaxiDocImage(a.osagoUrl, token)
                             }
                             if (a.selfieUrl.isNotBlank()) {
-                                Text(appText("Селфи с правами (сверь лицо)", "Права менән селфи (йөҙҙө сағыштыр)"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(appText("Селфи с правами (сверь лицо)", "Права менән селфи (йөҙҙө сағыштыр)"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 TaxiDocImage(a.selfieUrl, token)
                             }
                             if (a.criminalRecordUrl.isNotBlank()) {
-                                Text(appText("Справка о несудимости", "Судимлек юҡлығы белешмәһе"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(appText("Справка о несудимости", "Судимлек юҡлығы белешмәһе"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 TaxiDocImage(a.criminalRecordUrl, token)
                             }
                             if (a.status == "rejected" && a.comment.isNotBlank()) {
-                                Text(appText("Комментарий: ", "Комментарий: ") + a.comment, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp)
+                                Text(appText("Комментарий: ", "Комментарий: ") + a.comment, color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp)
                             }
                             if (a.status == "pending") {
                                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -258,7 +258,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
             }
 
             // ------------------------------ Города такси ------------------------------
-            item { Spacer(Modifier.height(6.dp)) }
+            item { Spacer(Modifier.height(4.dp)) }
             item { SectionHeader(appText("Города такси", "Такси ҡалалары"), appText("Где пассажирам доступен быстрый заказ", "Пассажирҙарға тиҙ заказ ҡайҙа асыҡ")) }
             if (citiesError) {
                 item { ListedError(loadErr) { reloadCities() } }
@@ -266,7 +266,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                 item {
                     Text(
                         appText("Городов пока нет — добавь первый ниже. Пока список пуст, такси решает глобальный флаг на сервере.", "Ҡалалар әлегә юҡ — тәүгеһен түбәндә өҫтә. Исемлек буш саҡта таксины серверҙағы дөйөм флаг хәл итә."),
-                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                     )
                 }
             } else {
@@ -311,7 +311,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                 }
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = newCity,
                         onValueChange = { newCity = it.take(40) },
@@ -338,14 +338,14 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                     ) {
                         Icon(Icons.Default.Add, contentDescription = appText("Добавить город", "Ҡала өҫтәү"))
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(4.dp))
                         Text(appText("Добавить", "Өҫтәү"), fontWeight = FontWeight.Bold)
                     }
                 }
             }
 
             // ------------------ Журнал предрейсовых подтверждений (580-ФЗ) ------------------
-            item { Spacer(Modifier.height(6.dp)) }
+            item { Spacer(Modifier.height(4.dp)) }
             item {
                 SectionHeader(
                     appText("Готовность к работе", "Эшкә әҙерлек"),
@@ -371,7 +371,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                     }
                     Text(
                         pretripDayLabel(dayShift, pretrip?.day),
-                        color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                        color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp,
                         modifier = Modifier.weight(1f), textAlign = TextAlign.Center,
                     )
                     IconButton(onClick = { if (dayShift > 0) dayShift -= 1 }, enabled = dayShift > 0) {
@@ -392,7 +392,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                             "В этот день никто не отмечался.",
                             "Был көндә бер кем дә билдәләнмәгән.",
                         ),
-                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                     )
                 }
                 else -> items(
@@ -417,7 +417,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                                     color = CanonMuted, fontSize = 12.sp,
                                 )
                                 if (e.note.isNotBlank()) {
-                                    Text(e.note, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                                    Text(e.note, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
                                 }
                             }
                         }
@@ -474,8 +474,8 @@ private fun TaxiStatusBadge(status: String) {
         "rejected" -> Triple(appText("Отклонён", "Кире ҡағылған"), CanonRed, CanonDangerBg)
         else -> Triple(appText("На проверке", "Тикшереүҙә"), CanonWarn, CanonWarnBg)
     }
-    Surface(color = bg, shape = RoundedCornerShape(10.dp)) {
-        Text(label, color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+    Surface(color = bg, shape = RoundedCornerShape(8.dp)) {
+        Text(label, color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
     }
 }
 
@@ -486,7 +486,7 @@ private fun TaxiDocImage(url: String, token: String) {
     coil.compose.AsyncImage(
         model = coil.request.ImageRequest.Builder(ctx).data(url).addHeader("Authorization", "Bearer $token").crossfade(true).build(),
         contentDescription = null,
-        modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp)),
+        modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(14.dp)),
         contentScale = ContentScale.Crop,
     )
 }

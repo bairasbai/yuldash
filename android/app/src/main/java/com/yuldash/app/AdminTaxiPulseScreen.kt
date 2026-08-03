@@ -61,13 +61,13 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Пульс такси", "Такси пульсы"), onBack) }) { padding ->
         LazyColumn(
             Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp),
         ) {
             item {
                 Text(
                     appText("Живая сводка: обновляется каждые 30 секунд.", "Йәнле күҙәтеү: һәр 30 секунд һайын яңыра."),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
             val p = pulse
@@ -86,7 +86,7 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
                 }
                 p != null -> {
                     item {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             PulseTile(
                                 value = "${p.driversOnline}",
                                 label = appText("на линии", "линияла"),
@@ -102,13 +102,13 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
                         }
                     }
                     item {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             PulseTile("${p.ordersToday}", appText("заказов сегодня", "бөгөн заказ"), modifier = Modifier.weight(1f).appearIn(1))
                             PulseTile("${p.doneToday}", appText("завершено", "тамамланды"), modifier = Modifier.weight(1f).appearIn(1))
                         }
                     }
                     item {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             PulseTile("${p.cancelledToday}", appText("отмен", "кире алыу"), modifier = Modifier.weight(1f).appearIn(2))
                             PulseTile("${p.noShowToday}", appText("не вышли", "сыҡманы"), modifier = Modifier.weight(1f).appearIn(2))
                             PulseTile(
@@ -119,7 +119,7 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
                         }
                     }
                     item {
-                        Text(appText("По городам", "Ҡалалар буйынса"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.appearIn(3))
+                        Text(appText("По городам", "Ҡалалар буйынса"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.appearIn(3))
                     }
                     if (p.byCity.isEmpty()) {
                         item {
@@ -137,12 +137,12 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
                                     border = BorderStroke(1.dp, CanonBorder),
                                     modifier = Modifier.fillMaxWidth().appearIn(3 + i),
                                 ) {
-                                    Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(10.dp))
-                                        Text(c.city, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(c.city, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                                         PulseDotStat(c.online, appText("на линии", "линияла"), CanonGreen2)
-                                        Spacer(Modifier.width(14.dp))
+                                        Spacer(Modifier.width(12.dp))
                                         PulseDotStat(c.active, appText("заказы", "заказдар"), CanonTaxi)
                                     }
                                 }
@@ -169,8 +169,8 @@ private fun PulseTile(value: String, label: String, modifier: Modifier = Modifie
         border = BorderStroke(1.dp, if (accent) CanonGreen2.copy(alpha = 0.35f) else CanonBorder),
         modifier = modifier,
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(value, color = if (accent) CanonGreen2 else CanonText, fontSize = 26.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(value, color = if (accent) CanonGreen2 else CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Text(label, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
         }
     }
@@ -181,8 +181,8 @@ private fun PulseTile(value: String, label: String, modifier: Modifier = Modifie
 private fun PulseDotStat(count: Int, label: String, color: androidx.compose.ui.graphics.Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Surface(color = color, shape = CircleShape, modifier = Modifier.size(8.dp)) {}
-        Spacer(Modifier.width(6.dp))
-        Text("$count", color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.width(4.dp))
+        Text("$count", color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.width(4.dp))
         Text(label, color = CanonMuted, fontSize = 12.sp)
     }
