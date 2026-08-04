@@ -3,6 +3,37 @@
 > Чтобы НЕ читать весь файл. Иди сразу в нужный ФАЙЛ (UI давно разрезан), `grep` по имени функции.
 > ⚠️ Числа строк ниже устарели — ищи через `grep`/`rg`. Актуальная карта файлов — сразу ниже.
 
+## 🆕 Плашка «вышла новая версия» — мягкое обновление (2026-08-04)
+
+Вторая ступень к force-update. Раньше выбор был бинарный: либо заблокировать всех (`MIN_APP_VERSION_CODE`),
+либо промолчать — и на обычный релиз позвать людей было нечем.
+
+**Сервер.** Та же публичная ручка `GET /version/min` (`routers/health.py`), поля ДОБАВЛЕНЫ (старые клиенты
+их игнорируют, ломающего изменения нет):
+`{min_version_code, message{ru,ba}, store_url, latest_version_code, latest_version_name, update_message{ru,ba}, whats_new{ru[],ba[]}}`.
+Конфиг (`config.py`, включается в `.env` без пересборки клиента): `latest_app_version_code` (0 = плашки нет),
+`latest_app_version_name` («1.1.0»), `whats_new_ru` / `whats_new_ba` — пункты через `|`, отдаём максимум три
+(`settings.whats_new(lang)`).
+
+**`store_url` теперь `settings.update_url`** = `app_store_url` или, если стора ещё нет, `app_download_url`
+(по умолчанию `https://yulbash.ru/` — лендинг с APK). Одна точка на обе плашки, чтобы они не разошлись.
+Раньше при пустом `APP_STORE_URL` кнопка force-update не вела никуда.
+
+**Гварды старта** (`validate_production`): нужен хотя бы один адрес при `MIN_APP_VERSION_CODE>0`;
+`LATEST_APP_VERSION_CODE` ниже `MIN_APP_VERSION_CODE` — падение (звали бы на версию, которую сами блокируем).
+
+**Android.** `UpdateBanner.kt` 🆕 — карточка над экраном: заголовок, номер версии, кнопка «Обновить»,
+под кнопкой «Что нового» (до трёх пунктов, список по текущему языку). Крестик = «позже», номер закрытой
+версии в `SharedPreferences("yuldash_prefs")` под `PREF_UPDATE_DISMISSED` — повторно та же версия не зовёт.
+Состояние и решение «показывать ли» — в `YuldashApp` (тот же `LaunchedEffect`, что и force-update;
+блокирующий экран старше — при нём плашки нет). Не показываем на Splash / Intro / Onboarding / Login.
+Списки хранятся строкой через `\n` (`jsonArrayToLines` / `linesToList`): `rememberSaveable` переживает
+поворот экрана только для простых типов.
+
+**Отступ под статус-бар** отдаёт первый ВИДИМЫЙ элемент сверху: `ConnectionBanner` → иначе `UpdateBanner`
+(`ownsStatusBar = !offlineNow`) → иначе сам экран; `consumeWindowInsets` у экрана включается, если видна
+любая из двух плашек. Это тот самый спор за отступ из [lessons.md](lessons.md) (2026-08-04).
+
 ## 🔧 Разбор №2: что изменилось в контракте (2026-08-03)
 
 Полный список находок — [gaps-taxi-courier-2026-08-03.md](gaps-taxi-courier-2026-08-03.md),

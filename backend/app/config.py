@@ -317,6 +317,22 @@ class Settings(BaseSettings):
     # Включается без пересборки: правится в .env на сервере.
     min_app_version_code: int = 0
     app_store_url: str = ""            # ссылка на стор (RuStore/Google Play) для кнопки «Обновить»
+    # Куда вести кнопку «Обновить», пока приложения нет в сторах: лендинг с APK.
+    # Публичный адрес, не секрет. Используется как запасной, когда app_store_url пуст —
+    # иначе кнопка обновления ведёт в никуда на всём периоде до публикации.
+    app_download_url: str = "https://yulbash.ru/"
+
+    # --- Мягкое обновление (B9b-1b): «вышла новая версия», БЕЗ блокировки ---
+    # Разница с force-update: там версия уже не поддерживается и приложением пользоваться нельзя.
+    # Здесь всё работает, просто вышла свежее — сверху висит плашка с кнопкой и списком
+    # «что нового», её можно закрыть. 0 = плашка ВЫКЛЮЧЕНА (по умолчанию).
+    # Включается без пересборки клиента: правится в .env на сервере.
+    latest_app_version_code: int = 0
+    latest_app_version_name: str = ""     # «1.1.0» — показываем человеку, versionCode ему ни о чём не говорит
+    # Что нового: пункты через «|», например «Карта открывается быстрее|Починили чат».
+    # Показываются под кнопкой «Обновить». Двуязычно, как любая надпись в приложении.
+    whats_new_ru: str = ""
+    whats_new_ba: str = ""
 
     # --- Дневная сводка админу в Telegram (B9b-3) ---
     # Без внешнего cron: первый запрос ПОСЛЕ daily_digest_hour местного времени (Уфа, UTC+5)
@@ -446,6 +462,18 @@ class Settings(BaseSettings):
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
 
+    @property
+    def update_url(self) -> str:
+        """Куда ведёт кнопка «Обновить»: стор, а пока его нет — лендинг с APK.
+        Одна точка на обе плашки (блокирующую и мягкую), чтобы они не разошлись."""
+        return self.app_store_url.strip() or self.app_download_url.strip()
+
+    def whats_new(self, lang: str) -> list[str]:
+        """«Пункт | пункт | пункт» → список для плашки обновления.
+        Не больше трёх: плашка — повод нажать кнопку, а не журнал изменений."""
+        raw = self.whats_new_ba if lang == "ba" else self.whats_new_ru
+        return [p.strip() for p in raw.split("|") if p.strip()][:3]
+
     def validate_production(self) -> None:
         """Запрещаем запускать прод с небезопасными значениями по умолчанию."""
         # V10: fail-safe — совсем нераспознанный ENV (опечатка «production1», мусор) не должен
@@ -509,8 +537,13 @@ class Settings(BaseSettings):
             problems.append("REDIS_URL обязателен при TAXI_ENABLED=true (без него presence пуст и заказы уходят в «рядом никого»)")
         # Форс-апдейт без ссылки в стор: экран «Обнови приложение» появится, а кнопка никуда
         # не поведёт — человек заперт в приложении, которым нельзя пользоваться.
-        if self.min_app_version_code > 0 and not self.app_store_url.strip():
-            problems.append("APP_STORE_URL обязателен при MIN_APP_VERSION_CODE>0 (иначе кнопка «Обновить» ведёт в никуда)")
+        if self.min_app_version_code > 0 and not self.update_url:
+            problems.append("APP_STORE_URL или APP_DOWNLOAD_URL обязателен при MIN_APP_VERSION_CODE>0 (иначе кнопка «Обновить» ведёт в никуда)")
+        # «Последняя версия» ниже «минимальной» — конфиг, который сам себе противоречит: человека
+        # блокируют как устаревшего и одновременно зовут обновиться до версии, которую тоже
+        # заблокируют. Такое проще запретить на старте, чем ловить по жалобам.
+        if 0 < self.latest_app_version_code < self.min_app_version_code:
+            problems.append("LATEST_APP_VERSION_CODE меньше MIN_APP_VERSION_CODE — обновление зовёт на версию, которая уже не поддерживается")
         if self.database_url.startswith("sqlite"):
             problems.append("DATABASE_URL не должен быть sqlite в проде")
         media_base = self.media_base_url.lower()

@@ -98,15 +98,36 @@ MSG_FORCE_UPDATE = {
     "ba": "Юлдашты яңырт 🙌 Яңы версия сыҡты — быныһы инде эшләмәй",
 }
 
+# Мягкое обновление (B9b-1b): не «ты устарел», а «мы стали лучше». Плашку можно закрыть,
+# поэтому тон приглашающий, без давления. Черновик BA → docs/tasks.md.
+MSG_SOFT_UPDATE = {
+    "ru": "Вышла новая версия Юлдаша",
+    "ba": "Юлдаштың яңы версияһы сыҡты",
+}
+
 
 @router.get("/version/min")
 def version_min():
-    """Минимальная поддерживаемая версия приложения (force-update, B9b-1).
-    min_version_code=0 → проверка выключена, клиент никого не блокирует.
-    Клиент: versionCode < min → блокирующий экран «Обнови Юлдаш» + кнопка в стор.
-    Офлайн/ошибка ручки на клиенте → пропускаем и НЕ блокируем (мягкая деградация)."""
+    """Версии приложения: минимальная поддерживаемая и последняя вышедшая.
+
+    Две ступени, чтобы не выбирать между «заблокировать всех» и «промолчать»:
+      • versionCode < min_version_code → блокирующий экран «Обнови Юлдаш» (force-update, B9b-1).
+        0 = выключено, клиент никого не блокирует.
+      • min ≤ versionCode < latest_version_code → мягкая плашка «Вышла новая версия» с кнопкой
+        и списком «что нового»; приложением при этом можно пользоваться. 0 = плашки нет.
+
+    Офлайн/ошибка ручки на клиенте → пропускаем: ни блока, ни плашки (мягкая деградация).
+    Ручка публичная и без авторизации, поэтому отдаём только то, что и так видно в сторе.
+    """
     return {
         "min_version_code": settings.min_app_version_code,
         "message": MSG_FORCE_UPDATE,
-        "store_url": settings.app_store_url,
+        "store_url": settings.update_url,
+        "latest_version_code": settings.latest_app_version_code,
+        "latest_version_name": settings.latest_app_version_name,
+        "update_message": MSG_SOFT_UPDATE,
+        "whats_new": {
+            "ru": settings.whats_new("ru"),
+            "ba": settings.whats_new("ba"),
+        },
     }
