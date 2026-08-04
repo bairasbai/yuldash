@@ -1,5 +1,15 @@
 package com.yuldash.app
 
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.runtime.collectAsState
+import com.yuldash.app.data.ApiClient
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -170,7 +180,7 @@ internal fun AppCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     shape: Shape = CanonCardShape,
-    elevation: Dp = 1.dp,
+    elevation: Dp = CanonDepth.card,
     content: @Composable () -> Unit,
 ) {
     val m = (if (onClick != null) modifier.bounceClick(onClick) else modifier).fillMaxWidth()
@@ -370,6 +380,71 @@ internal fun <T> AppStateContainer(
             error && items.isEmpty() -> AppErrorState(onRetry = onRetry)
             items.isEmpty() -> AppEmptyState(emptyTitle, emptyText, emptyIcon, emptyActionLabel, onEmptyAction)
             else -> content(items)
+        }
+    }
+}
+
+
+/**
+ * Плашка «нет связи с сервером» — одна на всё приложение, поверх любого экрана.
+ *
+ * Зачем. Аудит 2026-08-04: в 84 местах ответ сервера читается через `.onSuccess {}` без
+ * `.onFailure`. При обрыве связи там молча ничего не происходит, загрузка заканчивается,
+ * и экран показывает своё пустое состояние. На «Моих заявках» это выглядело как
+ * «Заявок пока нет» — то есть приложение УВЕРЕННО сообщало человеку с активной заявкой,
+ * что заявок у него нет. Пустой экран и недоступный сервер — разные вещи, и путать их нельзя.
+ *
+ * Чинить 84 места по одному бессмысленно: следующий экран принесёт 85-е. Сигнал ставится
+ * в единственной точке (`ApiClient.call()`), плашка честно говорит правду поверх чего угодно.
+ * Локальные состояния ошибки это НЕ отменяет — они точнее и остаются главным способом.
+ *
+ * Без действия сознательно: «Повторить» у каждого экрана своё, а кнопка, которая перезагружает
+ * «что-нибудь», обманывает ожидание. Плашка тут — чтобы снять ложь, а не заменить кнопку.
+ */
+@Composable
+internal fun ConnectionBanner(modifier: Modifier = Modifier) {
+    val offline by ApiClient.serverUnreachable.collectAsState()
+    // Пока связи нет — сами тихо проверяем сервер раз в 10 секунд. Без этого плашка гасла
+    // только на успешном запросе экрана, а на онбординге и входе запросов может не быть вовсе:
+    // сеть вернулась, а приложение продолжает утверждать обратное. Проверка идёт ТОЛЬКО пока
+    // плашка видна, поэтому в обычной работе это ноль лишних запросов.
+    LaunchedEffect(offline) {
+        while (offline) {
+            delay(10_000)
+            if (ApiClient.healthOk()) ApiClient.serverUnreachable.value = false
+        }
+    }
+    AnimatedVisibility(
+        visible = offline,
+        modifier = modifier,
+        enter = slideInVertically(tween(CanonMotion.NORMAL)) { -it } + fadeIn(tween(CanonMotion.NORMAL)),
+        exit = slideOutVertically(tween(CanonMotion.QUICK)) { -it } + fadeOut(tween(CanonMotion.QUICK)),
+    ) {
+        Surface(
+            modifier = Modifier.statusBarsPadding().padding(CanonSpace.sm),
+            shape = RoundedCornerShape(999.dp),
+            color = CanonWarnBg,
+            shadowElevation = CanonDepth.raised,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.CloudOff,
+                    contentDescription = null,
+                    tint = CanonWarn,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text(
+                    appText("Нет связи с сервером", "Сервер менән бәйләнеш юҡ"),
+                    color = CanonWarn,
+                    style = CanonCaption,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }

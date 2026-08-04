@@ -1224,6 +1224,10 @@ internal fun MyRequestsScreen(
     onViewResponses: (Int) -> Unit,
     onCancel: (Int) -> Unit,
     loading: Boolean = false,
+    // Ошибка загрузки — ОТДЕЛЬНОЕ состояние, а не «пусто». Без неё при обрыве связи экран
+    // уверенно писал «Заявок пока нет» человеку, у которого заявка есть (аудит 2026-08-04).
+    error: Boolean = false,
+    onRetry: () -> Unit = {},
     onEditRequest: (Int, String, String, Int, String) -> Unit = { _, _, _, _, _ -> },   // F3: id, from, to, maxPrice, comment
     onOpenRide: (com.yuldash.app.data.RideDto) -> Unit = {},                              // авто-подбор: открыть подходящую поездку
 ) {
@@ -1270,6 +1274,20 @@ internal fun MyRequestsScreen(
         if (requests.isEmpty() && loading) {
             // Пока грузим — скелетон, а не ложное «Заявок пока нет» (мелькало на первой загрузке).
             item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
+        } else if (requests.isEmpty() && error) {
+            // Не смогли загрузить ≠ заявок нет. Разница принципиальная: во втором случае человек
+            // решит, что его заявка не создалась, и создаст вторую.
+            item {
+                Box(
+                    Modifier.appearIn(0).fillParentMaxHeight(0.72f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AppErrorState(
+                        onRetry = onRetry,
+                        title = appText("Не удалось загрузить заявки", "Заявкаларҙы йөкләп булманы"),
+                    )
+                }
+            }
         } else if (requests.isEmpty()) {
             item {
                 // Пусто — это тоже состояние экрана, а не «ничего нет». Плашка и кнопка идут

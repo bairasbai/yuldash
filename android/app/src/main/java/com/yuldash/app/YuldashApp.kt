@@ -273,6 +273,9 @@ internal fun YuldashApp() {
     val trustedContacts = vm.trustedContacts
     val localRequests = vm.localRequests
     var requestsLoading by remember { mutableStateOf(true) }   // скелетон «Моих заявок» до первой загрузки
+    var requestsError by remember { mutableStateOf(false) }   // обрыв связи ≠ «заявок нет» (аудит 2026-08-04)
+    var bookingInFlight by remember { mutableStateOf(false) }  // бронь уже уходит на сервер → второй тап игнорируем
+    var requestsReload by remember { mutableStateOf(0) }      // кнопка «Повторить» на экране заявок
     val appScope = rememberCoroutineScope()
     var activeBookingId by vm.activeBookingId
     var activeTrip by vm.activeTrip   // подтверждённая поездка → маршрут на карте; исчезает при завершении
@@ -698,9 +701,10 @@ internal fun YuldashApp() {
         val reqWaitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
         val reqByAgreement = appText("по договорённости", "килешеү буйынса")
         val passengerSelf = appText("Я", "Мин")   // BA-draft: «Мин» — на проверку носителю
-        LaunchedEffect(sessionVersion) {
+        LaunchedEffect(sessionVersion, requestsReload) {
             requestsLoading = true
-            ApiClient.getMyRequests().onSuccess { reqs ->
+            requestsError = false
+            ApiClient.getMyRequests().onFailure { requestsError = true }.onSuccess { reqs ->
                 localRequests.clear()
                 localRequests.addAll(
                     // Только активные: отменённые (cancelled) и принятые (matched — уже в «Поездках») здесь не показываем,
@@ -734,6 +738,16 @@ internal fun YuldashApp() {
         BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home && screen != Screen.Splash && screen != Screen.Intro) {
             goBack()   // единый пошаговый возврат по трейлу — та же логика, что верхняя стрелка «Назад»
         }
+        // Плашка «нет связи с сервером» — одна на всё приложение, ВНУТРИ провайдера языка
+        // (иначе надпись выходила по-русски в башкирском режиме) и В ПОТОКЕ, а не поверх:
+        // накладка закрывала заголовок экрана. Причина плашки — ApiClient.serverUnreachable:
+        // 84 места читают ответ через .onSuccess без .onFailure, и при обрыве связи экран
+        // молча показывал «Заявок пока нет» вместо правды. Подробности — в UiKit.ConnectionBanner.
+        // background(CanonBg): без него за плашкой просвечивал зелёный фон окна
+        // (он остаётся от системного сплэша) — над экраном висела зелёная полоса.
+        Column(Modifier.fillMaxSize().background(CanonBg)) {
+        ConnectionBanner(Modifier.align(Alignment.CenterHorizontally))
+        Box(Modifier.weight(1f)) {
         AnimatedContent(
             targetState = screen,
             transitionSpec = {
@@ -789,6 +803,8 @@ internal fun YuldashApp() {
                 activeTrip = activeTrip,
                 requests = localRequests,
                 requestsLoading = requestsLoading,
+                requestsError = requestsError,
+                onRetryRequests = { requestsReload++ },
                 ads = partnerAds,
                 adStats = adStats,
                 voiceMessages = voiceMessages,
@@ -969,11 +985,19 @@ internal fun YuldashApp() {
                         screen = Screen.ActiveTrip
                     } else {
                         val rid = selectedRide?.id?.toIntOrNull()
-                        if (rid != null) {
+                        // Защита от двойного нажатия. Кнопка «Забронировать» гасла только по
+                        // bookingId, а он приходит уже ПОСЛЕ ответа сервера — то есть всё время
+                        // запроса кнопка оставалась живой. На медленной сети второй тап уходил
+                        // вторым запросом: две брони на одну поездку, два занятых места и две
+                        // договорённости об оплате. Остальные пишущие кнопки такой флаг уже имеют
+                        // (оплата, посылка, приём доставки) — эта была единственной без него.
+                        if (rid != null && !bookingInFlight) {
+                            bookingInFlight = true
                             appScope.launch {
                                 ApiClient.book(rid, 1, payMethod, payAmount)
                                     .onSuccess { bid -> activeBookingId = bid; selectedBookingStatus = "confirmed"; activeTrip = selectedRide; screen = Screen.ActiveTrip }
                                     .onFailure { Toast.makeText(context, if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори.", Toast.LENGTH_SHORT).show() }
+                                bookingInFlight = false
                             }
                         }
                     }
@@ -1332,6 +1356,8 @@ internal fun YuldashApp() {
                 onEarnings = { screen = Screen.CourierEarnings },
             )
             Screen.AdminCourier -> AdminCourierScreen(onBack = { goBack() })
+        }
+        }
         }
         }
     }
@@ -1962,6 +1988,8 @@ internal fun HomeScreen(
     activeTrip: Ride?,
     requests: List<LocalRequest>,
     requestsLoading: Boolean = false,
+    requestsError: Boolean = false,
+    onRetryRequests: () -> Unit = {},
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
     voiceMessages: List<LocalVoiceMessage>,
@@ -2073,6 +2101,8 @@ internal fun HomeScreen(
                     onViewResponses = onOpenResponses,   // открыть отклики ИМЕННО этой заявки (раньше терялся id → кидало на вкладку Чат)
                     onCancel = onCancelRequest,
                     loading = requestsLoading,
+                    error = requestsError,
+                    onRetry = onRetryRequests,
                     onEditRequest = onEditRequest,
                     onOpenRide = { dto -> onBookRide(dto.toUiRide()) }   // авто-подбор → открыть бронь поездки
                 )

@@ -137,7 +137,9 @@ class CanonSourceGuardTest {
 
     @Test
     fun `тени только через CanonDepth`() {
-        val re = Regex("""\w*[Ee]levation\s*=\s*(\d+)\.dp""")
+        // (?::\s*Dp\s*)? — объявление параметра со ЗНАЧЕНИЕМ по умолчанию тоже задаёт тень:
+        // `elevation: Dp = 1.dp` проходило мимо, потому что regex ждал сразу знак равенства.
+        val re = Regex("""\w*[Ee]levation\s*(?::\s*Dp\s*)?=\s*(\d+)\.dp""")
         val bad = mutableListOf<String>()
         screens().forEach { f ->
             if (f.name == "CanonTokens.kt") return@forEach

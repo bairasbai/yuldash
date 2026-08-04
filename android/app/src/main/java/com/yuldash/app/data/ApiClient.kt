@@ -201,9 +201,28 @@ object ApiClient {
 
     fun isLoggedIn(): Boolean = !token.isNullOrBlank()
 
+    // Сервер недостижим: связь оборвалась ДО получения ответа, все повторы исчерпаны.
+    //
+    // Зачем глобальный сигнал, а не проверка на каждом экране. Аудит 2026-08-04 нашёл 84 места,
+    // где ответ сервера читается через `.onSuccess {}` БЕЗ `.onFailure` — при обрыве связи там
+    // молча ничего не происходит, и экран показывает «Заявок пока нет» вместо «нет связи».
+    // Это не косметика: человек с активной заявкой видит, что заявок у него нет. Приложение врёт.
+    //
+    // Чинить 84 места по одному — долго и всё равно не удержится: следующий экран принесёт
+    // 85-е. Поэтому сигнал ставится в ЕДИНСТВЕННОЙ точке, через которую проходят все запросы
+    // (`call()`), и приложение показывает честную плашку поверх любого экрана. Локальные
+    // состояния ошибки это не отменяет — они точнее, просто теперь их отсутствие не врёт.
+    val serverUnreachable = kotlinx.coroutines.flow.MutableStateFlow(false)
+
     // Сессия протухла (refresh-токен мёртв) → UI покажет «войди снова» и уйдёт на Login.
     // Иначе экраны молча деградируют в «пусто». Ставится в 401-ветке ниже, гасится в UI после показа.
     val sessionExpired = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    /** Лёгкая проба «сервер жив?» для плашки «нет связи»: /health без авторизации.
+     *  Нужна, потому что флаг гаснет только на успешном ответе, а экран может вообще
+     *  не делать запросов (онбординг, вход) — тогда плашка висела бы после возврата сети. */
+    suspend fun healthOk(): Boolean =
+        call("GET", "/health", null, auth = false, retryOnNetwork = false).isSuccess
 
     /** Токен (тот же JWT) для WebSocket-чата. */
     internal fun currentToken(): String? = token
@@ -2585,6 +2604,9 @@ object ApiClient {
                     }
                 }
                 val code = conn.responseCode
+                // Сервер ОТВЕТИЛ — связь есть, даже если ответ 4xx/5xx. Гасим флаг «нет связи»:
+                // иначе плашка висела бы после восстановления сети до следующего перезапуска.
+                serverUnreachable.value = false
                 val stream = if (code in 200..299) conn.inputStream else conn.errorStream
                 val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                 return@withContext if (code in 200..299) {
@@ -2616,6 +2638,7 @@ object ApiClient {
                     delay(backoff[attempt]); attempt++
                     continue
                 }
+                serverUnreachable.value = true   // повторы исчерпаны — связи действительно нет
                 return@withContext Result.failure(e)
             } catch (e: Exception) {
                 return@withContext Result.failure(e)
