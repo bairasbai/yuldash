@@ -20,7 +20,9 @@ _pool_kwargs = {} if _is_sqlite else {
     "max_overflow": settings.db_max_overflow,
     "pool_pre_ping": True,
     "pool_recycle": 1800,
-    "pool_timeout": 30,
+    # Ждать свободное соединение дольше, чем ждёт телефон (15с), бессмысленно: человек уже
+    # увидел ошибку, а соединение всё ещё занято под него. См. db_pool_timeout_sec в config.
+    "pool_timeout": settings.db_pool_timeout_sec,
 }
 engine = create_engine(settings.database_url, echo=False, connect_args=connect_args, **_pool_kwargs)
 

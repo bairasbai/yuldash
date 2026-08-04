@@ -328,3 +328,56 @@ tasks.register<JacocoReport>("jacocoTestReport") {
     // с выходами assembleDebug-тасок (dex/assets) и падает на валидации при общем прогоне.
     executionData.setFrom(fileTree(layout.buildDirectory.dir("outputs/unit_test_code_coverage")) { include("**/*.exec") })
 }
+
+// --- QA: порог покрытия «храповик» — опускаться нельзя, поднимать можно ---
+//
+// Зачем порог. Покрытие без порога — цифра в отчёте, на которую никто не смотрит. Порог
+// превращает её в правило: код без тестов роняет сборку, а не «когда-нибудь допишем».
+//
+// Почему меряем ЛОГИКУ, а не всё приложение. В Compose-проекте 90% байткода — рисование
+// экранов, и общий процент говорит в основном о нём. Гнаться за ним значит писать тесты
+// на кнопки. А вот слой данных — сеть, деньги, токены, паспорт поездки — обязан быть покрыт
+// как в любой взрослой компании: там ошибка не «кривая вёрстка», а «пассажир заплатил дважды».
+//
+// Планка ставится чуть ниже достигнутого: ловит откат, не заставляет писать пустые тесты.
+// Дорастём — поднимем. Обратно не опускаем.
+val logicCoverageFloor = "0.70".toBigDecimal()   // слой данных: com.yuldash.app.data.*
+val appCoverageFloor = "0.20".toBigDecimal()     // всё приложение вместе с экранами
+
+tasks.register<JacocoCoverageVerification>("jacocoCoverageVerification") {
+    dependsOn("jacocoTestReport")
+    group = "verification"
+    description = "Падает, если покрытие опустилось ниже достигнутого уровня"
+
+    val excludes = listOf(
+        "**/R.class", "**/R$*.class", "**/BuildConfig.*", "**/Manifest*.*", "**/*Test*.*",
+    )
+    val kotlinClasses = fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debug")) { exclude(excludes) }
+    val javaClasses = fileTree(layout.buildDirectory.dir("intermediates/javac/debug/classes")) { exclude(excludes) }
+    classDirectories.setFrom(files(kotlinClasses, javaClasses))
+    sourceDirectories.setFrom(files("$projectDir/src/main/java"))
+    executionData.setFrom(fileTree(layout.buildDirectory.dir("outputs/unit_test_code_coverage")) { include("**/*.exec") })
+
+    violationRules {
+        rule {
+            element = "BUNDLE"
+            limit {
+                counter = "INSTRUCTION"
+                value = "COVEREDRATIO"
+                minimum = appCoverageFloor
+            }
+        }
+        rule {
+            element = "PACKAGE"
+            includes = listOf("com.yuldash.app.data")
+            limit {
+                counter = "INSTRUCTION"
+                value = "COVEREDRATIO"
+                minimum = logicCoverageFloor
+            }
+        }
+    }
+}
+
+// `gradlew check` (и любой CI-прогон) теперь проверяет и покрытие тоже.
+tasks.named("check") { dependsOn("jacocoCoverageVerification") }

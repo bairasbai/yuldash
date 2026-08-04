@@ -90,15 +90,11 @@ class ReadUser(HttpUser):
         (fc, _, _), (tc, _, _) = _route()
         self.client.get("/rides", params={"from_city": fc, "to_city": tc}, name="/rides")
 
-    @task(2)
-    def requests_near(self):
-        """Лента заявок пассажиров рядом (водитель ищет пассажира)."""
-        (fc, flat, flng), (tc, _, _) = _route()
-        self.client.get(
-            "/requests/near",
-            params={"from_city": fc, "to_city": tc, "lat": flat, "lng": flng},
-            name="/requests/near",
-        )
+    # Заявки пассажиров ЗДЕСЬ НЕ ДЁРГАЕМ. Первый живой прогон (2026-08-04) показал 331 ошибку
+    # 401 подряд: `/requests/near` требует входа — и это правильно, там маршрут живого человека,
+    # а не опубликованная поездка. Приложение зовёт эту ручку тоже только с токеном (MapScreen).
+    # Сценарий переехал к авторизованному пользователю ниже, чтобы нагрузка отражала реальность,
+    # а не рисовала 10% «отказов», которых на проде не будет.
 
     @task(2)
     def feed(self):
@@ -176,6 +172,20 @@ class RiderUser(HttpUser):
     def bookings_mine(self):
         if self.headers:
             self.client.get("/bookings/mine", headers=self.headers, name="/bookings/mine")
+
+    @task(2)
+    def requests_near(self):
+        """Лента заявок пассажиров рядом — водитель смотрит, кто ищет попутку на его маршруте.
+        Ручка закрыта входом (в заявке маршрут живого человека), поэтому идёт с токеном."""
+        if not self.headers:
+            return
+        (fc, flat, flng), (tc, _, _) = _route()
+        self.client.get(
+            "/requests/near",
+            params={"from_city": fc, "to_city": tc, "lat": flat, "lng": flng},
+            headers=self.headers,
+            name="/requests/near",
+        )
 
     @task(1)
     def create_booking(self):
@@ -315,22 +325,38 @@ if WS_ENABLED:
 P95_TARGET_MS = int(os.getenv("YULDASH_LOADTEST_P95_MS", "300"))
 
 
+def _say(text: str) -> None:
+    """Печать, которая переживает windows-консоль.
+
+    Первый живой прогон (2026-08-04) упал на последней строке: консоль Windows в cp1251 не умеет
+    печатать «❌», и весь вердикт превратился в UnicodeEncodeError с кодом выхода 1 — то есть
+    инструмент сообщал о провале теста, хотя тест прошёл. Ошибка в градуснике хуже, чем
+    отсутствие градусника: ей верят.
+    """
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        import sys as _sys
+        enc = _sys.stdout.encoding or "ascii"
+        print(text.encode(enc, errors="replace").decode(enc, errors="replace"))
+
+
 @events.quitting.add_listener
 def _assert_p95(environment, **_kw):
     stats = environment.stats.total
     p95 = stats.get_response_time_percentile(0.95)
     fail_ratio = stats.fail_ratio
-    print("\n" + "=" * 60)
-    print(f"[Юлдаш loadtest] p95={p95} ms (цель <{P95_TARGET_MS}), "
-          f"RPS={stats.total_rps:.1f}, ошибок={fail_ratio * 100:.2f}%")
+    _say("\n" + "=" * 60)
+    _say(f"[Юлдаш loadtest] p95={p95} ms (цель <{P95_TARGET_MS}), "
+         f"RPS={stats.total_rps:.1f}, ошибок={fail_ratio * 100:.2f}%")
     # Ненулевой код выхода в CI, если не уложились в цель или много ошибок.
     if p95 is None or p95 > P95_TARGET_MS:
-        print(f"[Юлдаш loadtest] ❌ p95 {p95} ms > цель {P95_TARGET_MS} ms")
+        _say(f"[Юлдаш loadtest] ПРОВАЛ: p95 {p95} ms > цель {P95_TARGET_MS} ms")
         environment.process_exit_code = 1
     elif fail_ratio > 0.01:
-        print(f"[Юлдаш loadtest] ❌ доля ошибок {fail_ratio * 100:.2f}% > 1%")
+        _say(f"[Юлдаш loadtest] ПРОВАЛ: доля ошибок {fail_ratio * 100:.2f}% > 1%")
         environment.process_exit_code = 1
     else:
-        print("[Юлдаш loadtest] ✅ цель достигнута")
+        _say("[Юлдаш loadtest] ЦЕЛЬ ДОСТИГНУТА")
         environment.process_exit_code = 0
-    print("=" * 60)
+    _say("=" * 60)

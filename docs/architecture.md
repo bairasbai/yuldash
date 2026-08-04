@@ -1181,3 +1181,24 @@ TTL, отзыве ссылки и удалении координат.
 оказывался русским или английским в зависимости от того, какую карту открыли первой.
 Логотип «Яндекс Карты» на главной уведён в левый верх (`map.logo.setAlignment`): снизу
 справа его закрывала плавающая карточка, а условия MapKit требуют полной видимости.
+
+---
+
+## 🧪 Тесты и пороги покрытия (2026-08-04)
+
+Правила и команды — **[testing.md](testing.md)**. Коротко, что появилось в коде:
+
+| Файл | Что делает |
+|---|---|
+| `backend/.coveragerc` | Порог 85% для бэкенда. `coverage report` возвращает ненулевой код ниже планки |
+| `android/app/build.gradle.kts` → `jacocoCoverageVerification` | Пороги приложения: слой данных 70%, всё вместе 20%. Подключён к `gradlew check` |
+| `backend/tests/test_api_contract_android.py` | Сверяет адреса из `ApiClient.kt` с маршрутами FastAPI — приложение не может звать несуществующую ручку |
+| `android/…/data/ApiClientEndpointContractTest.kt` | 178 ручек: метод, адрес, разбор ответа, честная ошибка на 500 |
+| `android/…/data/WebSocketClientsTest.kt` | Чат, гео-канал поездки и такси, сигнал карты: токен внутри соединения, разбор, отсутствие вечного реконнекта |
+| `android/…/data/OutboxTest.kt` | Очередь без сети: порядок, переживание перезапуска, отказ сервера не отравляет очередь |
+| `android/…/data/GeocoderAndNetworkTest.kt` | Подсказки адресов (сбой ≠ «не найдено»), монитор возврата сети |
+| `android/…/data/PushNotificationTest.kt` | Каналы, тумблеры, дубли в шторке, тап ведёт на нужный экран |
+| `android/…/LocationServicesTest.kt`, `TaxiLineServiceTest.kt` | Фоновая трансляция позиции и смена водителя: воскрешение, отзыв разрешения, штатный стоп |
+| `backend/tests/test_pricing_external.py` | Цена при молчащем/врущем Яндексе + приватность кэша координат |
+| `backend/tests/test_livepos_observability.py` | Живая точка машины в Redis (TTL), Sentry без ключа и с кривым ключом |
+| `backend/tests/test_automatch_more.py`, `test_db_helpers.py` | Авто-подбор (сбой одной заявки не рвёт проход), догонялка локальной базы |

@@ -89,3 +89,10 @@ backend/.pt/
 .pt/
 # Изоляция суб-агентов Claude Code (worktree) — локальные, не в git
 .claude/worktrees/
+
+# Замеры покрытия — артефакты прогона, а не исходник (пороги лежат в .coveragerc и build.gradle.kts)
+backend/.coverage
+backend/.coverage.*
+backend/htmlcov/
+# Результаты нагрузочных прогонов (CSV локального запуска)
+backend/loadtest/results/
