@@ -29,7 +29,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Co2
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.CheckCircle
@@ -120,8 +120,8 @@ internal fun MyStatsScreen(onBack: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = appText("Назад", "Артҡа"),
+                            Icons.Default.ArrowBackIosNew,
+                            contentDescription = appText("Назад", "Кире"),
                             tint = CanonGreen,
                         )
                     }

@@ -1060,7 +1060,7 @@ private fun InstantRetryCard(onRetry: () -> Unit, onBack: () -> Unit) {
         Spacer(Modifier.height(24.dp))
         Column(Modifier.appearIn(3), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             AppButton(text = appText("Повторить", "Ҡабатларға"), onClick = onRetry, style = AppButtonStyle.Primary)
-            AppButton(text = appText("Назад", "Артҡа"), onClick = onBack, style = AppButtonStyle.Secondary)
+            AppButton(text = appText("Назад", "Кире"), onClick = onBack, style = AppButtonStyle.Secondary)
         }
     }
 }
