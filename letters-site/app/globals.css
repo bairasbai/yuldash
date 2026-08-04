@@ -1,0 +1,254 @@
+@import "tailwindcss";
+
+/* ───────────────────────────────────────────────────────────
+   Дизайн-система «Рассвет».
+   Небо задаётся переменными из JS — оно меняется день ото дня.
+   Всё остальное постоянно: бумага, чернила, сургуч.
+   ─────────────────────────────────────────────────────────── */
+
+@theme {
+  --font-serif: var(--font-cormorant), Georgia, serif;
+  --font-hand: var(--font-caveat), cursive;
+  --font-sans: var(--font-manrope), system-ui, sans-serif;
+
+  /* Бумага письма */
+  --color-paper: #f5eee1;
+  --color-paper-deep: #e8dcc7;
+  --color-paper-edge: #d9c9ae;
+
+  /* Чернила тёплые, не чёрные: перо, а не принтер */
+  --color-ink: #2c241c;
+  --color-ink-soft: #6d5f4f;
+  --color-ink-faint: #9c8d79;
+
+  /* Сургуч и золото */
+  --color-seal: #8f2f38;
+  --color-seal-deep: #6b1f28;
+  --color-gold: #c9a227;
+
+  /* Текст поверх неба */
+  --color-sky-ink: #f2f4fb;
+  --color-sky-ink-soft: #b9c3dc;
+
+  /* Карточки поверх неба. Плотность задаёт небо: чем оно светлее,
+     тем плотнее панель — иначе она растворяется. */
+  --color-panel: var(--panel-bg);
+  --color-panel-border: var(--panel-border);
+
+  --radius-card: 20px;
+  --radius-soft: 12px;
+
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* Переменные неба — их каждый день пересчитывает сервер */
+:root {
+  --sky-zenith: #04060f;
+  --sky-upper: #070b1c;
+  --sky-mid: #0d1430;
+  --sky-horizon: #16204a;
+  --sky-glow: #1e2a5c;
+  --sky-stars: 1;
+  --sky-sun: 0;
+  --ridge-far: #0a1024;
+  --ridge-near: #04060e;
+
+  /* Перебиваются из компонента неба под текущий день */
+  --panel-bg: rgb(255 255 255 / 0.045);
+  --panel-border: rgb(255 255 255 / 0.1);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--sky-zenith);
+  color: var(--color-sky-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+}
+
+/* Живой градиент неба */
+.sky-gradient {
+  background:
+    radial-gradient(
+      120% 58% at 50% 100%,
+      color-mix(in srgb, var(--sky-glow) 85%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      to bottom,
+      var(--sky-zenith) 0%,
+      var(--sky-upper) 32%,
+      var(--sky-mid) 62%,
+      var(--sky-horizon) 88%,
+      var(--sky-glow) 100%
+    );
+}
+
+/* Плёночное зерно — снимает цифровую стерильность */
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  pointer-events: none;
+  opacity: 0.15;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.7'/%3E%3C/svg%3E");
+  animation: grain-drift 7s steps(6) infinite;
+}
+
+@keyframes grain-drift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-3%, 2%);
+  }
+  40% {
+    transform: translate(2%, -3%);
+  }
+  60% {
+    transform: translate(-2%, -2%);
+  }
+  80% {
+    transform: translate(3%, 1%);
+  }
+}
+
+/* Виньетка — взгляд собирается в центре */
+.vignette::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    130% 90% at 50% 45%,
+    transparent 42%,
+    rgb(0 0 0 / 0.4) 100%
+  );
+}
+
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: var(--star-base);
+    transform: scale(1);
+  }
+  50% {
+    opacity: calc(var(--star-base) * 0.25);
+    transform: scale(0.8);
+  }
+}
+
+/*
+  Звезда. Всё случайное приходит переменными, сама анимация живёт здесь:
+  если объявлять её в атрибуте style, браузер разбирает сокращённую запись
+  по-своему, и React при загрузке ругается на расхождение.
+*/
+.star {
+  position: absolute;
+  border-radius: 9999px;
+  background: white;
+  width: calc(var(--star-size) * 1px);
+  height: calc(var(--star-size) * 1px);
+  box-shadow: 0 0 calc(var(--star-size) * 2.5px)
+    rgb(255 255 255 / calc(var(--star-base) * 0.7));
+  animation: twinkle calc(var(--star-dur) * 1s) ease-in-out
+    calc(var(--star-delay) * 1s) infinite;
+}
+
+.star-bright {
+  box-shadow:
+    0 0 14px rgb(255 255 255 / 0.9),
+    0 0 34px rgb(190 215 255 / 0.5);
+}
+
+.shooting-star {
+  position: absolute;
+  height: 1px;
+  transform-origin: left center;
+  border-radius: 9999px;
+  background: linear-gradient(to right, white, transparent);
+  opacity: 0;
+  animation: shoot calc(var(--shoot-dur) * 1s) linear
+    calc(var(--shoot-delay) * 1s) infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+@keyframes shoot {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scaleX(0.15);
+  }
+  3% {
+    opacity: 0.9;
+  }
+  11% {
+    opacity: 0;
+    transform: translate3d(34vw, 22vh, 0) scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(34vw, 22vh, 0) scaleX(1);
+  }
+}
+
+/* Проявление снизу — базовый жест всего сайта */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+
+.rise {
+  animation: rise 1s var(--ease-soft) both;
+}
+
+/* Тонкая линия-разделитель */
+.hairline {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--color-sky-ink) 26%, transparent),
+    transparent
+  );
+}
+
+/* Кому анимации мешают — выключаем лишнее */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-gold) 40%, transparent);
+}
