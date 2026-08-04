@@ -421,6 +421,9 @@ internal fun ConnectionBanner(modifier: Modifier = Modifier) {
         exit = slideOutVertically(tween(CanonMotion.QUICK)) { -it } + fadeOut(tween(CanonMotion.QUICK)),
     ) {
         Surface(
+            // Плашка идёт ПЕРВОЙ на экране, поэтому отступ под статус-бар — её забота.
+            // Экран под ней свой такой же отступ гасит (consumeWindowInsets в YuldashApp),
+            // иначе получалось два и над содержимым зависала полоса пустоты.
             modifier = Modifier.statusBarsPadding().padding(CanonSpace.sm),
             shape = RoundedCornerShape(999.dp),
             color = CanonWarnBg,

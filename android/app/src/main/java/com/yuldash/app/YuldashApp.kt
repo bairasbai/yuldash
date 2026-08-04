@@ -51,6 +51,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -745,9 +749,15 @@ internal fun YuldashApp() {
         // молча показывал «Заявок пока нет» вместо правды. Подробности — в UiKit.ConnectionBanner.
         // background(CanonBg): без него за плашкой просвечивал зелёный фон окна
         // (он остаётся от системного сплэша) — над экраном висела зелёная полоса.
+        val offlineNow by ApiClient.serverUnreachable.collectAsState()
         Column(Modifier.fillMaxSize().background(CanonBg)) {
         ConnectionBanner(Modifier.align(Alignment.CenterHorizontally))
-        Box(Modifier.weight(1f)) {
+        // consumeWindowInsets только когда плашка ВИДНА: отступ под статус-бар уже отдала она,
+        // и без гашения экран добавлял его вторым — над содержимым висела полоса пустоты.
+        // Когда плашки нет, она занимает ноль высоты и отступ должен давать сам экран.
+        Box(Modifier.weight(1f).then(
+            if (offlineNow) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier
+        )) {
         AnimatedContent(
             targetState = screen,
             transitionSpec = {
