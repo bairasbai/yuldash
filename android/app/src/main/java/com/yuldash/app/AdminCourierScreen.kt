@@ -101,12 +101,17 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) { reload() }
 
     // pending — сверху, затем по дате (свежие выше); клиентский фильтр по статусу.
-    val visible = apps
-        .filter { filter == "all" || it.status == filter }
-        .sortedWith(
-            compareByDescending<CourierApplicationDto> { it.status == "pending" }
-                .thenByDescending { it.createdAt },
-        )
+    // remember(apps, filter): без него фильтр и сортировка всего списка пересчитывались
+    // на КАЖДОЙ перерисовке — то есть десятки раз в секунду при прокрутке. Список заявок
+    // до 200 штук, так что это заметная работа впустую.
+    val visible = remember(apps, filter) {
+        apps
+            .filter { filter == "all" || it.status == filter }
+            .sortedWith(
+                compareByDescending<CourierApplicationDto> { it.status == "pending" }
+                    .thenByDescending { it.createdAt },
+            )
+    }
 
     // Какое состояние сейчас на экране. Отдельным значением — чтобы скелетон, ошибка, «пусто»
     // и список сменяли друг друга плавно, а не подменялись кадром.
