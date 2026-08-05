@@ -383,6 +383,8 @@ private fun DriverResponseCard(
                             when (r.status) {
                                 "accepted" -> appText("Цена поездки", "Сәфәр хаҡы")
                                 "declined" -> appText("Последняя цена", "Һуңғы хаҡ")
+                                // Заявка закрылась по времени — цена уже ни к чему не ведёт.
+                                "expired" -> appText("Последняя цена", "Һуңғы хаҡ")
                                 else -> appText("Сейчас на столе", "Хәҙер өҫтәлдә")
                             },
                             color = CanonMuted,
@@ -433,7 +435,7 @@ private fun DriverResponseCard(
 @Composable
 private fun DealPill(r: ResponseDto) {
     val agreed = r.status == "accepted"
-    val failed = r.status == "declined"
+    val failed = r.status == "declined" || r.status == "expired"
     val bg by animateColorAsState(
         when {
             agreed -> CanonMint

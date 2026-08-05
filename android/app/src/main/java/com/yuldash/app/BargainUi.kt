@@ -127,6 +127,9 @@ private fun bargainSteps(history: String): List<Int> =
 internal fun bargainTurnHint(r: ResponseDto): String = when {
     r.status == "accepted" -> appText("Цена согласована — поездка в разделе «Поездки»", "Хаҡ килешелде — сәфәр «Сәфәрҙәр» бүлегендә")
     r.status == "declined" -> appText("Торг закрыт: по цене не сошлись", "Һатыулашыу ябыҡ: хаҡ буйынса килешмәнек")
+    // Заявка закрылась по времени, пока шёл торг. Раньше такой отклик выглядел живым
+    // («ждём ответа») бесконечно: водитель ждал ответа по заявке, которой уже месяц нет.
+    r.status == "expired" -> appText("Заявка закрылась — человек уже уехал", "Заявка ябылған — кеше киткән инде")
     r.canAccept -> appText("Твой ход: прими цену или предложи свою", "Һинең сират: хаҡты ҡабул ит йәки үҙеңдекен тәҡдим ит")
     else -> appText("Ждём ответа второй стороны", "Икенсе яҡтың яуабын көтәбеҙ")
 }
@@ -135,6 +138,7 @@ internal fun bargainTurnHint(r: ResponseDto): String = when {
 private fun bargainTurnIcon(r: ResponseDto): ImageVector = when {
     r.status == "accepted" -> Icons.Default.CheckCircle
     r.status == "declined" -> Icons.Default.Cancel
+    r.status == "expired" -> Icons.Default.Cancel
     r.canAccept -> Icons.Default.Bolt
     else -> Icons.Default.Schedule
 }
@@ -244,7 +248,7 @@ private fun BargainStep(value: Int, current: Boolean) {
  */
 @Composable
 private fun BargainTurnLine(r: ResponseDto) {
-    val mine = r.canAccept && r.status != "accepted" && r.status != "declined"
+    val mine = r.canAccept && r.status != "accepted" && r.status != "declined" && r.status != "expired"
     val accent by animateColorAsState(
         when {
             r.status == "accepted" -> CanonGreen2

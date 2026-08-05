@@ -334,3 +334,93 @@ def test_протухшую_посылку_нельзя_взять(client, user_
     courier = user_factory("HangParcelTakeCourier", role=UserRole.driver)
     r = client.post(f"/parcels/{pid}/accept", headers=courier["auth"])
     assert r.status_code != 200, "курьер взял давно протухшую посылку"
+
+
+# ---------- Дети закрытых объектов ----------
+# Правило из lessons.md: закрыв родителя, обязательно закрой детей. Иначе поездка уже
+# «просрочена», а бронь на ней навсегда «ждём подтверждения» — и человек читает вечное
+# ожидание по поездке, которая уехала неделю назад.
+
+def test_бронь_на_прошедшей_поездке_не_висит_вечно(client, user_factory):
+    """Пассажир записался, водитель не подтвердил, поездка уехала. В приложении у пассажира
+    не должно остаться вечного «ждём подтверждения»."""
+    from app.cleanup import close_past_rides
+    from app.models import Booking, Ride
+
+    driver = user_factory("ChildBookDrv", role=UserRole.driver)
+    ride_id = _ride(client, driver, seats=3)
+    pax = user_factory("ChildBookPax")
+    bid = client.post("/bookings", headers=pax["auth"],
+                      json={"ride_id": ride_id, "seats": 1}).json()["id"]
+
+    with Session(engine) as s:
+        ride = s.get(Ride, ride_id)
+        ride.depart_at = utcnow() - timedelta(days=5)
+        s.add(ride)
+        s.commit()
+    close_past_rides()
+
+    with Session(engine) as s:
+        b = s.get(Booking, bid)
+    assert b.status.value if hasattr(b.status, "value") else b.status, "бронь исчезла"
+    assert str(b.status).endswith("cancelled"), (
+        f"поездка закрыта, а бронь осталась {b.status} — у пассажира вечное «ждём подтверждения»"
+    )
+
+
+def test_подтверждённая_бронь_состоявшейся_поездки_становится_завершённой(client, user_factory):
+    """Обратная сторона: если поездка реально состоялась, бронь обязана стать завершённой,
+    а не отменённой — на завершённых строится рейтинг и история человека."""
+    from app.cleanup import close_past_rides
+    from app.models import Booking, Ride
+
+    driver = user_factory("ChildDoneDrv", role=UserRole.driver)
+    ride_id = _ride(client, driver, seats=3)
+    pax = user_factory("ChildDonePax")
+    bid = client.post("/bookings", headers=pax["auth"],
+                      json={"ride_id": ride_id, "seats": 1}).json()["id"]
+    assert client.post(f"/bookings/{bid}/confirm", headers=driver["auth"]).status_code == 200
+
+    with Session(engine) as s:
+        ride = s.get(Ride, ride_id)
+        ride.depart_at = utcnow() - timedelta(days=5)
+        s.add(ride)
+        s.commit()
+    close_past_rides()
+
+    with Session(engine) as s:
+        b = s.get(Booking, bid)
+        r = s.get(Ride, ride_id)
+    assert str(r.status).endswith("done"), f"поездка с подтверждённой бронью стала {r.status}"
+    assert str(b.status).endswith("done"), (
+        f"поездка состоялась, а бронь осталась {b.status} — поездка не попадёт в историю и рейтинг"
+    )
+
+
+def test_отклик_на_закрытой_заявке_не_висит_в_торге(client, user_factory):
+    """Водитель предложил цену, пассажир не ответил, заявка закрылась по времени.
+    В «моих откликах» не должно остаться открытого торга по заявке, которой уже нет."""
+    from app.cleanup import close_past_requests
+    from app.models import RequestResponse
+
+    pax = user_factory("ChildRespPax")
+    rid = _make_request(client, pax)
+    driver = user_factory("ChildRespDrv", role=UserRole.driver)
+    resp_id = client.post(f"/requests/{rid}/respond", headers=driver["auth"],
+                          json={"price": 500}).json()["id"]
+
+    _age_request(rid, days=30)
+    close_past_requests()
+
+    with Session(engine) as s:
+        rr = s.get(RequestResponse, resp_id)
+    assert rr.status != "offered", (
+        f"заявка закрыта, а отклик остался {rr.status} — водитель ждёт ответа по заявке, "
+        "которой уже месяц нет"
+    )
+
+    mine = client.get("/responses/mine", headers=driver["auth"])
+    assert mine.status_code == 200, mine.text
+    row = next((x for x in mine.json() if x.get("id") == resp_id), None)
+    assert row is not None, "отклик исчез из «моих откликов» — человек не понимает, что с ним стало"
+    assert row.get("status") != "offered", f"в списке отклик всё ещё «в торге»: {row}"

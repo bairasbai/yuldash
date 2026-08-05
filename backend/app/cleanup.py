@@ -225,6 +225,23 @@ def close_past_rides(now=None) -> tuple:
             "UPDATE ride SET status = 'expired' "
             "WHERE status = 'active' AND depart_at < :cut"
         ), {"cut": cut}).rowcount or 0
+        # Брони закрытых поездок. Без этого закрывался только «родитель»: поездка становилась
+        # done/expired, а бронь навсегда оставалась pending — и у пассажира в приложении вечно
+        # висело «ждём подтверждения» по поездке, которая уехала неделю назад (аудит 2026-08-06).
+        # Подтверждённые на состоявшейся поездке → done (как в ручном /rides/{id}/complete),
+        # всё остальное живое → cancelled: человек не поехал, «выполненной» её звать нечестно.
+        conn.execute(text(
+            "UPDATE booking SET status = 'done' "
+            "WHERE status = 'confirmed' AND EXISTS ("
+            "  SELECT 1 FROM ride r WHERE r.id = booking.ride_id "
+            "  AND r.status = 'done' AND r.depart_at < :cut)"
+        ), {"cut": cut})
+        conn.execute(text(
+            "UPDATE booking SET status = 'cancelled' "
+            "WHERE status IN ('pending', 'confirmed') AND EXISTS ("
+            "  SELECT 1 FROM ride r WHERE r.id = booking.ride_id "
+            "  AND r.status IN ('done', 'expired') AND r.depart_at < :cut)"
+        ), {"cut": cut})
     return done, expired
 
 
@@ -244,12 +261,22 @@ def close_past_requests(now=None) -> int:
     time_cut = now - timedelta(hours=settings.request_grace_hours)
     created_cut = now - timedelta(days=settings.request_no_time_days)
     with engine.begin() as conn:
-        return conn.execute(text(
+        n = conn.execute(text(
             "UPDATE riderequest SET status = 'expired' "
             "WHERE status = 'active' AND ("
             "  (desired_at IS NOT NULL AND desired_at < :tcut) OR "
             "  (desired_at IS NULL AND created_at < :ccut))"
         ), {"tcut": time_cut, "ccut": created_cut}).rowcount or 0
+        # Отклики закрытых заявок. Та же болезнь, что у броней: заявка закрывалась, а отклик
+        # навсегда оставался «в торге» — водитель видел у себя открытый торг по заявке,
+        # которой уже месяц нет (аудит 2026-08-06).
+        conn.execute(text(
+            "UPDATE requestresponse SET status = 'expired' "
+            "WHERE status = 'offered' AND EXISTS ("
+            "  SELECT 1 FROM riderequest rq WHERE rq.id = requestresponse.request_id "
+            "  AND rq.status = 'expired')"
+        ))
+        return n
 
 
 # ------------------------------ закрытие протухших посылок ------------------------------
