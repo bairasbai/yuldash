@@ -36,10 +36,12 @@ jobs:
         # Только F-набор (Pyflakes) — без спорного стиля, чтобы не заваливать PR-ы по мелочи.
         run: ruff check app/ --select F
       - name: Run tests
-        # Coverage-gate: покрытие пакета app/. Порог мягкий (70%) на старте, чтобы не
-        # заваливать PR-ы — поднять до 80 по мере роста покрытия. term-missing показывает
-        # непокрытые строки прямо в логе. Тесты на изолированной SQLite (conftest), прод-БД не нужна.
-        run: python -m pytest tests/ -q --cov=app --cov-report=term-missing --cov-fail-under=70
+        # Порог покрытия пакета app/. Стоял 70% «мягко, на старте» — но фактическое покрытие
+        # 89,8%, и такой порог уже ничего не ловил: можно было снести треть тестов, и CI бы
+        # не заметил. Планка поднята до 85 (чуть ниже факта): ловит откат, но не заставляет
+        # писать пустые тесты ради цифры. Правила и разбор — docs/testing.md.
+        # Число здесь и в backend/.coveragerc должно совпадать.
+        run: python -m pytest tests/ -q --cov=app --cov-report=term-missing --cov-fail-under=85
 
   # Тот же набор тестов, но на РЕАЛЬНОМ Postgres (как в проде на yulbash.ru), а не на SQLite.
   # Зачем отдельная джоба: SQLite не проверяет внешние ключи и не даёт настоящих блокировок строк.
@@ -165,8 +167,12 @@ jobs:
           distribution: temurin
           cache: gradle
       - uses: android-actions/setup-android@v3
-      - name: Тесты экранов (Robolectric + Compose)
-        run: chmod +x ./gradlew && ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+      # Тесты + порог покрытия одной задачей: jacocoCoverageVerification сам зовёт прогон
+      # и отчёт. Раньше здесь стоял голый testDebugUnitTest, и порог, заведённый в
+      # build.gradle.kts, не проверялся вообще — то есть «храповик» держался только на том,
+      # что кто-то вспомнит запустить его руками. Гейт, который никто не гоняет, не гейт.
+      - name: Тесты экранов + порог покрытия (Robolectric + Compose + JaCoCo)
+        run: chmod +x ./gradlew && ./gradlew :app:jacocoCoverageVerification --no-daemon --stacktrace
       # Отчёт нужен именно при падении: по нему видно, какой тест и на чём упал.
       - name: Отчёт о тестах (даже если упали)
         if: always()
@@ -174,4 +180,13 @@ jobs:
         with:
           name: android-unit-test-report
           path: android/app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
+      # Отчёт о покрытии — чтобы при падении порога было видно, ЧТО именно перестало покрываться,
+      # а не только «стало ниже планки».
+      - name: Отчёт о покрытии (даже если упал порог)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-coverage-report
+          path: android/app/build/reports/jacoco/jacocoTestReport
           if-no-files-found: ignore

@@ -56,6 +56,11 @@ cd android && ./gradlew.bat :app:jacocoCoverageVerification
 Отчёт глазами — `app/build/reports/jacoco/jacocoTestReport/html/index.html`.
 `./gradlew check` теперь тоже включает эту проверку.
 
+**Оба порога проверяет CI на каждый push** (`.github/workflows/ci.yml`): бэкенд —
+`--cov-fail-under=85`, приложение — `jacocoCoverageVerification`. Порог, который гоняют
+только руками, — не порог: его забудут ровно в тот раз, когда он был нужен. Число в CI
+и в `backend/.coveragerc` должно совпадать.
+
 ---
 
 ## Что считается хорошим тестом в этом проекте
