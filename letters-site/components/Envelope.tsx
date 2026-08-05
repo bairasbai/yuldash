@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "motion/react";
+import { motion, useMotionValue, useSpring, useTransform } from "motion/react";
 import WaxSeal from "./WaxSeal";
 
 /**
@@ -21,10 +21,32 @@ type Props = {
 export default function Envelope({ n, dateLabel, state, onOpen }: Props) {
   const opening = state !== "sealed";
 
+  // Конверт слегка поворачивается вслед за курсором — будто лежит
+  // на ладони и ты его чуть наклоняешь, чтобы разглядеть.
+  const px = useMotionValue(0);
+  const py = useMotionValue(0);
+  const spring = { stiffness: 110, damping: 16, mass: 0.6 };
+  const tiltX = useSpring(useTransform(py, [-0.5, 0.5], [8, -8]), spring);
+  const tiltY = useSpring(useTransform(px, [-0.5, 0.5], [-10, 10]), spring);
+
+  const follow = (e: React.MouseEvent<HTMLElement>) => {
+    if (opening) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    px.set((e.clientX - r.left) / r.width - 0.5);
+    py.set((e.clientY - r.top) / r.height - 0.5);
+  };
+
+  const release = () => {
+    px.set(0);
+    py.set(0);
+  };
+
   return (
     <motion.button
       type="button"
       onClick={state === "sealed" ? onOpen : undefined}
+      onMouseMove={follow}
+      onMouseLeave={release}
       aria-label={`Открыть письмо номер ${n}`}
       className="group relative block cursor-pointer focus:outline-none"
       style={{ perspective: 1400 }}
@@ -49,7 +71,11 @@ export default function Envelope({ n, dateLabel, state, onOpen }: Props) {
             ? { duration: 7, repeat: Infinity, ease: "easeInOut" }
             : { duration: 0.6 }
         }
-        style={{ transformStyle: "preserve-3d" }}
+        style={{
+          transformStyle: "preserve-3d",
+          rotateX: opening ? 0 : tiltX,
+          rotateY: opening ? 0 : tiltY,
+        }}
       >
         <div className="relative h-[15.5rem] w-[22rem] max-w-[86vw] sm:h-[16.5rem] sm:w-[24rem]">
           {/* Тень под конвертом */}

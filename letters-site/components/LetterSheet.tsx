@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 
 /**
@@ -23,6 +23,20 @@ export default function LetterSheet({
   footer?: React.ReactNode;
 }) {
   const [showTranslation, setShowTranslation] = useState(false);
+
+  // Слова проявляются одной непрерывной волной через всё письмо,
+  // а не заново в каждом абзаце — иначе ритм сбивается на каждой точке.
+  const { wordOffsets, totalWords } = useMemo(() => {
+    let acc = 0;
+    const offsets = letter.body.map((p) => {
+      const start = acc;
+      acc += p.split(" ").length;
+      return start;
+    });
+    return { wordOffsets: offsets, totalWords: acc };
+  }, [letter.body]);
+
+  const afterText = 0.42 + totalWords * 0.028;
 
   return (
     <motion.article
@@ -71,27 +85,57 @@ export default function LetterSheet({
           </span>
         </motion.header>
 
-        {/* Текст письма */}
+        {/* Текст письма — проявляется слово за словом */}
         <div className="space-y-5">
-          {letter.body.map((paragraph, i) => (
-            <motion.p
-              key={i}
-              initial={{ opacity: 0, y: 12, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              transition={{
-                delay: 0.45 + i * 0.28,
-                duration: 0.9,
-                ease: [0.22, 1, 0.36, 1],
-              }}
-              className={
-                i === 0
-                  ? "dropcap font-serif text-[1.34rem] leading-[1.75] text-ink"
-                  : "font-serif text-[1.2rem] leading-[1.85] text-ink/90"
-              }
-            >
-              {paragraph}
-            </motion.p>
-          ))}
+          {letter.body.map((paragraph, i) => {
+            const startAt = wordOffsets[i];
+            // У первого абзаца первая буква уходит в буквицу,
+            // а всё остальное дальше идёт словами как обычно
+            const text = i === 0 ? paragraph.slice(1) : paragraph;
+            return (
+              <p
+                key={i}
+                className={
+                  i === 0
+                    ? "font-serif text-[1.34rem] leading-[1.75] text-ink"
+                    : "font-serif text-[1.2rem] leading-[1.85] text-ink/90"
+                }
+              >
+                {i === 0 && (
+                  <motion.span
+                    className="dropcap-letter"
+                    initial={{ opacity: 0, y: 7, filter: "blur(5px)" }}
+                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                    transition={{
+                      delay: 0.42,
+                      duration: 0.8,
+                      ease: [0.22, 1, 0.36, 1],
+                    }}
+                  >
+                    {paragraph.charAt(0)}
+                  </motion.span>
+                )}
+                {text.split(" ").map((word, w) => (
+                  <motion.span
+                    key={w}
+                    // inline-block, чтобы слово можно было двигать,
+                    // и отступ справа вместо пробела — иначе строки
+                    // перестают переноситься по словам
+                    className="mr-[0.26em] inline-block"
+                    initial={{ opacity: 0, y: 7, filter: "blur(5px)" }}
+                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                    transition={{
+                      delay: 0.42 + (startAt + w) * 0.028,
+                      duration: 0.62,
+                      ease: [0.22, 1, 0.36, 1],
+                    }}
+                  >
+                    {word}
+                  </motion.span>
+                ))}
+              </p>
+            );
+          })}
         </div>
 
         {/* Строчка на башкирском — перевод открывается по нажатию */}
@@ -99,7 +143,7 @@ export default function LetterSheet({
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 + letter.body.length * 0.28, duration: 0.9 }}
+            transition={{ delay: afterText + 0.25, duration: 0.9 }}
             className="mt-9"
           >
             <div
@@ -149,7 +193,7 @@ export default function LetterSheet({
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.8 + letter.body.length * 0.28, duration: 1 }}
+          transition={{ delay: afterText + 0.55, duration: 1 }}
           className="mt-10 text-right"
         >
           <span className="font-hand text-3xl text-ink/75">Байрас</span>
