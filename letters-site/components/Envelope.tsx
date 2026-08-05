@@ -259,7 +259,9 @@ export default function Envelope({ n, dateLabel, state, onOpen }: Props) {
             animate={{ opacity: opening ? 0 : 1 }}
             transition={{ duration: 0.4 }}
           >
-            <div className="font-hand text-2xl text-ink/80">Илизе</div>
+            <div className="font-hand text-[1.75rem] leading-tight text-ink/80">
+              Илизе
+            </div>
             <div className="mt-1 font-sans text-[0.68rem] uppercase tracking-[0.22em] text-ink-faint">
               письмо {n} · {dateLabel}
             </div>

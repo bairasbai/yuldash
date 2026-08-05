@@ -96,9 +96,12 @@ export default function LetterSheet({
               <p
                 key={i}
                 className={
+                  // Кегль ниже, чем был у прежней антиквы: у Lora буквы
+                  // шире и выше в строчной части, при том же размере
+                  // текст читался бы теснее
                   i === 0
-                    ? "font-serif text-[1.34rem] leading-[1.75] text-ink"
-                    : "font-serif text-[1.2rem] leading-[1.85] text-ink/90"
+                    ? "font-serif text-[1.24rem] leading-[1.78] text-ink"
+                    : "font-serif text-[1.12rem] leading-[1.88] text-ink/90"
                 }
               >
                 {i === 0 && (

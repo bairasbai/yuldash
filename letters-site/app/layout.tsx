@@ -1,18 +1,23 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant, Caveat, Manrope } from "next/font/google";
+import { Lora, Marck_Script, Manrope } from "next/font/google";
 import Sky from "@/components/Sky";
 import { dawnProgress } from "@/lib/time";
 import "./globals.css";
 
-const cormorant = Cormorant({
-  variable: "--font-cormorant",
+// Шрифт писем. Мягкий и плотный: на телефоне читается легче
+// тонких вытянутых антикв, а тон остаётся книжным, не парадным.
+const letterFont = Lora({
+  variable: "--font-letter",
   subsets: ["cyrillic", "latin"],
   display: "swap",
 });
 
-const caveat = Caveat({
-  variable: "--font-caveat",
+// Почерк для подписи и надписи на конверте: перо с наклоном,
+// а не маркер — под сургучом это единственное, что не спорит
+const handwriting = Marck_Script({
+  variable: "--font-hand-script",
   subsets: ["cyrillic", "latin"],
+  weight: "400",
   display: "swap",
 });
 
@@ -42,7 +47,7 @@ export default function RootLayout({
   return (
     <html
       lang="ru"
-      className={`${cormorant.variable} ${caveat.variable} ${manrope.variable} h-full antialiased`}
+      className={`${letterFont.variable} ${handwriting.variable} ${manrope.variable} h-full antialiased`}
     >
       <body className="min-h-full">
         {/*

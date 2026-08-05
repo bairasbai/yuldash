@@ -32,7 +32,7 @@ export default function Countdown({
           initial={{ opacity: 0, filter: "blur(16px)", scale: 1.04 }}
           animate={{ opacity: 1, filter: "blur(0px)", scale: 1 }}
           transition={{ duration: 1.6, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          className="mt-3 font-serif text-[clamp(3rem,13vw,5.5rem)] font-light leading-none tracking-tight"
+          className="mt-3 font-serif text-[clamp(2.7rem,11.5vw,4.8rem)] leading-none tracking-tight"
           style={{ textShadow: "0 2px 30px rgb(0 0 0 / 0.35)" }}
         >
           я в Уфе
@@ -44,7 +44,9 @@ export default function Countdown({
             initial={{ opacity: 0, filter: "blur(18px)", y: 12 }}
             animate={{ opacity: 1, filter: "blur(0px)", y: 0 }}
             transition={{ duration: 1.5, delay: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            className="font-serif text-[clamp(5rem,22vw,9.5rem)] font-light leading-[0.85] tracking-tight"
+            // Кегль ниже прежнего: у Lora нет тонкого начертания,
+            // и на старом размере цифра давила на всё остальное
+            className="font-serif text-[clamp(4.2rem,18vw,7.4rem)] font-normal leading-[0.85] tracking-tight"
             style={{ textShadow: "0 4px 40px rgb(0 0 0 / 0.4)" }}
           >
             {days}
@@ -53,7 +55,7 @@ export default function Countdown({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1.2, delay: 0.7 }}
-            className="font-serif text-[clamp(1.1rem,4vw,1.6rem)] font-light text-sky-ink-soft"
+            className="font-serif text-[clamp(1rem,3.6vw,1.4rem)] text-sky-ink-soft"
           >
             {plural(days, "день", "дня", "дней")}
           </motion.span>

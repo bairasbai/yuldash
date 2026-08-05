@@ -7,8 +7,8 @@
    ─────────────────────────────────────────────────────────── */
 
 @theme {
-  --font-serif: var(--font-cormorant), Georgia, serif;
-  --font-hand: var(--font-caveat), cursive;
+  --font-serif: var(--font-letter), Georgia, serif;
+  --font-hand: var(--font-hand-script), cursive;
   --font-sans: var(--font-manrope), system-ui, sans-serif;
 
   /* Бумага письма */
