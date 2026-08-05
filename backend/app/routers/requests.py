@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, text
+from sqlalchemy import and_, or_, text
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -58,13 +58,38 @@ class RequestIn(BaseModel):
     assisted: bool = False   # заявка из «помощь»-режима (пожилой/голос/за близкого) — НЕ храним, только уведомляем админа
 
 
+def live_request_conds():
+    """Условия «заявка ещё живая»: активная И время не прошло.
+
+    Зачем отдельной функцией. Раньше везде стояло просто `status == "active"`, а закрывать
+    заявку по времени было нечем — и «нужна машина завтра в 8» трёхмесячной давности вечно
+    висела в ленте водителей (аудит 2026-08-06). Ночная чистка (`cleanup.close_past_requests`)
+    закрывает такие раз в сутки, но лента обязана переставать их показывать СРАЗУ: между
+    чистками сутки, а человек уезжает раньше.
+
+    Два срока, потому что случая два: у заявки с временем считаем от него (плюс запас — выехать
+    могли позже, чем просили), у заявки без времени («когда-нибудь на неделе») — от создания."""
+    now = utcnow()
+    time_cut = now - timedelta(hours=settings.request_grace_hours)
+    created_cut = now - timedelta(days=settings.request_no_time_days)
+    return [
+        RideRequest.status == "active",
+        or_(
+            and_(RideRequest.desired_at.is_not(None), RideRequest.desired_at >= time_cut),
+            and_(RideRequest.desired_at.is_(None), RideRequest.created_at >= created_cut),
+        ),
+    ]
+
+
 @router.post("/requests", response_model=RideRequest)
 def create_request(body: RequestIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) блокирует новую заявку
     # Анти-флуд: каждая заявка будит пушем водителей, караулящих это направление
     # (notify_request_watchers ниже). Без потолка один человек рассылал их сотнями (аудит 2026-08-06).
+    # Считаем ЖИВЫЕ, а не просто активные: иначе пятнадцать прошлогодних заявок запирали бы
+    # человека навсегда — потолок превращался в пожизненный запрет.
     guard_open_items(session, RideRequest.id, RideRequest.passenger_id == user.id,
-                     RideRequest.status == "active",
+                     *live_request_conds(),
                      limit=settings.flood_active_requests_max,
                      ru=TOO_MANY_REQUESTS[0], ba=TOO_MANY_REQUESTS[1])
     # Желаемое время → наивный UTC (разбор №2): без этого заявка «на 10:00» жила в ленте
@@ -111,7 +136,7 @@ def requests_near(
     """Активные заявки пассажиров рядом — водитель видит, кто ищет попутку на его маршруте (зеркало /rides/near).
     Координаты клиента (lat/lng) → дистанция до точки отправления заявки + опц. фильтр радиуса.
     Приватность: отдаём только город/точку отправления + имя, без телефона/точного адреса."""
-    q = select(RideRequest).where(RideRequest.status == "active")
+    q = select(RideRequest).where(*live_request_conds())   # прошедшие в ленту не попадают
     if from_city:
         q = q.where(RideRequest.from_city.contains(from_city))
     if to_city:
@@ -321,7 +346,7 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
     """Активные заявки пассажиров — для водителей (откликнуться). Без своих и заблокированных."""
     reqs = session.exec(
         select(RideRequest)
-        .where(RideRequest.status == "active", RideRequest.passenger_id != user.id)
+        .where(*live_request_conds(), RideRequest.passenger_id != user.id)
         .order_by(RideRequest.id.desc()).limit(200)
     ).all()
     if not reqs:
@@ -369,6 +394,12 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
     # (тесты однопоточны), на проде Postgres второй ждёт коммита первого и видит dup.
     req = session.exec(select(RideRequest).where(RideRequest.id == request_id).with_for_update()).first()
     if not req or req.status != "active":
+        raise HTTPException(404, "Заявка не найдена или закрыта")
+    # И время не должно быть прошедшим: из ленты такая заявка уже ушла, но прямая ссылка
+    # (старый пуш, открытый экран) обходила бы фильтр — водитель звонил бы человеку, который
+    # уехал месяц назад (аудит 2026-08-06).
+    if session.exec(select(RideRequest.id).where(RideRequest.id == request_id,
+                                                 *live_request_conds())).first() is None:
         raise HTTPException(404, "Заявка не найдена или закрыта")
     if req.passenger_id == user.id:
         raise HTTPException(400, "Нельзя откликнуться на свою заявку")

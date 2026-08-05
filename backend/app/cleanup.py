@@ -16,6 +16,7 @@ from datetime import timedelta
 
 from sqlalchemy import text
 
+from .config import settings
 from .db import engine
 from .storage import StorageError, get_storage
 from .timeutil import utcnow
@@ -227,6 +228,30 @@ def close_past_rides(now=None) -> tuple:
     return done, expired
 
 
+# ------------------------------ закрытие прошедших заявок ------------------------------
+# Та же болезнь, что у поездок (выше), только у заявок пассажира — и найдена она позже,
+# 2026-08-06. Заявка не закрывалась НИКОГДА: «нужна машина завтра в 8» трёхмесячной давности
+# висела в ленте водителей, водитель откликался, а человек давно уехал. Плюс с появлением
+# потолка на число активных заявок вечная заявка превращала его в пожизненный запрет.
+#
+# Сроков два, потому что случая два: у заявки с желаемым временем считаем от него (плюс запас
+# на «выехал позже, чем просил»), у заявки без времени — от создания.
+# Те же числа читает лента (`routers/requests.live_request_conds`): чистка идёт раз в сутки,
+# а из ленты прошедшая заявка обязана уходить сразу.
+def close_past_requests(now=None) -> int:
+    """Закрыть заявки, время которых прошло. Возвращает, сколько закрыто."""
+    now = now or utcnow()
+    time_cut = now - timedelta(hours=settings.request_grace_hours)
+    created_cut = now - timedelta(days=settings.request_no_time_days)
+    with engine.begin() as conn:
+        return conn.execute(text(
+            "UPDATE riderequest SET status = 'expired' "
+            "WHERE status = 'active' AND ("
+            "  (desired_at IS NOT NULL AND desired_at < :tcut) OR "
+            "  (desired_at IS NULL AND created_at < :ccut))"
+        ), {"tcut": time_cut, "ccut": created_cut}).rowcount or 0
+
+
 def main():
     now = utcnow()
     mode = "СУХОЙ ПРОГОН (ничего не удаляется)" if DRY else "РЕАЛЬНАЯ чистка"
@@ -258,6 +283,11 @@ def main():
             print(f"  прошедшие поездки: закрыто как состоявшиеся {d}, как несостоявшиеся {e}")
         except Exception as ex:  # noqa: BLE001 — не роняем всю чистку
             print(f"  прошедшие поездки: ОШИБКА {type(ex).__name__}: {ex}")
+        try:
+            n = close_past_requests(now)
+            print(f"  прошедшие заявки: закрыто {n}")
+        except Exception as ex:  # noqa: BLE001 — не роняем всю чистку
+            print(f"  прошедшие заявки: ОШИБКА {type(ex).__name__}: {ex}")
     print(f"=== Итог: строк {'к удалению' if DRY else 'удалено'} — {total} ===")
 
 
