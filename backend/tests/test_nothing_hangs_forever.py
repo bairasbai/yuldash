@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 from sqlmodel import Session, select
 
 from app.config import settings
@@ -424,3 +425,142 @@ def test_отклик_на_закрытой_заявке_не_висит_в_то
     row = next((x for x in mine.json() if x.get("id") == resp_id), None)
     assert row is not None, "отклик исчез из «моих откликов» — человек не понимает, что с ним стало"
     assert row.get("status") != "offered", f"в списке отклик всё ещё «в торге»: {row}"
+
+
+# ---------- Забытый такси-заказ ----------
+# Самый дорогой из зависших: у водителя стоит защита «нельзя взять второй заказ при активном
+# первом», поэтому один забытый заказ навсегда закрывал ему возможность работать.
+
+@pytest.fixture
+def fake_redis():
+    import fakeredis
+
+    from app import instant_service as isv
+    r = fakeredis.FakeStrictRedis(decode_responses=True)
+    isv._redis_override = r
+    yield r
+    isv._redis_override = None
+
+
+TAXI_ORIG = (52.5911, 58.3178)
+TAXI_DEST = (52.9128, 58.6689)
+
+
+def _taxi_order(client, passenger, driver):
+    assert client.post("/driver/online", headers=driver["auth"],
+                       json={"online": True}).status_code == 200
+    assert client.post("/instant/presence", headers=driver["auth"],
+                       json={"lat": TAXI_ORIG[0], "lng": TAXI_ORIG[1]}).status_code == 200
+    r = client.post("/instant/orders", headers=passenger["auth"], json={
+        "from_lat": TAXI_ORIG[0], "from_lng": TAXI_ORIG[1],
+        "to_lat": TAXI_DEST[0], "to_lng": TAXI_DEST[1],
+        "from_text": "Баймак", "to_text": "Сибай",
+    })
+    assert r.status_code == 200, f"заказ не создался: {r.status_code} {r.text[:200]}"
+    oid = r.json()["id"]
+    assert client.post(f"/instant/orders/{oid}/accept",
+                       headers=driver["auth"]).status_code == 200
+    return oid
+
+
+def _age_order(order_id: int, hours: int) -> None:
+    from app.models import InstantOrder
+    with Session(engine) as s:
+        o = s.get(InstantOrder, order_id)
+        o.created_at = utcnow() - timedelta(hours=hours)
+        s.add(o)
+        s.commit()
+
+
+def test_забытый_заказ_не_запирает_водителя_навсегда(client, user_factory, fake_redis):
+    """Водитель не нажал «завершил» — и без чистки он больше НИКОГДА не мог взять заказ."""
+    from app.cleanup import close_stale_orders
+
+    passenger = user_factory("StaleTaxiPax")
+    driver = user_factory("StaleTaxiDrv", role=UserRole.driver)
+    oid = _taxi_order(client, passenger, driver)
+    client.post(f"/instant/orders/{oid}/arrived", headers=driver["auth"])
+    client.post(f"/instant/orders/{oid}/onboard", headers=driver["auth"])
+    _age_order(oid, hours=48)
+
+    # Контроль: пока заказ висит, второй взять нельзя — это правильная защита.
+    pax2 = user_factory("StaleTaxiPax2")
+    oid2 = client.post("/instant/orders", headers=pax2["auth"], json={
+        "from_lat": TAXI_ORIG[0], "from_lng": TAXI_ORIG[1],
+        "to_lat": TAXI_DEST[0], "to_lng": TAXI_DEST[1],
+        "from_text": "Баймак", "to_text": "Сибай",
+    }).json()["id"]
+    blocked = client.post(f"/instant/orders/{oid2}/accept", headers=driver["auth"])
+    assert blocked.status_code == 409, (
+        f"защита «один заказ за раз» не работает — проверка ниже ничего не докажет: {blocked.status_code}"
+    )
+
+    assert close_stale_orders() >= 1, "чистка не закрыла ни одного забытого заказа"
+
+    pax3 = user_factory("StaleTaxiPax3")
+    oid3 = client.post("/instant/orders", headers=pax3["auth"], json={
+        "from_lat": TAXI_ORIG[0], "from_lng": TAXI_ORIG[1],
+        "to_lat": TAXI_DEST[0], "to_lng": TAXI_DEST[1],
+        "from_text": "Баймак", "to_text": "Сибай",
+    }).json()["id"]
+    freed = client.post(f"/instant/orders/{oid3}/accept", headers=driver["auth"])
+    assert freed.status_code == 200, (
+        f"забытый заказ закрыт, а водитель всё ещё не может работать: "
+        f"{freed.status_code} {freed.text[:200]}"
+    )
+
+
+def test_человек_сидел_в_машине_поездка_считается_состоявшейся(client, user_factory, fake_redis):
+    """Две правды у закрытия: если пассажир был в машине, честнее «завершена», а не «отменена» —
+    иначе поездка исчезает из истории обоих."""
+    from app.cleanup import close_stale_orders
+    from app.models import InstantOrder
+
+    passenger = user_factory("StaleOnboardPax")
+    driver = user_factory("StaleOnboardDrv", role=UserRole.driver)
+    oid = _taxi_order(client, passenger, driver)
+    client.post(f"/instant/orders/{oid}/arrived", headers=driver["auth"])
+    client.post(f"/instant/orders/{oid}/onboard", headers=driver["auth"])
+    _age_order(oid, hours=48)
+    close_stale_orders()
+
+    with Session(engine) as s:
+        o = s.get(InstantOrder, oid)
+    assert str(o.status).endswith("done"), f"поездка с пассажиром в машине закрылась как {o.status}"
+
+
+def test_машина_так_и_не_подъехала_поездка_считается_отменённой(client, user_factory, fake_redis):
+    """А если человек в машину не сел — «завершена» было бы враньём и попало бы в статистику."""
+    from app.cleanup import close_stale_orders
+    from app.models import InstantOrder
+
+    passenger = user_factory("StaleAcceptedPax")
+    driver = user_factory("StaleAcceptedDrv", role=UserRole.driver)
+    oid = _taxi_order(client, passenger, driver)
+    _age_order(oid, hours=48)
+    close_stale_orders()
+
+    with Session(engine) as s:
+        o = s.get(InstantOrder, oid)
+    assert str(o.status).endswith("cancelled"), (
+        f"человек в машину не сел, а заказ закрылся как {o.status}"
+    )
+
+
+def test_чистка_не_трогает_идущую_поездку(client, user_factory, fake_redis):
+    """Обратная сторона: живой заказ рубить нельзя — человек прямо сейчас едет."""
+    from app.cleanup import close_stale_orders
+    from app.models import InstantOrder
+
+    passenger = user_factory("StaleLivePax")
+    driver = user_factory("StaleLiveDrv", role=UserRole.driver)
+    oid = _taxi_order(client, passenger, driver)
+    client.post(f"/instant/orders/{oid}/arrived", headers=driver["auth"])
+    client.post(f"/instant/orders/{oid}/onboard", headers=driver["auth"])
+
+    close_stale_orders()
+    with Session(engine) as s:
+        o = s.get(InstantOrder, oid)
+    assert str(o.status).endswith("onboard"), (
+        f"чистка оборвала идущую поездку: заказ стал {o.status}"
+    )

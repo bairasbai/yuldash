@@ -297,6 +297,44 @@ def close_stale_parcels(now=None) -> int:
         ), {"today": now.date(), "ccut": created_cut}).rowcount or 0
 
 
+
+# ------------------------------ закрытие забытых такси-заказов ------------------------------
+# Самый дорогой из зависших: водитель не нажал «завершил» (сел телефон, удалил приложение) —
+# и заказ висит активным вечно. Дальше две беды сразу (аудит 2026-08-06):
+#   • у водителя стоит защита «нельзя взять второй заказ при активном первом» — он НАВСЕГДА
+#     терял возможность работать и без поддержки выбраться из этого не мог;
+#   • у пассажира в приложении оставалось «вы едете» по поездке месячной давности.
+#
+# Две правды у закрытия, как и у поездок:
+#   accepted / arriving  -> cancelled   водитель так и не посадил человека, поездки не было;
+#   onboard              -> done        человек сидел в машине — поездка почти наверняка была;
+#   scheduled в прошлом  -> expired     предзаказ на время, которое давно прошло.
+#
+# ВАЖНО про деньги: комиссию здесь НЕ начисляем. Обычный «завершил» её начисляет
+# (debt.accrue_for_order), но там факт поездки подтверждён нажатием водителя. Брать деньги
+# за поездку, которую никто не подтвердил, — хуже, чем не взять: спорить с таким начислением
+# водителю нечем. Если решим иначе, это отдельное продуктовое решение, а не правка чистки.
+def close_stale_orders(now=None) -> int:
+    """Закрыть такси-заказы, зависшие в активном состоянии. Возвращает, сколько закрыто."""
+    now = now or utcnow()
+    cut = now - timedelta(hours=settings.taxi_stale_hours)
+    closed = 0
+    with engine.begin() as conn:
+        closed += conn.execute(text(
+            "UPDATE instantorder SET status = 'cancelled' "
+            "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
+        ), {"cut": cut}).rowcount or 0
+        closed += conn.execute(text(
+            "UPDATE instantorder SET status = 'done' "
+            "WHERE status = 'onboard' AND created_at < :cut"
+        ), {"cut": cut}).rowcount or 0
+        closed += conn.execute(text(
+            "UPDATE instantorder SET status = 'expired' "
+            "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut"
+        ), {"cut": cut}).rowcount or 0
+    return closed
+
+
 def main():
     now = utcnow()
     mode = "СУХОЙ ПРОГОН (ничего не удаляется)" if DRY else "РЕАЛЬНАЯ чистка"
@@ -338,6 +376,11 @@ def main():
             print(f"  протухшие посылки: закрыто {n}")
         except Exception as ex:  # noqa: BLE001 — не роняем всю чистку
             print(f"  протухшие посылки: ОШИБКА {type(ex).__name__}: {ex}")
+        try:
+            n = close_stale_orders(now)
+            print(f"  забытые такси-заказы: закрыто {n}")
+        except Exception as ex:  # noqa: BLE001 — не роняем всю чистку
+            print(f"  забытые такси-заказы: ОШИБКА {type(ex).__name__}: {ex}")
     print(f"=== Итог: строк {'к удалению' if DRY else 'удалено'} — {total} ===")
 
 
