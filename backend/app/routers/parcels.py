@@ -35,7 +35,7 @@ from ..models import ParcelDelivery, User, UserRole
 from ..safety_logic import (ensure_active,
                             is_own_media_url)
 from ..security import current_user
-from ..services import notify_admin_telegram, push_notification
+from ..services import blocked_user_ids, is_blocked, notify_admin_telegram, push_notification
 from ..timeutil import utcnow
 from ..workday import local_day
 
@@ -644,6 +644,12 @@ def parcels_available(
         ParcelDelivery.delivery_type == "poputka",
     )
     rows = session.exec(q.order_by(ParcelDelivery.id.desc())).all()
+    # Заблокированных не показываем вовсе. Отказ при попытке взять посылку — обязательная
+    # защита, но человеку незачем и видеть в ленте того, с кем он не хочет пересекаться:
+    # иначе он жмёт «Взять» и получает необъяснимый отказ.
+    blocked = blocked_user_ids(session, user.id)
+    if blocked:
+        rows = [p for p in rows if p.sender_id not in blocked]
     if from_city:
         fc = from_city.strip().lower()
         rows = [p for p in rows if p.from_city and p.from_city.strip().lower() == fc]
@@ -673,6 +679,13 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
         raise herr(409, "Нельзя взять свою посылку", "Үҙ бандеролеңде алып булмай")
     if parcel.status != "created":
         raise herr(409, "Посылку уже взяли", "Бандерольде инде алғандар")
+    # Блокировка между людьми (проверка сценариев 2026-08-05). Кнопка «заблокировать» —
+    # это обещание безопасности: человек не хочет больше пересекаться. В попутках, заявках
+    # и чате оно выполнялось, в такси матчер тоже фильтрует заблокированных, а в доставке
+    # проверки не было вообще: заблокированный курьер брал посылку того, кто его заблокировал,
+    # и вместе с ней получал адрес, имя и телефон получателя.
+    if is_blocked(session, user.id, parcel.sender_id):
+        raise herr(403, "Эту посылку взять нельзя", "Был бандерольде алып булмай")
     # C1: courier/buy_bring-заказы берут только одобренные курьеры на линии (гейт).
     # «По пути» (poputka) — как раньше, без гейта (любой попутчик помогает).
     if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "poputka":
