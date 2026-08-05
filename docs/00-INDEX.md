@@ -136,6 +136,11 @@
 > `gradlew check` и `coverage report` краснеют при откате. Правила, команды и что считается
 > хорошим тестом — **[testing.md](testing.md)**.
 >
+> **🏪 Подача в магазин:** ответы на анкеты Data safety и Content rating, формулировки для
+> трёх спорных разрешений и три обязательные ссылки — **[play-submission.md](play-submission.md)**.
+> Перед выкаткой сервера: `python backend/ops/preflight.py` скажет, чего не хватает,
+> человеческим языком.
+>
 > **🔔 Мониторинг + бэкап:** `monitor.sh` (пинг `/health` 1/мин, cron → алерт в Telegram при падении), офсайт-S3-бэкап (`backup-db.sh` → Timeweb `yuldash-backups`, ежедневно, aws-cli).
 >
 > **Состояние входа:** SMS выключен по умолчанию (`sms_provider=mock`, api_id сохранён), вход через Telegram основной. FCM-push активен (Firebase `yuldash-9586e`).
