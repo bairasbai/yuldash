@@ -82,6 +82,25 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     # Санити-границы (анти-мусор в ленте): мест 1..8, цена 0..100000 ₽. Клампим, а не падаем.
     body.seats_total = max(1, min(8, body.seats_total))
     body.price = max(0, min(100_000, body.price))
+    # Города: обрезаем пробелы и требуем непустые. Клампить тут нечего — «поездка из ниоткуда»
+    # не чинится подстановкой. Проверка ввода 2026-08-05 показала, что строка из пробелов
+    # проходила насквозь и в ленте у всех появлялась поездка с пустой строкой вместо города.
+    body.from_city = (body.from_city or "").strip()
+    body.to_city = (body.to_city or "").strip()
+    if not body.from_city or not body.to_city:
+        raise HTTPException(400, {"ru": "Укажи, откуда и куда едешь",
+                                  "ba": "Ҡайҙан һәм ҡайҙа барғаныңды күрһәт"})
+    # Время выезда → наивный UTC. Без этого уфимские 10:00 ложились в БД как 10:00 UTC и
+    # поездка «уезжала» на 5 часов (разбор №2). Старые версии приложения шлют время без пояса —
+    # трактуем его как местное, поэтому они чинятся без обновления на телефоне.
+    # Преобразуем РОВНО ОДИН раз: второй прогон сдвинул бы время ещё на пояс, то есть на 10 часов.
+    body.depart_at = client_dt_to_utc(body.depart_at)
+    # Время выезда в прошлом. Такую поездку никто не сможет взять, но висеть в ленте она будет
+    # до ночной уборки — и засоряет и поиск, и карту. Небольшой допуск оставлен нарочно:
+    # часы на телефоне врут на минуты, а «выезжаю прямо сейчас» — обычный сценарий.
+    if body.depart_at < utcnow() - timedelta(minutes=30):
+        raise HTTPException(400, {"ru": "Время выезда уже прошло",
+                                  "ba": "Сығыу ваҡыты үтеп киткән"})
     # F22: клиника-назначение (опц.). Если указана — проверяем, что она есть и активна
     # (чтобы не осталось битой ссылки). Это ТОЛЬКО точка назначения, без мед.данных.
     if body.partner_id is not None:
@@ -104,10 +123,7 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
                 body.pickup_lat = pt.lat
             if body.pickup_lng is None:
                 body.pickup_lng = pt.lng
-    # Время выезда → наивный UTC. Без этого уфимские 10:00 ложились в БД как 10:00 UTC и
-    # поездка «уезжала» на 5 часов (разбор №2). Старые версии приложения шлют время без пояса —
-    # трактуем его как местное, поэтому они чинятся без обновления на телефоне.
-    body.depart_at = client_dt_to_utc(body.depart_at)
+    # (время выезда уже приведено к UTC выше, вместе с проверкой «не в прошлом»)
     # pickup_point_id — не колонка Ride (только сигнал привязки), исключаем из дампа.
     dump = body.model_dump(exclude={"pickup_point_id"})
     ride = Ride(driver_id=user.id, seats_left=body.seats_total, **dump, **geo)
@@ -184,6 +200,10 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
         changed.append("комментарий")
     if body.depart_at is not None:
         body.depart_at = client_dt_to_utc(body.depart_at)
+        # Та же проверка, что и при публикации: правкой нельзя увести поездку в прошлое.
+        # Иначе она останется активной в ленте, но взять её уже никто не сможет.
+        if body.depart_at < utcnow() - timedelta(minutes=30):
+            raise herr(400, "Время выезда уже прошло", "Сығыу ваҡыты үтеп киткән")
     if body.depart_at is not None and body.depart_at != ride.depart_at:
         if live:
             raise herr(409, "С активными бронями время не меняют — отмените рейс и создайте новый", "Актив брондар менән ваҡытты үҙгәртеп булмай — рейсты кире алып, яңыһын төҙө")

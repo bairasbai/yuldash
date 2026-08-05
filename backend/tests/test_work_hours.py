@@ -117,7 +117,11 @@ def _block(driver_id, now, **extra):
 def _ride_body():
     from app.timeutil import utcnow as real_utcnow
     return {"from_city": "Сибай", "to_city": "Баймак",
-            "depart_at": (real_utcnow() + timedelta(hours=2)).isoformat(),
+            # Приложение шлёт МЕСТНОЕ время (Уфа = UTC+5), сервер сам приводит к UTC.
+            # Прислать сюда UTC — значит отправить время на пять часов назад:
+            # сервер примет его за местное, и поездка окажется в прошлом.
+            "depart_at": (real_utcnow() + timedelta(hours=2)
+                          + timedelta(hours=settings.local_tz_offset_hours)).isoformat(),
             "seats_total": 2, "price": 300}
 
 

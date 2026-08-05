@@ -84,10 +84,23 @@ def test_ride_leaves_the_feed_on_time(client, user_factory):
     До починки она держалась там лишние 5 часов — люди звонили водителю, который давно уехал."""
     from app.models import UserRole
     driver = user_factory(name="УехалДавно", role=UserRole.driver)
-    gone_local = (utcnow() - timedelta(hours=3) + timedelta(hours=settings.local_tz_offset_hours))
-    r = _create_ride(client, driver["auth"], gone_local.strftime("%Y-%m-%dT%H:%M:%S"))
-    assert r.status_code == 200, r.text
-    rid = r.json()["id"]
+    # Поездку в прошлом заводим НАПРЯМУЮ в базе: публиковать такую через API теперь нельзя
+    # (проверка ввода 2026-08-05 — водитель опубликовал бы рейс, которого сразу не видно).
+    # Здесь нас интересует не публикация, а окно выдачи: уехавшее не должно висеть в ленте.
+    from sqlmodel import Session
+
+    from app.db import engine
+    from app.models import Ride, RideStatus
+    with Session(engine) as s:
+        ride = Ride(
+            driver_id=driver["id"], from_city="Баймак", to_city="Сибай",
+            depart_at=utcnow() - timedelta(hours=3),
+            seats_total=3, seats_left=3, price=300, status=RideStatus.active,
+        )
+        s.add(ride)
+        s.commit()
+        s.refresh(ride)
+        rid = ride.id
     feed = client.get("/rides", headers=driver["auth"]).json()
     ids = {item["id"] for item in (feed if isinstance(feed, list) else feed.get("items", []))}
     assert rid not in ids, "поездка трёхчасовой давности обязана уйти из выдачи (окно — 2 часа)"

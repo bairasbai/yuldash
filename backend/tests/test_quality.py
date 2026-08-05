@@ -330,7 +330,11 @@ def test_three_resolved_reports_auto_pause_gates_taxi_not_pooling(
     # Попутка работает при любой паузе такси.
     from app.timeutil import utcnow as real_utcnow
     ride = {"from_city": "Сибай", "to_city": "Баймак",
-            "depart_at": (real_utcnow() + timedelta(hours=2)).isoformat(),
+            # Приложение шлёт МЕСТНОЕ время (Уфа = UTC+5), сервер сам приводит к UTC.
+            # Прислать сюда UTC — значит отправить время на пять часов назад:
+            # сервер примет его за местное, и поездка окажется в прошлом.
+            "depart_at": (real_utcnow() + timedelta(hours=2)
+                          + timedelta(hours=settings.local_tz_offset_hours)).isoformat(),
             "seats_total": 2, "price": 300}
     assert client.post("/rides", headers=d["auth"], json=ride).status_code == 200
 
