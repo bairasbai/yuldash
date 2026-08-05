@@ -25,7 +25,8 @@ from ..trust_service import INSIDER_LEVEL, trust_level
 from ..services import (
     CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
     geocode_city, haversine_km, notify_map_changed, notify_route_watchers, public_ride_payload,
-    public_rides_payload, record_pickup_choice, ride_out, ride_out_with, rides_out, send_push,
+    public_rides_payload, push_notification, record_pickup_choice, ride_out, ride_out_with,
+    rides_out, send_push,
 )
 
 router = APIRouter(tags=["rides"])
@@ -562,9 +563,24 @@ def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Sessi
     session.commit()                     # атомарно: поездка+брони одной транзакцией
     session.refresh(ride)
     notify_map_changed()                 # пин уходит с карты live
-    for b in affected:                   # пуши — ПОСЛЕ commit (сбой FCM не откатит отмену)
-        send_push(session, b.passenger_id, "Поездка отменена",
-                  f"{ride.from_city} → {ride.to_city}: водитель отменил. Посмотри другие поездки рядом.")
+    # Уведомления — ПОСЛЕ commit (сбой FCM не откатит отмену).
+    #
+    # Через push_notification, а не send_push: кроме пуша это оставляет запись в Центре
+    # уведомлений. Пуш до человека может не дойти — телефон выключен, нет сети, уведомления
+    # отключены, дешёвый телефон прибил приложение ради батареи. Тогда без записи он узнаёт
+    # об отмене, только выйдя к дороге. Бронь и подтверждение след оставляли, а отмена —
+    # самое важное сообщение в приложении — нет (аудит 2026-08-06).
+    #
+    # И на двух языках: раньше текст был только русский.
+    route = f"{ride.from_city} → {ride.to_city}"
+    for b in affected:
+        push_notification(
+            session, b.passenger_id, "booking",
+            "Поездка отменена", "Сәфәр кире алынды",
+            f"{route}: водитель отменил. Посмотри другие поездки рядом.",
+            f"{route}: водитель кире алды. Яҡындағы башҡа сәфәрҙәрҙе ҡара.",
+            ref_kind="booking", ref_id=b.id,
+        )
     return public_ride_payload(ride_out(ride, session))
 
 
@@ -590,9 +606,17 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
     session.commit()
     session.refresh(ride)
     notify_map_changed()
+    # Как и отмена (см. cancel_ride): запись в Центре уведомлений + два языка. Здесь это ещё
+    # и приглашение оценить поездку — без следа оно живёт ровно до пропущенного пуша.
+    route = f"{ride.from_city} → {ride.to_city}"
     for pid in done_ids:
-        send_push(session, pid, "Поездка завершена",
-                  f"{ride.from_city} → {ride.to_city}: спасибо, что ехали вместе! Оцени поездку.")
+        push_notification(
+            session, pid, "ride",
+            "Поездка завершена", "Сәфәр тамамланды",
+            f"{route}: спасибо, что ехали вместе! Оцени поездку.",
+            f"{route}: бергә барғаныңа рәхмәт! Сәфәрҙе баһала.",
+            ref_kind="ride", ref_id=ride.id,
+        )
     return public_ride_payload(ride_out(ride, session))
 
 

@@ -66,6 +66,8 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
     val readOnly = orderStatus == "done" || orderStatus == "cancelled" || orderStatus == "expired"
 
     val sendFailMsg = appText("Сообщение не отправлено. Повтори.", "Хәбәр ебәрелмәне. Ҡабатла.")
+    val tooFastMsg = appText("Слишком быстро. Подожди минуту и продолжи.",
+                             "Артыҡ тиҙ. Бер минут көт тә дауам ит.")
 
     // История + статус заказа (REST). Повтор — по кнопке «Повторить» (historyTick).
     LaunchedEffect(orderId, historyTick) {
@@ -102,6 +104,17 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
                 }
             },
             onConnected = { wsConnected = it },
+            // Сервер не принял сообщение (слишком быстрый поток). Убираем его с экрана и
+            // возвращаем текст в поле ввода — иначе оно висело бы как отправленное, а на
+            // самом деле не ушло никуда.
+            onRejected = { tempId, _ ->
+                scope.launch {
+                    val lost = messages.firstOrNull { it.id == tempId }
+                    messages = messages.filter { it.id != tempId }
+                    if (lost != null && input.isBlank()) input = lost.text
+                    Toast.makeText(context, tooFastMsg, Toast.LENGTH_SHORT).show()
+                }
+            },
         )
     }
     DisposableEffect(orderId) {
@@ -124,7 +137,7 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
         tempSeq -= 1
         messages = messages + MessageDto(tempId, text, myId)   // оптимистично — сразу в ленту
         input = ""
-        val viaWs = wsConnected && chatSocket.send(text)
+        val viaWs = wsConnected && chatSocket.send(text, tempId)
         if (viaWs) return   // эхо WS заменит оптимистичное настоящим
         sending = true
         scope.launch {

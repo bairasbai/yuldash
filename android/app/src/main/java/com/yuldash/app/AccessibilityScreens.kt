@@ -603,9 +603,10 @@ internal fun VoiceRequestScreen(
                                     .onSuccess {
                                         onCreateRequest(LocalRequest(title = vrTitle, route = text, time = vrNow, passenger = (ApiClient.cachedName() ?: "Я"), status = voiceRequestStatus, trustedContact = trusted?.name))
                                     }
-                                    .onFailure {
+                                    .onFailure { e ->
                                         submittingText = false
-                                        Toast.makeText(context, vrSendError, Toast.LENGTH_LONG).show()
+                                        // Слова сервера вместо «проверь сеть» — см. пояснение ниже по файлу.
+                                        Toast.makeText(context, serverSaid(e, vrSendError), Toast.LENGTH_LONG).show()
                                     }
                             }
                         }
@@ -645,9 +646,9 @@ internal fun VoiceRequestScreen(
                                             )
                                         )
                                     }
-                                    .onFailure {
+                                    .onFailure { e ->
                                         uploading = false
-                                        Toast.makeText(context, vrSendError, Toast.LENGTH_LONG).show()
+                                        Toast.makeText(context, serverSaid(e, vrSendError), Toast.LENGTH_LONG).show()
                                     }
                             }
                         },
@@ -765,9 +766,9 @@ internal fun CreatePassengerRequestScreen(
                                 )
                             )
                         }
-                        .onFailure {
+                        .onFailure { e ->
                             submitting = false
-                            Toast.makeText(context, sendError, Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, serverSaid(e, sendError), Toast.LENGTH_LONG).show()
                         }
                 }
             },
@@ -1095,10 +1096,10 @@ internal fun FamilyOrderScreen(
                                 )
                             )
                         }
-                        .onFailure {
+                        .onFailure { e ->
                             submitting = false
-                            submitError = sendError
-                            Toast.makeText(context, sendError, Toast.LENGTH_LONG).show()
+                            submitError = serverSaid(e, sendError)
+                            Toast.makeText(context, submitError!!, Toast.LENGTH_LONG).show()
                         }
                 }
             },
@@ -1400,9 +1401,9 @@ internal fun RepeatTripScreen(
         scope.launch {
             ApiClient.createRequest(from, to, 1, "regular", false, "", 0, assisted = true)
                 .onSuccess { onRepeat(request) }
-                .onFailure {
+                .onFailure { e ->
                     submittingRoute = null
-                    Toast.makeText(context, sendError, Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, serverSaid(e, sendError), Toast.LENGTH_LONG).show()
                 }
         }
     }

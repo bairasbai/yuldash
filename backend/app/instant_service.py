@@ -1197,26 +1197,38 @@ def _notify_transition(session: Session, order: InstantOrder, target: S) -> None
 
 
 def _notify_cancel(session: Session, order: InstantOrder, actor: Actor) -> None:
-    """Отмена (B9b-2): водитель отменил → пуш пассажиру; пассажир отменил → пуш водителю.
-    Двуязычно + data type=instant_status (тап открывает заказ)."""
+    """Отмена (B9b-2): водитель отменил → пассажиру; пассажир отменил → водителю.
+
+    Через push_notification, а не send_push: кроме пуша остаётся запись в Центре уведомлений.
+    Пуш может не дойти (телефон выключен, нет сети, уведомления отключены, дешёвый телефон
+    прибил приложение ради батареи) — и тогда человек стоит у подъезда и ждёт машину, которая
+    уже отменилась, без единого следа в приложении (аудит 2026-08-06).
+
+    Промежуточные статусы (еду, на месте, в пути) остаются обычным пушем: там человек смотрит
+    в экран, а запись о каждом шаге только засорила бы ленту. След нужен именно у отмены."""
+    from .services import push_notification
+
     if actor == Actor.driver and order.passenger_id:
         if order.no_show:
-            send_push(session, order.passenger_id,
-                      "Поездка не состоялась · Сәфәр булманы",
-                      "Водитель ждал, но не дождался. Частые несостоявшиеся поездки ставят такси на паузу"
-                      " · Водитель көттө, ләкин көтөп ала алманы. Йыш ҡабатланһа — такси паузаға ҡуйыла",
-                      data=_status_data(order, "cancelled"))
+            push_notification(
+                session, order.passenger_id, "ride",
+                "Поездка не состоялась", "Сәфәр булманы",
+                "Водитель ждал, но не дождался. Частые несостоявшиеся поездки ставят такси на паузу",
+                "Водитель көттө, ләкин көтөп ала алманы. Йыш ҡабатланһа — такси паузаға ҡуйыла",
+                ref_kind="instant", ref_id=order.id, data=_status_data(order, "cancelled"))
         else:
-            send_push(session, order.passenger_id,
-                      "Заказ отменён · Заказ кире алынды",
-                      "Водитель отменил заказ. Ищем другого?"
-                      " · Водитель заказды кире алды. Башҡаһын эҙләйекме?",
-                      data=_status_data(order, "cancelled"))
+            push_notification(
+                session, order.passenger_id, "ride",
+                "Заказ отменён", "Заказ кире алынды",
+                "Водитель отменил заказ. Ищем другого?",
+                "Водитель заказды кире алды. Башҡаһын эҙләйекме?",
+                ref_kind="instant", ref_id=order.id, data=_status_data(order, "cancelled"))
     elif actor == Actor.passenger and order.driver_id:
-        send_push(session, order.driver_id,
-                  "Заказ отменён · Заказ кире алынды",
-                  "Пассажир отменил заказ · Пассажир заказды кире алды",
-                  data=_status_data(order, "cancelled"))
+        push_notification(
+            session, order.driver_id, "ride",
+            "Заказ отменён", "Заказ кире алынды",
+            "Пассажир отменил заказ", "Пассажир заказды кире алды",
+            ref_kind="instant", ref_id=order.id, data=_status_data(order, "cancelled"))
     # Близким (шаринг B7b-2): честно сообщаем, что поездка не состоялась.
     _notify_order_shares(session, order, "cancelled")
 

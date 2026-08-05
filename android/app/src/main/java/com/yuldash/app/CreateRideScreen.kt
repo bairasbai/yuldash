@@ -387,7 +387,12 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
                 publishScope.launch {
                     ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim(), pickupPointId, if (category == "hospital") partnerId else null, quiet, waypoints.filter { it.isNotBlank() }.joinToString(" | "))
                         .onSuccess { publishing = false; onPublish(ride) }
-                        .onFailure { publishing = false; publishError = errPublish }
+                        // Сервер объясняет отказ по-человечески («время выезда уже прошло»,
+                        // «слишком много активных поездок»). Показываем именно его слова:
+                        // раньше на любой отказ писали «проверь сеть» — водитель проверял сеть,
+                        // жал ещё раз и получал то же самое, так и не узнав причину.
+                        // Без ответа сервера (нет связи) остаётся прежний текст про сеть.
+                        .onFailure { e -> publishing = false; publishError = serverSaid(e, errPublish) }
                 }
             },
             onCancel = onBack,

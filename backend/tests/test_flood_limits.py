@@ -200,3 +200,58 @@ def test_отказ_объясняет_что_делать_и_на_двух_яз
     detail = r.json().get("detail")
     assert isinstance(detail, dict), f"текст отказа не двуязычный: {detail}"
     assert detail.get("ru") and detail.get("ba"), f"пустой язык в отказе: {detail}"
+
+
+# ---------- Живое соединение (чат по сокету) ----------
+
+def test_сокет_не_обходит_потолок_и_не_молчит(client, user_factory):
+    """Сообщения уходят двумя путями: обычным запросом и по живому соединению. Потолок только
+    в первом обходился бы в один тап.
+
+    И вторая половина, не менее важная: при отказе сервер обязан СКАЗАТЬ об этом. Приложение
+    рисует своё сообщение на экране сразу, до ответа, и заменяет его настоящим, когда оно
+    вернётся эхом. Если сервер молча выбросит сообщение, эхо не придёт никогда — и человек
+    будет уверен, что отправил, хотя не отправил."""
+    import json
+
+    cap = settings.flood_chat_per_min
+    driver, pax, bid = _chat(client, user_factory, "FloodWs")
+
+    # Выбираем весь потолок обычным путём — дальше сокету принимать уже нечего.
+    for i in range(cap):
+        assert client.post(f"/bookings/{bid}/messages", headers=pax["auth"],
+                           json={"text": f"добор {i}"}).status_code == 200
+
+    with client.websocket_connect(f"/ws/bookings/{bid}") as ws:
+        ws.send_text(json.dumps({"type": "auth", "token": pax["token"]}))
+        ws.send_text(json.dumps({"type": "message", "text": "через сокет", "temp_id": -7}))
+        frame = json.loads(ws.receive_text())
+
+    assert frame.get("type") == "rejected", (
+        f"сокет принял сообщение сверх потолка или промолчал: {frame}"
+    )
+    assert frame.get("temp_id") == -7, (
+        f"в отказе нет номера сообщения — экран не поймёт, какое пометить недоставленным: {frame}"
+    )
+
+    # И сообщение действительно не сохранилось.
+    history = client.get(f"/bookings/{bid}/messages", headers=pax["auth"]).json()
+    items = history.get("items", history) if isinstance(history, dict) else history
+    assert all("через сокет" != str(m.get("text", "")) for m in items), (
+        "сообщение сверх потолка всё-таки сохранилось"
+    )
+
+
+def test_контроль_обычное_сообщение_по_сокету_доходит(client, user_factory):
+    """Контрольный случай: без потолка тот же путь обязан работать. Иначе проверка выше
+    зеленела бы просто потому, что по сокету ничего не отправляется в принципе."""
+    import json
+
+    driver, pax, bid = _chat(client, user_factory, "FloodWsOk")
+    with client.websocket_connect(f"/ws/bookings/{bid}") as ws:
+        ws.send_text(json.dumps({"type": "auth", "token": pax["token"]}))
+        ws.send_text(json.dumps({"type": "message", "text": "обычное по сокету", "temp_id": -3}))
+        frame = json.loads(ws.receive_text())
+
+    assert frame.get("type") == "message", f"обычное сообщение по сокету не прошло: {frame}"
+    assert frame.get("text") == "обычное по сокету", frame

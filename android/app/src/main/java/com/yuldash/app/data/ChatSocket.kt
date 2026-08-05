@@ -27,6 +27,10 @@ class ChatSocket(
     // Чат такси-заказа (B7b-1) живёт на другом пути (/ws/instant/{id}/chat) — тот же протокол.
     // null → прежний booking-чат (/ws/bookings/{bookingId}); поведение старых вызовов не меняется.
     private val path: String? = null,
+    // Сервер отказался принять сообщение (например, слишком быстрый поток — потолок пушей).
+    // Без этого сигнала сообщение висело бы на экране как отправленное: эхо не придёт никогда,
+    // и человек узнал бы об отказе только когда сообщение пропадёт при обновлении истории.
+    private val onRejected: (tempId: Int, reason: String) -> Unit = { _, _ -> },
 ) {
     data class Incoming(
         val id: Int, val senderId: Int, val text: String, val timestamp: String,
@@ -48,8 +52,13 @@ class ChatSocket(
         private const val MAX_DELAY_SEC = 30L
 
         /** Чат такси-заказа (B7b-1): тот же сокет-протокол, путь /ws/instant/{orderId}/chat. */
-        fun forOrder(orderId: Int, onMessage: (Incoming) -> Unit, onConnected: (Boolean) -> Unit = {}) =
-            ChatSocket(orderId, onMessage, onConnected, path = "/ws/instant/$orderId/chat")
+        fun forOrder(
+            orderId: Int,
+            onMessage: (Incoming) -> Unit,
+            onConnected: (Boolean) -> Unit = {},
+            onRejected: (tempId: Int, reason: String) -> Unit = { _, _ -> },
+        ) = ChatSocket(orderId, onMessage, onConnected,
+                       path = "/ws/instant/$orderId/chat", onRejected = onRejected)
 
         /**
          * Чат доставки: отправитель ↔ курьер. Тот же протокол, путь /ws/parcel/{parcelId}/chat.
@@ -58,8 +67,13 @@ class ChatSocket(
          * «домофон не работает, звони», «я на работе до шести» — вещи, которые в селе решаются
          * одной фразой, а без чата превращаются в звонок или в потерянную посылку.
          */
-        fun forParcel(parcelId: Int, onMessage: (Incoming) -> Unit, onConnected: (Boolean) -> Unit = {}) =
-            ChatSocket(parcelId, onMessage, onConnected, path = "/ws/parcel/$parcelId/chat")
+        fun forParcel(
+            parcelId: Int,
+            onMessage: (Incoming) -> Unit,
+            onConnected: (Boolean) -> Unit = {},
+            onRejected: (tempId: Int, reason: String) -> Unit = { _, _ -> },
+        ) = ChatSocket(parcelId, onMessage, onConnected,
+                       path = "/ws/parcel/$parcelId/chat", onRejected = onRejected)
 
         // ОДИН клиент на всё приложение: пул соединений и пул потоков переиспользуются.
         private val client: OkHttpClient by lazy {
@@ -113,6 +127,11 @@ class ChatSocket(
                                     fromAdmin = o.optBoolean("from_admin"),
                                 )
                             )
+                        } else if (o.optString("type") == "rejected") {
+                            // Сообщение не принято. temp_id — то, что мы приложили при отправке:
+                            // по нему экран находит своё «оптимистичное» сообщение и честно
+                            // помечает его недоставленным.
+                            onRejected(o.optInt("temp_id"), o.optString("reason"))
                         }
                     }
                 }
@@ -147,8 +166,14 @@ class ChatSocket(
     }
 
     /** Отправить текст. Сервер сохранит и разошлёт (вернётся и нам). true — ушло. */
-    fun send(text: String): Boolean =
-        ws?.send(JSONObject().put("type", "message").put("text", text).toString()) ?: false
+    /**
+     * Отправить сообщение. `tempId` — номер «оптимистичного» сообщения на экране: сервер вернёт
+     * его обратно, если откажется принять (см. onRejected). Сервер поле игнорирует, если не знает.
+     */
+    fun send(text: String, tempId: Int = 0): Boolean =
+        ws?.send(
+            JSONObject().put("type", "message").put("text", text).put("temp_id", tempId).toString()
+        ) ?: false
 
     fun close() {
         closed = true   // глушит запланированные и будущие реконнекты

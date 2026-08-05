@@ -10,14 +10,19 @@ from test_taxi_polish import _accepted_order
 
 @pytest.fixture
 def pushes(monkeypatch):
-    """Перехват пушей instant-стека (send_push импортирован в app.instant_service по имени)."""
+    """Перехват пушей instant-стека.
+
+    Подменяем ДВА имени: `send_push` в `app.instant_service` (импортирован туда по имени —
+    прямые вызовы статусов) и `send_push` в `app.services` (через него шлёт единая точка
+    `push_notification`, которой теперь пользуется отмена заказа). Подмена только первого
+    молча пропускала бы пуши отмены — тест был бы зелёным при полностью немом сервере."""
     from app import instant_service as isv
+    from app import services as svc
     sent = []
-    monkeypatch.setattr(
-        isv, "send_push",
-        lambda session, uid, title, body, data=None, **kw: sent.append(
-            {"uid": uid, "title": title, "body": body, "data": data or {}}),
-    )
+    spy = lambda session, uid, title, body, data=None, **kw: sent.append(   # noqa: E731
+        {"uid": uid, "title": title, "body": body, "data": data or {}})
+    monkeypatch.setattr(isv, "send_push", spy)
+    monkeypatch.setattr(svc, "send_push", spy)
     return sent
 
 
@@ -76,6 +81,17 @@ def test_status_pushes_on_each_transition(client, user_factory, fake_redis, push
         assert p["data"]["status"] == status
 
 
+def _last_note(user_id: int):
+    """Последняя запись Центра уведомлений — там оба языка хранятся всегда."""
+    from sqlmodel import Session, select
+
+    from app.db import engine
+    from app.models import Notification
+    with Session(engine) as s:
+        rows = list(s.exec(select(Notification).where(Notification.user_id == user_id)).all())
+    return rows[-1] if rows else None
+
+
 def test_cancel_by_driver_pushes_passenger(client, user_factory, fake_redis, pushes):
     """Водитель отменил после accept → пассажиру «Заказ отменён» (двуязычно, data-payload)."""
     d, pax, order = _accepted_order(client, user_factory, fake_redis, "CnDrv", "CnPax")
@@ -83,8 +99,15 @@ def test_cancel_by_driver_pushes_passenger(client, user_factory, fake_redis, pus
                        json={"reason": "сломалась машина"}).status_code == 200
     got = [p for p in _status_pushes(pushes) if p["uid"] == pax["id"] and p["data"]["status"] == "cancelled"]
     assert len(got) == 1
-    assert "Заказ отменён" in got[0]["title"] and "кире алынды" in got[0]["title"]
+    # Пуш уходит на ЯЗЫКЕ ПОЛУЧАТЕЛЯ (единая точка services.push_notification), а не обоими
+    # языками в одной строке: русскоязычный больше не читает «Заказ отменён · Заказ кире алынды».
+    # Оба текста при этом хранятся в Центре уведомлений — см. tests/test_other_side_is_told.py.
+    assert "Заказ отменён" in got[0]["title"]
     assert "Ищем другого" in got[0]["body"]
+    note = _last_note(pax["id"])
+    assert note is not None and "кире алынды" in note.title_ba, (
+        "башкирского текста нет даже в Центре уведомлений — правило двух языков нарушено"
+    )
 
 
 def test_cancel_by_passenger_pushes_driver(client, user_factory, fake_redis, pushes):
@@ -94,7 +117,11 @@ def test_cancel_by_passenger_pushes_driver(client, user_factory, fake_redis, pus
                        json={}).status_code == 200
     got = [p for p in _status_pushes(pushes) if p["uid"] == d["id"] and p["data"]["status"] == "cancelled"]
     assert len(got) == 1
-    assert "Пассажир отменил" in got[0]["body"] and "Пассажир заказды кире алды" in got[0]["body"]
+    assert "Пассажир отменил" in got[0]["body"]
+    note = _last_note(d["id"])
+    assert note is not None and "Пассажир заказды кире алды" in note.body_ba, (
+        "башкирского текста нет даже в Центре уведомлений — правило двух языков нарушено"
+    )
 
 
 def test_expired_push_when_nobody_around(client, user_factory, fake_redis, pushes):

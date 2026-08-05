@@ -78,6 +78,26 @@ def _guard_chat_burst(session: Session, sender_id: int, *scope) -> None:
         raise herr(429, TOO_FAST_MESSAGES[0], TOO_FAST_MESSAGES[1])
 
 
+async def _reject(websocket: WebSocket, payload: dict) -> None:
+    """Сказать в сокет «сообщение не принято» вместо того, чтобы молча его выбросить.
+
+    `temp_id` — номер, который приложение приложило к своему «оптимистичному» сообщению
+    (оно уже нарисовано на экране до ответа сервера). Возвращаем его обратно, чтобы экран
+    нашёл нужное сообщение и честно пометил недоставленным. Старые версии приложения поле
+    не шлют и кадр игнорируют — им хуже не станет.
+
+    Отправку заворачиваем в try: сокет мог закрыться прямо сейчас, и падать из-за
+    невозможности доставить отказ — глупо."""
+    try:
+        await websocket.send_json({
+            "type": "rejected",
+            "reason": "too_fast",
+            "temp_id": int(payload.get("temp_id") or 0),
+        })
+    except Exception:
+        pass
+
+
 def _order_chat_key(order_id: int) -> int:
     return INSTANT_CHAT_KEY_BASE + order_id
 
@@ -199,10 +219,12 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                     # Блокировка (как в REST send_message): заблокированный не пишет — тихо игнор.
                     if is_blocked(session, user_id, other_id):
                         continue
-                    # Анти-флуд: тот же потолок, что в REST. Здесь не бросаем 429 (в сокете
-                    # исключение рвёт чат) — просто не отправляем это сообщение, как выше с
-                    # блокировкой. Иначе сокет обходил бы REST-потолок в один тап.
+                    # Анти-флуд: тот же потолок, что в REST (иначе сокет обходил бы его в один тап).
+                    # Исключение здесь бросать нельзя — оно рвёт чат. Поэтому отвечаем кадром
+                    # «не принято» с номером сообщения: экран пометит его недоставленным.
+                    # Молча уронить нельзя: сообщение висело бы на экране как отправленное.
                     if _chat_burst_reached(session, user_id, Message.booking_id == booking_id):
+                        await _reject(websocket, payload)
                         continue
                     sender = session.get(User, user_id)
                     text = (payload.get("text") or "")[:4000]
@@ -296,6 +318,7 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
                         break
                     # Анти-флуд (см. пояснение в booking-чате): сокет не должен обходить REST-потолок.
                     if _chat_burst_reached(session, user_id, Message.order_id == order_id):
+                        await _reject(websocket, payload)
                         continue
                     sender = session.get(User, user_id)
                     text = (payload.get("text") or "")[:4000]
@@ -434,6 +457,7 @@ async def parcel_chat_ws(websocket: WebSocket, parcel_id: int):
                         break
                     # Анти-флуд (см. пояснение в booking-чате): сокет не должен обходить REST-потолок.
                     if _chat_burst_reached(session, user_id, Message.parcel_id == parcel_id):
+                        await _reject(websocket, payload)
                         continue
                     sender = session.get(User, user_id)
                     text = (payload.get("text") or "")[:4000]

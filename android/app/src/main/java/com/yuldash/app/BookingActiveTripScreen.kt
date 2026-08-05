@@ -1008,6 +1008,8 @@ internal fun ActiveTripScreen(
     var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
     var payAmount by remember(bookingId) { mutableStateOf<Int?>(null) }
     val sendFailMsg = appText("Сообщение не отправлено", "Хәбәр ебәрелмәне")
+    val tooFastMsg = appText("Слишком быстро. Подожди минуту и продолжи.",
+                             "Артыҡ тиҙ. Бер минут көт тә дауам ит.")
     val queuedMsg = appText("Нет сети — отправим позже", "Селтәр юҡ — һуңыраҡ ебәрербеҙ")
     // Состояние первой загрузки истории чата: спиннер, ошибка (с «Повторить»), пусто.
     var historyLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
@@ -1052,6 +1054,15 @@ internal fun ActiveTripScreen(
                     }
                 },
                 onConnected = { wsConnected = it },
+                // Сервер не принял сообщение (слишком быстрый поток). Помечаем его
+                // «Не доставлено · Повторить» — тем же способом, что и отказ по обычному
+                // запросу. Молча оставить нельзя: оно висело бы как отправленное.
+                onRejected = { tempId, _ ->
+                    voiceScope.launch {
+                        failedIds = failedIds + tempId
+                        Toast.makeText(context, tooFastMsg, Toast.LENGTH_SHORT).show()
+                    }
+                },
             )
         }
     }
@@ -1106,7 +1117,9 @@ internal fun ActiveTripScreen(
     fun deliver(tempId: Int, text: String) {
         val bid = bookingId ?: return
         val ws = chatSocket
-        val sentViaWs = wsConnected && ws != null && ws.send(text)   // send()=false → сокет мёртв → уходим в REST
+        // tempId уходит на сервер: если он откажется принять сообщение, вернёт этот же номер,
+        // и мы пометим «Не доставлено» именно это сообщение (см. onRejected).
+        val sentViaWs = wsConnected && ws != null && ws.send(text, tempId)   // false → сокет мёртв → REST
         if (sentViaWs) return   // эхо WS заменит оптимистичное сообщение настоящим
         voiceScope.launch {
             ApiClient.sendMessage(bid, text)
