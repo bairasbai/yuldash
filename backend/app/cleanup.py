@@ -252,6 +252,24 @@ def close_past_requests(now=None) -> int:
         ), {"tcut": time_cut, "ccut": created_cut}).rowcount or 0
 
 
+# ------------------------------ закрытие протухших посылок ------------------------------
+# Та же болезнь, что у поездок и заявок. Никем не взятая посылка висела в ленте курьеров
+# вечно: через три месяца курьер её брал и звонил человеку, который давно отвёз всё сам.
+# Сроки читает и лента (`routers/parcels.live_parcel_conds`) — чистка идёт раз в сутки,
+# а из ленты протухшая обязана уходить сразу.
+def close_stale_parcels(now=None) -> int:
+    """Закрыть открытые посылки, которых никто не взял вовремя. Возвращает, сколько закрыто."""
+    now = now or utcnow()
+    created_cut = now - timedelta(days=settings.parcel_open_days)
+    with engine.begin() as conn:
+        return conn.execute(text(
+            "UPDATE parceldelivery SET status = 'canceled' "
+            "WHERE status = 'created' AND ("
+            "  (deliver_by IS NOT NULL AND deliver_by < :today) OR "
+            "  (deliver_by IS NULL AND created_at < :ccut))"
+        ), {"today": now.date(), "ccut": created_cut}).rowcount or 0
+
+
 def main():
     now = utcnow()
     mode = "СУХОЙ ПРОГОН (ничего не удаляется)" if DRY else "РЕАЛЬНАЯ чистка"
@@ -288,6 +306,11 @@ def main():
             print(f"  прошедшие заявки: закрыто {n}")
         except Exception as ex:  # noqa: BLE001 — не роняем всю чистку
             print(f"  прошедшие заявки: ОШИБКА {type(ex).__name__}: {ex}")
+        try:
+            n = close_stale_parcels(now)
+            print(f"  протухшие посылки: закрыто {n}")
+        except Exception as ex:  # noqa: BLE001 — не роняем всю чистку
+            print(f"  протухшие посылки: ОШИБКА {type(ex).__name__}: {ex}")
     print(f"=== Итог: строк {'к удалению' if DRY else 'удалено'} — {total} ===")
 
 

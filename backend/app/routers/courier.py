@@ -30,6 +30,7 @@ from ..errors import herr
 from ..models import (CourierApplication, CourierProfile, ParcelDelivery, Payment, Rating,
                       Settlement, User, UserRole)
 from ..safety_logic import ensure_active
+from .parcels import live_parcel_conds
 from ..security import current_user
 from ..services import haversine_km, notify_admin_telegram, send_push, user_rating
 from ..timeutil import utcnow
@@ -612,7 +613,7 @@ def courier_available(from_city: Optional[str] = None, to_city: Optional[str] = 
     _guard_not_paused(prof)   # C3: на мягкой паузе заказы не берём
     rows = session.exec(
         select(ParcelDelivery).where(
-            ParcelDelivery.status == "created",
+            *live_parcel_conds(),                   # протухшие в ленту не попадают (см. parcels.py)
             ParcelDelivery.sender_id != user.id,
             ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
         ).order_by(ParcelDelivery.id.desc())

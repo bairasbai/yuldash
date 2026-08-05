@@ -216,3 +216,121 @@ def test_список_моих_заявок_переживает_закрыти�
     assert any(x.get("id") == rid for x in mine.json()), (
         "закрытая заявка исчезла из «моих заявок» — человек не понимает, что с ней стало"
     )
+
+
+# ---------- Посылка ----------
+
+def _make_parcel(client, sender, phone="+79990009920"):
+    r = client.post("/parcels", headers=sender["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай", "size": "small",
+        "description": "гостинцы", "receiver_name": "Гөлнара",
+        "receiver_phone": phone, "rules_accepted": True,
+    })
+    assert r.status_code == 200, f"посылка не создалась: {r.status_code} {r.text[:200]}"
+    return r.json()["id"]
+
+
+def _age_parcel(parcel_id: int, days: int) -> None:
+    from app.models import ParcelDelivery
+    with Session(engine) as s:
+        p = s.get(ParcelDelivery, parcel_id)
+        p.created_at = utcnow() - timedelta(days=days)
+        s.add(p)
+        s.commit()
+
+
+def _parcel_in_feed(client, courier, parcel_id: int) -> bool:
+    feed = client.get("/parcels/available", headers=courier["auth"])
+    assert feed.status_code == 200, feed.text
+    return any(x.get("id") == parcel_id for x in feed.json())
+
+
+def test_контроль_свежая_посылка_в_ленте_есть(client, user_factory, monkeypatch):
+    monkeypatch.setattr(settings, "courier_enabled", True, raising=False)
+    sender = user_factory("HangParcelFreshSender")
+    pid = _make_parcel(client, sender, phone="+79990009921")
+    courier = user_factory("HangParcelFreshCourier", role=UserRole.driver)
+    assert _parcel_in_feed(client, courier, pid), "свежей посылки нет в ленте — лента сломана"
+
+
+def test_никем_не_взятая_посылка_уходит_из_ленты(client, user_factory, monkeypatch):
+    """Отправитель давно отвёз гостинцы сам, а посылка всё висит: курьер берёт её через
+    три месяца, звонит — и слышит «я уже сам съездил»."""
+    monkeypatch.setattr(settings, "courier_enabled", True, raising=False)
+    sender = user_factory("HangParcelOldSender")
+    pid = _make_parcel(client, sender, phone="+79990009922")
+    _age_parcel(pid, days=90)
+
+    courier = user_factory("HangParcelOldCourier", role=UserRole.driver)
+    assert not _parcel_in_feed(client, courier, pid), (
+        "посылка трёхмесячной давности всё ещё висит в ленте курьеров"
+    )
+
+
+def test_старая_посылка_не_занимает_место_в_потолке(client, user_factory, monkeypatch):
+    """Как с заявками: потолок «15 посылок в работе» не должен стать пожизненным запретом."""
+    monkeypatch.setattr(settings, "courier_enabled", True, raising=False)
+    cap = settings.flood_active_parcels_max
+    sender = user_factory("HangParcelCapSender")
+    ids = [_make_parcel(client, sender, phone=f"+7999001{i:04d}") for i in range(cap)]
+    over = client.post("/parcels", headers=sender["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай", "size": "small",
+        "description": "ещё", "receiver_name": "Х",
+        "receiver_phone": "+79990009999", "rules_accepted": True,
+    })
+    assert over.status_code == 429, f"потолок не сработал: {over.status_code} {over.text[:150]}"
+
+    for pid in ids:
+        _age_parcel(pid, days=60)
+    again = client.post("/parcels", headers=sender["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай", "size": "small",
+        "description": "новая", "receiver_name": "Х",
+        "receiver_phone": "+79990009998", "rules_accepted": True,
+    })
+    assert again.status_code == 200, (
+        f"все старые посылки давно протухли, а создать новую нельзя — потолок стал "
+        f"пожизненным запретом: {again.status_code} {again.text[:200]}"
+    )
+
+
+def test_ночная_чистка_закрывает_протухшие_посылки(client, user_factory, monkeypatch):
+    from app.cleanup import close_stale_parcels
+    from app.models import ParcelDelivery
+
+    monkeypatch.setattr(settings, "courier_enabled", True, raising=False)
+    sender = user_factory("HangParcelCleanupSender")
+    pid = _make_parcel(client, sender, phone="+79990009923")
+    _age_parcel(pid, days=45)
+
+    assert close_stale_parcels() >= 1, "чистка не закрыла ни одной протухшей посылки"
+    with Session(engine) as s:
+        p = s.get(ParcelDelivery, pid)
+    assert p.status != "created", f"посылка осталась открытой после чистки: {p.status}"
+
+
+def test_чистка_не_трогает_свежие_посылки(client, user_factory, monkeypatch):
+    from app.cleanup import close_stale_parcels
+    from app.models import ParcelDelivery
+
+    monkeypatch.setattr(settings, "courier_enabled", True, raising=False)
+    sender = user_factory("HangParcelFutureSender")
+    pid = _make_parcel(client, sender, phone="+79990009924")
+    close_stale_parcels()
+    with Session(engine) as s:
+        p = s.get(ParcelDelivery, pid)
+    assert p.status == "created", "чистка закрыла свежую посылку — отправитель остался без курьера"
+
+
+def test_протухшую_посылку_нельзя_взять(client, user_factory, monkeypatch):
+    """Из ленты ушла, но прямая ссылка не должна обходить фильтр."""
+    from app.cleanup import close_stale_parcels
+
+    monkeypatch.setattr(settings, "courier_enabled", True, raising=False)
+    sender = user_factory("HangParcelTakeSender")
+    pid = _make_parcel(client, sender, phone="+79990009925")
+    _age_parcel(pid, days=70)
+    close_stale_parcels()
+
+    courier = user_factory("HangParcelTakeCourier", role=UserRole.driver)
+    r = client.post(f"/parcels/{pid}/accept", headers=courier["auth"])
+    assert r.status_code != 200, "курьер взял давно протухшую посылку"

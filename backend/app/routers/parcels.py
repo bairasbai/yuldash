@@ -25,7 +25,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -415,8 +415,15 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
     ensure_active(session, user.id)
     # Анти-флуд: посылок «в работе» у одного отправителя — не больше потолка. Каждая висит
     # в ленте курьеров, шестьдесят подряд её просто топят (аудит 2026-08-06).
+    # Считаем ЖИВЫЕ: посылки в пути плюс открытые, но ещё не протухшие. Иначе пятнадцать
+    # заброшенных заявок запирали бы отправителя навсегда.
+    now_cut = utcnow() - timedelta(days=settings.parcel_open_days)
     guard_open_items(session, ParcelDelivery.id, ParcelDelivery.sender_id == user.id,
-                     ParcelDelivery.status.in_(("created", "accepted", "in_transit", "returning")),
+                     or_(
+                         ParcelDelivery.status.in_(("accepted", "in_transit", "returning")),
+                         and_(ParcelDelivery.status == "created",
+                              ParcelDelivery.created_at >= now_cut),
+                     ),
                      limit=settings.flood_active_parcels_max,
                      ru=TOO_MANY_PARCELS[0], ba=TOO_MANY_PARCELS[1])
     from_city = body.from_city.strip()
@@ -633,6 +640,30 @@ def parcel_cancel(parcel_id: int, user: User = Depends(current_user), session: S
 # ---------- Курьер-водитель ----------
 # Любой может помочь (не блокируем жёстко по роли), НО телефон получателя видит только принявший.
 
+
+def live_parcel_conds():
+    """Условия «посылку ещё имеет смысл показывать»: открыта И не протухла.
+
+    Раньше везде стояло просто `status == "created"`, и закрывать посылку было нечем: никем
+    не взятая висела в ленте курьеров вечно. Через три месяца курьер её брал, звонил — а
+    отправитель давно отвёз гостинцы сам. Плюс с потолком на число посылок в работе такие
+    вечные заявки превращали его в пожизненный запрет (аудит 2026-08-06).
+
+    Два срока, как у заявок: если отправитель указал «нужно доставить к дате» — считаем от
+    неё; если нет — от создания. Срок больше, чем у заявки: посылка не привязана к часу,
+    её нормально ждать неделями."""
+    now = utcnow()
+    created_cut = now - timedelta(days=settings.parcel_open_days)
+    today = now.date()
+    return [
+        ParcelDelivery.status == "created",
+        or_(
+            and_(ParcelDelivery.deliver_by.is_not(None), ParcelDelivery.deliver_by >= today),
+            and_(ParcelDelivery.deliver_by.is_(None), ParcelDelivery.created_at >= created_cut),
+        ),
+    ]
+
+
 @router.get("/parcels/available")
 def parcels_available(
     from_city: Optional[str] = None,
@@ -646,7 +677,7 @@ def parcels_available(
     C1: courier/buy_bring-заказы сюда НЕ попадают — их видят только одобренные курьеры
     в /courier/available (профессиональный режим, гейт _guard_courier)."""
     q = select(ParcelDelivery).where(
-        ParcelDelivery.status == "created",
+        *live_parcel_conds(),                       # протухшие в ленту не попадают
         ParcelDelivery.sender_id != user.id,
         ParcelDelivery.delivery_type == "poputka",
     )
@@ -681,6 +712,12 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
     # и видит уже `accepted` → 409. (На SQLite no-op, но тесты однопоточные.)
     parcel = session.exec(select(ParcelDelivery).where(ParcelDelivery.id == parcel_id).with_for_update()).one_or_none()
     if not parcel or parcel.status == "canceled":
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    # Протухшая: из ленты она уже ушла, но прямая ссылка (старый пуш, открытый экран) обходила
+    # бы фильтр — курьер вёз бы то, что отправитель давно отвёз сам (аудит 2026-08-06).
+    if parcel.status == "created" and session.exec(
+        select(ParcelDelivery.id).where(ParcelDelivery.id == parcel_id, *live_parcel_conds())
+    ).first() is None:
         raise herr(404, "Посылка не найдена", "Бандероль табылманы")
     if parcel.sender_id == user.id:
         raise herr(409, "Нельзя взять свою посылку", "Үҙ бандеролеңде алып булмай")
