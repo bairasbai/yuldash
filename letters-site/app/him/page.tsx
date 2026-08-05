@@ -68,7 +68,7 @@ export default async function HimPage() {
         </section>
 
         <section className="card px-5 py-6">
-          <h2 className="mb-4 font-sans text-[0.62rem] uppercase tracking-[0.22em] text-sky-ink-soft">
+          <h2 className="eyebrow mb-4 block">
             связь
           </h2>
           <TestDelivery />
@@ -84,7 +84,7 @@ export default async function HimPage() {
         {/* Как у неё дела — не спрашивая */}
         {herMoods.length > 0 && (
           <section className="card px-5 py-6">
-            <h2 className="mb-4 font-sans text-[0.62rem] uppercase tracking-[0.22em] text-sky-ink-soft">
+            <h2 className="eyebrow mb-4 block">
               настроение {CONFIG.her.nameOf.toLowerCase()}
             </h2>
             <ul className="space-y-2.5">
@@ -114,7 +114,7 @@ export default async function HimPage() {
 
         {replies.length > 0 && (
           <section className="card px-5 py-6">
-            <h2 className="mb-4 font-sans text-[0.62rem] uppercase tracking-[0.22em] text-sky-ink-soft">
+            <h2 className="eyebrow mb-4 block">
               последние ответы
             </h2>
             <ul className="space-y-4">
@@ -134,7 +134,7 @@ export default async function HimPage() {
         )}
 
         <section>
-          <h2 className="mb-4 font-sans text-[0.62rem] uppercase tracking-[0.22em] text-sky-ink-soft">
+          <h2 className="eyebrow mb-4 block">
             все письма
           </h2>
           <ul className="divide-y divide-panel-border overflow-hidden card">

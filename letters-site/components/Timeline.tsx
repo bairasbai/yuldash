@@ -9,13 +9,15 @@ import type { Moment } from "@/data/timeline";
  */
 export default function Timeline({ moments }: { moments: Moment[] }) {
   return (
-    <ol className="relative ml-1 border-l border-panel-border pl-7">
+    <ol
+      className="relative ml-1 pl-7"
+      style={{ borderLeft: "1px solid rgb(47 38 32 / 0.12)" }}
+    >
       {moments.map((m, i) => (
         <motion.li
           key={m.title}
           initial={{ opacity: 0, x: -10 }}
-          whileInView={{ opacity: 1, x: 0 }}
-          viewport={{ once: true, margin: "-40px" }}
+          animate={{ opacity: 1, x: 0 }}
           transition={{
             delay: i * 0.08,
             duration: 0.85,
@@ -28,10 +30,10 @@ export default function Timeline({ moments }: { moments: Moment[] }) {
             style={
               m.accent
                 ? {
-                    background: "#ffd9a8",
-                    boxShadow: "0 0 12px rgb(255 217 168 / 0.65)",
+                    background: "var(--color-coral)",
+                    boxShadow: "0 0 0 4px rgb(212 121 106 / 0.16)",
                   }
-                : { background: "var(--color-sky-ink-soft)", opacity: 0.5 }
+                : { background: "var(--color-sky-ink-soft)", opacity: 0.35 }
             }
           />
           <p className="font-sans text-[0.6rem] uppercase tracking-[0.22em] text-sky-ink-soft/70">

@@ -28,9 +28,11 @@ export default function Playlist({ songs }: { songs: Song[] }) {
         {songs.map((s, i) => (
           <motion.li
             key={`${s.title}-${i}`}
+            // Появление по обычному animate, а не по попаданию в кадр:
+            // карточка невысокая, и при заходе с прокруткой песни
+            // оставались невидимыми
             initial={{ opacity: 0, y: 10 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-40px" }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.07, duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
           >
             <div className="flex items-baseline gap-2">

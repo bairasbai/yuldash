@@ -52,7 +52,8 @@ export default function PageShell({
         )}
       </Hero>
 
-      <main className="relative mx-auto w-full max-w-[38rem] px-5 pb-32">
+      {/* Отступ сверху: без него карточка упирается прямо в небо */}
+      <main className="relative mx-auto w-full max-w-[38rem] px-5 pb-32 pt-4">
         {children}
       </main>
 

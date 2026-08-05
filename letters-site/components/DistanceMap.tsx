@@ -37,8 +37,7 @@ export default function DistanceMap({
   return (
     <motion.section
       initial={{ opacity: 0, y: 16 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-60px" }}
+      animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
       className="card px-5 py-7"
     >
@@ -51,7 +50,7 @@ export default function DistanceMap({
           stroke="currentColor"
           strokeWidth="1.2"
           strokeDasharray="4 6"
-          className="text-sky-ink-soft/35"
+          className="text-sky-ink-soft/45"
         />
 
         {/* Пройденная часть. pathLength=1 позволяет считать долю пути напрямую. */}
@@ -59,19 +58,20 @@ export default function DistanceMap({
           d={path}
           fill="none"
           stroke="url(#trail)"
-          strokeWidth="2"
+          strokeWidth="2.6"
           strokeLinecap="round"
           pathLength={1}
           initial={{ strokeDasharray: "1 1", strokeDashoffset: 1 }}
-          whileInView={{ strokeDashoffset: 1 - p }}
-          viewport={{ once: true }}
+          animate={{ strokeDashoffset: 1 - p }}
           transition={{ duration: 2, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
         />
 
         <defs>
+          {/* Тёплый след на белом: прежние светлые цвета годились
+              только для тёмного неба */}
           <linearGradient id="trail" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#9db4e8" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="#ffd9a8" stopOpacity="0.95" />
+            <stop offset="0%" stopColor="#c9a27f" stopOpacity="0.55" />
+            <stop offset="100%" stopColor="var(--color-coral)" stopOpacity="1" />
           </linearGradient>
         </defs>
 
@@ -103,12 +103,17 @@ export default function DistanceMap({
         {/* Где мы сейчас */}
         <motion.g
           initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true }}
+          animate={{ opacity: 1 }}
           transition={{ delay: 1.6, duration: 0.8 }}
         >
-          <circle cx={plane.x} cy={plane.y} r="12" fill="#ffd9a8" opacity="0.14" />
-          <circle cx={plane.x} cy={plane.y} r="4" fill="#ffd9a8" />
+          <circle
+            cx={plane.x}
+            cy={plane.y}
+            r="12"
+            fill="var(--color-coral)"
+            opacity="0.16"
+          />
+          <circle cx={plane.x} cy={plane.y} r="4.5" fill="var(--color-coral)" />
         </motion.g>
       </svg>
 

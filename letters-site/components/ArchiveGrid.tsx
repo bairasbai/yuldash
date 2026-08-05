@@ -27,7 +27,9 @@ export default function ArchiveGrid({ items }: { items: Item[] }) {
         >
           {item.locked ? (
             <div
-              className="flex aspect-[7/5] flex-col items-center justify-center rounded-[14px] border border-panel-border bg-cream-deep"
+              // Запертые заметно приглушены: рядом с открытыми письмами
+              // они не должны выглядеть такими же доступными
+              className="flex aspect-[7/5] flex-col items-center justify-center rounded-[14px] border border-dashed border-[rgb(47_38_32/0.14)] bg-[rgb(47_38_32/0.03)]"
               aria-label={`Письмо ${item.n} откроется ${item.dateLabel}`}
             >
               <Lock size={19} className="opacity-30" />
@@ -41,8 +43,8 @@ export default function ArchiveGrid({ items }: { items: Item[] }) {
               className="group relative flex aspect-[7/5] flex-col items-center justify-center overflow-hidden rounded-[14px] transition-transform duration-500 ease-[var(--ease-soft)] hover:-translate-y-1"
               style={{
                 background:
-                  "linear-gradient(160deg, var(--color-paper) 0%, var(--color-paper-deep) 100%)",
-                boxShadow: "0 14px 26px -14px rgb(0 0 0 / 0.6)",
+                  "linear-gradient(160deg, #ffffff 0%, var(--color-paper) 100%)",
+                boxShadow: "var(--panel-shadow)",
               }}
             >
               {/* Тот же диагональный сгиб, что и на большом конверте */}
@@ -55,7 +57,7 @@ export default function ArchiveGrid({ items }: { items: Item[] }) {
                   clipPath: "polygon(0 0, 100% 0, 50% 100%)",
                 }}
               />
-              <span className="relative font-serif text-[2rem] leading-none text-ink/75">
+              <span className="relative font-serif text-[2rem] leading-none text-ink">
                 {String(item.n).padStart(2, "0")}
               </span>
               <span className="relative mt-2 font-sans text-[0.58rem] uppercase tracking-[0.16em] text-ink-faint">
