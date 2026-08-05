@@ -7,8 +7,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_, text
 from sqlmodel import Session, select
 
+from ..config import settings
 from ..db import get_session
 from ..errors import herr
+from ..flood import TOO_MANY_REQUESTS, guard_open_items
 from ..logs import log
 from ..models import (
     Block, Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
@@ -59,6 +61,12 @@ class RequestIn(BaseModel):
 @router.post("/requests", response_model=RideRequest)
 def create_request(body: RequestIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) блокирует новую заявку
+    # Анти-флуд: каждая заявка будит пушем водителей, караулящих это направление
+    # (notify_request_watchers ниже). Без потолка один человек рассылал их сотнями (аудит 2026-08-06).
+    guard_open_items(session, RideRequest.id, RideRequest.passenger_id == user.id,
+                     RideRequest.status == "active",
+                     limit=settings.flood_active_requests_max,
+                     ru=TOO_MANY_REQUESTS[0], ba=TOO_MANY_REQUESTS[1])
     # Желаемое время → наивный UTC (разбор №2): без этого заявка «на 10:00» жила в ленте
     # до 17:00 по Уфе. Время без пояса от старых версий приложения считаем местным.
     body.desired_at = client_dt_to_utc(body.desired_at)
@@ -366,6 +374,10 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
         raise HTTPException(400, "Нельзя откликнуться на свою заявку")
     if is_blocked(session, user.id, req.passenger_id):
         raise HTTPException(403, "Недоступно")
+    # Пауза «Справедливости» (§2): отклик — это предложение человеку сесть в машину. Раньше
+    # проверка стояла только на создании заявки, и отстранённый разбором жалобы водитель
+    # спокойно откликался на чужие (аудит 2026-08-06).
+    ensure_active(session, user.id)
     # Отдых водителя (§8): во время блока такси новые обязательства не берём — домой
     # везёт «один попутчик» из СВОЕЙ публикации (POST /rides), а не отклики на заявки.
     workday_mod.guard_respond_request(session, user.id)
@@ -556,6 +568,9 @@ def counter_offer(response_id: int, body: CounterIn,
     role = _bargain_role(resp, req, user)
     if not role:
         raise herr(403, "Это не твой торг", "Был һинең һатыулашыуың түгел")
+    # Пауза «Справедливости» (§2): торг — часть сделки. Без этой строки отстранённый доводил
+    # до конца сделку, начатую до паузы (аудит 2026-08-06).
+    ensure_active(session, user.id)
     if resp.status != "offered":
         raise herr(409, "Торг уже закрыт", "Һатыулашыу инде ябылған")
     if req.status != "active":

@@ -15,7 +15,7 @@ from ..db import get_session
 from ..errors import herr
 from ..middleware import user_over_limit
 from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, Rating, Settlement, User
-from ..safety_logic import ensure_active
+from ..safety_logic import account_paused, ensure_active
 from ..security import current_user
 from ..timeutil import utcnow
 from ..services import user_rating
@@ -54,6 +54,11 @@ def _guard_taxi_driver(session: Session, driver_id: int, lat: float | None = Non
     (presence/offer/accept), попутка работает; активный заказ НЕ рубится —
     arrived/onboard/done через этот гейт не ходят."""
     _guard_taxi_available(session, lat, lng)
+    # Пауза «Справедливости» (§2). Стоит первой и намеренно здесь, а не в каждой ручке
+    # по отдельности: отстранённый разбором жалобы водитель не выходит на линию и не берёт
+    # заказ. Раньше проверки не было — пауза рубила публикацию попутки, но такси продолжало
+    # возить (аудит 2026-08-06). Активный заказ не рвётся: arrived/onboard/done сюда не ходят.
+    ensure_active(session, driver_id)
     if not taxi_mod.is_approved_taxi_driver(session, driver_id):
         # Документы просрочены — это не «ты не прошёл проверку», а «продли и возвращайся».
         # Разный текст важен: первый обвиняет человека, второй объясняет, что делать.
@@ -320,6 +325,9 @@ def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
     авто-активация при GET /instant/scheduled). Цену показываем как предварительную оценку
     (сурж фиксируется НЕ сейчас, а на момент активации). Гейт (a): такси доступно в этом городе."""
     _guard_taxi_available(session, body.from_lat, body.from_lng)   # пассажиру — только гейт (a)
+    # Предзаказ — та же поездка, оформленная заранее. Без этой строки пауза закрывала обычный
+    # заказ, но обходилась предзаказом в два тапа (аудит 2026-08-06).
+    ensure_active(session, user.id)
     if quality_mod.passenger_pause_until(session, user.id) is not None:
         raise HTTPException(403, isv.strike_pause_message())
     when = _parse_scheduled_at(body.scheduled_at)
@@ -425,6 +433,8 @@ def driver_offer(user: User = Depends(current_user), session: Session = Depends(
         return {"offer": None}   # отдых (§8): 8ч на линии — офферы не показываем до разблокировки
     if quality_mod.taxi_pause_until(session, user.id) is not None:
         return {"offer": None}   # пауза качества (§9: жалобы) — офферы такси не показываем
+    if account_paused(session, user.id):
+        return {"offer": None}   # пауза «Справедливости» (§2) — офферов нет, пока идёт разбор
     order = session.exec(
         select(InstantOrder).where(
             InstantOrder.current_offer_driver_id == user.id,

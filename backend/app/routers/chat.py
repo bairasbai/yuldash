@@ -1,7 +1,7 @@
 """Чат по броне: REST (история/отправка), WebSocket (реальное время),
 инбокс диалогов, лента уведомлений. Плюс зеркальные чаты такси-заказа и посылки."""
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -10,8 +10,10 @@ from sqlmodel import Session, select
 from starlette.concurrency import run_in_threadpool
 
 from ..antifraud import moderate_text
+from ..config import settings
 from ..db import engine, get_session
 from ..errors import herr
+from ..flood import TOO_FAST_MESSAGES
 from ..models import (
     Booking, BookingStatus, InstantOrder, InstantOrderStatus, Message, ParcelDelivery, Ride,
     User, UserRole,
@@ -49,6 +51,31 @@ PARCEL_CHAT_KEY_BASE = 4_000_000_000
 PARCEL_CHAT_WRITABLE = ("accepted", "in_transit", "returning")
 # Читать историю можно и после закрытия (delivered/returned/canceled) — по ней разбирают спор.
 PARCEL_CHAT_READABLE = PARCEL_CHAT_WRITABLE + ("delivered", "returned", "canceled")
+
+
+# ---- Анти-флуд в чате ----
+# Каждое сообщение = пуш собеседнику. До этого потолка не было ни на одном из шести путей
+# отправки (три REST + три сокета), и один человек отправлял 300 сообщений подряд — то есть
+# 300 пушей среди ночи (аудит 2026-08-06). Это травля кнопкой «отправить», а не словами:
+# модерация текста тут бессильна, каждое сообщение по отдельности безобидно.
+# Потолок на минуту, а не на сутки: переписываться можно сколько угодно, нельзя — очередью.
+def _chat_burst_reached(session: Session, sender_id: int, *scope) -> bool:
+    """Достигнут ли потолок темпа. Не бросает: в сокете исключение рвёт соединение,
+    а правильное поведение там — не отправить это сообщение, но чат не ронять."""
+    edge = utcnow() - timedelta(minutes=1)
+    per_min = settings.flood_chat_per_min
+    rows = session.exec(
+        select(Message.id).where(
+            Message.sender_id == sender_id, *scope, Message.created_at >= edge,
+        ).limit(per_min + 1)
+    ).all()
+    return len(list(rows)) >= per_min
+
+
+def _guard_chat_burst(session: Session, sender_id: int, *scope) -> None:
+    """То же для REST: явный 429 с человеческим текстом на двух языках."""
+    if _chat_burst_reached(session, sender_id, *scope):
+        raise herr(429, TOO_FAST_MESSAGES[0], TOO_FAST_MESSAGES[1])
 
 
 def _order_chat_key(order_id: int) -> int:
@@ -172,6 +199,11 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                     # Блокировка (как в REST send_message): заблокированный не пишет — тихо игнор.
                     if is_blocked(session, user_id, other_id):
                         continue
+                    # Анти-флуд: тот же потолок, что в REST. Здесь не бросаем 429 (в сокете
+                    # исключение рвёт чат) — просто не отправляем это сообщение, как выше с
+                    # блокировкой. Иначе сокет обходил бы REST-потолок в один тап.
+                    if _chat_burst_reached(session, user_id, Message.booking_id == booking_id):
+                        continue
                     sender = session.get(User, user_id)
                     text = (payload.get("text") or "")[:4000]
                     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
@@ -262,6 +294,9 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
                     o2 = session.get(InstantOrder, order_id)
                     if not o2 or o2.status not in ORDER_CHAT_WRITABLE:
                         break
+                    # Анти-флуд (см. пояснение в booking-чате): сокет не должен обходить REST-потолок.
+                    if _chat_burst_reached(session, user_id, Message.order_id == order_id):
+                        continue
                     sender = session.get(User, user_id)
                     text = (payload.get("text") or "")[:4000]
                     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
@@ -302,6 +337,7 @@ def send_order_message(order_id: int, body: MessageIn, user: User = Depends(curr
     other_id = order.driver_id if user.id == order.passenger_id else order.passenger_id
     if is_blocked(session, user.id, other_id):
         raise HTTPException(403, "Переписка недоступна")
+    _guard_chat_burst(session, user.id, Message.order_id == order_id)
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
         raise HTTPException(422, "Недопустимая ссылка на медиа")
     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
@@ -396,6 +432,9 @@ async def parcel_chat_ws(websocket: WebSocket, parcel_id: int):
                     p2 = session.get(ParcelDelivery, parcel_id)
                     if not p2 or p2.status not in PARCEL_CHAT_WRITABLE or p2.courier_id != courier_id:
                         break
+                    # Анти-флуд (см. пояснение в booking-чате): сокет не должен обходить REST-потолок.
+                    if _chat_burst_reached(session, user_id, Message.parcel_id == parcel_id):
+                        continue
                     sender = session.get(User, user_id)
                     text = (payload.get("text") or "")[:4000]
                     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
@@ -438,6 +477,7 @@ def send_parcel_message(parcel_id: int, body: MessageIn, user: User = Depends(cu
     other_id = parcel.courier_id if user.id == parcel.sender_id else parcel.sender_id
     if is_blocked(session, user.id, other_id):
         raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
+    _guard_chat_burst(session, user.id, Message.parcel_id == parcel_id)
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
         raise herr(422, "Недопустимая ссылка на медиа", "Ярамаған медиа һылтанмаһы")
     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
@@ -484,6 +524,7 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
     other_party = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
     if is_blocked(session, user.id, other_party):
         raise HTTPException(403, "Переписка недоступна")
+    _guard_chat_burst(session, user.id, Message.booking_id == booking_id)
     # voice_url — ТОЛЬКО наш медиа-URL (из /upload-voice). Иначе участник подсунул бы внешнюю ссылку,
     # и приложение собеседника её подгрузило бы (утечка IP / трекинг / чужой контент).
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):

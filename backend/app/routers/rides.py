@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
+from ..flood import TOO_MANY_RIDES, guard_open_items
 from ..logs import log
 from ..models import Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory, RideStatus, User, UserRole
 from .. import workday as workday_mod
@@ -79,6 +80,12 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     # (первая публикация проходит и помечает return_ride_used, вторая → мягкий 403).
     # ВНЕ блока попутка не ограничена вообще — guard мгновенно пропускает.
     workday_mod.guard_publish_ride(session, user.id)
+    # Анти-флуд: одновременно активных поездок у одного водителя — не больше потолка. Раньше
+    # потолка не было вовсе, и один человек забивал ленту небольшого района восемьюдесятью
+    # публикациями подряд (аудит 2026-08-06). Закрыл поездку → место освободилось.
+    guard_open_items(session, Ride.id, Ride.driver_id == user.id, Ride.status == RideStatus.active,
+                     limit=settings.flood_active_rides_max,
+                     ru=TOO_MANY_RIDES[0], ba=TOO_MANY_RIDES[1])
     # Санити-границы (анти-мусор в ленте): мест 1..8, цена 0..100000 ₽. Клампим, а не падаем.
     body.seats_total = max(1, min(8, body.seats_total))
     body.price = max(0, min(100_000, body.price))

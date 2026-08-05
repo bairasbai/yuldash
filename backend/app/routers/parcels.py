@@ -31,6 +31,7 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
+from ..flood import TOO_MANY_PARCELS, guard_open_items
 from ..models import ParcelDelivery, User, UserRole
 from ..safety_logic import (ensure_active,
                             is_own_media_url)
@@ -412,6 +413,12 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
     # доставки. Раньше проверки не было ни здесь, ни в accept — отстранённый в тот же день брал
     # следующую посылку, и пауза была декорацией (аудит 2026-07-26).
     ensure_active(session, user.id)
+    # Анти-флуд: посылок «в работе» у одного отправителя — не больше потолка. Каждая висит
+    # в ленте курьеров, шестьдесят подряд её просто топят (аудит 2026-08-06).
+    guard_open_items(session, ParcelDelivery.id, ParcelDelivery.sender_id == user.id,
+                     ParcelDelivery.status.in_(("created", "accepted", "in_transit", "returning")),
+                     limit=settings.flood_active_parcels_max,
+                     ru=TOO_MANY_PARCELS[0], ba=TOO_MANY_PARCELS[1])
     from_city = body.from_city.strip()
     to_city = body.to_city.strip()
     receiver_name = body.receiver_name.strip()

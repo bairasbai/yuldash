@@ -95,7 +95,10 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     # 🌙 SMS админу вдобавок к Telegram. Раньше весь ночной контур безопасности сводился к
     # ОДНОМУ сообщению в Telegram: админ спит — никто не узнает, что сигнал вообще был
     # (списка SOS не существовало, статус не менялся никогда). Аудит 2026-07-26.
-    if settings.sos_sms_to_admin:
+    # Тот же часовой кеп, что и на SMS близким. SMS платные, а сорок нажатий подряд дают
+    # сорок сообщений админу — и настоящий сигнал тонет среди них (аудит 2026-08-06).
+    # Telegram намеренно НЕ капим: он бесплатный и там нужна полная картина, включая флуд.
+    if settings.sos_sms_to_admin and len(recent) < SOS_SMS_PER_HOUR:
         admin_phones = [p.strip() for p in (settings.admin_phones or "").split(",") if p.strip()]
         if admin_phones:
             background.add_task(

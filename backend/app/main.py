@@ -10,6 +10,7 @@
 
 Энтрипоинт прежний: `app.main:app` (systemd `yuldash-api`, uvicorn).
 """
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -34,11 +35,25 @@ from .storage import StorageError, get_storage
 API_V1_PREFIX = "/api/v1"
 
 
+def _say(line: str) -> None:
+    """Печать, которая не роняет запуск сервера.
+
+    Консоль Windows по умолчанию cp1251 и не умеет ни «₽», ни «—». Обычный print на такой
+    консоли бросает UnicodeEncodeError, а это происходит внутри lifespan — сервер не стартует
+    вообще. Терять запуск из-за значка рубля в предупреждении нельзя, поэтому непечатаемые
+    символы заменяем на «?». На проде (UTF-8) видно как было."""
+    try:
+        print(line, flush=True)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(line.encode(enc, "replace").decode(enc, "replace"), flush=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.validate_production()
     for _w in settings.launch_warnings():
-        print(f"[launch] ВНИМАНИЕ: {_w}", flush=True)
+        _say(f"[launch] ВНИМАНИЕ: {_w}")
     init_db()
     with Session(engine) as session:
         if settings.seed_demo:
