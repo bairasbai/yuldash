@@ -11,7 +11,13 @@ type Item = { n: number; dateLabel: string; locked: boolean };
  * Ещё не наступившие — запертые: видно только дату, текста нет
  * даже в исходном коде страницы.
  */
-export default function ArchiveGrid({ items }: { items: Item[] }) {
+export default function ArchiveGrid({
+  items,
+  partingId,
+}: {
+  items: Item[];
+  partingId: number;
+}) {
   return (
     <ul className="grid grid-cols-2 gap-3.5 sm:grid-cols-3">
       {items.map((item, i) => (
@@ -39,7 +45,7 @@ export default function ArchiveGrid({ items }: { items: Item[] }) {
             </div>
           ) : (
             <Link
-              href={`/letters/${item.n}`}
+              href={`/letters/${partingId}/${item.n}`}
               className="group relative flex aspect-[7/5] flex-col items-center justify-center overflow-hidden rounded-[14px] transition-transform duration-500 ease-[var(--ease-soft)] hover:-translate-y-1"
               style={{
                 background:

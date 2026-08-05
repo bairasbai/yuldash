@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import Hero from "@/components/Hero";
 import TabBar from "@/components/TabBar";
@@ -5,16 +6,17 @@ import TodayLetter from "@/components/TodayLetter";
 import { readSession } from "@/lib/session";
 import { todaysLetter } from "@/lib/letters";
 import { repliesFor } from "@/lib/store";
+import { hasDatabase } from "@/lib/db";
 import {
-  dawnProgress,
-  daysUntilMeeting,
-  greetingIn,
-  humanDate,
-  letterNumberToday,
-  plural,
-  todayInHerCity,
-  totalLetters,
-} from "@/lib/time";
+  activeParting,
+  daysUntilMeetIn,
+  letterNumberIn,
+  listPartings,
+  progressOf,
+  totalOf,
+  upcomingParting,
+} from "@/lib/partings";
+import { greetingIn, humanDate, plural, todayInHerCity } from "@/lib/time";
 import { CONFIG } from "@/lib/config";
 
 // Страница зависит от сегодняшней даты и от куки — кешировать её нельзя
@@ -25,23 +27,114 @@ export default async function Home() {
   if (!who) redirect("/gate");
 
   const today = todayInHerCity();
-  const days = daysUntilMeeting(today);
-  const n = letterNumberToday(today);
-  const total = totalLetters();
-  const letter = todaysLetter(today);
-  const replies = letter ? await repliesFor(letter.n) : [];
-
-  // Обращение — к тому, кто смотрит, и по его времени суток
   const you = who === "her" ? CONFIG.her.name : CONFIG.him.name;
   const greeting = greetingIn(
     who === "her" ? CONFIG.her.timeZone : CONFIG.him.timeZone,
   );
 
+  const parting = await activeParting(today);
+
+  /* ── Вы вместе: разлука не идёт ──────────────────────────────── */
+  if (!parting) {
+    const [next, all] = await Promise.all([
+      upcomingParting(today),
+      listPartings(),
+    ]);
+    const written = all.length;
+
+    return (
+      <>
+        <Hero progress={1}>
+          <p className="rise font-sans text-[0.68rem] uppercase tracking-[0.22em] text-white/70">
+            {CONFIG.her.city}
+          </p>
+          <h1
+            className="rise mt-3 font-serif text-[clamp(2rem,8vw,2.9rem)] leading-[1.15] text-white"
+            style={{ textShadow: "0 2px 24px rgb(0 0 0 / 0.35)" }}
+          >
+            {greeting},
+            <br />
+            {you}
+          </h1>
+          <p
+            className="rise mt-5 font-serif text-[1.15rem] text-white/90"
+            style={{ textShadow: "0 1px 14px rgb(0 0 0 / 0.45)" }}
+          >
+            {next
+              ? `врозь снова с ${humanDate(next.start_date)}`
+              : "сейчас мы вместе"}
+          </p>
+        </Hero>
+
+        <main className="relative mx-auto w-full max-w-[38rem] px-5 pb-32 pt-4">
+          <div className="card px-6 py-9 text-center">
+            <p className="font-serif text-[1.5rem] leading-relaxed text-sky-ink">
+              Писем сегодня нет — и это лучшая из причин.
+            </p>
+            <p className="mt-3 font-sans text-sm leading-relaxed text-sky-ink-soft">
+              {next
+                ? `Следующие начнутся ${humanDate(next.start_date)}, когда мы снова разъедемся.`
+                : "Пока мы в одном городе, сайт становится архивом. Всё, что было написано, никуда не делось."}
+            </p>
+
+            <Link
+              href="/letters"
+              className="mt-6 inline-block rounded-full px-6 py-3 font-sans text-[0.66rem] uppercase tracking-[0.18em] text-white"
+              style={{
+                background:
+                  "linear-gradient(160deg, #e08c76 0%, var(--color-coral) 100%)",
+              }}
+            >
+              перечитать письма
+            </Link>
+          </div>
+
+          {who === "him" && (
+            <div className="card mt-5 px-5 py-6">
+              <p className="eyebrow">когда снова разъедетесь</p>
+              <p className="mt-2 font-serif text-[1.15rem] leading-relaxed text-sky-ink">
+                Заведи новую разлуку — сайт снова начнёт отсчёт и утренние
+                письма.
+              </p>
+              <Link
+                href="/him"
+                className="mt-4 inline-block font-sans text-[0.66rem] uppercase tracking-[0.18em] text-[var(--color-coral)]"
+              >
+                на кухню →
+              </Link>
+              {written > 0 && (
+                <p className="mt-3 font-sans text-xs text-sky-ink-soft">
+                  Уже прожито разлук: {written}.
+                </p>
+              )}
+            </div>
+          )}
+
+          {who === "him" && !hasDatabase() && (
+            <p className="card mt-5 px-5 py-4 font-sans text-sm leading-relaxed text-[#c2695c]">
+              Хранилище не подключено — разлуки и письма негде хранить.
+              Шаги в README.
+            </p>
+          )}
+        </main>
+
+        <TabBar />
+      </>
+    );
+  }
+
+  /* ── Разлука идёт: отсчёт и письмо дня ───────────────────────── */
+  const days = daysUntilMeetIn(parting, today);
+  const n = letterNumberIn(parting, today);
+  const total = totalOf(parting);
+  const letter = await todaysLetter(parting, today);
+  const replies = letter ? await repliesFor(parting.id, letter.n) : [];
+
   return (
     <>
-      <Hero progress={dawnProgress(today)}>
+      <Hero progress={progressOf(parting, today)}>
         <p className="rise font-sans text-[0.68rem] uppercase tracking-[0.22em] text-white/70">
-          {humanDate(CONFIG.meetDate)} · {CONFIG.her.city}
+          {humanDate(parting.meet_date)} · {CONFIG.her.city}
         </p>
         <h1
           className="rise mt-3 font-serif text-[clamp(2rem,8vw,2.9rem)] leading-[1.15] text-white"
@@ -76,32 +169,19 @@ export default async function Home() {
         </p>
       </Hero>
 
-      <main className="relative mx-auto w-full max-w-[38rem] px-5 pb-32">
-        {n < 1 && (
-          <p className="card px-6 py-8 text-center font-serif text-lg leading-relaxed text-sky-ink-soft">
-            Первое письмо придёт {humanDate(CONFIG.startDate)}, утром.
-          </p>
-        )}
-
+      <main className="relative mx-auto w-full max-w-[38rem] px-5 pb-32 pt-4">
         {n >= 1 && n <= total && letter && (
-          <TodayLetter letter={letter} replies={replies} />
+          <TodayLetter
+            letter={letter}
+            partingId={parting.id}
+            replies={replies}
+          />
         )}
 
         {n >= 1 && n <= total && !letter && (
           <p className="card px-6 py-8 text-center font-serif text-lg leading-relaxed text-sky-ink-soft">
             Сегодняшнее письмо ещё в пути. Загляни чуть позже.
           </p>
-        )}
-
-        {n > total && (
-          <div className="card px-6 py-9 text-center">
-            <p className="font-serif text-2xl leading-relaxed text-sky-ink">
-              Письма кончились, потому что кончилось ожидание.
-            </p>
-            <p className="mt-3 font-sans text-sm text-sky-ink-soft">
-              Все {total} остались в архиве — они теперь наши.
-            </p>
-          </div>
         )}
       </main>
 

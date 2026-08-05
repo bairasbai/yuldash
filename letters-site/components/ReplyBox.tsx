@@ -22,7 +22,13 @@ function SendButton() {
  * Поле ответа под письмом. Свёрнуто до одной строчки, чтобы
  * не мешать чтению: сначала письмо, потом уже желание ответить.
  */
-export default function ReplyBox({ n }: { n: number }) {
+export default function ReplyBox({
+  n,
+  partingId,
+}: {
+  n: number;
+  partingId: number;
+}) {
   const [open, setOpen] = useState(false);
   const [state, formAction] = useActionState<ReplyState, FormData>(sendReply, {
     status: "idle",
@@ -72,6 +78,7 @@ export default function ReplyBox({ n }: { n: number }) {
             className="overflow-hidden"
           >
             <input type="hidden" name="n" value={n} />
+            <input type="hidden" name="partingId" value={partingId} />
             <textarea
               name="text"
               rows={4}

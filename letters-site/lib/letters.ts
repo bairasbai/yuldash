@@ -1,14 +1,16 @@
-import { LETTERS, letterByNumber } from "@/data/letters";
+import { humanDate, todayInHerCity } from "./time";
 import {
-  dateOfLetter,
-  humanDate,
-  letterNumberToday,
-  todayInHerCity,
-  totalLetters,
-} from "./time";
+  dateOfLetterIn,
+  letterNumberIn,
+  letterOf,
+  lettersOf,
+  totalOf,
+  type Parting,
+  type StoredLetter,
+} from "./partings";
 
 /**
- * Шлюз между текстами и страницами.
+ * Шлюз между письмами и страницами.
  *
  * Единственное место, где решается, можно ли показать письмо.
  * Всё, что ещё не наступило, наружу не выходит вообще — ни телом,
@@ -33,94 +35,121 @@ export type LockedLetter = {
 
 export type ArchiveItem = OpenLetter | LockedLetter;
 
-function isUnlocked(n: number, today: string): boolean {
-  return n <= letterNumberToday(today) && n >= 1;
+/** Текст письма хранится одной строкой, абзацы разделены пустой строкой. */
+function toParagraphs(body: string): string[] {
+  return body
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
 }
 
-/** Письмо для чтения. null — либо не наступило, либо текст ещё не написан. */
-export function readLetter(
-  n: number,
-  today: string = todayInHerCity(),
-): OpenLetter | null {
-  if (!isUnlocked(n, today)) return null;
-
-  const letter = letterByNumber(n);
-  if (!letter || !letter.ready || letter.body.length === 0) return null;
-
-  const date = dateOfLetter(n);
+function toOpen(p: Parting, l: StoredLetter): OpenLetter {
+  const date = dateOfLetterIn(p, l.n);
   return {
-    n,
+    n: l.n,
     date,
     dateLabel: humanDate(date),
-    body: letter.body,
-    ba: letter.ba,
+    body: toParagraphs(l.body),
+    ba: l.ba_text ? { text: l.ba_text, ru: l.ba_ru } : undefined,
     locked: false,
   };
 }
 
-/** Сегодняшнее письмо. null — игра ещё не началась или уже кончилась. */
-export function todaysLetter(today: string = todayInHerCity()): OpenLetter | null {
-  const n = letterNumberToday(today);
-  if (n < 1 || n > totalLetters()) return null;
-  return readLetter(n, today);
+function isUnlocked(p: Parting, n: number, today: string): boolean {
+  return n >= 1 && n <= letterNumberIn(p, today);
+}
+
+/** Письмо для чтения. null — не наступило или текст ещё не написан. */
+export async function readLetter(
+  parting: Parting,
+  n: number,
+  today: string = todayInHerCity(),
+): Promise<OpenLetter | null> {
+  if (!isUnlocked(parting, n, today)) return null;
+
+  const letter = await letterOf(parting.id, n);
+  if (!letter || !letter.ready || !letter.body.trim()) return null;
+
+  return toOpen(parting, letter);
+}
+
+/** Сегодняшнее письмо этой разлуки. */
+export async function todaysLetter(
+  parting: Parting,
+  today: string = todayInHerCity(),
+): Promise<OpenLetter | null> {
+  const n = letterNumberIn(parting, today);
+  if (n < 1 || n > totalOf(parting)) return null;
+  return readLetter(parting, n, today);
 }
 
 /**
- * Архив. У запертых писем отдаём только номер и дату — ни строчки текста.
- * Открытые отдаём целиком: их всё равно уже можно прочесть.
+ * Архив разлуки. У запертых писем отдаём только номер и дату —
+ * ни строчки текста.
  */
-export function archive(today: string = todayInHerCity()): ArchiveItem[] {
-  return LETTERS.map((l) => {
-    const date = dateOfLetter(l.n);
+export async function archive(
+  parting: Parting,
+  today: string = todayInHerCity(),
+): Promise<ArchiveItem[]> {
+  const stored = await lettersOf(parting.id);
+
+  return stored.map((l) => {
+    const date = dateOfLetterIn(parting, l.n);
     const dateLabel = humanDate(date);
 
-    const open = readLetter(l.n, today);
-    if (open) return open;
-
+    if (isUnlocked(parting, l.n, today) && l.ready && l.body.trim()) {
+      return toOpen(parting, l);
+    }
     return { n: l.n, date, dateLabel, locked: true } as LockedLetter;
   });
+}
+
+/** Сколько писем уже открыто — для подписи в архиве. */
+export async function openedCount(
+  parting: Parting,
+  today: string = todayInHerCity(),
+): Promise<number> {
+  return (await archive(parting, today)).filter((l) => !l.locked).length;
 }
 
 /**
  * Предпросмотр без оглядки на дату. Только для страницы Байраса —
  * вызывать строго после проверки, что сессия его.
  */
-export function previewLetter(n: number): OpenLetter | null {
-  const letter = letterByNumber(n);
-  if (!letter || letter.body.length === 0) return null;
-
-  const date = dateOfLetter(n);
-  return {
-    n,
-    date,
-    dateLabel: humanDate(date),
-    body: letter.body,
-    ba: letter.ba,
-    locked: false,
-  };
+export async function previewLetter(
+  parting: Parting,
+  n: number,
+): Promise<OpenLetter | null> {
+  const letter = await letterOf(parting.id, n);
+  if (!letter || !letter.body.trim()) return null;
+  return toOpen(parting, letter);
 }
 
-/** Что готово, а что нет — сводка для автора. */
-export function writingStatus(): {
-  n: number;
-  date: string;
-  dateLabel: string;
-  topic: string;
-  ready: boolean;
-}[] {
-  return LETTERS.map((l) => {
-    const date = dateOfLetter(l.n);
+/** Что написано, а что нет — сводка для автора. */
+export async function writingStatus(parting: Parting): Promise<
+  {
+    n: number;
+    date: string;
+    dateLabel: string;
+    topic: string;
+    body: string;
+    baText: string;
+    baRu: string;
+    ready: boolean;
+  }[]
+> {
+  const stored = await lettersOf(parting.id);
+  return stored.map((l) => {
+    const date = dateOfLetterIn(parting, l.n);
     return {
       n: l.n,
       date,
       dateLabel: humanDate(date),
       topic: l.topic,
-      ready: l.ready && l.body.length > 0,
+      body: l.body,
+      baText: l.ba_text,
+      baRu: l.ba_ru,
+      ready: l.ready && Boolean(l.body.trim()),
     };
   });
-}
-
-/** Сколько писем она уже прочла — для подписи в архиве. */
-export function openedCount(today: string = todayInHerCity()): number {
-  return archive(today).filter((l) => !l.locked).length;
 }

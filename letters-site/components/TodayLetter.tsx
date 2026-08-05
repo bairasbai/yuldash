@@ -17,9 +17,11 @@ import type { Reply } from "@/lib/store";
  */
 export default function TodayLetter({
   letter,
+  partingId,
   replies = [],
 }: {
   letter: LetterSheetData;
+  partingId: number;
   replies?: Reply[];
 }) {
   const [state, setState] = useState<"sealed" | "opening" | "open">("sealed");
@@ -27,20 +29,20 @@ export default function TodayLetter({
 
   useEffect(() => {
     try {
-      if (localStorage.getItem(`opened-${letter.n}`)) {
+      if (localStorage.getItem(`opened-${partingId}-${letter.n}`)) {
         setInstant(true);
         setState("open");
       }
     } catch {
       // приватный режим браузера — просто дадим вскрыть заново
     }
-  }, [letter.n]);
+  }, [partingId, letter.n]);
 
   const open = () => {
     haptic(SEAL_BREAK);
     setState("opening");
     try {
-      localStorage.setItem(`opened-${letter.n}`, "1");
+      localStorage.setItem(`opened-${partingId}-${letter.n}`, "1");
     } catch {
       // не критично
     }
@@ -76,7 +78,7 @@ export default function TodayLetter({
               footer={
                 <>
                   <RepliesList replies={replies} />
-                  <ReplyBox n={letter.n} />
+                  <ReplyBox n={letter.n} partingId={partingId} />
                 </>
               }
             />

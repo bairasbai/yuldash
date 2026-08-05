@@ -60,6 +60,32 @@ async function ensureSchema(db: ReturnType<typeof postgres>): Promise<void> {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           PRIMARY KEY (day, author)
         )`;
+      /*
+        Разлука — период между «улетел» и «встретились». Их может быть
+        сколько угодно: прилетел 21 августа, улетел 23-го — начинается
+        следующая. У каждой свой отсчёт и свои письма.
+      */
+      await db`
+        CREATE TABLE IF NOT EXISTS partings (
+          id         SERIAL PRIMARY KEY,
+          title      TEXT NOT NULL DEFAULT '',
+          start_date DATE NOT NULL,
+          meet_date  DATE NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`;
+      await db`
+        CREATE TABLE IF NOT EXISTS letters (
+          id         SERIAL PRIMARY KEY,
+          parting_id INTEGER NOT NULL REFERENCES partings(id) ON DELETE CASCADE,
+          n          INTEGER NOT NULL,
+          topic      TEXT NOT NULL DEFAULT '',
+          body       TEXT NOT NULL DEFAULT '',
+          ba_text    TEXT NOT NULL DEFAULT '',
+          ba_ru      TEXT NOT NULL DEFAULT '',
+          ready      BOOLEAN NOT NULL DEFAULT FALSE,
+          UNIQUE (parting_id, n)
+        )`;
+
       await db`
         CREATE TABLE IF NOT EXISTS letter_replies (
           id         SERIAL PRIMARY KEY,
@@ -68,6 +94,11 @@ async function ensureSchema(db: ReturnType<typeof postgres>): Promise<void> {
           text       TEXT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`;
+      // Ответы тоже привязаны к разлуке: номера писем повторяются
+      // в каждой новой, иначе ответы смешаются между периодами
+      await db`
+        ALTER TABLE letter_replies
+        ADD COLUMN IF NOT EXISTS parting_id INTEGER`;
       await db`
         CREATE TABLE IF NOT EXISTS capsule (
           author     TEXT PRIMARY KEY,

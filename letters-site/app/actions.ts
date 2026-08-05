@@ -16,6 +16,7 @@ import {
   setMood,
   setWishDone,
 } from "@/lib/store";
+import { createParting, deleteParting, saveLetter } from "@/lib/partings";
 
 /**
  * Всё, что вы делаете на сайте: ответы, нажатия, списки, настроения.
@@ -49,6 +50,7 @@ export async function sendReply(
   if (!who) return { status: "error", message: "Сначала войди." };
 
   const n = Number(formData.get("n") ?? 0);
+  const partingId = Number(formData.get("partingId") ?? 0);
   const text = String(formData.get("text") ?? "").trim().slice(0, 3000);
 
   if (text.length < 2) {
@@ -62,7 +64,7 @@ export async function sendReply(
 
   // Ответ и сохраняется рядом с письмом, и уходит в телеграм.
   // Если базы нет, телеграм всё равно сработает.
-  await saveReply(n, who, text);
+  await saveReply(partingId, n, who, text);
   const result = await notifyOther(
     who,
     `💌 <b>${from}</b> — на письмо №${n}:\n\n${escapeHtml(text)}`,
@@ -77,9 +79,72 @@ export async function sendReply(
   return { status: "sent" };
 }
 
+/* ── Разлуки и письма (только Байрас) ──────────────────────────── */
+
+export type WishState = { error?: string; ok?: boolean };
+
+export async function createPartingAction(
+  _prev: WishState,
+  formData: FormData,
+): Promise<WishState> {
+  const who = await readSession();
+  if (who !== "him") return { error: "Не твоя кнопка." };
+
+  const title = String(formData.get("title") ?? "").trim().slice(0, 80);
+  const start = String(formData.get("start") ?? "").trim();
+  const meet = String(formData.get("meet") ?? "").trim();
+
+  const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  if (!isDate(start) || !isDate(meet)) return { error: "Проверь даты." };
+  if (meet < start) return { error: "Встреча раньше отъезда — так не бывает." };
+
+  const id = await createParting(title, start, meet);
+  if (!id) return { error: "Хранилище не подключено." };
+
+  revalidatePath("/him");
+  revalidatePath("/");
+  revalidatePath("/letters");
+  return { ok: true };
+}
+
+export async function saveLetterAction(
+  _prev: WishState,
+  formData: FormData,
+): Promise<WishState> {
+  const who = await readSession();
+  if (who !== "him") return { error: "Не твоя кнопка." };
+
+  const partingId = Number(formData.get("partingId") ?? 0);
+  const n = Number(formData.get("n") ?? 0);
+  if (!partingId || !n) return { error: "Не то письмо." };
+
+  const body = String(formData.get("body") ?? "").trim().slice(0, 6000);
+
+  await saveLetter(partingId, n, {
+    topic: String(formData.get("topic") ?? "").slice(0, 120),
+    body,
+    baText: String(formData.get("baText") ?? "").slice(0, 300),
+    baRu: String(formData.get("baRu") ?? "").slice(0, 300),
+    // Готово — только когда есть текст. Пустое письмо бот не отправит
+    ready: Boolean(body),
+  });
+
+  revalidatePath("/him");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function deletePartingAction(id: number) {
+  const who = await readSession();
+  if (who !== "him") return;
+  await deleteParting(id);
+  revalidatePath("/him");
+  revalidatePath("/letters");
+  revalidatePath("/");
+}
+
 /* ── Что сделаем в Уфе ─────────────────────────────────────────── */
 
-export type WishState = { error?: string };
 
 export async function addWishAction(
   _prev: WishState,

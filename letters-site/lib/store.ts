@@ -123,6 +123,7 @@ export type Reply = {
 };
 
 export async function saveReply(
+  partingId: number,
   letterN: number,
   author: Who,
   text: string,
@@ -130,17 +131,23 @@ export async function saveReply(
   const sql = await db();
   if (!sql) return;
   await sql`
-    INSERT INTO letter_replies (letter_n, author, text)
-    VALUES (${letterN}, ${author}, ${text})`;
+    INSERT INTO letter_replies (parting_id, letter_n, author, text)
+    VALUES (${partingId}, ${letterN}, ${author}, ${text})`;
 }
 
-export async function repliesFor(letterN: number): Promise<Reply[]> {
+/** Ответы на письмо. Номера писем повторяются в каждой разлуке,
+ *  поэтому спрашиваем всегда вместе с её номером. */
+export async function repliesFor(
+  partingId: number,
+  letterN: number,
+): Promise<Reply[]> {
   const sql = await db();
   if (!sql) return [];
   const rows = await sql<Reply[]>`
     SELECT id, letter_n, author, text,
            to_char(created_at, 'DD.MM HH24:MI') AS created_at
-    FROM letter_replies WHERE letter_n = ${letterN}
+    FROM letter_replies
+    WHERE letter_n = ${letterN} AND parting_id = ${partingId}
     ORDER BY created_at ASC`;
   return rows.map((r) => ({ ...r, author: r.author as Who }));
 }
