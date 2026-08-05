@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "check": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "motion": "^12.43.0",
@@ -19,8 +20,8 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "playwright-core": "^1.62.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.7",
     "typescript": "^5"
   }
 }
