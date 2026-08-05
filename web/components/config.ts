@@ -58,6 +58,9 @@ export const PARTNER_PERIODS: { months: number; off: number }[] = [
 export const LEGAL = {
   privacy: "/privacy",
   terms: "/terms",
+  // Google Play требует ссылку на удаление аккаунта, доступную БЕЗ установки приложения.
+  // Она же указывается в форме Data safety при подаче.
+  deleteAccount: "/delete-account",
 };
 
 // Яндекс.Метрика — вставь ID счётчика (число), и аналитика включится сама.

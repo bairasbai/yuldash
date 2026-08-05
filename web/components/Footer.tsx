@@ -45,6 +45,7 @@ export function Footer() {
               <li><a href="/help" className="transition-colors hover:text-white">{tr("foot_help")}</a></li>
               <li><a href={LEGAL.privacy} className="transition-colors hover:text-white">{tr("foot_privacy")}</a></li>
               <li><a href={LEGAL.terms} className="transition-colors hover:text-white">{tr("foot_terms")}</a></li>
+              <li><a href={LEGAL.deleteAccount} className="transition-colors hover:text-white">{tr("foot_delete")}</a></li>
             </ul>
           </nav>
 
