@@ -1310,6 +1310,8 @@ internal fun DriverCabinetScreen(
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
     val bookingConfirmedMsg = appText("Бронь подтверждена — пассажиру открыты телефон и точка сбора", "Бронь раҫланды — пассажирға телефон һәм йыйылыу урыны асылды")
     val bookingRejectedMsg = appText("Бронь отклонена", "Бронь кире ҡағылды")
+    // Экран отстал: бронь уже завершена или снята. Врать «отклонена» нельзя.
+    val bookingTooLateMsg = appText("Бронь уже закрыта — отклонять нечего", "Бронь ябылған инде — кире ҡағырға бер нәмә юҡ")
     val bookingActionFailMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     val rideCancelledMsg = appText("Поездка снята. Пассажиры уведомлены.", "Сәфәр алынды. Пассажирҙар хәбәрҙар ителде.")
     val rideDoneMsg = appText("Рейс завершён. Хорошей дороги домой!", "Рейс тамамланды. Юлың уң булһын!")
@@ -1485,7 +1487,14 @@ internal fun DriverCabinetScreen(
             onRejectBooking = { bookingId ->
                 rateScope.launch {
                     ApiClient.cancelBooking(bookingId)
-                        .onSuccess { Toast.makeText(ctx, bookingRejectedMsg, Toast.LENGTH_SHORT).show(); bookingsReload++ }
+                        // Сервер отказался снимать уже завершённую бронь (вернул её как есть) —
+                        // говорим об этом честно, а не «отклонено». Список всё равно перечитываем:
+                        // экран отстал от сервера, и это как раз повод освежить.
+                        .onSuccess {
+                            val msg = if (it.cancelled) bookingRejectedMsg else bookingTooLateMsg
+                            Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+                            bookingsReload++
+                        }
                         .onFailure { Toast.makeText(ctx, bookingActionFailMsg, Toast.LENGTH_SHORT).show() }
                 }
             },

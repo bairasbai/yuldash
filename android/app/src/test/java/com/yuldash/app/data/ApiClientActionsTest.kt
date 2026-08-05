@@ -5,6 +5,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -67,12 +68,34 @@ class ApiClientActionsTest {
 
     @Test
     fun cancelBooking_postsToCancelPath_withoutBody() = runBlocking {
-        server.enqueue(json("{}"))
+        server.enqueue(json("""{"status":"cancelled"}"""))
         val res = ApiClient.cancelBooking(bookingId = 15)
         assertTrue(res.isSuccess)
+        assertTrue("бронь снята — экран вправе сказать «отменено»", res.getOrThrow().cancelled)
         val rec = server.takeRequest()
         assertEquals("POST", rec.method)
         assertEquals("/bookings/15/cancel", rec.path)
+    }
+
+    @Test
+    fun `сервер отменять отказался — это НЕ отмена, даже если код 200`() = runBlocking {
+        // Так отвечает сервер на попытку отменить уже завершённую поездку: код 200 и бронь
+        // как есть, ничего не изменено (bookings.py пропускает статусы cancelled и done).
+        // Раньше клиент читал только contact_then_cancel, а статус выбрасывал — и экран писал
+        // «Поездка отменена» по состоявшейся поездке, попутно стирая офлайн-паспорт с телефоном
+        // водителя. Попасть туда просто: водитель нажал «доехали», пока у пассажира открыт диалог.
+        server.enqueue(json("""{"status":"done","contact_then_cancel":false}"""))
+        val res = ApiClient.cancelBooking(bookingId = 15).getOrThrow()
+        assertFalse("завершённая поездка не может считаться отменённой", res.cancelled)
+        assertEquals("done", res.status)
+    }
+
+    @Test
+    fun `повторная отмена уже отменённой брони честно считается отменой`() = runBlocking {
+        server.enqueue(json("""{"status":"cancelled","contact_then_cancel":true}"""))
+        val res = ApiClient.cancelBooking(bookingId = 15).getOrThrow()
+        assertTrue(res.cancelled)
+        assertTrue("подсказку про защиту в приложении показываем только когда контакт открывали", res.contactThenCancel)
     }
 
     @Test

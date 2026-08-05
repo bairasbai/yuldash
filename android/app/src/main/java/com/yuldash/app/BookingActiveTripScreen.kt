@@ -1413,6 +1413,11 @@ internal fun ActiveTripScreen(
                     "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚",
                 )
                 val cancelFailMsg = appText("Не удалось отменить", "Кире алып булманы")
+                // Экран отстал: поездку уже завершили, пока диалог был открыт.
+                val cancelTooLateMsg = appText(
+                    "Поездка уже завершена — отменить её нельзя.",
+                    "Сәфәр тамамланған инде — уны кире алып булмай.",
+                )
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     OutlinedButton(
                         onClick = { showCancel = true },
@@ -1459,11 +1464,20 @@ internal fun ActiveTripScreen(
                                 bookingId?.let { id ->
                                     voiceScope.launch {
                                         ApiClient.cancelBooking(id, cancelReason)
-                                            .onSuccess { contactThenCancel ->
+                                            .onSuccess { res ->
+                                                if (!res.cancelled) {
+                                                    // Сервер отменять отказался — поездка уже завершена (или отменена
+                                                    // раньше). Экран у пассажира просто отстал: водитель нажал
+                                                    // «доехали», пока диалог был открыт. Врать «отменено» нельзя,
+                                                    // и паспорт поездки стирать тоже — поездка-то состоялась.
+                                                    Toast.makeText(context, cancelTooLateMsg, Toast.LENGTH_LONG).show()
+                                                    bookingStatus = res.status.ifBlank { bookingStatus }
+                                                    return@onSuccess
+                                                }
                                                 // F11: локальный паспорт поездки больше не нужен — бронь отменена.
                                                 TripPassStore.remove(context, id)
                                                 // B8-8: телефон/чат уже открывались → мягко напоминаем про защиту в приложении.
-                                                val msg = if (contactThenCancel) contactCancelMsg else cancelOkMsg
+                                                val msg = if (res.contactThenCancel) contactCancelMsg else cancelOkMsg
                                                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                                 onTripEnd()
                                             }
