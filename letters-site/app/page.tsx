@@ -32,6 +32,49 @@ export default async function Home() {
     who === "her" ? CONFIG.her.timeZone : CONFIG.him.timeZone,
   );
 
+  /*
+    Без хранилища писем негде взять. Показывать в этом случае
+    «мы вместе» нельзя — это была бы неправда: сайт не знает,
+    вместе вы или нет, он просто ничего не помнит.
+  */
+  if (!hasDatabase()) {
+    return (
+      <>
+        <Hero progress={1}>
+          <h1
+            className="rise font-serif text-[clamp(2rem,8vw,2.9rem)] leading-[1.15] text-white"
+            style={{ textShadow: "0 2px 24px rgb(0 0 0 / 0.35)" }}
+          >
+            {greeting},
+            <br />
+            {you}
+          </h1>
+        </Hero>
+
+        <main className="relative mx-auto w-full max-w-[38rem] px-5 pb-32 pt-4">
+          <div className="card px-6 py-9 text-center">
+            <p className="font-serif text-[1.4rem] leading-relaxed text-sky-ink">
+              Сайт ещё просыпается.
+            </p>
+            <p className="mt-3 font-sans text-sm leading-relaxed text-sky-ink-soft">
+              Письма скоро будут здесь. Загляни чуть позже.
+            </p>
+          </div>
+
+          {who === "him" && (
+            <p className="card mt-5 px-5 py-5 font-sans text-sm leading-relaxed text-[#c2695c]">
+              Хранилище не подключено — письма, разлуки и ответы негде
+              хранить, и утренняя доставка тоже не поедет. Шаги
+              подключения в README, это две кнопки в Vercel.
+            </p>
+          )}
+        </main>
+
+        <TabBar />
+      </>
+    );
+  }
+
   const parting = await activeParting(today);
 
   /* ── Вы вместе: разлука не идёт ──────────────────────────────── */
