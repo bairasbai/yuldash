@@ -359,10 +359,10 @@ def send_order_message(order_id: int, body: MessageIn, user: User = Depends(curr
     order = _order_for_chat(session, order_id, user.id, write=True)
     other_id = order.driver_id if user.id == order.passenger_id else order.passenger_id
     if is_blocked(session, user.id, other_id):
-        raise HTTPException(403, "Переписка недоступна")
+        raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
     _guard_chat_burst(session, user.id, Message.order_id == order_id)
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
-        raise HTTPException(422, "Недопустимая ссылка на медиа")
+        raise herr(422, "Недопустимая ссылка на медиа", "Ярамаған медиа һылтанмаһы")
     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
     msg = Message(order_id=order_id, sender_id=user.id, flag=moderate_text(body.text, check_contact=True),
                   from_admin=(user.role == UserRole.admin), **body.model_dump())
@@ -547,12 +547,12 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     other_party = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
     if is_blocked(session, user.id, other_party):
-        raise HTTPException(403, "Переписка недоступна")
+        raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
     _guard_chat_burst(session, user.id, Message.booking_id == booking_id)
     # voice_url — ТОЛЬКО наш медиа-URL (из /upload-voice). Иначе участник подсунул бы внешнюю ссылку,
     # и приложение собеседника её подгрузило бы (утечка IP / трекинг / чужой контент).
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
-        raise HTTPException(422, "Недопустимая ссылка на медиа")
+        raise herr(422, "Недопустимая ссылка на медиа", "Ярамаған медиа һылтанмаһы")
     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
     msg = Message(booking_id=booking_id, sender_id=user.id, flag=moderate_text(body.text, check_contact=False),
                   from_admin=(user.role == UserRole.admin), **body.model_dump())
@@ -608,7 +608,7 @@ def _hidden_ids(m: Message) -> set:
 def _msg_in_booking(session: Session, booking_id: int, message_id: int) -> Message:
     msg = session.get(Message, message_id)
     if not msg or msg.booking_id != booking_id:
-        raise HTTPException(404, "Сообщение не найдено")
+        raise herr(404, "Сообщение не найдено", "Хәбәр табылманы")
     return msg
 
 
@@ -623,14 +623,14 @@ def edit_message(booking_id: int, message_id: int, body: MessageEditIn,
     booking_and_ride_for_user(session, booking_id, user)
     msg = _msg_in_booking(session, booking_id, message_id)
     if msg.sender_id != user.id:
-        raise HTTPException(403, "Редактировать можно только своё сообщение")
+        raise herr(403, "Редактировать можно только своё сообщение", "Тик үҙ хәбәреңде генә төҙәтергә була")
     if msg.deleted:
         raise HTTPException(400, "Сообщение удалено")
     if msg.voice_url:
         raise HTTPException(400, "Голосовое нельзя редактировать")
     text = body.text.strip()
     if not text:
-        raise HTTPException(400, "Пустое сообщение")
+        raise herr(400, "Пустое сообщение", "Буш хәбәр")
     msg.text = text
     msg.edited = True
     # B8-6: обход «отправил безобидное → отредактировал» закрыт. Зону берём из самого

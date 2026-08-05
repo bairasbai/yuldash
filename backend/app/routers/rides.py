@@ -187,7 +187,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     Пассажиров с бронью уведомляем push «Поездка обновлена»."""
     ride = session.exec(select(Ride).where(Ride.id == ride_id).with_for_update()).first()
     if not ride:
-        raise HTTPException(404, "Поездка не найдена")
+        raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     if ride.driver_id != user.id:
         raise HTTPException(403, "Это не ваша поездка")
     if ride.status != RideStatus.active:
@@ -530,7 +530,7 @@ def _ride_owned(session: Session, ride_id: int, user: User) -> Ride:
     """Поездка под row-lock + проверка владения (или админ — помощь по звонку, как везде)."""
     ride = session.exec(select(Ride).where(Ride.id == ride_id).with_for_update()).first()
     if not ride:
-        raise HTTPException(404, "Поездка не найдена")
+        raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     if ride.driver_id != user.id and user.role != UserRole.admin:
         raise HTTPException(403, "Это не ваша поездка")
     return ride
@@ -593,7 +593,7 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
     if ride.status == RideStatus.done:
         return public_ride_payload(ride_out(ride, session))   # идемпотентно
     if ride.status == RideStatus.cancelled:
-        raise HTTPException(400, "Поездка отменена — завершать нечего")
+        raise herr(400, "Поездка отменена — завершать нечего", "Сәфәр кире алынған — тамамлар нәмә юҡ")
     affected = _live_bookings(session, ride_id)
     ride.status = RideStatus.done
     session.add(ride)
@@ -625,11 +625,11 @@ def get_ride(ride_id: int, user: Optional[User] = Depends(current_user_optional)
              session: Session = Depends(get_session)):
     ride = session.get(Ride, ride_id)
     if not ride:
-        raise HTTPException(404, "Поездка не найдена")
+        raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     out = public_ride_payload(ride_out(ride, session))
     # V5: те же фильтры, что в ленте — «только для своих» скрыта от не-L3, поездка в связке
     # блокировки не отдаётся по прямому id (иначе обход only_trusted/blocked + анонимный скрейпинг).
     visible = _hide_trusted_only(_hide_blocked([out], user, session), user, session)
     if not visible:
-        raise HTTPException(404, "Поездка не найдена")   # не раскрываем существование закрытой поездки
+        raise herr(404, "Поездка не найдена", "Сәфәр табылманы")   # не раскрываем существование закрытой поездки
     return visible[0]

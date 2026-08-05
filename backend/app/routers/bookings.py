@@ -275,7 +275,7 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     if ride.driver_id != user.id:
         raise HTTPException(403, "Только водитель")
     if body.status not in {"departed", "arriving", "done"}:
-        raise HTTPException(400, "Недопустимый статус")
+        raise herr(400, "Недопустимый статус", "Ярамаған хәл")
     if body.status == "done":
         # Идемпотентно: уже завершённую/отменённую бронь не трогаем. (pending→done — легитимный
         # поток: пассажир не «подтверждает» отдельно, водитель завершает поездку напрямую.)
@@ -317,7 +317,7 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
 def confirm_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if ride.driver_id != user.id:
-        raise HTTPException(403, "Подтвердить бронь может только водитель")
+        raise herr(403, "Подтвердить бронь может только водитель", "Броньды тик водитель генә раҫлай ала")
     if booking.status == BookingStatus.confirmed:
         return booking                       # идемпотентно (повторный тап) — без побочек
     # Подтверждать можно ТОЛЬКО ожидающую бронь: нельзя откатить onboard→confirmed или воскресить cancelled/done.
