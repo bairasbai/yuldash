@@ -341,8 +341,9 @@ tasks.register<JacocoReport>("jacocoTestReport") {
 //
 // Планка ставится чуть ниже достигнутого: ловит откат, не заставляет писать пустые тесты.
 // Дорастём — поднимем. Обратно не опускаем.
-val logicCoverageFloor = "0.70".toBigDecimal()   // слой данных: com.yuldash.app.data.*
-val appCoverageFloor = "0.20".toBigDecimal()     // всё приложение вместе с экранами
+// Факт на 2026-08-04: слой данных 82,7%, всё приложение 24,7%. Планки — чуть ниже факта.
+val logicCoverageFloor = "0.78".toBigDecimal()   // слой данных: com.yuldash.app.data.*
+val appCoverageFloor = "0.22".toBigDecimal()     // всё приложение вместе с экранами
 
 tasks.register<JacocoCoverageVerification>("jacocoCoverageVerification") {
     dependsOn("jacocoTestReport")

@@ -1,0 +1,158 @@
+package com.yuldash.app
+
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/**
+ * Сторож двуязычия. Читает исходники экранов и не даёт приложению снова заговорить
+ * по-русски там, где обещан башкирский.
+ *
+ * Зачем именно так. Правило «любая надпись — сразу на двух языках» записано в правилах
+ * проекта первым пунктом, но держалось только на внимательности. Проверка исходников
+ * 2026-08-04 показала, чем это кончилось: **143 надписи, где в башкирское поле скопирован
+ * русский текст**. То есть человек переключил язык на башкирский, а видит «Водитель»,
+ * «Комментарий», «Заявка», «Пауза». Приложение обещает родной язык и не даёт его.
+ *
+ * Что делает этот тест:
+ *  • **не пускает пустой башкирский** — таких сейчас ноль, пусть так и остаётся;
+ *  • **не пускает русский текст мимо `appText`** — надпись прямо в `Text("Привет")`
+ *    непереводима в принципе, её не увидит даже переводчик;
+ *  • **не даёт расти долгу** по скопированным словам: сегодняшние 143 зафиксированы,
+ *    144-я уронит сборку.
+ *
+ * Почему долг не закрыт прямо здесь. Башкирский, который придумала модель, — это черновик.
+ * Подтвердить его может только носитель, и это Александр. Список из 87 слов лежит
+ * в `docs/tasks.md`, раздел «Переводы на проверку». По мере подтверждения слов число
+ * ниже уменьшается — планка опускается и обратно не поднимается.
+ */
+class BilingualSourceGuardTest {
+
+    /**
+     * Сколько надписей сейчас дублируют русский в башкирском поле.
+     * Планка-храповик: расти нельзя, уменьшать — нужно. Замер 2026-08-04.
+     */
+    private val knownRussianInBashkir = 143
+
+    /**
+     * Надписи, которым перевод не нужен: латиница, аббревиатуры, знаки.
+     * Каждое — с причиной, иначе список превратится в свалку.
+     */
+    private val noTranslationNeeded = setOf(
+        "SOS",          // международный сигнал, одинаков везде
+        "CTR",          // рекламный термин в кабинете, латиница
+        "СБП",          // название системы платежей, имя собственное
+        "—",            // тире-заглушка «нет данных»
+        "Эмодзи",       // подпись к ряду смайликов; черновик перевода — в tasks.md
+    )
+
+    /** Русский текст прямо в `Text(...)` — осознанные исключения, все четыре. */
+    private val hardcodedExceptions = setOf(
+        "Юлдаш",          // название приложения — имя собственное, не переводится
+        "Юлдаш ✓",        // бейдж официального сообщения
+        "Юлдаш © 2026",   // копирайт в настройках
+        "Х123УХ102",      // пример автономера в подсказке поля — образец, а не текст
+    )
+
+    private fun screens(): List<File> {
+        var dir = File("").absoluteFile
+        repeat(4) {
+            val src = File(dir, "app/src/main/java/com/yuldash/app")
+            if (src.isDirectory) return src.walkTopDown().filter { it.extension == "kt" }.toList()
+            val src2 = File(dir, "src/main/java/com/yuldash/app")
+            if (src2.isDirectory) return src2.walkTopDown().filter { it.extension == "kt" }.toList()
+            dir = dir.parentFile ?: return emptyList()
+        }
+        return emptyList()
+    }
+
+    private val strLiteral = """"((?:[^"\\]|\\.)*)""""
+    private val appTextCall = Regex("""appText(?:For)?\(\s*(?:[a-zA-Z]+\s*,\s*)?$strLiteral\s*,\s*$strLiteral""")
+    private val plainText = Regex("""\bText\(\s*$strLiteral""")
+    private val cyrillic = Regex("""[а-яА-ЯёЁ]""")
+
+    @Test
+    fun `исходники экранов на месте — иначе сторож ничего не проверяет`() {
+        assertTrue("не нашёл исходники экранов", screens().size > 30)
+    }
+
+    @Test
+    fun `башкирское поле нигде не пустое`() {
+        val bad = mutableListOf<String>()
+        screens().forEach { f ->
+            f.readLines().forEachIndexed { i, line ->
+                appTextCall.findAll(line).forEach { m ->
+                    val ru = m.groupValues[1]
+                    val ba = m.groupValues[2]
+                    if (ba.isBlank() && ru.isNotBlank()) bad += "${f.name}:${i + 1}  «$ru» → башкирского нет"
+                }
+            }
+        }
+        assertTrue(
+            "Надпись без башкирского перевода — ${bad.size} шт.\n" +
+                "Пустое поле хуже скопированного русского: человек увидит пустоту.\n" +
+                bad.take(20).joinToString("\n") { "    $it" },
+            bad.isEmpty(),
+        )
+    }
+
+    @Test
+    fun `русский текст не пишется прямо в Text — иначе его некому переводить`() {
+        val bad = mutableListOf<String>()
+        screens().forEach { f ->
+            f.readLines().forEachIndexed { i, line ->
+                plainText.findAll(line).forEach { m ->
+                    val s = m.groupValues[1]
+                    if (cyrillic.containsMatchIn(s) && s !in hardcodedExceptions) {
+                        bad += "${f.name}:${i + 1}  «$s»"
+                    }
+                }
+            }
+        }
+        assertTrue(
+            "Надпись мимо appText — ${bad.size} шт. Её не увидит ни переводчик, ни переключатель языка:\n" +
+                bad.take(20).joinToString("\n") { "    $it" },
+            bad.isEmpty(),
+        )
+    }
+
+    @Test
+    fun `долг по непереведённым словам не растёт`() {
+        val duplicated = mutableListOf<String>()
+        screens().forEach { f ->
+            f.readLines().forEachIndexed { i, line ->
+                appTextCall.findAll(line).forEach { m ->
+                    val ru = m.groupValues[1]
+                    val ba = m.groupValues[2]
+                    if (ru.isNotBlank() && ru == ba && ru.trim() !in noTranslationNeeded) {
+                        duplicated += "${f.name}:${i + 1}  «$ru»"
+                    }
+                }
+            }
+        }
+        assertTrue(
+            "Надписей с русским в башкирском поле стало ${duplicated.size}, а было $knownRussianInBashkir.\n" +
+                "Новую надпись нельзя добавлять с копией русского: башкироязычный человек увидит русский.\n" +
+                "Не знаешь перевода — положи черновик в docs/tasks.md, раздел «Переводы на проверку».\n" +
+                duplicated.takeLast(10).joinToString("\n") { "    $it" },
+            duplicated.size <= knownRussianInBashkir,
+        )
+        // Долг закрывают — планку опускают. Иначе она перестанет что-либо ловить.
+        assertTrue(
+            "Долг сократился до ${duplicated.size}. Опусти knownRussianInBashkir до этого числа, " +
+                "иначе планка снова разрешит рост.",
+            duplicated.size >= knownRussianInBashkir - 10,
+        )
+    }
+
+    @Test
+    fun `разбор надписей вообще работает`() {
+        // Страховка от «зелено, потому что регулярка ничего не нашла»: если разбор сломается,
+        // все проверки выше позеленеют на пустых списках, и мы этого не заметим.
+        var found = 0
+        screens().forEach { f ->
+            f.readLines().forEach { line -> found += appTextCall.findAll(line).count() }
+        }
+        assertTrue("Из экранов вынули всего $found надписей — разбор сломался", found > 1000)
+    }
+}

@@ -4,6 +4,8 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -62,34 +64,149 @@ class ApiClientEndpointContractTest {
         val call: suspend () -> Any?,
     )
 
-    /**
-     * Ответ-«толстяк»: объект с самыми частыми ключами наших DTO. Любой парсер найдёт в нём
-     * что-то своё и отработает целиком, а чего нет — возьмёт значение по умолчанию (в `ApiClient`
-     * везде `opt*`, строгих геттеров нет, поэтому лишние и недостающие ключи безопасны).
-     */
-    private val fatItem: String = (
-        """{"id":1,"user_id":1,"booking_id":1,"ride_id":1,"order_id":1,"owner_id":1,"partner":1,""" +
-            """"status":"active","state":"ok","kind":"regular","category":"regular","role":"driver",""" +
-            """"name":"Айгуль","title":"Заголовок","title_ru":"Заголовок","title_ba":"Баш",""" +
-            """"description":"Текст","text":"Сообщение","note":"Комментарий","statement":"Пояснение",""" +
-            """"reason":"Причина","reject_reason":"Не подошло","code":"ABC123","method":"sbp",""" +
-            """"payee":"Ринат","bank":"Сбер","phone":"+79990000001","address":"ул. Ленина, 1",""" +
-            """"city":"Сибай","route":"Сибай - Уфа","from_city":"Сибай","to_city":"Уфа",""" +
-            """"depart_at":"2026-08-05T08:00:00","created_at":"2026-08-04T10:00:00",""" +
-            """"updated_at":"2026-08-04T10:00:00","day":"2026-08-04","price":350,"amount":350,""" +
-            """"amount_kop":35000,"commission_kop":3500,"net_kop":31500,"seats":2,"count":3,""" +
-            """"unread":1,"trips":5,"rating":4.8,"stars":5,"level":2,"lat":52.5911,"lng":58.3178,""" +
-            """"distance_km":12.5,"driver_name":"Айдар","driver_verified":true,"enabled":true,""" +
-            """"active":true,"online":true,"paid":true,"premium":true,"invited":true,""" +
-            """"url":"https://example.org/x","confirmation_url":"https://example.org/pay",""" +
-            """"payment_id":"p-1","target":"ride","ru":"по-русски","ba":"башҡортса",""" +
-            """"limit_total":10,"limit_per_user":1,"redeemed_count":2,"perk_value":100,""" +
-            """"period_days":30,"items":[]}"""
-        )
+    // ---------------------------------------------------------------------------------------
+    // Два крайних ответа сервера: «пришло всё» и «не пришло ничего».
+    //
+    // Разбор ответа — самое незаметное место в приложении. Ошибка здесь не роняет экран,
+    // а тихо подставляет пустое значение: телефон водителя становится пустой строкой, цена —
+    // нулём, дата — «не указано». Человек видит рабочий экран с неправильными данными.
+    //
+    // Ловится это ровно двумя крайностями:
+    //  • ПОЛНЫЙ ответ — все поля, которые приложение когда-либо читает, разом. Если какой-то
+    //    разборщик ждёт список, а получит строку (или наоборот) — он бросит исключение здесь,
+    //    а не у человека в дороге.
+    //  • ПУСТОЙ ответ — ни одного поля. Так выглядит ответ, когда на сервере поле переименовали
+    //    или выключили фичу. Приложение обязано подставить значения по умолчанию и жить дальше.
+    //
+    // Списки ключей собраны из самого `ApiClient.kt` — всё, что он читает через `opt*`.
+    // ---------------------------------------------------------------------------------------
 
-    private val fat: String = """{"items":[$fatItem],"total":1,"ok":true,"detail":"ok"}"""
+    /** числовые поля: id, цены, счётчики, координаты */
+    private val numberKeys = listOf(
+        "activations", "active", "active_incidents", "amount", "amount_kop", "applied",
+        "autocheck_score", "avg", "avg_search_sec_today", "balance_kop", "balance_rub", "base_kop",
+        "base_price", "blocked_user_id", "booking_id", "budget_kop", "cancel_fee_kop",
+        "cancelled_today", "clicks", "co2_saved_kg", "cod_amount_kop", "collected_fee_kop",
+        "commission_earned_kop", "commission_kop", "commission_min_kop", "commission_owed_kop",
+        "commission_paid_kop", "commission_percent", "contact_id", "count", "coupon_id", "credits",
+        "ctr", "current_fee_percent", "days_in_service", "days_left", "days_with_yuldash", "debt_id",
+        "declared_value_kop", "delivered_count", "deliveries", "delivery_attempts", "delivery_kop",
+        "discount_kop", "discount_used_order_id", "distance_km", "distance_kop", "donations_total",
+        "done_today", "driver", "driver_id", "drivers_online", "dynamic_k", "earned_count",
+        "earnings_today", "entry_id", "eta_min", "fee_days_to_next", "fee_kop", "fee_next_percent",
+        "fee_per_redemption_kop", "fee_percent", "fee_today_kop", "founder_limit", "founder_used",
+        "from_lat", "from_lng", "fuel_estimate_kop", "goal", "goods_actual_kop", "gross_today_kop",
+        "hours", "id", "impressions", "invited", "invited_by", "k", "km", "lat", "level",
+        "limit_hours", "limit_per_user", "limit_sec", "limit_total", "lng", "max_kop", "max_price",
+        "min_kop", "month", "my_response_id", "my_stars", "net_kop", "net_today_kop", "next_at",
+        "no_show_today", "online", "order_id", "orders_active", "orders_today", "owed_commission_kop",
+        "owner_id", "parcels_helped", "partner_id", "passenger", "passenger_rating", "pay_amount",
+        "payment_id", "pending_kop", "period_days", "perk_value", "pickup_eta_min", "pickup_k",
+        "pickup_lat", "pickup_lng", "price", "price_kop", "price_with_discount", "pricing_cap_k",
+        "promo_discount_kop", "ratee_id", "rating_count", "redeemed", "redeemed_count",
+        "redeemed_total", "ref_id", "reliability", "remaining_sec", "requests", "ride_id",
+        "saved_rub", "seats", "seconds_online", "sender_id", "size_kop", "stars",
+        "strike_decay_days", "strikes", "strikes_to_limit", "strikes_to_suspend", "sum", "sum_rub",
+        "surge_k", "suspend_1_days", "suspend_2_days", "suspend_3_days", "target_user_id",
+        "tariff_id", "tenure_days", "threshold_kop", "to_lat", "to_lng", "to_next", "today", "total",
+        "total_due_kop", "total_fee_kop", "total_net_kop", "total_price", "traffic_k", "trips",
+        "trips_count", "unbilled_fee_kop", "unpaid_kop", "unread", "urgency_kop", "user_id", "value",
+        "wait_minutes", "waiting_fee_kop", "warnings", "weather_k", "week", "weight", "weight_kg",
+        "year",
+    )
 
-    private fun okResponse() = MockResponse().setResponseCode(200).setBody(fat)
+    /** текстовые поля: имена, города, коды, адреса */
+    private val stringKeys = listOf(
+        "access_token", "ad_id", "address", "author", "autocheck_data", "autocheck_result",
+        "avatar_url", "ba", "bank", "block_reason", "boarding_code", "body_ba", "body_ru", "button",
+        "campaign", "car", "car_class", "car_color", "car_make", "car_model", "car_photo_url",
+        "car_plate", "card_last4", "cargo_type", "category_ba", "category_ru", "city", "code",
+        "comment", "confirm_code", "confirmation_url", "contact", "coupon_title", "customer_name",
+        "delivery_photo_url", "delivery_type", "description", "description_ba", "description_ru",
+        "direction", "discount_text", "docs_status", "driver_car", "driver_name", "driver_phase",
+        "driver_phone", "erid", "fee_status", "fee_tier", "flag", "for_relative_name", "from_address",
+        "from_city", "from_text", "full_name", "gender", "handled_note", "image", "label",
+        "last_message", "last_sender", "license_url", "message_ba", "message_ru", "name",
+        "next_title_ba", "next_title_ru", "note", "note_ba", "note_ru", "package", "package_title",
+        "passenger_avatar", "passenger_name", "pay_method", "payer_name", "payer_phone",
+        "payment_method", "peer_avatar", "peer_name", "phone", "pickup", "pickup_photo_url",
+        "placement", "plan", "pricing_version", "promo_code", "purpose", "push_token", "ratee",
+        "reason", "receiver_name", "receiver_phone", "ref_kind", "refresh_token", "reject_reason",
+        "relation", "reporter_name", "request_id", "resolution", "return_reason", "route",
+        "route_source", "ru", "selfie_url", "sender_name", "sender_phone", "size", "standing", "sub",
+        "subject", "subscription_plan", "support_ba", "support_ru", "suspend_reason", "target_name",
+        "target_phone", "text", "tier", "title_ba", "title_ru", "to_address", "to_city", "to_text",
+        "token", "transport", "until", "urgency", "url", "user_name", "user_phone", "user_role",
+        "weather_code", "zone",
+    )
+
+    /** даты и времена — формат тот же, что шлёт сервер */
+    private val dateKeys = listOf(
+        "boosted_until", "chat_open_until", "confirmed_at", "created_at", "date", "depart_at",
+        "desired_at", "done_at", "due_at", "ends_at", "granted_at", "reserved_at", "submitted_at",
+        "unlock_at", "updated_at", "used_at", "wait_until", "watch_date",
+    )
+
+    /** галочки: подтверждён, оплачен, включён */
+    private val boolKeys = listOf(
+        "active_flag", "already_thanked", "blocked", "can_act", "can_invite", "commission_estimated",
+        "confirmed", "contact_then_cancel", "contact_unlocked", "deleted", "discount_available",
+        "driver_verified", "earned", "edited", "enabled", "expired", "fragile", "from_admin",
+        "has_premium", "has_requisite", "has_tolls", "is_insider", "live", "notify_by_default", "ok",
+        "overdue", "paid", "peer_verified", "premium", "rating_shield", "read", "required",
+        "responded", "return_ride_used", "rules_accepted", "settled", "sms_sent",
+        "subscription_active", "verified", "with_kids",
+    )
+
+    /** вложенные списки — пустые: цикл разбора должен пережить и это */
+    private val arrayKeys = listOf(
+        "achievements", "benefits", "by_city", "by_day", "cities", "drivers", "fee_tier_days",
+        "fee_tiers", "options", "parcels", "placements", "prefs", "price_factors", "reviews",
+        "rides", "routes", "weeks", "zones",
+    )
+
+    /** вложенные объекты — пустые: поля возьмут значения по умолчанию */
+    private val objectKeys = listOf(
+        "application", "boost", "breakdown", "by_role", "coupon", "courier", "donate", "from", "how",
+        "message", "money", "next", "offer", "order", "partner", "payee", "profile", "promo",
+        "promo_note", "rank", "rating", "sbp", "settlement", "statement", "surge_note", "title", "to",
+        "top_route", "user",
+    )
+
+    /** Поля, где важно конкретное значение: иначе разбор уйдёт не в ту ветку. */
+    private val exactKeys = mapOf(
+        "category" to "regular", "condition" to "clear", "currency" to "RUB", "day" to "2026-08-04",
+        "kind" to "regular", "lang" to "ru", "method" to "sbp", "period" to "week",
+        "platform" to "android", "role" to "driver", "state" to "ok", "status" to "active",
+        "target" to "ride", "traffic_type" to "jams", "type" to "message",
+    )
+
+    /** Объект, в котором есть ВСЁ, что приложение умеет читать. */
+    private fun fullItem(): JSONObject = JSONObject().apply {
+        numberKeys.forEach { put(it, 7) }
+        stringKeys.forEach { put(it, "текст") }
+        dateKeys.forEach { put(it, "2026-08-05T08:00:00") }
+        boolKeys.forEach { put(it, true) }
+        arrayKeys.forEach { put(it, JSONArray()) }
+        objectKeys.forEach { put(it, JSONObject()) }
+        exactKeys.forEach { (k, v) -> put(k, v) }
+        put("phone", "+79990000001")
+        put("driver_phone", "+79990000001")
+        put("url", "https://example.org/x")
+        put("confirmation_url", "https://example.org/pay")
+    }
+
+    private fun fullBody(): String {
+        val item = fullItem()
+        // Часть ручек отдаёт список, часть — один объект. Кладём и так, и так.
+        return JSONObject(item.toString()).put("items", JSONArray().put(fullItem())).toString()
+    }
+
+    /** Ответ, в котором нет ни одного поля: так выглядит переименование поля на сервере. */
+    private fun emptyBody(): String =
+        JSONObject().put("items", JSONArray().put(JSONObject())).toString()
+
+    private fun okResponse() = MockResponse().setResponseCode(200).setBody(fullBody())
 
     /** Берём первый запрос ручки и сливаем возможные добавочные (у некоторых их два). */
     private fun drain(): RecordedRequest? {
@@ -320,6 +437,26 @@ class ApiClientEndpointContractTest {
             }
         }
         assertTrue("Ручки прячут ошибку сервера:\n" + bad.joinToString("\n"), bad.isEmpty())
+    }
+
+    @Test
+    fun `ответ без единого поля не роняет разбор`() = runBlocking {
+        // Поле переименовали на сервере или выключили фичу — приложение обязано подставить
+        // значения по умолчанию и жить дальше, а не упасть с пустым экраном.
+        val bad = mutableListOf<String>()
+        for (ep in endpoints()) {
+            server.enqueue(MockResponse().setResponseCode(200).setBody(emptyBody()))
+            val res = runCatching { ep.call() }
+            drain()
+            if (res.isFailure) bad += "${ep.name}: упал на ответе без полей — ${res.exceptionOrNull()}"
+            val r = res.getOrNull()
+            if (r is Result<*> && r.isFailure) {
+                val e = r.exceptionOrNull()
+                // ApiException тут быть не может (ответ 200) — значит это упавший разбор.
+                if (e !is ApiException) bad += "${ep.name}: разбор пустого ответа дал ошибку — $e"
+            }
+        }
+        assertTrue("Разбор ломается на ответе без полей:\n" + bad.joinToString("\n"), bad.isEmpty())
     }
 
     @Test

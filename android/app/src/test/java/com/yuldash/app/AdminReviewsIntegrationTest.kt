@@ -33,7 +33,12 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class AdminReviewsIntegrationTest {
 
-    @get:Rule
+    // Порядок важен: повтор снаружи, чтобы вторая попытка получила ЧИСТЫЙ экран
+    // и свой @Before. Почему повтор вообще есть — в RetryOnFlakeRule.
+    @get:Rule(order = 0)
+    val retry = RetryOnFlakeRule()
+
+    @get:Rule(order = 1)
     val composeRule = createComposeRule()
 
     private lateinit var server: MockWebServer
@@ -48,9 +53,11 @@ class AdminReviewsIntegrationTest {
         // медленный раннер, но не лечилось ни 10, ни 60 секундами: ждать было нечего.
         // failFast → на неожиданный запрос сразу 404, тест падает по существу и быстро.
         (server.dispatcher as QueueDispatcher).setFailFast(MockResponse().setResponseCode(404))
+        // Выход — ДО подмены адреса: `logout()` шлёт в фоне два запроса, и после подмены они
+        // прилетели бы на тестовый сервер и съели ответ, заготовленный для экрана.
+        ApiClient.logout()
         server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
-        ApiClient.logout()   // чистая сессия/кеш перед тестом
     }
 
     @After
@@ -60,7 +67,14 @@ class AdminReviewsIntegrationTest {
     }
 
     private fun waitForText(text: String) {
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            // Прокручиваем очередь главного потока руками. Ответ сервера приходит в фоновом
+            // потоке, а обновить экран может только главный — и под Robolectric он не крутится
+            // сам. `waitUntil` только спрашивает «текст уже есть?», очередь не трогая, поэтому
+            // ответ, легший в неё в неудачный момент, остаётся лежать до конца ожидания:
+            // экран замирает на «Загрузка…», хотя данные пришли. Подробный разбор — в
+            // AdminScreensIntegrationTest.
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
             composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
         }
     }
