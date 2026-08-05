@@ -60,3 +60,15 @@ export function inviteHer(n: number, daysLeft: number): Promise<SendResult> {
 export function notifyHim(text: string): Promise<SendResult> {
   return send(process.env.TELEGRAM_CHAT_ID_HIM, text);
 }
+
+export function notifyHer(text: string): Promise<SendResult> {
+  return send(process.env.TELEGRAM_CHAT_ID_HER, text);
+}
+
+/**
+ * Сообщение второму: сделала она — уходит ему, сделал он — уходит ей.
+ * Так список желаний и вопрос дня оживают без дёрганья вручную.
+ */
+export function notifyOther(actor: "her" | "him", text: string) {
+  return actor === "her" ? notifyHim(text) : notifyHer(text);
+}

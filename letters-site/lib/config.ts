@@ -5,6 +5,8 @@
 export const CONFIG = {
   her: {
     name: "Илиза",
+    /** «настроение Илизы» — родительный падеж, вручную: русский так устроен */
+    nameOf: "Илизы",
     city: "Уфа",
     timeZone: "Asia/Yekaterinburg",
   },

@@ -5,7 +5,9 @@ import { AnimatePresence, motion } from "motion/react";
 import Envelope from "./Envelope";
 import LetterSheet, { type LetterSheetData } from "./LetterSheet";
 import ReplyBox from "./ReplyBox";
+import RepliesList from "./RepliesList";
 import { haptic, SEAL_BREAK } from "@/lib/haptics";
+import type { Reply } from "@/lib/store";
 
 /**
  * Сегодняшний конверт и то, что из него выходит.
@@ -13,7 +15,13 @@ import { haptic, SEAL_BREAK } from "@/lib/haptics";
  * Вскрывать интересно один раз. Если она уже открывала это письмо,
  * при следующем заходе оно показывается сразу развёрнутым.
  */
-export default function TodayLetter({ letter }: { letter: LetterSheetData }) {
+export default function TodayLetter({
+  letter,
+  replies = [],
+}: {
+  letter: LetterSheetData;
+  replies?: Reply[];
+}) {
   const [state, setState] = useState<"sealed" | "opening" | "open">("sealed");
   const [instant, setInstant] = useState(false);
 
@@ -63,7 +71,15 @@ export default function TodayLetter({ letter }: { letter: LetterSheetData }) {
             initial={instant ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
           >
-            <LetterSheet letter={letter} footer={<ReplyBox n={letter.n} />} />
+            <LetterSheet
+              letter={letter}
+              footer={
+                <>
+                  <RepliesList replies={replies} />
+                  <ReplyBox n={letter.n} />
+                </>
+              }
+            />
           </motion.div>
         )}
       </AnimatePresence>

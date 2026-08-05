@@ -12,16 +12,22 @@ import {
   totalLetters,
 } from "@/lib/time";
 import { CONFIG } from "@/lib/config";
+import { repliesFor } from "@/lib/store";
+
 // Страница зависит от сегодняшней даты и от куки — кешировать её нельзя
 export const dynamic = "force-dynamic";
+
 export default async function Home() {
   const who = await readSession();
   if (!who) redirect("/gate");
+
   const today = todayInHerCity();
   const days = daysUntilMeeting(today);
   const n = letterNumberToday(today);
   const total = totalLetters();
   const letter = todaysLetter(today);
+  const replies = letter ? await repliesFor(letter.n) : [];
+
   return (
     <>
       <main className="relative flex min-h-dvh flex-col items-center px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2.5rem,env(safe-area-inset-top))]">
@@ -35,7 +41,9 @@ export default async function Home() {
               Первое письмо придёт {humanDate(CONFIG.startDate)}, утром.
             </p>
           )}
-          {n >= 1 && n <= total && letter && <TodayLetter letter={letter} />}
+          {n >= 1 && n <= total && letter && (
+            <TodayLetter letter={letter} replies={replies} />
+          )}
           {n >= 1 && n <= total && !letter && (
             <p className="rise max-w-xs text-center font-serif text-xl leading-relaxed text-sky-ink-soft">
               Сегодняшнее письмо ещё в пути. Загляни чуть позже.

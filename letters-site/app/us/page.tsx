@@ -3,9 +3,13 @@ import PageShell from "@/components/PageShell";
 import TwoClocks from "@/components/TwoClocks";
 import DistanceMap from "@/components/DistanceMap";
 import Timeline from "@/components/Timeline";
+import Playlist from "@/components/Playlist";
+import Capsule from "@/components/Capsule";
 import { readSession } from "@/lib/session";
 import { weatherIn } from "@/lib/weather";
+import { getCapsule } from "@/lib/store";
 import { TIMELINE } from "@/data/timeline";
+import { PLAYLIST } from "@/data/playlist";
 import { CONFIG } from "@/lib/config";
 import {
   clockIn,
@@ -18,16 +22,18 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function UsPage() {
-  if (!(await readSession())) redirect("/gate");
+  const me = await readSession();
+  if (!me) redirect("/gate");
 
   const today = todayInHerCity();
   const progress = dawnProgress(today);
   const together = daysTogether(today);
 
-  // Обе погоды тянем разом, чтобы страница не ждала их по очереди
-  const [herWeather, hisWeather] = await Promise.all([
+  // Всё внешнее тянем разом, чтобы страница не ждала по очереди
+  const [herWeather, hisWeather, capsule] = await Promise.all([
     weatherIn("ufa"),
     weatherIn("moscow"),
+    getCapsule(me),
   ]);
 
   return (
@@ -58,6 +64,14 @@ export default async function UsPage() {
           km={CONFIG.distanceKm}
           fromCity={CONFIG.him.city}
           toCity={CONFIG.her.city}
+        />
+
+        <Playlist songs={PLAYLIST} />
+
+        <Capsule
+          mine={capsule}
+          canOpen={Boolean(capsule && today >= capsule.open_at)}
+          today={today}
         />
 
         <section className="pt-4">
