@@ -85,7 +85,7 @@ export default function TwoClocks({
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
-      className="flex items-start gap-4 rounded-[var(--radius-card)] border border-panel-border bg-panel px-4 py-8 backdrop-blur-[2px]"
+      className="flex items-start gap-4 card px-4 py-8"
     >
       <ClockCard side={her} initial={initialHer} />
       <div className="w-px self-stretch bg-panel-border" />

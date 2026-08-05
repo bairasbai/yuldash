@@ -4,6 +4,8 @@ import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { sealCapsuleAction, type WishState } from "@/app/actions";
+import CardIcon from "./CardIcon";
+import { HourglassIcon } from "./Icons";
 import { humanDate } from "@/lib/time";
 import type { Capsule as CapsuleData } from "@/lib/store";
 
@@ -40,11 +42,18 @@ export default function Capsule({
   );
 
   return (
-    <section className="rounded-[var(--radius-card)] border border-panel-border bg-panel px-5 py-6 backdrop-blur-[2px]">
-      <h2 className="mb-1 font-serif text-2xl">Капсула</h2>
-      <p className="mb-5 font-sans text-[0.66rem] uppercase tracking-[0.2em] text-sky-ink-soft/70">
-        письмо себе через год
-      </p>
+    <section className="card px-5 py-6">
+      <div className="mb-5 flex items-start gap-4">
+        <CardIcon tone="warm">
+          <HourglassIcon size={21} />
+        </CardIcon>
+        <div className="flex-1">
+          <h2 className="eyebrow">капсула</h2>
+          <p className="mt-1.5 font-serif text-[1.3rem] leading-snug text-sky-ink">
+            Письмо себе через год
+          </p>
+        </div>
+      </div>
 
       <AnimatePresence mode="wait" initial={false}>
         {mine && canOpen ? (
@@ -68,9 +77,9 @@ export default function Capsule({
             animate={{ opacity: 1 }}
             className="flex items-center gap-4 py-2"
           >
-            <span className="text-2xl" aria-hidden>
-              ⏳
-            </span>
+            <CardIcon tone="warm">
+              <HourglassIcon size={21} />
+            </CardIcon>
             <div>
               <p className="font-serif text-[1.08rem] text-sky-ink/90">
                 Запечатано. Откроется {humanDate(mine.open_at)}.
@@ -112,7 +121,7 @@ export default function Capsule({
               autoFocus
               maxLength={4000}
               placeholder="Дорогая я через год…"
-              className="w-full resize-none rounded-[var(--radius-soft)] border border-panel-border bg-white/[0.04] p-4 font-serif text-[1.05rem] leading-relaxed text-sky-ink outline-none placeholder:text-sky-ink-soft/40 focus:border-sky-ink/30"
+              className="w-full resize-none rounded-[var(--radius-soft)] border border-panel-border bg-cream p-4 font-serif text-[1.05rem] leading-relaxed text-sky-ink outline-none placeholder:text-sky-ink-soft/40 focus:border-sky-ink/30"
             />
             <div className="mt-3 flex items-center justify-between">
               <span className="font-sans text-[0.64rem] text-sky-ink-soft/60">

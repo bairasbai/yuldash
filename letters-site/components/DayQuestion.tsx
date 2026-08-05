@@ -4,6 +4,8 @@ import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { motion } from "motion/react";
 import { answerDayAction, type WishState } from "@/app/actions";
+import CardIcon from "./CardIcon";
+import { ChatIcon } from "./Icons";
 import { CONFIG } from "@/lib/config";
 import type { DayAnswer } from "@/lib/store";
 
@@ -43,14 +45,18 @@ export default function DayQuestion({
   const theirName = me === "her" ? CONFIG.him.name : CONFIG.her.name;
 
   return (
-    <section className="rounded-[var(--radius-card)] border border-panel-border bg-panel px-5 py-6 backdrop-blur-[2px]">
-      <h2 className="mb-4 font-sans text-[0.66rem] uppercase tracking-[0.2em] text-sky-ink-soft/70">
-        вопрос дня
-      </h2>
-
-      <p className="font-serif text-[1.35rem] leading-snug text-sky-ink">
-        {question}
-      </p>
+    <section className="card px-5 py-6">
+      <div className="flex items-start gap-4">
+        <CardIcon tone="coral">
+          <ChatIcon size={21} />
+        </CardIcon>
+        <div className="flex-1">
+          <h2 className="eyebrow">вопрос дня</h2>
+          <p className="mt-2 font-serif text-[1.3rem] leading-snug text-sky-ink">
+            {question}
+          </p>
+        </div>
+      </div>
 
       {!mine ? (
         <form action={formAction} className="mt-6">

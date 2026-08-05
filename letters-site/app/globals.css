@@ -26,14 +26,27 @@
   --color-seal-deep: #6b1f28;
   --color-gold: #c9a227;
 
-  /* Текст поверх неба */
-  --color-sky-ink: #f2f4fb;
-  --color-sky-ink-soft: #b9c3dc;
+  /*
+    Основной текст. Имя осталось прежним (sky-ink), чтобы не переписывать
+    каждый компонент, но значение теперь тёмное: страница светлая,
+    а небо живёт только в шапке.
+  */
+  --color-sky-ink: #2f2620;
+  --color-sky-ink-soft: #7d6b5c;
 
-  /* Карточки поверх неба. Плотность задаёт небо: чем оно светлее,
-     тем плотнее панель — иначе она растворяется. */
+  /* Карточки */
   --color-panel: var(--panel-bg);
   --color-panel-border: var(--panel-border);
+
+  /* Тёплые акценты: подписи капсом и кнопки */
+  --color-accent: #d0803c;
+  --color-coral: #d4796a;
+  --color-deep: #2e3849;
+
+  /* Фон страницы. Заметно теплее белого — иначе карточки на нём
+     не читаются как отдельные листы */
+  --color-cream: #f4ebe0;
+  --color-cream-deep: #ece0d1;
 
   --radius-card: 20px;
   --radius-soft: 12px;
@@ -54,9 +67,12 @@
   --ridge-far: #0a1024;
   --ridge-near: #04060e;
 
-  /* Перебиваются из компонента неба под текущий день */
-  --panel-bg: rgb(255 255 255 / 0.045);
-  --panel-border: rgb(255 255 255 / 0.1);
+  /* Карточки на светлом фоне: белые, с еле заметной рамкой */
+  --panel-bg: #ffffff;
+  --panel-border: rgb(47 38 32 / 0.07);
+  /* Тень заметная: фон кремовый, карточки белые — без тени они сливаются */
+  --panel-shadow: 0 1px 2px rgb(93 63 44 / 0.05),
+    0 8px 20px -8px rgb(93 63 44 / 0.12), 0 22px 44px -22px rgb(93 63 44 / 0.2);
 }
 
 html,
@@ -65,12 +81,28 @@ body {
 }
 
 body {
-  background-color: var(--sky-zenith);
+  background-color: var(--color-cream);
   color: var(--color-sky-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overscroll-behavior-y: none;
+}
+
+/* Общий вид карточки: белая, мягкая тень, скруглённые углы */
+.card {
+  background: var(--panel-bg);
+  border-radius: var(--radius-card);
+  box-shadow: var(--panel-shadow);
+}
+
+/* Тёплая подпись-заголовок капсом — как в макете */
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-accent);
 }
 
 /* Живой градиент неба */

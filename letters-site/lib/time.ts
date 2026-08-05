@@ -86,6 +86,21 @@ export function humanDate(iso: string): string {
   }).format(new Date(`${iso}T00:00:00Z`));
 }
 
+/** «Доброе утро» — по её часам, а не по серверным. */
+export function greetingIn(timeZone: string, now: Date = new Date()): string {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      hour: "2-digit",
+      hour12: false,
+    }).format(now),
+  );
+  if (hour < 5) return "Доброй ночи";
+  if (hour < 12) return "Доброе утро";
+  if (hour < 18) return "Добрый день";
+  return "Добрый вечер";
+}
+
 /** Правильное окончание: 1 день, 2 дня, 5 дней. */
 export function plural(n: number, one: string, few: string, many: string): string {
   const mod10 = n % 10;

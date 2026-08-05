@@ -40,7 +40,7 @@ export default function SadDayCard({
   };
 
   return (
-    <section className="overflow-hidden rounded-[var(--radius-card)] border border-panel-border bg-panel backdrop-blur-[2px]">
+    <section className="overflow-hidden card">
       <AnimatePresence mode="wait" initial={false}>
         {!open ? (
           <motion.button
@@ -53,15 +53,17 @@ export default function SadDayCard({
             className="flex w-full flex-col items-center px-5 py-11"
           >
             <motion.span
-              className="text-[#ffd9a8]"
-              style={{ filter: "drop-shadow(0 0 12px rgb(255 190 120 / 0.45))" }}
-              animate={{ opacity: [0.6, 1, 0.6] }}
+              className="flex h-14 w-14 items-center justify-center rounded-[18px]"
+              style={{ background: "#fbe9e5", color: "var(--color-coral)" }}
+              animate={{ opacity: [0.75, 1, 0.75] }}
               transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut" }}
             >
-              <Candle size={30} />
+              <Candle size={26} />
             </motion.span>
-            <span className="mt-5 font-serif text-2xl font-light">{title}</span>
-            <span className="mt-3 font-sans text-[0.62rem] uppercase tracking-[0.22em] text-sky-ink-soft/70">
+            <span className="mt-5 font-serif text-[1.6rem] text-sky-ink">
+              {title}
+            </span>
+            <span className="mt-2.5 font-sans text-[0.66rem] uppercase tracking-[0.18em] text-sky-ink-soft/70">
               один раз · когда правда понадобится
             </span>
           </motion.button>

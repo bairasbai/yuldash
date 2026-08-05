@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Lora, Marck_Script, Manrope } from "next/font/google";
-import Sky from "@/components/Sky";
-import { dawnProgress } from "@/lib/time";
 import "./globals.css";
 
 // Шрифт писем. Мягкий и плотный: на телефоне читается легче
@@ -34,7 +32,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#04060f",
+  themeColor: "#f8f3ec",
   // Небо должно уходить под чёлку телефона, а не упираться в белую полосу
   viewportFit: "cover",
 };
@@ -49,15 +47,7 @@ export default function RootLayout({
       lang="ru"
       className={`${letterFont.variable} ${handwriting.variable} ${manrope.variable} h-full antialiased`}
     >
-      <body className="min-h-full">
-        {/*
-          Небо живёт здесь, а не на страницах: при переходе между разделами
-          оно не перерисовывается. Ощущение одного пространства, по которому
-          ходишь, а не отдельных экранов.
-        */}
-        <Sky progress={dawnProgress()} />
-        {children}
-      </body>
+      <body className="min-h-full">{children}</body>
     </html>
   );
 }

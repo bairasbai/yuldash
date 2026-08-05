@@ -27,7 +27,7 @@ export default function ArchiveGrid({ items }: { items: Item[] }) {
         >
           {item.locked ? (
             <div
-              className="flex aspect-[7/5] flex-col items-center justify-center rounded-[14px] border border-panel-border bg-panel backdrop-blur-[2px]"
+              className="flex aspect-[7/5] flex-col items-center justify-center rounded-[14px] border border-panel-border bg-cream-deep"
               aria-label={`Письмо ${item.n} откроется ${item.dateLabel}`}
             >
               <Lock size={19} className="opacity-30" />

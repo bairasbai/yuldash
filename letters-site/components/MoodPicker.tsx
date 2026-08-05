@@ -44,11 +44,11 @@ export default function MoodPicker({
   };
 
   return (
-    <section className="rounded-[var(--radius-card)] border border-panel-border bg-panel px-5 py-6 backdrop-blur-[2px]">
-      <h2 className="mb-1 font-serif text-2xl">Как ты сегодня</h2>
-      <p className="mb-5 font-sans text-[0.66rem] uppercase tracking-[0.2em] text-sky-ink-soft/70">
-        он увидит
-      </p>
+    <section className="card px-5 py-6">
+      <div className="mb-5 flex items-baseline justify-between">
+        <h2 className="font-serif text-[1.45rem] text-sky-ink">Как ты сегодня</h2>
+        <span className="eyebrow">он увидит</span>
+      </div>
 
       <div className="flex flex-wrap gap-2">
         {MOODS.map((m) => {

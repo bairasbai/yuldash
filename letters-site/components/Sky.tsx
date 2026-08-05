@@ -19,7 +19,14 @@ const CLOUDS = [
  * Всё, что тут происходит, завязано на него: цвет градиента, сколько
  * видно звёзд, вылезло ли солнце из-за хребта.
  */
-export default function Sky({ progress }: { progress: number }) {
+export default function Sky({
+  progress,
+  /** true — небо живёт внутри шапки, а не за всей страницей */
+  inset = false,
+}: {
+  progress: number;
+  inset?: boolean;
+}) {
   const palette = useMemo(() => skyPalette(progress), [progress]);
   const stars = useMemo(() => makeStars(140), []);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -78,7 +85,9 @@ export default function Sky({ progress }: { progress: number }) {
     <div
       ref={rootRef}
       aria-hidden
-      className="sky-gradient grain vignette pointer-events-none fixed inset-0 -z-10 overflow-hidden transition-[background] duration-[2s]"
+      className={`sky-gradient grain pointer-events-none overflow-hidden transition-[background] duration-[2s] ${
+        inset ? "absolute inset-0" : "vignette fixed inset-0 -z-10"
+      }`}
       style={
         {
           "--sky-zenith": palette.zenith,

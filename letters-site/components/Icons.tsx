@@ -76,6 +76,81 @@ export function ArrowLeft({ size = 24, className }: IconProps) {
   );
 }
 
+/* ── Нижняя навигация ──────────────────────────────────────────────── */
+
+export function EnvelopeIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <rect x="2.8" y="5.6" width="18.4" height="12.8" rx="2.4" />
+      <path d="M3.4 7.2 12 13.2l8.6-6" />
+    </svg>
+  );
+}
+
+export function ArchiveIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M6.2 3.4h11.6a1.4 1.4 0 0 1 1.4 1.4v15.4l-7.2-4.2-7.2 4.2V4.8a1.4 1.4 0 0 1 1.4-1.4Z" />
+    </svg>
+  );
+}
+
+export function HeartIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M12 20.4S3.6 15.2 3.6 9.4a4.6 4.6 0 0 1 8.4-2.6 4.6 4.6 0 0 1 8.4 2.6c0 5.8-8.4 11-8.4 11Z" />
+    </svg>
+  );
+}
+
+export function TwoPeople({ size = 24, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="8.6" cy="8.4" r="3.1" />
+      <circle cx="16.4" cy="9.6" r="2.5" />
+      <path d="M2.8 19.6c.5-3 2.9-4.8 5.8-4.8s5.3 1.8 5.8 4.8" />
+      <path d="M15.4 14.9c2.5.1 4.4 1.8 4.8 4.7" />
+    </svg>
+  );
+}
+
+export function MapPin({ size = 24, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M12 21.2s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z" />
+      <circle cx="12" cy="10.1" r="2.6" />
+    </svg>
+  );
+}
+
+export function ChatIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M20.6 12.4c0 3.9-3.8 7-8.6 7-1.1 0-2.2-.2-3.2-.5l-5 1.7 1.7-4.3a6.4 6.4 0 0 1-1.7-4.3c0-3.9 3.8-7 8.2-7s8.6 3.1 8.6 7Z" />
+    </svg>
+  );
+}
+
+export function HourglassIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M7 3h10M7 21h10" />
+      <path d="M8 3v3.6c0 1.8 1.6 3.3 4 5.4 2.4-2.1 4-3.6 4-5.4V3" />
+      <path d="M8 21v-3.6c0-1.8 1.6-3.3 4-5.4 2.4 2.1 4 3.6 4 5.4V21" />
+    </svg>
+  );
+}
+
+export function NoteIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M9.4 18V5.6l9.2-2v11.6" />
+      <circle cx="6.8" cy="18.2" r="2.7" />
+      <circle cx="15.9" cy="15.4" r="2.7" />
+    </svg>
+  );
+}
+
 /* ── Погода ────────────────────────────────────────────────────────── */
 
 function SunShape() {

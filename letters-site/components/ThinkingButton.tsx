@@ -26,7 +26,7 @@ export default function ThinkingButton() {
   };
 
   return (
-    <section className="flex flex-col items-center rounded-[var(--radius-card)] border border-panel-border bg-panel px-5 py-10 backdrop-blur-[2px]">
+    <section className="flex flex-col items-center card px-5 py-10">
       <button
         type="button"
         onClick={press}

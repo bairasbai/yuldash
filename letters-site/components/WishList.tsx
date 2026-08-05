@@ -8,6 +8,8 @@ import {
   toggleWishAction,
   type WishState,
 } from "@/app/actions";
+import CardIcon from "./CardIcon";
+import { MapPin } from "./Icons";
 import { haptic } from "@/lib/haptics";
 import type { Wish } from "@/lib/store";
 
@@ -39,11 +41,20 @@ export default function WishList({
   const done = items.filter((w) => w.done);
 
   return (
-    <section className="rounded-[var(--radius-card)] border border-panel-border bg-panel px-5 py-6 backdrop-blur-[2px]">
-      <h2 className="mb-1 font-serif text-2xl">Что сделаем в Уфе</h2>
-      <p className="mb-5 font-sans text-[0.66rem] uppercase tracking-[0.2em] text-sky-ink-soft/70">
-        {done.length} из {items.length} уже сделано
-      </p>
+    <section className="card px-5 py-6">
+      <div className="mb-5 flex items-start gap-4">
+        <CardIcon tone="deep">
+          <MapPin size={21} />
+        </CardIcon>
+        <div className="flex-1">
+          <h2 className="eyebrow">что сделаем в уфе</h2>
+          <p className="mt-1.5 font-serif text-[1.3rem] leading-snug text-sky-ink">
+            {items.length === 0
+              ? "Соберём список мест и вечеров"
+              : `${done.length} из ${items.length} уже сделано`}
+          </p>
+        </div>
+      </div>
 
       <ul className="space-y-1">
         <AnimatePresence initial={false}>

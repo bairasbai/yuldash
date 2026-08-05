@@ -40,7 +40,7 @@ export default function DistanceMap({
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-60px" }}
       transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
-      className="rounded-[var(--radius-card)] border border-panel-border bg-panel px-5 py-7 backdrop-blur-[2px]"
+      className="card px-5 py-7"
     >
       <svg viewBox="0 0 400 160" className="w-full" role="img"
         aria-label={`Путь из ${fromCity} в ${toCity}, ${km} километров`}>

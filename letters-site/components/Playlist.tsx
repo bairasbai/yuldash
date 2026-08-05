@@ -1,6 +1,8 @@
 "use client";
 
 import { motion } from "motion/react";
+import CardIcon from "./CardIcon";
+import { NoteIcon } from "./Icons";
 import type { Song } from "@/data/playlist";
 
 /**
@@ -9,10 +11,18 @@ import type { Song } from "@/data/playlist";
  */
 export default function Playlist({ songs }: { songs: Song[] }) {
   return (
-    <section className="rounded-[var(--radius-card)] border border-panel-border bg-panel px-5 py-6 backdrop-blur-[2px]">
-      <h2 className="mb-5 font-sans text-[0.66rem] uppercase tracking-[0.2em] text-sky-ink-soft/70">
-        наши песни
-      </h2>
+    <section className="card px-5 py-6">
+      <div className="mb-5 flex items-start gap-4">
+        <CardIcon tone="calm">
+          <NoteIcon size={21} />
+        </CardIcon>
+        <div className="flex-1">
+          <h2 className="eyebrow">наши песни</h2>
+          <p className="mt-1.5 font-serif text-[1.3rem] leading-snug text-sky-ink">
+            Каждая за что-то отвечает
+          </p>
+        </div>
+      </div>
 
       <ul className="space-y-5">
         {songs.map((s, i) => (

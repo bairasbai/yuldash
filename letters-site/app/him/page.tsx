@@ -67,7 +67,7 @@ export default async function HimPage() {
           )}
         </section>
 
-        <section className="rounded-[var(--radius-card)] border border-panel-border bg-panel px-5 py-6">
+        <section className="card px-5 py-6">
           <h2 className="mb-4 font-sans text-[0.62rem] uppercase tracking-[0.22em] text-sky-ink-soft">
             связь
           </h2>
@@ -83,7 +83,7 @@ export default async function HimPage() {
 
         {/* Как у неё дела — не спрашивая */}
         {herMoods.length > 0 && (
-          <section className="rounded-[var(--radius-card)] border border-panel-border bg-panel px-5 py-6">
+          <section className="card px-5 py-6">
             <h2 className="mb-4 font-sans text-[0.62rem] uppercase tracking-[0.22em] text-sky-ink-soft">
               настроение {CONFIG.her.nameOf.toLowerCase()}
             </h2>
@@ -113,7 +113,7 @@ export default async function HimPage() {
         )}
 
         {replies.length > 0 && (
-          <section className="rounded-[var(--radius-card)] border border-panel-border bg-panel px-5 py-6">
+          <section className="card px-5 py-6">
             <h2 className="mb-4 font-sans text-[0.62rem] uppercase tracking-[0.22em] text-sky-ink-soft">
               последние ответы
             </h2>
@@ -137,7 +137,7 @@ export default async function HimPage() {
           <h2 className="mb-4 font-sans text-[0.62rem] uppercase tracking-[0.22em] text-sky-ink-soft">
             все письма
           </h2>
-          <ul className="divide-y divide-panel-border overflow-hidden rounded-[var(--radius-card)] border border-panel-border bg-panel">
+          <ul className="divide-y divide-panel-border overflow-hidden card">
             {letters.map((l) => (
               <li key={l.n} className="flex items-center gap-3 px-4 py-3.5">
                 <span className="w-7 shrink-0 font-serif text-lg text-sky-ink-soft">

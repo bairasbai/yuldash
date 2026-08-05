@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import PageShell from "@/components/PageShell";
-import ThinkingButton from "@/components/ThinkingButton";
 import SadDayCard from "@/components/SadDayCard";
 import WishList from "@/components/WishList";
 import MoodPicker from "@/components/MoodPicker";
@@ -31,7 +30,6 @@ export default async function TogetherPage() {
   return (
     <PageShell title="Вместе" subtitle="пока мы в разных городах">
       <div className="space-y-8">
-        <ThinkingButton />
 
         <MoodPicker today={mood} history={history} />
 
