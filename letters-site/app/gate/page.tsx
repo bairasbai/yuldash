@@ -1,9 +1,7 @@
 import { redirect } from "next/navigation";
-import Sky from "@/components/Sky";
 import GateForm from "@/components/GateForm";
 import { readSession } from "@/lib/session";
 import { GATE_HINT } from "@/lib/config";
-import { dawnProgress } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +14,6 @@ export default async function Gate() {
 
   return (
     <>
-      <Sky progress={dawnProgress()} />
 
       <main className="relative flex min-h-dvh flex-col items-center justify-center px-6">
         <div className="mb-12 flex flex-col items-center">

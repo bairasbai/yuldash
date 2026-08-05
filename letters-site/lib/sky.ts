@@ -161,7 +161,18 @@ export type Star = {
   base: number;
   delay: number;
   duration: number;
+  /** Настоящее звёздное небо не белое: часть звёзд голубее, часть теплее. */
+  tint: string;
 };
+
+const TINTS = [
+  "#ffffff",
+  "#ffffff",
+  "#dce8ff",
+  "#c9dcff",
+  "#fff1dc",
+  "#ffe4c4",
+];
 
 export function makeStars(count = 130, seed = 20260821): Star[] {
   const rnd = mulberry32(seed);
@@ -178,6 +189,7 @@ export function makeStars(count = 130, seed = 20260821): Star[] {
       base: r(0.35 + rnd() * 0.65),
       delay: r(rnd() * 6),
       duration: r(3 + rnd() * 5),
+      tint: TINTS[Math.floor(rnd() * TINTS.length)],
     });
   }
   return stars;

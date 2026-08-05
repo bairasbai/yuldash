@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "motion/react";
+import { Lock } from "./Icons";
 
 type Item = { n: number; dateLabel: string; locked: boolean };
 
@@ -29,30 +30,7 @@ export default function ArchiveGrid({ items }: { items: Item[] }) {
               className="flex aspect-[7/5] flex-col items-center justify-center rounded-[14px] border border-panel-border bg-panel backdrop-blur-[2px]"
               aria-label={`Письмо ${item.n} откроется ${item.dateLabel}`}
             >
-              <svg
-                width="15"
-                height="17"
-                viewBox="0 0 15 17"
-                fill="none"
-                aria-hidden
-                className="opacity-35"
-              >
-                <path
-                  d="M3 7V4.5a4.5 4.5 0 019 0V7"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                />
-                <rect
-                  x="1"
-                  y="7"
-                  width="13"
-                  height="9"
-                  rx="2"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                />
-              </svg>
+              <Lock size={19} className="opacity-30" />
               <span className="mt-2.5 font-sans text-[0.6rem] uppercase tracking-[0.16em] text-sky-ink-soft/55">
                 {item.dateLabel}
               </span>

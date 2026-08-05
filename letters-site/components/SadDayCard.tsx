@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { openedSadLetter } from "@/app/actions";
+import { Candle } from "./Icons";
 
 /**
  * Запасной конверт вне графика. Открывается когда угодно — но однажды.
@@ -52,11 +53,12 @@ export default function SadDayCard({
             className="flex w-full flex-col items-center px-5 py-11"
           >
             <motion.span
-              className="text-3xl"
-              animate={{ opacity: [0.55, 1, 0.55] }}
+              className="text-[#ffd9a8]"
+              style={{ filter: "drop-shadow(0 0 12px rgb(255 190 120 / 0.45))" }}
+              animate={{ opacity: [0.6, 1, 0.6] }}
               transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut" }}
             >
-              🕯
+              <Candle size={30} />
             </motion.span>
             <span className="mt-5 font-serif text-2xl font-light">{title}</span>
             <span className="mt-3 font-sans text-[0.62rem] uppercase tracking-[0.22em] text-sky-ink-soft/70">

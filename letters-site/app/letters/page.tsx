@@ -3,7 +3,7 @@ import PageShell from "@/components/PageShell";
 import ArchiveGrid from "@/components/ArchiveGrid";
 import { readSession } from "@/lib/session";
 import { archive, openedCount } from "@/lib/letters";
-import { dawnProgress, plural, todayInHerCity, totalLetters } from "@/lib/time";
+import { plural, todayInHerCity, totalLetters } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,6 @@ export default async function LettersPage() {
 
   return (
     <PageShell
-      progress={dawnProgress(today)}
       title="Архив"
       subtitle={`${opened} ${plural(opened, "письмо", "письма", "писем")} из ${total}`}
     >

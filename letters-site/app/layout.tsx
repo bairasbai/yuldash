@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Cormorant, Caveat, Manrope } from "next/font/google";
+import Sky from "@/components/Sky";
+import { dawnProgress } from "@/lib/time";
 import "./globals.css";
 
 const cormorant = Cormorant({
@@ -42,7 +44,15 @@ export default function RootLayout({
       lang="ru"
       className={`${cormorant.variable} ${caveat.variable} ${manrope.variable} h-full antialiased`}
     >
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        {/*
+          Небо живёт здесь, а не на страницах: при переходе между разделами
+          оно не перерисовывается. Ощущение одного пространства, по которому
+          ходишь, а не отдельных экранов.
+        */}
+        <Sky progress={dawnProgress()} />
+        {children}
+      </body>
     </html>
   );
 }

@@ -3,7 +3,17 @@
  * поэтому в переменных окружения ничего заводить не нужно.
  */
 
-export type Weather = { temp: number; label: string; icon: string } | null;
+export type WeatherKind =
+  | "clear"
+  | "mostly"
+  | "cloud"
+  | "fog"
+  | "drizzle"
+  | "rain"
+  | "snow"
+  | "storm";
+
+export type Weather = { temp: number; label: string; kind: WeatherKind } | null;
 
 const PLACES = {
   ufa: { lat: 54.7388, lon: 55.9721 },
@@ -11,17 +21,17 @@ const PLACES = {
 } as const;
 
 /** Коды WMO — сведены к тому, что человек скажет, посмотрев в окно. */
-function describe(code: number): { label: string; icon: string } {
-  if (code === 0) return { label: "ясно", icon: "☀️" };
-  if (code <= 2) return { label: "почти ясно", icon: "🌤" };
-  if (code === 3) return { label: "пасмурно", icon: "☁️" };
-  if (code <= 48) return { label: "туман", icon: "🌫" };
-  if (code <= 57) return { label: "морось", icon: "🌦" };
-  if (code <= 67) return { label: "дождь", icon: "🌧" };
-  if (code <= 77) return { label: "снег", icon: "🌨" };
-  if (code <= 82) return { label: "ливень", icon: "🌧" };
-  if (code <= 86) return { label: "снегопад", icon: "🌨" };
-  return { label: "гроза", icon: "⛈" };
+function describe(code: number): { label: string; kind: WeatherKind } {
+  if (code === 0) return { label: "ясно", kind: "clear" };
+  if (code <= 2) return { label: "почти ясно", kind: "mostly" };
+  if (code === 3) return { label: "пасмурно", kind: "cloud" };
+  if (code <= 48) return { label: "туман", kind: "fog" };
+  if (code <= 57) return { label: "морось", kind: "drizzle" };
+  if (code <= 67) return { label: "дождь", kind: "rain" };
+  if (code <= 77) return { label: "снег", kind: "snow" };
+  if (code <= 82) return { label: "ливень", kind: "rain" };
+  if (code <= 86) return { label: "снегопад", kind: "snow" };
+  return { label: "гроза", kind: "storm" };
 }
 
 export async function weatherIn(place: keyof typeof PLACES): Promise<Weather> {

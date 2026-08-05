@@ -15,9 +15,6 @@ export type LetterSheetData = {
   ba?: { text: string; ru: string };
 };
 
-const PAPER_TEXTURE =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23p)'/%3E%3C/svg%3E\")";
-
 export default function LetterSheet({
   letter,
   footer,
@@ -32,20 +29,31 @@ export default function LetterSheet({
       initial={{ opacity: 0, y: 46, scale: 0.965, filter: "blur(10px)" }}
       animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
       transition={{ duration: 1.15, ease: [0.22, 1, 0.36, 1] }}
-      className="relative mx-auto w-full max-w-[34rem] overflow-hidden rounded-[var(--radius-card)]"
+      className="paper-grain relative mx-auto w-full max-w-[34rem] overflow-hidden rounded-[var(--radius-card)]"
       style={{
         background:
           "linear-gradient(178deg, #fdf9f1 0%, var(--color-paper) 42%, var(--color-paper-deep) 100%)",
         boxShadow:
-          "0 40px 80px -30px rgb(0 0 0 / 0.6), 0 2px 0 rgb(255 255 255 / 0.6) inset",
+          "0 2px 4px rgb(0 0 0 / 0.22), 0 16px 32px -12px rgb(0 0 0 / 0.42), 0 46px 90px -34px rgb(0 0 0 / 0.62), inset 0 2px 0 rgb(255 255 255 / 0.6)",
       }}
     >
-      {/* Волокна бумаги — чтобы лист не выглядел пластиковым */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.055] mix-blend-multiply"
-        style={{ backgroundImage: PAPER_TEXTURE }}
-      />
+      {/*
+        Следы сгибов. Письмо лежало в конверте сложенным втрое —
+        значит на нём две складки. Деталь, которую не замечают,
+        но без неё лист выглядит распечатанным на принтере.
+      */}
+      {[33.3, 66.6].map((top) => (
+        <div
+          key={top}
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 h-[2px]"
+          style={{
+            top: `${top}%`,
+            background:
+              "linear-gradient(to bottom, rgb(0 0 0 / 0.032) 0%, rgb(255 255 255 / 0.35) 100%)",
+          }}
+        />
+      ))}
 
       <div className="relative px-7 py-10 sm:px-11 sm:py-12">
         {/* Шапка листа */}
@@ -77,7 +85,7 @@ export default function LetterSheet({
               }}
               className={
                 i === 0
-                  ? "font-serif text-[1.42rem] leading-[1.72] text-ink"
+                  ? "dropcap font-serif text-[1.34rem] leading-[1.75] text-ink"
                   : "font-serif text-[1.2rem] leading-[1.85] text-ink/90"
               }
             >

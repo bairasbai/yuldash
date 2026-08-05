@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { thinkOfYou } from "@/app/actions";
+import { Spark } from "./Icons";
+import { haptic } from "@/lib/haptics";
 
 /**
  * «Думаю о тебе». Одно нажатие — и у него в телеграме появляется
@@ -15,6 +17,7 @@ export default function ThinkingButton() {
 
   const press = async () => {
     if (busy || sent) return;
+    haptic(12);
     setBusy(true);
     await thinkOfYou();
     setBusy(false);
@@ -54,20 +57,16 @@ export default function ThinkingButton() {
         </AnimatePresence>
 
         <motion.span
-          className="text-4xl"
-          style={{ textShadow: "0 0 18px rgb(255 214 160 / 0.75)" }}
-          animate={
-            sent
-              ? { scale: [1, 1.28, 1] }
-              : { scale: [1, 1.06, 1] }
-          }
+          className="text-[#ffe0b8]"
+          style={{ filter: "drop-shadow(0 0 14px rgb(255 205 150 / 0.6))" }}
+          animate={sent ? { scale: [1, 1.28, 1] } : { scale: [1, 1.06, 1] }}
           transition={
             sent
               ? { duration: 0.7 }
               : { duration: 3.5, repeat: Infinity, ease: "easeInOut" }
           }
         >
-          ✧
+          <Spark size={38} />
         </motion.span>
       </button>
 

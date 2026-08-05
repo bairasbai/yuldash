@@ -5,7 +5,7 @@ import TestDelivery from "@/components/TestDelivery";
 import { readSession } from "@/lib/session";
 import { writingStatus } from "@/lib/letters";
 import {
-  dawnProgress,
+
   daysUntilMeeting,
   letterNumberToday,
   todayInHerCity,
@@ -30,7 +30,6 @@ export default async function HimPage() {
 
   return (
     <PageShell
-      progress={dawnProgress(today)}
       title="Кухня"
       subtitle={`сегодня письмо ${n} · до встречи ${daysUntilMeeting(today)}`}
     >

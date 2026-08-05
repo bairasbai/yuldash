@@ -32,7 +32,6 @@ export default async function UsPage() {
 
   return (
     <PageShell
-      progress={progress}
       title="Мы"
       subtitle={`${together} ${plural(together, "день", "дня", "дней")} с того рассвета`}
     >

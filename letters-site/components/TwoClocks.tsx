@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import type { Weather } from "@/lib/weather";
+import { WeatherIcon } from "./Icons";
 
 type Side = {
   city: string;
@@ -50,9 +51,14 @@ function ClockCard({ side, initial }: { side: Side; initial: string }) {
         {side.city}
       </p>
       {side.weather && (
-        <p className="mt-3 font-sans text-sm text-sky-ink-soft/85">
-          {side.weather.icon} {side.weather.temp > 0 ? "+" : ""}
-          {side.weather.temp}° · {side.weather.label}
+        <p className="mt-3.5 flex items-center justify-center gap-2 font-sans text-[0.82rem] text-sky-ink-soft/85">
+          <WeatherIcon kind={side.weather.kind} size={17} className="opacity-80" />
+          <span className="tabular-nums">
+            {side.weather.temp > 0 ? "+" : ""}
+            {side.weather.temp}°
+          </span>
+          <span className="text-sky-ink-soft/45">·</span>
+          <span>{side.weather.label}</span>
         </p>
       )}
     </div>

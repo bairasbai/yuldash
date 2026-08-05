@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import Envelope from "./Envelope";
 import LetterSheet, { type LetterSheetData } from "./LetterSheet";
 import ReplyBox from "./ReplyBox";
+import { haptic, SEAL_BREAK } from "@/lib/haptics";
 
 /**
  * Сегодняшний конверт и то, что из него выходит.
@@ -28,6 +29,7 @@ export default function TodayLetter({ letter }: { letter: LetterSheetData }) {
   }, [letter.n]);
 
   const open = () => {
+    haptic(SEAL_BREAK);
     setState("opening");
     try {
       localStorage.setItem(`opened-${letter.n}`, "1");

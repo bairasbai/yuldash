@@ -155,13 +155,32 @@ body {
 .star {
   position: absolute;
   border-radius: 9999px;
-  background: white;
+  background: var(--star-color, white);
   width: calc(var(--star-size) * 1px);
   height: calc(var(--star-size) * 1px);
   box-shadow: 0 0 calc(var(--star-size) * 2.5px)
     rgb(255 255 255 / calc(var(--star-base) * 0.7));
   animation: twinkle calc(var(--star-dur) * 1s) ease-in-out
     calc(var(--star-delay) * 1s) infinite;
+}
+
+/* Облака у горизонта. Плывут так медленно, что движение замечаешь,
+   только если задержать взгляд. */
+@keyframes drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(var(--drift, 6vw), 0, 0);
+  }
+}
+
+.cloud {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(var(--cloud-blur, 14px));
+  animation: drift calc(var(--cloud-dur, 140) * 1s) ease-in-out infinite
+    alternate;
 }
 
 .star-bright {
@@ -225,6 +244,32 @@ body {
 
 .rise {
   animation: rise 1s var(--ease-soft) both;
+}
+
+/* Волокна бумаги. Без них конверт и лист выглядят пластиком. */
+.paper-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.055;
+  mix-blend-mode: multiply;
+  border-radius: inherit;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23p)'/%3E%3C/svg%3E");
+}
+
+/*
+  Буквица. Высота подобрана так, чтобы буква занимала ровно две строки:
+  при 1.75 межстрочного это 3.5em. Иначе текст обтекает её на неполную
+  строку, и приём читается как сбитая вёрстка.
+*/
+.dropcap::first-letter {
+  float: left;
+  font-size: 2.92em;
+  line-height: 1.18;
+  padding: 0 0.075em 0 0;
+  font-weight: 300;
+  color: color-mix(in srgb, var(--color-ink) 86%, transparent);
 }
 
 /* Тонкая линия-разделитель */

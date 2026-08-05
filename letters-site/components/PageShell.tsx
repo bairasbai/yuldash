@@ -1,18 +1,17 @@
 import Link from "next/link";
-import Sky from "./Sky";
+import { ArrowLeft } from "./Icons";
 
 /**
- * Общая рама внутренних страниц: небо, шапка с возвратом,
- * одинаковые отступы под чёлку и нижнюю панель телефона.
+ * Общая рама внутренних страниц: шапка с возвратом и одинаковые
+ * отступы под чёлку и нижнюю панель телефона. Небо не здесь —
+ * оно одно на всё приложение, в layout.
  */
 export default function PageShell({
-  progress,
   title,
   subtitle,
   back = "/",
   children,
 }: {
-  progress: number;
   title: string;
   subtitle?: string;
   back?: string;
@@ -20,14 +19,16 @@ export default function PageShell({
 }) {
   return (
     <>
-      <Sky progress={progress} />
-
       <main className="relative mx-auto flex min-h-dvh w-full max-w-[38rem] flex-col px-5 pb-[max(3rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))]">
         <Link
           href={back}
-          className="mb-10 inline-flex w-fit items-center gap-2 font-sans text-[0.66rem] uppercase tracking-[0.22em] text-sky-ink-soft transition-colors hover:text-sky-ink"
+          className="group mb-10 inline-flex w-fit items-center gap-2 font-sans text-[0.66rem] uppercase tracking-[0.22em] text-sky-ink-soft transition-colors hover:text-sky-ink"
         >
-          <span aria-hidden>←</span> назад
+          <ArrowLeft
+            size={15}
+            className="transition-transform duration-500 ease-[var(--ease-soft)] group-hover:-translate-x-1"
+          />
+          назад
         </Link>
 
         <header className="rise mb-12 text-center">

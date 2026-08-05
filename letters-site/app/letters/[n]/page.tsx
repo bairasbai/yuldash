@@ -4,7 +4,7 @@ import LetterSheet from "@/components/LetterSheet";
 import ReplyBox from "@/components/ReplyBox";
 import { readSession } from "@/lib/session";
 import { readLetter } from "@/lib/letters";
-import { dawnProgress, todayInHerCity } from "@/lib/time";
+import { todayInHerCity } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +28,6 @@ export default async function LetterPage({
 
   return (
     <PageShell
-      progress={dawnProgress(today)}
       title={`Письмо ${letter.n}`}
       subtitle={letter.dateLabel}
       back="/letters"

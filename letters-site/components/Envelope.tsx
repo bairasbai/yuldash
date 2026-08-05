@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
+import WaxSeal from "./WaxSeal";
 
 /**
  * Конверт с сургучной печатью.
@@ -66,8 +67,11 @@ export default function Envelope({ n, dateLabel, state, onOpen }: Props) {
             style={{
               background:
                 "linear-gradient(160deg, var(--color-paper-deep) 0%, #d7c6ab 100%)",
+              // Три тени вместо одной: контактная у самой бумаги, средняя
+              // и дальняя мягкая. Так предмет ложится на плоскость,
+              // а не висит над ней.
               boxShadow:
-                "0 30px 60px -20px rgb(0 0 0 / 0.55), inset 0 8px 18px rgb(0 0 0 / 0.18)",
+                "0 2px 4px rgb(0 0 0 / 0.28), 0 12px 24px -8px rgb(0 0 0 / 0.4), 0 36px 70px -24px rgb(0 0 0 / 0.6), inset 0 8px 18px rgb(0 0 0 / 0.18)",
             }}
           />
 
@@ -106,7 +110,7 @@ export default function Envelope({ n, dateLabel, state, onOpen }: Props) {
 
           {/* Передняя стенка с диагональными сгибами */}
           <div
-            className="absolute inset-0 overflow-hidden rounded-[14px]"
+            className="paper-grain absolute inset-0 overflow-hidden rounded-[14px]"
             style={{ zIndex: 2 }}
           >
             <div
@@ -126,9 +130,20 @@ export default function Envelope({ n, dateLabel, state, onOpen }: Props) {
                   "linear-gradient(90deg, rgb(0 0 0 / 0.06), transparent 22%, transparent 78%, rgb(0 0 0 / 0.06))",
               }}
             />
+            {/* Тиснение: светлая фаска сверху, тень снизу, тонкий кант */}
             <div
               className="absolute inset-0 rounded-[14px]"
-              style={{ boxShadow: "inset 0 0 0 1px var(--color-paper-edge)" }}
+              style={{
+                boxShadow:
+                  "inset 0 1px 0 rgb(255 255 255 / 0.55), inset 0 -1px 0 rgb(0 0 0 / 0.08), inset 0 0 0 1px var(--color-paper-edge)",
+              }}
+            />
+            <div
+              className="absolute inset-[7px] rounded-[9px]"
+              style={{
+                boxShadow:
+                  "inset 0 0 0 1px rgb(0 0 0 / 0.045), 0 0 0 1px rgb(255 255 255 / 0.3)",
+              }}
             />
           </div>
 
@@ -175,48 +190,39 @@ export default function Envelope({ n, dateLabel, state, onOpen }: Props) {
             className="pointer-events-none absolute left-1/2 -translate-x-1/2"
             style={{ top: "40%", zIndex: 4 }}
           >
-            {[-1, 1].map((side) => (
-              <motion.div
-                key={side}
-                className="absolute left-1/2 top-1/2 h-14 w-14 -translate-x-1/2 -translate-y-1/2"
-                style={{
-                  // Половинки чуть перекрываются, иначе на стыке
-                  // остаётся светлая полоска-шов.
-                  clipPath:
-                    side === -1 ? "inset(0 49.4% 0 0)" : "inset(0 0 0 49.4%)",
-                }}
-                initial={false}
-                animate={
-                  opening
-                    ? {
-                        x: side * 46,
-                        y: 74,
-                        rotate: side * 38,
-                        opacity: 0,
-                      }
-                    : { x: 0, y: 0, rotate: 0, opacity: 1 }
-                }
-                transition={{ duration: 0.8, ease: [0.36, 0, 0.66, -0.56] }}
-              >
-                <div
-                  className="flex h-14 w-14 items-center justify-center"
+            {/*
+              Целая печать и половинки — разные элементы. Пока конверт
+              запечатан, печать одна: две половины, как бы точно их ни
+              подгонял, оставляют по стыку тонкий шов.
+            */}
+            {!opening ? (
+              <div className="absolute left-1/2 top-1/2 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center">
+                <WaxSeal size={56} />
+              </div>
+            ) : (
+              [-1, 1].map((side) => (
+                <motion.div
+                  key={side}
+                  className="absolute left-1/2 top-1/2 h-14 w-14 -translate-x-1/2 -translate-y-1/2"
                   style={{
-                    background:
-                      "radial-gradient(circle at 34% 30%, #b1414c 0%, var(--color-seal) 45%, var(--color-seal-deep) 100%)",
-                    borderRadius: "46% 54% 52% 48% / 50% 46% 54% 50%",
-                    boxShadow:
-                      "0 4px 10px rgb(0 0 0 / 0.35), inset 0 -2px 5px rgb(0 0 0 / 0.3), inset 0 2px 4px rgb(255 255 255 / 0.18)",
+                    clipPath:
+                      side === -1 ? "inset(0 50% 0 0)" : "inset(0 0 0 50%)",
                   }}
+                  initial={{ x: 0, y: 0, rotate: 0, opacity: 1 }}
+                  animate={{
+                    x: side * 46,
+                    y: 74,
+                    rotate: side * 38,
+                    opacity: 0,
+                  }}
+                  transition={{ duration: 0.8, ease: [0.36, 0, 0.66, -0.56] }}
                 >
-                  <span
-                    className="font-serif text-lg tracking-[0.08em] text-[#f0d9a8]/85"
-                    style={{ textShadow: "0 1px 1px rgb(0 0 0 / 0.4)" }}
-                  >
-                    Б·И
-                  </span>
-                </div>
-              </motion.div>
-            ))}
+                  <div className="flex h-14 w-14 items-center justify-center">
+                    <WaxSeal size={56} />
+                  </div>
+                </motion.div>
+              ))
+            )}
           </div>
 
           {/* Надпись на конверте */}

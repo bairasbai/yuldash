@@ -3,7 +3,6 @@ import PageShell from "@/components/PageShell";
 import LetterSheet from "@/components/LetterSheet";
 import { readSession } from "@/lib/session";
 import { previewLetter } from "@/lib/letters";
-import { dawnProgress, todayInHerCity } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +22,6 @@ export default async function PreviewPage({
 
   return (
     <PageShell
-      progress={dawnProgress(todayInHerCity())}
       title={`Письмо ${letter.n}`}
       subtitle={`предпросмотр · ${letter.dateLabel}`}
       back="/him"

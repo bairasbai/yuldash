@@ -4,7 +4,7 @@ import ThinkingButton from "@/components/ThinkingButton";
 import SadDayCard from "@/components/SadDayCard";
 import { readSession } from "@/lib/session";
 import { SAD_DAY_LETTER } from "@/data/special";
-import { dawnProgress, todayInHerCity } from "@/lib/time";
+import { todayInHerCity } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,6 @@ export default async function TogetherPage() {
 
   return (
     <PageShell
-      progress={dawnProgress(todayInHerCity())}
       title="Вместе"
       subtitle="пока мы в разных городах"
     >

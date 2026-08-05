@@ -3,6 +3,15 @@
 import { useEffect, useMemo, useRef } from "react";
 import { makeStars, skyPalette } from "@/lib/sky";
 
+/** Облака стоят на фиксированных местах — случайность тут не нужна. */
+const CLOUDS = [
+  { left: "-12%", top: "58%", width: "58%", height: "4.5%", opacity: 0.32, blur: "20px", duration: 190, drift: "7vw" },
+  { left: "48%", top: "63%", width: "64%", height: "5.5%", opacity: 0.26, blur: "24px", duration: 240, drift: "-9vw" },
+  { left: "8%", top: "70%", width: "46%", height: "3.5%", opacity: 0.34, blur: "16px", duration: 150, drift: "5vw" },
+  { left: "56%", top: "74%", width: "52%", height: "3%", opacity: 0.3, blur: "18px", duration: 210, drift: "-6vw" },
+  { left: "-6%", top: "79%", width: "70%", height: "2.6%", opacity: 0.22, blur: "14px", duration: 170, drift: "4vw" },
+];
+
 /**
  * Небо над сайтом. Единственный входной параметр — progress (0…1):
  * 0 — ночь в день первого письма, 1 — утро встречи.
@@ -98,6 +107,53 @@ export default function Sky({ progress }: { progress: number }) {
         />
       )}
 
+      {/* Луна. Держится дольше звёзд — как в жизни: небо уже светлеет,
+          а она всё ещё висит. */}
+      {palette.stars > 0.02 && (
+        <div
+          className="absolute transition-opacity duration-[3s]"
+          style={{
+            // Правый верх — единственный угол, который пуст на всех
+            // экранах: слева ссылка «назад», по центру заголовок.
+            left: "78%",
+            top: "8%",
+            opacity: Math.min(0.82, palette.stars * 1.1),
+            transform:
+              "translate3d(calc(var(--px) * -14px), calc(var(--py) * -8px), 0)",
+          }}
+        >
+          {/* Гало держим едва заметным: луна не должна спорить с отсчётом */}
+          <div
+            className="absolute -inset-5 rounded-full"
+            style={{
+              background:
+                "radial-gradient(circle, rgb(226 236 255 / 0.08) 0%, transparent 62%)",
+            }}
+          />
+          <svg width="44" height="44" viewBox="0 0 54 54" className="relative">
+            <defs>
+              <mask id="moon-cut">
+                <rect width="54" height="54" fill="black" />
+                <circle cx="27" cy="27" r="16" fill="white" />
+                <circle cx="18.5" cy="22" r="15" fill="black" />
+              </mask>
+              <radialGradient id="moon-face" cx="0.62" cy="0.42">
+                <stop offset="0%" stopColor="#f4f7ff" />
+                <stop offset="70%" stopColor="#dbe4f5" />
+                <stop offset="100%" stopColor="#b3c1da" />
+              </radialGradient>
+            </defs>
+            <circle
+              cx="27"
+              cy="27"
+              r="16"
+              fill="url(#moon-face)"
+              mask="url(#moon-cut)"
+            />
+          </svg>
+        </div>
+      )}
+
       {/* Звёзды. К рассвету растворяются сами. */}
       <div
         className="absolute inset-0 transition-opacity duration-[3s]"
@@ -119,6 +175,7 @@ export default function Sky({ progress }: { progress: number }) {
                 "--star-base": s.base,
                 "--star-dur": s.duration,
                 "--star-delay": s.delay,
+                "--star-color": s.tint,
               } as React.CSSProperties
             }
           />
@@ -129,8 +186,8 @@ export default function Sky({ progress }: { progress: number }) {
           className="star star-bright"
           style={
             {
-              left: "72%",
-              top: "18%",
+              left: "24%",
+              top: "21%",
               "--star-size": 3.4,
               "--star-base": 1,
               "--star-dur": 6,
@@ -170,6 +227,30 @@ export default function Sky({ progress }: { progress: number }) {
         </>
       )}
 
+      {/*
+        Облачные полосы. Тело облака холодное, низ подсвечен зарёй —
+        от этого у неба появляется глубина, которой не даёт градиент.
+      */}
+      {CLOUDS.map((c, i) => (
+        <div
+          key={i}
+          className="cloud"
+          style={
+            {
+              left: c.left,
+              top: c.top,
+              width: c.width,
+              height: c.height,
+              opacity: c.opacity,
+              background: `linear-gradient(to bottom, ${palette.mid} 0%, ${palette.horizon} 62%, ${palette.glow} 100%)`,
+              "--cloud-blur": c.blur,
+              "--cloud-dur": c.duration,
+              "--drift": c.drift,
+            } as React.CSSProperties
+          }
+        />
+      ))}
+
       {/* Зарево над хребтом — медленно дышит. */}
       <div
         className="absolute inset-x-0 bottom-0 h-[46vh]"
@@ -197,6 +278,22 @@ export default function Sky({ progress }: { progress: number }) {
           }}
         />
       )}
+
+      {/*
+        Туман в долине между хребтами. К утру густеет — так и бывает
+        в горах перед восходом, и именно это отделяет один хребет
+        от другого.
+      */}
+      <div
+        className="absolute inset-x-0"
+        style={{
+          bottom: "13vh",
+          height: "9vh",
+          background: `linear-gradient(to top, transparent 0%, ${palette.horizon}88 45%, transparent 100%)`,
+          filter: "blur(12px)",
+          opacity: 0.4 + palette.sun * 0.35,
+        }}
+      />
 
       {/*
         Три хребта — это не декор, а глубина: дальний размыт дымкой,
