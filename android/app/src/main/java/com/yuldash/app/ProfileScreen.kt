@@ -1265,7 +1265,14 @@ internal fun DriverCabinetScreen(
         archiveLoading = true; archiveError = false
         rateScope.launch {
             ApiClient.getDriverRides("all")
-                .onSuccess { list -> archive = list.filter { it.status == "done" || it.status == "cancelled" } }
+                // expired — «время вышло, никто не поехал». Без неё такая поездка не попадала
+                // НИ в активные (сервер отдаёт только active), НИ в архив — и просто исчезала
+                // из приложения: водитель не мог понять, публиковал он её вообще или нет.
+                .onSuccess { list ->
+                    archive = list.filter {
+                        it.status == "done" || it.status == "cancelled" || it.status == "expired"
+                    }
+                }
                 .onFailure { archiveError = true }
             archiveLoading = false
         }
@@ -2801,6 +2808,14 @@ internal fun DriverCabinetContent(
 @Composable
 internal fun ArchiveRideCard(ride: com.yuldash.app.data.RideDto) {
     val done = ride.status == "done"
+    // Три исхода, а не два: завершена / отменена / не состоялась (время вышло, попутчиков
+    // не было). Валить последнее в «отменена» — врать: никто ничего не отменял.
+    val expired = ride.status == "expired"
+    val label = when {
+        done -> appText("Завершена", "Тамамланды")
+        expired -> appText("Не состоялась", "Булманы")
+        else -> appText("Отменена", "Баш тартылды")
+    }
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
         Row(
             Modifier.fillMaxWidth().padding(12.dp),
@@ -2813,7 +2828,7 @@ internal fun ArchiveRideCard(ride: com.yuldash.app.data.RideDto) {
             ) {
                 Icon(
                     if (done) Icons.Default.CheckCircle else Icons.Default.Cancel,
-                    contentDescription = if (done) appText("Завершена", "Тамамланды") else appText("Отменена", "Баш тартылды"),
+                    contentDescription = label,
                     tint = if (done) CanonGreen2 else CanonRed,
                     modifier = Modifier.size(20.dp),
                 )
@@ -2821,7 +2836,7 @@ internal fun ArchiveRideCard(ride: com.yuldash.app.data.RideDto) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("${ride.fromCity} → ${ride.toCity}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    formatDepart(ride.departAt) + " · " + (if (done) appText("Завершена", "Тамамланды") else appText("Отменена", "Баш тартылды")),
+                    formatDepart(ride.departAt) + " · " + label,
                     color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }

@@ -1781,12 +1781,24 @@ internal fun ChatScreen(
                 }
             } else {
                 itemsIndexed(myRequests, key = { _, r -> r.id }) { i, r ->
+                    // Закрытая заявка (время вышло / отменена) выглядела в точности как живая,
+                    // и человек читал «смотреть отклики водителей» по заявке, откликов на
+                    // которую уже не будет никогда. Подписываем честно.
+                    val closed = r.status != "active"
+                    val statusLine = when (r.status) {
+                        "active" -> appText("Смотреть отклики водителей", "Водитель яуаптарын ҡарау")
+                        "matched" -> appText("Водитель найден", "Водитель табылды")
+                        "cancelled" -> appText("Заявка отменена", "Ғариза кире алынған")
+                        else -> appText("Время вышло — откликов не будет",
+                                        "Ваҡыт үтте — яуап булмаясаҡ")
+                    }
                     Box(Modifier.appearIn(i)) {
                         ChatCard(
                             initial = r.fromCity.firstOrNull()?.uppercase() ?: "?",
                             name = "${r.fromCity} → ${r.toCity}",
-                            subtitle = appText("Заявка", "Ғариза") + " · " + seatsText(r.seats),
-                            message = appText("Смотреть отклики водителей", "Водитель яуаптарын ҡарау"),
+                            subtitle = appText("Заявка", "Ғариза") + " · " + seatsText(r.seats) +
+                                (if (closed) " · " + appText("закрыта", "ябыҡ") else ""),
+                            message = statusLine,
                             time = "",
                             unread = 0,
                             verified = false,
