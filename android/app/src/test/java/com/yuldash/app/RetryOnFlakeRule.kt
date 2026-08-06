@@ -30,13 +30,43 @@ import org.junit.runners.model.Statement
  *
  * Убрать это правило можно ровно тогда, когда причина будет названа и объяснит три вещи:
  * почему падает случайный тест, почему поодиночке проходит и почему падает не всегда.
+ *
+ * ---
+ *
+ * ## Разбор 2026-08-06: правило прятало ту самую причину, ради которой оно и написано
+ *
+ * Чек `android-unit-tests` краснел, а в отчёте стояло
+ * `IllegalStateException: Only a single call to 'runTest' can be performed during one test`.
+ * Это НЕ причина падения теста — это следствие самого повтора, и нашлись сразу три дефекта:
+ *
+ * 1. **Повтор для этих классов структурно невозможен.** `createComposeRule()` — поле объекта
+ *    теста, оно создаётся один раз. Внутри оно зовёт `runTest`, а `kotlinx-coroutines-test`
+ *    запрещает входить в один `TestScope` дважды. Вторая попытка умирает мгновенно, ещё до
+ *    тела теста. То есть защиты от мигания у этих двух классов не было НИКОГДА — правило лишь
+ *    превращало мигание в падение с непонятным текстом.
+ * 2. **Настоящая ошибка терялась.** Переменная `last` перезаписывалась каждой попыткой, и
+ *    наружу летела ошибка ВТОРОЙ попытки. Причина первой — единственное, что было ценно, —
+ *    выбрасывалась.
+ * 3. **Пояснения не доходили до CI.** Строки `[МИГАНИЕ]` печатались в stdout, а Gradle в
+ *    `app/build.gradle.kts` настроен показывать только падения (`events("failed")`), без
+ *    стандартных потоков. Локально их видно, в CI — нет. Обещание «мигание остаётся видимым
+ *    в логе» в CI не работало.
+ *
+ * Что исправлено: наружу летит ошибка ПЕРВОЙ попытки (настоящая причина), остальные попытки
+ * прикладываются к ней как `suppressed` — они попадают в отчёт, потому что Gradle печатает
+ * падения с `exceptionFormat = FULL` и `showCauses = true`. Если вторая попытка умерла именно
+ * от `runTest`, повтор прекращается сразу и к ошибке добавляется объяснение, почему повтора
+ * здесь не будет.
+ *
+ * **Что это НЕ чинит:** саму причину мигания. Она по-прежнему не найдена — но теперь её видно
+ * в отчёте вместо артефакта повтора, и следующий прогон впервые её назовёт.
  */
 class RetryOnFlakeRule(private val attempts: Int = 2) : TestRule {
 
     override fun apply(base: Statement, description: Description): Statement =
         object : Statement() {
             override fun evaluate() {
-                var last: Throwable? = null
+                var first: Throwable? = null
                 repeat(attempts) { attempt ->
                     try {
                         base.evaluate()
@@ -48,14 +78,37 @@ class RetryOnFlakeRule(private val attempts: Int = 2) : TestRule {
                         }
                         return
                     } catch (t: Throwable) {
-                        last = t
+                        // Держим ПЕРВУЮ ошибку: она и есть настоящая причина. Остальные попытки
+                        // прикладываем к ней — так они дойдут до отчёта, а не только до stdout,
+                        // которого в CI не видно.
+                        val root = first
+                        if (root == null) {
+                            first = t
+                        } else if (root !== t) {
+                            root.addSuppressed(t)
+                        }
                         println(
                             "[МИГАНИЕ] ${description.methodName}: попытка ${attempt + 1} из $attempts " +
                                 "упала — ${t.message?.lineSequence()?.firstOrNull()}",
                         )
+                        if (isRetryImpossible(t)) {
+                            first?.addSuppressed(
+                                IllegalStateException(
+                                    "Повтор для ${description.className} невозможен: правило теста " +
+                                        "Compose (createComposeRule) входит в runTest один раз за объект " +
+                                        "теста, вторая попытка умирает до тела теста. Наружу отдана ошибка " +
+                                        "ПЕРВОЙ попытки — это и есть настоящая причина. См. RetryOnFlakeRule.",
+                                ),
+                            )
+                            throw first ?: t
+                        }
                     }
                 }
-                throw last ?: IllegalStateException("тест не выполнился ни разу")
+                throw first ?: IllegalStateException("тест не выполнился ни разу")
             }
         }
+
+    /** Повтор бессмыслен: упало не тело теста, а сама попытка войти в него второй раз. */
+    private fun isRetryImpossible(t: Throwable): Boolean =
+        t is IllegalStateException && t.message?.contains("single call to") == true
 }
