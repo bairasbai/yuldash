@@ -32,14 +32,15 @@ def _status_pushes(sent):
 
 # ============================ Force-update: /version/min (B9b-1) ============================
 def test_version_min_disabled_by_default(client):
-    """По умолчанию min_app_version_code=0 → клиент никого не блокирует."""
+    """По умолчанию обе проверки выключены → ни блокировки, ни плашки."""
     r = client.get("/version/min")
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["min_version_code"] == 0
-    assert data["store_url"] == ""
-    # Сообщение всегда двуязычное (RU/BA), даже когда проверка выключена.
+    assert data["latest_version_code"] == 0
+    # Сообщения всегда двуязычные (RU/BA), даже когда проверки выключены.
     assert data["message"]["ru"] and data["message"]["ba"]
+    assert data["update_message"]["ru"] and data["update_message"]["ba"]
 
 
 def test_version_min_enabled_via_config(client, monkeypatch):
@@ -51,10 +52,51 @@ def test_version_min_enabled_via_config(client, monkeypatch):
     assert data["store_url"] == "https://example.com/yuldash"
 
 
+def test_store_url_falls_back_to_landing(client, monkeypatch):
+    """Стора ещё нет — кнопка «Обновить» обязана вести хотя бы на лендинг с APK.
+    Раньше при пустом APP_STORE_URL она не вела никуда."""
+    monkeypatch.setattr(settings, "app_store_url", "")
+    monkeypatch.setattr(settings, "app_download_url", "https://yulbash.ru/")
+    assert client.get("/version/min").json()["store_url"] == "https://yulbash.ru/"
+
+
 def test_version_min_no_auth_required(client):
     """Ручка публичная: клиент проверяет версию ДО входа (на сплэше)."""
     assert client.get("/version/min").status_code == 200
     assert client.get("/api/v1/version/min").status_code == 200
+
+
+# ===================== Мягкое обновление: плашка «вышла новая версия» (B9b-1b) =====================
+def test_soft_update_serves_version_and_whats_new(client, monkeypatch):
+    """Клиент между min и latest → плашка с номером версии и списком «что нового».
+    Список двуязычный: башкир не должен видеть русские пункты."""
+    monkeypatch.setattr(settings, "latest_app_version_code", 7)
+    monkeypatch.setattr(settings, "latest_app_version_name", "1.1.0")
+    monkeypatch.setattr(settings, "whats_new_ru", "Карта быстрее|Починили чат")
+    monkeypatch.setattr(settings, "whats_new_ba", "Карта тиҙерәк|Чатты төҙәттек")
+    data = client.get("/version/min").json()
+    assert data["latest_version_code"] == 7
+    assert data["latest_version_name"] == "1.1.0"
+    assert data["whats_new"]["ru"] == ["Карта быстрее", "Починили чат"]
+    assert data["whats_new"]["ba"] == ["Карта тиҙерәк", "Чатты төҙәттек"]
+
+
+def test_whats_new_trims_and_caps_at_three(client, monkeypatch):
+    """Плашка — повод нажать кнопку, а не журнал изменений: не больше трёх пунктов,
+    пустые куски (двойной разделитель, хвостовая «|») выкидываем."""
+    monkeypatch.setattr(settings, "whats_new_ru", " Раз | Два ||Три|Четыре|")
+    assert client.get("/version/min").json()["whats_new"]["ru"] == ["Раз", "Два", "Три"]
+
+
+def test_soft_update_ignores_empty_whats_new(client, monkeypatch):
+    """Список не заполнили → плашка всё равно работает, просто без «что нового»."""
+    monkeypatch.setattr(settings, "latest_app_version_code", 7)
+    monkeypatch.setattr(settings, "whats_new_ru", "")
+    data = client.get("/version/min").json()
+    assert data["latest_version_code"] == 7
+    assert data["whats_new"]["ru"] == []
+
+
 
 
 # ============================ Пуши о ходе такси-заказа (B9b-2) ============================

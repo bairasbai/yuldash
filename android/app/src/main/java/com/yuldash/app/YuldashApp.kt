@@ -434,12 +434,36 @@ internal fun YuldashApp() {
     // Офлайн / ошибка ручки / min=0 → НИЧЕГО не блокируем, приложение стартует как обычно.
     var forceUpdateRequired by rememberSaveable { mutableStateOf(false) }
     var forceUpdateStoreUrl by rememberSaveable { mutableStateOf("") }
+    // Мягкое обновление (B9b-1b): версия ещё поддерживается, но вышла свежее → плашка сверху.
+    // Списки «что нового» держим строкой через \n, а не List: rememberSaveable переживает
+    // поворот экрана только для простых типов, иначе плашка теряла бы содержимое.
+    var updateLatestCode by rememberSaveable { mutableIntStateOf(0) }
+    var updateVersionName by rememberSaveable { mutableStateOf("") }
+    var updateStoreUrl by rememberSaveable { mutableStateOf("") }
+    var updateWhatsNewRu by rememberSaveable { mutableStateOf("") }
+    var updateWhatsNewBa by rememberSaveable { mutableStateOf("") }
+    // Какую версию человек уже отклонил. Живёт в настройках устройства, а не в памяти:
+    // иначе плашка возвращалась бы при каждом запуске, и «позже» ничего не значило.
+    var updateDismissedCode by remember { mutableIntStateOf(prefs.getInt(PREF_UPDATE_DISMISSED, 0)) }
     LaunchedEffect(Unit) {
         ApiClient.minAppVersion().onSuccess { o ->
             val min = o.optInt("min_version_code", 0)
             if (min > 0 && BuildConfig.VERSION_CODE < min) {
                 forceUpdateStoreUrl = o.optString("store_url", "")
                 forceUpdateRequired = true
+                return@onSuccess   // блокирующий экран старше плашки — вместе они бессмысленны
+            }
+            val latest = o.optInt("latest_version_code", 0)
+            val store = o.optString("store_url", "")
+            // Без ссылки плашку не показываем: звать обновиться и никуда не вести — хуже, чем молчать.
+            if (latest > BuildConfig.VERSION_CODE && store.isNotBlank()) {
+                updateStoreUrl = store
+                updateVersionName = o.optString("latest_version_name", "")
+                o.optJSONObject("whats_new")?.let { wn ->
+                    updateWhatsNewRu = jsonArrayToLines(wn.optJSONArray("ru"))
+                    updateWhatsNewBa = jsonArrayToLines(wn.optJSONArray("ba"))
+                }
+                updateLatestCode = latest
             }
         }
     }
@@ -750,13 +774,33 @@ internal fun YuldashApp() {
         // background(CanonBg): без него за плашкой просвечивал зелёный фон окна
         // (он остаётся от системного сплэша) — над экраном висела зелёная полоса.
         val offlineNow by ApiClient.serverUnreachable.collectAsState()
+        // Плашка «вышла новая версия» (B9b-1b). На сплэше, интро, онбординге и входе не зовём:
+        // человек ещё не в приложении, и предложение обновиться там читается как сбой.
+        // Закрытую версию не показываем повторно — см. UpdateBanner.
+        val updateVisible = updateLatestCode > 0 && updateLatestCode > updateDismissedCode &&
+            screen != Screen.Splash && screen != Screen.Intro &&
+            screen != Screen.Onboarding && screen != Screen.Login
         Column(Modifier.fillMaxSize().background(CanonBg)) {
         ConnectionBanner(Modifier.align(Alignment.CenterHorizontally))
+        // Отступ под статус-бар даёт ПЕРВЫЙ видимый элемент сверху: если висит «нет связи» —
+        // он уже её забота, и второй превратится в полосу пустоты (урок 2026-08-04).
+        UpdateBanner(
+            visible = updateVisible,
+            versionName = updateVersionName,
+            whatsNewRu = linesToList(updateWhatsNewRu),
+            whatsNewBa = linesToList(updateWhatsNewBa),
+            storeUrl = updateStoreUrl,
+            ownsStatusBar = !offlineNow,
+            onLater = {
+                updateDismissedCode = updateLatestCode
+                prefs.edit().putInt(PREF_UPDATE_DISMISSED, updateLatestCode).apply()
+            },
+        )
         // consumeWindowInsets только когда плашка ВИДНА: отступ под статус-бар уже отдала она,
         // и без гашения экран добавлял его вторым — над содержимым висела полоса пустоты.
         // Когда плашки нет, она занимает ноль высоты и отступ должен давать сам экран.
         Box(Modifier.weight(1f).then(
-            if (offlineNow) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier
+            if (offlineNow || updateVisible) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier
         )) {
         AnimatedContent(
             targetState = screen,
