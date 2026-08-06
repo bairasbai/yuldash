@@ -94,6 +94,11 @@ class OrderIn(EstimateIn):
     # водитель звонил заказчику в другой город, а мама стояла у ворот и не знала, приехала ли машина.
     for_name: str = Field("", max_length=120)
     for_phone: str = Field("", max_length=32)
+    # «Только женщина за рулём». В попутках такой выбор был с самого начала, а в такси —
+    # нет, хотя ночью в чужую машину садятся именно здесь (аудит 2026-08-06). Фильтр
+    # ЖЁСТКИЙ: молча подсунуть мужчину — обмануть в том, ради чего галочку и ставили.
+    # Не нашлось никого — заказ честно истекает, и человек сам решает, искать ли шире.
+    women_only: bool = False
 
 
 class PresenceIn(BaseModel):
@@ -282,6 +287,7 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
         entrance=(body.entrance or "").strip()[:60],
         for_name=(body.for_name or "").strip()[:120],
         for_phone=(body.for_phone or "").strip()[:32],
+        women_only=bool(body.women_only),
     )
     session.add(order)
     session.commit()
@@ -345,6 +351,7 @@ def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
         entrance=(body.entrance or "").strip()[:60],
         for_name=(body.for_name or "").strip()[:120],
         for_phone=(body.for_phone or "").strip()[:32],
+        women_only=bool(body.women_only),
     )
     session.add(order)
     session.commit()

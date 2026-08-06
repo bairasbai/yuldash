@@ -387,7 +387,9 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, orderId:
         }.trim().ifBlank { "SOS" }
         scope.launch {
             // Ждём сервер, НЕ fire-and-forget (кнопка безопасности). orderId — контекст такси-заказа (B7b-2).
-            val r = ApiClient.sos(category, note, orderId)
+            // Координаты шлём ещё и отдельными полями: из текста заметки их читал только админ,
+            // а ссылку на карту должны получить близкие — им ехать (аудит 2026-08-06).
+            val r = ApiClient.sos(category, note, orderId, lat = sosLat, lng = sosLng)
             sending = false
             if (r.isSuccess) {
                 sent = true

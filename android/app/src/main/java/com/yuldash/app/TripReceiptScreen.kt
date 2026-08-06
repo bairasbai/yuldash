@@ -29,18 +29,22 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -104,6 +108,10 @@ internal fun TripReceiptScreen(bookingId: Int, onBack: () -> Unit) {
 @Composable
 private fun ReceiptCard(r: TripReceiptDto) {
     val ctx = LocalContext.current
+    val lostScope = rememberCoroutineScope()
+    var lostOpened by remember(r.bookingId) { mutableStateOf(false) }
+    var lostBusy by remember(r.bookingId) { mutableStateOf(false) }
+    val lostErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val payLabel = payMethodLabel(r.payMethod)
     val shareChooser = appText("Поделиться квитанцией", "Квитанция менән бүлешеү")
     // Строки для шеринга считаем ЗАРАНЕЕ (appText — @Composable, внутри buildString его звать нельзя).
@@ -186,6 +194,54 @@ private fun ReceiptCard(r: TripReceiptDto) {
                         "Был — килешкәнсә сәфәр яҙмаһы. Түләү — туранан-тура араларҙа."),
                     color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                 )
+            }
+        }
+
+        // Забытая вещь — обеим сторонам, ровно как в такси. Пока чат попутки не закрывался,
+        // выход был не нужен; после того как мы закрыли его через сутки после поездки, телефон
+        // с заднего сиденья стало не вернуть: номер второй стороны уже не виден (аудит 2026-08-06).
+        AppCard {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = CanonWarnBg, shape = CircleShape) {
+                        Icon(Icons.Default.Search, contentDescription = null, tint = CanonWarn,
+                            modifier = Modifier.padding(8.dp).size(18.dp))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(appText("Забыли вещь?", "Әйбер онотолдомо?"),
+                            color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (lostOpened)
+                                appText("Чат снова открыт на 48 часов — напиши, что искать.",
+                                    "Чат 48 сәғәткә кире асыҡ — нимә эҙләргә, яҙ.")
+                            else
+                                appText("Откроем чат этой поездки на 48 часов, чтобы вы связались.",
+                                    "Бәйләнешер өсөн был сәфәр чатын 48 сәғәткә асабыҙ."),
+                            color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                        )
+                    }
+                }
+                if (!lostOpened) {
+                    AppButton(
+                        text = appText("Я забыл вещь в машине", "Машинала әйбер ҡалдырҙым"),
+                        onClick = {
+                            if (lostBusy) return@AppButton
+                            lostBusy = true
+                            lostScope.launch {
+                                ApiClient.bookingLostItem(r.bookingId)
+                                    .onSuccess { lostOpened = true }
+                                    .onFailure {
+                                        Toast.makeText(ctx, serverSaid(it, lostErr), Toast.LENGTH_LONG).show()
+                                    }
+                                lostBusy = false
+                            }
+                        },
+                        style = AppButtonStyle.Secondary,
+                        icon = Icons.Default.Search,
+                        loading = lostBusy,
+                    )
+                }
             }
         }
 

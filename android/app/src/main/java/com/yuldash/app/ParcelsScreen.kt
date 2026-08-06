@@ -2322,6 +2322,7 @@ private fun MyParcelsTab() {
     var cancelTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var rateTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var receiptId by remember { mutableStateOf<Int?>(null) }   // чек открывается по номеру доставки
     var ratedIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var refreshing by remember { mutableStateOf(false) }
     val loadErr = appText("Не удалось загрузить посылки. Проверь интернет.", "Бандеролдәрҙе йөкләп булманы. Интернетты тикшер.")
@@ -2400,6 +2401,7 @@ private fun MyParcelsTab() {
                             onCancel = { cancelTarget = list[i] },
                             onDispute = { disputeTarget = list[i] },
                             onRate = { rateTarget = list[i] },
+                            onReceipt = { receiptId = list[i].id },
                         )
                     }
                 }
@@ -2467,6 +2469,8 @@ private fun MyParcelsTab() {
         )
     }
 
+    ParcelReceiptDialog(receiptId) { receiptId = null }
+
     rateTarget?.let { target ->
         ParcelRateDialog(
             parcel = target,
@@ -2478,7 +2482,8 @@ private fun MyParcelsTab() {
 }
 
 @Composable
-private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: () -> Unit, onDispute: () -> Unit, onRate: () -> Unit) {
+private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: () -> Unit,
+                         onDispute: () -> Unit, onRate: () -> Unit, onReceipt: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val terminal = isParcelTerminal(p.status)
     val goodsAlreadyBought =
@@ -2647,6 +2652,13 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
             }
             if (p.status == "delivered" && p.courier != null) {
                 if (rated) ParcelRatedRow() else ParcelRateButton(onClick = onRate)
+                // Чек за доставку — такой же, как за попутку и за такси (аудит 2026-08-06).
+                TextButton(onClick = onReceipt, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        appText("Квитанция за доставку", "Илтеү өсөн квитанция"),
+                        color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                    )
+                }
             }
             if (p.courier != null && canOpenParcelDispute(p.status)) {
                 ParcelDisputeButton(onClick = onDispute)

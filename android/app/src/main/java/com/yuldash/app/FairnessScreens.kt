@@ -77,6 +77,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.IncidentDto
+import com.yuldash.app.data.SafetyPolicyDto
 import com.yuldash.app.data.StandingDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -262,6 +263,11 @@ private val FairFieldShape = RoundedCornerShape(14.dp)
 internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> Unit) {
     var standing by remember { mutableStateOf<StandingDto?>(null) }
     var list by remember { mutableStateOf<List<IncidentDto>>(emptyList()) }
+    // Пороги («сколько страйков до ограничения») берём С СЕРВЕРА и не хардкодим: правила
+    // меняются в конфиге, а приложение не должно врать о них. Экран показывал «Страйков: 2»
+    // и молчал, что будет дальше — человек не понимал, насколько он близко к паузе
+    // (аудит 2026-08-06: сервер отдавал пороги, приложение их не спрашивало).
+    var policy by remember { mutableStateOf<SafetyPolicyDto?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
@@ -269,6 +275,8 @@ internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> U
     LaunchedEffect(reload) {
         loading = true; error = false
         ApiClient.getMyStanding().onSuccess { standing = it }
+        // Пороги — необязательная добавка: не загрузились, экран работает без них.
+        ApiClient.getSafetyPolicy().onSuccess { policy = it }
         ApiClient.getMyIncidents()
             .onSuccess { list = it }
             .onFailure { error = true }
@@ -308,7 +316,7 @@ internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> U
                         transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
                         label = "fair-standing",
                     ) { st ->
-                        if (st == null) SkeletonCard(lines = 2) else StandingCard(st)
+                        if (st == null) SkeletonCard(lines = 2) else StandingCard(st, policy)
                     }
                 }
             }
@@ -374,7 +382,7 @@ internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> U
 
 /** Моё положение: Надёжность + страйки + пауза. Формулировки без запугивания. */
 @Composable
-private fun StandingCard(st: StandingDto) {
+private fun StandingCard(st: StandingDto, policy: SafetyPolicyDto?) {
     val paused = !st.canAct
     // Акцент шапки меняется плавно: «всё в порядке» ↔ «пауза» без резкого перекраса.
     val accent by animateColorAsState(if (paused) CanonRed else CanonGreen2, tween(CanonMotion.SLOW), label = "fair-accent")
@@ -512,6 +520,23 @@ private fun StandingCard(st: StandingDto) {
                 fontSize = FairMeta,
                 lineHeight = FairMetaLine,
             )
+
+            // Что будет дальше. Число страйков без правил игры — это тревога без объяснения:
+            // человек видит «2» и не знает, это норма или он в шаге от паузы. Числа берём
+            // с сервера; не пришли — строку просто не показываем, врать нельзя.
+            policy?.let { p ->
+                Text(
+                    appText(
+                        "После ${p.strikesToLimit} страйков часть возможностей ограничивается, после ${p.strikesToSuspend} — пауза в аккаунте. " +
+                            "Страйк сгорает сам через ${p.strikeDecayDays} дней, если всё спокойно.",
+                        "${p.strikesToLimit} страйктан һуң ҡайһы бер мөмкинлектәр сикләнә, ${p.strikesToSuspend} страйктан һуң — иҫәп яҙмаһына тәнәфес. " +
+                            "Тыныс булһа, страйк ${p.strikeDecayDays} көндән үҙе һүнә.",
+                    ),
+                    color = CanonMuted,
+                    fontSize = FairMeta,
+                    lineHeight = FairMetaLine,
+                )
+            }
         }
     }
 }

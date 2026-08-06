@@ -64,6 +64,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Redeem
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Sos
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Verified
@@ -1279,6 +1280,9 @@ private fun InstantDestinationPicker(
     var detailsOpen by rememberSaveable { mutableStateOf(false) }
     var comment by rememberSaveable { mutableStateOf("") }     // «за магазином, синие ворота»
     var entrance by rememberSaveable { mutableStateOf("") }    // подъезд / квартира / этаж
+    // «Только женщина за рулём». В попутках выбор был всегда, в такси его не было — хотя
+    // ночью в машину к незнакомому человеку садятся именно здесь (аудит 2026-08-06).
+    var womenOnly by rememberSaveable { mutableStateOf(false) }
     var forOther by rememberSaveable { mutableStateOf(false) } // заказ ДЛЯ ДРУГОГО человека
     var forName by rememberSaveable { mutableStateOf("") }
     var forPhone by rememberSaveable { mutableStateOf("") }
@@ -1692,6 +1696,24 @@ private fun InstantDestinationPicker(
             )
         }
 
+        // «Только женщина за рулём». Честно предупреждаем про цену выбора: женщин-водителей
+        // меньше, машину можно ждать дольше или не дождаться. Подменять её мужчиной мы не
+        // будем ни при каких условиях — иначе галочка ничего не значит (аудит 2026-08-06).
+        if (toPoint != null) {
+            Surface(color = CanonSurface, shape = CanonItemShape) {
+                SettingSwitchRow(
+                    icon = Icons.Default.Shield,
+                    title = appText("Только женщина за рулём", "Тик ҡатын-ҡыҙ водитель"),
+                    subtitle = appText(
+                        "Заказ увидят только женщины-водители. Их меньше — машину можно ждать дольше или не дождаться.",
+                        "Заказды тик ҡатын-ҡыҙ водителдәр күрәсәк. Улар аҙыраҡ — машинаны оҙағыраҡ көтөргә тура килеүе бар.",
+                    ),
+                    checked = womenOnly,
+                    onCheckedChange = { womenOnly = it },
+                )
+            }
+        }
+
         // Когда подать машину: «Сейчас» или «На время» (предзаказ). Появляется, когда есть маршрут.
         if (toPoint != null) {
             InstantTimingPicker(
@@ -1725,6 +1747,7 @@ private fun InstantDestinationPicker(
                             comment = comment, entrance = entrance,
                             forName = if (forOther) forName else "",
                             forPhone = if (forOther) forPhone else "",
+                            womenOnly = womenOnly,
                         )
                             .onSuccess {
                                 // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
@@ -2750,79 +2773,9 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
     }
     // Зимний протокол для такси: мягче SOS, но реальный. Раньше работал только для попуток,
     // хотя четыре часа трассы Сибай–Уфа зимой — это как раз такси (аудит 2026-07-26).
-    InstantRoadsideButton(orderId)
-}
-
-/**
- * «Застряли на трассе» — координаты уходят доверенным контактам и в ленту админа.
- * Не паника, а честная просьба о помощи: между SOS и «всё нормально» была пустота.
- */
-@Composable
-private fun InstantRoadsideButton(orderId: Int) {
-    val scope = rememberCoroutineScope()
-    val ctx = LocalContext.current
-    var confirm by remember(orderId) { mutableStateOf(false) }
-    var busy by remember(orderId) { mutableStateOf(false) }
-    var sent by remember(orderId) { mutableStateOf(false) }
-    val failMsg = appText(
-        "Сигнал не отправлен. Проверь связь и повтори.",
-        "Сигнал ебәрелмәне. Бәйләнеште тикшереп ҡабатла.",
-    )
-
-    if (sent) {
-        Surface(color = CanonWarnBg, shape = CanonItemShape) {
-            Text(
-                appText(
-                    "Помощь вызвана: близкие и поддержка получили твои координаты.",
-                    "Ярҙам саҡырылды: яҡындар һәм ярҙам хеҙмәте координаталарыңды алды.",
-                ),
-                color = CanonWarn, fontSize = 14.sp, lineHeight = 20.sp,
-                modifier = Modifier.fillMaxWidth().padding(12.dp),
-            )
-        }
-        return
-    }
-    TextButton(onClick = { confirm = true }, modifier = Modifier.fillMaxWidth()) {
-        Text(appText("Застряли на трассе — нужна помощь", "Юлда ҡалдыҡ — ярҙам кәрәк"),
-            color = CanonWarn, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-    }
-    if (confirm) {
-        AlertDialog(
-            onDismissRequest = { if (!busy) confirm = false },
-            containerColor = CanonSurface,
-            title = { Text(appText("Позвать помощь?", "Ярҙам саҡырырғамы?"), color = CanonText, fontWeight = FontWeight.Bold) },
-            text = {
-                Text(
-                    appText(
-                        "Твоим доверенным контактам уйдёт SMS с координатами, а поддержка Юлдаша увидит сигнал. Если угрожает опасность — звони 112.",
-                        "Ышаныслы контакттарыңа координаталар менән SMS китә, Юлдаш ярҙамы сигналды күрә. Хәүеф янаһа — 112-гә шылтырат.",
-                    ),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
-                )
-            },
-            confirmButton = {
-                TextButton(enabled = !busy, onClick = {
-                    busy = true
-                    scope.launch {
-                        ApiClient.instantRoadsideHelp(orderId, LocationPrefs.lastLat, LocationPrefs.lastLng)
-                            .onSuccess { sent = true; confirm = false }
-                            .onFailure {
-                                Toast.makeText(
-                                    ctx,
-                                    (it as? ApiException)?.message ?: failMsg,
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            }
-                        busy = false
-                    }
-                }) { Text(appText("Позвать помощь", "Ярҙам саҡырыу"), color = CanonWarn, fontWeight = FontWeight.Bold) }
-            },
-            dismissButton = {
-                TextButton(enabled = !busy, onClick = { confirm = false }) {
-                    Text(appText("Отмена", "Кире алыу"), color = CanonMuted)
-                }
-            },
-        )
+    // Сам блок общий на три сценария (RoadsideHelp.kt): две копии уже разошлись текстами.
+    RoadsideHelpAction(key = orderId) { lat, lng ->
+        ApiClient.instantRoadsideHelp(orderId, lat, lng)
     }
 }
 
@@ -2995,6 +2948,13 @@ private fun InstantNoDriversCard(
             waiting -> appText(
                 "Поиск продолжается. Как машина найдётся — сразу пришлём уведомление, приложение можно закрыть.",
                 "Эҙләү дауам итә. Машина табылыу менән хәбәр итәбеҙ, ҡулланманы ябырға була.",
+            )
+            // Выбор «только женщина за рулём» сужает круг машин, и человек имеет право знать,
+            // что дело в этом, а не в поломке приложения. Молча снять его мы не можем: тогда
+            // галочка ничего не значила бы (аудит 2026-08-06).
+            order.womenOnly -> appText(
+                "Свободных женщин-водителей рядом не нашли. Мы не подставим вместо них другого водителя — ты просила именно женщину. Можем подождать: как только кто-то освободится, пришлём уведомление.",
+                "Яҡында буш ҡатын-ҡыҙ водитель табылманы. Уның урынына башҡа водителде тәҡдим итмәйбеҙ — һин нәҡ ҡатын-ҡыҙ һораның. Көтә алабыҙ: берәйһе бушаныу менән хәбәр итәбеҙ.",
             )
             else -> appText(
                 "Свободных водителей рядом не нашли. Можем подождать — как только кто-то освободится, пришлём уведомление.",

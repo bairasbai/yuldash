@@ -7,6 +7,11 @@
   • сэкономлено CO₂, кг (коэффициент в config — уточнит Александр);
   • «звание» попутчика (по числу поездок) + прогресс до следующего.
 
+Быстрые заказы (такси) считаются в «поездках» и «километрах» наравне с попутками —
+человек ездил с нами, и экран это обязан показывать. Но в «сэкономлено ₽» и «CO₂» они
+НЕ идут: поездка на такси не экономит ни рубля относительно такси и никого не подвозит
+попутно. Цифры не фейкуем (аудит 2026-08-06: такси не считалось нигде вообще).
+
 Приватность: current_user → пользователь видит только свою статистику, чужую — нет.
 Новый пользователь (0 поездок) → все нули + звание уровня 0 (без «ложных наград»).
 Дистанция берётся из сохранённых координат концов маршрута, иначе — геокод города
@@ -14,12 +19,14 @@
 но без километража (не завышаем цифры).
 """
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..models import Booking, BookingStatus, ParcelDelivery, Ride, RideStatus, User
+from ..models import (
+    Booking, BookingStatus, InstantOrder, InstantOrderStatus, ParcelDelivery, Ride, RideStatus, User,
+)
 from ..security import current_user
 from ..services import geocode_city, haversine_km
 from ..timeutil import utcnow
@@ -128,9 +135,25 @@ def my_stats(user: User = Depends(current_user), session: Session = Depends(get_
         trips += 1
         total_km += km_of(r)
 
+    # «Сэкономлено» и «CO₂» считаем ТОЛЬКО по попуткам: такси не экономит относительно такси
+    # и никого не подвозит попутно. Фиксируем километраж до добавления быстрых заказов.
+    share_km = total_km
+
+    # --- Быстрые заказы (такси), обе роли: до аудита 2026-08-06 их не считал никто, и человек
+    # со ста заказами видел «0 поездок, Новичок». Расстояние берём с самого заказа.
+    done_orders = session.exec(
+        select(InstantOrder).where(
+            or_(InstantOrder.passenger_id == user.id, InstantOrder.driver_id == user.id),
+            InstantOrder.status == InstantOrderStatus.done,
+        )
+    ).all()
+    for o in done_orders:
+        trips += 1
+        total_km += max(0.0, o.distance_km or 0.0)
+
     total_km = round(total_km, 1)
-    saved_rub = round(total_km * settings.stats_taxi_rub_per_km)
-    co2_saved_kg = round(total_km * settings.stats_co2_grams_per_km / 1000.0, 1)
+    saved_rub = round(share_km * settings.stats_taxi_rub_per_km)
+    co2_saved_kg = round(share_km * settings.stats_co2_grams_per_km / 1000.0, 1)
 
     return {
         "trips": trips,
@@ -173,7 +196,16 @@ def my_achievements(user: User = Depends(current_user), session: Session = Depen
         select(func.count()).select_from(Ride)
         .where(Ride.driver_id == user.id, Ride.status == RideStatus.done)
     ).one()
-    trips = int(trips_pax or 0) + int(trips_drv or 0)
+    # Быстрые заказы (такси) — те же поездки: иначе значок «Первая поездка» не приходит
+    # человеку, который уже съездил десять раз (аудит 2026-08-06).
+    trips_taxi = session.exec(
+        select(func.count()).select_from(InstantOrder)
+        .where(
+            or_(InstantOrder.passenger_id == user.id, InstantOrder.driver_id == user.id),
+            InstantOrder.status == InstantOrderStatus.done,
+        )
+    ).one()
+    trips = int(trips_pax or 0) + int(trips_drv or 0) + int(trips_taxi or 0)
     parcels = int(session.exec(
         select(func.count()).select_from(ParcelDelivery)
         .where(ParcelDelivery.courier_id == user.id, ParcelDelivery.status == "delivered")

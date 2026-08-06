@@ -1325,3 +1325,54 @@ def admin_close_parcel(parcel_id: int, body: AdminCloseIn,
                     (f"Итог: {status}. " if status else "") + (reason or "Решение поддержки Юлдаша."),
                     (f"Һөҙөмтә: {status}. " if status else "") + (reason or "Юлдаш ярҙамы ҡарары."))
     return {"ok": True, "status": parcel.status, "reason": reason}
+
+
+@router.get("/parcels/{parcel_id}/receipt")
+def parcel_receipt(parcel_id: int, user: User = Depends(current_user),
+                   session: Session = Depends(get_session)):
+    """Квитанция за доставку (по образцу /trips/{id}/receipt и /instant/orders/{id}/receipt).
+
+    Чек был у попутки и у такси, а у доставки его не было — хотя деньги тут настоящие:
+    цена доставки, комиссия платформы, а у «купи и привези» ещё и стоимость товара, которую
+    курьер потратил из своего кармана (аудит 2026-08-06). Без чека спор «я отдал / он не
+    отдал» упирается в память двух людей, а «мне на работе нужен документ» некуда деть.
+
+    Телефоны и адреса в квитанцию НЕ кладём: чеком делятся, а адрес получателя — это его дом.
+    """
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel:
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    if user.id not in (parcel.sender_id, parcel.courier_id):
+        raise herr(403, "Это не твоя доставка", "Был һинең илтеүең түгел")
+    # Пока везут — итоговых сумм ещё нет (товар может стоить не столько, сколько заявляли).
+    if parcel.status not in ("delivered", "returned"):
+        raise herr(409, "Квитанция появится после завершения доставки",
+                   "Квитанция илтеү тамамланғандан һуң күренәсәк")
+    courier = session.get(User, parcel.courier_id) if parcel.courier_id else None
+    # «Купи и привези»: получатель возвращает то, что курьер ФАКТИЧЕСКИ потратил, если сумма
+    # зафиксирована; иначе — заявленную при заказе.
+    goods_kop = int(parcel.goods_actual_kop or 0) or int(parcel.cod_amount_kop or 0)
+    delivery_kop = int(parcel.delivery_price_kop or 0)
+    total_kop = delivery_kop + goods_kop
+    return {
+        "parcel_id": parcel.id,
+        "role": "courier" if parcel.courier_id == user.id else "sender",
+        "status": parcel.status,
+        "from_city": parcel.from_city, "to_city": parcel.to_city,
+        "delivery_type": parcel.delivery_type,
+        "created_at": parcel.created_at.isoformat() if parcel.created_at else "",
+        "delivered_at": parcel.delivered_at.isoformat() if parcel.delivered_at else "",
+        "returned_at": parcel.returned_at.isoformat() if parcel.returned_at else "",
+        # Деньги. Разделяем доставку и товар: это разные карманы и разные основания.
+        "delivery_price_kop": delivery_kop,
+        "goods_kop": goods_kop,
+        "total_kop": total_kop,
+        "amount": total_kop // 100,
+        "commission_kop": int(parcel.commission_kop or 0),
+        "commission_paid": bool(parcel.commission_paid),
+        "cancel_fee_kop": int(parcel.cancel_fee_kop or 0),
+        "settled": bool(parcel.settled),
+        "declared_value_kop": int(parcel.declared_value_kop or 0),
+        "courier_name": (courier.name if courier and courier.name else "Курьер"),
+        "courier_verified": bool(courier.verified) if courier else False,
+    }

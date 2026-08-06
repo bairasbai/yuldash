@@ -1138,6 +1138,8 @@ private fun CourierCarryingTab(
     // «Приехал — а дома никого»: попытка фиксируется, посылка ОСТАЁТСЯ у курьера.
     var attemptTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var rateTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    // Чек открывается по номеру доставки: сам чек приходит с сервера, локальную копию не держим.
+    var receiptId by remember { mutableStateOf<Int?>(null) }
     var ratedIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
@@ -1244,6 +1246,17 @@ private fun CourierCarryingTab(
                                 ParcelTrackMap(tracked, asCourier = true)
                             }
                         }
+                        // «Застрял на трассе» — у попутки и такси кнопка была, у курьера нет,
+                        // хотя он едет по той же зимней трассе и ОДИН: рядом нет пассажира,
+                        // который заметит беду. Сервер сигнал принимал, нажать было негде
+                        // (аудит 2026-08-06). Привязываем к той доставке, что уже в пути.
+                        item(key = "ccar-roadside") {
+                            val stuckParcel = activeParcels.firstOrNull { it.status == "in_transit" }
+                                ?: activeParcels.first()
+                            RoadsideHelpAction(key = stuckParcel.id) { lat, lng ->
+                                ApiClient.parcelRoadsideHelp(stuckParcel.id, lat, lng)
+                            }
+                        }
                     }
                     items(list.size, key = { "ccar-" + list[it].id }) { i ->
                         val parcel = list[i]
@@ -1262,6 +1275,7 @@ private fun CourierCarryingTab(
                                 onAttemptFailed = { if (busyId == 0) attemptTarget = parcel },
                                 rated = ratedIds.contains(parcel.id),
                                 onRate = { rateTarget = parcel },
+                                onReceipt = { receiptId = parcel.id },
                             )
                         }
                     }
@@ -1269,6 +1283,8 @@ private fun CourierCarryingTab(
             }
         }
     }
+
+    ParcelReceiptDialog(receiptId) { receiptId = null }
 
     // C3: курьер оценивает отправителя после вручения.
     rateTarget?.let { target ->
@@ -1684,6 +1700,7 @@ private fun CourierCarryingCard(
     onAttemptFailed: () -> Unit,
     rated: Boolean,
     onRate: () -> Unit,
+    onReceipt: () -> Unit,
 ) {
     val ctx = LocalContext.current
     val delivered = p.status == "delivered"
@@ -1895,6 +1912,15 @@ private fun CourierCarryingCard(
             }
             if (delivered) {
                 if (rated) ParcelRatedRow() else ParcelRateButton(onClick = onRate)
+                // Чек за доставку: у попутки и такси он был, у доставки не было — хотя деньги
+                // тут настоящие, а спор «я отдал / он не отдал» решается только документом.
+                TextButton(onClick = onReceipt, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        appText("Квитанция за доставку", "Илтеү өсөн квитанция"),
+                        color = CanonGreen2, fontWeight = FontWeight.Bold,
+                        fontSize = DeliveryCaption,
+                    )
+                }
             }
             if (canOpenParcelDispute(p.status)) {
                 ParcelDisputeButton(onClick = onDispute)

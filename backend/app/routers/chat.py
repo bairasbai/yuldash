@@ -112,6 +112,12 @@ def _booking_chat_closed(booking: Booking, ride: Ride) -> bool:
     status = booking.status.value if hasattr(booking.status, "value") else booking.status
     if status not in ("done", "cancelled"):
         return False        # поездка ещё живая — пишем свободно
+    # «Забыл вещь» открывает переписку заново, как в такси. Без этого выхода закрытый чат
+    # означал бы, что телефон с заднего сиденья не вернуть: номер второй стороны после
+    # поездки не виден (аудит 2026-08-06 — дыру создало само закрытие чата).
+    until = getattr(booking, "lost_item_until", None)
+    if until is not None and utcnow() <= until:
+        return False
     if ride.depart_at is None:
         return False
     return utcnow() > ride.depart_at + timedelta(hours=settings.chat_after_trip_hours)

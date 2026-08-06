@@ -239,6 +239,11 @@ class ProfileDeep3ContentTest {
         composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
             .performScrollToNode(hasText("Пассажиры — оцените после поездки"))
         composeRule.onNodeWithText("Пассажиры — оцените после поездки").assertIsDisplayed()
+        // Доскроллить до самого имени, а не до заголовка: имя лежит НИЖЕ края экрана, узел
+        // в дереве есть, но не показан. Тест ловил не пропажу имени, а высоту всего, что выше:
+        // любая правка текста в кабинете водителя его роняла (та же беда была этажом ниже).
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText("Гульназ"))
         composeRule.onNodeWithText("Гульназ").assertIsDisplayed()
     }
 

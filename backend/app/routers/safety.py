@@ -40,6 +40,11 @@ class SosIn(BaseModel):
     booking_id: Optional[int] = None
     order_id: Optional[int] = None      # контекст такси-заказа (B7b-2): админ видит, из какой поездки SOS
     note: str = Field("", max_length=2000)
+    # Где человек. Мягкая кнопка «застрял на трассе» слала близким ссылку на карту, а красный
+    # SOS — нет: родные получали «нужна срочная помощь» и не знали, куда ехать (аудит 2026-08-06).
+    # Необязательны: GPS мог не схватиться — тогда шлём хотя бы сам сигнал.
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 
 def _order_for_participant(session: Session, order_id: int, user: User) -> InstantOrder:
@@ -63,7 +68,13 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
             SosEvent.user_id == user.id, SosEvent.created_at >= utcnow() - timedelta(hours=1)
         )
     ).all()
-    event = SosEvent(user_id=user.id, **body.model_dump())
+    # Место кладём в ТЕКСТ события (как у «застрял»): отдельной колонки под координаты нет,
+    # а заводить её ради ссылки — миграция ради ссылки. В stdout координаты НЕ пишем (152-ФЗ).
+    link = _maps_link(body.lat, body.lng)
+    where = f" Место: {link}" if link else ""
+    fields = body.model_dump(exclude={"lat", "lng"})
+    fields["note"] = (fields.get("note") or "").strip() + where
+    event = SosEvent(user_id=user.id, **fields)
     session.add(event)
     session.commit()                 # событие фиксируем СИНХРОННО (жизнь дороже) — данные не теряются
     session.refresh(event)
@@ -74,7 +85,11 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
         who = user.name or user.phone
         phones = [c.phone for c in contacts if c.phone]
         notified = len(phones)
-        background.add_task(_send_sos_sms, phones, f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.")
+        # Ссылка на карту — главное в этом SMS: без неё родные знают, что беда, но не знают куда ехать.
+        background.add_task(
+            _send_sos_sms, phones,
+            f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.{where}",
+        )
     else:
         log.info(f"[SOS] user={user.id} SMS подавлены (кеп {SOS_SMS_PER_HOUR}/час), событие записано")
     # Уведомление админу в Telegram — тоже в фон (httpx-вызов не держит коннект БД и не тормозит ответ SOS).
@@ -91,7 +106,7 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
         f"Категория: {body.category}\n"
         f"{order_line}"
         f"Контактов уведомлено (SMS): {notified}\n"
-        f"Детали: {body.note or '—'}"
+        f"Детали: {body.note or '—'}{where}"
     )
     # 🌙 SMS админу вдобавок к Telegram. Раньше весь ночной контур безопасности сводился к
     # ОДНОМУ сообщению в Telegram: админ спит — никто не узнает, что сигнал вообще был
@@ -105,7 +120,7 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
             background.add_task(
                 _send_sos_sms, admin_phones,
                 f"SOS Юлдаш: {user.name or 'пользователь'}, {body.category}, "
-                f"тел {user.phone or '—'}. Открой админку.",
+                f"тел {user.phone or '—'}.{where} Открой админку.",
             )
     log.info(f"[SOS] user={user.id} category={body.category} contacts_notified={notified}")
     return event

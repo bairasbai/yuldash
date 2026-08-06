@@ -510,3 +510,35 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             "my_stars": my_stars.get(b.id, 0),
         })
     return out
+
+
+@router.post("/bookings/{booking_id}/lost-item")
+def booking_lost_item(booking_id: int, user: User = Depends(current_user),
+                      session: Session = Depends(get_session)):
+    """«Я забыл вещь в машине» — открывает чат брони на запись ещё на 48 часов.
+
+    У такси такой выход был с 2026-07-26, а у попутки нет. Пока чат попутки оставался
+    открытым навсегда, дыры не было — но 2026-08-06 мы его закрыли через сутки после
+    поездки, и телефон, забытый на заднем сиденье, стало не вернуть: номер второй стороны
+    после поездки не виден. Дыру создало само закрытие чата, поэтому выход обязан быть.
+
+    Доступно обеим сторонам: водитель тоже находит вещи и ищет, чьи они."""
+    from datetime import timedelta
+
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)   # 403/404 если не участник
+    if booking.status != BookingStatus.done:
+        raise herr(409, "Доступно после завершения поездки",
+                   "Сәфәр тамамланғандан һуң мөмкин")
+    booking.lost_item_until = utcnow() + timedelta(hours=48)
+    session.add(booking)
+    session.commit()
+    other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
+    if other_id:
+        push_notification(
+            session, other_id, "message",
+            "Забытая вещь", "Онотолған әйбер",
+            "Вторая сторона ищет вещь из этой поездки — чат снова открыт на 48 часов.",
+            "Сәфәрҙән әйбер эҙләйҙәр — чат 48 сәғәткә асыҡ.",
+            ref_kind="booking", ref_id=booking.id,
+        )
+    return {"ok": True, "chat_open_until": booking.lost_item_until.isoformat()}

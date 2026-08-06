@@ -1657,42 +1657,9 @@ internal fun ActiveTripScreen(
             // Только в реальной активной поездке (есть бронь и посадка подтверждена).
             if (bookingId != null && bookingStatusAllowsBoarding(bookingStatus)) {
                 item {
-                    var stuckSending by remember { mutableStateOf(false) }
-                    var stuckSent by remember { mutableStateOf(false) }
-                    var showStuck by remember { mutableStateOf(false) }
-                    val stuckOkMsg = appText("Своим отправлен сигнал о помощи", "Үҙеңдекеләргә ярҙам сигналы ебәрелде")
-                    val stuckFailMsg = appText("Не удалось отправить. Попробуй ещё раз.", "Ебәреп булманы. Тағы бер тапҡыр ҡарап ҡара.")
-                    RoadsideHelpButton(
-                        sending = stuckSending,
-                        sent = stuckSent,
-                        onClick = { showStuck = true },
-                        modifier = Modifier.appearIn(5),
-                    )
-                    if (showStuck) {
-                        AlertDialog(
-                            onDismissRequest = { showStuck = false },
-                            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = CanonWarn) },
-                            title = { Text(appText("Нужна помощь на трассе?", "Юлда ярҙам кәрәкме?")) },
-                            text = { Text(appText(
-                                "Отправим твоим доверенным контактам сигнал и координаты, чтобы тебя нашли. Это не экстренный вызов 112 — для угрозы жизни жми SOS.",
-                                "Ышаныслы кешеләреңә сигнал һәм координаталар ебәрәбеҙ — һине табыр өсөн. Был 112 ашығыс саҡырыу түгел — тормошҡа хәүеф булһа, SOS баҫ.",
-                            )) },
-                            confirmButton = {
-                                TextButton(onClick = {
-                                    showStuck = false
-                                    val bid = bookingId
-                                    if (bid != null) {
-                                        stuckSending = true
-                                        voiceScope.launch {
-                                            ApiClient.roadsideHelp(bid, LocationPrefs.lastLat, LocationPrefs.lastLng, "")
-                                                .onSuccess { stuckSending = false; stuckSent = true; Toast.makeText(context, stuckOkMsg, Toast.LENGTH_LONG).show() }
-                                                .onFailure { stuckSending = false; Toast.makeText(context, stuckFailMsg, Toast.LENGTH_SHORT).show() }
-                                        }
-                                    }
-                                }) { Text(appText("Позвать на помощь", "Ярҙамға саҡырырға"), color = CanonWarn, fontWeight = FontWeight.Bold) }
-                            },
-                            dismissButton = { TextButton(onClick = { showStuck = false }) { Text(appText("Назад", "Кире")) } }
-                        )
+                    // Блок общий с такси и доставкой (RoadsideHelp.kt): копии разошлись текстами.
+                    RoadsideHelpAction(key = bookingId, modifier = Modifier.appearIn(5)) { lat, lng ->
+                        ApiClient.roadsideHelp(bookingId, lat, lng, "")
                     }
                 }
             }

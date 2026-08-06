@@ -896,6 +896,8 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
             continue
         if comfort_only and (p.car_class or "economy") != "comfort":
             continue          # NULL = economy: комфорт-заказ обычной машине не предлагаем
+        if getattr(order, "women_only", False) and (p.gender or "") != "female":
+            continue          # выбор «только женщина за рулём» — жёсткий, подмены быть не может
         if driver_pause_until(session, did) is not None:
             continue          # бросал принятые заказы — пауза офферов (разбор №2)
         out.append(did)
@@ -1300,6 +1302,9 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
         "to_lat": order.to_lat, "to_lng": order.to_lng,
         "from_text": order.from_text, "to_text": order.to_text,
         "category": order.category,
+        # «Только женщина за рулём»: экран должен объяснить, ПОЧЕМУ машину не нашли,
+        # иначе человек решит, что приложение сломалось, а не что выбор сузил круг.
+        "women_only": bool(getattr(order, "women_only", False)),
         "price_estimate": order.price_estimate,
         "price_final": order.price_final,
         # Промокод: скидку оплачивает платформа, но ЗНАТЬ о ней должны обе стороны — иначе

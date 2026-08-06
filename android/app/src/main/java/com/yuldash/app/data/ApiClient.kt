@@ -905,10 +905,18 @@ object ApiClient {
         }
     }
 
-    /** SOS. orderId — контекст такси-заказа (B7b-2): админ увидит маршрут и вторую сторону. */
-    suspend fun sos(category: String, note: String, orderId: Int? = null): Result<Unit> {
+    /** SOS. orderId — контекст такси-заказа (B7b-2): админ увидит маршрут и вторую сторону.
+     *  Координаты обязательны по смыслу, но не по форме: без них близкие получат «нужна срочная
+     *  помощь» и не будут знать, куда ехать. GPS мог не схватиться — тогда шлём хотя бы сигнал
+     *  (аудит 2026-08-06: мягкая кнопка «застрял» слала место, красный SOS — нет). */
+    suspend fun sos(
+        category: String, note: String, orderId: Int? = null,
+        lat: Double? = null, lng: Double? = null,
+    ): Result<Unit> {
         val body = JSONObject().put("category", category).put("note", note)
         if (orderId != null) body.put("order_id", orderId)
+        if (lat != null) body.put("lat", lat)
+        if (lng != null) body.put("lng", lng)
         return call("POST", "/sos", body, auth = true).map { }.onSuccess { Analytics.log("sos") }
     }
 
@@ -2224,6 +2232,7 @@ object ApiClient {
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
         fromText: String = "", toText: String = "", category: String = "standard",
         comment: String = "", entrance: String = "", forName: String = "", forPhone: String = "",
+        womenOnly: Boolean = false,
     ): Result<InstantOrderDto> {
         val body = instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category)
         // Пустые поля не шлём: сервер их и так примет, но лишний шум в теле запроса ни к чему.
@@ -2231,6 +2240,9 @@ object ApiClient {
         if (entrance.isNotBlank()) body.put("entrance", entrance.take(60))
         if (forName.isNotBlank()) body.put("for_name", forName.take(120))
         if (forPhone.isNotBlank()) body.put("for_phone", forPhone.take(32))
+        // «Только женщина за рулём» — в попутках выбор был всегда, в такси появился
+        // аудитом 2026-08-06. Фильтр жёсткий: подмены не будет.
+        if (womenOnly) body.put("women_only", true)
         return call("POST", "/instant/orders", body, auth = true)
             .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_create") }
     }
@@ -3732,6 +3744,17 @@ object ApiClient {
         return call("POST", "/instant/orders/$orderId/stuck", body, auth = true).map { }
     }
 
+    /** «Застрял на трассе» в ДОСТАВКЕ. Курьер едет по той же зимней трассе и вдобавок один:
+     *  рядом нет пассажира, который заметит беду. Сервер принимал сигнал с 2026-08-06,
+     *  но в приложении нажать было негде (аудит 2026-08-06). */
+    suspend fun parcelRoadsideHelp(parcelId: Int, lat: Double?, lng: Double?, note: String = ""): Result<Unit> {
+        val body = JSONObject().put("note", note.take(500))
+        if (lat != null) body.put("lat", lat)
+        if (lng != null) body.put("lng", lng)
+        return call("POST", "/parcels/$parcelId/stuck", body, auth = true).map { }
+            .onSuccess { Analytics.log("roadside_help_parcel") }
+    }
+
     /** «Подожду машину» после «рядом никого»: заказ встаёт в очередь, воркер продолжит поиск. */
     suspend fun waitForDriver(orderId: Int): Result<InstantWaitDto> =
         call("POST", "/instant/orders/$orderId/wait", JSONObject(), auth = true).map { o ->
@@ -3760,6 +3783,33 @@ object ApiClient {
             )
         }
 
+    /** Квитанция за доставку (обе стороны, только после вручения или возврата).
+     *  Чек был у попутки и у такси, а у доставки его не было — хотя деньги там настоящие
+     *  (аудит 2026-08-06). Телефонов и адресов в чеке нет: чеком делятся. */
+    suspend fun getParcelReceipt(parcelId: Int): Result<ParcelReceiptDto> =
+        call("GET", "/parcels/$parcelId/receipt", null, auth = true).map { o ->
+            ParcelReceiptDto(
+                parcelId = o.optInt("parcel_id"),
+                role = o.optString("role"),
+                status = o.optString("status"),
+                fromCity = o.optString("from_city"), toCity = o.optString("to_city"),
+                deliveryType = o.optString("delivery_type"),
+                deliveredAt = o.optString("delivered_at"),
+                returnedAt = o.optString("returned_at"),
+                deliveryPriceKop = o.optInt("delivery_price_kop"),
+                goodsKop = o.optInt("goods_kop"),
+                totalKop = o.optInt("total_kop"),
+                amount = o.optInt("amount"),
+                commissionKop = o.optInt("commission_kop"),
+                commissionPaid = o.optBoolean("commission_paid"),
+                cancelFeeKop = o.optInt("cancel_fee_kop"),
+                settled = o.optBoolean("settled"),
+                declaredValueKop = o.optInt("declared_value_kop"),
+                courierName = o.optString("courier_name"),
+                courierVerified = o.optBoolean("courier_verified"),
+            )
+        }
+
     /** Водитель: «наличные получил». Раньше отметить оплату мог только пассажир — и если он
      *  просто закрывал приложение, заказ навсегда оставался «не оплачен». */
     suspend fun instantCashReceived(orderId: Int): Result<String> =
@@ -3770,6 +3820,14 @@ object ApiClient {
     suspend fun instantLostItem(orderId: Int): Result<String> =
         call("POST", "/instant/orders/$orderId/lost-item", JSONObject(), auth = true)
             .map { it.optString("chat_open_until") }
+
+    /** То же для попутки. Пока чат попутки не закрывался, выход был не нужен; после того как
+     *  мы закрыли его через сутки после поездки, забытый на заднем сиденье телефон стало
+     *  не вернуть — номер второй стороны после поездки не виден (аудит 2026-08-06). */
+    suspend fun bookingLostItem(bookingId: Int): Result<String> =
+        call("POST", "/bookings/$bookingId/lost-item", JSONObject(), auth = true)
+            .map { it.optString("chat_open_until") }
+            .onSuccess { Analytics.log("lost_item_booking") }
 
     /** Инфо для «Сказать рәхмәт» после такси-поездки (money != null → водитель оставил СБП). */
     suspend fun getInstantTipInfo(orderId: Int): Result<TipInfoDto> =
@@ -4174,6 +4232,9 @@ data class InstantOrderDto(
     val toLat: Double, val toLng: Double,
     val fromText: String, val toText: String,
     val category: String,
+    /** «Только женщина за рулём»: экран должен объяснить, почему машину искали дольше
+     *  или не нашли вовсе — иначе человек решит, что приложение сломалось. */
+    val womenOnly: Boolean = false,
     val priceEstimate: Int,
     val priceFinal: Int?,
     val distanceKm: Double,
@@ -4280,6 +4341,7 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     fromText = optString("from_text"),
     toText = optString("to_text"),
     category = optString("category"),
+    womenOnly = optBoolean("women_only", false),
     priceEstimate = optInt("price_estimate"),
     priceFinal = if (isNull("price_final")) null else optInt("price_final"),
     distanceKm = optDouble("distance_km", 0.0),
@@ -5145,6 +5207,19 @@ data class InstantReceiptDto(
     val distanceKm: Double, val amount: Int, val waitingFeeKop: Int,
     val paymentMethod: String, val paid: Boolean,
     val driverName: String, val driverVerified: Boolean,
+)
+
+/** Квитанция за доставку (GET /parcels/{id}/receipt). Телефонов и адресов в чеке нет.
+ *  Доставка и товар («купи и привези») разделены: это разные карманы и разные основания.
+ *  amount — ₽ (итог: доставка + товар), goodsKop — что курьер реально потратил в магазине. */
+data class ParcelReceiptDto(
+    val parcelId: Int, val role: String, val status: String,
+    val fromCity: String, val toCity: String, val deliveryType: String,
+    val deliveredAt: String, val returnedAt: String,
+    val deliveryPriceKop: Int, val goodsKop: Int, val totalKop: Int, val amount: Int,
+    val commissionKop: Int, val commissionPaid: Boolean,
+    val cancelFeeKop: Int, val settled: Boolean, val declaredValueKop: Int,
+    val courierName: String, val courierVerified: Boolean,
 )
 
 /** «Сказать рәхмәт»: имя водителя, сказали ли уже, и (если включены денежные чаевые
