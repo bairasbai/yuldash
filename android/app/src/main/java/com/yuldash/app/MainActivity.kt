@@ -332,8 +332,9 @@ class MainActivity : ComponentActivity() {
      * Посылку тут НЕ трогаем — её пуш открывает вкладку «Посылки» веткой выше, а чат по
      * посылке требует знать роль и статус доставки, которых в пуше нет.
      */
-    private fun openChatFromPush(i: Intent?) {
-        val type = i?.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: i?.getStringExtra("type") ?: return
+    private fun openChatFromPush(intent: Intent?) {
+        val i = intent ?: return
+        val type = i.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: i.getStringExtra("type") ?: return
         val id = (i.getStringExtra(FcmService.EXTRA_PUSH_ID) ?: i.getStringExtra("id"))?.toIntOrNull()
         if (id == null || id <= 0) return
         when (type) {
