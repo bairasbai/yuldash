@@ -199,8 +199,11 @@ class SosVerifyDeepContentTest {
     @Test
     fun sos_loggedIn_showsSignalDescription() {
         setSos(loggedIn = true)
-        scrollTo("SMS твоим доверенным контактам + сигнал поддержке Юлдаш с твоими координатами.")
-        composeRule.onNodeWithText("SMS твоим доверенным контактам + сигнал поддержке Юлдаш с твоими координатами.").assertIsDisplayed()
+        // Текст сменился 2026-08-06: теперь близким уходит ещё и машина, и экран об этом
+        // честно предупреждает — человек в панике не должен гадать, что именно ушло.
+        val expected = "SMS твоим доверенным контактам с местом и машиной, в которой ты едешь, + сигнал поддержке Юлдаш."
+        scrollTo(expected)
+        composeRule.onNodeWithText(expected).assertIsDisplayed()
     }
 
     @Test

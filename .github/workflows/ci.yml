@@ -130,9 +130,15 @@ jobs:
 
       # Релизная сборка с R8 (minify+shrink): ловит «в debug работало, в release упало» —
       # вырезанные R8 классы (рефлексия/JSON/MapKit). Без keystore → неподписанный APK, для проверки достаточно.
+      #
+      # -PallowUnsignedRelease=true обязателен. Сторож «неподписанный релиз» (build.gradle.kts)
+      # роняет любую релизную сборку без ключа — он и задуман против случайной заливки такого APK.
+      # Но здесь ключа нет и быть не должно, а артефакт мы выбрасываем: нужен только сам прогон R8.
+      # Без флага шаг падал за 10 секунд на каждом прогоне с 2026-08-03, то есть R8 не проверялся
+      # ВООБЩЕ (аудит 2026-08-06). Флаг ставится только тут: у человека защита остаётся прежней.
       - name: Build release (R8 minify check)
         working-directory: android
-        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+        run: ./gradlew :app:assembleRelease -PallowUnsignedRelease=true --no-daemon --stacktrace
 
   # Compose-тесты экранов (app/src/test, Robolectric) — их не компилирует ни assembleDebug, ни
   # локальная сборка Александра, поэтому «уехавшая» сигнатура в тесте до сих пор никем не ловилась.
@@ -173,6 +179,38 @@ jobs:
       # что кто-то вспомнит запустить его руками. Гейт, который никто не гоняет, не гейт.
       - name: Тесты экранов + порог покрытия (Robolectric + Compose + JaCoCo)
         run: chmod +x ./gradlew && ./gradlew :app:jacocoCoverageVerification --no-daemon --stacktrace
+      # Имя упавшего теста — В ЛОГ, а не только в артефакт (аудит 2026-08-06).
+      # Артефакт надо скачать и распаковать; при разборе из чата или CLI это недоступно, а Gradle
+      # со --stacktrace печатает двести строк своих внутренностей и ни одного имени теста. Красный
+      # шаг превращался в гадание: «упало что-то из полутора тысяч». Здесь — имя и сообщение.
+      - name: Какие тесты упали (если упали)
+        if: failure()
+        working-directory: android
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          bad = []
+          for f in glob.glob("app/build/test-results/**/*.xml", recursive=True):
+              try:
+                  root = ET.parse(f).getroot()
+              except Exception:
+                  continue
+              for tc in root.iter("testcase"):
+                  for kind in ("failure", "error"):
+                      node = tc.find(kind)
+                      if node is not None:
+                          msg = (node.get("message") or node.text or "").strip().splitlines()
+                          bad.append((tc.get("classname"), tc.get("name"), msg[0][:400] if msg else ""))
+          print(f"::group::Упавшие тесты: {len(bad)}")
+          for cls, name, msg in bad:
+              print(f"  • {cls}.{name}")
+              if msg:
+                  print(f"      {msg}")
+          print("::endgroup::")
+          if not bad:
+              print("Ни одного упавшего теста в отчётах — значит шаг упал не на тестах "
+                    "(например, на пороге покрытия jacocoCoverageVerification).")
+          PY
       # Отчёт нужен именно при падении: по нему видно, какой тест и на чём упал.
       - name: Отчёт о тестах (даже если упали)
         if: always()

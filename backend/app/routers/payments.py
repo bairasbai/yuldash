@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..logs import admin_action
 from ..models import Ad, Payment, Ride, RideStatus, User, UserRole
 from ..payments import BOOST_PLANS, create_payment, fetch_payment
 from ..security import current_user
@@ -397,6 +398,8 @@ def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), s
     if payment.provider_id:
         raise HTTPException(409, "Платёж у провайдера — подтвердится автоматически после оплаты")
     _activate_payment(session, payment)
+    admin_action(user.id, "payment.confirm", payment_id=payment.id, user=payment.user_id,
+                 amount_kop=getattr(payment, "amount_kop", None))
     return {"payment_id": payment.id, "status": "succeeded"}
 
 
@@ -411,6 +414,7 @@ def admin_reject_payment(payment_id: int, user: User = Depends(current_user), se
         payment.status = "canceled"
         session.add(payment)
         session.commit()
+    admin_action(user.id, "payment.reject", payment_id=payment.id, user=payment.user_id)
     return {"payment_id": payment.id, "status": payment.status}
 
 

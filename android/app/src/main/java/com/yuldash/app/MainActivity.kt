@@ -319,6 +319,33 @@ class MainActivity : ComponentActivity() {
             i.removeExtra("type")
             DeepLink.pendingParcels.value = true
         }
+        openChatFromPush(i)
+    }
+
+    /**
+     * Тап по пушу «новое сообщение» → сама переписка.
+     *
+     * Аудит 2026-08-06: тип и id уведомление несло с собой, но их никто не читал — человек
+     * получал «Марат: подъезжаю», жал по нему и оказывался на карте, а чат искал руками.
+     * Хуже всего это било по попутке и такси: там сообщение обычно значит «я на месте».
+     *
+     * Посылку тут НЕ трогаем — её пуш открывает вкладку «Посылки» веткой выше, а чат по
+     * посылке требует знать роль и статус доставки, которых в пуше нет.
+     */
+    private fun openChatFromPush(intent: Intent?) {
+        val i = intent ?: return
+        val type = i.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: i.getStringExtra("type") ?: return
+        val id = (i.getStringExtra(FcmService.EXTRA_PUSH_ID) ?: i.getStringExtra("id"))?.toIntOrNull()
+        if (id == null || id <= 0) return
+        when (type) {
+            "chat" -> DeepLink.pendingBookingChatId.value = id        // чат попутки → экран брони
+            "order_chat" -> NavSignals.openInstantChat.value = id     // чат такси-заказа
+            else -> return
+        }
+        i.removeExtra(FcmService.EXTRA_PUSH_TYPE)   // не сработать повторно при пересоздании
+        i.removeExtra(FcmService.EXTRA_PUSH_ID)
+        i.removeExtra("type")
+        i.removeExtra("id")
     }
 
     /** F16 deep-link: из https://yulbash.ru/r/{id} достаём id поездки и кладём в DeepLink —
@@ -340,6 +367,12 @@ internal object DeepLink {
     val pendingRideId = mutableStateOf<Int?>(null)
     /** Тап по пушу о посылке → открыть «Посылки». Сбрасывается тем, кто открыл (одноразовый сигнал). */
     val pendingParcels = mutableStateOf(false)
+
+    /**
+     * Тап по пушу «новое сообщение» в попутке → бронь с чатом (id брони). `null` = сигнала нет.
+     * Такси и посылка ходят своими сигналами: у них другой экран и другой id.
+     */
+    val pendingBookingChatId = mutableStateOf<Int?>(null)
 
     /**
      * Открыть чат по посылке. Кнопка «Написать» живёт глубоко внутри карточки, а карточка —

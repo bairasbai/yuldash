@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..errors import herr
 from ..models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, ParcelDelivery, Rating, Ride,
     TripShare, TrustedContact, User,
@@ -124,6 +125,28 @@ def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user
         who = user.name or user.phone
         send_text(contact.phone, f"Юлдаш: {who} едет с попутчиком. Следи за поездкой: {_live_link(share.token)}")
     return share
+
+
+@router.get("/bookings/{booking_id}/shares", response_model=List[TripShare])
+def list_booking_shares(booking_id: int, user: User = Depends(current_user),
+                        session: Session = Depends(get_session)):
+    """Кому открыта ЭТА поездка (пассажиру — «уже поделился с …» и кнопка отозвать).
+
+    Аудит 2026-08-06. Отозвать доступ можно было и раньше (DELETE .../share/{id}), но список
+    активных ссылок жил только в памяти экрана: свернул приложение — и отзывать стало нечего,
+    хотя ссылка на живое местоположение продолжала работать до конца поездки. У такси такая
+    ручка была с самого начала (`/instant/orders/{id}/shares`), у попутки — нет. Здесь то же
+    правило: видишь, кому открыл, и можешь закрыть в любой момент.
+    """
+    booking, _ = booking_and_ride_for_user(session, booking_id, user)
+    if booking.passenger_id != user.id:
+        raise herr(403, "Смотреть можно только свою поездку", "Тик үҙ сәфәреңде генә ҡарарға була")
+    contact_ids = [c.id for c in session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()]
+    if not contact_ids:
+        return []
+    return session.exec(
+        select(TripShare).where(TripShare.booking_id == booking_id, TripShare.contact_id.in_(contact_ids))
+    ).all()
 
 
 # ---- Шаринг такси-заказа близкому (B7b-2) ----

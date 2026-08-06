@@ -14,7 +14,7 @@ from sqlmodel import Session, select
 
 from app.cleanup import RIDE_CLOSE_GRACE_HOURS, close_past_rides
 from app.db import engine
-from app.models import Booking, BookingStatus, Ride, RideStatus
+from app.models import Booking, BookingStatus, Ride, RideStatus, UserRole
 from app.timeutil import utcnow
 
 
@@ -24,11 +24,26 @@ def _db(client):
     return client
 
 
-def _ride(session: Session, hours_ago: float, status=RideStatus.active) -> int:
+@pytest.fixture
+def people(user_factory):
+    """Настоящие водитель и пассажир.
+
+    Раньше тут стояли номера людей руками — `driver_id=1`, `passenger_id=2`. На SQLite это
+    проходило: она по умолчанию не проверяет, существует ли такой человек. Postgres проверяет —
+    и весь файл падал на вставке, то есть проверка «прошедшие поездки закрываются» на настоящей
+    базе не работала вовсе (найдено 2026-08-06 при разборе красной CI).
+    """
+    return {"driver": user_factory("PastRidesDrv", role=UserRole.driver)["id"],
+            "passenger": user_factory("PastRidesPax")["id"]}
+
+
+def _ride(session: Session, *, driver_id: int, hours_ago: float, status=RideStatus.active) -> int:
+    # driver_id обязателен и без значения по умолчанию нарочно: значение «1» тут и было ловушкой,
+    # в которую этот файл однажды уже попал.
     """Возвращает id, а не объект: после закрытия сессии объект отвязывается и обращение
     к его полям падает DetachedInstanceError. id — обычное число, оно переживёт что угодно."""
     r = Ride(
-        driver_id=1, from_city="Баймак", to_city="Сибай",
+        driver_id=driver_id, from_city="Баймак", to_city="Сибай",
         depart_at=utcnow() - timedelta(hours=hours_ago),
         seats_total=3, seats_left=3, price=300, status=status,
     )
@@ -43,61 +58,61 @@ def _status(rid: int) -> str:
         return s.exec(select(Ride).where(Ride.id == rid)).one().status
 
 
-def test_past_ride_without_bookings_becomes_expired():
+def test_past_ride_without_bookings_becomes_expired(people):
     """Никто не поехал — «выполненной» называть нечестно."""
     with Session(engine) as s:
-        rid = _ride(s, hours_ago=RIDE_CLOSE_GRACE_HOURS + 10)
+        rid = _ride(s, driver_id=people['driver'], hours_ago=RIDE_CLOSE_GRACE_HOURS + 10)
     close_past_rides()
     assert _status(rid) == RideStatus.expired
 
 
-def test_past_ride_with_confirmed_booking_becomes_done():
+def test_past_ride_with_confirmed_booking_becomes_done(people):
     """Поездка состоялась, её просто забыли закрыть."""
     with Session(engine) as s:
-        rid = _ride(s, hours_ago=RIDE_CLOSE_GRACE_HOURS + 10)
-        s.add(Booking(ride_id=rid, passenger_id=2, seats=1, status=BookingStatus.confirmed))
+        rid = _ride(s, driver_id=people['driver'], hours_ago=RIDE_CLOSE_GRACE_HOURS + 10)
+        s.add(Booking(ride_id=rid, passenger_id=people['passenger'], seats=1, status=BookingStatus.confirmed))
         s.commit()
     close_past_rides()
     assert _status(rid) == RideStatus.done
 
 
-def test_pending_booking_is_not_enough_for_done():
+def test_pending_booking_is_not_enough_for_done(people):
     """Бронь висела неподтверждённой — значит поездки не было."""
     with Session(engine) as s:
-        rid = _ride(s, hours_ago=RIDE_CLOSE_GRACE_HOURS + 10)
-        s.add(Booking(ride_id=rid, passenger_id=2, seats=1, status=BookingStatus.pending))
+        rid = _ride(s, driver_id=people['driver'], hours_ago=RIDE_CLOSE_GRACE_HOURS + 10)
+        s.add(Booking(ride_id=rid, passenger_id=people['passenger'], seats=1, status=BookingStatus.pending))
         s.commit()
     close_past_rides()
     assert _status(rid) == RideStatus.expired
 
 
-def test_future_ride_untouched():
+def test_future_ride_untouched(people):
     with Session(engine) as s:
-        rid = _ride(s, hours_ago=-48)   # выезд через двое суток
+        rid = _ride(s, driver_id=people['driver'], hours_ago=-48)   # выезд через двое суток
     close_past_rides()
     assert _status(rid) == RideStatus.active
 
 
-def test_ride_inside_grace_untouched():
+def test_ride_inside_grace_untouched(people):
     """Запас нужен: выехать могли позже, чем объявили, и бронь возможна впритык."""
     with Session(engine) as s:
-        rid = _ride(s, hours_ago=RIDE_CLOSE_GRACE_HOURS - 1)
+        rid = _ride(s, driver_id=people['driver'], hours_ago=RIDE_CLOSE_GRACE_HOURS - 1)
     close_past_rides()
     assert _status(rid) == RideStatus.active
 
 
-def test_cancelled_stays_cancelled():
+def test_cancelled_stays_cancelled(people):
     """Отменённую не переписываем: причина закрытия важна для разбора спора."""
     with Session(engine) as s:
-        rid = _ride(s, hours_ago=RIDE_CLOSE_GRACE_HOURS + 10, status=RideStatus.cancelled)
+        rid = _ride(s, driver_id=people['driver'], hours_ago=RIDE_CLOSE_GRACE_HOURS + 10, status=RideStatus.cancelled)
     close_past_rides()
     assert _status(rid) == RideStatus.cancelled
 
 
-def test_second_run_changes_nothing():
+def test_second_run_changes_nothing(people):
     """Задача идёт по расписанию — повторный проход не должен ничего перекраивать."""
     with Session(engine) as s:
-        rid = _ride(s, hours_ago=RIDE_CLOSE_GRACE_HOURS + 10)
+        rid = _ride(s, driver_id=people['driver'], hours_ago=RIDE_CLOSE_GRACE_HOURS + 10)
     close_past_rides()
     first = _status(rid)
     done, expired = close_past_rides()

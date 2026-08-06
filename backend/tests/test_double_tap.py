@@ -100,8 +100,10 @@ def test_жалоба_по_другой_поездке_проходит(client, 
     reporter = user_factory("TapTripPax")
     driver = user_factory("TapTripDrv", role=UserRole.driver)
     ids = []
-    for _ in range(2):
-        ride_id = _ride(client, driver, seats=3)
+    for i in range(2):
+        # Поездки разные: одинаковые схлопываются как двойной тап (2026-08-06), а тут нужны
+        # два РАЗНЫХ дня — в этом и смысл теста «нахамил дважды».
+        ride_id = _ride(client, driver, seats=3, comment=f"рейс {i}")
         bid = client.post("/bookings", headers=reporter["auth"],
                           json={"ride_id": ride_id, "seats": 1}).json()["id"]
         assert client.post(f"/bookings/{bid}/confirm", headers=driver["auth"]).status_code == 200

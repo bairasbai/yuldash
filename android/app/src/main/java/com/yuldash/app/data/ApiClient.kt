@@ -905,16 +905,18 @@ object ApiClient {
         }
     }
 
-    /** SOS. orderId — контекст такси-заказа (B7b-2): админ увидит маршрут и вторую сторону.
+    /** SOS. orderId — контекст такси-заказа (B7b-2), bookingId — контекст попутки: дежурный
+     *  увидит маршрут и вторую сторону. Раньше поле брони было только на сервере и всегда
+     *  приходило пустым: из такси знали, с кем человек, из попутки — нет (аудит 2026-08-06).
      *  Координаты обязательны по смыслу, но не по форме: без них близкие получат «нужна срочная
-     *  помощь» и не будут знать, куда ехать. GPS мог не схватиться — тогда шлём хотя бы сигнал
-     *  (аудит 2026-08-06: мягкая кнопка «застрял» слала место, красный SOS — нет). */
+     *  помощь» и не будут знать, куда ехать. GPS мог не схватиться — тогда шлём хотя бы сигнал. */
     suspend fun sos(
         category: String, note: String, orderId: Int? = null,
-        lat: Double? = null, lng: Double? = null,
+        lat: Double? = null, lng: Double? = null, bookingId: Int? = null,
     ): Result<Unit> {
         val body = JSONObject().put("category", category).put("note", note)
         if (orderId != null) body.put("order_id", orderId)
+        if (bookingId != null) body.put("booking_id", bookingId)
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
         return call("POST", "/sos", body, auth = true).map { }.onSuccess { Analytics.log("sos") }
@@ -1811,6 +1813,16 @@ object ApiClient {
     suspend fun shareTrip(bookingId: Int, contactId: Int): Result<TripShareDto?> =
         call("POST", "/bookings/$bookingId/share", JSONObject().put("contact_id", contactId), auth = true)
             .map { parseTripShare(it) }
+
+    /** Кому открыта эта поездка (пассажиру — «уже поделился с …» + возможность отозвать).
+     *  Аудит 2026-08-06: у такси такой список был, у попутки — нет, и экран помнил ссылки
+     *  только в своей памяти. Свернул приложение — отзывать стало нечего, хотя ссылка на
+     *  живое местоположение продолжала работать. */
+    suspend fun getBookingShares(bookingId: Int): Result<List<TripShareDto>> =
+        call("GET", "/bookings/$bookingId/shares", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).mapNotNull { parseTripShare(arr.getJSONObject(it)) }
+        }
 
     /** Отозвать шаринг брони (B7c): live-токен «сгорает», SMS-статусы контакту прекращаются. Приватность. */
     suspend fun revokeBookingShare(bookingId: Int, shareId: Int): Result<Unit> =
@@ -3843,6 +3855,23 @@ object ApiClient {
     /** «Рәхмәт» водителю такси — тёплый жест без денег. Идемпотентно. */
     suspend fun sayInstantThanks(orderId: Int): Result<Unit> =
         call("POST", "/instant/orders/$orderId/thanks", JSONObject(), auth = true).map { }
+
+    /** То же для попутки. Сервер умел это с самого начала — «рәхмәт» и придумали для попуток,
+     *  но кнопка в итоге появилась только в чеке такси, и обе ручки годами никто не звал
+     *  (аудит 2026-08-06). Сосед, который подвёз бесплатно, спасибо заслуживает не меньше. */
+    suspend fun getBookingTipInfo(bookingId: Int): Result<TipInfoDto> =
+        call("GET", "/bookings/$bookingId/tip", null, auth = true).map { o ->
+            val m = o.optJSONObject("money")
+            TipInfoDto(
+                driverName = o.optString("driver_name"),
+                alreadyThanked = o.optBoolean("already_thanked"),
+                sbpPhone = m?.optString("sbp")?.takeIf { it.isNotBlank() },
+            )
+        }
+
+    /** «Рәхмәт» водителю попутки — тёплый жест без денег. Идемпотентно. */
+    suspend fun sayBookingThanks(bookingId: Int): Result<Unit> =
+        call("POST", "/bookings/$bookingId/thanks", JSONObject(), auth = true).map { }
 
     /** Мои завершённые такси-заказы с расшифровкой: цена, комиссия, чистыми (закрывает
      *  «Юлдаш говорит 4200, я насчитал 4600 — где мои 400?»). */

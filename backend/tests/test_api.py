@@ -8,10 +8,13 @@ import pytest
 from app.models import UserRole
 
 
-def _ride(client, drv, seats=3):
+def _ride(client, drv, seats=3, **extra):
+    """Общий помощник «опубликовать поездку». `extra` (например comment=…) нужен там,
+    где тесту требуются ДВЕ разные поездки: байт-в-байт одинаковые схлопываются как
+    двойной тап (гард 2026-08-06)."""
     r = client.post("/rides", headers=drv["auth"], json={
         "from_city": "Баймак", "to_city": "Сибай",
-        "depart_at": "2030-01-01T10:00:00", "seats_total": seats, "price": 300,
+        "depart_at": "2030-01-01T10:00:00", "seats_total": seats, "price": 300, **extra,
     })
     assert r.status_code == 200, r.text
     return r.json()["id"]
