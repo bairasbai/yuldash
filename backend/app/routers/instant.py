@@ -112,8 +112,13 @@ class CancelIn(BaseModel):
 
 
 class ZoneIn(BaseModel):
-    work_zone: Literal["city", "intercity", "region"]
+    """База зоны + два согласия. Старые значения (intercity/region) принимаем ради
+    приложений, которые ещё не обновились: сервер сам переводит их в базу + тумблеры."""
+    work_zone: Literal["city", "district", "intercity", "region"]
     work_city: Optional[str] = Field(None, max_length=100)
+    work_district: Optional[str] = Field(None, max_length=100)
+    work_intercity: Optional[bool] = None
+    work_regions: Optional[bool] = None
     work_direction_id: Optional[int] = None
 
 
@@ -126,9 +131,37 @@ def _zone_payload(session: Session, dp: Optional[DriverProfile]) -> dict:
     return {
         "work_zone": dp.work_zone if dp else None,
         "work_city": dp.work_city if dp else None,
+        "work_district": dp.work_district if dp else None,
+        "work_intercity": bool(dp.work_intercity) if dp else False,
+        "work_regions": bool(dp.work_regions) if dp else False,
         "work_direction_id": dp.work_direction_id if dp else None,
         "work_direction": direction,
     }
+
+
+def normalize_zone(body) -> tuple:
+    """Вход приложения → (база, город, район, загород, регионы, направление).
+
+    Старое приложение шлёт work_zone=intercity/region — переводим: база остаётся городом,
+    включаются тумблеры. Новое шлёт city/district + тумблеры явно."""
+    zone = body.work_zone
+    intercity = body.work_intercity
+    regions = body.work_regions
+    if zone in ("intercity", "region"):
+        intercity = True if intercity is None else intercity
+        regions = (zone == "region") if regions is None else regions
+        zone = "city"
+    base = "district" if zone == "district" else "city"
+    city = (body.work_city or "").strip() or None
+    district = (body.work_district or "").strip() or None
+    if base == "city":
+        district = None
+    else:
+        city = None
+    intercity = bool(intercity)
+    regions = bool(regions) and intercity      # «соседние регионы» без выезда загород бессмысленны
+    direction_id = body.work_direction_id if intercity else None
+    return base, city, district, intercity, regions, direction_id
 
 
 @router.get("/instant/zone")
@@ -140,7 +173,9 @@ def get_zone(user: User = Depends(current_user), session: Session = Depends(get_
 
 @router.post("/instant/zone")
 def set_zone(body: ZoneIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Выбор зоны: 🏙 мой город / 🛣 межгород (+опц. направление) / 🌍 соседний регион.
+    """Выбор зоны: база (🏙 мой город/село или 🗺 мой район) + тумблеры «выезд загород»
+    (опц. с направлением) и «соседние регионы». Как «Мой район» у Яндекс Про, но бесплатно:
+    в базовом режиме обе точки заказа внутри зоны, выход за неё — только с тумблером.
     Только водитель с одобренной заявкой таксиста (580-ФЗ). Влияет ТОЛЬКО на такси-matcher,
     попутка (Ride/Booking) не затрагивается."""
     dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
@@ -148,14 +183,18 @@ def set_zone(body: ZoneIn, user: User = Depends(current_user), session: Session 
         raise herr(409, "Сначала стань водителем (профиль водителя не найден)", "Башта йөрөтөүсе бул (йөрөтөүсе профиле табылманы)")
     if not taxi_mod.is_approved_taxi_driver(session, user.id):
         raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
-    direction_id = body.work_direction_id
-    if body.work_zone == "city":
-        direction_id = None                      # направление имеет смысл только для межгорода
+    base, city, district, intercity, regions, direction_id = normalize_zone(body)
     if direction_id is not None and session.get(Settlement, direction_id) is None:
         raise herr(404, "Направление не найдено в справочнике", "Йүнәлеш белешмәлектә табылманы")
-    work_city = (body.work_city or "").strip() or None
-    dp.work_zone = body.work_zone
-    dp.work_city = work_city if body.work_zone == "city" else None
+    if district and not geo_mod.district_exists(session, district):
+        # Опечатка в районе = тишина в офферах, и человек не поймёт почему. Лучше честный отказ.
+        raise herr(422, "Такого района нет в справочнике. Выбери район из подсказок.",
+                   "Бындай район белешмәлә юҡ. Районды тәҡдимдәрҙән һайла.")
+    dp.work_zone = base
+    dp.work_city = city
+    dp.work_district = district
+    dp.work_intercity = intercity
+    dp.work_regions = regions
     dp.work_direction_id = direction_id
     session.add(dp)
     session.commit()

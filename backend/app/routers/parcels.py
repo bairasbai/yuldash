@@ -562,12 +562,23 @@ def _notify_couriers_new_parcel(session: Session, parcel: ParcelDelivery) -> int
             select(CourierProfile).where(CourierProfile.online == True)  # noqa: E712
         ).all()
         sent = 0
+        from .. import geo as geo_mod
+        from ..config import settings as _settings
+        area_a = geo_mod.area_by_name(session, parcel.from_city or "")
+        area_b = geo_mod.area_by_name(session, parcel.to_city or "")
         for prof in rows:
             if prof.user_id == parcel.sender_id:
                 continue                       # свою же посылку курьеру не предлагаем
-            # Город работы задан и не совпадает с точкой забора → мимо (пустой = берёт всё).
-            work_city = (getattr(prof, "work_city", "") or "").strip().casefold()
-            if work_city and parcel.from_city and work_city != parcel.from_city.strip().casefold():
+            # Зона курьера — те же правила, что в списке заказов (`geo.zone_allows`). Раньше
+            # здесь стояла своя проверка «по городу строкой»: пуш звал на заказ, которого
+            # человек потом не находил в списке — район и «загород» она не понимала.
+            if not geo_mod.zone_allows(
+                session,
+                zone=prof.zone, work_city=prof.work_city, work_district=prof.work_district,
+                intercity=bool(prof.work_intercity), regions=bool(prof.work_regions),
+                direction_id=prof.work_direction_id, a=area_a, b=area_b,
+                local_km=_settings.instant_intercity_km,
+            ):
                 continue
             push_notification(
                 session, prof.user_id, "parcel",

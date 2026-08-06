@@ -485,6 +485,7 @@ internal fun ProfileScreen(
                     AnimatedVisibility(cityHits.isNotEmpty()) {
                         Column {
                             cityHits.forEach { s ->
+                                val hint = settlementHintFor(s)
                                 Row(
                                     Modifier.fillMaxWidth()
                                         .clickable { cityPicked = true; cityDraft = s.nameRu; cityHits = emptyList() }
@@ -494,12 +495,18 @@ internal fun ProfileScreen(
                                 ) {
                                     Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(8.dp))
-                                    Text(settlementTitle(s), color = CanonText, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(s.region, color = CanonMuted, fontSize = 12.sp)
+                                    Column(Modifier.weight(1f)) {
+                                        Text(settlementTitle(s), color = CanonText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        // Родной может быть и деревней — тогда подписываем район, чтобы не спутать тёзок.
+                                        if (hint.isNotBlank()) {
+                                            Text(hint, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                    if (needsOsmCredit(cityHits)) OsmCreditRow()
                 }
             },
             confirmButton = {

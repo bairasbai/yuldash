@@ -155,9 +155,17 @@ class DriverProfile(SQLModel, table=True):
     online: bool = False
     # Зона работы таксиста (волна 2, география). NULL = зона не выбрана → прежнее
     # поведение matcher'а (получает всё рядом). Значения: city | intercity | region.
-    work_zone: Optional[str] = None
-    work_city: Optional[str] = None       # для work_zone=city: «мой город» (name_ru)
-    work_direction_id: Optional[int] = Field(default=None, foreign_key="settlement.id")  # intercity: закреплённое направление
+    # Зона работы (география). База: city — один НП (work_city), district — весь
+    # муниципальный район (work_district). Плюс два согласия: work_intercity — беру заказы
+    # с выездом за базу («загород»), work_regions — готов и в соседние регионы.
+    # Старые значения work_zone (intercity/region) продолжают работать: миграция переводит их
+    # в базу + тумблеры, см. alembic/versions/zone_district.py.
+    work_zone: Optional[str] = None       # city | district (legacy: intercity | region)
+    work_city: Optional[str] = None       # для work_zone=city: «мой город/село» (name_ru)
+    work_district: Optional[str] = None   # для work_zone=district: «Абзелиловский р-н»
+    work_intercity: bool = False          # выезд загород (заказы, где вторая точка вне базы)
+    work_regions: bool = False            # готов в соседние регионы (Челябинская, Оренбургская…)
+    work_direction_id: Optional[int] = Field(default=None, foreign_key="settlement.id")  # закреплённое направление загорода
     # Класс машины для такси (волна 2, §6): economy | comfort. NULL = economy (прежнее
     # поведение). Водитель заявляет в онбординге таксиста, админ подтверждает при approve.
     car_class: Optional[str] = None
@@ -1458,9 +1466,12 @@ class CourierProfile(SQLModel, table=True):
     user_id: int = Field(index=True, unique=True, foreign_key="user.id")
     online: bool = Field(default=False, index=True)
     car_class: str = Field(default="car", max_length=16)     # car | cargo
-    zone: str = Field(default="city", max_length=16)         # city | intercity | region
-    work_city: str = Field(default="", max_length=80)        # zone=city: «мой город» (name_ru)
-    work_direction_id: Optional[int] = Field(default=None, foreign_key="settlement.id")  # zone=intercity: направление
+    zone: str = Field(default="city", max_length=16)         # city | district (legacy: intercity | region)
+    work_city: str = Field(default="", max_length=80)        # zone=city: «мой город/село» (name_ru)
+    work_district: Optional[str] = Field(default=None, max_length=80)   # zone=district: «Абзелиловский р-н»
+    work_intercity: bool = False          # выезд загород (заказы, где вторая точка вне базы)
+    work_regions: bool = False            # готов в соседние регионы
+    work_direction_id: Optional[int] = Field(default=None, foreign_key="settlement.id")  # закреплённое направление
     updated_at: datetime = Field(default_factory=utcnow)
     # --- C3: мягкая лестница качества (без жёстких авто-блоков, «по-соседски») ---
     # Дедуп тёплого пуш-совета при просевшем рейтинге (не чаще раза в неделю).
