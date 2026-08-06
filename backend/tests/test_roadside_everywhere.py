@@ -116,3 +116,34 @@ def test_в_событии_видно_о_какой_доставке_речь(cl
     assert f"#{pid}" in note and "Баймак" in note, (
         f"в событии не видно, о какой доставке речь: {note[:200]}"
     )
+
+
+# ---------- Сумма отмены известна ДО решения ----------
+# У такси сумма отмены приходит клиенту заранее (cancel_fee_now_kop). У доставки её не было:
+# диалог честно предупреждал «будет компенсация», но саму цифру показывал уже ПОСЛЕ отмены —
+# человек соглашался на деньги вслепую (аудит 2026-08-06).
+
+def test_отправитель_видит_сумму_отмены_заранее(client, user_factory, courier_on):
+    sender, courier, pid = _parcel_in_transit(client, user_factory, "FeePreview")
+    mine = client.get("/parcels/mine", headers=sender["auth"])
+    assert mine.status_code == 200, mine.text
+    row = next((x for x in mine.json() if x.get("id") == pid), None)
+    assert row is not None, "своей посылки нет в списке"
+    assert row.get("cancel_fee_preview_kop", 0) > 0, (
+        "курьер уже везёт, а сумма отмены человеку не показана — он решает вслепую"
+    )
+
+
+def test_пока_курьера_нет_отмена_бесплатна_и_это_видно(client, user_factory, courier_on):
+    """Обратная сторона: пугать суммой там, где её не будет, — тоже враньё."""
+    sender = user_factory("FeeFreeSender")
+    pid = client.post("/parcels", headers=sender["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай", "size": "small",
+        "description": "гостинцы", "receiver_name": "Гөлнара",
+        "receiver_phone": "+79990009951", "rules_accepted": True,
+    }).json()["id"]
+    row = next(x for x in client.get("/parcels/mine", headers=sender["auth"]).json()
+               if x["id"] == pid)
+    assert row.get("cancel_fee_preview_kop", -1) == 0, (
+        f"посылку ещё никто не взял, а отмена показана платной: {row.get('cancel_fee_preview_kop')}"
+    )

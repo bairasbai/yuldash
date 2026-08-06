@@ -3108,6 +3108,7 @@ object ApiClient {
         deliveryPhotoUrl = o.optString("delivery_photo_url"),
         deliveryAttempts = o.optInt("delivery_attempts"),
         cancelFeeKop = o.optInt("cancel_fee_kop"),
+        cancelFeePreviewKop = o.optInt("cancel_fee_preview_kop"),
         // Срок «к какому дню нужно» и признак просрочки. Просрочку считает СЕРВЕР: у телефона
         // своя дата и свой часовой пояс, и клиентский подсчёт красил бы карточку по-разному
         // у отправителя и курьера. nStr → null, если срока нет или сервер старый.
@@ -5474,6 +5475,10 @@ data class ParcelDto(
     val returnedAt: String? = null,
     val deliveryAttempts: Int = 0,
     val cancelFeeKop: Int = 0,
+    // Сколько будет стоить отмена, если нажать ПРЯМО СЕЙЧАС. Нужно, чтобы человек видел
+    // сумму ДО решения: раньше диалог честно предупреждал «будет компенсация», но саму
+    // цифру показывал уже после отмены — человек соглашался на деньги вслепую.
+    val cancelFeePreviewKop: Int = 0,
     // Две границы ответственности: «взял целой» и «отдал целой». Сервер хранил оба снимка,
     // но клиент не показывал ни одного — в споре о повреждении смотреть было не на что.
     val pickupPhotoUrl: String = "",

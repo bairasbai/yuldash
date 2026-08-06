@@ -314,6 +314,14 @@ def _parcel_base(p: ParcelDelivery, blur_coords: bool = False) -> dict:
         "returned_at": p.returned_at.isoformat() if getattr(p, "returned_at", None) else None,
         "delivery_attempts": getattr(p, "delivery_attempts", 0) or 0,
         "cancel_fee_kop": getattr(p, "cancel_fee_kop", 0) or 0,   # компенсация курьеру за отмену
+        # СКОЛЬКО будет стоить отмена, если нажать сейчас. Раньше приложение честно
+        # предупреждало «будет компенсация», но сумму показывало ТОЛЬКО ПОСЛЕ отмены —
+        # человек принимал денежное решение вслепую (аудит 2026-08-06). Ноль означает
+        # «отмена бесплатна»: курьера ещё нет или посылка уже закрыта.
+        "cancel_fee_preview_kop": (
+            settings.courier_cancel_fee_kop
+            if (p.courier_id and p.status in _CANCEL_FEE_STATUSES) else 0
+        ),
     }
 
 
