@@ -98,6 +98,31 @@ async def _reject(websocket: WebSocket, payload: dict) -> None:
         pass
 
 
+
+# ---- Окно переписки по попутке ----
+# Такси-чат и чат доставки закрываются на запись после завершения. Чат попутки не закрывался
+# НИКОГДА: спустя месяц после разовой поездки водитель по-прежнему мог писать пассажирке,
+# и единственным выходом оставалась блокировка (аудит 2026-08-06). Блокировка — тяжёлый шаг,
+# он означает «никогда больше», хотя человеку нужно всего лишь «поездка закончилась».
+#
+# Считаем от ВРЕМЕНИ ВЫЕЗДА, а не от отметки «завершено»: отметку ставит человек и может
+# не поставить вовсе, а время выезда у поездки есть всегда. Читать историю можно и после —
+# по ней разбирают споры.
+def _booking_chat_closed(booking: Booking, ride: Ride) -> bool:
+    status = booking.status.value if hasattr(booking.status, "value") else booking.status
+    if status not in ("done", "cancelled"):
+        return False        # поездка ещё живая — пишем свободно
+    if ride.depart_at is None:
+        return False
+    return utcnow() > ride.depart_at + timedelta(hours=settings.chat_after_trip_hours)
+
+
+def _guard_booking_chat_open(booking: Booking, ride: Ride) -> None:
+    if _booking_chat_closed(booking, ride):
+        raise herr(409, "Поездка закончилась — переписка только для чтения",
+                   "Сәфәр тамамланды — яҙышыу тик уҡыу өсөн")
+
+
 def _order_chat_key(order_id: int) -> int:
     return INSTANT_CHAT_KEY_BASE + order_id
 
@@ -218,6 +243,12 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                 with Session(engine) as session:
                     # Блокировка (как в REST send_message): заблокированный не пишет — тихо игнор.
                     if is_blocked(session, user_id, other_id):
+                        continue
+                    # Окно переписки: после поездки чат закрывается на запись (см. REST-гейт).
+                    b2 = session.get(Booking, booking_id)
+                    r2 = session.get(Ride, b2.ride_id) if b2 else None
+                    if b2 is not None and r2 is not None and _booking_chat_closed(b2, r2):
+                        await _reject(websocket, payload)
                         continue
                     # Анти-флуд: тот же потолок, что в REST (иначе сокет обходил бы его в один тап).
                     # Исключение здесь бросать нельзя — оно рвёт чат. Поэтому отвечаем кадром
@@ -548,6 +579,7 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
     other_party = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
     if is_blocked(session, user.id, other_party):
         raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
+    _guard_booking_chat_open(booking, ride)
     _guard_chat_burst(session, user.id, Message.booking_id == booking_id)
     # voice_url — ТОЛЬКО наш медиа-URL (из /upload-voice). Иначе участник подсунул бы внешнюю ссылку,
     # и приложение собеседника её подгрузило бы (утечка IP / трекинг / чужой контент).
