@@ -706,12 +706,40 @@ internal fun InstantOrderScreen(
     var scheduledConfirmAt by rememberSaveable { mutableStateOf<String?>(null) }
     var scheduledConfirmFrom by rememberSaveable { mutableStateOf("") }
     var scheduledConfirmTo by rememberSaveable { mutableStateOf("") }
+    // ❄️ Зимний протокол в такси. Раньше он был только у попутки, хотя пассажир такси едет
+    // те же четыре часа зимней трассы — и один с незнакомым водителем (аудит 2026-08-06).
+    // Отсчёт ведём от момента, когда человек сел в машину: до посадки вопрос «доехал?»
+    // бессмысленен, и сервер такой заход всё равно отклонит (too_early).
+    val winterAsked = rememberSaveable { mutableStateOf(false) }
+    val winterShow = rememberSaveable { mutableStateOf(false) }
+    var onboardSeenAt by rememberSaveable { mutableStateOf(0L) }
     var checking by remember { mutableStateOf(loggedIn) }   // первичная загрузка: есть ли активный заказ
     // Гейт такси (волна 2): доступно ли такси в моей точке (глобальный флаг + города на сервере).
     // Сеть упала → фолбэк «доступно» (обычный пикер): сервер всё равно гейтит оценку и заказ.
     var availability by remember { mutableStateOf<com.yuldash.app.data.TaxiAvailabilityDto?>(null) }
     // Восстановление входа упало по сети → показываем retry вместо тихого падения в пикер (могли потерять живой заказ).
     var restoreError by remember { mutableStateOf(false) }
+
+    // Запоминаем момент посадки один раз: DTO времени посадки не отдаёт, а таймеру нужна точка
+    // отсчёта, переживающая поворот экрана.
+    LaunchedEffect(order?.status) {
+        if (order?.status == "onboard" && onboardSeenAt == 0L) {
+            onboardSeenAt = System.currentTimeMillis()
+        }
+    }
+    WinterArrivalWatcher(
+        key = order?.id,
+        startMs = { onboardSeenAt.takeIf { it > 0L } },
+        active = { order?.status == "onboard" },
+        asked = winterAsked,
+        show = winterShow,
+        onArm = { order?.id?.let { ApiClient.winterCheckOrder(it) } },
+    )
+    WinterArrivalDialog(winterShow) {
+        val oid = order?.id
+        if (oid != null) scope.launch { ApiClient.winterCheckOrderOk(oid) }
+    }
+
     // Связь с сервером при поллинге активного заказа потеряна → мягкий баннер «пробуем ещё», не молчим.
     var pollOffline by remember { mutableStateOf(false) }
     var restoreTick by remember { mutableIntStateOf(0) }

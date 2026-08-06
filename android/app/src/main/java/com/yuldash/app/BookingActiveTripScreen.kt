@@ -959,32 +959,28 @@ internal fun ActiveTripScreen(
     // Момент проверки считаем по РАСЧЁТНОЙ ETA маршрута (расстояние/скорость + запас), а НЕ по
     // фиксированному часу — иначе на длинном межгороде спросили бы «доехал?» в середине пути и
     // могли зря потревожить близкого через шаринг. Нет координат маршрута → щедрый фолбэк.
-    var showArrivalCheck by rememberSaveable(bookingId) { mutableStateOf(false) }
-    var arrivalAsked by rememberSaveable(bookingId) { mutableStateOf(false) }
+    // Диалог и таймер — общие с такси и доставкой (WinterProtocol.kt): три копии уже однажды
+    // разошлись, и попутка осталась единственным сценарием с зимним протоколом.
+    val showArrivalCheck = rememberSaveable(bookingId) { mutableStateOf(false) }
+    val arrivalAsked = rememberSaveable(bookingId) { mutableStateOf(false) }
     var departIso by remember(bookingId) { mutableStateOf("") }
     var armAfterMs by remember(bookingId) { mutableStateOf(ARRIVAL_CHECK_FALLBACK_MS) }
     // F12: пробудить проверку «доехал?» один раз, когда прошёл буфер после выезда, а поездка
     // ещё активна (не done/cancelled). Буфер — эвристика (ETA в этом экране нет): сервер сам
     // не пошлёт пуш до depart_at и не эскалирует раньше 30 мин + активного шаринга.
-    LaunchedEffect(bookingId, lifecycleOwner) {
-        val id = bookingId ?: return@LaunchedEffect
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            while (!arrivalAsked) {
-                val iso = departIso.ifBlank { tripPass?.departAt ?: "" }
-                val departMs = iso.takeIf { it.isNotBlank() }?.let(::parseIsoUtcMillis)
-                val active = bookingStatus != "done" && bookingStatus != "cancelled"
-                if (active && role != "driver" && departMs != null &&
-                    System.currentTimeMillis() >= departMs + armAfterMs
-                ) {
-                    arrivalAsked = true
-                    showArrivalCheck = true
-                    ApiClient.winterCheck(id)   // арм (сервер решает: too_early / check_sent)
-                    break
-                }
-                kotlinx.coroutines.delay(60_000)
-            }
-        }
-    }
+    WinterArrivalWatcher(
+        key = bookingId,
+        startMs = {
+            val iso = departIso.ifBlank { tripPass?.departAt ?: "" }
+            iso.takeIf { it.isNotBlank() }?.let(::parseIsoUtcMillis)
+        },
+        // Водителя не спрашиваем: протокол сторожит того, кого везут.
+        active = { bookingStatus != "done" && bookingStatus != "cancelled" && role != "driver" },
+        asked = arrivalAsked,
+        show = showArrivalCheck,
+        armAfterMs = armAfterMs,
+        onArm = { bookingId?.let { ApiClient.winterCheck(it) } },   // сервер решит: too_early / check_sent
+    )
     // Ключуем по bookingId: черновик/режим редактирования/выбранный статус не должны утекать в другую бронь.
     var draft by remember(bookingId) { mutableStateOf("") }
     var editingId by remember(bookingId) { mutableStateOf<Int?>(null) }   // id редактируемого сообщения (null — обычная отправка)
@@ -1716,32 +1712,9 @@ internal fun ActiveTripScreen(
         }
     }
 
-    if (showArrivalCheck) {
+    WinterArrivalDialog(showArrivalCheck) {
         val bid = bookingId
-        AlertDialog(
-            onDismissRequest = { showArrivalCheck = false },
-            containerColor = CanonSurface,
-            icon = { Icon(Icons.Default.AcUnit, contentDescription = null, tint = CanonGreen2) },
-            title = { Text(appText("Ты доехал(а)?", "Барып еттеңме?"), color = CanonText, fontWeight = FontWeight.Bold) },
-            text = {
-                Text(
-                    appText("Отметь, что всё хорошо — и близкие не будут волноваться.",
-                        "Бөтәһе лә яҡшы тип билдәлә — яҡындарың борсолмаҫ."),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showArrivalCheck = false
-                    if (bid != null) voiceScope.launch { ApiClient.winterCheckOk(bid) }
-                }) { Text(appText("Доехал ✓", "Барып еттем ✓"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showArrivalCheck = false }) {
-                    Text(appText("Ещё в пути", "Юлдамын"), color = CanonMuted)
-                }
-            },
-        )
+        if (bid != null) voiceScope.launch { ApiClient.winterCheckOk(bid) }
     }
 
     if (showShare) {

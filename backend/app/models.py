@@ -730,6 +730,10 @@ class InstantOrder(SQLModel, table=True):
     accepted_at: Optional[datetime] = None
     arriving_at: Optional[datetime] = None
     onboard_at: Optional[datetime] = None
+    # ❄️ Зимний протокол («ты доехал?»). Раньше жил только у попутки, хотя трасса
+    # Сибай–Уфа зимой одинаково опасна во всех трёх сценариях (аудит 2026-08-06).
+    winter_check_sent_at: Optional[datetime] = None
+    winter_check_ack_at: Optional[datetime] = None
     done_at: Optional[datetime] = None
     cancelled_at: Optional[datetime] = None
     expired_at: Optional[datetime] = None
@@ -1360,6 +1364,10 @@ class ParcelDelivery(SQLModel, table=True):
     confirm_code: str = Field(default="", index=True, max_length=12)         # короткий код вручения (получатель называет курьеру)
     created_at: datetime = Field(default_factory=utcnow, index=True)          # растущая таблица: индекс под сорт/чистку по дате
     accepted_at: Optional[datetime] = None
+    # ❄️ Зимний протокол («ты доехал?»). Раньше жил только у попутки, хотя трасса
+    # Сибай–Уфа зимой одинаково опасна во всех трёх сценариях (аудит 2026-08-06).
+    winter_check_sent_at: Optional[datetime] = None
+    winter_check_ack_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None
     # --- C1: профессиональный курьер (гибрид «по пути» + режим «Курьер») ---
     # Тип доставки: poputka = по пути (текущий M3, любой попутчик, без гейта) |

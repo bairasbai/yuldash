@@ -468,6 +468,28 @@ private fun CourierWorkContent(
         }
     }
 
+    // ❄️ Зимний протокол у курьера. Он едет по той же зимней трассе, что попутка и такси,
+    // но едет ОДИН: рядом нет пассажира, который заметит, что что-то не так. Раньше протокола
+    // здесь не было вовсе (аудит 2026-08-06).
+    //
+    // Спрашиваем по самой ранней из везомых посылок: если курьер молчит, неважно, какая
+    // из них — важно, что молчит он сам.
+    val winterAsked = rememberSaveable { mutableStateOf(false) }
+    val winterShow = rememberSaveable { mutableStateOf(false) }
+    val winterParcel = carrying.minByOrNull { it.acceptedAt ?: it.createdAt }
+    WinterArrivalWatcher(
+        key = winterParcel?.id,
+        startMs = { winterParcel?.acceptedAt?.let(::parseIsoUtcMillis) },
+        active = { winterParcel != null },
+        asked = winterAsked,
+        show = winterShow,
+        onArm = { winterParcel?.id?.let { ApiClient.winterCheckParcel(it) } },
+    )
+    WinterArrivalDialog(winterShow) {
+        val pid = winterParcel?.id
+        if (pid != null) scope.launch { ApiClient.winterCheckParcelOk(pid) }
+    }
+
     val toggleErr = appText("Не получилось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшер.")
     val needCityMsg = appText("Укажи город работы", "Эш ҡалаһын күрһәт")
 

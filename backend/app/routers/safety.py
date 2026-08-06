@@ -762,6 +762,129 @@ def _roadside(session: Session, background: BackgroundTasks, user: User, body: "
     return event
 
 
+
+# ============================ ❄️ Зимний протокол ============================
+# Что это для человека. Зимой трасса Сибай–Уфа — четыре часа. Если он не отметил, что доехал,
+# приложение спрашивает «всё в порядке?». Не ответил полчаса — зовём тех, кого он сам выбрал:
+# им уходит SMS «позвони, проверь». Это не слежка и не тревога по каждому поводу, а один
+# вопрос и один звонок близкого, если ответа нет.
+#
+# Почему одна реализация на три сценария. Механика жила только у попутки, хотя дорога у всех
+# одна: пассажир такси едет те же четыре часа, курьер — тоже и вдобавок один (аудит 2026-08-06).
+# Три копии разошлись бы при первой же правке — как уже разошлись чат, кнопка «застрял»
+# и показ суммы отмены. Поэтому логика здесь одна, а сценарии дают ей три вещи:
+# кого спрашивать, когда спрашивать рано и кому звонить, если ответа нет.
+
+WINTER_TITLE = "Юлдаш"
+WINTER_ASK_RU = "Всё в порядке? Отметь, что доехал(а)."
+WINTER_ASK_BA = "Бөтәһе лә яҡшымы? Барып еткәнеңде билдәлә."
+
+
+def _winter_contacts_for(session: Session, user_id: int) -> list:
+    """Телефоны доверенных контактов человека — кому звонить, если он молчит."""
+    return [c.phone for c in session.exec(
+        select(TrustedContact).where(TrustedContact.user_id == user_id)
+    ).all() if c.phone]
+
+
+def _winter_run(
+    session: Session,
+    background: BackgroundTasks,
+    *,
+    obj,                      # Booking / InstantOrder / ParcelDelivery — у всех три поля ниже
+    kind: str,                # booking | order | parcel — для текстов и события
+    obj_id: int,
+    closed: bool,             # поездка/доставка уже закрыта — спрашивать нечего
+    too_early: bool,          # ещё не выехали — спрашивать рано
+    ask_user_ids: list,       # кого спрашиваем «всё в порядке?»
+    watch_user_id: int,       # чьи близкие получат звонок, если ответа нет
+    contact_phones: list,     # уже собранные телефоны (пусто → эскалировать некому)
+    also_notify_user_id=None,  # кого ещё предупредить в приложении (напр. отправителя посылки)
+) -> dict:
+    """Один шаг протокола. Идемпотентен: клиент зовёт его повторно, пока не получит ответ.
+
+    Состояния: closed / too_early / ok (уже ответили) / check_sent (спросили) /
+    waiting (ждём) / no_share (звать некого) / escalated (позвали близких)."""
+    now = utcnow()
+    if closed:
+        return {"state": "closed"}
+    if obj.winter_check_ack_at is not None:
+        return {"state": "ok"}
+    if obj.winter_check_sent_at is None:
+        if too_early:
+            return {"state": "too_early"}
+        obj.winter_check_sent_at = now
+        session.add(obj)
+        session.commit()
+        for uid in ask_user_ids:
+            if uid:
+                send_push(session, uid, WINTER_TITLE, WINTER_ASK_RU)
+        return {"state": "check_sent"}
+
+    waited_min = (now - obj.winter_check_sent_at).total_seconds() / 60.0
+    if waited_min < WINTER_ESCALATE_AFTER_MIN:
+        return {"state": "waiting", "waited_min": round(waited_min, 1)}
+    if not contact_phones:
+        # Звать некого: человек не добавил доверенных (или не расшарил поездку).
+        # Молча выходим — придумывать за него, кому звонить, мы не вправе.
+        return {"state": "no_share"}
+
+    # Не эскалируем повторно: иначе каждый следующий вызов после порога заново шлёт SMS
+    # близким — это и флуд, и расход, и лишняя паника.
+    already = session.exec(select(SosEvent).where(
+        SosEvent.user_id == watch_user_id,
+        SosEvent.category == "other",
+        SosEvent.note.like(f"%{kind}#{obj_id}%"),
+    ).limit(1)).first()
+    if already:
+        return {"state": "escalated", "already": True, "sos_event_id": already.id}
+
+    escalate = SosEvent(
+        user_id=watch_user_id,
+        booking_id=obj_id if kind == "booking" else None,
+        order_id=obj_id if kind == "order" else None,
+        category="other",
+        note=(f"Зимний протокол ({kind}#{obj_id}): нет ответа "
+              f"{WINTER_ESCALATE_AFTER_MIN} мин после проверки «доехал?»"),
+    )
+    session.add(escalate)
+    session.commit()
+    session.refresh(escalate)
+
+    who_row = session.get(User, watch_user_id)
+    who = (who_row.name or who_row.phone) if who_row else "человек"
+    background.add_task(
+        _send_sos_sms, contact_phones,
+        f"Юлдаш: {who} не отметил(а), что доехал(а). Позвони, проверь, всё ли хорошо.",
+    )
+    background.add_task(
+        notify_admin_telegram,
+        f"❄️ Зимний протокол: нет ответа (Юлдаш)\n{kind} #{obj_id}\n"
+        f"Контактов уведомлено: {len(contact_phones)}",
+    )
+    if also_notify_user_id:
+        from ..services import push_notification
+        push_notification(
+            session, also_notify_user_id, "system",
+            "Курьер не выходит на связь", "Курьер бәйләнешкә сыҡмай",
+            "Мы не получили от него подтверждения и уже предупредили его близких.",
+            "Беҙ унан раҫлау алманыҡ һәм яҡындарына хәбәр иттек.",
+            ref_kind=kind, ref_id=obj_id,
+        )
+    log.info(f"[WINTER] {kind}={obj_id} escalated contacts={len(contact_phones)}")
+    return {"state": "escalated", "sos_event_id": escalate.id,
+            "contacts_notified": len(contact_phones)}
+
+
+def _winter_ack(session: Session, obj) -> dict:
+    """«Я доехал» — гасит эскалацию. Идемпотентно: повторный тап ничего не портит."""
+    if obj.winter_check_ack_at is None:
+        obj.winter_check_ack_at = utcnow()
+        session.add(obj)
+        session.commit()
+    return {"ok": True}
+
+
 @router.post("/bookings/{booking_id}/winter-check")
 def winter_check(
     booking_id: int,
@@ -769,72 +892,23 @@ def winter_check(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
-    """Авто-проверка «доехал?» (прагматично для v1: вызывается клиентом/по флагу, когда его ETA+буфер истёк).
-    Идемпотентна и вызывается повторно:
-      1) поездка ещё не закрыта и пуш ещё не слали → шлём обеим сторонам «всё в порядке?», помечаем sent_at;
-      2) пуш уже был, ответа нет ≥30 мин, есть активный шаринг → уведомляем доверенный контакт + SOS-событие;
-      3) поездка done/cancelled или участник уже нажал «всё хорошо» → ничего не делаем.
-    Доступно только участнику поездки."""
+    """Зимний протокол по ПОПУТКЕ. Спрашиваем обе стороны; звоним близким пассажира,
+    которым он сам расшарил поездку (шаринг — и есть сигнал «меня ждут»)."""
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
-    now = utcnow()
-    # (3a) Поездка закрыта — проверять нечего.
-    if booking.status in (BookingStatus.done, BookingStatus.cancelled):
-        return {"state": "closed"}
-    # (3b) Уже подтвердили «всё в порядке» — эскалацию не запускаем.
-    if booking.winter_check_ack_at is not None:
-        return {"state": "ok"}
-    # (1) Первый заход: шлём пуш «всё в порядке?» обеим сторонам.
-    if booking.winter_check_sent_at is None:
-        # Санити-гейт: поездка должна была реально начаться (клиент считает ETA сам, сервер страхует по depart_at).
-        if ride.depart_at and now < ride.depart_at:
-            return {"state": "too_early"}
-        booking.winter_check_sent_at = now
-        session.add(booking)
-        session.commit()
-        title = "Юлдаш"
-        text = "Всё в порядке? Отметь, что доехал(а)."
-        send_push(session, booking.passenger_id, title, text)
-        send_push(session, ride.driver_id, title, text)
-        return {"state": "check_sent"}
-    # (2) Пуш уже был — ждём ответа. Эскалация только после порога и только при активном шаринге.
-    waited_min = (now - booking.winter_check_sent_at).total_seconds() / 60.0
-    if waited_min < WINTER_ESCALATE_AFTER_MIN:
-        return {"state": "waiting", "waited_min": round(waited_min, 1)}
-    # Активный шаринг поездки близкому (пассажир расшарил) — иначе некому эскалировать.
     shares = session.exec(select(TripShare).where(TripShare.booking_id == booking_id)).all()
-    if not shares:
-        return {"state": "no_share"}
-    # V9: не эскалировать ПОВТОРНО — иначе каждый следующий вызов после порога заново шлёт SMS
-    # доверенным (флуд/травля + расход SMS). Уже есть эскалация-событие по этой брони → выходим.
-    already = session.exec(select(SosEvent).where(
-        SosEvent.booking_id == booking_id,
-        SosEvent.user_id == booking.passenger_id,
-        SosEvent.category == "other",
-    ).limit(1)).first()
-    if already:
-        return {"state": "escalated", "already": True, "sos_event_id": already.id}
-    # Эскалация: SOS-событие от имени пассажира (его контакты) + SMS доверенным.
-    escalate = SosEvent(
-        user_id=booking.passenger_id, booking_id=booking_id, category="other",
-        note=f"Зимний протокол: нет ответа {WINTER_ESCALATE_AFTER_MIN} мин после проверки «доехал?»",
+    contact_ids = [sh.contact_id for sh in shares if sh.contact_id]
+    phones = [c.phone for c in session.exec(
+        select(TrustedContact).where(TrustedContact.id.in_(contact_ids))
+    ).all() if c.phone] if contact_ids else []
+    return _winter_run(
+        session, background,
+        obj=booking, kind="booking", obj_id=booking_id,
+        closed=booking.status in (BookingStatus.done, BookingStatus.cancelled),
+        too_early=bool(ride.depart_at and utcnow() < ride.depart_at),
+        ask_user_ids=[booking.passenger_id, ride.driver_id],
+        watch_user_id=booking.passenger_id,
+        contact_phones=phones,
     )
-    session.add(escalate)
-    session.commit()
-    session.refresh(escalate)
-    contact_ids = [s.contact_id for s in shares]
-    phones = [
-        c.phone
-        for c in session.exec(select(TrustedContact).where(TrustedContact.id.in_(contact_ids))).all()
-        if c.phone
-    ]
-    pax = session.get(User, booking.passenger_id)
-    who = (pax.name or pax.phone) if pax else "попутчик"
-    background.add_task(_send_sos_sms, phones, f"Юлдаш: {who} не отметил(а), что доехал(а). Позвони, проверь, всё ли хорошо.")
-    background.add_task(
-        notify_admin_telegram,
-        f"❄️ Зимний протокол: нет ответа (Юлдаш)\nПоездка #{booking_id}\nКонтактов уведомлено: {len(phones)}"
-    )
-    return {"state": "escalated", "sos_event_id": escalate.id, "contacts_notified": len(phones)}
 
 
 @router.post("/bookings/{booking_id}/winter-check/ok")
@@ -843,10 +917,100 @@ def winter_check_ack(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
-    """Участник ответил «всё в порядке» на проверку «доехал?» — гасит эскалацию доверенным."""
+    """Участник ответил «всё в порядке» — гасит эскалацию близким."""
     booking, _ = booking_and_ride_for_user(session, booking_id, user)
-    if booking.winter_check_ack_at is None:
-        booking.winter_check_ack_at = utcnow()
-        session.add(booking)
-        session.commit()
-    return {"ok": True}
+    return _winter_ack(session, booking)
+
+
+@router.post("/instant/orders/{order_id}/winter-check")
+def winter_check_order(
+    order_id: int,
+    background: BackgroundTasks,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """Зимний протокол по ТАКСИ-ЗАКАЗУ.
+
+    Дорога та же: Сибай–Уфа зимой — четыре часа, и пассажир такси в этой машине один
+    с незнакомым водителем. Спрашиваем обе стороны, звоним близким пассажира —
+    тем, кому он расшарил поездку."""
+    order = _order_for_participant(session, order_id, user)
+    status = order.status.value if hasattr(order.status, "value") else order.status
+    shares = session.exec(select(TripShare).where(TripShare.order_id == order_id)).all()
+    contact_ids = [sh.contact_id for sh in shares if sh.contact_id]
+    phones = [c.phone for c in session.exec(
+        select(TrustedContact).where(TrustedContact.id.in_(contact_ids))
+    ).all() if c.phone] if contact_ids else []
+    return _winter_run(
+        session, background,
+        obj=order, kind="order", obj_id=order_id,
+        closed=status in ("done", "cancelled", "expired"),
+        # Рано, пока человек не сел в машину: до посадки «доехал?» бессмысленно.
+        too_early=order.onboard_at is None,
+        ask_user_ids=[order.passenger_id, order.driver_id],
+        watch_user_id=order.passenger_id,
+        contact_phones=phones,
+    )
+
+
+@router.post("/instant/orders/{order_id}/winter-check/ok")
+def winter_check_order_ack(
+    order_id: int,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    order = _order_for_participant(session, order_id, user)
+    return _winter_ack(session, order)
+
+
+@router.post("/parcels/{parcel_id}/winter-check")
+def winter_check_parcel(
+    parcel_id: int,
+    background: BackgroundTasks,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """Зимний протокол по ДОСТАВКЕ.
+
+    Курьер едет по той же зимней трассе и, в отличие от поездки, едет ОДИН — рядом нет
+    пассажира, который заметит, что что-то не так. Поэтому спрашиваем курьера, а звоним
+    его собственным доверенным контактам: трекинг-ссылка по посылке принадлежит получателю,
+    а не человеку, который ждёт курьера, — по ней звать некого.
+
+    Отправителю сообщаем отдельно: его посылка не движется, и узнать это он должен от нас."""
+    from ..models import ParcelDelivery
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel:
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    is_sender = user.id == parcel.sender_id
+    is_courier = parcel.courier_id is not None and user.id == parcel.courier_id
+    if not (is_sender or is_courier):
+        raise herr(403, "Ты не участник этой доставки",
+                   "Һин был доставканың ҡатнашыусыһы түгел")
+    return _winter_run(
+        session, background,
+        obj=parcel, kind="parcel", obj_id=parcel_id,
+        closed=parcel.status in ("delivered", "canceled", "returned"),
+        # Рано, пока курьер не забрал посылку: он ещё никуда не выехал.
+        too_early=parcel.courier_id is None or parcel.status == "created",
+        ask_user_ids=[parcel.courier_id],
+        watch_user_id=parcel.courier_id,
+        contact_phones=_winter_contacts_for(session, parcel.courier_id) if parcel.courier_id else [],
+        also_notify_user_id=parcel.sender_id,
+    )
+
+
+@router.post("/parcels/{parcel_id}/winter-check/ok")
+def winter_check_parcel_ack(
+    parcel_id: int,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    from ..models import ParcelDelivery
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel:
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    if parcel.courier_id is None or user.id != parcel.courier_id:
+        raise herr(403, "Отметить может только курьер этой доставки",
+                   "Тик был доставканың курьеры ғына билдәләй ала")
+    return _winter_ack(session, parcel)

@@ -948,6 +948,28 @@ object ApiClient {
         call("POST", "/bookings/$bookingId/winter-check/ok", JSONObject(), auth = true).map { }
             .onSuccess { Analytics.log("winter_check_ok") }
 
+    // ❄️ Зимний протокол в такси и доставке. Раньше он был только у попутки, хотя дорога
+    // одна: пассажир такси едет те же четыре часа, курьер — тоже и вдобавок один.
+    /** Зимний протокол по такси-заказу: арм проверки «доехал?» (сервер решает, не рано ли). */
+    suspend fun winterCheckOrder(orderId: Int): Result<String> =
+        call("POST", "/instant/orders/$orderId/winter-check", JSONObject(), auth = true)
+            .map { it.optString("state") }.onSuccess { Analytics.log("winter_check_order") }
+
+    /** «Доехал» по такси-заказу — гасит эскалацию близким. */
+    suspend fun winterCheckOrderOk(orderId: Int): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/winter-check/ok", JSONObject(), auth = true).map { }
+            .onSuccess { Analytics.log("winter_check_order_ok") }
+
+    /** Зимний протокол по доставке: спрашиваем курьера — он в дороге один. */
+    suspend fun winterCheckParcel(parcelId: Int): Result<String> =
+        call("POST", "/parcels/$parcelId/winter-check", JSONObject(), auth = true)
+            .map { it.optString("state") }.onSuccess { Analytics.log("winter_check_parcel") }
+
+    /** «Доехал» по доставке — отмечает только курьер. */
+    suspend fun winterCheckParcelOk(parcelId: Int): Result<Unit> =
+        call("POST", "/parcels/$parcelId/winter-check/ok", JSONObject(), auth = true).map { }
+            .onSuccess { Analytics.log("winter_check_parcel_ok") }
+
     // ---------- Жалобы и чёрный список ----------
     /** Пожаловаться (§9 Качество). category — из закрытого перечня (см. ReportCategoryUi);
      *  привязка к заказу/брони (orderId/bookingId) — сервер сам проверит участие и вычислит цель.
