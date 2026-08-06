@@ -11,7 +11,7 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..flood import TOO_MANY_REQUESTS, guard_open_items
-from ..logs import log
+from ..logs import admin_action, log
 from ..models import (
     Block, Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
     RideRequest, RideStatus, User, UserRole,
@@ -227,6 +227,9 @@ def admin_request_for_phone(body: AdminRequestIn, user: User = Depends(current_u
     session.add(req)
     session.commit()
     session.refresh(req)
+    # Действие ЗА человека: админ мог и завести ему аккаунт по звонку. Телефон в лог не идёт (§8),
+    # только идентификаторы — по ним всё поднимается из базы (аудит 2026-08-06).
+    admin_action(user.id, "request.create_for_user", request_id=req.id, target_user=target.id)
     return req
 
 
