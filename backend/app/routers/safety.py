@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from typing import List, Literal, Optional
 
 from ..db import get_session
+from ..errors import herr
 from ..config import settings
 from ..logs import log
 from ..models import Block, Booking, BookingStatus, InstantOrder, Report, Ride, SosEvent, TripShare, TrustedContact, User, UserRole
@@ -661,14 +662,70 @@ def roadside_help_order(
     return _roadside(session, background, user, body, order_id=order_id)
 
 
+@router.post("/parcels/{parcel_id}/stuck", response_model=SosEvent)
+def roadside_help_parcel(
+    parcel_id: int,
+    body: StuckIn,
+    background: BackgroundTasks,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """То же для ДОСТАВКИ. Кнопка «застрял» была у попутки и у такси, а у курьера — нет,
+    хотя он едет по той же зимней трассе и везёт чужую вещь (аудит 2026-08-06: та же
+    забытая сторона, что и в других правилах — новое заводили для такси и не возвращались
+    к доставке).
+
+    Отправителю уходит уведомление: его посылка не движется, и он должен узнать это
+    от нас, а не через неделю от получателя."""
+    from ..models import ParcelDelivery
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel:
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    is_sender = user.id == parcel.sender_id
+    is_courier = parcel.courier_id is not None and user.id == parcel.courier_id
+    if not (is_sender or is_courier):
+        raise herr(403, "Ты не участник этой доставки",
+                   "Һин был доставканың ҡатнашыусыһы түгел")
+
+    event = _roadside(session, background, user, body, parcel_id=parcel_id)
+
+    # Отправителю — отдельно и по-человечески (курьеру самому себе не пишем).
+    if is_courier and parcel.sender_id:
+        from ..services import push_notification
+        push_notification(
+            session, parcel.sender_id, "parcel",
+            "Курьер застрял в дороге", "Курьер юлда ҡалған",
+            f"Доставка {parcel.from_city or '?'} → {parcel.to_city or '?'} задерживается. "
+            "Мы уже знаем и разбираемся.",
+            f"{parcel.from_city or '?'} → {parcel.to_city or '?'} доставкаһы тотҡарлана. "
+            "Беҙ беләбеҙ, хәл итәбеҙ.",
+            ref_kind="parcel", ref_id=parcel.id,
+        )
+    return event
+
+
 def _roadside(session: Session, background: BackgroundTasks, user: User, body: "StuckIn",
-              booking_id: Optional[int] = None, order_id: Optional[int] = None) -> SosEvent:
+              booking_id: Optional[int] = None, order_id: Optional[int] = None,
+              parcel_id: Optional[int] = None) -> SosEvent:
     """Общая механика «застрял»: событие в ленту админа + SMS доверенным + Telegram.
-    Одна реализация на попутку и такси — иначе они разойдутся при первой же правке."""
+    Одна реализация на попутку, такси и доставку — иначе они разойдутся при первой же правке.
+
+    Про доставку. У SosEvent нет колонки под посылку (есть под бронь и под заказ), поэтому
+    её номер и маршрут кладём в ТЕКСТ события: админ видит, о чём речь, и находит доставку
+    по номеру. Заводить колонку ради ссылки в админке — отдельное решение и миграция;
+    человеческая часть (сигнал ушёл, отправитель предупреждён) работает и так."""
     link = _maps_link(body.lat, body.lng)
     where = f" Место: {link}" if link else ""
+    parcel_line = ""
+    if parcel_id is not None:
+        from ..models import ParcelDelivery
+        parcel = session.get(ParcelDelivery, parcel_id)
+        if parcel is not None:
+            parcel_line = (f" Доставка #{parcel.id}: "
+                           f"{parcel.from_city or '?'} → {parcel.to_city or '?'}.")
     # Событие в SOS-ленту админа фиксируем СИНХРОННО (не теряем сигнал о помощи).
-    note = (f"Застрял на трассе (зимний протокол). {body.note}".strip() + where).strip()
+    note = (f"Застрял на трассе (зимний протокол). {body.note}".strip()
+            + parcel_line + where).strip()
     event = SosEvent(user_id=user.id, booking_id=booking_id, order_id=order_id,
                      category="breakdown", note=note)
     session.add(event)
