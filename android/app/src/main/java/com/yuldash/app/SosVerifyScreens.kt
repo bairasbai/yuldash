@@ -284,6 +284,9 @@ internal fun SosScreen(
     // начала, а из попутки — нет, хотя именно там человек садится в машину к незнакомцу.
     // Первый вопрос спасателя — «с кем уехали», и ответ должен быть в самом сигнале.
     bookingId: Int? = null,
+    // Свободная подпись-контекст для дежурного («Доставка #12 Баймак → Сибай»). Для доставки
+    // отдельного поля в сигнале нет, а знать, что человек был на маршруте, дежурному нужно.
+    contextNote: String? = null,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -390,6 +393,7 @@ internal fun SosScreen(
         sending = true
         // В note кладём текст + КООРДИНАТЫ (бэкенд без гео-поля → передаём строкой со ссылкой на карту).
         val note = buildString {
+            if (!contextNote.isNullOrBlank()) append(contextNote.trim() + ". ")
             if (description.isNotBlank()) append(description.trim() + " ")
             if (coordsText != null) append("Координаты: $coordsText (https://yandex.ru/maps/?pt=$sosLng,$sosLat&z=17)")
         }.trim().ifBlank { "SOS" }

@@ -1257,6 +1257,15 @@ private fun CourierCarryingTab(
                                 ApiClient.parcelRoadsideHelp(stuckParcel.id, lat, lng)
                             }
                         }
+                        // И красная кнопка рядом. Тот же довод, что и у мягкой, только сильнее:
+                        // курьер на трассе ОДИН. Мягкую кнопку ему дали, а SOS остался только
+                        // на вкладке «Карта» — в беде человек не ходит по вкладкам (аудит 2026-08-06).
+                        // Дежурному уходит подпись с маршрутом: у сигнала нет поля под доставку,
+                        // а знать, что человек был в рейсе, ему нужно.
+                        item(key = "ccar-sos") {
+                            val p = activeParcels.firstOrNull { it.status == "in_transit" } ?: activeParcels.first()
+                            CourierSosButton(route = "Доставка #${p.id} ${p.fromCity} → ${p.toCity}")
+                        }
                     }
                     items(list.size, key = { "ccar-" + list[it].id }) { i ->
                         val parcel = list[i]

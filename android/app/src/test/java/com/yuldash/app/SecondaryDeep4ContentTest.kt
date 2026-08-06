@@ -137,6 +137,10 @@ class SecondaryDeep4ContentTest {
         composeRule.onNodeWithText("Правила поездок").assertIsDisplayed()   // заголовок TopBar
         composeRule.onNodeWithText("Уважайте друг друга").assertIsDisplayed()
         composeRule.onNodeWithText("Безопасность прежде всего").assertIsDisplayed()
+        // Предупреждение о SOS (2026-08-06). Водитель обязан узнать ЗАРАНЕЕ, что при сигнале
+        // близкие увидят его машину: правило, о котором не предупредили, читается как слежка.
+        // Поэтому пункт сторожим — молча исчезнуть он не должен.
+        composeRule.onNodeWithText("Если кто-то нажмёт SOS").assertIsDisplayed()
     }
 
     @Test
@@ -157,9 +161,9 @@ class SecondaryDeep4ContentTest {
                 RulesScreen(onBack = {})
             }
         }
-        // Нумерация карточек: 1..5 (высокое окно → все влезают).
+        // Нумерация карточек: 1..6 (высокое окно → все влезают).
         composeRule.onNodeWithText("1").assertIsDisplayed()
-        composeRule.onNodeWithText("5").assertIsDisplayed()
+        composeRule.onNodeWithText("6").assertIsDisplayed()
     }
 
     @Test

@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 from app.config import settings
 from app.db import engine
 from app.models import (
-    Ad, AppReview, Block, Booking, DeviceToken, DriverProfile, Message, OtpCode,
+    Ad, AppReview, Block, Booking, BookingStatus, DeviceToken, DriverProfile, Message, OtpCode,
     Payment, Rating, RefreshToken, Report, Ride, RideRequest, SosEvent, TgAuth,
     TrustedContact, UploadEvent, User, UserRole,
 )
@@ -467,7 +467,11 @@ def test_delete_account_wipes_all_data(client, user_factory):
         s.add(ride)
         s.commit()
         s.refresh(ride)
-        booking = Booking(ride_id=ride.id, passenger_id=uid)
+        # Бронь ЗАВЕРШЁННАЯ. С 2026-08-06 живая договорённость по попутке не даёт удалиться
+        # (пассажир не должен исчезнуть, оставив водителя ждать, и наоборот) — а этот тест
+        # про сам каскад удаления, не про запрет. Запрет проверяется отдельно,
+        # в test_cannot_vanish_on_a_rideshare.py.
+        booking = Booking(ride_id=ride.id, passenger_id=uid, status=BookingStatus.done)
         s.add(booking)
         s.commit()
         s.refresh(booking)

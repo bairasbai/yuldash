@@ -31,7 +31,7 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
-from ..flood import TOO_MANY_PARCELS, guard_open_items
+from ..flood import TOO_MANY_CARRYING, TOO_MANY_PARCELS, guard_open_items
 from ..models import ParcelDelivery, User, UserRole
 from ..safety_logic import (ensure_active,
                             is_own_media_url)
@@ -745,6 +745,16 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
     # и вместе с ней получал адрес, имя и телефон получателя.
     if is_blocked(session, user.id, parcel.sender_id):
         raise herr(403, "Эту посылку взять нельзя", "Был бандерольде алып булмай")
+    # Потолок на «сколько посылок у курьера на руках». Потолки на публикацию есть у водителя,
+    # у пассажира и у отправителя — а на ПРИЁМЕ не было ничего (аудит 2026-08-06). Один человек
+    # мог нажать «взять» на всех посылках района: каждая уходит из ленты, другие курьеры её
+    # больше не видят, а отправитель уверен, что она едет. У такси такой захват невозможен
+    # (занятому водителю заказы не предлагают), у попутки его ограничивают места в машине —
+    # у доставки не ограничивало ничто. Доставил → место освободилось.
+    guard_open_items(session, ParcelDelivery.id, ParcelDelivery.courier_id == user.id,
+                     ParcelDelivery.status.in_(("accepted", "in_transit", "returning")),
+                     limit=settings.flood_carrying_parcels_max,
+                     ru=TOO_MANY_CARRYING[0], ba=TOO_MANY_CARRYING[1])
     # C1: courier/buy_bring-заказы берут только одобренные курьеры на линии (гейт).
     # «По пути» (poputka) — как раньше, без гейта (любой попутчик помогает).
     if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "poputka":

@@ -2,6 +2,8 @@ package com.yuldash.app
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -118,4 +120,30 @@ fun RoadsideHelpAction(
             },
         )
     }
+}
+
+/**
+ * Красный SOS в рабочем экране курьера.
+ *
+ * Почему отдельно от мягкой кнопки. Довод, которым добавили «застрял на трассе», для настоящей
+ * опасности звучит сильнее: курьер едет ОДИН, рядом нет пассажира, который заметит беду.
+ * Мягкую кнопку ему дали, а красная осталась только на вкладке «Карта» — в беде человек
+ * не ходит по вкладкам (аудит 2026-08-06).
+ *
+ * Ведёт на общий экран SOS (звонок 112/102/103 + сигнал близким и дежурному), а не шлёт сигнал
+ * молча: в опасности выбор «кому звонить» должен остаться у человека.
+ *
+ * @param route подпись-контекст дежурному («Доставка #12 Баймак → Сибай»). У сигнала нет поля
+ *              под доставку, а знать, что человек был в рейсе, дежурному нужно — поэтому она
+ *              уходит в заметку сигнала, тем же путём, каким туда попадают координаты.
+ */
+@Composable
+internal fun CourierSosButton(route: String, modifier: Modifier = Modifier) {
+    AppButton(
+        text = appText("SOS — нужна помощь", "SOS — ярҙам кәрәк"),
+        onClick = { NavSignals.openSosWithNote.value = route },
+        style = AppButtonStyle.Danger,
+        icon = Icons.Default.Shield,
+        modifier = modifier.fillMaxWidth(),
+    )
 }

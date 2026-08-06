@@ -341,6 +341,7 @@ internal fun YuldashApp() {
     var instantChatOrderId by rememberSaveable { mutableStateOf(0) }   // чат такси-заказа (B7b-1): id заказа
     var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
     var sosBookingId by rememberSaveable { mutableStateOf(0) }         // SOS с контекстом попутки; 0 = без поездки
+    var sosContextNote by rememberSaveable { mutableStateOf("") }      // подпись дежурному (курьер: маршрут доставки)
     var receiptBookingId by rememberSaveable { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
     var taxiReceiptOrderId by rememberSaveable { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
     // Чат по посылке: id + с кем говорим + статус (по нему чат уходит в read-only после закрытия).
@@ -419,6 +420,20 @@ internal fun YuldashApp() {
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
         sosOrderId = wantSosForOrder
         NavSignals.openSosForOrder.value = 0
+        screen = Screen.Sos
+    }
+    // Красная кнопка курьера: он глубоко внутри вкладки «Доставка», колбэк тянуть незачем.
+    // Подпись с маршрутом уходит дежурному в заметке сигнала — поля под доставку у события нет.
+    val wantSosNote by NavSignals.openSosWithNote
+    LaunchedEffect(wantSosNote, screen) {
+        val note = wantSosNote ?: return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        NavSignals.openSosWithNote.value = null
+        // Присваиваем состояние напрямую: openSos() объявлена ниже по телу композабла,
+        // локальную функцию до объявления не вызвать (тем же способом ходит сигнал такси выше).
+        sosOrderId = 0
+        sosBookingId = 0
+        sosContextNote = note
         screen = Screen.Sos
     }
     // Пуш о ходе такси-заказа (B9b-2): тап по «Водитель найден / Машина на месте / …» →
@@ -609,9 +624,10 @@ internal fun YuldashApp() {
         screen = Screen.Login
     }
 
-    fun openSos(orderId: Int = 0, bookingId: Int = 0) {
+    fun openSos(orderId: Int = 0, bookingId: Int = 0, note: String = "") {
         sosOrderId = orderId       // контекст такси-заказа (0 = обычный SOS) — не даём протечь старому
         sosBookingId = bookingId   // контекст попутки (0 = обычный SOS)
+        sosContextNote = note      // подпись дежурному (курьер: маршрут доставки)
         screen = Screen.Sos
     }
     fun openHome(tab: HomeTab = HomeTab.Map) {
@@ -1047,6 +1063,7 @@ internal fun YuldashApp() {
                 onLoginRequired = { screen = Screen.Login },
                 orderId = sosOrderId.takeIf { it > 0 },     // контекст такси-заказа (B7b-2); 0 = обычный SOS
                 bookingId = sosBookingId.takeIf { it > 0 }, // контекст попутки; 0 = обычный SOS
+                contextNote = sosContextNote.takeIf { it.isNotBlank() },  // курьер: маршрут доставки
             )
             Screen.VerifyDriver -> VerifyDriverScreen(
                 onBack = { goBack() },
