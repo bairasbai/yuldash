@@ -2323,7 +2323,7 @@ internal fun YuldashBottomBar(
             )
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Request,
-                label = appText("Заявка", "Заявка"),
+                label = appText("Заявка", "Ғариза"),
                 iconRes = R.drawable.yu_request_add,
                 onClick = { onSelect(HomeTab.Request) }
             )

@@ -158,7 +158,7 @@ private fun ReceiptCard(r: TripReceiptDto) {
         // Детали
         AppCard {
             Column(Modifier.padding(4.dp)) {
-                ReceiptRow(Icons.Default.Place, appText("Маршрут", "Маршрут"), "${r.fromCity} → ${r.toCity}")
+                ReceiptRow(Icons.Default.Place, appText("Маршрут", "Юл"), "${r.fromCity} → ${r.toCity}")
                 ReceiptDivider()
                 ReceiptRow(Icons.Default.Schedule, appText("Дата и время", "Көн һәм ваҡыт"), formatDepart(r.departAt))
                 ReceiptDivider()

@@ -1912,7 +1912,7 @@ internal fun TripRouteHeaderCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
-                Text(driver ?: appText("Водитель", "Водитель"), color = CanonMuted)
+                Text(driver ?: appText("Водитель", "Йөрөтөүсе"), color = CanonMuted)
                 time?.let { Spacer(Modifier.width(8.dp)); Text(it, color = CanonMuted) }
             }
         }
@@ -2006,7 +2006,7 @@ internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifie
             TripPassRow(Icons.Default.Route, appText("Маршрут", "Юл"), "${pass.fromCity} → ${pass.toCity}")
             if (pass.departAt.isNotBlank()) TripPassRow(Icons.Default.Schedule, appText("Время", "Ваҡыт"), formatDepart(pass.departAt))
             val driverLine = listOf(pass.driverName, pass.driverCar).filter { it.isNotBlank() }.joinToString(" · ")
-            if (driverLine.isNotBlank()) TripPassRow(Icons.Default.Person, appText("Водитель", "Водитель"), driverLine)
+            if (driverLine.isNotBlank()) TripPassRow(Icons.Default.Person, appText("Водитель", "Йөрөтөүсе"), driverLine)
             if (pass.driverPhone.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TripPassRow(Icons.Default.Phone, appText("Телефон", "Телефон"), pass.driverPhone, modifier = Modifier.weight(1f))

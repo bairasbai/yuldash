@@ -711,7 +711,7 @@ internal fun CourierFareSummary(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MobilityValueTile(appText("Курьеру", "Курьерға"), courierGets, CanonGreen2, Modifier.weight(1f))
                 MobilityValueTile(appText("Сервис", "Сервис"), fee, CanonMutedStrong, Modifier.weight(1f))
-                MobilityValueTile(appText("Маршрут", "Маршрут"), distance, CanonMutedStrong, Modifier.weight(1f))
+                MobilityValueTile(appText("Маршрут", "Юл"), distance, CanonMutedStrong, Modifier.weight(1f))
             }
             Surface(shape = CanonItemShape, color = CanonMint) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp), content = breakdown)

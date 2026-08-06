@@ -379,7 +379,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
             }
         }
         // Форма.
-        item { SectionHeader(appText("Заявка", "Заявка"), appText("Пара минут — и на проверку", "Бер нисә минут — һәм тикшереүгә")) }
+        item { SectionHeader(appText("Заявка", "Ғариза"), appText("Пара минут — и на проверку", "Бер нисә минут — һәм тикшереүгә")) }
         item {
             OutlinedTextField(
                 value = inn,

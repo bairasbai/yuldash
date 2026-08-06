@@ -351,7 +351,7 @@ private fun CourierNotApprovedView(
                 }
                 TextButton(onClick = onBecomeCourier) {
                     Text(
-                        if (status == null) appText("Стать", "Булыу") else appText("Заявка", "Заявка"),
+                        if (status == null) appText("Стать", "Булыу") else appText("Заявка", "Ғариза"),
                         color = CanonGreen2, fontSize = DeliveryCaption, fontWeight = FontWeight.Bold,
                     )
                 }
