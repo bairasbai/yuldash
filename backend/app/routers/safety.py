@@ -335,6 +335,37 @@ def _guard_unpaid_report(session: Session, user: User, body: ReportIn) -> Option
     return None
 
 
+
+def _dedup_report(session: Session, user: User, body: ReportIn, target_id: int) -> Optional[Report]:
+    """Одна жалоба от одного человека на одного человека по одному поводу.
+
+    Зачем. Три resolved-жалобы за месяц автоматически ставят такси на паузу
+    (`quality.apply_ladder_after_resolve`), а считаются СТРОКИ, без учёта того, кто их подал.
+    Значит один человек, нажав «Пожаловаться» три раза, собирал всю лестницу в одиночку —
+    и не обязательно со зла: на слабой связи люди жмут повторно, потому что «ничего
+    не произошло» (аудит 2026-08-06).
+
+    Повод — это (автор, цель, категория) плюс конкретная поездка, если она указана. По РАЗНЫМ
+    поездкам и по разным категориям пожаловаться по-прежнему можно: это разные события.
+    Без привязки к поездке ограничиваемся сутками — иначе человек не сможет пожаловаться
+    на соседа второй раз спустя месяц.
+
+    Повтор не отвергаем ошибкой, а возвращаем уже созданную жалобу: для человека это выглядит
+    как «сработало», и он не жмёт снова. Тот же приём уже применён к «не заплатил» (B8-7)."""
+    conds = [
+        Report.reporter_id == user.id,
+        Report.target_user_id == target_id,
+        Report.category == body.category,
+    ]
+    if body.order_id is not None:
+        conds.append(Report.order_id == body.order_id)
+    elif body.booking_id is not None:
+        conds.append(Report.booking_id == body.booking_id)
+    else:
+        conds.append(Report.created_at >= utcnow() - timedelta(days=1))
+    return session.exec(select(Report).where(*conds).order_by(Report.id.desc())).first()
+
+
 @router.post("/reports", response_model=ReportCreatedOut)
 def create_report(body: ReportIn,
                   user: User = Depends(current_user), session: Session = Depends(get_session)):
@@ -351,7 +382,10 @@ def create_report(body: ReportIn,
     if not session.get(User, target_id):
         raise HTTPException(404, "Пользователь не найден")
     dup = _guard_unpaid_report(session, user, body)
-    if dup is not None:   # дедуп: одна unpaid-жалоба на заказ — повторный тап идемпотентен
+    if dup is None:
+        # Общий дедуп: один автор — одна жалоба по одному поводу (см. _dedup_report).
+        dup = _dedup_report(session, user, body, target_id)
+    if dup is not None:   # повторный тап идемпотентен: возвращаем уже созданную жалобу
         return ReportCreatedOut(id=dup.id, category=dup.category,
                                 status=dup.status, created_at=dup.created_at)
     report = Report(

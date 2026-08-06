@@ -289,12 +289,13 @@ def close_stale_parcels(now=None) -> int:
     now = now or utcnow()
     created_cut = now - timedelta(days=settings.parcel_open_days)
     with engine.begin() as conn:
+        # Только по возрасту объявления. На «нужно доставить к дате» здесь НЕ смотрим:
+        # просроченная посылка остаётся в ленте с флагом overdue («срок сорван, но везти
+        # надо») — это живая механика, а не мусор. См. live_parcel_conds в routers/parcels.py.
         return conn.execute(text(
             "UPDATE parceldelivery SET status = 'canceled' "
-            "WHERE status = 'created' AND ("
-            "  (deliver_by IS NOT NULL AND deliver_by < :today) OR "
-            "  (deliver_by IS NULL AND created_at < :ccut))"
-        ), {"today": now.date(), "ccut": created_cut}).rowcount or 0
+            "WHERE status = 'created' AND created_at < :ccut"
+        ), {"ccut": created_cut}).rowcount or 0
 
 
 
