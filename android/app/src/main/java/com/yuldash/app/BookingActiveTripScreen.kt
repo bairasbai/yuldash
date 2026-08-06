@@ -1689,11 +1689,25 @@ internal fun ActiveTripScreen(
             // Ссылка live-поездки (B7c): после выбора близкого показываем её тут же —
             // скопировать или отправить самому через системный share-sheet.
             var liveLink by remember { mutableStateOf<String?>(null) }
-            // Приватность: активные ссылки этой сессии + возможность отозвать (на бэке нет GET
-            // shares для брони, поэтому копим созданные тут; отозванные убираем сразу).
+            // Приватность: кому сейчас открыта поездка + возможность отозвать.
             var activeShares by remember { mutableStateOf<List<Pair<com.yuldash.app.data.TripShareDto, String>>>(emptyList()) }
             // «Поделиться ещё» гасит вид ссылки, но список активных ссылок оставляем видимым.
             var showContacts by remember { mutableStateOf(true) }
+            // Спрашиваем сервер, кому уже открыто. Раньше список жил только в памяти экрана:
+            // человек делился, сворачивал приложение — и отзывать было нечего, хотя ссылка на
+            // его живое местоположение работала до конца поездки (аудит 2026-08-06). Старый
+            // сервер без этой ручки просто вернёт ошибку — поведение как раньше, ничего не ломаем.
+            LaunchedEffect(bookingId) {
+                val bid = bookingId ?: return@LaunchedEffect
+                ApiClient.getBookingShares(bid).onSuccess { srv ->
+                    if (srv.isEmpty()) return@onSuccess
+                    activeShares = srv.map { s ->
+                        s to (contacts.firstOrNull { it.id == s.contactId }?.name ?: "")
+                    }
+                    liveLink = srv.firstNotNullOfOrNull { it.link?.takeIf(String::isNotBlank) }
+                    showContacts = false   // есть кому открыто → сразу показываем список, а не выбор контакта
+                }
+            }
             Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
                 val link = liveLink
                 if (activeShares.isNotEmpty() && !showContacts) {

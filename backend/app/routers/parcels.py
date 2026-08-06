@@ -36,6 +36,7 @@ from ..models import ParcelDelivery, User, UserRole
 from ..safety_logic import (ensure_active,
                             is_own_media_url)
 from ..security import current_user
+from ..antifraud import moderate_open_text
 from ..services import blocked_user_ids, is_blocked, notify_admin_telegram, push_notification
 from ..timeutil import utcnow
 from ..workday import local_day
@@ -490,6 +491,12 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
     ).first()
     if twin is not None:
         return _parcel_for_sender(twin, session)
+
+    # Описание посылки видит каждый курьер в ленте — это открытое объявление на 2000 знаков,
+    # самое просторное поле в приложении. С курьера берётся комиссия, поэтому телефон в описании
+    # помечаем так же, как в заказе такси. Проверялись заявка, отклик и отзыв — это поле нет
+    # (аудит 2026-08-06). Текст не режем и заявку не роняем: решает человек, метка лишь копится.
+    moderate_open_text(body.description, user.id)
 
     parcel = ParcelDelivery(
         sender_id=user.id,

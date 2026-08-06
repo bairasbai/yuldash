@@ -278,6 +278,9 @@ internal fun NotificationsScreen(
     onOpenResponses: (Int) -> Unit = {},
     onRouteWatches: () -> Unit = {},
     onOpenSupport: (Int) -> Unit = {},
+    onOpenParcels: () -> Unit = {},
+    onOpenInstantOrder: () -> Unit = {},
+    onOpenRide: (Int) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var selected by remember { mutableStateOf("all") }
@@ -319,6 +322,10 @@ internal fun NotificationsScreen(
         feed = feed.copy(unread = 0, items = feed.items.map { it.copy(read = true) })
         scope.launch { ApiClient.markNotificationsRead(null) }
     }
+    // Тап по карточке ведёт туда, где событие видно целиком.
+    // Аудит 2026-08-06: раньше открывались только бронь, заявка и обращение, а доставка и такси —
+    // самая большая группа событий — молчали. Карточка при этом пружинила под пальцем, то есть
+    // обещала переход. Человек читал «Курьер забрал посылку», жал и оставался на том же месте.
     fun openDeepLink(n: NotifDto) {
         markRead(n.id)
         val ref = n.refId ?: return
@@ -326,6 +333,9 @@ internal fun NotificationsScreen(
             "booking" -> onOpenBooking(ref)
             "request" -> onOpenResponses(ref)
             "support" -> onOpenSupport(ref)
+            "parcel" -> onOpenParcels()          // «Посылки»: там карточка с ходом доставки
+            "instant" -> onOpenInstantOrder()    // экран такси-заказа (сам подхватывает активный)
+            "ride" -> onOpenRide(ref)            // моя поездка (событие по опубликованному рейсу)
         }
     }
 

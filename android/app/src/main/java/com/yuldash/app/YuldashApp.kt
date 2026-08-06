@@ -340,6 +340,7 @@ internal fun YuldashApp() {
     var instantTripOrderId by rememberSaveable { mutableStateOf(0) }   // «Быстрый заказ»: id заказа для экрана поездки водителя
     var instantChatOrderId by rememberSaveable { mutableStateOf(0) }   // чат такси-заказа (B7b-1): id заказа
     var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
+    var sosBookingId by rememberSaveable { mutableStateOf(0) }         // SOS с контекстом попутки; 0 = без поездки
     var receiptBookingId by rememberSaveable { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
     var taxiReceiptOrderId by rememberSaveable { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
     // Чат по посылке: id + с кем говорим + статус (по нему чат уходит в read-only после закрытия).
@@ -484,6 +485,22 @@ internal fun YuldashApp() {
         DeepLink.pendingParcels.value = false   // одноразово — не переоткрываем при рекомпозиции
         screen = if (ApiClient.isLoggedIn()) Screen.Parcels else Screen.Login
     }
+    // Тап по пушу «новое сообщение» в попутке → бронь с чатом (аудит 2026-08-06: раньше
+    // открывалась просто карта, а переписку человек искал сам). Экран брони сам догружает
+    // детали по id — здесь достаточно самого номера. Не вошёл — сначала вход.
+    LaunchedEffect(DeepLink.pendingBookingChatId.value, screen) {
+        val bid = DeepLink.pendingBookingChatId.value ?: return@LaunchedEffect
+        // P3: ждём, пока сплэш/интро/онбординг отработают — иначе они перезапишут screen, а сигнал
+        // уже погашен, и тап по пушу на холодном старте (самый частый случай) потерялся бы.
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        DeepLink.pendingBookingChatId.value = null   // одноразово — не переоткрываем при рекомпозиции
+        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
+        selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "",
+                            price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
+        activeBookingId = bid
+        selectedBookingStatus = ""
+        screen = Screen.Booking
+    }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
     var partnerAds by vm.partnerAds
     // Объявление, открытое в редакторе кабинета партнёра (null = создание нового).
@@ -592,8 +609,9 @@ internal fun YuldashApp() {
         screen = Screen.Login
     }
 
-    fun openSos(orderId: Int = 0) {
-        sosOrderId = orderId   // контекст такси-заказа (0 = обычный SOS) — не даём протечь старому
+    fun openSos(orderId: Int = 0, bookingId: Int = 0) {
+        sosOrderId = orderId       // контекст такси-заказа (0 = обычный SOS) — не даём протечь старому
+        sosBookingId = bookingId   // контекст попутки (0 = обычный SOS)
         screen = Screen.Sos
     }
     fun openHome(tab: HomeTab = HomeTab.Map) {
@@ -1019,14 +1037,16 @@ internal fun YuldashApp() {
                 bookingId = activeBookingId,
                 onBack = { goBack() },
                 onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
-                onSos = { openSos() },
+                // Дежурный должен узнать из сигнала, с кем и куда человек уехал (аудит 2026-08-06).
+                onSos = { openSos(bookingId = activeBookingId ?: 0) },
                 onSupport = { screen = Screen.Support },
                 onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt }
             )
             Screen.Sos -> SosScreen(
                 onBack = { goBack() },
                 onLoginRequired = { screen = Screen.Login },
-                orderId = sosOrderId.takeIf { it > 0 }   // контекст такси-заказа (B7b-2); 0 = обычный SOS
+                orderId = sosOrderId.takeIf { it > 0 },     // контекст такси-заказа (B7b-2); 0 = обычный SOS
+                bookingId = sosBookingId.takeIf { it > 0 }, // контекст попутки; 0 = обычный SOS
             )
             Screen.VerifyDriver -> VerifyDriverScreen(
                 onBack = { goBack() },
@@ -1046,7 +1066,13 @@ internal fun YuldashApp() {
                 onOpenResponses = { rid -> responsesRequestId = rid; screen = Screen.RequestResponses },
                 onRouteWatches = { routeWatchPrefillFrom = ""; routeWatchPrefillTo = ""; screen = Screen.RouteWatches },
                 // Тап по уведомлению поддержки → тред обращения (ref_id = id тикета).
-                onOpenSupport = { tid -> supportTicketId = tid; screen = Screen.SupportTicket }
+                onOpenSupport = { tid -> supportTicketId = tid; screen = Screen.SupportTicket },
+                // Доставка и такси (аудит 2026-08-06): раньше эти карточки не открывались вовсе.
+                onOpenParcels = { screen = Screen.Parcels },
+                onOpenInstantOrder = { NavSignals.openInstantOrder.value = true },
+                // «Появилась поездка» / «Поездка завершена, оцени» → карточка поездки
+                // (тем же путём, что ссылка yulbash.ru/r/{id}).
+                onOpenRide = { rid -> DeepLink.pendingRideId.value = rid },
             )
             Screen.RouteWatches -> RouteWatchesScreen(
                 onBack = { goBack() },

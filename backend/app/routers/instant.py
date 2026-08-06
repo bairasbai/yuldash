@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
+from ..antifraud import moderate_open_text
 from ..config import settings as app_settings
 from ..db import get_session
 from ..errors import herr
@@ -273,6 +274,11 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     ).first()
     if existing:
         return isv.order_payload(session, existing, user)
+    # Комментарий к заказу читает каждый водитель, кому уходит оффер. В такси с водителя берётся
+    # комиссия, поэтому «звони мне на +7…» здесь — не обмен контактами по-соседски, а увод сделки
+    # мимо приложения (и мимо защиты: вне заказа нет ни SOS, ни чека, ни разбора спора).
+    # Проверялись комментарий заявки и отклик, а этот — нет (аудит 2026-08-06).
+    moderate_open_text(body.comment, user.id)
     order = InstantOrder(
         passenger_id=user.id,
         from_lat=body.from_lat, from_lng=body.from_lng,
@@ -338,6 +344,7 @@ def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
         raise HTTPException(403, isv.strike_pause_message())
     when = _parse_scheduled_at(body.scheduled_at)
     est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category)
+    moderate_open_text(body.comment, user.id)   # предзаказ — тот же открытый комментарий, что и обычный
     order = InstantOrder(
         passenger_id=user.id, status=S.scheduled, scheduled_at=when,
         from_lat=body.from_lat, from_lng=body.from_lng,

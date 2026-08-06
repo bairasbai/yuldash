@@ -10,7 +10,10 @@ from ..db import get_session
 from ..errors import herr
 from ..config import settings
 from ..logs import log
-from ..models import Block, Booking, BookingStatus, InstantOrder, Report, Ride, SosEvent, TripShare, TrustedContact, User, UserRole
+from ..models import (
+    Block, Booking, BookingStatus, DriverProfile, InstantOrder, Report, Ride, SosEvent,
+    TripShare, TrustedContact, User, UserRole,
+)
 from ..security import current_user
 from ..services import booking_and_ride_for_user, notify_admin_telegram, send_push, send_text
 from ..timeutil import utcnow
@@ -47,6 +50,24 @@ class SosIn(BaseModel):
     lng: Optional[float] = None
 
 
+def _ride_context_line(session: Session, ride: "Ride | None") -> str:
+    """Строка «с кем и на чём человек уехал» для SOS из попутки — админу в Telegram.
+
+    Отдаётся ТОЛЬКО админу и только в момент сигнала: это тот случай, когда данные второй
+    стороны важнее её приватности. В stdout не пишем (§8), в само событие не кладём.
+    """
+    if ride is None:
+        return ""
+    driver = session.get(User, ride.driver_id)
+    car = ""
+    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)).first()
+    if prof:
+        car = " ".join(x for x in (prof.car_color, prof.car_model, prof.car_plate) if x).strip()
+    return (f"Попутка: #{ride.id} {ride.from_city or '?'} → {ride.to_city or '?'}\n"
+            f"Водитель: {(driver.name if driver else None) or '—'}, тел {(driver.phone if driver else None) or '—'}"
+            f"{(', ' + car) if car else ''}\n")
+
+
 def _order_for_participant(session: Session, order_id: int, user: User) -> InstantOrder:
     """Такси-заказ, если пользователь — его участник (пассажир или назначенный водитель)."""
     order = session.get(InstantOrder, order_id)
@@ -59,8 +80,9 @@ def _order_for_participant(session: Session, order_id: int, user: User) -> Insta
 
 @router.post("/sos", response_model=SosEvent)
 def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    ride = None
     if body.booking_id is not None:
-        booking_and_ride_for_user(session, body.booking_id, user)
+        _, ride = booking_and_ride_for_user(session, body.booking_id, user)
     order = _order_for_participant(session, body.order_id, user) if body.order_id is not None else None
     # Сколько SOS уже было за последний час (ДО записи нового) — для кепа SMS.
     recent = session.exec(
@@ -98,6 +120,11 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     if order is not None:
         order_line = (f"Такси-заказ: #{order.id} {order.from_text or '?'} → {order.to_text or '?'}"
                       f" (статус {order.status.value})\n")
+    # То же самое для попутки (аудит 2026-08-06). Раньше booking_id только ПРОВЕРЯЛСЯ и
+    # выбрасывался: из такси админ узнавал маршрут и вторую сторону, а из попутки — ничего,
+    # хотя именно там человек садится в машину к незнакомцу. Первый вопрос спасателя —
+    # «с кем и на чём уехали», ответ должен быть в самом сигнале, а не искаться потом руками.
+    ride_line = _ride_context_line(session, ride)
     background.add_task(
         notify_admin_telegram,
         f"🆘 SOS (Юлдаш)\n"
@@ -105,6 +132,7 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
         f"Тел: {user.phone or '—'}\n"
         f"Категория: {body.category}\n"
         f"{order_line}"
+        f"{ride_line}"
         f"Контактов уведомлено (SMS): {notified}\n"
         f"Детали: {body.note or '—'}{where}"
     )

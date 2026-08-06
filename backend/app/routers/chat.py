@@ -418,8 +418,11 @@ def send_order_message(order_id: int, body: MessageIn, user: User = Depends(curr
         "from_admin": msg.from_admin,
         "timestamp": msg.created_at.isoformat(),
     })
+    # Свой тип, а не общий "chat": id тут — заказ такси, а у попутки под тем же словом лежал
+    # id брони. Пока тапом никуда не переходили, разницы не было; с deep-link (аудит 2026-08-06)
+    # приложение открыло бы бронь с номером заказа — то есть чужую поездку или пустоту.
     send_push(session, other_id, user.name or "Новое сообщение", (msg.text or "Голосовое сообщение")[:120],
-              {"type": "chat", "id": order_id})   # канал «Сообщения» + deep-link
+              {"type": "order_chat", "id": order_id})   # канал «Сообщения» + deep-link
     return msg
 
 

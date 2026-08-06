@@ -54,7 +54,10 @@ class FcmService : FirebaseMessagingService() {
         // Раздельные каналы: чат отдельно от поездок/прочего → пользователь глушит/настраивает раздельно.
         // Переписка по посылке — это тоже чат: без этой ветки сообщение курьера звенело бы в канале
         // «Поездки» у того, кто его специально приглушил, а в «Сообщениях» не появлялось вовсе.
-        val channelId = if (type == "chat" || type == "parcel_chat") CHANNEL_CHAT else CHANNEL_DEFAULT
+        // «order_chat» — переписка по заказу такси. Раньше она приходила под общим «chat»
+        // (тем же словом, что и чат попутки, но с id заказа): в канал попадала верно, а вот
+        // открыть по ней было нечего — по такому id бронь не ищется (аудит 2026-08-06).
+        val channelId = if (type in CHAT_TYPES) CHANNEL_CHAT else CHANNEL_DEFAULT
         ensureChannels(this)
         // Ход такси-заказа (B9b-2): тап открывает экран заказа пассажира (extra ловит MainActivity).
         val openInstantOrder = type == "instant_status"
@@ -66,8 +69,9 @@ class FcmService : FirebaseMessagingService() {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
             if (openInstantOrder) putExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, true)
             if (openParcels) putExtra(EXTRA_OPEN_PARCELS, true)
-            // Общий deep-link для остальных пушей: тип+id → MainActivity сможет открыть нужный экран
-            // (чат/бронь). Потребитель роутинга в MainActivity — следующий шаг; extras уже несём.
+            // Общий deep-link: тип+id → MainActivity открывает нужный экран (чат брони, чат
+            // такси-заказа). До 2026-08-06 эти extras никто не читал: человек получал
+            // «Марат: подъезжаю», жал — и попадал на карту, а переписку искал руками.
             if (!type.isNullOrBlank()) putExtra(EXTRA_PUSH_TYPE, type)
             if (!refId.isNullOrBlank()) putExtra(EXTRA_PUSH_ID, refId)
         }
@@ -100,6 +104,8 @@ class FcmService : FirebaseMessagingService() {
     companion object {
         const val CHANNEL_DEFAULT = "yuldash_default"   // поездки/брони/прочее (= прежний yuldash_default → канал не осиротеет)
         const val CHANNEL_CHAT = "yuldash_chat"         // сообщения чата — отдельный канал, мьютится независимо
+        /** Типы пушей-сообщений: чат попутки, чат такси-заказа, чат по посылке. */
+        val CHAT_TYPES = setOf("chat", "order_chat", "parcel_chat")
         const val EXTRA_PUSH_TYPE = "push_type"
         const val EXTRA_PUSH_ID = "push_id"
         /** Тап по пушу о посылке → открыть экран «Посылки» (ловит MainActivity). */

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlmodel import Session, select
 
+from ..antifraud import moderate_open_text
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
@@ -109,6 +110,11 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     if body.depart_at < utcnow() - timedelta(minutes=30):
         raise HTTPException(400, {"ru": "Время выезда уже прошло",
                                   "ba": "Сығыу ваҡыты үтеп киткән"})
+    # Комментарий к объявлению — открытое поле: его видит весь район, как и комментарий заявки.
+    # Заявка пассажира проверялась, объявление водителя — нет (аудит 2026-08-06), хотя это
+    # ровно тот же текст с другой стороны. check_contact=False: у попуток обмен номерами —
+    # норма и суть «между своими», комиссии тут нет. Ловим мат и фишинг («переведи предоплату»).
+    moderate_open_text(body.comment, user.id, check_contact=False)
     # F22: клиника-назначение (опц.). Если указана — проверяем, что она есть и активна
     # (чтобы не осталось битой ссылки). Это ТОЛЬКО точка назначения, без мед.данных.
     if body.partner_id is not None:
@@ -204,6 +210,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
         ride.price = body.price
         changed.append("цена")
     if body.comment is not None and body.comment != ride.comment:
+        moderate_open_text(body.comment, user.id, check_contact=False)   # правка — тот же путь, что публикация
         ride.comment = body.comment
         changed.append("комментарий")
     if body.depart_at is not None:
