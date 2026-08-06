@@ -47,6 +47,49 @@ def _live_trip(driver_id: int, passenger_id: int, *, car: bool = True):
         return ride, b
 
 
+def test_family_gets_the_car_but_not_the_driver_personally(client, user_factory, monkeypatch):
+    """Черта, по которой делим данные водителя (решение 2026-08-06).
+
+    Родным — то, что ВИДНО СНАРУЖИ МАШИНЫ: цвет, модель, госномер. Они самые быстрые
+    помощники, и первое, что спросит полиция, — номер машины. Имя и телефон водителя им
+    действовать не помогают, поэтому туда не идут: это уже данные из анкеты, они только
+    дежурному.
+    """
+    drv = user_factory("SosCarDrv", role=UserRole.driver)
+    pax = user_factory("SosCarPax")
+    _ride, b = _live_trip(drv["id"], pax["id"])
+    client.post("/trusted-contacts", headers=pax["auth"],
+                json={"name": "Мама", "relation": "мама", "phone": "+79170000301"})
+    sent = []
+    monkeypatch.setattr(safety, "_send_sos_sms", lambda phones, text: sent.append((list(phones), text)))
+
+    r = client.post("/sos", headers=pax["auth"],
+                    json={"category": "other", "note": "", "booking_id": b.id,
+                          "lat": 52.59, "lng": 58.31})
+    assert r.status_code == 200, r.text
+
+    to_family = [t for phones, t in sent if "+79170000301" in phones]
+    assert to_family, "близким SMS не ушло"
+    text = to_family[0]
+    assert "А123БВ102" in text, f"нет госномера — родным некого искать на дороге: {text}"
+    assert "Лада Гранта" in text and "белая" in text, f"нет описания машины: {text}"
+    assert "SosCarDrv" not in text, f"имя водителя утекло родным пассажира: {text}"
+    assert "tg-test" not in text, f"телефон водителя утёк родным пассажира: {text}"
+
+
+def test_family_sms_without_a_trip_has_no_car(client, user_factory, monkeypatch):
+    """SOS с улицы: машины нет — и выдумывать её нечего."""
+    u = user_factory("SosCarAlone")
+    client.post("/trusted-contacts", headers=u["auth"],
+                json={"name": "Брат", "relation": "брат", "phone": "+79170000302"})
+    sent = []
+    monkeypatch.setattr(safety, "_send_sos_sms", lambda phones, text: sent.append((list(phones), text)))
+
+    assert client.post("/sos", headers=u["auth"], json={"category": "medical"}).status_code == 200
+    text = [t for phones, t in sent if "+79170000302" in phones][0]
+    assert "Машина:" not in text, f"приписали машину там, где поездки нет: {text}"
+
+
 def test_sos_from_a_rideshare_names_the_driver_and_the_car(client, user_factory, monkeypatch):
     drv = user_factory("SosWhoDrv", role=UserRole.driver)
     pax = user_factory("SosWhoPax")

@@ -50,6 +50,22 @@ class SosIn(BaseModel):
     lng: Optional[float] = None
 
 
+def _car_of(session: Session, driver_id: "int | None") -> str:
+    """Описание машины: «белая Лада Гранта А123БВ102». Пусто, если анкета не заполнена.
+
+    Черта, по которой мы делим данные водителя при SOS (решение 2026-08-06):
+    ЧТО ВИДНО СНАРУЖИ МАШИНЫ — можно отдать близким; ЧТО ЗАПИСАНО В АНКЕТЕ (имя, телефон) —
+    только дежурному. Госномер висит на машине ровно затем, чтобы посторонний мог её опознать,
+    и это первое, что спросит полиция. Имя и телефон родным действовать не помогают.
+    """
+    if not driver_id:
+        return ""
+    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver_id)).first()
+    if not prof:
+        return ""
+    return " ".join(x for x in (prof.car_color, prof.car_model, prof.car_plate) if x).strip()
+
+
 def _ride_context_line(session: Session, ride: "Ride | None") -> str:
     """Строка «с кем и на чём человек уехал» для SOS из попутки — админу в Telegram.
 
@@ -59,10 +75,7 @@ def _ride_context_line(session: Session, ride: "Ride | None") -> str:
     if ride is None:
         return ""
     driver = session.get(User, ride.driver_id)
-    car = ""
-    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)).first()
-    if prof:
-        car = " ".join(x for x in (prof.car_color, prof.car_model, prof.car_plate) if x).strip()
+    car = _car_of(session, ride.driver_id)
     return (f"Попутка: #{ride.id} {ride.from_city or '?'} → {ride.to_city or '?'}\n"
             f"Водитель: {(driver.name if driver else None) or '—'}, тел {(driver.phone if driver else None) or '—'}"
             f"{(', ' + car) if car else ''}\n")
@@ -100,6 +113,12 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     session.add(event)
     session.commit()                 # событие фиксируем СИНХРОННО (жизнь дороже) — данные не теряются
     session.refresh(event)
+    # Машина, в которой человек едет. Родные — самые быстрые помощники: они уже за рулём, пока
+    # дежурный читает Telegram. «Уехала на попутке в Сибай» действовать не помогает, «белая Лада
+    # А123БВ102» — помогает, и это же первое, что спросит полиция (решение 2026-08-06).
+    # Имя и телефон водителя сюда НЕ идут: родным они не нужны, это уже данные из анкеты.
+    car = _car_of(session, ride.driver_id if ride is not None else (order.driver_id if order else None))
+    car_text = f" Машина: {car}." if car else ""
     # Телефоны доверенных контактов собираем ПОКА сессия открыта, рассылку SMS — в фон (после ответа).
     notified = 0
     if len(recent) < SOS_SMS_PER_HOUR:
@@ -110,7 +129,7 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
         # Ссылка на карту — главное в этом SMS: без неё родные знают, что беда, но не знают куда ехать.
         background.add_task(
             _send_sos_sms, phones,
-            f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.{where}",
+            f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.{where}{car_text}",
         )
     else:
         log.info(f"[SOS] user={user.id} SMS подавлены (кеп {SOS_SMS_PER_HOUR}/час), событие записано")
