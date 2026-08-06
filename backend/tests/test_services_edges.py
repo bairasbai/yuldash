@@ -34,9 +34,13 @@ class FakeCache:
     def get(self, key):
         return self.store.get(key)
 
-    def set(self, key, value, ex):
+    def set(self, key, value, ex=None, nx=False):
+        # Как настоящий Redis: SET NX не перезаписывает существующий ключ (для дебаунс-ворот).
+        if nx and key in self.store:
+            return None
         self.store[key] = value
         self.last_ttl = ex
+        return True
 
     def publish(self, channel, value):
         self.published.append((channel, value))
