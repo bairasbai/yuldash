@@ -191,6 +191,55 @@ def _clean_media():
     print(f"  медиа-файлы (фото/голос >{MEDIA_DAYS}д): {verb} {removed} шт, {freed // (1024 * 1024)} МБ")
 
 
+
+# ------------------------------ уведомления о закрытии автоматом ------------------------------
+# Правило, выведенное в этом же аудите: если объект человека закрывает автомат, человек обязан
+# об этом узнать. Иначе он ждёт: отправитель ждёт курьера по посылке, которую сняли с ленты
+# месяц назад; пассажир ждёт отклика по заявке, которая уже закрыта.
+#
+# Уведомление идёт через единую точку `services.push_notification` — то есть остаётся записью
+# в Центре уведомлений, а не только пушем «как получится»: ночью пуш почти наверняка не увидят.
+def _notify_closed(kind: str, rows: list[tuple[int, int]]) -> None:
+    """rows: (id объекта, id человека). Молча пропускаем, если уведомить не вышло:
+    уведомление вторично, чистка важнее и падать из-за него не должна."""
+    if not rows:
+        return
+    try:
+        from sqlmodel import Session
+
+        from .services import push_notification
+        texts = {
+            "request": (
+                "Заявка закрыта", "Заявка ябылды",
+                "Время поездки прошло, и никто не откликнулся. Создай новую — водители увидят.",
+                "Сәфәр ваҡыты үтте, бер кем дә яуап бирмәне. Яңыһын булдыр — водителдәр күрер.",
+            ),
+            "parcel": (
+                "Посылку никто не взял", "Бандеролде бер кем дә алманы",
+                "Она снята с ленты курьеров. Если всё ещё нужно отправить — создай заново.",
+                "Ул курьерҙар таҫмаһынан алынды. Әгәр ебәрергә кәрәк булһа — яңынан булдыр.",
+            ),
+            "ride": (
+                "Поездка закрыта", "Сәфәр ябылды",
+                "Время выезда прошло, попутчиков не было. Опубликуй новую, когда поедешь.",
+                "Сығыу ваҡыты үтте, юлдаштар булманы. Киткәндә яңыһын баҫтыр.",
+            ),
+            "order": (
+                "Заказ закрыт", "Заказ ябылды",
+                "Поездку долго не завершали, и мы закрыли её сами. Новые заказы снова доступны.",
+                "Сәфәр оҙаҡ тамамланманы, беҙ уны үҙебеҙ яптыҡ. Яңы заказдар тағы асыҡ.",
+            ),
+        }[kind]
+        with Session(engine) as session:
+            for obj_id, user_id in rows:
+                if not user_id:
+                    continue
+                push_notification(session, user_id, "system", texts[0], texts[1],
+                                  texts[2], texts[3], ref_kind=kind, ref_id=obj_id)
+    except Exception as ex:  # noqa: BLE001 — чистка важнее уведомления
+        print(f"  уведомления о закрытии ({kind}): ОШИБКА {type(ex).__name__}: {ex}")
+
+
 # ------------------------------ закрытие прошедших поездок ------------------------------
 # Не удаление, а смена статуса — поэтому отдельно от правил ретеншена выше.
 #
@@ -221,6 +270,9 @@ def close_past_rides(now=None) -> tuple:
             "  SELECT 1 FROM booking b WHERE b.ride_id = ride.id AND b.status = 'confirmed')"
         ), {"cut": cut}).rowcount or 0
         # expired: всё остальное прошедшее и активное — никто не поехал
+        ride_victims = [(r[0], r[1]) for r in conn.execute(text(
+            "SELECT id, driver_id FROM ride WHERE status = 'active' AND depart_at < :cut"
+        ), {"cut": cut}).all()]
         expired = conn.execute(text(
             "UPDATE ride SET status = 'expired' "
             "WHERE status = 'active' AND depart_at < :cut"
@@ -242,6 +294,7 @@ def close_past_rides(now=None) -> tuple:
             "  SELECT 1 FROM ride r WHERE r.id = booking.ride_id "
             "  AND r.status IN ('done', 'expired') AND r.depart_at < :cut)"
         ), {"cut": cut})
+    _notify_closed("ride", ride_victims)
     return done, expired
 
 
@@ -261,6 +314,13 @@ def close_past_requests(now=None) -> int:
     time_cut = now - timedelta(hours=settings.request_grace_hours)
     created_cut = now - timedelta(days=settings.request_no_time_days)
     with engine.begin() as conn:
+        # Кого закрываем — собираем ДО обновления: после него признак 'active' пропадёт.
+        victims = [(r[0], r[1]) for r in conn.execute(text(
+            "SELECT id, passenger_id FROM riderequest "
+            "WHERE status = 'active' AND ("
+            "  (desired_at IS NOT NULL AND desired_at < :tcut) OR "
+            "  (desired_at IS NULL AND created_at < :ccut))"
+        ), {"tcut": time_cut, "ccut": created_cut}).all()]
         n = conn.execute(text(
             "UPDATE riderequest SET status = 'expired' "
             "WHERE status = 'active' AND ("
@@ -276,7 +336,8 @@ def close_past_requests(now=None) -> int:
             "  SELECT 1 FROM riderequest rq WHERE rq.id = requestresponse.request_id "
             "  AND rq.status = 'expired')"
         ))
-        return n
+    _notify_closed("request", victims)
+    return n
 
 
 # ------------------------------ закрытие протухших посылок ------------------------------
@@ -292,10 +353,16 @@ def close_stale_parcels(now=None) -> int:
         # Только по возрасту объявления. На «нужно доставить к дате» здесь НЕ смотрим:
         # просроченная посылка остаётся в ленте с флагом overdue («срок сорван, но везти
         # надо») — это живая механика, а не мусор. См. live_parcel_conds в routers/parcels.py.
-        return conn.execute(text(
+        victims = [(r[0], r[1]) for r in conn.execute(text(
+            "SELECT id, sender_id FROM parceldelivery "
+            "WHERE status = 'created' AND created_at < :ccut"
+        ), {"ccut": created_cut}).all()]
+        n = conn.execute(text(
             "UPDATE parceldelivery SET status = 'canceled' "
             "WHERE status = 'created' AND created_at < :ccut"
         ), {"ccut": created_cut}).rowcount or 0
+    _notify_closed("parcel", victims)
+    return n
 
 
 
@@ -321,6 +388,11 @@ def close_stale_orders(now=None) -> int:
     cut = now - timedelta(hours=settings.taxi_stale_hours)
     closed = 0
     with engine.begin() as conn:
+        # Водителю важнее всех: пока заказ висел, он не мог взять ни одного нового.
+        order_victims = [(r[0], r[1]) for r in conn.execute(text(
+            "SELECT id, driver_id FROM instantorder "
+            "WHERE status IN ('accepted', 'arriving', 'onboard') AND created_at < :cut"
+        ), {"cut": cut}).all()]
         closed += conn.execute(text(
             "UPDATE instantorder SET status = 'cancelled' "
             "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
@@ -333,6 +405,7 @@ def close_stale_orders(now=None) -> int:
             "UPDATE instantorder SET status = 'expired' "
             "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut"
         ), {"cut": cut}).rowcount or 0
+    _notify_closed("order", order_victims)
     return closed
 
 

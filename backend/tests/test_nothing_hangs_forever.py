@@ -564,3 +564,94 @@ def test_чистка_не_трогает_идущую_поездку(client, us
     assert str(o.status).endswith("onboard"), (
         f"чистка оборвала идущую поездку: заказ стал {o.status}"
     )
+
+
+# ---------- Автомат закрыл — человек узнал ----------
+# Правило из этого же аудита: если объект человека закрывает автомат, человек обязан узнать.
+# Иначе он ждёт: отправитель ждёт курьера по посылке, снятой с ленты месяц назад; пассажир
+# ждёт отклика по заявке, которая давно закрыта. Закрыть молча — хуже, чем не закрывать.
+
+def _notes_count(user_id: int) -> int:
+    from app.models import Notification
+    with Session(engine) as s:
+        return len(list(s.exec(select(Notification).where(
+            Notification.user_id == user_id)).all()))
+
+
+def test_закрыли_заявку_пассажир_узнал(client, user_factory):
+    from app.cleanup import close_past_requests
+
+    pax = user_factory("NotifyReqPax")
+    rid = _make_request(client, pax)
+    _age_request(rid, days=30)
+    before = _notes_count(pax["id"])
+
+    close_past_requests()
+    assert _notes_count(pax["id"]) > before, (
+        "заявку закрыли молча — человек продолжает ждать отклика по закрытой заявке"
+    )
+
+
+def test_закрыли_посылку_отправитель_узнал(client, user_factory, monkeypatch):
+    from app.cleanup import close_stale_parcels
+
+    monkeypatch.setattr(settings, "courier_enabled", True, raising=False)
+    sender = user_factory("NotifyParcelSender")
+    pid = _make_parcel(client, sender, phone="+79990009931")
+    _age_parcel(pid, days=45)
+    before = _notes_count(sender["id"])
+
+    close_stale_parcels()
+    assert _notes_count(sender["id"]) > before, (
+        "посылку сняли с ленты молча — отправитель ждёт курьера, которого уже не будет"
+    )
+
+
+def test_закрыли_поездку_водитель_узнал(client, user_factory):
+    from app.cleanup import close_past_rides
+    from app.models import Ride
+
+    driver = user_factory("NotifyRideDrv", role=UserRole.driver)
+    ride_id = _ride(client, driver, seats=2)
+    with Session(engine) as s:
+        ride = s.get(Ride, ride_id)
+        ride.depart_at = utcnow() - timedelta(days=3)
+        s.add(ride)
+        s.commit()
+    before = _notes_count(driver["id"])
+
+    close_past_rides()
+    assert _notes_count(driver["id"]) > before, (
+        "поездку закрыли молча — у водителя она просто исчезла из текущих"
+    )
+
+
+def test_закрыли_забытый_заказ_водитель_узнал(client, user_factory, fake_redis):
+    """Водителю это важнее всех: пока заказ висел, он не мог взять ни одного нового."""
+    from app.cleanup import close_stale_orders
+
+    passenger = user_factory("NotifyOrderPax")
+    driver = user_factory("NotifyOrderDrv", role=UserRole.driver)
+    oid = _taxi_order(client, passenger, driver)
+    client.post(f"/instant/orders/{oid}/arrived", headers=driver["auth"])
+    client.post(f"/instant/orders/{oid}/onboard", headers=driver["auth"])
+    _age_order(oid, hours=48)
+    before = _notes_count(driver["id"])
+
+    close_stale_orders()
+    assert _notes_count(driver["id"]) > before, (
+        "забытый заказ закрыли молча — водитель не знает, почему снова может работать"
+    )
+
+
+def test_свежие_объекты_никого_не_будят(client, user_factory):
+    """Обратная сторона: чистка не должна слать уведомления по тому, что не закрывала."""
+    from app.cleanup import close_past_requests
+
+    pax = user_factory("NotifyQuietPax")
+    _make_request(client, pax)
+    before = _notes_count(pax["id"])
+    close_past_requests()
+    assert _notes_count(pax["id"]) == before, (
+        "чистка разбудила человека по живой заявке"
+    )
