@@ -38,6 +38,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -199,6 +201,10 @@ import androidx.compose.foundation.layout.sizeIn
 import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import android.Manifest
@@ -908,7 +914,7 @@ internal fun CompactProfileBanner() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun ActiveTripScreen(
     ride: Ride?,
@@ -1261,6 +1267,7 @@ internal fun ActiveTripScreen(
                 var reviewText by remember { mutableStateOf("") }
                 var rating by remember { mutableStateOf(false) }   // запрос в полёте — блок повторных тапов, откат при сбое
                 var reviewSent by remember { mutableStateOf(false) }
+                var pickedTags by remember { mutableStateOf(setOf<String>()) }
                 val isDriver = role == "driver"
                 val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
                 val reviewSentMsg = appText("Спасибо! Отзыв на проверке", "Рәхмәт! Фекер тикшереүҙә")
@@ -1285,8 +1292,8 @@ internal fun ActiveTripScreen(
                                             if (id != null) {
                                                 rating = true
                                                 voiceScope.launch {
-                                                    // Звёзды уходят сразу; текст (если уже написан) прикрепляем тем же запросом.
-                                                    ApiClient.rateBooking(id, n, reviewText)
+                                                    // Звёзды уходят сразу; текст и метки (если уже выбраны) прикрепляем тем же запросом.
+                                                    ApiClient.rateBooking(id, n, reviewText, pickedTags.toList())
                                                         .onSuccess {
                                                             rating = false
                                                             if (!reviewSent) Toast.makeText(context, thanksMsg, Toast.LENGTH_SHORT).show()
@@ -1306,6 +1313,85 @@ internal fun ActiveTripScreen(
                                         tint = if (n <= myStars) CanonStar else CanonMuted,
                                         modifier = Modifier.size(48.dp),
                                     )
+                                }
+                            }
+                        }
+                        // Быстрые метки — появляются сразу после звёзд. Тапнул пару штук и свободен:
+                        // писать отзыв согласны единицы, а метку ставят почти все.
+                        //
+                        // Показываем те, что подходят выставленной оценке: за 4–5★ хвалебные,
+                        // за 1–3★ те, что объясняют низкую. Предлагать «Грубый» человеку, который
+                        // только что поставил пятёрку, — навязывать ссору на пустом месте.
+                        //
+                        // Набор зависит и от того, КОГО оцениваем: «Чисто в машине» пассажиру
+                        // не адресуешь, машина не его.
+                        if (myStars > 0) {
+                            val tagOptions: List<Pair<String, String>> = if (myStars >= 4) {
+                                if (isDriver) listOf(
+                                    "polite" to appText("Вежливый", "Итәғәтле"),
+                                    "ontime" to appText("Вовремя вышел", "Ваҡытында сыҡты"),
+                                    "helpful" to appText("Помог в дороге", "Юлда ярҙам итте"),
+                                ) else listOf(
+                                    "polite" to appText("Вежливый", "Итәғәтле"),
+                                    "ontime" to appText("Приехал вовремя", "Ваҡытында килде"),
+                                    "clean" to appText("Чисто в машине", "Машинала таҙа"),
+                                    "safe" to appText("Везёт аккуратно", "Һаҡ йөрөтә"),
+                                    "comfortable" to appText("Ехать удобно", "Барыуы уңайлы"),
+                                )
+                            } else {
+                                if (isDriver) listOf(
+                                    "late" to appText("Опоздал", "Һуңланы"),
+                                    "rude" to appText("Грубый", "Тупаҫ"),
+                                ) else listOf(
+                                    "late" to appText("Опоздал", "Һуңланы"),
+                                    "rude" to appText("Грубый", "Тупаҫ"),
+                                    "unsafe" to appText("Опасная езда", "Хәүефле йөрөтөү"),
+                                    "dirty" to appText("Грязно в машине", "Машинала бысраҡ"),
+                                    "detour" to appText("Вёз кругами", "Урап йөрөттө"),
+                                )
+                            }
+                            // FlowRow, а не прокрутка вбок: башкирская подпись длиннее русской,
+                            // и при крупном системном шрифте метки обязаны переноситься,
+                            // а не уезжать за край, где их никто не найдёт.
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                tagOptions.forEach { (code, label) ->
+                                    val on = code in pickedTags
+                                    val chipBg by animateColorAsState(if (on) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "tag-bg")
+                                    val chipLine by animateColorAsState(if (on) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "tag-line")
+                                    val chipInk by animateColorAsState(if (on) CanonGreen2 else CanonMutedStrong, tween(CanonMotion.QUICK), label = "tag-ink")
+                                    Surface(
+                                        onClick = {
+                                            val next = if (on) pickedTags - code else pickedTags + code
+                                            pickedTags = next
+                                            // Уходит сразу, как и звёзды: отдельной кнопки «сохранить метки»
+                                            // нет, иначе человек выберет и уйдёт, не нажав.
+                                            val id = bookingId
+                                            if (id != null) voiceScope.launch {
+                                                ApiClient.rateBooking(id, myStars, reviewText, next.toList())
+                                            }
+                                        },
+                                        enabled = !rating,
+                                        color = chipBg,
+                                        shape = CanonFieldShape,
+                                        border = BorderStroke(1.dp, chipLine),
+                                        modifier = Modifier
+                                            .heightIn(min = 48.dp)          // тач-цель ≥48dp
+                                            // this. обязательно: у самого экрана есть параметр `role`
+                                            // (строка «driver»/«passenger»), и без уточнения Kotlin
+                                            // подставляет его вместо семантики доступности.
+                                            .semantics(mergeDescendants = true) {
+                                                this.role = Role.Checkbox
+                                                this.selected = on
+                                            },
+                                    ) {
+                                        Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+                                            Text(label, color = chipInk, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1330,7 +1416,7 @@ internal fun ActiveTripScreen(
                                     if (id != null && reviewText.isNotBlank()) {
                                         rating = true
                                         voiceScope.launch {
-                                            ApiClient.rateBooking(id, myStars, reviewText)
+                                            ApiClient.rateBooking(id, myStars, reviewText, pickedTags.toList())
                                                 .onSuccess { rating = false; reviewSent = true; Toast.makeText(context, reviewSentMsg, Toast.LENGTH_SHORT).show() }
                                                 .onFailure { rating = false; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }
                                         }

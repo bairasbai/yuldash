@@ -1855,10 +1855,21 @@ object ApiClient {
     suspend fun setTripStatus(bookingId: Int, status: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true).map { }
 
-    /** Оценить вторую сторону поездки (1..5 звёзд) + опц. текстовый отзыв (≤500, идёт на модерацию). */
-    suspend fun rateBooking(bookingId: Int, stars: Int, text: String = ""): Result<Unit> =
+    /** Оценить вторую сторону поездки (1..5 звёзд) + опц. текстовый отзыв (≤500, идёт на модерацию)
+     *  и быстрые метки («вежливый», «вовремя») — коды из закрытого списка, сервер их фильтрует. */
+    suspend fun rateBooking(
+        bookingId: Int,
+        stars: Int,
+        text: String = "",
+        tags: List<String> = emptyList(),
+    ): Result<Unit> =
         call("POST", "/bookings/$bookingId/rate",
-            JSONObject().put("stars", stars).apply { text.trim().take(500).let { if (it.isNotBlank()) put("text", it) } },
+            JSONObject().put("stars", stars).apply {
+                text.trim().take(500).let { if (it.isNotBlank()) put("text", it) }
+                // Пустой список не шлём: на сервере пустое НЕ затирает уже поставленные метки,
+                // и гонять пустое поле по сети незачем.
+                if (tags.isNotEmpty()) put("tags", tags.joinToString(","))
+            },
             auth = true).map { }
 
     /** Публичный профиль водителя: стаж, поездки, средний рейтинг, отзывы (после модерации). Без ПДн. */

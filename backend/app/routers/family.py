@@ -16,6 +16,7 @@ from ..models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, ParcelDelivery, Rating, Ride,
     TripShare, TrustedContact, User,
 )
+from ..safety_logic import clean_tags
 from ..security import current_user
 from ..services import booking_and_ride_for_user, send_push, send_text, user_rating
 from ..timeutil import utcnow
@@ -367,13 +368,17 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
 class RateIn(BaseModel):
     stars: int
     text: str = Field("", max_length=500)   # текстовый отзыв (опц.) — на модерацию, ≤500
+    # Быстрые метки, CSV («polite,ontime»). Длину режем уже на входе, чтобы мегабайтная строка
+    # не доехала до валидатора; сам список фильтрует safety_logic.clean_tags.
+    tags: str = Field("", max_length=300)
 
 
 @router.post("/bookings/{booking_id}/rate")
 def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Оценить вторую сторону поездки (1..5) + опц. текстовый отзыв. Пассажир оценивает
-    водителя, водитель — пассажира. Одна оценка на бронь от каждого. Текст (если есть)
-    появляется в публичном профиле только после модерации (`text_published`)."""
+    """Оценить вторую сторону поездки (1..5) + опц. текстовый отзыв и быстрые метки.
+    Пассажир оценивает водителя, водитель — пассажира. Одна оценка на бронь от каждого.
+    Текст (если есть) появляется в публичном профиле только после модерации (`text_published`);
+    метки — сразу: они из закрытого списка, оскорбить ими нельзя."""
     b = session.get(Booking, booking_id)
     if not b:
         raise HTTPException(status_code=404, detail="Бронь не найдена")
@@ -391,11 +396,17 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
         raise HTTPException(status_code=409, detail="Оценить можно только завершённую поездку")
     stars = max(1, min(5, body.stars))
     text = (body.text or "").strip()[:500]
+    tags = clean_tags(body.tags)      # неизвестные коды молча отбрасываем, не роняя оценку
     existing = session.exec(
         select(Rating).where(Rating.booking_id == booking_id, Rating.rater_id == user.id)
     ).first()
     if existing:
         existing.stars = stars
+        # Метки шлём тем же запросом, что и звёзды: первый тап по звезде уходит с пустым CSV,
+        # метки прилетают следующим. Пустое НЕ затирает уже поставленное — иначе человек,
+        # поправивший звёзды после меток, потерял бы метки.
+        if tags:
+            existing.tags = tags
         if text != existing.text:
             # Текст сменился → снова на модерацию (нельзя одобрить, потом подменить).
             existing.text = text
@@ -403,7 +414,7 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
         session.add(existing)
     else:
         session.add(Rating(booking_id=booking_id, rater_id=user.id, ratee_id=ratee_id,
-                           stars=stars, text=text, text_published=False))
+                           stars=stars, text=text, tags=tags, text_published=False))
     session.commit()
     avg, cnt = user_rating(session, ratee_id)
     # Оценили водителя → обновим витринный рейтинг в профиле.

@@ -41,6 +41,29 @@ CANCEL_REASONS: set = {
 }
 
 
+# Быстрые метки к оценке: тапнул пару штук — и писать ничего не надо.
+# Зачем отдельно от текстового отзыва: текст пишут единицы, и он ещё ждёт модерации,
+# а метку ставят все. Из меток складывается понятный портрет («вежливый», «вовремя»),
+# который виден сразу, без чтения чужих сочинений.
+# Список закрытый: произвольная строка от клиента в БД не попадает.
+RATING_TAGS: set[str] = {
+    "polite", "ontime", "clean", "safe", "comfortable", "helpful",   # хорошее
+    "late", "rude", "unsafe", "dirty", "detour",                     # плохое
+}
+RATING_TAGS_MAX = 5          # больше пяти — это уже не метка, а шум
+
+
+def clean_tags(csv: Optional[str]) -> str:
+    """Оставляем только известные метки, максимум RATING_TAGS_MAX, без дублей.
+
+    Порядок сохраняем: человек тапал в каком-то смысле, первая метка обычно главная."""
+    if not csv:
+        return ""
+    got = [t.strip().lower() for t in csv.split(",") if t.strip()]
+    keep = list(dict.fromkeys(t for t in got if t in RATING_TAGS))[:RATING_TAGS_MAX]
+    return ",".join(keep)
+
+
 def clamp(text: Optional[str], limit: int) -> str:
     return (text or "").strip()[:limit]
 

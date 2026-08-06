@@ -606,6 +606,11 @@ class Rating(SQLModel, table=True):
     stars: int = 5                           # 1..5
     text: str = ""                           # текстовый отзыв (опц., ≤500) — идёт на модерацию
     text_published: bool = Field(default=False, index=True)  # текст одобрен к показу в публичном профиле
+    # Быстрые метки, CSV: polite,ontime,clean,safe,comfortable,helpful,late,rude,unsafe,dirty,detour.
+    # Список закрытый (safety_logic.RATING_TAGS), чистятся через clean_tags — произвольная строка
+    # от клиента сюда не попадает. Модерации НЕ требуют: выбор из закрытого списка оскорбить нельзя,
+    # в отличие от свободного текста.
+    tags: str = Field(default="", max_length=200)
     # «Щит рейтинга» (Справедливость): админ пометил оценку спорной/накрученной → НЕ входит в средний
     # рейтинг (агрегат фильтрует excluded=False). Защита оболганного: месть-оценка не рушит рейтинг.
     excluded: bool = False
