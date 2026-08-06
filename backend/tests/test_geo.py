@@ -81,11 +81,17 @@ def test_seed_counts_by_kind(client):
 
 
 def test_seed_no_duplicates_and_rerun_noop(client):
+    """Города/райцентры/соседи уникальны по имени; деревни-тёзки («Берёзовка» в трёх районах) —
+    это НЕ дубли, у них ключ (имя, регион, район). Повторный сид ничего не добавляет."""
     with Session(engine) as s:
-        names = list(s.exec(select(Settlement.name_ru)).all())
-        assert len(names) == len(set(names))     # без дублей
-        before = len(names)
+        big = list(s.exec(select(Settlement.name_ru).where(Settlement.kind != "village")).all())
+        assert len(big) == len(set(big))
+        villages = [(x.name_ru, x.region, x.district) for x in
+                    s.exec(select(Settlement).where(Settlement.kind == "village")).all()]
+        assert len(villages) == len(set(villages))
+        before = len(s.exec(select(Settlement.name_ru)).all())
         geo.seed_settlements(s)                  # повторный сид
+        geo.seed_villages(s)
         after = len(s.exec(select(Settlement.name_ru)).all())
     assert after == before                       # no-op
 
@@ -141,7 +147,13 @@ def test_geocode_prefers_settlement_table(client):
         s.commit()
     assert services.geocode_city("Тестоград") == (50.5, 57.5)
     assert services.geocode_city("тестҡала") == (50.5, 57.5)   # BA-имя, без регистра
-    assert services.geocode_city("Темясово") == (52.972, 58.16)  # фолбэк на CITY_COORDS жив
+    # Темясово раньше жило только в хардкоде CITY_COORDS, теперь оно есть в справочнике (из OSM):
+    # координаты берутся оттуда. Хардкод был прикидкой и мазал на ~4,5 км — проверяем, что
+    # это по-прежнему то же село (в пределах 6 км), а не соседнее.
+    lat, lng = services.geocode_city("Темясово")
+    assert services.haversine_km(lat, lng, 52.972, 58.160) < 6.0
+    # Ни в справочнике, ни в CITY_COORDS, ключа Яндекса нет → честно None, а не выдумка.
+    assert services.geocode_city("Такогогороданет") is None
 
 
 # ============================ Популярные маршруты ============================

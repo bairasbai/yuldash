@@ -1,8 +1,9 @@
-"""Деревни РБ (kind='village'): чистый разбор OSM, идемпотентный сид, тёзки по районам,
-приоритет в поиске (деревни после городов/райцентров), district в выдаче.
+"""Деревни (kind='village'): чистый разбор OSM, идемпотентный сид, тёзки по районам,
+приоритет в поиске (деревни после городов/райцентров/соседей), district в выдаче,
+приграничье соседних регионов и то, что деревня не подменяет город в зонах такси.
 
-Реальный датасет (app/data/villages_rb.json) в репо пустой — фича «готова, ждёт данных»:
-на пустом seed_villages = no-op, поэтому счётчики справочника (test_geo) не трогаются.
+Реальные датасеты — app/data/villages_rb.json (вся РБ) и villages_border.json (полоса
+~50 км у соседей). Тесты работают на своих фикстурах, чтобы не зависеть от их объёма.
 
 DB-мутирующие тесты идут в СВОЁЙ in-memory БД (isolated), чтобы не засорять общий сид.
 """
@@ -11,7 +12,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.db import engine
 from app import geo
-from app.models import Settlement
+from app.models import Settlement, UserRole
 
 
 @pytest.fixture
@@ -19,8 +20,10 @@ def iso_session():
     """Изолированная in-memory БД — мутации деревень не текут в общий сид (test_geo и пр.)."""
     eng = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(eng)
+    geo.invalidate_cache()          # снимок справочника — свой на каждую БД
     with Session(eng) as s:
         yield s
+    geo.invalidate_cache()
 
 
 # ============================ Чистый разбор OSM (без БД) ============================
@@ -44,10 +47,21 @@ def test_parse_overpass_filters_and_extracts():
 
 
 # ============================ Пустой датасет = no-op ============================
-def test_seed_villages_empty_is_noop(iso_session):
-    """В репо villages_rb.json = [] → seed_villages ничего не добавляет."""
+def test_seed_villages_empty_is_noop(iso_session, monkeypatch):
+    """Нет данных (пустые файлы) → seed_villages ничего не добавляет и не падает."""
+    monkeypatch.setattr(geo, "_load_villages_data", list)
     assert geo.seed_villages(iso_session) == 0
     assert iso_session.exec(select(Settlement)).all() == []
+
+
+def test_real_datasets_are_sane():
+    """Датасеты в репо: непустые, у каждой строки имя и координаты в пределах Урала-Поволжья."""
+    rows = geo._load_villages_data()
+    assert len(rows) > 3000, "деревни не залиты — справочник обеднел"
+    for r in rows[:2000]:
+        assert r.get("name_ru"), r
+        assert 50.0 <= float(r["lat"]) <= 60.0 and 46.0 <= float(r["lng"]) <= 62.0, r
+    assert sum(1 for r in rows if (r.get("region") or "РБ") != "РБ") > 300, "нет приграничья соседей"
 
 
 # ============================ Идемпотентный сид + тёзки ============================
@@ -77,6 +91,133 @@ def test_village_ranks_after_city_and_district_center(iso_session):
     iso_session.commit()
     rows = geo.search_settlements(iso_session, "Яск", limit=10)
     assert [r.kind for r in rows] == ["city", "district_center", "village"]   # порядок по _KIND_ORDER
+
+
+def test_neighbor_city_ranks_above_villages(iso_session):
+    """«Маг» должен давать Магнитогорск, а не деревню Магадеево: город соседей выше деревень."""
+    iso_session.add(Settlement(name_ru="Магадеево", region="РБ", kind="village", district="Абзелиловский р-н",
+                               lat=53.6, lng=58.6))
+    iso_session.add(Settlement(name_ru="Магнитогорск", region="Челябинская обл.", kind="neighbor",
+                               lat=53.412, lng=58.984))
+    iso_session.commit()
+    assert [r.name_ru for r in geo.search_settlements(iso_session, "Маг", limit=5)] == \
+        ["Магнитогорск", "Магадеево"]
+
+
+def test_rb_village_ranks_above_border_village(iso_session):
+    """Своя деревня раньше приграничной — попутка по республике ближе человеку."""
+    iso_session.add(Settlement(name_ru="Ивановка", region="Челябинская обл.", kind="village",
+                               district="Кунашакский р-н", lat=55.7, lng=61.5))
+    iso_session.add(Settlement(name_ru="Ивановка", region="РБ", kind="village",
+                               district="Хайбуллинский р-н", lat=51.9, lng=58.2))
+    iso_session.commit()
+    rows = geo.search_settlements(iso_session, "Иванов", limit=5)
+    assert [r.region for r in rows] == ["РБ", "Челябинская обл."]
+
+
+# ============================ Поиск: буквы, которых нет на клавиатуре ============================
+def test_search_ignores_yo_and_bashkir_letters(iso_session):
+    """«березовка» находит «Берёзовку», «офо» — «Өфө»: человек печатает как удобно."""
+    iso_session.add(Settlement(name_ru="Берёзовка", region="РБ", kind="village",
+                               district="Иглинский р-н", lat=54.8, lng=56.4))
+    iso_session.add(Settlement(name_ru="Уфа", name_ba="Өфө", region="РБ", kind="city", lat=54.735, lng=55.958))
+    iso_session.commit()
+    assert [r.name_ru for r in geo.search_settlements(iso_session, "березовка")] == ["Берёзовка"]
+    assert [r.name_ru for r in geo.search_settlements(iso_session, "офо")] == ["Уфа"]
+
+
+def test_search_matches_second_word(iso_session):
+    """«киги» находит «Верхние Киги» — люди ищут по главному слову, а не по первому."""
+    iso_session.add(Settlement(name_ru="Верхние Киги", region="РБ", kind="district_center", lat=55.4, lng=58.6))
+    iso_session.commit()
+    assert [r.name_ru for r in geo.search_settlements(iso_session, "киги")] == ["Верхние Киги"]
+
+
+# ============================ Приграничье соседей ============================
+_BORDER_FIX = [
+    {"name_ru": "Ташбулатово", "district": "Абзелиловский р-н", "lat": 53.62, "lng": 58.70},   # region по умолчанию — РБ
+    {"name_ru": "Смеловский", "region": "Челябинская обл.", "district": "Кизильский р-н", "lat": 52.9, "lng": 59.2},
+    {"name_ru": "Магнитогорск", "region": "Челябинская обл.", "district": "г.о. Магнитогорск", "lat": 53.4, "lng": 59.0},
+]
+
+
+def test_seed_villages_keeps_region_and_skips_big_towns(iso_session, monkeypatch):
+    """У приграничной деревни свой регион; город из справочника (Магнитогорск) деревней не дублируем."""
+    iso_session.add(Settlement(name_ru="Магнитогорск", region="Челябинская обл.", kind="neighbor",
+                               lat=53.412, lng=58.984))
+    iso_session.commit()
+    monkeypatch.setattr(geo, "_load_villages_data", lambda: _BORDER_FIX)
+    assert geo.seed_villages(iso_session) == 2                    # Магнитогорск отсеян
+    rows = {s.name_ru: s for s in iso_session.exec(select(Settlement)).all()}
+    assert rows["Ташбулатово"].region == "РБ"
+    assert rows["Смеловский"].region == "Челябинская обл." and rows["Смеловский"].kind == "village"
+    assert rows["Магнитогорск"].kind == "neighbor"                # остался городом
+
+
+# ============================ Зоны такси: деревня не подменяет город ============================
+def test_nearest_settlement_ignores_villages(iso_session):
+    """«Город точки заказа» — это Уфа, даже если деревня ближе: на ней завязаны зоны таксиста."""
+    iso_session.add(Settlement(name_ru="Уфа", region="РБ", kind="city", lat=54.735, lng=55.958))
+    iso_session.add(Settlement(name_ru="Дорогино", region="РБ", kind="village", district="Уфимский р-н",
+                               lat=54.740, lng=55.960))
+    iso_session.commit()
+    assert geo.nearest_settlement(iso_session, 54.739, 55.959).name_ru == "Уфа"
+    # Явно попросили искать среди всех — тогда деревня побеждает.
+    assert geo.nearest_settlement(iso_session, 54.739, 55.959, kinds=()).name_ru == "Дорогино"
+
+
+def test_by_exact_name_understands_district_in_brackets(iso_session):
+    """Приложение пишет в поле «Берёзовка (Иглинский р-н)» — сервер должен взять ИМЕННО ту."""
+    iso_session.add(Settlement(name_ru="Берёзовка", region="РБ", kind="village",
+                               district="Аургазинский р-н", lat=53.878, lng=55.631))
+    iso_session.add(Settlement(name_ru="Берёзовка", region="РБ", kind="village",
+                               district="Иглинский р-н", lat=54.800, lng=56.400))
+    iso_session.commit()
+    st = geo.by_exact_name(iso_session, "Берёзовка (Иглинский р-н)")
+    assert st is not None and round(st.lat, 1) == 54.8
+    # Район не узнали (опечатка) — не падаем, отдаём тёзку по имени.
+    st2 = geo.by_exact_name(iso_session, "Берёзовка (Такогорайонанет)")
+    assert st2 is not None and st2.name_ru == "Берёзовка"
+
+
+def test_by_exact_name_prefers_city_over_village(iso_session):
+    """Тёзка-деревня не должна перебивать город: geocode_city вернёт координаты города."""
+    iso_session.add(Settlement(name_ru="Октябрьский", region="РБ", kind="village",
+                               district="Стерлитамакский р-н", lat=53.5, lng=55.8))
+    iso_session.add(Settlement(name_ru="Октябрьский", region="РБ", kind="city", lat=54.481, lng=53.471))
+    iso_session.commit()
+    st = geo.by_exact_name(iso_session, "октябрьский")
+    assert st.kind == "city" and round(st.lng, 3) == 53.471
+
+
+# ============================ Поиск по ленте: имя с районом и без ============================
+def test_rides_search_finds_ride_written_without_district(client, user_factory):
+    """Водитель набрал «Кузяново» руками, пассажир выбрал подсказку «Кузяново (Ишимбайский р-н)» —
+    поездка обязана найтись: ищем по голому имени."""
+    drv = user_factory("Води", role=UserRole.driver)
+    body = {"from_city": "Кузяново", "to_city": "Стерлитамак", "depart_at": "2030-01-01T10:00:00",
+            "seats": 3, "price": 300}
+    assert client.post("/rides", headers=drv["auth"], json=body).status_code in (200, 201)
+    found = client.get("/rides", params={"from_city": "Кузяново (Ишимбайский р-н)"}).json()
+    items = found if isinstance(found, list) else found.get("items", [])
+    assert any(r["from_city"] == "Кузяново" for r in items)
+
+
+def test_bare_name_strips_district():
+    assert geo.bare_name("Берёзовка (Иглинский р-н)") == "Берёзовка"
+    assert geo.bare_name("Уфа") == "Уфа"
+    assert geo.bare_name("  (странно)  ") == "(странно)"     # пустое имя — оставляем как есть
+
+
+# ============================ Кеш справочника ============================
+def test_cache_sees_new_settlements(iso_session):
+    """Снимок в памяти не должен «залипать»: добавили НП — он сразу в подсказках."""
+    iso_session.add(Settlement(name_ru="Первое", region="РБ", kind="village", lat=54.0, lng=56.0))
+    iso_session.commit()
+    assert len(geo.search_settlements(iso_session, "Перв")) == 1
+    iso_session.add(Settlement(name_ru="Первомайский", region="РБ", kind="village", lat=54.1, lng=56.1))
+    iso_session.commit()
+    assert len(geo.search_settlements(iso_session, "Перв")) == 2
 
 
 # ============================ district в payload/выдаче ============================

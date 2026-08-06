@@ -69,6 +69,20 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun settlementTitle(s: SettlementDto): String = settlementTitleFor(LocalAppLanguage.current, s)
 
+/**
+ * Атрибуция OpenStreetMap под списком подсказок. Координаты и названия деревень взяты из OSM,
+ * лицензия ODbL требует указывать источник там, где эти данные видно.
+ */
+@Composable
+internal fun OsmCreditRow() {
+    Text(
+        appText("Деревни — данные © OpenStreetMap", "Ауылдар — мәғлүмәт © OpenStreetMap"),
+        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+        maxLines = 1, overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+}
+
 /** Подпись зоны для чипа в кабинете: «🏙 Мой город · Сибай» / «🛣 Межгород → Уфа» / «🌍 Соседний регион». */
 @Composable
 internal fun zoneLabel(zone: InstantZoneDto?): String {
@@ -162,6 +176,7 @@ internal fun SettlementPickField(
                 Column {
                     hits.forEach { s ->
                         val title = settlementTitle(s)
+                        val hint = settlementHintFor(s)
                         Row(
                             Modifier.fillMaxWidth()
                                 .clickable { onPick(s); query = "" }
@@ -171,10 +186,16 @@ internal fun SettlementPickField(
                         ) {
                             Icon(Icons.Default.LocationCity, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text(title, color = CanonText, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(s.region, color = CanonMuted, fontSize = 12.sp)
+                            Column(Modifier.weight(1f)) {
+                                Text(title, color = CanonText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                // Район под названием: тёзок среди деревень много, регион один — этого мало.
+                                if (hint.isNotBlank()) {
+                                    Text(hint, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
                         }
                     }
+                    if (needsOsmCredit(hits)) OsmCreditRow()
                 }
             }
         }
@@ -278,7 +299,11 @@ private fun CitySuggestInput(value: String, onChange: (String) -> Unit) {
         if (picked) { picked = false; return@LaunchedEffect }
         if (value.isBlank()) { hits = emptyList(); return@LaunchedEffect }
         delay(250)
-        ApiClient.searchSettlements(value, 5).onSuccess { hits = it }.onFailure { hits = emptyList() }
+        // Зона таксиста — это ГОРОД: заказ привязывается к ближайшему городу/райцентру,
+        // деревня зоной быть не может (иначе водитель не увидит ни одного заказа).
+        ApiClient.searchSettlements(value, 8)
+            .onSuccess { list -> hits = list.filter { it.kind != "village" }.take(5) }
+            .onFailure { hits = emptyList() }
     }
     Column(Modifier.fillMaxWidth()) {
         OutlinedTextField(

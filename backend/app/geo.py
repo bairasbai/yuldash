@@ -3,32 +3,44 @@
 Четыре kind'а (см. docs/business-logic-2026-07.md §4):
   city            — 21 город республиканского значения РБ;
   district_center — центры 54 муниципальных районов (сёла; где центр = город, он уже в city);
-  village         — ВСЕ сельские НП РБ (~4500) из OSM; данные в app/data/villages_rb.json
-                    (в репо пустой — фича готова, ждёт данных; заливает scripts/import_villages.py);
+  village         — сельские НП: вся РБ (4482) + приграничная полоса соседних регионов
+                    (2121, ~50 км от границы). Данные — app/data/villages_rb.json и
+                    villages_border.json, заливает scripts/import_villages.py из OSM;
   neighbor        — приграничные города соседних регионов (популярный межгород).
 
 Сиды идемпотентные — зовутся из lifespan (main.py): seed_settlements (город/райцентр/сосед по
-name_ru) + seed_villages (деревни по (name_ru, district) — тёзки в разных районах различаем).
+name_ru) + seed_villages (деревни по (name_ru, region, district) — тёзки различаем районом).
 Координаты городов, уже известных CITY_COORDS (services.py), совпадают с ними 1:1 —
-geocode_city() и тесты видят те же значения. Координаты сёл — прикидка по открытым данным
-(~0.01°), спорные сверяет Александр. name_ba — черновой башкирский (финал — за носителем).
+geocode_city() и тесты видят те же значения. Координаты сёл — из OSM (ODbL: где показываем
+деревни, нужна атрибуция «© OpenStreetMap»). name_ba — черновой башкирский (финал — за носителем).
+
+Поиск по ~6600 строкам держим в оперативной памяти (_entry): справочник статичен, из БД
+читаем один раз и переиспользуем, пока не изменилось количество строк (или не истёк TTL).
 """
 import json
+import math
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from sqlalchemy import func, text as sa_text
 from sqlmodel import Session, select
 
+from .logs import log
 from .models import Settlement
 from .services import haversine_km
 
-# Датасет деревень РБ (заполняется скриптом scripts/import_villages.py из OSM; в репо — пустой []).
-_VILLAGES_JSON = Path(__file__).parent / "data" / "villages_rb.json"
+# Датасеты деревень (наполняет scripts/import_villages.py из OSM; пустой [] → сид no-op).
+_VILLAGES_JSON = Path(__file__).parent / "data" / "villages_rb.json"          # вся РБ
+_VILLAGES_BORDER_JSON = Path(__file__).parent / "data" / "villages_border.json"  # приграничье соседей
 # Какие OSM place → «деревня» (плюс town: пгт/крупные сёла-райцентры уже в city/district_center — их отсеет дедуп).
 _OSM_VILLAGE_PLACES = {"village", "hamlet", "town", "isolated_dwelling"}
 
 # Радиус привязки точки заказа к ближайшему НП («город точки А/Б») для зон такси.
 NEAREST_KM = 30.0
+# «Город точки» — только крупные НП: деревня рядом не должна подменять город в зонах такси.
+CITY_KINDS = ("city", "district_center", "neighbor")
 
 RB = "РБ"
 
@@ -135,9 +147,10 @@ POPULAR_ROUTES: list[tuple[str, str]] = [
     ("Баймак", "Уфа"),
 ]
 
-_KIND_ORDER = {"city": 0, "district_center": 1, "village": 2, "neighbor": 3}
-# village — деревни РБ идут в поиске ПОСЛЕ городов/райцентров (не мешаются наверху),
-# но перед городами соседних регионов (для попутки по РБ они ближе). Данные — app/data/villages_rb.json.
+_KIND_ORDER = {"city": 0, "district_center": 1, "neighbor": 2, "village": 3}
+# Порядок подсказок: города РБ → райцентры → города соседей (Магнитогорск, Оренбург —
+# частый межгород) → деревни. Деревень тысячи: будь они выше, ввод «Маг» показывал бы
+# Магадеево вместо Магнитогорска. Внутри деревень РБ идёт раньше приграничья (см. _sort_key).
 
 
 def seed_settlements(session: Session) -> None:
@@ -162,6 +175,7 @@ def seed_settlements(session: Session) -> None:
             changed = True
     if changed:
         session.commit()
+        invalidate_cache()
 
 
 def _table_ready(session: Session) -> bool:
@@ -172,9 +186,9 @@ def _table_ready(session: Session) -> bool:
         return False
 
 
-# ─────────────────────────── Деревни РБ (kind='village') ───────────────────────────
-# Данные тянет scripts/import_villages.py из OpenStreetMap → app/data/villages_rb.json.
-# В репозитории файл пустой ([]) — фича «готова, ждёт данных»: seed_villages на пустом = no-op.
+# ─────────────────────────── Деревни (kind='village') ───────────────────────────
+# Данные тянет scripts/import_villages.py из OpenStreetMap → app/data/villages_rb.json (вся РБ)
+# и villages_border.json (приграничная полоса соседних регионов). Пустые файлы → сид no-op.
 
 def parse_overpass_elements(elements: list) -> list[dict]:
     """OSM Overpass elements → [{name_ru, name_ba, district, lat, lng}]. Чистая (тестируется).
@@ -203,78 +217,262 @@ def parse_overpass_elements(elements: list) -> list[dict]:
     return out
 
 
-def _load_villages_data() -> list[dict]:
-    """Читает app/data/villages_rb.json (список деревень). Нет файла / битый / пустой → []."""
+def _read_json_list(path: Path) -> list[dict]:
+    """Читает список из JSON-файла. Нет файла / битый / не список → []."""
     try:
-        raw = json.loads(_VILLAGES_JSON.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
         return raw if isinstance(raw, list) else []
-    except Exception:  # noqa: BLE001 — файла нет или битый → просто без деревень
+    except Exception:  # noqa: BLE001 — файла нет или битый → просто без этих данных
         return []
 
 
+def _load_villages_data() -> list[dict]:
+    """Деревни: РБ (villages_rb.json, region по умолчанию «РБ») + приграничье соседей
+    (villages_border.json, у каждой строки свой region). Пусто → []."""
+    rows = _read_json_list(_VILLAGES_JSON) + _read_json_list(_VILLAGES_BORDER_JSON)
+    return rows
+
+
+# Ключ advisory-замка Postgres: произвольное постоянное число, лишь бы своё.
+_SEED_LOCK_KEY = 7281006
+
+
+def _seed_lock(session: Session, take: bool) -> None:
+    """Замок «сеет только один воркер». На проде пять воркеров gunicorn стартуют одновременно;
+    без замка каждый увидит пустую таблицу и зальёт свои 6600 сёл — в подсказках всё задвоится
+    (уникального индекса на (имя, регион, район) нет). На SQLite (тесты) — ничего не делаем."""
+    try:
+        if session.get_bind().dialect.name != "postgresql":
+            return
+        fn = "pg_advisory_lock" if take else "pg_advisory_unlock"
+        session.execute(sa_text(f"SELECT {fn}(:k)"), {"k": _SEED_LOCK_KEY})
+    except Exception as e:  # noqa: BLE001 — замок не взялся: сеем как раньше, дубли переживём
+        log.warning(f"[SEED] advisory-замок не сработал ({'take' if take else 'release'}): {e}")
+
+
 def seed_villages(session: Session) -> int:
-    """Идемпотентный сид деревень (kind='village'). Ключ — (name_ru, district) для тёзок.
-    Пустой датасет → no-op. Возвращает число добавленных (для лога)."""
+    """Идемпотентный сид деревень (kind='village'). Ключ — (name_ru, region, district):
+    тёзки в разных районах — разные точки. Пустой датасет → no-op. Возвращает число добавленных.
+
+    Крупные НП (город/райцентр/сосед) из SETTLEMENTS_SEED деревней НЕ дублируем: OSM отдаёт
+    place=town и для Сибая, и для Магнитогорска — их отсекаем по (name_ru, region)."""
     if not _table_ready(session):
         return 0
     data = _load_villages_data()
     if not data:
         return 0
-    existing = {(s.name_ru, s.district or "")
-                for s in session.exec(select(Settlement).where(Settlement.kind == "village")).all()}
-    added = 0
+    _seed_lock(session, take=True)
+    try:
+        return _seed_villages_locked(session, data)
+    finally:
+        _seed_lock(session, take=False)
+
+
+def _seed_villages_locked(session: Session, data: list[dict]) -> int:
+    existing: set[tuple] = set()
+    big: set[tuple] = set()
+    for s in session.exec(select(Settlement)).all():
+        if s.kind == "village":
+            existing.add((s.name_ru, s.region, s.district or ""))
+        else:
+            big.add((s.name_ru, s.region))
+    pending: list[Settlement] = []
     for v in data:
         name = (v.get("name_ru") or "").strip()
         if not name or v.get("lat") is None or v.get("lng") is None:
             continue
+        region = (v.get("region") or "").strip() or RB
+        if (name, region) in big:
+            continue                       # это город/райцентр/сосед — он уже в справочнике
         district = (v.get("district") or "").strip() or None
-        key = (name, district or "")
+        key = (name, region, district or "")
         if key in existing:
             continue
-        session.add(Settlement(
-            name_ru=name, name_ba=(v.get("name_ba") or None), region=RB, kind="village",
+        existing.add(key)
+        pending.append(Settlement(
+            name_ru=name, name_ba=(v.get("name_ba") or None), region=region, kind="village",
             district=district, lat=float(v["lat"]), lng=float(v["lng"]),
         ))
-        existing.add(key)
-        added += 1
-    if added:
+    # Пачками: первый деплой заливает ~6600 строк — по одной это минуты, пачками секунды.
+    for i in range(0, len(pending), 1000):
+        session.add_all(pending[i:i + 1000])
         session.commit()
-    return added
+    if pending:
+        invalidate_cache()
+    return len(pending)
 
 
-def _active(session: Session) -> list[Settlement]:
-    return session.exec(select(Settlement).where(Settlement.active == True)).all()  # noqa: E712
+# ─────────────────────── Снимок справочника в памяти (поиск) ───────────────────────
+# Деревень тысячи, а справочник статичен (меняется только сидом на старте). Поэтому читаем
+# его из БД один раз и держим готовый отсортированный список: подсказка на каждую букву
+# больше не тянет 6600 строк из Postgres. Свежесть — по (кол-во строк, max id) + TTL.
+
+# TTL — только страховка от правок «на месте» (админ поменял координаты/выключил НП):
+# добавление и удаление строк ловится сигнатурой (кол-во, max id) на каждом запросе,
+# поэтому пересобирать снимок чаще нет смысла — сборка 6600 строк стоит ~0,3 с.
+_CACHE_TTL_S = 600.0
+_cache: dict = {}   # bind → {"stamp", "sig", "rows", "exact", "with_district"}
+
+# Свёртка для поиска: регистр, ё→е и башкирские буквы к русским соседям —
+# чтобы «офо» находило «Өфө», а «березовка» — «Берёзовка».
+_FOLD = str.maketrans({
+    "ё": "е", "ә": "а", "ө": "о", "ү": "у", "һ": "х", "ҙ": "з", "ҫ": "с", "ң": "н", "ғ": "г", "ҡ": "к",
+})
 
 
-def search_settlements(session: Session, q: str = "", limit: int = 10) -> list[Settlement]:
-    """Префиксный поиск по name_ru И name_ba, регистронезависимый, только активные.
-    Фильтруем в Python: SQL lower() в SQLite не знает кириллицу, а строк здесь ~95."""
+def fold(s: str) -> str:
+    return (s or "").strip().casefold().translate(_FOLD)
+
+
+def bare_name(text: str) -> str:
+    """«Берёзовка (Иглинский р-н)» → «Берёзовка».
+
+    Для поиска по ленте: приложение записывает выбранную деревню вместе с районом, а водитель
+    мог набрать её руками, без района. Фильтр ищет подстроку — значит искать надо по голому
+    имени, иначе поездка «Берёзовка» не найдётся по запросу «Берёзовка (Иглинский р-н)»."""
+    t = (text or "").strip()
+    if t.endswith(")") and "(" in t:
+        head = t.rpartition("(")[0].strip()
+        if head:
+            return head
+    return t
+
+
+@dataclass(frozen=True, slots=True)
+class SettlementRow:
+    """Строка справочника в памяти. Поля — как у Settlement (settlement_payload берёт их же).
+    Отдельный тип, а не ORM-объект: ORM-объект, переживший свою сессию, при коммите
+    «протухает» (DetachedInstanceError) — в кеше это мина."""
+    id: Optional[int]
+    name_ru: str
+    name_ba: Optional[str]
+    region: str
+    kind: str
+    district: Optional[str]
+    lat: float
+    lng: float
+    key_ru: str          # свёрнутое имя (поиск по префиксу)
+    key_ba: str
+    words: tuple         # свёрнутые начала слов («Верхние Киги» ← «киги»)
+
+
+def _sort_key(r: SettlementRow) -> tuple:
+    # Города → райцентры → соседи → деревни; деревни РБ раньше приграничья; дальше по алфавиту.
+    return (_KIND_ORDER.get(r.kind, 9), 0 if r.region == RB else 1, r.name_ru)
+
+
+def _to_row(id_, name_ru, name_ba, region, kind, district, lat, lng) -> SettlementRow:
+    key_ru, key_ba = fold(name_ru), fold(name_ba or "")
+    words = tuple(w for w in key_ru.replace("-", " ").split() if w)
+    return SettlementRow(
+        id=id_, name_ru=name_ru, name_ba=name_ba, region=region, kind=kind,
+        district=district, lat=lat, lng=lng, key_ru=key_ru, key_ba=key_ba, words=words,
+    )
+
+
+def invalidate_cache() -> None:
+    """Сбросить снимок (зовём после сида — чтобы новые НП были видны сразу)."""
+    _cache.clear()
+
+
+def _entry(session: Session) -> dict:
+    """Снимок справочника: отсортированные строки + индекс точных имён. Кеш — по движку БД,
+    свежесть — по (кол-во строк, max id) и TTL: сид добавил НП → снимок пересобирается."""
+    key = id(session.get_bind())
+    try:
+        sig = tuple(session.exec(select(func.count(Settlement.id), func.max(Settlement.id))).one())
+    except Exception:  # noqa: BLE001 — таблицы ещё нет → пустой справочник
+        return {"rows": [], "exact": {}, "with_district": {}}
+    hit = _cache.get(key)
+    if hit and hit["sig"] == sig and (time.monotonic() - hit["stamp"]) < _CACHE_TTL_S:
+        return hit
+    # Тянем колонки, а не ORM-объекты: на 6600 строках это втрое дешевле, а больше и не нужно.
+    rows = [_to_row(*r) for r in session.exec(
+        select(Settlement.id, Settlement.name_ru, Settlement.name_ba, Settlement.region,
+               Settlement.kind, Settlement.district, Settlement.lat, Settlement.lng)
+        .where(Settlement.active == True)).all()]  # noqa: E712
+    rows.sort(key=_sort_key)
+    exact: dict[str, SettlementRow] = {}
+    with_district: dict[tuple, SettlementRow] = {}
+    for r in rows:                      # порядок важен: первым идёт город, потом деревня-тёзка
+        exact.setdefault(r.key_ru, r)
+        if r.key_ba:
+            exact.setdefault(r.key_ba, r)
+        if r.district:                  # «Берёзовка (Иглинский р-н)» — разные точки у тёзок
+            dk = fold(r.district)
+            with_district.setdefault((r.key_ru, dk), r)
+            if r.key_ba:
+                with_district.setdefault((r.key_ba, dk), r)
+    entry = {"stamp": time.monotonic(), "sig": sig, "rows": rows,
+             "exact": exact, "with_district": with_district}
+    _cache[key] = entry
+    return entry
+
+
+def _snapshot(session: Session) -> list[SettlementRow]:
+    """Активные НП, отсортированные для подсказок."""
+    return _entry(session)["rows"]
+
+
+def _active(session: Session) -> list[SettlementRow]:
+    return _snapshot(session)
+
+
+def search_settlements(session: Session, q: str = "", limit: int = 10) -> list[SettlementRow]:
+    """Подсказки: сначала совпадения с начала имени (ru/ba), потом — с начала любого слова
+    («киги» → «Верхние Киги»). Регистр, ё и башкирские буквы не важны (fold).
+    Список уже отсортирован (города → … → деревни), поэтому берём первые limit."""
     limit = max(1, min(limit, 50))
-    rows = _active(session)
-    needle = q.strip().casefold()
-    if needle:
-        rows = [s for s in rows if s.name_ru.casefold().startswith(needle)
-                or (s.name_ba or "").casefold().startswith(needle)]
-    rows.sort(key=lambda s: (_KIND_ORDER.get(s.kind, 9), s.name_ru))
-    return rows[:limit]
-
-
-def by_exact_name(session: Session, name: str) -> Optional[Settlement]:
-    """Точное имя (ru или ba, без регистра) → НП. Для geocode_city()."""
-    needle = name.strip().casefold()
+    rows = _snapshot(session)
+    needle = fold(q)
     if not needle:
+        return rows[:limit]
+    head, inside = [], []
+    for s in rows:
+        if s.key_ru.startswith(needle) or (s.key_ba and s.key_ba.startswith(needle)):
+            head.append(s)
+            if len(head) >= limit:
+                return head[:limit]
+        elif len(inside) < limit and any(w.startswith(needle) for w in s.words):
+            inside.append(s)
+    return (head + inside)[:limit]
+
+
+def by_exact_name(session: Session, name: str) -> Optional[SettlementRow]:
+    """Точное имя (ru или ba, без регистра) → НП. Для geocode_city().
+
+    Понимает форму «Берёзовка (Иглинский р-н)» — так приложение записывает выбранную деревню,
+    иначе четыре Берёзовки РБ неразличимы и поездка уехала бы за сто километров от нужной.
+    Без района тёзки разрешаются по важности: сначала город, потом райцентр/сосед, потом деревня."""
+    raw = (name or "").strip()
+    if not raw:
         return None
-    for s in _active(session):
-        if s.name_ru.casefold() == needle or (s.name_ba or "").casefold() == needle:
-            return s
-    return None
+    entry = _entry(session)
+    if raw.endswith(")") and "(" in raw:
+        head, _, tail = raw.rpartition("(")
+        hit = entry["with_district"].get((fold(head), fold(tail[:-1])))
+        if hit is not None:
+            return hit
+        raw = head.strip() or raw          # район не узнали — ищем хотя бы по имени
+    return entry["exact"].get(fold(raw))   # индекс собран по важности: город раньше деревни
 
 
 def nearest_settlement(session: Session, lat: float, lng: float,
-                       max_km: float = NEAREST_KM) -> Optional[Settlement]:
-    """Ближайший активный НП в радиусе max_km — «город» точки заказа для зон такси."""
+                       max_km: float = NEAREST_KM,
+                       kinds: tuple = CITY_KINDS) -> Optional[SettlementRow]:
+    """Ближайший активный НП в радиусе max_km — «город» точки заказа для зон такси.
+
+    По умолчанию ищем среди городов/райцентров/соседей: зона таксиста задаётся городом,
+    и деревня в трёх километрах не должна подменять собой Уфу. kinds=() — искать среди всех."""
     best, best_km = None, None
-    for s in _active(session):
+    # Грубый отсев по «квадрату» вокруг точки: haversine на 8000 строк в цикле — дорого.
+    dlat = max_km / 111.0
+    dlng = max_km / max(10.0, 111.0 * abs(math.cos(math.radians(lat))))
+    for s in _snapshot(session):
+        if kinds and s.kind not in kinds:
+            continue
+        if abs(s.lat - lat) > dlat or abs(s.lng - lng) > dlng:
+            continue
         km = haversine_km(lat, lng, s.lat, s.lng)
         if best_km is None or km < best_km:
             best, best_km = s, km

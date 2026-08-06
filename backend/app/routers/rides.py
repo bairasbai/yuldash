@@ -13,6 +13,7 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..flood import TOO_MANY_RIDES, guard_open_items
+from ..geo import bare_name
 from ..logs import log
 from ..models import Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory, RideStatus, User, UserRole
 from .. import workday as workday_mod
@@ -271,9 +272,9 @@ def search_rides(
         Ride.depart_at >= utcnow() - timedelta(hours=RIDE_PAST_GRACE_HOURS),
     )
     if from_city:
-        q = q.where(Ride.from_city.contains(from_city))
+        q = q.where(Ride.from_city.contains(bare_name(from_city)))
     if to_city:
-        q = q.where(Ride.to_city.contains(to_city))
+        q = q.where(Ride.to_city.contains(bare_name(to_city)))
     if category:
         q = q.where(Ride.category == category)
     if pets_allowed:
@@ -333,9 +334,9 @@ def price_hint(
     (без краша) — коэффициенты бензина в config, уточнит Александр."""
     q = select(Ride.price).where(Ride.price > 0)
     if from_city:
-        q = q.where(Ride.from_city.contains(from_city))
+        q = q.where(Ride.from_city.contains(bare_name(from_city)))
     if to_city:
-        q = q.where(Ride.to_city.contains(to_city))
+        q = q.where(Ride.to_city.contains(bare_name(to_city)))
     prices = [p for p in session.exec(q).all() if p and p > 0]
 
     # Бензин на весь маршрут: км × (расход/100) × цена_литра → ₽ → копейки.
@@ -371,9 +372,9 @@ def _route_avg_price(session: Session, from_city: str, to_city: str) -> dict:
         Ride.created_at > utcnow() - timedelta(days=90),
     )
     if from_city:
-        q = q.where(Ride.from_city.contains(from_city))
+        q = q.where(Ride.from_city.contains(bare_name(from_city)))
     if to_city:
-        q = q.where(Ride.to_city.contains(to_city))
+        q = q.where(Ride.to_city.contains(bare_name(to_city)))
     prices = [p for p in session.exec(q.order_by(Ride.id.desc()).limit(500)).all() if p and p > 0]
     return {"avg": round(sum(prices) / len(prices)) if prices else 0, "count": len(prices)}
 
@@ -437,9 +438,9 @@ def rides_near(
     Сценарий: водитель отменил/сломался → клиент видит ближайшую по времени машину на своём маршруте и уезжает."""
     q = select(Ride).where(Ride.status == RideStatus.active, Ride.seats_left > 0)
     if from_city:
-        q = q.where(Ride.from_city.contains(from_city))
+        q = q.where(Ride.from_city.contains(bare_name(from_city)))
     if to_city:
-        q = q.where(Ride.to_city.contains(to_city))
+        q = q.where(Ride.to_city.contains(bare_name(to_city)))
     bounds = _date_bounds(date)
     if bounds:
         q = q.where(Ride.depart_at >= bounds[0], Ride.depart_at < bounds[1])

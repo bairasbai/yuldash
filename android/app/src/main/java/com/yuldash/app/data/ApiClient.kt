@@ -2506,6 +2506,25 @@ object ApiClient {
             (0 until arr.length()).map { arr.getJSONObject(it).toSettlementDto() }
         }
 
+    /**
+     * НП по названию из нашего справочника. Понимает форму «Берёзовка (Иглинский р-н)» —
+     * именно так поле «откуда/куда» записывает выбранную деревню.
+     *
+     * Нужен там, где по названию нужны координаты (маршрут на карте, расчёт доставки):
+     * сёл в справочнике тысячи, и про них он знает точнее геокодера. Не нашли — null,
+     * вызывающий идёт к геокодеру как раньше.
+     */
+    suspend fun settlementByName(raw: String): SettlementDto? {
+        val text = raw.trim()
+        if (text.isEmpty()) return null
+        val name = text.substringBefore('(').trim().ifEmpty { text }
+        val district = text.substringAfter('(', "").substringBefore(')').trim()
+        val hits = searchSettlements(name, 10).getOrNull().orEmpty()
+        val sameName = hits.filter { it.nameRu.equals(name, true) || it.nameBa.equals(name, true) }
+        return sameName.firstOrNull { district.isNotEmpty() && it.district.equals(district, true) }
+            ?: sameName.firstOrNull()
+    }
+
     /** Пресеты популярных межгород-маршрутов (Сибай–Магнитогорск, Баймак–Уфа…) — чипы в UI.
      *  Не путать с getPopularRoutes() (/popular-routes — живая статистика реальных поездок). */
     suspend fun getSettlementPopularRoutes(): Result<List<SettlementRouteDto>> = cachedGet("settlement-popular-routes", TTL_SLOW) {
@@ -4429,6 +4448,7 @@ data class SettlementDto(
     val kind: String,
     val lat: Double,
     val lng: Double,
+    val district: String? = null,   // район («Иглинский р-н») — различать деревни-тёзки; у города null
 )
 
 /** Зона работы таксиста: city | intercity | region; null = не выбрана (беру всё рядом). */
@@ -4477,6 +4497,7 @@ private fun JSONObject.toSettlementDto() = SettlementDto(
     kind = optString("kind"),
     lat = optDouble("lat"),
     lng = optDouble("lng"),
+    district = optNullableString("district"),
 )
 
 private fun JSONObject.toInstantZoneDto() = InstantZoneDto(

@@ -11,6 +11,7 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..flood import TOO_MANY_REQUESTS, guard_open_items
+from ..geo import bare_name
 from ..logs import log
 from ..models import (
     Block, Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
@@ -138,9 +139,9 @@ def requests_near(
     Приватность: отдаём только город/точку отправления + имя, без телефона/точного адреса."""
     q = select(RideRequest).where(*live_request_conds())   # прошедшие в ленту не попадают
     if from_city:
-        q = q.where(RideRequest.from_city.contains(from_city))
+        q = q.where(RideRequest.from_city.contains(bare_name(from_city)))
     if to_city:
-        q = q.where(RideRequest.to_city.contains(to_city))
+        q = q.where(RideRequest.to_city.contains(bare_name(to_city)))
     # PostGIS-префильтр по радиусу (postgres + координаты) — как у /rides/near; иначе Python-haversine ниже.
     if lat is not None and lng is not None and radius_km is not None and session.bind.dialect.name == "postgresql":
         try:
