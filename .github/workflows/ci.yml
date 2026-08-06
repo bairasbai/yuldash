@@ -179,6 +179,38 @@ jobs:
       # что кто-то вспомнит запустить его руками. Гейт, который никто не гоняет, не гейт.
       - name: Тесты экранов + порог покрытия (Robolectric + Compose + JaCoCo)
         run: chmod +x ./gradlew && ./gradlew :app:jacocoCoverageVerification --no-daemon --stacktrace
+      # Имя упавшего теста — В ЛОГ, а не только в артефакт (аудит 2026-08-06).
+      # Артефакт надо скачать и распаковать; при разборе из чата или CLI это недоступно, а Gradle
+      # со --stacktrace печатает двести строк своих внутренностей и ни одного имени теста. Красный
+      # шаг превращался в гадание: «упало что-то из полутора тысяч». Здесь — имя и сообщение.
+      - name: Какие тесты упали (если упали)
+        if: failure()
+        working-directory: android
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          bad = []
+          for f in glob.glob("app/build/test-results/**/*.xml", recursive=True):
+              try:
+                  root = ET.parse(f).getroot()
+              except Exception:
+                  continue
+              for tc in root.iter("testcase"):
+                  for kind in ("failure", "error"):
+                      node = tc.find(kind)
+                      if node is not None:
+                          msg = (node.get("message") or node.text or "").strip().splitlines()
+                          bad.append((tc.get("classname"), tc.get("name"), msg[0][:400] if msg else ""))
+          print(f"::group::Упавшие тесты: {len(bad)}")
+          for cls, name, msg in bad:
+              print(f"  • {cls}.{name}")
+              if msg:
+                  print(f"      {msg}")
+          print("::endgroup::")
+          if not bad:
+              print("Ни одного упавшего теста в отчётах — значит шаг упал не на тестах "
+                    "(например, на пороге покрытия jacocoCoverageVerification).")
+          PY
       # Отчёт нужен именно при падении: по нему видно, какой тест и на чём упал.
       - name: Отчёт о тестах (даже если упали)
         if: always()
