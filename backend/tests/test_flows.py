@@ -139,8 +139,10 @@ def test_public_ride_outputs_hide_pickup_until_booking_confirmed(client, user_fa
 def test_rides_pagination(client, user_factory):
     drv = user_factory("PgDrv", role=UserRole.driver)
     city = "ПагинГрад"
-    for _ in range(5):
-        _publish(client, drv, frm=city, to="Сибай")
+    # Пять РАЗНЫХ поездок: одинаковые схлопываются как двойной тап (2026-08-06), и страниц
+    # бы не получилось. В жизни водитель и публикует разное — время у каждого рейса своё.
+    for i in range(5):
+        _publish(client, drv, frm=city, to="Сибай", comment=f"рейс {i}")
     all_rides = client.get("/rides", params={"from_city": city}).json()
     assert len(all_rides) == 5                       # дефолт (без limit) — все, как было
     page = client.get("/rides", params={"from_city": city, "limit": 2, "offset": 0}).json()

@@ -2,7 +2,7 @@
 отмена, список своих, список броней водителя для оценки пассажиров."""
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -100,7 +100,7 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     if ride.driver_id == user.id:
         raise herr(400, "Нельзя бронировать собственную поездку", "Үҙ сәфәреңде бронларға ярамай")
     if is_blocked(session, user.id, ride.driver_id):
-        raise HTTPException(403, "Бронь недоступна")
+        raise herr(403, "Бронь недоступна", "Бронь мөмкин түгел")
     # Защита от дубля: один пассажир не бронирует одну поездку повторно (двойной тап / повторный заход).
     # Идемпотентно — возвращаем существующую активную бронь, мест не списываем заново.
     existing = session.exec(
@@ -273,7 +273,7 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     если он забывал нажать «Завершить», бронь висела активной, а места поездки не освобождались)."""
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if ride.driver_id != user.id:
-        raise HTTPException(403, "Только водитель")
+        raise herr(403, "Только водитель", "Тик йөрөтөүсе")
     if body.status not in {"departed", "arriving", "done"}:
         raise herr(400, "Недопустимый статус", "Ярамаған хәл")
     if body.status == "done":
@@ -297,7 +297,7 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
         return {"ok": True, "status": "done"}
     # «выехал/подъезжает» бессмысленны на мёртвой броне — иначе push «Водитель выехал» по отменённой/завершённой.
     if booking.status in (BookingStatus.cancelled, BookingStatus.done):
-        raise HTTPException(409, "Поездка не активна")
+        raise herr(409, "Поездка не активна", "Сәфәр актив түгел")
     booking.driver_phase = body.status       # сохраняем «выехал/подъезжает» → пассажир увидит live, не только пушем
     session.add(booking)
     session.commit()
@@ -322,7 +322,7 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
         return booking                       # идемпотентно (повторный тап) — без побочек
     # Подтверждать можно ТОЛЬКО ожидающую бронь: нельзя откатить onboard→confirmed или воскресить cancelled/done.
     if booking.status != BookingStatus.pending:
-        raise HTTPException(400, "Эту бронь уже нельзя подтвердить")
+        raise herr(400, "Эту бронь уже нельзя подтвердить", "Был бронде инде раҫлап булмай")
     booking.status = BookingStatus.confirmed
     session.add(booking)
     session.commit()
@@ -398,9 +398,9 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
     брони. Идемпотентно. Сигнал доверия «между своими» (отдельно от обычной отмены)."""
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if user.id != ride.driver_id:
-        raise HTTPException(403, "Отметить неявку может только водитель поездки")
+        raise herr(403, "Отметить неявку может только водитель поездки", "Килмәүҙе тик сәфәр йөрөтөүсеһе генә билдәләй ала")
     if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard):
-        raise HTTPException(409, "Неявку можно отметить только по подтверждённой брони")
+        raise herr(409, "Неявку можно отметить только по подтверждённой брони", "Килмәүҙе тик раҫланған бронь буйынса ғына билдәләп була")
     # Порядок локов Ride → Booking — ЕДИНЫЙ с cancel_booking/cancel_ride (V4, без deadlock).
     ride = session.exec(select(Ride).where(Ride.id == booking.ride_id).with_for_update()).first()
     booking = session.exec(select(Booking).where(Booking.id == booking_id).with_for_update()).first()

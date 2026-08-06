@@ -145,14 +145,14 @@ def set_zone(body: ZoneIn, user: User = Depends(current_user), session: Session 
     попутка (Ride/Booking) не затрагивается."""
     dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
     if not dp:
-        raise HTTPException(409, "Сначала стань водителем (профиль водителя не найден)")
+        raise herr(409, "Сначала стань водителем (профиль водителя не найден)", "Башта йөрөтөүсе бул (йөрөтөүсе профиле табылманы)")
     if not taxi_mod.is_approved_taxi_driver(session, user.id):
         raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
     direction_id = body.work_direction_id
     if body.work_zone == "city":
         direction_id = None                      # направление имеет смысл только для межгорода
     if direction_id is not None and session.get(Settlement, direction_id) is None:
-        raise HTTPException(404, "Направление не найдено в справочнике")
+        raise herr(404, "Направление не найдено в справочнике", "Йүнәлеш белешмәлектә табылманы")
     work_city = (body.work_city or "").strip() or None
     dp.work_zone = body.work_zone
     dp.work_city = work_city if body.work_zone == "city" else None
@@ -202,7 +202,7 @@ def nearby_drivers_ep(lat: float, lng: float, user: User = Depends(current_user)
     до подачи (для карты в режиме такси). Только реальные presence-данные, без личности
     водителя (ни id, ни телефона). Нет Redis → пустой список (карта просто без машинок)."""
     if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
-        raise HTTPException(400, "Некорректные координаты")
+        raise herr(400, "Некорректные координаты", "Координаталар дөрөҫ түгел")
     return {"drivers": isv.nearby_drivers(lat, lng)}
 
 
@@ -398,7 +398,7 @@ def activate_scheduled_ep(order_id: int, user: User = Depends(current_user),
     поиск водителя. Только СВОЙ предзаказ. Не-scheduled (уже активирован/отменён) → 409."""
     order = session.get(InstantOrder, order_id)
     if not order or order.passenger_id != user.id:
-        raise HTTPException(404, "Предзаказ не найден")
+        raise herr(404, "Предзаказ не найден", "Алдан заказ табылманы")
     if order.status != S.scheduled:
         raise herr(409, "Предзаказ уже активирован или отменён",
                    "Алдан заказ инде әүҙемләштерелгән йәки кире алынған")
@@ -412,7 +412,7 @@ def cancel_scheduled(order_id: int, user: User = Depends(current_user),
     """Отменить предзаказ (пока он ещё `scheduled`). Только СВОЙ. Штрафов нет — до поиска."""
     order = session.get(InstantOrder, order_id)
     if not order or order.passenger_id != user.id:
-        raise HTTPException(404, "Предзаказ не найден")
+        raise herr(404, "Предзаказ не найден", "Алдан заказ табылманы")
     order = isv.cancel_order(session, order_id, isv.Actor.passenger, user.id, "scheduled_cancel")
     return isv.order_payload(session, order, user)
 
@@ -420,9 +420,9 @@ def cancel_scheduled(order_id: int, user: User = Depends(current_user),
 def _order_for_view(session: Session, order_id: int, user: User) -> InstantOrder:
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if user.id not in (order.passenger_id, order.driver_id, order.current_offer_driver_id):
-        raise HTTPException(403, "Нет доступа к заказу")
+        raise herr(403, "Нет доступа к заказу", "Заказға рөхсәт юҡ")
     return order
 
 
@@ -480,7 +480,7 @@ def accept(order_id: int, user: User = Depends(current_user), session: Session =
     """Водитель принимает оффер. Гонка двух accept → второму 409 (row-lock + условный UPDATE)."""
     existing = session.get(InstantOrder, order_id)
     if not existing:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     # Гейты водителя: (a) флаг/город по точке подачи + (b) заявка таксиста + долг.
     _guard_taxi_driver(session, user.id, existing.from_lat, existing.from_lng)
     # Анти-дубль назначения: нельзя взять ВТОРОЙ заказ при активном первом. Matcher мог
@@ -494,7 +494,7 @@ def accept(order_id: int, user: User = Depends(current_user), session: Session =
         )
     ).first()
     if other_active is not None:
-        raise HTTPException(409, "У тебя уже есть активная поездка — заверши её сначала")
+        raise herr(409, "У тебя уже есть активная поездка — заверши её сначала", "Һинең актив сәфәрең бар — башта уны тамамла")
     # Пауза за брошенные заказы (разбор №2): офферы такому водителю не шлём, но заказ может
     # прийти и другим путём (ссылка, повторный тап по старому уведомлению) — закрываем и здесь.
     if isv.driver_pause_until(session, user.id) is not None:
@@ -552,7 +552,7 @@ def arrived(order_id: int, body: ArrivedIn | None = None,
     другого — пропускаем (не ломаем работу там, где GPS недоступен)."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     lat = body.lat if body else None
     lng = body.lng if body else None
     if lat is None or lng is None:
@@ -609,13 +609,13 @@ def rate_order(order_id: int, body: RateIn, user: User = Depends(current_user),
     учитывает и заказы, и попутку (общий агрегат по ratee_id)."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if user.id == order.passenger_id and order.driver_id is not None:
         ratee_id = order.driver_id           # пассажир → водитель
     elif order.driver_id is not None and user.id == order.driver_id:
         ratee_id = order.passenger_id        # водитель → пассажир
     else:
-        raise HTTPException(403, "Нельзя оценить этот заказ")
+        raise herr(403, "Нельзя оценить этот заказ", "Был заказды баһалап булмай")
     if order.status != S.done:
         raise herr(409, "Оценить можно только завершённую поездку", "Тик тамамланған сәфәрҙе генә баһалап була")
     stars = max(1, min(5, body.stars))
@@ -654,9 +654,9 @@ def wait_for_driver(order_id: int, user: User = Depends(current_user),
     перезапускает поиск до order_wait_max_min минут и пушит, как только машина найдётся."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.passenger_id != user.id:                     # анти-IDOR: ждать можно только свой заказ
-        raise HTTPException(403, "Это не твой заказ")
+        raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
     if order.status not in (isv.S.expired, isv.S.searching):
         raise herr(409, "Ожидание доступно, пока машина не найдена",
                    "Машина табылғанға тиклем генә көтөп була")
@@ -678,13 +678,13 @@ def cancel(order_id: int, body: CancelIn | None = None, user: User = Depends(cur
     бесплатное ожидание + запас; фиксирует no_show и штраф-подачу (Модель А, денег не двигаем)."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if user.id == order.passenger_id:
         actor = isv.Actor.passenger
     elif user.id == order.driver_id:
         actor = isv.Actor.driver
     else:
-        raise HTTPException(403, "Нет доступа к заказу")
+        raise herr(403, "Нет доступа к заказу", "Заказға рөхсәт юҡ")
     reason = body.reason if body else ""
     order = isv.cancel_order(session, order_id, actor, user.id, reason)
     return isv.order_payload(session, order, user)
@@ -700,9 +700,9 @@ def order_receipt(order_id: int, user: User = Depends(current_user),
     Телефоны в квитанцию не кладём — только факт, маршрут, сумма и способ оплаты."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if user.id not in (order.passenger_id, order.driver_id):
-        raise HTTPException(403, "Это не твой заказ")
+        raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
     if order.status != S.done:
         raise herr(409, "Квитанция появится после завершения поездки",
                    "Квитанция сәфәр тамамланғандан һуң күренәсәк")
@@ -737,9 +737,9 @@ def cash_received(order_id: int, user: User = Depends(current_user),
     Деньги при этом мимо платформы (Модель А) — ledger не двигаем, только фиксируем факт."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.driver_id != user.id:
-        raise HTTPException(403, "Это не твой заказ")
+        raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
     if order.status != S.done:
         raise herr(409, "Отметить оплату можно после завершения поездки",
                    "Түләүҙе сәфәр тамамланғандан һуң билдәләп була")
@@ -761,9 +761,9 @@ def lost_item(order_id: int, user: User = Depends(current_user),
     навсегда (аудит 2026-07-26). Доступно обеим сторонам: водитель тоже находит вещи."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if user.id not in (order.passenger_id, order.driver_id):
-        raise HTTPException(403, "Это не твой заказ")
+        raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
     if order.status != S.done:
         raise herr(409, "Доступно после завершения поездки", "Сәфәр тамамланғандан һуң мөмкин")
     order.lost_item_until = utcnow() + timedelta(hours=48)

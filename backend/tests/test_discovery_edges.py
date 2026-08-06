@@ -74,8 +74,10 @@ def test_geocode_uses_cache_and_parses_remote_response(client, monkeypatch, user
 def test_my_routes_counts_passenger_history(client, user_factory):
     driver = user_factory("MyRoutesDriver", role=UserRole.driver)
     passenger = user_factory("MyRoutesPassenger")
-    ride_a = _publish(client, driver, frm="RouteA", to="RouteB")
-    ride_b = _publish(client, driver, frm="RouteA", to="RouteB")
+    # Две поездки по одному маршруту, но РАЗНЫЕ (комментарий свой): байт-в-байт одинаковые
+    # схлопываются как двойной тап (2026-08-06), а тут нужны именно две настоящие поездки.
+    ride_a = _publish(client, driver, frm="RouteA", to="RouteB", comment="рейс 1")
+    ride_b = _publish(client, driver, frm="RouteA", to="RouteB", comment="рейс 2")
     ride_c = _publish(client, driver, frm="RouteC", to="RouteD")
     _book(client, passenger, ride_a["id"])
     _book(client, passenger, ride_b["id"])

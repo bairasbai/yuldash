@@ -1163,7 +1163,7 @@ def parcel_dispute(parcel_id: int, body: DisputeIn, background: BackgroundTasks,
 
 def _require_admin(user: User) -> None:
     if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
+        raise herr(403, "Только для админа", "Тик администратор өсөн")
 
 
 def _parcel_admin(p: ParcelDelivery) -> dict:
@@ -1247,7 +1247,7 @@ def admin_cancel_parcel(parcel_id: int, body: Optional[ParcelReasonIn] = None,
     _require_admin(user)
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel:
-        raise HTTPException(404, "Посылка не найдена")
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
     if parcel.status in _FINAL_STATUSES:
         return {"ok": True, "status": parcel.status, "already": True}
     reason = ((body.reason if body else "") or "").strip()[:200]
@@ -1270,9 +1270,9 @@ def admin_release_courier(parcel_id: int, body: Optional[ParcelReasonIn] = None,
     _require_admin(user)
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel:
-        raise HTTPException(404, "Посылка не найдена")
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
     if parcel.status in _FINAL_STATUSES:
-        raise HTTPException(409, "Доставка уже завершена")
+        raise herr(409, "Доставка уже завершена", "Доставка инде тамамланған")
     prev_courier = parcel.courier_id
     reason = ((body.reason if body else "") or "").strip()[:200]
     parcel.courier_id = None
@@ -1320,7 +1320,7 @@ def admin_close_parcel(parcel_id: int, body: AdminCloseIn,
     _require_admin(user)
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel:
-        raise HTTPException(404, "Посылка не найдена")
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
     status = (body.status or "").strip()
     if status not in _FINAL_STATUSES:
         raise HTTPException(422, f"status: {' | '.join(_FINAL_STATUSES)}")

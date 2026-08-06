@@ -166,11 +166,11 @@ def _order_for_chat(session: Session, order_id: int, user_id: int, write: bool) 
     читать — плюс done/cancelled (read-only). 403 чужому, 409 вне окна."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     is_passenger = user_id == order.passenger_id
     is_driver = order.driver_id is not None and user_id == order.driver_id
     if not (is_passenger or is_driver):
-        raise HTTPException(403, "Нет доступа к чату этого заказа")
+        raise herr(403, "Нет доступа к чату этого заказа", "Был заказ яҙышыуына рөхсәт юҡ")
     allowed = ORDER_CHAT_WRITABLE if write else ORDER_CHAT_READABLE
     # Забытые вещи: участник завершённого заказа нажал «забыл вещь» → чат снова открыт на запись
     # до lost_item_until (48ч). Иначе связаться было НЕЧЕМ: телефон виден только пока заказ
@@ -666,9 +666,9 @@ def edit_message(booking_id: int, message_id: int, body: MessageEditIn,
     if msg.sender_id != user.id:
         raise herr(403, "Редактировать можно только своё сообщение", "Тик үҙ хәбәреңде генә төҙәтергә була")
     if msg.deleted:
-        raise HTTPException(400, "Сообщение удалено")
+        raise herr(400, "Сообщение удалено", "Хәбәр юйылған")
     if msg.voice_url:
-        raise HTTPException(400, "Голосовое нельзя редактировать")
+        raise herr(400, "Голосовое нельзя редактировать", "Тауыш хәбәрен төҙәтеп булмай")
     text = body.text.strip()
     if not text:
         raise herr(400, "Пустое сообщение", "Буш хәбәр")
@@ -696,7 +696,7 @@ def delete_message(booking_id: int, message_id: int, scope: str = "all",
         msg.hidden_user_ids = ",".join(str(i) for i in sorted(ids))
     else:  # all
         if msg.sender_id != user.id:
-            raise HTTPException(403, "Удалить у всех можно только своё сообщение")
+            raise herr(403, "Удалить у всех можно только своё сообщение", "Барыһынан да тик үҙ хәбәреңде генә юйып була")
         msg.deleted = True
         msg.text = ""
         msg.voice_url = None

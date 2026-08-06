@@ -32,6 +32,10 @@ from ..services import (
 
 router = APIRouter(tags=["rides"])
 
+# Окно, в котором повторная публикация с тем же содержимым считается тем же самым тапом.
+# Столько же, сколько у посылок (routers/parcels.py): одно правило — одно число.
+_DUPLICATE_WINDOW_SEC = 60
+
 RIDE_PAST_GRACE_HOURS = 2   # сколько часов после depart_at поездка ещё видна в выдаче (поздняя бронь / уехал впритык)
 
 # Перф (2026-07): дефолтный потолок выдачи /rides и /rides/near. Раньше limit=None
@@ -73,6 +77,28 @@ def _hide_trusted_only(items, user, session):
         return items
     uid = user.id if user is not None else None
     return [r for r in items if not _f(r, "only_trusted") or _f(r, "driver_id") == uid]
+
+
+def _recent_twin_ride(session: Session, driver_id: int, body: RideIn):
+    """Только что опубликованная ПОЛНОСТЬЮ такая же поездка — значит это тот же самый тап.
+
+    Сравниваем ВЕСЬ смысл объявления, а не «маршрут и время»: первая версия гарда сверяла
+    подмножество полей и схлопнула две разные поездки — с остановками и без (поймано тестом
+    `test_ride_waypoints_flows_through`). Совпасть должно всё: изменил хоть остановку, хоть
+    комментарий — это новая поездка, и терять её нельзя.
+    """
+    fields = body.model_dump(exclude={"pickup_point_id"})
+    recent = session.exec(
+        select(Ride).where(
+            Ride.driver_id == driver_id,
+            Ride.status == RideStatus.active,
+            Ride.created_at >= utcnow() - timedelta(seconds=_DUPLICATE_WINDOW_SEC),
+        ).order_by(Ride.id.desc()).limit(20)
+    ).all()
+    for r in recent:
+        if all(getattr(r, k, None) == v for k, v in fields.items()):
+            return r
+    return None
 
 
 @router.post("/rides", response_model=Ride)
@@ -120,7 +146,7 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     if body.partner_id is not None:
         partner = session.get(MedicalPartner, body.partner_id)
         if not partner or not partner.active:
-            raise HTTPException(400, "Клиника не найдена")
+            raise herr(400, "Клиника не найдена", "Клиника табылманы")
     # Геокодим концы маршрута (для радиус-поиска: PostGIS на проде / haversine иначе).
     frm = geocode_city(body.from_city) or (None, None)
     to = geocode_city(body.to_city) or (None, None)
@@ -137,6 +163,20 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
                 body.pickup_lat = pt.lat
             if body.pickup_lng is None:
                 body.pickup_lng = pt.lng
+    # Двойная публикация (аудит 2026-08-06). У посылок такой гард поставили 2026-08-03 с точным
+    # доводом: «лаг сети или авто-ретрай запроса — и у человека две одинаковые заявки». У поездок
+    # его не поставили, хотя ApiClient повторяет POST при обрыве связи, а ответ сервера может
+    # опоздать дольше таймаута. Цена дубля тут выше, чем мусор в ленте: пассажиры бронируют
+    # РАЗНЫЕ копии одного рейса, и водитель получает две брони на одну машину.
+    # Дедуп по СОДЕРЖИМОМУ в коротком окне: тот же водитель, маршрут, время, цена и места —
+    # это тот же самый тап. «Исправил и опубликовал заново» отличается хотя бы одним полем
+    # и проходит как новая поездка. Лочим строку водителя: иначе два запроса пройдут SELECT
+    # одновременно и оба вставят.
+    session.exec(select(User).where(User.id == user.id).with_for_update()).first()
+    twin = _recent_twin_ride(session, user.id, body)
+    if twin is not None:
+        return twin
+
     # (время выезда уже приведено к UTC выше, вместе с проверкой «не в прошлом»)
     # pickup_point_id — не колонка Ride (только сигнал привязки), исключаем из дампа.
     dump = body.model_dump(exclude={"pickup_point_id"})
@@ -195,7 +235,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     if not ride:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     if ride.driver_id != user.id:
-        raise HTTPException(403, "Это не ваша поездка")
+        raise herr(403, "Это не ваша поездка", "Был һинең сәфәрең түгел")
     if ride.status != RideStatus.active:
         raise herr(400, "Менять можно только активную поездку", "Тик актив сәфәрҙе генә үҙгәртеп була")
     live = session.exec(select(Booking).where(
@@ -539,7 +579,7 @@ def _ride_owned(session: Session, ride_id: int, user: User) -> Ride:
     if not ride:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     if ride.driver_id != user.id and user.role != UserRole.admin:
-        raise HTTPException(403, "Это не ваша поездка")
+        raise herr(403, "Это не ваша поездка", "Был һинең сәфәрең түгел")
     return ride
 
 
@@ -560,7 +600,7 @@ def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Sessi
     if ride.status == RideStatus.cancelled:
         return public_ride_payload(ride_out(ride, session))   # идемпотентно (двойной тап)
     if ride.status == RideStatus.done:
-        raise HTTPException(400, "Поездка уже завершена")
+        raise herr(400, "Поездка уже завершена", "Сәфәр инде тамамланған")
     affected = _live_bookings(session, ride_id)
     ride.status = RideStatus.cancelled
     session.add(ride)

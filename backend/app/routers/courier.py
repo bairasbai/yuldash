@@ -447,7 +447,7 @@ def courier_application(user: User = Depends(current_user), session: Session = D
 # ---------------------------------------------------------------------------
 def _require_admin(user: User) -> None:
     if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
+        raise herr(403, "Только для админа", "Тик администратор өсөн")
 
 
 @router.get("/admin/courier-applications")
@@ -484,7 +484,7 @@ def admin_courier_applications(status: str = "pending", user: User = Depends(cur
 def _get_app_or_404(session: Session, app_id: int) -> CourierApplication:
     app = session.get(CourierApplication, app_id)
     if not app:
-        raise HTTPException(404, "Заявка не найдена")
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
     return app
 
 
