@@ -8,14 +8,24 @@
 как seed_settlements). Ничего не удаляет. kind='village' — просто значение, схему не меняет.
 
 Revision ID: villages_district
-Revises: analytics_events
+Revises: ac_booking_lost_item
+
+ПОЧЕМУ ac_booking_lost_item, а не analytics_events (как было в ветке). Ветка про районы
+отошла от `main` в тот момент, когда хвостом цепочки был `analytics_events`. За месяц `main`
+дописал туда ещё десяток миграций и закончил на `ac_booking_lost_item`. При сборке релизной
+ветки обе цепочки встретились — и у alembic стало ДВЕ головы вместо одной.
+
+Чем это плохо: `alembic upgrade head` при двух головах не знает, какую катить, а сторож в CI
+на этом честно краснеет. На проде это значило бы «колонки района не создались, а никто не
+заметил». Цепочку выпрямили: миграция идемпотентная (сама проверяет, есть ли колонка),
+поэтому её позиция в очереди роли не играет — важно лишь, что очередь одна.
 """
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import inspect
 
 revision = "villages_district"
-down_revision = "analytics_events"
+down_revision = "ac_booking_lost_item"
 branch_labels = None
 depends_on = None
 
