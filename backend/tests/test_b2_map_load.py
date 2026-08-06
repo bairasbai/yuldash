@@ -55,35 +55,10 @@ def test_map_refresh_noop_without_redis(monkeypatch):
 
 
 # --------------------------- кэш /rides/near ---------------------------
-
-def test_rides_near_served_from_cache(client, user_factory, monkeypatch):
-    """Второй запрос в пределах TTL отдаётся из кэша (не из БД); сброс кэша → снова из БД."""
-    store: dict = {}
-    monkeypatch.setattr("app.routers.rides.cache_get_json", lambda k: store.get(k))
-    monkeypatch.setattr("app.routers.rides.cache_set_json", lambda k, v, ttl: store.__setitem__(k, v))
-
-    drv = user_factory("B2Drv", role=UserRole.driver)
-    with Session(engine) as s:
-        s.add(Ride(driver_id=drv["id"], from_city="Кэштаун", to_city="Кэшсити",
-                   depart_at=utcnow(), seats_total=3, seats_left=3, status=RideStatus.active))
-        s.commit()
-
-    pax = user_factory("B2Pax")
-    params = {"from_city": "Кэштаун", "to_city": "Кэшсити"}
-
-    r1 = client.get("/rides/near", headers=pax["auth"], params=params)
-    assert r1.status_code == 200 and r1.json()["count"] == 1
-    assert store, "первый запрос должен наполнить кэш"
-
-    # добавляем 2-ю поездку — в пределах TTL near отдаёт кэшированный список, новую не видит
-    with Session(engine) as s:
-        s.add(Ride(driver_id=drv["id"], from_city="Кэштаун", to_city="Кэшсити",
-                   depart_at=utcnow(), seats_total=3, seats_left=3, status=RideStatus.active))
-        s.commit()
-    r2 = client.get("/rides/near", headers=pax["auth"], params=params)
-    assert r2.json()["count"] == 1, "в пределах TTL — из кэша, новая поездка не видна"
-
-    # сброс кэша (истёк TTL) → снова считает из БД, видит обе
-    store.clear()
-    r3 = client.get("/rides/near", headers=pax["auth"], params=params)
-    assert r3.json()["count"] == 2, "после сброса кэша — свежий счёт из БД"
+#
+# Тест кэша УБРАН при сборке релизной ветки (2026-08-06), и это не потеря покрытия.
+# Ветка `architecture-review` лечила тяжёлый /rides/near кэшем в Redis на 15с. В main ту же
+# боль вылечили иначе и глубже: PostGIS-префильтр по радиусу (GiST-индекс) плюс подсчёт
+# дистанции/фильтров по лёгким колонкам, а полные объекты гидрируются только для страницы
+# выдачи. Кэша в этом пути больше нет — значит и проверять в нём нечего.
+# Дебаунс сигнала карты (выше) к рефакторингу не относится и остаётся в силе.
