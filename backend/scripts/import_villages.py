@@ -40,7 +40,8 @@ from pathlib import Path
 
 # Разбор OSM — тот же, что в рантайме (единый источник правды, покрыт тестами).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.geo import parse_overpass_elements, _VILLAGES_JSON, _VILLAGES_BORDER_JSON  # noqa: E402
+from app.geo import (parse_overpass_elements, _VILLAGES_JSON, _VILLAGES_BORDER_JSON,  # noqa: E402
+                     _CITY_DISTRICTS_JSON)
 
 # Зеркала Overpass: основное overpass-api.de часто занято («too busy») — идём по кругу.
 MIRRORS = [
@@ -111,8 +112,11 @@ class Districts:
         self.rows = []
         for e in elements:
             name = (e.get("tags") or {}).get("name")
+            # Берём ВСЕ куски границы, включая role=inner. Чётность сама вычтет дырки:
+            # городской округ Сибай — анклав внутри Баймакского района, и без inner-колец
+            # Сибай «оказывался» в Баймакском районе.
             rings = [[(g["lat"], g["lon"]) for g in (m.get("geometry") or [])]
-                     for m in e.get("members", []) if m.get("role") in ("outer", "")]
+                     for m in e.get("members", []) if m.get("type") == "way"]
             rings = [r for r in rings if len(r) >= 2]
             if not name or not rings:
                 continue
@@ -256,6 +260,26 @@ def from_osm(cache: Path, border_km: float) -> tuple[list[dict], list[dict]]:
     return dedup(rb_rows), dedup(nb_rows)
 
 
+def city_districts(cache: Path) -> dict:
+    """Города и райцентры из SETTLEMENTS_SEED → их район по контурам OSM.
+
+    Зачем: Баймак — город, но он ВНУТРИ Баймакского района (его центр), а Сибай — отдельный
+    городской округ. На глаз это не различить, а для зоны «мой район» разница решающая:
+    без этой карты водитель, выбравший Баймакский район, не получал заказы из самого Баймака."""
+    from app.geo import SETTLEMENTS_SEED
+
+    out: dict[str, str] = {}
+    for region, rel_id in REGIONS.items():
+        districts = fetch_districts(rel_id, cache)
+        for name_ru, _ba, seed_region, kind, lat, lng in SETTLEMENTS_SEED:
+            if seed_region != region or name_ru in out:
+                continue
+            found = districts.find(lat, lng)
+            if found:
+                out[name_ru] = short_district(found)
+    return dict(sorted(out.items()))
+
+
 def from_file(path: str) -> list[dict]:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     return parse_overpass_elements(raw.get("elements", raw if isinstance(raw, list) else []))
@@ -284,9 +308,14 @@ def main() -> int:
     if args.from_file:
         write(dedup(from_file(args.from_file)), Path(args.out), "Сёла (из файла)")
         return 0
-    rb, border = from_osm(Path(args.cache), args.border_km)
+    cache = Path(args.cache)
+    rb, border = from_osm(cache, args.border_km)
     write(rb, Path(args.out), "Сёла РБ")
     write(border, Path(args.out_border), "Сёла приграничья")
+    # Карта «город → район»: нужна зоне «мой район», см. city_districts().
+    cities = city_districts(cache)
+    Path(_CITY_DISTRICTS_JSON).write_text(json.dumps(cities, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"Районы городов: {len(cities)} → {_CITY_DISTRICTS_JSON}", file=sys.stderr)
     return 0
 
 

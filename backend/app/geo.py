@@ -34,6 +34,9 @@ from .services import haversine_km
 # Датасеты деревень (наполняет scripts/import_villages.py из OSM; пустой [] → сид no-op).
 _VILLAGES_JSON = Path(__file__).parent / "data" / "villages_rb.json"          # вся РБ
 _VILLAGES_BORDER_JSON = Path(__file__).parent / "data" / "villages_border.json"  # приграничье соседей
+# Город/райцентр → его муниципальный район (тоже из OSM). Баймак — райцентр ВНУТРИ Баймакского
+# района, а Сибай — отдельный городской округ; на глаз не различить, а зоне «мой район» важно.
+_CITY_DISTRICTS_JSON = Path(__file__).parent / "data" / "city_districts.json"
 # Какие OSM place → «деревня» (плюс town: пгт/крупные сёла-райцентры уже в city/district_center — их отсеет дедуп).
 _OSM_VILLAGE_PLACES = {"village", "hamlet", "town", "isolated_dwelling"}
 
@@ -486,6 +489,191 @@ def settlement_payload(s: Settlement) -> dict:
         "id": s.id, "name_ru": s.name_ru, "name_ba": s.name_ba,
         "region": s.region, "kind": s.kind, "district": s.district, "lat": s.lat, "lng": s.lng,
     }
+
+
+# ─────────────────────────── Зона работы: город / район / загород ───────────────────────────
+# Одни правила на такси и курьера (раньше были две разные копии, и они разъезжались).
+# База водителя: city — один НП, district — весь муниципальный район. Плюс два согласия:
+# «загород» (вторая точка вне базы) и «соседние регионы» (выезд за пределы РБ).
+# Как у Яндекс Про «Мой район»: в базовом режиме ОБЕ точки внутри зоны, выход — по тумблеру.
+
+# Радиус привязки точки к селу: деревни редкие, 30 км мало для «в какой я район попал».
+AREA_KM = 45.0
+
+
+@dataclass(frozen=True, slots=True)
+class Area:
+    """«Где это» для точки или названия: сам НП (если узнали), его район, регион и
+    ближайший крупный НП. Крупный нужен, чтобы посёлок в пяти километрах от Сибая
+    считался «Сибаем» для водителя, у которого база — город: иначе подача с окраины
+    выпадала бы из его зоны, и заказ не доставался никому."""
+    settlement: Optional[SettlementRow]
+    district: Optional[str]
+    region: Optional[str]
+    city: Optional[SettlementRow] = None
+
+    @property
+    def known(self) -> bool:
+        return self.settlement is not None or self.district is not None
+
+
+_UNKNOWN_AREA = Area(None, None, None)
+# Насколько далеко село может быть от «своего» города, чтобы считаться его округой.
+CITY_AROUND_KM = 20.0
+
+
+def _city_districts() -> dict:
+    """Карта «город → район» из data/city_districts.json (собрана по контурам OSM). Читаем один раз."""
+    global _CITY_DISTRICTS_CACHE
+    if _CITY_DISTRICTS_CACHE is None:
+        try:
+            raw = json.loads(_CITY_DISTRICTS_JSON.read_text(encoding="utf-8"))
+            _CITY_DISTRICTS_CACHE = {k: v for k, v in raw.items() if v} if isinstance(raw, dict) else {}
+        except Exception:  # noqa: BLE001 — нет файла → падаем на «г.о. Имя», как раньше
+            _CITY_DISTRICTS_CACHE = {}
+    return _CITY_DISTRICTS_CACHE
+
+
+_CITY_DISTRICTS_CACHE: Optional[dict] = None
+
+
+def _area_of_row(s: Optional[SettlementRow], city: Optional[SettlementRow] = None) -> Area:
+    if s is None:
+        return _UNKNOWN_AREA
+    # У города своего района в справочнике нет — берём из карты OSM (Баймак → «Баймакский р-н»,
+    # Сибай → «г.о. Сибай»). Нет в карте → считаем район отдельным округом по имени города.
+    district = s.district or _city_districts().get(s.name_ru) or (
+        f"г.о. {s.name_ru}" if s.kind in ("city", "neighbor") else None)
+    big = city if city is not None else (s if s.kind in CITY_KINDS else None)
+    return Area(s, district, s.region or None, big)
+
+
+def area_at(session: Session, lat: Optional[float], lng: Optional[float]) -> Area:
+    """Точка на карте → (НП, район, регион, ближайший город). Ищем среди ВСЕХ НП,
+    включая деревни: для зоны важно, в каком районе человек стоит."""
+    if lat is None or lng is None:
+        return _UNKNOWN_AREA
+    row = nearest_settlement(session, lat, lng, max_km=AREA_KM, kinds=())
+    if row is None:
+        return _UNKNOWN_AREA
+    city = row if row.kind in CITY_KINDS else nearest_settlement(
+        session, lat, lng, max_km=CITY_AROUND_KM)
+    return _area_of_row(row, city)
+
+
+def area_by_name(session: Session, name: str) -> Area:
+    """Название («Сибай», «Берёзовка (Иглинский р-н)») → (НП, район, регион, город).
+    Для курьера: у посылки хранится текст города, а не координаты."""
+    row = by_exact_name(session, name)
+    if row is None:
+        return _UNKNOWN_AREA
+    city = row if row.kind in CITY_KINDS else nearest_settlement(
+        session, row.lat, row.lng, max_km=CITY_AROUND_KM)
+    return _area_of_row(row, city)
+
+
+def same_area(base_kind: str, base_city: str, base_district: str, area: Area) -> bool:
+    """Точка внутри базовой зоны? Неизвестную точку НЕ режем (fail-open):
+    в глуши справочник может не знать НП, и молчащий подбор хуже лишнего оффера."""
+    if not area.known:
+        return True
+    if base_kind == "district":
+        if not base_district:
+            return True
+        return fold(area.district or "") == fold(base_district)
+    if not base_city:
+        return True
+    needle = fold(base_city)
+    # Свой НП — или его округа: посёлок под Сибаем для сибайского водителя тоже «Сибай».
+    for s in (area.settlement, area.city):
+        if s is not None and (s.key_ru == needle or (s.key_ba and s.key_ba == needle)):
+            return True
+    return False
+
+
+def _trip_km(a: Area, b: Area) -> Optional[float]:
+    """Прямая между точками заказа, если оба НП известны (для «это ещё местная поездка?»)."""
+    if a.settlement is None or b.settlement is None:
+        return None
+    return haversine_km(a.settlement.lat, a.settlement.lng, b.settlement.lat, b.settlement.lng)
+
+
+def _direction_matches(session: Session, direction_id: int, b: Area) -> bool:
+    """Заказ идёт в закреплённую сторону? Совпадение по самому НП или по его району
+    (закрепил «Уфа» — заказ в уфимское село по пути тоже считаем своим)."""
+    target = session.get(Settlement, direction_id)
+    if target is None:
+        return True                        # направление удалили из справочника — не режем подбор
+    if b.settlement is not None and b.settlement.id == target.id:
+        return True
+    target_area = _area_of_row(_to_row(target.id, target.name_ru, target.name_ba, target.region,
+                                       target.kind, target.district, target.lat, target.lng))
+    return bool(b.district and target_area.district and fold(b.district) == fold(target_area.district))
+
+
+def zone_allows(session: Session, *, zone: Optional[str], work_city: Optional[str],
+                work_district: Optional[str], intercity: bool, regions: bool,
+                direction_id: Optional[int], a: Area, b: Area,
+                local_km: Optional[float] = None) -> bool:
+    """Подходит ли заказ (точка А → точка Б) под зону работы. Общая для такси и курьера.
+
+    По-человечески:
+      • зона не выбрана → берём всё (как было до географии);
+      • закреплено направление («еду на Уфу») → только заказы в ту сторону, остальные мимо;
+      • подача не в моей зоне → чужой заказ, даже если я стою рядом;
+      • обе точки дома (свой НП / свой район) или поездка короткая (соседнее село за рекой) →
+        берём: Баймак → Сибай это 35 км, для человека это «по-местному», а не межгород;
+      • вторая точка далеко за базой → нужен тумблер «выезд загород»;
+      • другой регион → нужен ещё и тумблер «соседние регионы».
+    """
+    if not zone:
+        return True
+    base = "district" if zone == "district" else "city"
+    a_in = same_area(base, work_city or "", work_district or "", a)
+    b_in = same_area(base, work_city or "", work_district or "", b) if b.known else a_in
+    # «Соседний регион» = поездка ПЕРЕСЕКАЕТ границу региона. Считаем по самому заказу, а не
+    # «всё, что не РБ»: курьер из приграничного Магнитогорска возит у себя дома, и требовать
+    # с него тумблер «соседние регионы» на местный заказ было бы глупо.
+    other_region = bool(a.region and b.region and a.region != b.region)
+
+    if direction_id is not None:
+        # «По делам»: закрепил сторону — везу только туда (так же было до районов).
+        if not intercity or (other_region and not regions):
+            return False
+        return _direction_matches(session, direction_id, b)
+    if not a_in:
+        return False
+    km = _trip_km(a, b)
+    near = km is not None and local_km is not None and km <= local_km
+    if b_in or near:
+        return not other_region or regions
+    if not intercity:
+        return False
+    return not other_region or regions
+
+
+def district_exists(session: Session, name: str) -> bool:
+    """Есть ли такой район в справочнике. Нужно на входе зоны: район с опечаткой —
+    это ноль заказов у человека и полное непонимание, почему тихо."""
+    needle = fold(name)
+    if not needle:
+        return False
+    return any(fold(r["district"]) == needle for r in districts_payload(session))
+
+
+def districts_payload(session: Session) -> list[dict]:
+    """Районы для пикера зоны: имя + регион + сколько НП внутри (человеку понятнее,
+    что район не пустой). Сортировка: сначала РБ, потом соседи, внутри — по алфавиту."""
+    counts: dict[tuple, int] = {}
+    for s in _snapshot(session):
+        area = _area_of_row(s)
+        if not area.district:
+            continue
+        key = (area.district, s.region or RB)
+        counts[key] = counts.get(key, 0) + 1
+    rows = [{"district": d, "region": r, "settlements": n} for (d, r), n in counts.items()]
+    rows.sort(key=lambda x: (0 if x["region"] == RB else 1, x["district"]))
+    return rows
 
 
 def popular_routes_payload(session: Session) -> list[dict]:

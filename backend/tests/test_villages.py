@@ -235,3 +235,134 @@ def test_settlements_endpoint_returns_district_field(client):
     assert r.status_code == 200
     items = r.json()["items"]
     assert items and "district" in items[0]   # контракт: поле есть всегда (у города = null)
+
+
+# ============================ Зона курьера: район и «загород» ============================
+def _courier_zone_ok(session, *, zone, city=None, district=None, intercity=False,
+                     regions=False, direction_id=None, frm="", to=""):
+    """Пропустит ли зона курьера посылку «откуда → куда» (города приходят текстом)."""
+    return geo.zone_allows(
+        session, zone=zone, work_city=city, work_district=district,
+        intercity=intercity, regions=regions, direction_id=direction_id,
+        a=geo.area_by_name(session, frm), b=geo.area_by_name(session, to), local_km=40.0,
+    )
+
+
+def test_courier_district_zone_takes_only_its_district(iso_session):
+    """Курьер выбрал «Баймакский район»: посылка между сёлами района — его, чужой район — мимо."""
+    iso_session.add(Settlement(name_ru="Иткулово", region="РБ", kind="village",
+                               district="Баймакский р-н", lat=52.629, lng=57.968))
+    iso_session.add(Settlement(name_ru="Темясово", region="РБ", kind="village",
+                               district="Баймакский р-н", lat=52.993, lng=58.101))
+    iso_session.add(Settlement(name_ru="Абзелилово", region="РБ", kind="village",
+                               district="Абзелиловский р-н", lat=53.468, lng=58.661))
+    iso_session.commit()
+    ok = _courier_zone_ok(iso_session, zone="district", district="Баймакский р-н",
+                          frm="Иткулово", to="Темясово")
+    assert ok is True
+    mimo = _courier_zone_ok(iso_session, zone="district", district="Абзелиловский р-н",
+                            frm="Иткулово", to="Темясово")
+    assert mimo is False
+
+
+def test_courier_needs_intercity_toggle_for_far_parcel(iso_session):
+    """Без «выезда загород» дальняя посылка не приходит; с тумблером — приходит."""
+    iso_session.add(Settlement(name_ru="Иткулово", region="РБ", kind="village",
+                               district="Баймакский р-н", lat=52.629, lng=57.968))
+    iso_session.add(Settlement(name_ru="Уфа", region="РБ", kind="city", lat=54.735, lng=55.958))
+    iso_session.commit()
+    args = dict(zone="district", district="Баймакский р-н", frm="Иткулово", to="Уфа")
+    assert _courier_zone_ok(iso_session, **args) is False
+    assert _courier_zone_ok(iso_session, intercity=True, **args) is True
+
+
+def test_courier_other_region_needs_regions_toggle(iso_session):
+    """Магнитогорск — другой регион: нужен отдельный тумблер «соседние регионы»."""
+    iso_session.add(Settlement(name_ru="Сибай", region="РБ", kind="city", lat=52.716, lng=58.664))
+    iso_session.add(Settlement(name_ru="Магнитогорск", region="Челябинская обл.", kind="neighbor",
+                               lat=53.412, lng=58.984))
+    iso_session.commit()
+    args = dict(zone="city", city="Сибай", frm="Сибай", to="Магнитогорск")
+    assert _courier_zone_ok(iso_session, intercity=True, **args) is False
+    assert _courier_zone_ok(iso_session, intercity=True, regions=True, **args) is True
+
+
+def test_courier_namesake_village_resolved_by_district(iso_session):
+    """Посылка записана как «Берёзовка (Иглинский р-н)» — курьеру из Гафурийского она не идёт."""
+    iso_session.add(Settlement(name_ru="Берёзовка", region="РБ", kind="village",
+                               district="Иглинский р-н", lat=54.800, lng=56.400))
+    iso_session.add(Settlement(name_ru="Берёзовка", region="РБ", kind="village",
+                               district="Гафурийский р-н", lat=54.080, lng=56.482))
+    iso_session.commit()
+    frm, to = "Берёзовка (Иглинский р-н)", "Берёзовка (Иглинский р-н)"
+    assert _courier_zone_ok(iso_session, zone="district", district="Иглинский р-н",
+                            frm=frm, to=to) is True
+    assert _courier_zone_ok(iso_session, zone="district", district="Гафурийский р-н",
+                            frm=frm, to=to) is False
+
+
+def test_courier_push_uses_same_zone_rules_as_list(client, user_factory, monkeypatch):
+    """Пуш о новой посылке зовёт только тех курьеров, кто увидит её и в списке.
+    Раньше пуш сверял город строкой: звал на заказ, которого человек потом не находил."""
+    from app.routers import parcels as parcels_mod
+    from app.models import CourierProfile, ParcelDelivery
+    sent: list = []
+    monkeypatch.setattr(parcels_mod, "push_notification",
+                        lambda session, user_id, *a, **kw: sent.append(user_id))
+    with Session(engine) as s:
+        near = user_factory("CourierNear")["id"]
+        far = user_factory("CourierFar")["id"]
+        sender = user_factory("ParcelSender")["id"]
+        s.add(CourierProfile(user_id=near, online=True, zone="district",
+                             work_district="Ишимбайский р-н"))
+        s.add(CourierProfile(user_id=far, online=True, zone="district",
+                             work_district="Абзелиловский р-н"))
+        s.commit()
+        parcel = ParcelDelivery(sender_id=sender, delivery_type="courier",
+                                from_city="Кузяново", to_city="Кузяново")
+        s.add(parcel)
+        s.commit()
+        s.refresh(parcel)
+        parcels_mod._notify_couriers_new_parcel(s, parcel)
+    assert near in sent and far not in sent
+
+
+def test_courier_in_border_town_works_at_home_without_regions_toggle(iso_session):
+    """Курьер из приграничного Магнитогорска возит по своему городу — тумблер «соседние
+    регионы» ему для этого не нужен: границу региона заказ не пересекает."""
+    iso_session.add(Settlement(name_ru="Магнитогорск", region="Челябинская обл.", kind="neighbor",
+                               lat=53.412, lng=58.984))
+    iso_session.commit()
+    assert _courier_zone_ok(iso_session, zone="city", city="Магнитогорск",
+                            frm="Магнитогорск", to="Магнитогорск") is True
+
+
+def test_city_base_covers_nearby_village(iso_session):
+    """Подача из села в пяти километрах от Сибая — для сибайского водителя это его город.
+    Иначе заказ с окраины не доставался бы никому: базы «Сибай» у села нет."""
+    iso_session.add(Settlement(name_ru="Сибай", region="РБ", kind="city", lat=52.716, lng=58.664))
+    iso_session.add(Settlement(name_ru="Кусеево", region="РБ", kind="village",
+                               district="Баймакский р-н", lat=52.760, lng=58.640))
+    iso_session.commit()
+    ok = _courier_zone_ok(iso_session, zone="city", city="Сибай", frm="Кусеево", to="Сибай")
+    assert ok is True
+    # А до села за сотню километров это правило не дотягивается.
+    iso_session.add(Settlement(name_ru="Дальнее", region="РБ", kind="village",
+                               district="Дуванский р-н", lat=55.536, lng=58.250))
+    iso_session.commit()
+    assert _courier_zone_ok(iso_session, zone="city", city="Сибай",
+                            frm="Дальнее", to="Дальнее") is False
+
+
+def test_city_districts_map_separates_okrug_from_district(client):
+    """Баймак — райцентр ВНУТРИ своего района, Сибай — отдельный городской округ.
+    На этом держится зона «мой район»: без карты городов баймакский водитель не получал
+    заказы из самого Баймака, а сибайские заказы валились ему как «свои»."""
+    from sqlmodel import Session as _S
+    from app.db import engine as _e
+    with _S(_e) as s:
+        baymak = geo.area_by_name(s, "Баймак")
+        sibay = geo.area_by_name(s, "Сибай")
+    assert baymak.district == "Баймакский р-н"
+    assert sibay.district == "г.о. Сибай"
+    assert geo._city_districts()["Уфа"] == "г.о. Уфа"

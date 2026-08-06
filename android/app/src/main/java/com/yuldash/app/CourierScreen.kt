@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.LocationCity
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Percent
@@ -450,6 +451,13 @@ private fun CourierWorkContent(
     var zone by rememberSaveable { mutableStateOf(confirmedZone) }
     var workCity by rememberSaveable { mutableStateOf(me.profile?.workCity ?: "") }
     var workCityDraft by rememberSaveable { mutableStateOf(workCity) }
+    // Зона по-новому: база (город/село ИЛИ район) + два согласия — выезд загород и соседние
+    // регионы. Черновик и подтверждённое значение живут раздельно, как у города: пока сервер
+    // не принял настройку, курьер не должен видеть её как действующую.
+    var workDistrict by rememberSaveable { mutableStateOf(me.profile?.workDistrict ?: "") }
+    var workDistrictDraft by rememberSaveable { mutableStateOf(workDistrict) }
+    var intercity by rememberSaveable { mutableStateOf(me.profile?.workIntercity ?: false) }
+    var regions by rememberSaveable { mutableStateOf(me.profile?.workRegions ?: false) }
     var syncedProfileUpdatedAt by rememberSaveable { mutableStateOf(me.profile?.updatedAt.orEmpty()) }
     var toggling by remember { mutableStateOf(false) }
     var configSaving by remember { mutableStateOf(false) }
@@ -470,6 +478,7 @@ private fun CourierWorkContent(
 
     val toggleErr = appText("Не получилось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшер.")
     val needCityMsg = appText("Укажи город работы", "Эш ҡалаһын күрһәт")
+    val needDistrictMsg = appText("Укажи район работы", "Эш районын күрһәт")
 
     // Если /courier/me обновился извне, локальный экран возвращается к серверной правде.
     LaunchedEffect(me.profile?.updatedAt) {
@@ -482,6 +491,10 @@ private fun CourierWorkContent(
         zone = serverZone
         workCity = serverCity
         workCityDraft = serverCity
+        workDistrict = profile.workDistrict.orEmpty()
+        workDistrictDraft = profile.workDistrict.orEmpty()
+        intercity = profile.workIntercity
+        regions = profile.workRegions
         syncedProfileUpdatedAt = profile.updatedAt
     }
 
@@ -493,8 +506,11 @@ private fun CourierWorkContent(
         }
         toggling = true
         scope.launch {
-            val res = if (target) ApiClient.courierOnline(zone, candidateCity.takeIf { it.isNotBlank() }, null)
-            else ApiClient.courierOffline()
+            val res = if (target) ApiClient.courierOnline(
+                zone, candidateCity.takeIf { it.isNotBlank() }, null,
+                workDistrict = workDistrictDraft.trim().takeIf { zone == "district" && it.isNotBlank() },
+                workIntercity = intercity, workRegions = regions,
+            ) else ApiClient.courierOffline()
             res.onSuccess {
                 online = target
                 if (target) {
@@ -527,8 +543,11 @@ private fun CourierWorkContent(
         }
         configSaving = true
         scope.launch {
-            ApiClient.courierOnline(newZone, candidateCity.takeIf { it.isNotBlank() }, null)
-                .onSuccess {
+            ApiClient.courierOnline(
+                newZone, candidateCity.takeIf { it.isNotBlank() }, null,
+                workDistrict = workDistrictDraft.trim().takeIf { newZone == "district" && it.isNotBlank() },
+                workIntercity = intercity, workRegions = regions,
+            ).onSuccess {
                     confirmedZone = newZone
                     zone = newZone
                     workCity = candidateCity
@@ -543,6 +562,49 @@ private fun CourierWorkContent(
         }
     }
 
+    /** Тумблеры «загород»/«регионы» на линии — отправляем той же ручкой, что и зону. */
+    fun changeZoneFlags() {
+        if (!online || lineBusy) return
+        configSaving = true
+        scope.launch {
+            ApiClient.courierOnline(
+                zone, workCityDraft.trim().takeIf { zone == "city" && it.isNotBlank() }, null,
+                workDistrict = workDistrictDraft.trim().takeIf { zone == "district" && it.isNotBlank() },
+                workIntercity = intercity, workRegions = regions,
+            ).onFailure {
+                // Сервер не принял — возвращаем тумблеры к серверной правде, а не к желаемой.
+                intercity = me.profile?.workIntercity ?: false
+                regions = me.profile?.workRegions ?: false
+                Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: toggleErr, Toast.LENGTH_SHORT).show()
+            }
+            configSaving = false
+        }
+    }
+
+    fun saveWorkDistrict() {
+        if (!online || lineBusy) return
+        val candidate = workDistrictDraft.trim()
+        if (candidate.isBlank()) {
+            Toast.makeText(ctx, needDistrictMsg, Toast.LENGTH_SHORT).show(); return
+        }
+        if (candidate == workDistrict) return
+        configSaving = true
+        scope.launch {
+            ApiClient.courierOnline(
+                zone, null, null,
+                workDistrict = candidate, workIntercity = intercity, workRegions = regions,
+            ).onSuccess {
+                confirmedZone = zone
+                workDistrict = candidate
+                workDistrictDraft = candidate
+            }.onFailure {
+                workDistrictDraft = workDistrict
+                Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: toggleErr, Toast.LENGTH_SHORT).show()
+            }
+            configSaving = false
+        }
+    }
+
     fun saveWorkCity() {
         if (!online || lineBusy) return
         val candidateCity = workCityDraft.trim()
@@ -553,8 +615,11 @@ private fun CourierWorkContent(
         configSaving = true
         scope.launch {
             // И зона, и город уходят одним запросом: сервер никогда не видит половину настройки.
-            ApiClient.courierOnline(zone, candidateCity, null)
-                .onSuccess {
+            ApiClient.courierOnline(
+                zone, candidateCity, null,
+                workDistrict = workDistrictDraft.trim().takeIf { zone == "district" && it.isNotBlank() },
+                workIntercity = intercity, workRegions = regions,
+            ).onSuccess {
                     confirmedZone = zone
                     workCity = candidateCity
                     workCityDraft = candidateCity
@@ -575,10 +640,52 @@ private fun CourierWorkContent(
             onToggle = { setOnline(it) },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
+            // База: где я вожу вообще. Один НП или весь район — как «Мой район» у Яндекс Про.
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CourierZoneChip(Icons.Default.LocationCity, appText("Город", "Ҡала"), zone == "city", !lineBusy) { changeZone("city") }
-                CourierZoneChip(Icons.Default.AltRoute, appText("Межгород", "Ҡалалар араһы"), zone == "intercity", !lineBusy) { changeZone("intercity") }
-                CourierZoneChip(Icons.Default.Public, appText("Регион", "Төбәк"), zone == "region", !lineBusy) { changeZone("region") }
+                CourierZoneChip(Icons.Default.LocationCity, appText("Мой город", "Минең ҡалам"), zone == "city", !lineBusy) { changeZone("city") }
+                CourierZoneChip(Icons.Default.Map, appText("Мой район", "Минең районым"), zone == "district", !lineBusy) { changeZone("district") }
+            }
+            // Согласия поверх базы: выезд за неё и в соседние регионы. Выключил «загород» —
+            // «регионы» гаснут сами: без выезда они ничего не значат.
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CourierZoneChip(Icons.Default.AltRoute, appText("Выезд загород", "Ҡала тышына"), intercity, !lineBusy) {
+                    intercity = !intercity
+                    if (!intercity) regions = false
+                    if (online) changeZoneFlags()
+                }
+                CourierZoneChip(Icons.Default.Public, appText("Соседние регионы", "Күрше төбәктәр"), regions, !lineBusy && intercity) {
+                    regions = !regions
+                    if (online) changeZoneFlags()
+                }
+            }
+            if (zone == "district") {
+                // Подсказки из справочника: район с опечаткой сервер не примет, а человек
+                // будет сидеть без заказов и гадать, что не так.
+                DistrictPickInput(
+                    value = workDistrictDraft,
+                    onChange = { workDistrictDraft = it.take(40) },
+                    enabled = !lineBusy,
+                )
+                if (workDistrictDraft.trim() != workDistrict) {
+                    DeliveryHint(
+                        if (online) {
+                            appText("Подтверди новый район — до этого заказы остаются по прежнему.",
+                                "Яңы районды раҫла — уға тиклем заказдар элеккесә ҡала.")
+                        } else {
+                            appText("Район применится после успешного включения линии.",
+                                "Район линия уңышлы ҡабыҙылғас ҡулланыласаҡ.")
+                        },
+                    )
+                    if (online) {
+                        AppButton(
+                            text = appText("Сохранить район", "Районды һаҡлау"),
+                            onClick = { saveWorkDistrict() },
+                            style = AppButtonStyle.Secondary,
+                            enabled = !lineBusy && workDistrictDraft.isNotBlank(),
+                            loading = configSaving,
+                        )
+                    }
+                }
             }
             if (zone == "city") {
                 OutlinedTextField(
@@ -638,7 +745,9 @@ private fun CourierWorkContent(
                 0 -> CourierAvailableTab(
                     online = online,
                     lineBusy = lineBusy,
-                    zone = confirmedZone,
+                    // Зона в ключе списка — чтобы после смены района или тумблеров лента
+                    // перезапросилась: иначе курьер видел бы старую подборку заказов.
+                    zone = "$confirmedZone|${if (workDistrict.isNotBlank()) workDistrict else "-"}|$intercity|$regions",
                     workCity = if (confirmedZone == "city") workCity else "",
                     onGoOnline = { setOnline(true) },
                 )
