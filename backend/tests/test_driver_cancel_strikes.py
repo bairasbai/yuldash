@@ -33,11 +33,30 @@ def _taxi_on():
     settings.taxi_enabled = prev
 
 
+def _seed_passenger(s: Session, driver_id: int) -> int:
+    """Настоящий пассажир для посева — один на водителя.
+
+    Раньше тут стояло арифметическое `driver_id + 100_000`: номер, которому не соответствует
+    ни один пользователь. На SQLite это проходило (проверка связей там выключена по умолчанию),
+    а на Postgres — падало: сослаться на несуществующего человека нельзя. Тест «зелёный дома,
+    красный в CI» — худший вид, потому что доверие к прогону теряется целиком.
+    """
+    marker = f"seed-pass-{driver_id}"
+    u = s.exec(select(User).where(User.phone == marker)).first()
+    if u is None:
+        u = User(phone=marker, name="ПассажирПосев", telegram_id=marker,
+                 verified=True, role=UserRole.passenger)
+        s.add(u)
+        s.commit()
+        s.refresh(u)
+    return u.id
+
+
 def _cancelled_by_driver(driver_id: int, when, *, accepted=True, no_show=False) -> int:
     """Готовая отменённая поездка в истории — прямой посев, без прогона всего матчинга."""
     with Session(engine) as s:
         o = InstantOrder(
-            passenger_id=driver_id + 100_000, driver_id=driver_id, status=S.cancelled,
+            passenger_id=_seed_passenger(s, driver_id), driver_id=driver_id, status=S.cancelled,
             from_lat=52.7, from_lng=58.6, to_lat=52.8, to_lng=58.7,
             cancelled_at=when, cancel_by="driver", no_show=no_show,
             accepted_at=(when - timedelta(minutes=5)) if accepted else None,
@@ -106,7 +125,7 @@ def test_paused_driver_is_not_offered_orders(client, user_factory):
     for i in range(settings.driver_cancel_limit):
         _cancelled_by_driver(did, utcnow() - timedelta(minutes=i + 1))
     with Session(engine) as s:
-        order = InstantOrder(passenger_id=did + 200_000, status=S.searching,
+        order = InstantOrder(passenger_id=_seed_passenger(s, did), status=S.searching,
                              from_lat=52.7, from_lng=58.6, to_lat=52.8, to_lng=58.7)
         assert isv.eligible(s, [did], order) == []
 
@@ -118,7 +137,7 @@ def _offered_to(driver_id: int) -> int:
     а проверяем мы не подбор, а то, что причина отказа записывается."""
     with Session(engine) as s:
         o = InstantOrder(
-            passenger_id=driver_id + 300_000, status=S.offered,
+            passenger_id=_seed_passenger(s, driver_id), status=S.offered,
             from_lat=52.7, from_lng=58.6, to_lat=52.8, to_lng=58.7,
             current_offer_driver_id=driver_id, offer_expires_at=utcnow() + timedelta(minutes=1),
         )
