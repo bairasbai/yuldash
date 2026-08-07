@@ -110,6 +110,12 @@ class AdminScreensIntegrationTest {
     private lateinit var queue: QueueDispatcher
     private lateinit var failFast: MockResponse
 
+    private companion object {
+        /** Адреса, ради которых поднят этот сервер (по одному на проверяемый экран).
+         *  Всё, что не отсюда, — чужое: получает 404 и очередь не трогает. */
+        val SERVED = listOf("/requests/", "/admin/drivers/pending", "/admin/reports")
+    }
+
     /** Сколько ответов этот тест поставил в очередь. Нужен диагностике: без него нельзя
      *  отличить «ответ приготовили, но он не понадобился» от «ответа и не готовили». */
     private var enqueued = 0
@@ -194,8 +200,18 @@ class AdminScreensIntegrationTest {
         server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
             override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
-                if (path.startsWith("/auth/") || path.startsWith("/push/")) {
-                    note("${request.method} $path → 404 (служебный, очередь не тронута)")
+                // БЕЛЫЙ список, а не чёрный. Раньше отсекались только `/auth/` и `/push/` —
+                // список писался под известные тогда фоновые запросы. Но у клиента их
+                // четырнадцать, и три (`/me/update`, `/instant/presence`, `/ads/*/event`)
+                // проходили насквозь и забирали ответ, заготовленный для экрана. Экран после
+                // этого получал 404 на пустую очередь.
+                //
+                // Чёрный список обязан пополняться каждый раз, когда в клиенте заводят новый
+                // фоновый запрос, — а никто об этом не вспомнит. Белый не требует ничего:
+                // очередь достаётся ровно тем адресам, ради которых тест и поднят, всё
+                // остальное получает 404 и в очередь не лезет.
+                if (SERVED.none { path.startsWith(it) }) {
+                    note("${request.method} $path → 404 (чужой запрос, очередь не тронута)")
                     return MockResponse().setResponseCode(404)
                 }
                 // Пусто ли в очереди — смотрим ДО обращения: `dispatch` очередь опустошает,
@@ -206,6 +222,16 @@ class AdminScreensIntegrationTest {
                 return r
             }
         }
+        // Обрываем всё фоновое, что осталось от предыдущих тестов. Область корутин у клиента
+        // общая на весь процесс и раньше не отменялась никогда: «выстрелил и забыл» запрос
+        // из раннего класса продолжал повторяться, когда давно шёл другой класс, — а адрес
+        // сервера он перечитывает на каждой попытке и потому приходил СЮДА.
+        ApiClient.resetForTest()
+        // Короткие таймауты вместо боевых 15 секунд. С боевыми один вызов живёт до полутора
+        // минут, а тест ждёт двадцать секунд: любая заминка выглядит как «навсегда Загрузка…»,
+        // и понять причину нельзя. С короткими вызов честно падает, экран показывает ошибку,
+        // и в отчёте видно, что именно случилось.
+        ApiClient.testTimeoutMs = 2000
         ApiClient.logout()
         server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
@@ -215,7 +241,15 @@ class AdminScreensIntegrationTest {
 
     @After
     fun teardown() {
-        ApiClient.testBaseUrl = null
+        // Сначала обрываем фоновое, потом гасим сервер. В обратном порядке недобитый запрос
+        // успевает уйти уже на СЛЕДУЮЩИЙ сервер (адрес перечитывается на каждой попытке) —
+        // ровно тот механизм, из-за которого «поодиночке проходит, в полном прогоне падает».
+        ApiClient.resetForTest()
+        ApiClient.testTimeoutMs = null
+        // Будим тех, кто мог заснуть на пустой очереди: у MockWebServer выдача ответа умеет
+        // блокировать поток, а наш диспетчер подменял исходный — и его `shutdown()`, который
+        // как раз будит спящих, не звался никогда.
+        queue.shutdown()
         server.shutdown()
     }
 

@@ -7,6 +7,7 @@ import com.yuldash.app.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -37,6 +38,37 @@ object ApiClient {
     internal var testBaseUrl: String? = null
 
     private val BASE: String get() = testBaseUrl ?: buildBase
+
+    /**
+     * Тест-хук: короткие таймауты и без повторов. В проде null → всё как было.
+     *
+     * Зачем. В проде запрос обязан быть терпеливым: 15 секунд на соединение, 15 на чтение и
+     * до трёх попыток с паузами — человек в дороге на слабой связи должен доехать до ответа,
+     * а не увидеть ошибку на первой кочке. В тестах это оборачивается против нас: один вызов
+     * живёт до полутора минут, а тест ждёт двадцать секунд. Любая заминка выглядит одинаково —
+     * экран навсегда на «Загрузка…», ошибку показать не успевают, и разбирать нечего.
+     *
+     * Хуже того: все тесты идут в ОДНОЙ виртуальной машине, поэтому брошенный запрос переживает
+     * свой тестовый класс и стучится уже на сервер соседнего (адрес перечитывается на каждой
+     * попытке). С коротким таймаутом он умирает за секунду и до соседа не доживает.
+     */
+    internal var testTimeoutMs: Int? = null
+
+    private val connectMs: Int get() = testTimeoutMs ?: 15000
+    private val readMs: Int get() = testTimeoutMs ?: 15000
+
+    /**
+     * Тест-хук: оборвать всё фоновое и вернуть клиента в исходное состояние.
+     *
+     * `bg` — область корутин уровня процесса, и её никто никогда не отменял: в приложении это
+     * верно (живёт столько же, сколько процесс), а в тестах означало, что «выстрелил и забыл»
+     * запрос из раннего класса продолжает повторяться, когда давно идёт другой класс. Зовётся
+     * из `@Before`/`@After` тестов, в проде не вызывается.
+     */
+    internal fun resetForTest() {
+        bg.coroutineContext.cancelChildren()
+        testBaseUrl = null
+    }
 
     @Volatile private var token: String? = null
     @Volatile private var refreshToken: String? = null
@@ -342,8 +374,8 @@ object ApiClient {
     private fun postWithToken(path: String, body: JSONObject?, bearer: String) {
         val conn = (URL("$BASE$path").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
-            connectTimeout = 15000
-            readTimeout = 15000
+            connectTimeout = connectMs
+            readTimeout = readMs
             deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
             setRequestProperty("Authorization", "Bearer $bearer")
             if (body != null) {
@@ -2710,15 +2742,17 @@ object ApiClient {
         // Идемпотентность: даже POST безопасен — повтор идёт лишь когда ответ не получен вовсе,
         // значит сервер запрос не обработал → дубля на бэкенде не будет. Флаг retryOnNetwork=false
         // выключает ретрай точечно (например для заведомо неидемпотентных операций).
-        val backoff = if (retryOnNetwork) longArrayOf(400L, 900L) else LongArray(0)
+        // В тестах повторов нет: один вызов и так укладывается в секунду, а повтор только
+        // продлевал бы жизнь брошенному запросу за границу своего тестового класса.
+        val backoff = if (retryOnNetwork && testTimeoutMs == null) longArrayOf(400L, 900L) else LongArray(0)
         var attempt = 0
         while (true) {
             var conn: HttpURLConnection? = null
             try {
                 conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
                     requestMethod = method
-                    connectTimeout = 15000
-                    readTimeout = 15000
+                    connectTimeout = connectMs
+                    readTimeout = readMs
                     setRequestProperty("Accept", "application/json")
                     deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
                     if (auth) usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
