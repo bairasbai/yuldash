@@ -11,7 +11,8 @@ export type Amenity =
   | "air_conditioner"
   | "baggage"
   | "child_seat"
-  | "pets";
+  | "pets"
+  | "quiet";
 
 export interface FilterPrefs {
   city: string; // «мой город» — фильтр по совпадению в маршруте (откуда/куда)
@@ -85,6 +86,8 @@ export function applyRideFilters(rides: Ride[], f: FilterPrefs): Ride[] {
     if (f.amenities.includes("baggage") && !r.baggage) return false;
     if (f.amenities.includes("child_seat") && !r.child_seat) return false;
     if (f.amenities.includes("pets") && !r.pets_allowed) return false;
+    // Тихая поездка: условие водитель отмечал давно, а искать по нему было нельзя.
+    if (f.amenities.includes("quiet") && !r.quiet) return false;
     if (f.onlyTrusted && !r.driver_verified) return false;
     return true;
   });

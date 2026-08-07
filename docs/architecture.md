@@ -243,6 +243,29 @@
 - **Быстрые ответы в чате**: `ChatComposer` (`RidesRequestsChatScreens.kt`) получил параметр `onQuickSend`; над полем ввода — `LazyRow` из `QuickReplyChip` (5 готовых фраз, тач-цель ≥48dp). `BookingActiveTripScreen.kt` (ActiveTrip) прокидывает `onQuickSend = { sendText(it) }` — тот же надёжный путь WS→REST.
 - **Экран «Честно о цене»**: новый `Screen.PricingInfo` → `PricingInfoScreen` (`SecondaryScreens.kt`, хелперы `PricingBlock`/`PricingWhereRow`). Объясняет: попутка бесплатна (бензин напрямую), тариф такси, сурж-потолок ×1.5, комиссия водителя 3–8% + куда идёт, оплата СБП «на доверии». Вход — карточка «Честно о цене» в `PaymentInfoScreen` (`onOpenPricing`, ветка в `YuldashApp.kt`). Цифры — реальные (без выдуманных), стиль сверен с сурж-плашкой `InstantOrderScreen`.
 
+## 🛰 Честное «подъезжаю» + фильтр «Тихая поездка» (2026-08-07, разбор конкурентов по Reddit)
+
+- **Проверка «подъезжаю» по GPS.** `bookings.py::driver_status` при `status="arriving"` сверяет
+  живую позицию водителя (`livepos_get("booking", id)`, Redis-кэш из WS-потока) с **точным пином
+  подачи** `Ride.pickup_lat/lng`. Дальше `settings.arrival_verify_radius_m` (800 м) → `409` с
+  двуязычным текстом и расстоянием. Хелперы `_pickup_point` / `_verify_arrival` в том же файле.
+  **Проверяем только когда есть чем:** нет пина, нет позиции или выключен
+  `settings.arrival_verify_enabled` → пропускаем как раньше (ложный отказ дороже пропущенного
+  обмана). Центр города запасной целью НЕ берётся — в Уфе это давало бы отказ честной подаче
+  на окраине. Результат в `Booking.arrival_verified` (миграция `ae_arrival_verified`), отдаётся
+  полем `arrival_verified` в `GET /bookings/{id}/role`. Тесты — `backend/tests/test_arrival_honesty.py` (6).
+- **Android.** `TripStateDto` +`arrivalVerified`; `BookingActiveTripScreen.kt` держит состояние
+  `arrivalVerified` (сбрасывается по `bookingId`, обновляется тем же поллингом `getTripState`
+  раз в ~12с) и передаёт в `DriverApproachingBanner(verified=)` — внутри `AnimatedVisibility`
+  со строкой «Подтверждено по GPS — машина рядом». Показывается ТОЛЬКО при реальной проверке.
+- **Фильтр «Тихая поездка».** Поле `Ride.quiet` и чипы на карточке существовали, поиска не было.
+  `MapScreen.kt`: предикат `shownNearby` +`("quiet" !in prefFilter || d.quiet)` и чип
+  `Icons.Default.VolumeOff`; `SecondaryScreens.kt` — тумблер в «Фильтрах по умолчанию»
+  (ключ `"quiet"` в `FilterPrefs`). Фильтрация клиентская, как у остальных шести.
+- **Тексты комиссии.** `web/components/lang.tsx` (шапка/метрики/сравнение), `help-content.ts`,
+  `legal-content.ts` и `webapp/src/legal.ts` (оферта дублируется в двух файлах — правь оба):
+  попутка 0 ₽, такси и доставка 8% с исполнителя. Сама ставка не менялась (`service_fee_percent`).
+
 ## 🔌 Волна А: подключены готовые бэкенд-фичи к UI (2026-07-16)
 
 Клиент начал вызывать эндпоинты, которые уже были на бэке, но UI их не дёргал. Правки только `android/`, зона данных + точечный UI.

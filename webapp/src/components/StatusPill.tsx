@@ -29,14 +29,24 @@ const PHASE: Record<Exclude<DriverPhase, "">, [string, string]> = {
 export function StatusPill({
   status,
   phase,
+  arrivalVerified = false,
 }: {
   status: BookingStatus;
   phase?: DriverPhase;
+  /** true → к «подъезжает» добавляем «✓ GPS»: сервер сверил позицию водителя с точкой подачи.
+   *  Показываем ТОЛЬКО по факту проверки — ложная галочка хуже её отсутствия. */
+  arrivalVerified?: boolean;
 }) {
   const { appText } = useLang();
   if (phase && (status === "confirmed" || status === "onboard")) {
     const p = PHASE[phase];
-    return <span className="badge badge--gold">{appText(p[0], p[1])}</span>;
+    const gps = arrivalVerified && phase === "arriving";
+    return (
+      <span className="badge badge--gold">
+        {appText(p[0], p[1])}
+        {gps ? appText(" · ✓ GPS", " · ✓ GPS") : ""}
+      </span>
+    );
   }
   const l = LABEL[status] ?? LABEL.pending;
   const c = CLASS[status] ?? "badge--gold";

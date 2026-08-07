@@ -47,6 +47,7 @@ export default function FiltersScreen() {
     { key: "baggage", label: appText("Багаж", "Багаж") },
     { key: "child_seat", label: appText("Детское кресло", "Бала урыны") },
     { key: "pets", label: appText("С питомцем", "Хайуан менән") },
+    { key: "quiet", label: appText("Тихая поездка", "Тыныс сәфәр") },
   ];
 
   return (

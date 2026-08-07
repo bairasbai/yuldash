@@ -1286,7 +1286,8 @@ object ApiClient {
      *  (""/departed/arriving). Экран активной поездки опрашивает это раз в ~12с. */
     suspend fun getTripState(bookingId: Int): Result<TripStateDto> =
         call("GET", "/bookings/$bookingId/role", null, auth = true).map {
-            TripStateDto(it.optString("role"), it.optString("status"), it.optString("driver_phase"))
+            TripStateDto(it.optString("role"), it.optString("status"), it.optString("driver_phase"),
+                         it.optBoolean("arrival_verified", false))
         }
 
     /** Водитель отмечает «выехал»/«подъезжаю» → push пассажиру. status: "departed"|"arriving". */
@@ -4945,7 +4946,13 @@ data class PublicReviewDto(
 
 /** Заявка пассажира рядом (/requests/near) — для маркера «ищет попутку» на карте. Без телефона. */
 /** Состояние активной поездки: роль + статус брони + подфаза водителя (""/departed/arriving). */
-data class TripStateDto(val role: String, val status: String, val driverPhase: String)
+/** arrivalVerified — сервер сам сверил «подъезжаю» с GPS водителя: машина правда рядом. */
+data class TripStateDto(
+    val role: String,
+    val status: String,
+    val driverPhase: String,
+    val arrivalVerified: Boolean = false,
+)
 
 data class RequestNearDto(
     val id: Int,

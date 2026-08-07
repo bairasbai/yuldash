@@ -939,6 +939,9 @@ internal fun ActiveTripScreen(
     // опроса видны кнопки чужой роли (водительские «Я выехал» у пассажира).
     var role by remember(bookingId) { mutableStateOf("") }
     var driverPhase by remember(bookingId) { mutableStateOf("") }   // ""/departed/arriving — для live-баннера пассажиру
+    // Сервер сверил «подъезжаю» с GPS водителя → пассажир видит «подтверждено по GPS» и знает,
+    // что машина правда рядом, а не «уже почти» на словах (разбор конкурентов 2026-08-07).
+    var arrivalVerified by remember(bookingId) { mutableStateOf(false) }
     var bookingStatus by remember(bookingId) { mutableStateOf("") }
     // F11: офлайн-паспорт брони. Читаем СРАЗУ из локального (secure) хранилища — данные видны без сети.
     var tripPass by remember(bookingId) { mutableStateOf(bookingId?.let { TripPassStore.load(context, it) }) }
@@ -953,7 +956,7 @@ internal fun ActiveTripScreen(
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
                 ApiClient.getTripState(id)
-                    .onSuccess { st -> role = st.role; driverPhase = st.driverPhase; bookingStatus = st.status; offline = false }
+                    .onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; bookingStatus = st.status; offline = false }
                     // Сетевой сбой (не ApiException) → уходим в офлайн-режим: поднимаем сохранённый паспорт.
                     .onFailure { e -> if (e !is ApiException) offline = true }
                 kotlinx.coroutines.delay(12_000)
@@ -1093,7 +1096,7 @@ internal fun ActiveTripScreen(
             if (changed) {
                 queuedIds = emptySet()
                 ApiClient.getMessages(id).onSuccess { messages = it }
-                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase; bookingStatus = st.status; offline = false }
+                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; bookingStatus = st.status; offline = false }
             }
         }
     }
@@ -1189,6 +1192,7 @@ internal fun ActiveTripScreen(
                     DriverApproachingBanner(
                         arriving = driverPhase == "arriving",
                         modifier = Modifier.appearIn(1),
+                        verified = arrivalVerified,
                     )
                 }
             }
@@ -1230,7 +1234,7 @@ internal fun ActiveTripScreen(
                                             if (st == "done") { TripPassStore.remove(context, bid); onTripEnd() }   // уходим с экрана только при реальном закрытии брони + чистим ПДн из паспорта
                                             else {
                                                 Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
-                                                ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; bookingStatus = s.status }   // сразу синхроним UI, не ждём 12с поллинга
+                                                ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; arrivalVerified = s.arrivalVerified; bookingStatus = s.status }   // сразу синхроним UI, не ждём 12с поллинга
                                             }
                                         }
                                         .onFailure { e ->
@@ -1248,7 +1252,7 @@ internal fun ActiveTripScreen(
                                         // «Завершить» уходит с экрана только при реальном закрытии брони на сервере.
                                         .onSuccess {
                                             if (st == "done") { TripPassStore.remove(context, bid); onTripEnd() }
-                                            else ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; bookingStatus = s.status }   // сразу синхроним статус/код посадки
+                                            else ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; arrivalVerified = s.arrivalVerified; bookingStatus = s.status }   // сразу синхроним статус/код посадки
                                         }
                                         .onFailure { e ->
                                             if (e !is ApiException) {   // нет сети → статус «сел/доехал» в очередь на авто-ретрай (F11)
@@ -2005,11 +2009,17 @@ internal fun TripRouteHeaderCard(
     }
 }
 
-/** Live-баннер пассажиру: водитель выехал / подъезжает. `arriving` → акцентная (зелёная) плашка. */
+/** Live-баннер пассажиру: водитель выехал / подъезжает. `arriving` → акцентная (зелёная) плашка.
+ *
+ * `verified` — сервер сверил «подъезжаю» с живым GPS водителя и убедился, что машина рядом.
+ * Строка подтверждения — наш ответ на массовую жалобу к inDrive («жмут „я приехал“, стоя
+ * за километры»): пассажир выходит из дома, только когда за словами водителя есть проверка.
+ */
 @Composable
 internal fun DriverApproachingBanner(
     arriving: Boolean,
     modifier: Modifier = Modifier,
+    verified: Boolean = false,
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -2019,10 +2029,27 @@ internal fun DriverApproachingBanner(
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = if (arriving) Color.White else CanonGreen2, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(12.dp))
-            Text(
-                if (arriving) appText("Водитель подъезжает", "Водитель яҡынлаша") else appText("Водитель выехал к вам", "Водитель сыҡты"),
-                color = if (arriving) Color.White else CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    if (arriving) appText("Водитель подъезжает", "Водитель яҡынлаша") else appText("Водитель выехал к вам", "Водитель сыҡты"),
+                    color = if (arriving) Color.White else CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp
+                )
+                // Показываем ТОЛЬКО когда проверка реально прошла. Нет подтверждения — молчим,
+                // а не рисуем галочку авансом: ложное «проверено» хуже отсутствующего.
+                AnimatedVisibility(visible = arriving && verified) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.CheckCircle, contentDescription = null,
+                            tint = Color.White, modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            appText("Подтверждено по GPS — машина рядом", "GPS раҫланы — машина янда"),
+                            color = Color.White, fontSize = 12.sp
+                        )
+                    }
+                }
+            }
         }
     }
 }

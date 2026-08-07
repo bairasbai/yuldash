@@ -386,6 +386,10 @@ class Booking(SQLModel, table=True):
     price: int = 0
     status: BookingStatus = BookingStatus.pending
     driver_phase: str = ""           # подфаза активной поездки от водителя: "" / departed / arriving (для live-баннера пассажиру)
+    # Сервер сам сверил «подъезжаю» с живым GPS водителя и убедился, что он рядом с точкой подачи.
+    # Пассажир видит это как «подтверждено по GPS» — слово водителя перестаёт быть единственным
+    # доказательством (разбор конкурентов 2026-08-07: у inDrive «Я приехал» жмут за километры).
+    arrival_verified: bool = False
     boarding_code: str = ""
     # Оплата после done (Фаза 3, деньги v1). paid — факт оплаты; наличные через нас НЕ идут
     # (ledger не двигаем), безнал (ЮKassa) начисляет водителю через ledger.

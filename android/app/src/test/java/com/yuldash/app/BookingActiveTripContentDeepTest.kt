@@ -95,6 +95,52 @@ class BookingActiveTripContentDeepTest {
         composeRule.onNodeWithText("Водитель яҡынлаша").assertIsDisplayed()
     }
 
+    /**
+     * Подпись «подтверждено по GPS» появляется ТОЛЬКО когда сервер реально сверил позицию
+     * водителя с точкой подачи. Три случая ниже — против соблазна показывать галочку всегда:
+     * ложное «проверено» в вопросе доверия хуже, чем отсутствие подтверждения.
+     */
+    @Test
+    fun approachingBanner_verified_showsGpsConfirmation() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                DriverApproachingBanner(arriving = true, verified = true)
+            }
+        }
+        composeRule.onNodeWithText("Подтверждено по GPS — машина рядом").assertIsDisplayed()
+    }
+
+    @Test
+    fun approachingBanner_notVerified_hidesGpsConfirmation() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                DriverApproachingBanner(arriving = true, verified = false)
+            }
+        }
+        composeRule.onNodeWithText("Подтверждено по GPS — машина рядом").assertDoesNotExist()
+    }
+
+    @Test
+    fun approachingBanner_departedVerified_hidesGpsConfirmation() {
+        // «Выехал» — не заявка о близости: подтверждать нечего даже с флагом.
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                DriverApproachingBanner(arriving = false, verified = true)
+            }
+        }
+        composeRule.onNodeWithText("Подтверждено по GPS — машина рядом").assertDoesNotExist()
+    }
+
+    @Test
+    fun approachingBanner_verifiedBashkir_showsBashkirConfirmation() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
+                DriverApproachingBanner(arriving = true, verified = true)
+            }
+        }
+        composeRule.onNodeWithText("GPS раҫланы — машина янда").assertIsDisplayed()
+    }
+
     // --- BoardingCodeCard: плашка кода посадки ---
 
     @Test

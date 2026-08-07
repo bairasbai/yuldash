@@ -250,7 +250,7 @@ export default function ActiveTripScreen() {
 
       {/* Живой баннер статуса */}
       <div className="trip-banner">
-        <StatusPill status={(trip?.status ?? details.status) as BookingDetails["status"]} phase={trip?.driver_phase} />
+        <StatusPill status={(trip?.status ?? details.status) as BookingDetails["status"]} phase={trip?.driver_phase} arrivalVerified={trip?.arrival_verified} />
         {st === "pending" && (
           <span className="trip-banner__hint">
             {appText("Ждём, пока водитель подтвердит.", "Водитель раҫлағанды көтәбеҙ.")}
