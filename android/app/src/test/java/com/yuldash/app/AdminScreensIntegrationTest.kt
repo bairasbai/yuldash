@@ -108,16 +108,67 @@ class AdminScreensIntegrationTest {
 
     private lateinit var server: MockWebServer
     private lateinit var queue: QueueDispatcher
+    private lateinit var failFast: MockResponse
+
+    private companion object {
+        /** Адреса, ради которых поднят этот сервер (по одному на проверяемый экран).
+         *  Всё, что не отсюда, — чужое: получает 404 и очередь не трогает. */
+        val SERVED = listOf("/requests/", "/admin/drivers/pending", "/admin/reports")
+    }
 
     /** Сколько ответов этот тест поставил в очередь. Нужен диагностике: без него нельзя
      *  отличить «ответ приготовили, но он не понадобился» от «ответа и не готовили». */
     private var enqueued = 0
+
+    /**
+     * Журнал РЕШЕНИЙ тестового сервера — что он ответил на каждый запрос и когда.
+     *
+     * Зачем понадобился. Девять разборов мигания упирались в одно противоречие: запрос до
+     * сервера дошёл (счётчик 1), ответ в очереди лежал (счётчик 1), а экран остался на
+     * «Загрузка…». Из этих двух цифр НЕЛЬЗЯ понять, отдал ли сервер ответ: счётчики считают
+     * запросы и постановку в очередь, а не выдачу. Дальше каждый догадывался по-своему —
+     * отсюда и девять опровергнутых версий.
+     *
+     * Здесь пишется факт: путь, что именно отдали (ответ из очереди / 404 служебному /
+     * 404 «очередь пуста») и сколько миллисекунд прошло с начала теста. Потокобезопасно:
+     * диспетчер зовут из потоков соединений сервера, а читаем из потока теста.
+     */
+    private val dispatchLog = java.util.Collections.synchronizedList(mutableListOf<String>())
+    private var startedAt = 0L
+
+    private fun note(what: String) {
+        dispatchLog.add("+${System.currentTimeMillis() - startedAt}мс  $what")
+    }
+
+    /**
+     * Сводка по потокам сети в момент падения — проверяет версию «пул занят чужими запросами».
+     *
+     * Все 1307 тестов идут в ОДНОЙ виртуальной машине (в сборке нет разделения по классам),
+     * поэтому `ApiClient` со своим пулом `Dispatchers.IO` общий на весь прогон. Если ранние
+     * классы оставили после себя висящие запросы (у клиента таймаут 15 с и до трёх попыток —
+     * это до полутора минут на один вызов), поздний тест может просто не получить поток:
+     * запрос не уйдёт, экран останется на «Загрузка…», и снаружи это неотличимо от «сервер
+     * не ответил». Считаем занятые потоки и показываем, чем именно они заняты.
+     */
+    private fun networkThreads(): String {
+        val all = Thread.getAllStackTraces()
+        val io = all.keys.filter { it.name.startsWith("DefaultDispatcher") || it.name.startsWith("kotlinx.coroutines") }
+        val busy = io.filter { t ->
+            all[t]?.any { it.className.contains("HttpURLConnection") || it.className.contains("SocketInputStream") } == true
+        }
+        val sample = busy.take(3).joinToString("\n") { t ->
+            "      «${t.name}» → " + (all[t]?.take(3)?.joinToString(" ← ") { "${it.className.substringAfterLast('.')}.${it.methodName}" } ?: "")
+        }
+        return "    потоков сети всего: ${io.size}, из них сидят в сетевом вызове: ${busy.size}\n" +
+            (if (sample.isBlank()) "" else "$sample\n")
+    }
 
     /** Ответ в очередь. Идёт мимо `server.enqueue`: у сервера свой диспетчер
      *  (он отсекает служебные запросы), а `enqueue` умеет только очередь. */
     private fun enqueue(response: MockResponse) {
         enqueued++
         queue.enqueueResponse(response)
+        note("тест положил ответ в очередь (всего ${enqueued})")
     }
 
     @Before
@@ -131,7 +182,11 @@ class AdminScreensIntegrationTest {
         // медленный раннер, но не лечилось ни 10, ни 60 секундами: ждать было нечего.
         // failFast → на неожиданный запрос сразу 404, тест падает по существу и быстро.
         queue = server.dispatcher as QueueDispatcher
-        queue.setFailFast(MockResponse().setResponseCode(404))
+        // Держим сам объект-заглушку: по нему в диспетчере ниже отличаем «отдали заготовленный
+        // ответ» от «очередь была пуста». Сравнение по тексту статуса было бы хрупким —
+        // заготовленный ответ тоже может быть 404.
+        failFast = MockResponse().setResponseCode(404)
+        queue.setFailFast(failFast)
         // Ответы раздаём по очереди, НО служебные запросы очередь не трогают — им сразу 404.
         //
         // Зачем. `ApiClient.logout()` кроме локальной очистки шлёт в фоне два запроса:
@@ -145,20 +200,60 @@ class AdminScreensIntegrationTest {
         server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
             override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
-                if (path.startsWith("/auth/") || path.startsWith("/push/")) {
+                // БЕЛЫЙ список, а не чёрный. Раньше отсекались только `/auth/` и `/push/` —
+                // список писался под известные тогда фоновые запросы. Но у клиента их
+                // четырнадцать, и три (`/me/update`, `/instant/presence`, `/ads/*/event`)
+                // проходили насквозь и забирали ответ, заготовленный для экрана. Экран после
+                // этого получал 404 на пустую очередь.
+                //
+                // Чёрный список обязан пополняться каждый раз, когда в клиенте заводят новый
+                // фоновый запрос, — а никто об этом не вспомнит. Белый не требует ничего:
+                // очередь достаётся ровно тем адресам, ради которых тест и поднят, всё
+                // остальное получает 404 и в очередь не лезет.
+                if (SERVED.none { path.startsWith(it) }) {
+                    note("${request.method} $path → 404 (чужой запрос, очередь не тронута)")
                     return MockResponse().setResponseCode(404)
                 }
-                return queue.dispatch(request)
+                // Пусто ли в очереди — смотрим ДО обращения: `dispatch` очередь опустошает,
+                // и после него уже не отличить «отдали заготовленный» от «отдали 404 на пустой».
+                val fromQueue = queue.peek() !== failFast
+                val r = queue.dispatch(request)
+                note("${request.method} $path → ${r.status} (${if (fromQueue) "ЗАГОТОВЛЕННЫЙ ответ" else "очередь была ПУСТА"})")
+                return r
             }
         }
+        // Обрываем всё фоновое, что осталось от предыдущих тестов. Область корутин у клиента
+        // общая на весь процесс и раньше не отменялась никогда: «выстрелил и забыл» запрос
+        // из раннего класса продолжал повторяться, когда давно шёл другой класс, — а адрес
+        // сервера он перечитывает на каждой попытке и потому приходил СЮДА.
+        ApiClient.resetForTest()
+        // Короткие таймауты вместо боевых 15 секунд. С боевыми один вызов живёт до полутора
+        // минут, а тест ждёт двадцать секунд: любая заминка выглядит как «навсегда Загрузка…»,
+        // и понять причину нельзя. С короткими вызов честно падает, экран показывает ошибку,
+        // и в отчёте видно, что именно случилось.
+        ApiClient.testTimeoutMs = 2000
         ApiClient.logout()
         server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        startedAt = System.currentTimeMillis()
+        // След самого клиента: вошли в вызов / вышли с итогом / отменили. Показывает границу
+        // ответственности — если клиент вышел успешно, а экран пуст, виноват код экрана.
+        ApiClient.testTrace = { note("клиент: $it") }
+        note("сервер поднят: ${ApiClient.testBaseUrl}")
     }
 
     @After
     fun teardown() {
-        ApiClient.testBaseUrl = null
+        // Сначала обрываем фоновое, потом гасим сервер. В обратном порядке недобитый запрос
+        // успевает уйти уже на СЛЕДУЮЩИЙ сервер (адрес перечитывается на каждой попытке) —
+        // ровно тот механизм, из-за которого «поодиночке проходит, в полном прогоне падает».
+        ApiClient.testTrace = null
+        ApiClient.resetForTest()
+        ApiClient.testTimeoutMs = null
+        // Будим тех, кто мог заснуть на пустой очереди: у MockWebServer выдача ответа умеет
+        // блокировать поток, а наш диспетчер подменял исходный — и его `shutdown()`, который
+        // как раз будит спящих, не звался никогда.
+        queue.shutdown()
         server.shutdown()
     }
 
@@ -189,6 +284,26 @@ class AdminScreensIntegrationTest {
                 composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
             }
         } catch (e: Throwable) {
+            // ⬇️ РЕШАЮЩИЙ ЗАМЕР (2026-08-07). Измерение выше уже доказало: сеть отработала за
+            // 10 мс и отдала правильный ответ, ни один поток не завис. Значит ответ до экрана
+            // не доехал. Осталось разделить два случая, и они лечатся по-разному:
+            //
+            //   • продолжение ПОСТАВЛЕНО в очередь, но её никто не прокручивает → лечится
+            //     прокруткой в ожидании;
+            //   • продолжение вообще НЕ поставлено (корутина умерла/область отменена) → лечится
+            //     в коде экрана.
+            //
+            // Разделяем прямо: даём очередям хорошенько провернуться и смотрим, появится ли текст.
+            // Появился — значит он всё это время лежал и ждал, кто его прокрутит.
+            val appearedAfterPumping = runCatching {
+                composeRule.mainClock.advanceTimeBy(5_000)
+                repeat(50) {
+                    org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                    composeRule.mainClock.advanceTimeByFrame()
+                }
+                composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+            }.getOrElse { false }
+
             val asked = buildList {
                 while (true) {
                     val r = server.takeRequest(50, java.util.concurrent.TimeUnit.MILLISECONDS) ?: break
@@ -207,7 +322,14 @@ class AdminScreensIntegrationTest {
                 "Не дождались текста «$text».\n" +
                     "Запросов пришло на сервер: ${server.requestCount} → $asked\n" +
                     "Ответов поставлено в очередь этим тестом: $enqueued\n" +
-                    "Что было на экране:\n$screen",
+                    "ЧТО ОТДАВАЛ СЕРВЕР (главное — было ли выдано заготовленное):\n" +
+                    synchronized(dispatchLog) { dispatchLog.joinToString("\n") { "    $it" } }
+                        .ifBlank { "    (сервер не принял ни одного запроса)" } + "\n" +
+                    "ПОТОКИ СЕТИ (проверяем «все заняты чужими запросами»):\n" + networkThreads() +
+                    "ПОСЛЕ ПРИНУДИТЕЛЬНОЙ ПРОКРУТКИ ОЧЕРЕДЕЙ текст «$text» " +
+                    (if (appearedAfterPumping) "ПОЯВИЛСЯ → ответ всё это время лежал непрокрученным"
+                     else "так и НЕ появился → продолжение не поставили вовсе") + "\n" +
+                    "Что было на экране (до прокрутки):\n$screen",
                 e,
             )
         }
