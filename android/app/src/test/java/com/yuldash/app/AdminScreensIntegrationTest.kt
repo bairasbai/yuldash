@@ -236,6 +236,9 @@ class AdminScreensIntegrationTest {
         server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         startedAt = System.currentTimeMillis()
+        // След самого клиента: вошли в вызов / вышли с итогом / отменили. Показывает границу
+        // ответственности — если клиент вышел успешно, а экран пуст, виноват код экрана.
+        ApiClient.testTrace = { note("клиент: $it") }
         note("сервер поднят: ${ApiClient.testBaseUrl}")
     }
 
@@ -244,6 +247,7 @@ class AdminScreensIntegrationTest {
         // Сначала обрываем фоновое, потом гасим сервер. В обратном порядке недобитый запрос
         // успевает уйти уже на СЛЕДУЮЩИЙ сервер (адрес перечитывается на каждой попытке) —
         // ровно тот механизм, из-за которого «поодиночке проходит, в полном прогоне падает».
+        ApiClient.testTrace = null
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         // Будим тех, кто мог заснуть на пустой очереди: у MockWebServer выдача ответа умеет

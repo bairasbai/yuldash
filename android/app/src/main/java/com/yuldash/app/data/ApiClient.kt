@@ -70,6 +70,17 @@ object ApiClient {
         testBaseUrl = null
     }
 
+    /**
+     * Тест-хук: куда писать след сетевого вызова. В проде null → ничего не пишется.
+     *
+     * Нужен для разбора мигающих тестов админ-экранов. Измерения уже доказали: сервер отдаёт
+     * правильный ответ за 6 мс, потоки свободны, а прокрутка очередей текст не проявляет —
+     * то есть корутина экрана умирает где-то между отправкой запроса и показом данных.
+     * Здесь фиксируется граница ответственности клиента: вошли в вызов, вышли из вызова
+     * и с каким итогом. Если вышли успешно, а экран пуст — виноват код экрана.
+     */
+    internal var testTrace: ((String) -> Unit)? = null
+
     @Volatile private var token: String? = null
     @Volatile private var refreshToken: String? = null
     @Volatile private var userName: String? = null
@@ -2735,6 +2746,7 @@ object ApiClient {
         isRetry: Boolean = false,        // повтор после обновления access-токена (чтобы не зациклиться)
         retryOnNetwork: Boolean = true,  // M5: повторять транзитные обрывы связи с backoff (по умолчанию вкл.)
     ): Result<JSONObject> = withContext(Dispatchers.IO) {
+        testTrace?.invoke("вошли в вызов $method $path")
         val usedToken = if (auth) token else null
         // M5: паузы backoff между попытками ТОЛЬКО при сетевом обрыве ДО получения ответа.
         // Повторяем лишь IOException/SocketTimeout (соединение не удалось/упало до ответа); ответ
@@ -2774,6 +2786,7 @@ object ApiClient {
                         text.trimStart().startsWith("[") -> JSONObject().put("items", JSONArray(text))
                         else -> JSONObject(text)
                     }
+                    testTrace?.invoke("ВЫШЛИ из вызова $method $path успешно (код $code)")
                     Result.success(obj)
                 } else if (code == 401 && auth && !isRetry && !refreshToken.isNullOrBlank()) {
                     // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
@@ -2788,6 +2801,7 @@ object ApiClient {
                     Result.failure(ApiException(code, errorMessage(code, text)))
                 }
             } catch (ce: CancellationException) {
+                testTrace?.invoke("вызов $method $path ОТМЕНЁН (корутину закрыли снаружи)")
                 throw ce   // отмена корутины — не глотаем и не повторяем, пробрасываем дальше
             } catch (e: IOException) {
                 // Обрыв связи ДО получения ответа (вкл. SocketTimeoutException).
