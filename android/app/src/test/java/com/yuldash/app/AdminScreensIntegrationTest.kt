@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.printToString
 import com.yuldash.app.data.ApiClient
+import kotlinx.coroutines.test.StandardTestDispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.QueueDispatcher
@@ -98,13 +99,41 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class AdminScreensIntegrationTest {
 
-    // Порядок важен: повтор снаружи, чтобы вторая попытка получила ЧИСТЫЙ экран
-    // и свой @Before. Почему повтор вообще есть — в RetryOnFlakeRule.
-    @get:Rule(order = 0)
-    val retry = RetryOnFlakeRule()
+    // ⛔ Повтор (`RetryOnFlakeRule`) СНЯТ 2026-08-08. Его собственный KDoc ставил условие:
+    // «убрать можно ровно тогда, когда причина будет названа и объяснит три вещи — почему
+    // падает случайный тест, почему поодиночке проходит и почему падает не всегда».
+    // Механизм назван и все три объясняет (см. комментарий у правила ниже), поэтому костыль
+    // больше не нужен. И он вреден: пока он стоит, отличить «починили» от «повезло дважды»
+    // нельзя — а именно эту разницу нам и надо видеть.
 
+    /**
+     * ⚠️ Аргумент здесь — ПОЧИНКА МИГАНИЯ (2026-08-08), а не украшение. Не убирать.
+     *
+     * Без аргумента правило работает на `UnconfinedTestDispatcher`: он не переотправляет
+     * продолжение корутины, и оно доигрывается прямо на том потоке, где закончился
+     * `withContext(Dispatchers.IO)` внутри `ApiClient`. След это и показал:
+     *
+     *     +12мс  экран: корутина стартовала        (поток SDK 34 Main Thread)
+     *     +17мс  экран: стейт записан              (поток DefaultDispatcher-worker-1)  ← фон
+     *     +57мс  текст ПОЯВИЛСЯ
+     *
+     * То есть `list = …` и `loading = false` писались с ФОНОВОГО потока. Compose это
+     * допускает, но увидеть такую запись экран может только после применения снимка и
+     * уведомления рекомпозитора — а это вопрос времени. Разрыв «стейт записан → текст
+     * появился» гулял от 40 мс на здоровом прогоне до 13 секунд на медленном и больше
+     * 20 секунд на падающем. Разница зелёного и красного количественная, порога нет —
+     * отсюда и «падает случайный тест», и «поодиночке всегда проходит».
+     *
+     * `StandardTestDispatcher` ставит продолжение В ОЧЕРЕДЬ планировщика теста вместо
+     * немедленного исполнения на чужом потоке. Документация правила прямо обещает, что
+     * контекст `LaunchedEffect` и `rememberCoroutineScope` берётся отсюда.
+     *
+     * Почему не переехали на `junit4.v2.createComposeRule`, как советует предупреждение
+     * компилятора: на Android v2 поднимает `ComponentActivity`, а это заметная перемена
+     * поведения под Robolectric ради того же самого диспетчера. Взяли минимальное.
+     */
     @get:Rule(order = 1)
-    val composeRule = createComposeRule()
+    val composeRule = createComposeRule(StandardTestDispatcher())
 
     private lateinit var server: MockWebServer
     private lateinit var queue: QueueDispatcher

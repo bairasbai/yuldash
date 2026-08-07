@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.printToString
 import com.yuldash.app.data.ApiClient
+import kotlinx.coroutines.test.StandardTestDispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.QueueDispatcher
@@ -41,13 +42,21 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class AdminReviewsIntegrationTest {
 
-    // Порядок важен: повтор снаружи, чтобы вторая попытка получила ЧИСТЫЙ экран
-    // и свой @Before. Почему повтор вообще есть — в RetryOnFlakeRule.
-    @get:Rule(order = 0)
-    val retry = RetryOnFlakeRule()
+    // ⛔ Повтор (`RetryOnFlakeRule`) СНЯТ 2026-08-08 — причина мигания найдена и починена,
+    // подробности в `AdminScreensIntegrationTest`. Пока костыль стоит, «починили» и
+    // «повезло дважды» выглядят одинаково.
 
+    /**
+     * ⚠️ Аргумент здесь — ПОЧИНКА МИГАНИЯ (2026-08-08), а не украшение. Не убирать.
+     * Полное объяснение механизма — в `AdminScreensIntegrationTest`. Коротко: без аргумента
+     * правило работает на `UnconfinedTestDispatcher`, продолжение корутины экрана доигрывается
+     * на фоновом потоке `DefaultDispatcher-worker-1`, и стейт Compose пишется оттуда же.
+     * Показать такую запись экран может только после применения снимка — а это вопрос времени:
+     * разрыв «стейт записан → текст появился» гулял от 40 мс до 20+ секунд.
+     * `StandardTestDispatcher` ставит продолжение в очередь планировщика теста.
+     */
     @get:Rule(order = 1)
-    val composeRule = createComposeRule()
+    val composeRule = createComposeRule(StandardTestDispatcher())
 
     private lateinit var server: MockWebServer
     private lateinit var queue: QueueDispatcher
