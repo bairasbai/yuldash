@@ -43,8 +43,20 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     cols = _cols(bind, "rating")
+    doomed = {c for c in ("text_published", "text") if c in cols}
+    if not doomed:
+        return
+    # Индексы по удаляемым колонкам сносим ДО batch_alter_table. На SQLite batch пересоздаёт
+    # таблицу и восстанавливает ВСЕ отражённые индексы — включая индекс по колонке, которой
+    # в новой таблице уже нет ("no such column: text_published"). Имя индекса не хардкодим:
+    # ix_rating_text_published объявлен в модели (Field(index=True)) и на свежей БД создан
+    # baseline-ом через create_all, а не этой ревизией. duplicates_constraint пропускаем —
+    # такой индекс на PostgreSQL держит UNIQUE и уходит вместе с колонкой.
+    for ix in inspect(bind).get_indexes("rating"):
+        if (ix.get("name") and not ix.get("duplicates_constraint")
+                and doomed.intersection(ix.get("column_names") or ())):
+            op.drop_index(ix["name"], table_name="rating")
     with op.batch_alter_table("rating") as batch:
-        if "text_published" in cols:
-            batch.drop_column("text_published")
-        if "text" in cols:
-            batch.drop_column("text")
+        for name in ("text_published", "text"):
+            if name in doomed:
+                batch.drop_column(name)

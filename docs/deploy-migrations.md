@@ -50,6 +50,10 @@
 ## ↩️ Откат
 - **По схеме:** `sudo -u yuldash ./.venv/bin/alembic downgrade -1` (уберёт `boarding_code`).
   Все downgrade-функции ревизий тоже идемпотентны.
+  > Откат проверяется целиком в CI (`backend-tests-postgres`): `upgrade head` → `downgrade base`
+  > → `upgrade head`. До 2026-08-07 полный откат падал на SQLite — пять ревизий удаляли
+  > колонку раньше, чем индекс по ней (детали — `docs/lessons.md`). Пишешь новую ревизию —
+  > прогоняй цикл в обе стороны локально, одного `upgrade head` мало.
 - **Полный откат БД из бэкапа** (если что-то пошло не так):
   ```
   gunzip -c /opt/yuldash/backups/ФАЙЛ.sql.gz | sudo -u postgres psql yuldash

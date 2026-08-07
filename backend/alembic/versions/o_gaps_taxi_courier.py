@@ -80,11 +80,34 @@ def _columns(bind, table: str) -> set:
         return set()
 
 
-def _indexes(bind, table: str) -> set:
+def _index_infos(bind, table: str) -> list:
     try:
-        return {i["name"] for i in inspect(bind).get_indexes(table)}
+        return inspect(bind).get_indexes(table)
     except Exception:  # noqa: BLE001
-        return set()
+        return []
+
+
+def _indexes(bind, table: str) -> set:
+    return {i["name"] for i in _index_infos(bind, table)}
+
+
+def _indexes_over(bind, table: str, columns: set) -> list:
+    """Имена индексов таблицы, опирающихся хоть на одну из `columns`.
+
+    Нужно в downgrade: индекс по удаляемой колонке надо снести ДО drop_column. На SQLite
+    batch_alter_table пересоздаёт таблицу и восстанавливает ВСЕ отражённые индексы — включая
+    индекс по колонке, которой в новой таблице уже нет ("no such column"). Список _INDEXES
+    покрывает только то, что создаёт эта ревизия; индексы моделей (Field(index=True)) на
+    свежей БД создаёт baseline через create_all, и знать их имена заранее нельзя — поэтому
+    ищем по факту, отражением. duplicates_constraint пропускаем: такой индекс на PostgreSQL
+    держит UNIQUE-констрейнт, отдельным DROP INDEX не удаляется и уходит вместе с колонкой.
+    """
+    return [
+        i["name"] for i in _index_infos(bind, table)
+        if i.get("name")
+        and not i.get("duplicates_constraint")
+        and columns.intersection(i.get("column_names") or ())
+    ]
 
 
 def _report_target_nullable(bind) -> bool:
@@ -124,7 +147,13 @@ def downgrade() -> None:
         by_table.setdefault(table, []).append(name)
     for table, names in by_table.items():
         existing = _columns(bind, table)
+        doomed = {n for n in names if n in existing}
+        if not doomed:
+            continue
+        # Сначала индексы по этим колонкам, потом сами колонки (см. _indexes_over).
+        for ix_name in _indexes_over(bind, table, doomed):
+            op.drop_index(ix_name, table_name=table)
         with op.batch_alter_table(table) as b:
             for name in names:
-                if name in existing:
+                if name in doomed:
                     b.drop_column(name)
