@@ -1172,6 +1172,21 @@ object ApiClient {
                 if (genderVerified != null) put("gender_verified", genderVerified)
             }, auth = true).map { }
 
+    /** Помеченные тексты (модерация). kind — фильтр по виду метки, пусто = все. */
+    suspend fun getTextFlags(kind: String = ""): Result<List<TextFlagDto>> =
+        call("GET", "/admin/text-flags" + (if (kind.isNotBlank()) "?kind=$kind" else ""), null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                TextFlagDto(
+                    o.optInt("id"), o.optInt("user_id"), o.optString("user_name"), o.optString("user_phone"),
+                    o.optString("kind"), o.optString("place_label"),
+                    if (o.isNull("ref_id")) null else o.optInt("ref_id"),
+                    o.optString("created_at"), o.optInt("user_flags_total"),
+                )
+            }
+        }
+
     suspend fun getAdminReports(): Result<List<AdminReportDto>> =
         call("GET", "/admin/reports", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
@@ -5080,6 +5095,17 @@ data class PendingDriverDto(val userId: Int, val name: String, val phone: String
     // Что водитель ЗАЯВИЛ о поле ("" / female / male) и подтвердил ли это модератор. Бейдж
     // «женщина за рулём» и женские заказы включает только подтверждение — не самодекларация.
     val genderClaimed: String = "", val genderVerified: Boolean = false)
+/** Помеченный текст для админа. Самого текста тут НЕТ — только ссылка (place/refId):
+ *  текст лежит в своей записи, админ открывает её и видит в контексте (приватность §8). */
+data class TextFlagDto(
+    val id: Int, val userId: Int, val userName: String, val userPhone: String,
+    val kind: String,            // warn (фишинг) / contact (телефон, увод) / abuse (мат)
+    val placeLabel: String,      // «Отзыв», «Имя профиля» — уже по-человечески, с сервера
+    val refId: Int?,             // id записи
+    val createdAt: String,
+    val userFlagsTotal: Int,     // сколько всего у этого человека: разовое ≠ система
+)
+
 data class AdminReportDto(
     val id: Int, val reporterName: String, val targetName: String, val targetPhone: String,
     val reason: String, val createdAt: String,

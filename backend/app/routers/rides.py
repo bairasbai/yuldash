@@ -141,7 +141,12 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     # Заявка пассажира проверялась, объявление водителя — нет (аудит 2026-08-06), хотя это
     # ровно тот же текст с другой стороны. check_contact=False: у попуток обмен номерами —
     # норма и суть «между своими», комиссии тут нет. Ловим мат и фишинг («переведи предоплату»).
-    moderate_open_text(body.comment, user.id, check_contact=False)
+    moderate_open_text(body.comment, user.id, check_contact=False, place="ride_comment", session=session)
+    # «Где встречаемся» — такое же открытое поле, как комментарий, и его тоже видит весь
+    # район. Проверки тут не было вовсе. Правила те же, что у комментария попутки:
+    # ловим мат и фишинг, телефон НЕ помечаем — обмен номерами между соседями это норма
+    # и суть «между своими», комиссии в попутках нет.
+    moderate_open_text(body.pickup, user.id, check_contact=False, place="pickup", session=session)
     # F22: клиника-назначение (опц.). Если указана — проверяем, что она есть и активна
     # (чтобы не осталось битой ссылки). Это ТОЛЬКО точка назначения, без мед.данных.
     if body.partner_id is not None:
@@ -251,7 +256,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
         ride.price = body.price
         changed.append("цена")
     if body.comment is not None and body.comment != ride.comment:
-        moderate_open_text(body.comment, user.id, check_contact=False)   # правка — тот же путь, что публикация
+        moderate_open_text(body.comment, user.id, check_contact=False, place="ride_comment", ref_id=ride.id, session=session)   # правка — тот же путь, что публикация
         ride.comment = body.comment
         changed.append("комментарий")
     if body.depart_at is not None:

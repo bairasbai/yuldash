@@ -1524,7 +1524,7 @@ internal fun AdminReportsContent(
 
 /** Кабинет админа — единый центр: заявки помощи, отклики, реклама. Виден только админу. */
 @Composable
-internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onTaxi: () -> Unit = {}, onWaitlist: () -> Unit = {}, onTaxiPulse: () -> Unit = {}, onPartners: () -> Unit = {}, onPromoAdmin: () -> Unit = {}, onParcelsAdmin: () -> Unit = {}, onCourierAdmin: () -> Unit = {}, onIncomeCalc: () -> Unit = {}, onSosFeed: () -> Unit = {}, onIncidents: () -> Unit = {}, onRatings: () -> Unit = {}) {
+internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onTaxi: () -> Unit = {}, onWaitlist: () -> Unit = {}, onTaxiPulse: () -> Unit = {}, onPartners: () -> Unit = {}, onPromoAdmin: () -> Unit = {}, onParcelsAdmin: () -> Unit = {}, onCourierAdmin: () -> Unit = {}, onIncomeCalc: () -> Unit = {}, onSosFeed: () -> Unit = {}, onIncidents: () -> Unit = {}, onRatings: () -> Unit = {}, onTextFlags: () -> Unit = {}) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Кабинет админа", "Админ кабинеты"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Единый центр управления Юлдашем. Виден только администратору.", "Юлдашты идара итеү үҙәге. Тик админға күренә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
@@ -1541,6 +1541,9 @@ internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, 
                     SettingsNavRow(Icons.Default.MonitorHeart, appText("Пульс такси", "Такси пульсы"), appText("На линии, активные заказы, счётчики дня по городам", "Линияла, актив заказдар, көн һандары ҡалалар буйынса"), onClick = onTaxiPulse)
                     SettingsNavRow(Icons.Default.Campaign, appText("Лист ожидания", "Көтөү исемлеге"), appText("Ранний доступ: кто ждёт запуска, волны приглашений", "Иртә инеү: кем көтә, саҡырыу тулҡындары"), onClick = onWaitlist)
                     SettingsNavRow(Icons.Default.Report, appText("Жалобы", "Ялыуҙар"), appText("Разобрать жалобы пользователей", "Ҡулланыусы ялыуҙарын тикшереү"), onClick = onReports)
+                    // Пометки ставились всегда, но лежали в счётчике: было видно ЧИСЛО за день
+                    // и нельзя посмотреть, кто и за что. Теперь список.
+                    SettingsNavRow(Icons.Default.Block, appText("Помеченные тексты", "Билдәләнгән текстар"), appText("Телефоны, мат и фишинг в открытых полях", "Асыҡ ҡырҙарҙа телефон, тупаҫлыҡ, фишинг"), onClick = onTextFlags)
                     // SOS-лента: раньше сигнал уходил ОДНИМ сообщением в Telegram, и если его
                     // не прочитали ночью — следа о происшествии не оставалось нигде.
                     // «Справедливость»: двусторонний разбор — сервер умел давно, экрана не было.

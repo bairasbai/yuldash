@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..account import delete_user_account, guard_can_delete
-from ..antifraud import guard_device_not_banned, remember_login_device
+from ..antifraud import guard_device_not_banned, moderate_open_text, remember_login_device
 from ..config import settings
 from ..db import engine, get_session
 from ..errors import herr
@@ -538,6 +538,11 @@ def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Ses
         n = body.name.strip()
         if n:
             user.name = n[:120]
+            # Имя видно ВЕЗДЕ и всем: карточка поездки, чат, отзывы, лента заявок. Это
+            # самое публичное поле в приложении, и оно единственное не проверялось —
+            # назваться телефоном или матом можно было безнаказанно. Помечаем, как и
+            # остальной открытый текст: не блокируем, решает админ.
+            moderate_open_text(user.name, user.id, place="name", ref_id=user.id, session=session)
     if body.avatar_url is not None:
         user.avatar_url = body.avatar_url.strip()[:500]
     if body.city is not None:

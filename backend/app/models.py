@@ -1152,6 +1152,29 @@ class ReferralBonus(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow, index=True)
 
 
+class TextFlag(SQLModel, table=True):
+    """Помеченный открытый текст — журнал для админа (модерация текста, 2026-08-08).
+
+    Зачем понадобился. Пометки ставились и раньше, но ложились только в счётчик Redis: в пульсе
+    админ видел ЧИСЛО помеченных за сегодня и не мог посмотреть, кто и за что. Помечать и не
+    показывать — работа впустую: среагировать не на что.
+
+    Приватность (§8 и принцип модуля antifraud). Сам текст сюда НЕ копируем — храним ССЫЛКУ:
+    место (`place`) и id записи (`ref_id`). Текст и так лежит в своей таблице, админ откроет
+    объект и увидит его в контексте. Второй копии личных данных в базе не появляется, а
+    сообщение с чужим телефоном не расползается по журналам.
+
+    Принцип модуля не меняется: это ПОМЕТКА, а не наказание. Ничего не блокируется, текст
+    сохраняется и доставляется; решение принимает человек.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")     # кто написал
+    kind: str = Field(index=True, max_length=16)                # warn (фишинг) / contact / abuse
+    place: str = Field(max_length=32)                           # где: review, response, name, pickup, …
+    ref_id: Optional[int] = None                                # id записи в её таблице (может быть null)
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 class DeviceBan(SQLModel, table=True):
     """Бан устройства (анти-фрод B8-1, барьер от «нового номера на том же телефоне»).
 

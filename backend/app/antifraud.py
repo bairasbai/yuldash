@@ -335,12 +335,44 @@ def count_text_flag(r, user_id: int, kind: str) -> None:
         return
 
 
-def moderate_open_text(text: Optional[str], user_id: Optional[int], *, check_contact: bool = True) -> str:
-    """Одна строка для роутеров: проверить открытое поле и, если помечено, посчитать.
+def log_text_flag(session, user_id: int, kind: str, place: str, ref_id: Optional[int]) -> None:
+    """Запись в журнал для админа: кто · какая метка · где · id записи. Текст НЕ копируем.
+
+    Ошибки глотаем полностью: журнал модерации не имеет права уронить сохранение самого текста.
+    Пишем своей короткой транзакцией, чтобы не подмешиваться в чужую (у вызывающего роутера
+    в этот момент может быть наполовину собранный объект, и commit за него делать нельзя).
+    """
+    if not kind or not user_id or session is None:
+        return
+    try:
+        from .models import TextFlag
+        session.add(TextFlag(user_id=user_id, kind=kind, place=place[:32], ref_id=ref_id))
+        session.commit()
+    except Exception:  # noqa: BLE001 — журнал best-effort
+        try:
+            session.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def moderate_open_text(
+    text: Optional[str],
+    user_id: Optional[int],
+    *,
+    check_contact: bool = True,
+    place: str = "",
+    ref_id: Optional[int] = None,
+    session=None,
+) -> str:
+    """Одна строка для роутеров: проверить открытое поле и, если помечено, посчитать и записать.
 
     Текст НЕ меняем и сохранение НЕ прерываем — вернуть вид метки полезно вызывающему,
     но игнорировать его тоже безопасно. Redis берём лениво: без него счётчик просто молчит,
     а проверка работает (регулярки ни от чего не зависят).
+
+    `place`/`ref_id`/`session` — для журнала админа (см. models.TextFlag). Без session ведём
+    себя как раньше: только счётчик. Так старые вызовы не ломаются, а новые дают админу
+    возможность открыть саму запись и решить.
     """
     kind = moderate_text(text, check_contact=check_contact)
     if kind and user_id:
@@ -349,6 +381,8 @@ def moderate_open_text(text: Optional[str], user_id: Optional[int], *, check_con
             count_text_flag(_redis(), user_id, kind)
         except Exception:  # noqa: BLE001 — счётчик не имеет права ронять сохранение
             pass
+        if session is not None and place:
+            log_text_flag(session, user_id, kind, place, ref_id)
     return kind
 
 

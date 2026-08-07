@@ -243,6 +243,29 @@
 - **Быстрые ответы в чате**: `ChatComposer` (`RidesRequestsChatScreens.kt`) получил параметр `onQuickSend`; над полем ввода — `LazyRow` из `QuickReplyChip` (5 готовых фраз, тач-цель ≥48dp). `BookingActiveTripScreen.kt` (ActiveTrip) прокидывает `onQuickSend = { sendText(it) }` — тот же надёжный путь WS→REST.
 - **Экран «Честно о цене»**: новый `Screen.PricingInfo` → `PricingInfoScreen` (`SecondaryScreens.kt`, хелперы `PricingBlock`/`PricingWhereRow`). Объясняет: попутка бесплатна (бензин напрямую), тариф такси, сурж-потолок ×1.5, комиссия водителя 3–8% + куда идёт, оплата СБП «на доверии». Вход — карточка «Честно о цене» в `PaymentInfoScreen` (`onOpenPricing`, ветка в `YuldashApp.kt`). Цифры — реальные (без выдуманных), стиль сверен с сурж-плашкой `InstantOrderScreen`.
 
+## 🛡 Модерация текста: журнал для админа + три поля (2026-08-08)
+
+- **Журнал.** `models.TextFlag` (user_id, kind, place, ref_id, created_at; миграция
+  `ah_text_flags`). **Текста в нём НЕТ** — только ссылка (§8): текст лежит в своей таблице.
+  Пишет `antifraud.log_text_flag` своей короткой транзакцией (не подмешивается в чужую),
+  ошибки глотает целиком — журнал не вправе уронить сохранение текста.
+- **`moderate_open_text(text, user_id, *, check_contact, place, ref_id, session)`** — новые
+  параметры опциональны: без `session` ведёт себя как раньше (только счётчик Redis), поэтому
+  старые вызовы не ломаются. Все существующие места переведены на новую форму с `place`.
+- **Места (`place`):** ride_comment · pickup · request · response · review · order_comment ·
+  parcel · name · incident · incident_reply. Человеческие подписи — `_PLACE_LABELS` в
+  `routers/antifraud.py` (клиент их не хардкодит, приходят с сервера).
+- **Новое под проверкой:** имя профиля (`auth.py::update_me`), «Где встречаемся»
+  (`rides.py::create_ride`, `check_contact=False` — правила попутки), описание спора и
+  объяснение по нему (`incidents.py`).
+- **Админ:** `GET /admin/text-flags?kind=&limit=` → `TextFlagOut` (имя, телефон, вид, место
+  по-человечески, ref_id, всего пометок у человека). `user_flags_total` считается ОДНИМ
+  группировочным запросом на выдачу, не в цикле.
+- **Android:** `TextFlagDto` + `ApiClient.getTextFlags(kind)`; экран
+  `AdminTextFlagsScreen.kt` (`AdminTextFlagsContent` — чистый рендер, тестируется на JVM),
+  `Screen.AdminTextFlags` + ветка в `YuldashApp`, строка в кабинете админа.
+- Тесты: `backend/tests/test_text_moderation_visible.py` (10), `AdminTextFlagsContentTest` (9).
+
 ## 🧒 Подростки + «остался один в машине» + крюк заявки (2026-08-07, третья волна)
 
 - **Несовершеннолетний пассажир.** `Booking.minor_passenger` + `minor_guardian_name/phone`,

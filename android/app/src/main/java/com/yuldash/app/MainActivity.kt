@@ -420,6 +420,7 @@ internal enum class Screen {
     AdminResponses,
     AdminDrivers,
     AdminReports,
+    AdminTextFlags,   // помеченные тексты: кто и за что (модерация стала видимой)
     AdminPaymentRequests,
     RequestsFeed,
     RequestResponses,

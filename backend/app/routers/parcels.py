@@ -496,7 +496,7 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
     # самое просторное поле в приложении. С курьера берётся комиссия, поэтому телефон в описании
     # помечаем так же, как в заказе такси. Проверялись заявка, отклик и отзыв — это поле нет
     # (аудит 2026-08-06). Текст не режем и заявку не роняем: решает человек, метка лишь копится.
-    moderate_open_text(body.description, user.id)
+    moderate_open_text(body.description, user.id, place="parcel", session=session)
 
     parcel = ParcelDelivery(
         sender_id=user.id,
