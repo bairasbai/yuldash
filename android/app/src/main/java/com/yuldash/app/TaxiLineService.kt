@@ -50,6 +50,8 @@ class TaxiLineService : Service() {
     @Volatile private var lastLng: Double? = null
     private var currentLang = AppLanguage.Ru
     private var loopsStarted = false
+    private var misses = 0          // сколько heartbeat'ов подряд не дошло
+    private var lineLost = false    // сервер нас уже не видит → уведомление говорит об этом честно
     @Volatile private var lastNotifiedOrderId = -1   // не дребезжим: одно уведомление на оффер
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -118,7 +120,19 @@ class TaxiLineService : Service() {
                     val res = ApiClient.instantPresence(la, lo)
                     val status = (res.exceptionOrNull() as? ApiException)?.status
                     if (status == 401 || status == 403 || status == 409) { stopSelf(); return@launch }
-                    // Сетевая ошибка — не страшно: следующий тик через 15с, TTL presence ~45с.
+                    // Сетевая ошибка — сама по себе не страшна: следующий тик через 15с, а сервер
+                    // держит presence ~45с. Но если тиков не проходит ПОДРЯД больше этого запаса,
+                    // сервер нас уже забыл, а телефон всё ещё показывает «Ты на линии». Водитель
+                    // стоит на трассе и ждёт заказы, которых не будет, потому что для сервера его
+                    // нет (аудит 2026-08-06). Молчать тут — то же самое, что показать «заявок нет»
+                    // при мёртвой сети: экран уверен, а человек обманут.
+                    if (res.isSuccess) {
+                        misses = 0
+                        if (lineLost) { lineLost = false; refreshNotification() }
+                    } else {
+                        misses++
+                        if (!lineLost && misses >= PRESENCE_MISSES_TO_WARN) { lineLost = true; refreshNotification() }
+                    }
                 }
                 delay(PRESENCE_INTERVAL_MS)
             }
@@ -142,6 +156,13 @@ class TaxiLineService : Service() {
         scope.launch { delay(MAX_LIFETIME_MS); stopSelf() }
     }
 
+    /** Уведомление на экране — правда о том, видит ли нас сервер. Меняется на лету. */
+    private fun refreshNotification() {
+        runCatching {
+            getSystemService(NotificationManager::class.java)?.notify(NOTIF_ID, buildNotification())
+        }
+    }
+
     private fun buildNotification(): Notification {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)
@@ -160,12 +181,21 @@ class TaxiLineService : Service() {
             PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, CHANNEL)
-            .setContentTitle(appTextFor(currentLang, "Юлдаш · Ты на линии 🚕", "Юлдаш · Һин линияла 🚕"))
-            .setContentText(appTextFor(
-                currentLang,
-                "Ждём заказы рядом. Сойдёшь с линии — уведомление исчезнет.",
-                "Яҡында заказдар көтәбеҙ. Линиянан төшһәң — белдереү юғала.",
-            ))
+            .setContentTitle(
+                if (lineLost) appTextFor(currentLang, "Юлдаш · Связь потеряна", "Юлдаш · Бәйләнеш юғалды")
+                else appTextFor(currentLang, "Юлдаш · Ты на линии 🚕", "Юлдаш · Һин линияла 🚕")
+            )
+            .setContentText(
+                if (lineLost) appTextFor(
+                    currentLang,
+                    "Сервер тебя больше не видит — заказы не придут. Проверь интернет, вернёмся сами.",
+                    "Сервер һине күрмәй — заказдар килмәй. Интернетты тикшер, үҙебеҙ кире ҡайтабыҙ.",
+                ) else appTextFor(
+                    currentLang,
+                    "Ждём заказы рядом. Сойдёшь с линии — уведомление исчезнет.",
+                    "Яҡында заказдар көтәбеҙ. Линиянан төшһәң — белдереү юғала.",
+                )
+            )
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
             .setContentIntent(open)
@@ -184,6 +214,10 @@ class TaxiLineService : Service() {
         private const val CHANNEL = "taxi_line"
         private const val NOTIF_ID = 4712
         private const val PRESENCE_INTERVAL_MS = 15_000L
+        /** Сколько тиков подряд должно не пройти, чтобы честно сказать «сервер тебя не видит».
+         *  Три тика ≈ 45с — ровно столько сервер помнит presence. Меньше — паника на пустом
+         *  месте (лифт, тоннель), больше — человек уже потерял заказы. */
+        private const val PRESENCE_MISSES_TO_WARN = 3
         private const val OFFER_POLL_MS = 5_000L
         private const val MAX_LIFETIME_MS = 12 * 3600_000L   // страховка; реальный предел — 8ч смены на сервере
 

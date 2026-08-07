@@ -30,9 +30,11 @@ from app.timeutil import utcnow
 from test_api import _ride
 
 
-def _make_request(client, pax, city_to="Уфа"):
+def _make_request(client, pax, city_to="Уфа", note=""):
+    # Комментарий свой у каждой: одинаковые заявки схлопываются как двойной тап (2026-08-06),
+    # и до потолка так не дойти. Настоящий человек шлёт разное — его и проверяем.
     r = client.post("/requests", headers=pax["auth"], json={
-        "from_city": "Сибай", "to_city": city_to, "seats": 1,
+        "from_city": "Сибай", "to_city": city_to, "seats": 1, "comment": note,
     })
     assert r.status_code == 200, f"заявка не создалась: {r.status_code} {r.text[:200]}"
     return r.json()["id"]
@@ -82,7 +84,7 @@ def test_прошедшая_заявка_не_занимает_место_в_п�
     пожизненным запретом только потому, что старые заявки не закрываются."""
     cap = settings.flood_active_requests_max
     pax = user_factory("HangCapPax")
-    ids = [_make_request(client, pax) for _ in range(cap)]
+    ids = [_make_request(client, pax, note=f"заявка {i}") for i in range(cap)]
     # Упёрлись в потолок — это правильно.
     over = client.post("/requests", headers=pax["auth"], json={
         "from_city": "Сибай", "to_city": "Уфа", "seats": 1,

@@ -28,7 +28,7 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..models import (CourierApplication, CourierProfile, ParcelDelivery, Payment, Rating,
-                      Settlement, User, UserRole)
+                      User, UserRole)
 from ..safety_logic import ensure_active
 from .parcels import live_parcel_conds
 from ..security import current_user
@@ -36,6 +36,8 @@ from ..services import haversine_km, notify_admin_telegram, send_push, user_rati
 from ..timeutil import utcnow
 from . import parcels as parcels_mod
 from .. import debt as debt_mod   # переиспользуем _local_day_expr: одна логика «локального дня» на проект
+from .. import geo as geo_mod   # зоны работы: одни правила с такси (geo.zone_allows)
+from . import instant as instant_mod   # normalize_zone: одна нормализация зоны на проект
 
 router = APIRouter(tags=["courier"])
 
@@ -88,7 +90,7 @@ COURIER_PAUSE_RATING = 4.0             # < → мягкая КОРОТКАЯ п�
 COURIER_SOFT_PAUSE_DAYS = 2            # длительность мягкой паузы
 
 _TRANSPORTS = ("car", "cargo")
-_ZONES = ("city", "intercity", "region")
+_ZONES = ("city", "district", "intercity", "region")   # intercity/region — старые приложения
 _SIZES = ("small", "medium", "large")
 _URGENCIES = ("bypath", "now")
 _COURIER_TYPES = ("courier", "buy_bring")
@@ -355,6 +357,9 @@ def _profile_payload(p: Optional[CourierProfile]) -> Optional[dict]:
         "car_class": p.car_class,
         "zone": p.zone,
         "work_city": p.work_city or "",
+        "work_district": p.work_district,
+        "work_intercity": bool(p.work_intercity),
+        "work_regions": bool(p.work_regions),
         "work_direction_id": p.work_direction_id,
         "paused_until": p.paused_until.isoformat() if p.paused_until else None,   # C3: мягкая пауза
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
@@ -447,7 +452,7 @@ def courier_application(user: User = Depends(current_user), session: Session = D
 # ---------------------------------------------------------------------------
 def _require_admin(user: User) -> None:
     if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
+        raise herr(403, "Только для админа", "Тик администратор өсөн")
 
 
 @router.get("/admin/courier-applications")
@@ -484,7 +489,7 @@ def admin_courier_applications(status: str = "pending", user: User = Depends(cur
 def _get_app_or_404(session: Session, app_id: int) -> CourierApplication:
     app = session.get(CourierApplication, app_id)
     if not app:
-        raise HTTPException(404, "Заявка не найдена")
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
     return app
 
 
@@ -540,28 +545,46 @@ def admin_reject_courier(app_id: int, body: CourierRejectIn, user: User = Depend
 # Курьер на линии
 # ---------------------------------------------------------------------------
 class CourierOnlineIn(BaseModel):
+    """База зоны + два согласия — как у таксиста (`instant.ZoneIn`). Старые значения
+    zone=intercity/region принимаем: сервер переведёт их в базу + тумблеры."""
     zone: str = Field("city", max_length=16)
     work_city: str = Field("", max_length=80)
+    work_district: Optional[str] = Field(None, max_length=80)
+    work_intercity: Optional[bool] = None
+    work_regions: Optional[bool] = None
     work_direction_id: Optional[int] = None
+
+    # Имена полей у водителя и курьера исторически разные (work_zone vs zone) — приводим
+    # к общему виду, чтобы нормализация зоны была ОДНА на проект, а не две расходящиеся копии.
+    @property
+    def work_zone(self) -> str:
+        return (self.zone or "").strip()
 
 
 @router.post("/courier/online")
 def courier_online(body: CourierOnlineIn, user: User = Depends(current_user),
                    session: Session = Depends(get_session)):
-    """Выйти на линию (гейт курьера). Фиксируем зону работы (city|intercity|region)."""
+    """Выйти на линию (гейт курьера). Зона: база (свой НП или свой район) + тумблеры
+    «выезд загород» и «соседние регионы» — те же правила, что у таксиста."""
     _guard_courier(user, session)
-    zone = (body.zone or "").strip()
-    if zone not in _ZONES:
+    if (body.zone or "").strip() not in _ZONES:
         raise herr(422, "Выбери зону работы", "Эш зонаһын һайла")
     prof = _my_profile(session, user.id)
     _guard_not_paused(prof)   # C3: на мягкой паузе по качеству на линию не выходим
     _guard_courier_debt(session, user.id)   # неоплаченная комиссия ≥ порога → сначала рассчитайся
     if prof is None:
         prof = CourierProfile(user_id=user.id)
+    base, city, district, intercity, regions, direction_id = instant_mod.normalize_zone(body)
+    if district and not geo_mod.district_exists(session, district):
+        raise herr(422, "Такого района нет в справочнике. Выбери район из подсказок.",
+                   "Бындай район белешмәлә юҡ. Районды тәҡдимдәрҙән һайла.")
     prof.online = True
-    prof.zone = zone
-    prof.work_city = body.work_city.strip()
-    prof.work_direction_id = body.work_direction_id
+    prof.zone = base
+    prof.work_city = city or ""
+    prof.work_district = district
+    prof.work_intercity = intercity
+    prof.work_regions = regions
+    prof.work_direction_id = direction_id
     prof.updated_at = utcnow()
     session.add(prof)
     session.commit()
@@ -584,23 +607,21 @@ def courier_offline(user: User = Depends(current_user), session: Session = Depen
     return _profile_payload(prof)
 
 
-def _order_matches_zone(p: ParcelDelivery, prof: CourierProfile,
-                        settlement: Optional[Settlement]) -> bool:
-    """Подходит ли заказ под зону курьера. region — всё; city — совпадение с work_city;
-    intercity — направление work_direction_id встречается в маршруте. Пустая привязка → не сужаем."""
-    if prof.zone == "region":
-        return True
-    if prof.zone == "city":
-        wc = (prof.work_city or "").strip().casefold()
-        if not wc:
-            return True
-        return (p.from_city or "").strip().casefold() == wc or (p.to_city or "").strip().casefold() == wc
-    if prof.zone == "intercity":
-        if not settlement:
-            return True
-        names = {settlement.name_ru.casefold(), (settlement.name_ba or "").casefold()}
-        return (p.from_city or "").strip().casefold() in names or (p.to_city or "").strip().casefold() in names
-    return True
+def _order_matches_zone(session: Session, p: ParcelDelivery, prof: CourierProfile) -> bool:
+    """Подходит ли заказ под зону курьера. Правила общие с такси (`geo.zone_allows`):
+    база — свой НП или свой район, выезд за неё — по тумблерам «загород»/«соседние регионы».
+
+    Города посылки лежат текстом, поэтому сначала переводим их в справочник: «Берёзовка
+    (Иглинский р-н)» → нужная из четырёх. Не узнали — не режем (fail-open)."""
+    return geo_mod.zone_allows(
+        session,
+        zone=prof.zone, work_city=prof.work_city, work_district=prof.work_district,
+        intercity=bool(prof.work_intercity), regions=bool(prof.work_regions),
+        direction_id=prof.work_direction_id,
+        a=geo_mod.area_by_name(session, p.from_city or ""),
+        b=geo_mod.area_by_name(session, p.to_city or ""),
+        local_km=settings.instant_intercity_km,   # общий порог «местная поездка / межгород»
+    )
 
 
 @router.get("/courier/available")
@@ -625,9 +646,7 @@ def courier_available(from_city: Optional[str] = None, to_city: Optional[str] = 
         tc = to_city.strip().casefold()
         rows = [p for p in rows if (p.to_city or "").strip().casefold() == tc]
     if prof is not None:
-        settlement = (session.get(Settlement, prof.work_direction_id)
-                      if prof.work_direction_id else None)
-        rows = [p for p in rows if _order_matches_zone(p, prof, settlement)]
+        rows = [p for p in rows if _order_matches_zone(session, p, prof)]
     # Комиссию в списке пересчитываем под СТАЖ ЭТОГО курьера. В заказе она сохранена по дефолтной
     # ступени (8%) — при создании курьер ещё не назначен. Курьеру на промо/tier1 показывался чужой,
     # заниженный доход: в кабинете «ты платишь 3%», а на карточке заказа вычиталось 8%. Финальная

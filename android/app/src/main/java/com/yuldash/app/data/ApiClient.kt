@@ -905,16 +905,18 @@ object ApiClient {
         }
     }
 
-    /** SOS. orderId — контекст такси-заказа (B7b-2): админ увидит маршрут и вторую сторону.
+    /** SOS. orderId — контекст такси-заказа (B7b-2), bookingId — контекст попутки: дежурный
+     *  увидит маршрут и вторую сторону. Раньше поле брони было только на сервере и всегда
+     *  приходило пустым: из такси знали, с кем человек, из попутки — нет (аудит 2026-08-06).
      *  Координаты обязательны по смыслу, но не по форме: без них близкие получат «нужна срочная
-     *  помощь» и не будут знать, куда ехать. GPS мог не схватиться — тогда шлём хотя бы сигнал
-     *  (аудит 2026-08-06: мягкая кнопка «застрял» слала место, красный SOS — нет). */
+     *  помощь» и не будут знать, куда ехать. GPS мог не схватиться — тогда шлём хотя бы сигнал. */
     suspend fun sos(
         category: String, note: String, orderId: Int? = null,
-        lat: Double? = null, lng: Double? = null,
+        lat: Double? = null, lng: Double? = null, bookingId: Int? = null,
     ): Result<Unit> {
         val body = JSONObject().put("category", category).put("note", note)
         if (orderId != null) body.put("order_id", orderId)
+        if (bookingId != null) body.put("booking_id", bookingId)
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
         return call("POST", "/sos", body, auth = true).map { }.onSuccess { Analytics.log("sos") }
@@ -1812,6 +1814,16 @@ object ApiClient {
         call("POST", "/bookings/$bookingId/share", JSONObject().put("contact_id", contactId), auth = true)
             .map { parseTripShare(it) }
 
+    /** Кому открыта эта поездка (пассажиру — «уже поделился с …» + возможность отозвать).
+     *  Аудит 2026-08-06: у такси такой список был, у попутки — нет, и экран помнил ссылки
+     *  только в своей памяти. Свернул приложение — отзывать стало нечего, хотя ссылка на
+     *  живое местоположение продолжала работать. */
+    suspend fun getBookingShares(bookingId: Int): Result<List<TripShareDto>> =
+        call("GET", "/bookings/$bookingId/shares", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).mapNotNull { parseTripShare(arr.getJSONObject(it)) }
+        }
+
     /** Отозвать шаринг брони (B7c): live-токен «сгорает», SMS-статусы контакту прекращаются. Приватность. */
     suspend fun revokeBookingShare(bookingId: Int, shareId: Int): Result<Unit> =
         call("DELETE", "/bookings/$bookingId/share/$shareId", null, auth = true).map { }
@@ -1843,10 +1855,21 @@ object ApiClient {
     suspend fun setTripStatus(bookingId: Int, status: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true).map { }
 
-    /** Оценить вторую сторону поездки (1..5 звёзд) + опц. текстовый отзыв (≤500, идёт на модерацию). */
-    suspend fun rateBooking(bookingId: Int, stars: Int, text: String = ""): Result<Unit> =
+    /** Оценить вторую сторону поездки (1..5 звёзд) + опц. текстовый отзыв (≤500, идёт на модерацию)
+     *  и быстрые метки («вежливый», «вовремя») — коды из закрытого списка, сервер их фильтрует. */
+    suspend fun rateBooking(
+        bookingId: Int,
+        stars: Int,
+        text: String = "",
+        tags: List<String> = emptyList(),
+    ): Result<Unit> =
         call("POST", "/bookings/$bookingId/rate",
-            JSONObject().put("stars", stars).apply { text.trim().take(500).let { if (it.isNotBlank()) put("text", it) } },
+            JSONObject().put("stars", stars).apply {
+                text.trim().take(500).let { if (it.isNotBlank()) put("text", it) }
+                // Пустой список не шлём: на сервере пустое НЕ затирает уже поставленные метки,
+                // и гонять пустое поле по сети незачем.
+                if (tags.isNotEmpty()) put("tags", tags.joinToString(","))
+            },
             auth = true).map { }
 
     /** Публичный профиль водителя: стаж, поездки, средний рейтинг, отзывы (после модерации). Без ПДн. */
@@ -2540,6 +2563,25 @@ object ApiClient {
             (0 until arr.length()).map { arr.getJSONObject(it).toSettlementDto() }
         }
 
+    /**
+     * НП по названию из нашего справочника. Понимает форму «Берёзовка (Иглинский р-н)» —
+     * именно так поле «откуда/куда» записывает выбранную деревню.
+     *
+     * Нужен там, где по названию нужны координаты (маршрут на карте, расчёт доставки):
+     * сёл в справочнике тысячи, и про них он знает точнее геокодера. Не нашли — null,
+     * вызывающий идёт к геокодеру как раньше.
+     */
+    suspend fun settlementByName(raw: String): SettlementDto? {
+        val text = raw.trim()
+        if (text.isEmpty()) return null
+        val name = text.substringBefore('(').trim().ifEmpty { text }
+        val district = text.substringAfter('(', "").substringBefore(')').trim()
+        val hits = searchSettlements(name, 10).getOrNull().orEmpty()
+        val sameName = hits.filter { it.nameRu.equals(name, true) || it.nameBa.equals(name, true) }
+        return sameName.firstOrNull { district.isNotEmpty() && it.district.equals(district, true) }
+            ?: sameName.firstOrNull()
+    }
+
     /** Пресеты популярных межгород-маршрутов (Сибай–Магнитогорск, Баймак–Уфа…) — чипы в UI.
      *  Не путать с getPopularRoutes() (/popular-routes — живая статистика реальных поездок). */
     suspend fun getSettlementPopularRoutes(): Result<List<SettlementRouteDto>> = cachedGet("settlement-popular-routes", TTL_SLOW) {
@@ -2560,17 +2602,40 @@ object ApiClient {
     suspend fun getInstantZone(): Result<InstantZoneDto> =
         call("GET", "/instant/zone", null, auth = true).map { it.toInstantZoneDto() }
 
-    /** Выбор зоны работы: city (+work_city) | intercity (+опц. направление) | region.
-     *  Только водитель с одобренной заявкой таксиста (сервер вернёт 403/409 понятной строкой). */
-    suspend fun setInstantZone(workZone: String, workCity: String? = null, workDirectionId: Int? = null): Result<InstantZoneDto> =
+    /**
+     * Выбор зоны работы: база `city` (+work_city) или `district` (+work_district),
+     * плюс тумблеры «выезд загород» (опц. с направлением) и «соседние регионы».
+     * Только водитель с одобренной заявкой таксиста (сервер вернёт 403/409 понятной строкой).
+     */
+    suspend fun setInstantZone(
+        workZone: String,
+        workCity: String? = null,
+        workDistrict: String? = null,
+        workIntercity: Boolean = false,
+        workRegions: Boolean = false,
+        workDirectionId: Int? = null,
+    ): Result<InstantZoneDto> =
         call(
             "POST", "/instant/zone",
             JSONObject()
                 .put("work_zone", workZone)
                 .put("work_city", workCity ?: JSONObject.NULL)
+                .put("work_district", workDistrict ?: JSONObject.NULL)
+                .put("work_intercity", workIntercity)
+                .put("work_regions", workRegions)
                 .put("work_direction_id", workDirectionId ?: JSONObject.NULL),
             auth = true,
         ).map { it.toInstantZoneDto() }.onSuccess { Analytics.log("instant_zone_set") }
+
+    /** Районы для выбора зоны («вожу по Абзелиловскому району»). Публичный справочник. */
+    suspend fun searchDistricts(q: String = "", limit: Int = 60): Result<List<DistrictDto>> =
+        call("GET", "/settlements/districts?q=${enc(q)}&limit=$limit", null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                DistrictDto(o.optString("district"), o.optString("region"), o.optInt("settlements"))
+            }
+        }
 
     /** Сводка смены таксиста (волна 2, §8 Отдых): сколько на линии, осталось, блок отдыха,
      *  когда разблокировка, использован ли «один попутчик домой». */
@@ -3365,10 +3430,23 @@ object ApiClient {
             if (o.isNull("application")) null else o.optJSONObject("application")?.let { parseCourierApp(it) }
         }
 
-    /** Курьер: выйти «на линию». zone: city|intercity|region. */
-    suspend fun courierOnline(zone: String, workCity: String? = null, workDirectionId: Int? = null): Result<Unit> {
+    /**
+     * Курьер: выйти «на линию». Зона как у таксиста: база `city` (+work_city) или
+     * `district` (+work_district) плюс тумблеры «загород» и «соседние регионы».
+     */
+    suspend fun courierOnline(
+        zone: String,
+        workCity: String? = null,
+        workDirectionId: Int? = null,
+        workDistrict: String? = null,
+        workIntercity: Boolean = false,
+        workRegions: Boolean = false,
+    ): Result<Unit> {
         val body = JSONObject().put("zone", zone)
+            .put("work_intercity", workIntercity)
+            .put("work_regions", workRegions)
         workCity?.takeIf { it.isNotBlank() }?.let { body.put("work_city", it) }
+        workDistrict?.takeIf { it.isNotBlank() }?.let { body.put("work_district", it) }
         workDirectionId?.let { body.put("work_direction_id", it) }
         return call("POST", "/courier/online", body, auth = true).map { }.onSuccess { Analytics.log("courier_online") }
     }
@@ -3487,6 +3565,9 @@ object ApiClient {
                     id = it.optInt("id"), online = it.optBoolean("online"),
                     carClass = it.optString("car_class"), zone = it.optString("zone"),
                     workCity = nStr(it, "work_city"), workDirectionId = nInt(it, "work_direction_id"),
+                    workDistrict = nStr(it, "work_district"),
+                    workIntercity = it.optBoolean("work_intercity"),
+                    workRegions = it.optBoolean("work_regions"),
                     updatedAt = it.optString("updated_at"),
                 )
             }
@@ -3843,6 +3924,23 @@ object ApiClient {
     /** «Рәхмәт» водителю такси — тёплый жест без денег. Идемпотентно. */
     suspend fun sayInstantThanks(orderId: Int): Result<Unit> =
         call("POST", "/instant/orders/$orderId/thanks", JSONObject(), auth = true).map { }
+
+    /** То же для попутки. Сервер умел это с самого начала — «рәхмәт» и придумали для попуток,
+     *  но кнопка в итоге появилась только в чеке такси, и обе ручки годами никто не звал
+     *  (аудит 2026-08-06). Сосед, который подвёз бесплатно, спасибо заслуживает не меньше. */
+    suspend fun getBookingTipInfo(bookingId: Int): Result<TipInfoDto> =
+        call("GET", "/bookings/$bookingId/tip", null, auth = true).map { o ->
+            val m = o.optJSONObject("money")
+            TipInfoDto(
+                driverName = o.optString("driver_name"),
+                alreadyThanked = o.optBoolean("already_thanked"),
+                sbpPhone = m?.optString("sbp")?.takeIf { it.isNotBlank() },
+            )
+        }
+
+    /** «Рәхмәт» водителю попутки — тёплый жест без денег. Идемпотентно. */
+    suspend fun sayBookingThanks(bookingId: Int): Result<Unit> =
+        call("POST", "/bookings/$bookingId/thanks", JSONObject(), auth = true).map { }
 
     /** Мои завершённые такси-заказы с расшифровкой: цена, комиссия, чистыми (закрывает
      *  «Юлдаш говорит 4200, я насчитал 4600 — где мои 400?»). */
@@ -4514,15 +4612,27 @@ data class SettlementDto(
     val kind: String,
     val lat: Double,
     val lng: Double,
+    val district: String? = null,   // район («Иглинский р-н») — различать деревни-тёзки; у города null
 )
 
 /** Зона работы таксиста: city | intercity | region; null = не выбрана (беру всё рядом). */
+/**
+ * Зона работы. База — один НП (`city` + workCity) ИЛИ весь район (`district` + workDistrict);
+ * плюс два согласия: выезд загород и соседние регионы. Старые значения зоны сервер сам
+ * переводит в эту схему, поэтому workZone здесь всегда city|district (или null — не выбрана).
+ */
 data class InstantZoneDto(
     val workZone: String?,
     val workCity: String?,
+    val workDistrict: String? = null,
+    val workIntercity: Boolean = false,
+    val workRegions: Boolean = false,
     val workDirectionId: Int?,
     val workDirection: SettlementDto?,
 )
+
+/** Район для выбора зоны: «Абзелиловский р-н», регион и сколько в нём НП. */
+data class DistrictDto(val district: String, val region: String, val settlements: Int)
 
 /** Смена такси за местный день (волна 2, §8 Отдых): прогресс к 8-часовому лимиту и блок отдыха. */
 /** Свободная машина рядом (для карты такси): анонимная точка + ≈ETA до подачи. Без личности. */
@@ -4562,11 +4672,15 @@ private fun JSONObject.toSettlementDto() = SettlementDto(
     kind = optString("kind"),
     lat = optDouble("lat"),
     lng = optDouble("lng"),
+    district = optNullableString("district"),
 )
 
 private fun JSONObject.toInstantZoneDto() = InstantZoneDto(
     workZone = optNullableString("work_zone"),
     workCity = optNullableString("work_city"),
+    workDistrict = optNullableString("work_district"),
+    workIntercity = optBoolean("work_intercity"),
+    workRegions = optBoolean("work_regions"),
     workDirectionId = if (isNull("work_direction_id")) null else optInt("work_direction_id"),
     workDirection = optJSONObject("work_direction")?.toSettlementDto(),
 )
@@ -5651,6 +5765,10 @@ data class CourierEstimateDto(
 data class CourierProfileDto(
     val id: Int, val online: Boolean, val carClass: String, val zone: String,
     val workCity: String?, val workDirectionId: Int?, val updatedAt: String,
+    // Зона по-новому: район как база + два согласия (см. InstantZoneDto — правила общие).
+    val workDistrict: String? = null,
+    val workIntercity: Boolean = false,
+    val workRegions: Boolean = false,
 )
 
 /** C3: выписка курьера по нашей комиссии.

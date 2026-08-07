@@ -186,7 +186,7 @@ internal fun AdAdminCard(
         "active" -> if (ad.live) appText("Активно", "Актив") else if (ad.expired) appText("Истекло", "Бөттө") else appText("Запланировано", "Планлы")
         "pending_review" -> appText("На модерации", "Тикшереүҙә")
         "rejected" -> appText("Отклонено", "Кире ҡағылды")
-        "paused" -> appText("Пауза", "Пауза")
+        "paused" -> appText("Пауза", "Туҡтатылған")
         "draft" -> appText("Черновик", "Ҡаралама")
         else -> ad.status
     }
@@ -245,7 +245,7 @@ internal fun AdAdminCard(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (ad.status == "active") {
                     OutlinedButton(onClick = onPause, enabled = !busy, modifier = Modifier.weight(1f), shape = CanonCardShape) {
-                        Text(appText("Пауза", "Пауза"), fontSize = 14.sp)
+                        Text(appText("Пауза", "Туҡтатылған"), fontSize = 14.sp)
                     }
                 } else if (ad.status != "pending_review") {
                     Button(onClick = onPublish, enabled = !busy, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg), shape = CanonCardShape) {

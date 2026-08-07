@@ -1,0 +1,5375 @@
+/* Компоненты и оболочка приложения. Цвета — только из токенов (index.css). */
+
+/* ---- Оболочка ---- */
+.app-shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.app-main {
+  flex: 1;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 16px;
+  /* место под нижнюю навигацию + safe-area */
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+}
+
+/* ---- Шапка экрана ---- */
+.screen-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin: 0 -16px 8px;
+  padding: calc(env(safe-area-inset-top) + 16px) 16px 16px;
+  background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
+  color: #fff;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.6);
+}
+.screen-header__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.screen-header h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.screen-header p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+/* ---- Переключатель языка ---- */
+.lang-toggle {
+  flex: none;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(6px);
+}
+.lang-toggle button {
+  min-width: 40px;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  font-weight: 700;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.lang-toggle button[data-active="true"] {
+  background: #fff;
+  color: var(--header-top);
+}
+
+/* ---- Карточка поездки ---- */
+.ride-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  padding: 14px;
+  margin-top: 12px;
+  animation: fadeUp 0.35s ease both;
+  box-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.5);
+}
+.ride-card__route {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.ride-card__arrow {
+  color: var(--green-bright, var(--canon-green-bright));
+  flex: none;
+}
+.ride-card__meta {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.ride-card__meta b {
+  color: var(--text);
+}
+.ride-card__foot {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ride-card__driver {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ride-card__avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  flex: none;
+  object-fit: cover;
+  background: var(--mint);
+  display: grid;
+  place-items: center;
+  color: var(--green);
+  font-weight: 800;
+}
+.ride-card__driver-name {
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ride-card__driver-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+.ride-card__price {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--green);
+  white-space: nowrap;
+}
+
+/* Бейджи */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.badge--mint {
+  background: var(--mint);
+  color: var(--green);
+}
+.badge--gold {
+  background: var(--canon-gold-soft);
+  color: #7a5200;
+}
+.badge--boost {
+  background: var(--canon-gold);
+  color: #3a2600;
+}
+.star {
+  color: var(--canon-star);
+}
+
+/* ---- Скелетоны ---- */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--skeleton) 25%,
+    var(--skeleton-shine) 37%,
+    var(--skeleton) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 10px;
+}
+.skeleton-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 16px;
+  margin-top: 12px;
+}
+
+/* ---- Пусто / ошибка ---- */
+.state {
+  text-align: center;
+  padding: 56px 20px;
+  animation: fadeUp 0.35s ease both;
+}
+.state__emoji {
+  font-size: 44px;
+}
+/* Брендовая линиевая иконка в кружке Canon — вместо hero-эмодзи в пустых
+   и «скоро» состояниях (кошелёк/поездки/чат и т.п.). Как аватар-плейсхолдер
+   в андроиде: мятный круг + зелёная иконка. */
+.state__icon {
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 2px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+}
+.state__icon--warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.state__icon--danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.state h2 {
+  margin: 14px 0 6px;
+  font-size: 19px;
+  font-weight: 800;
+}
+.state p {
+  margin: 0 auto;
+  max-width: 320px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.btn-primary {
+  margin-top: 18px;
+  min-height: 52px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--green-btn);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  transition: transform 0.12s ease, opacity 0.2s ease;
+}
+.btn-primary:active {
+  transform: scale(0.97);
+}
+/* Такси-акцент: жёлтый фон + тёмная «такси»-подпись (высокий контраст в обеих темах). */
+.btn-taxi {
+  background: var(--taxi);
+  color: var(--taxi-ink);
+}
+.btn-ghost {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* ---- Нижняя навигация ---- */
+.bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: space-around;
+  gap: 2px;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  background: var(--nav-bg);
+  backdrop-filter: saturate(160%) blur(18px);
+  border-top: 1px solid var(--border);
+}
+.nav-item {
+  flex: 1;
+  max-width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 0;
+  min-height: 48px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  transition: color 0.2s ease;
+}
+.nav-item.is-active {
+  color: var(--green);
+}
+.nav-item svg {
+  transition: transform 0.2s ease;
+}
+.nav-item.is-active svg {
+  transform: translateY(-1px) scale(1.04);
+}
+
+/* ---- Подсказка установки ---- */
+.install-sheet {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  z-index: 60;
+  max-width: 616px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  padding: 16px;
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.5);
+  animation: fadeUp 0.4s ease both;
+}
+.install-sheet__row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.install-sheet img {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  flex: none;
+}
+.install-sheet h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 800;
+}
+.install-sheet p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.install-sheet__actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ================================================================
+   Волна 1 — Вход и старт (Splash / Intro / Onboarding / Login /
+   Consents / Trust / Invites / Profile-хаб). Только токены Canon*.
+   ================================================================ */
+
+/* ---- Общий полноэкранный центр (спиннер защиты маршрута) ---- */
+.center-fill {
+  min-height: 60dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--green);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Splash ---- */
+.splash {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
+  background: radial-gradient(120% 80% at 50% 20%, #0e7d44 0%, #073f25 70%);
+  color: #fff;
+  text-align: center;
+}
+.splash__mark {
+  animation: fadeUp 0.5s ease both, floaty 3.2s ease-in-out infinite 0.5s;
+  filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.35));
+}
+.splash__word {
+  margin-top: 18px;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  animation: fadeUp 0.5s ease both 0.1s;
+}
+.splash__slogan {
+  margin: 4px 0 0;
+  opacity: 0.85;
+  font-size: 15px;
+  animation: fadeUp 0.5s ease both 0.2s;
+}
+.splash__spin {
+  margin-top: 28px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes floaty {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* ---- Intro ---- */
+.intro {
+  position: relative;
+  min-height: 100dvh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
+  background: radial-gradient(120% 80% at 50% 25%, #0e7d44 0%, #063a22 72%);
+  color: #fff;
+  text-align: center;
+}
+.intro__mark {
+  margin-bottom: 20px;
+  animation: fadeUp 0.5s ease both;
+}
+.intro__stage {
+  height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.intro__word {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.intro__word--meaning {
+  font-size: 32px;
+  opacity: 0.92;
+  animation: letterIn 0.5s ease both;
+}
+.intro__word--brand {
+  font-size: 46px;
+  animation: brandIn 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes letterIn {
+  from {
+    opacity: 0;
+    letter-spacing: 0.4em;
+  }
+  to {
+    opacity: 0.92;
+    letter-spacing: 0;
+  }
+}
+@keyframes brandIn {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+    letter-spacing: 0.3em;
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    letter-spacing: -0.01em;
+  }
+}
+.intro__rule {
+  margin-top: 14px;
+  width: 46px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--canon-gold);
+  animation: fadeUp 0.6s ease both 0.3s;
+}
+.intro__slogan {
+  margin: 14px 0 0;
+  font-size: 15px;
+  opacity: 0.85;
+  animation: fadeUp 0.6s ease both 0.45s;
+}
+.intro__skip {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom) + 18px);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ---- Onboarding ---- */
+.onb {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: calc(env(safe-area-inset-top) + 14px) 20px calc(env(safe-area-inset-bottom) + 16px);
+  background: var(--bg);
+  color: var(--text);
+}
+.onb__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.onb__lang {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.onb__lang button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.onb__lang button[data-active="true"] {
+  background: var(--green-btn);
+  color: #fff;
+}
+.onb__body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.onb__slide {
+  width: 100%;
+  text-align: center;
+  animation: fadeUp 0.35s ease both;
+}
+.onb__emoji {
+  font-size: 64px;
+  line-height: 1;
+}
+.onb__slide h1 {
+  margin: 22px 0 10px;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.onb__slide p {
+  margin: 0 auto;
+  max-width: 340px;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.45;
+}
+.onb--big .onb__slide p,
+.onb--big .list-row__sub {
+  font-size: 18px;
+}
+.onb__setup {
+  text-align: left;
+}
+.onb__setup h1 {
+  text-align: center;
+}
+.onb__setup > p {
+  text-align: center;
+}
+.onb__roles {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.onb__role {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 16px;
+  min-height: 48px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  text-align: left;
+  transition: border-color 0.2s ease, transform 0.12s ease;
+}
+.onb__role:active {
+  transform: scale(0.98);
+}
+.onb__role.is-active {
+  border-color: var(--canon-green-bright);
+  background: var(--mint);
+}
+.onb__role-emoji {
+  font-size: 30px;
+}
+.onb__role-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+}
+.onb__role-sub {
+  font-size: 13px;
+  color: var(--muted);
+}
+.onb__role-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--green-btn);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.onb__simple {
+  margin-top: 14px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  min-height: 48px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  transition: border-color 0.2s ease;
+}
+.onb__simple.is-active {
+  border-color: var(--canon-green-bright);
+}
+.onb__simple-emoji {
+  font-size: 22px;
+}
+/* Точка статуса «на линии» — вместо эмодзи 🟢/⚪️. Приглушённый кружок,
+   зелёный когда онлайн. Наследует Canon-токены (свет/тьма). */
+.status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.55;
+  flex: 0 0 auto;
+  display: inline-block;
+}
+.status-dot--on {
+  background: var(--canon-green-bright);
+  opacity: 1;
+  box-shadow: 0 0 0 3px var(--mint);
+}
+.onb__simple-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.onb__simple-text b {
+  font-size: 15px;
+  color: var(--text);
+}
+.onb__simple-text span {
+  font-size: 13px;
+  color: var(--muted);
+}
+.switch {
+  flex: none;
+  width: 46px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--border);
+  position: relative;
+  transition: background 0.2s ease;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s ease;
+}
+.switch.on {
+  background: var(--green-btn);
+}
+.switch.on::after {
+  transform: translateX(18px);
+}
+.onb__dots {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  margin: 18px 0 14px;
+}
+.onb__dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  transition: width 0.25s ease, background 0.25s ease;
+}
+.onb__dots span.is-active {
+  width: 26px;
+  background: var(--green-btn);
+}
+.onb__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.onb__next {
+  min-width: 130px;
+  min-height: 56px;
+  border-radius: 20px;
+}
+
+/* ---- Auth (Login) ---- */
+.auth {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: calc(env(safe-area-inset-top) + 8px) 20px calc(env(safe-area-inset-bottom) + 20px);
+  background: var(--bg);
+  color: var(--text);
+}
+.auth__top {
+  min-height: 44px;
+}
+.auth__back,
+.subheader__back {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+}
+.subheader__back {
+  color: #fff;
+  margin: -4px 0 -4px -8px;
+}
+.auth__brand {
+  text-align: center;
+  margin: 8px 0 22px;
+  animation: fadeUp 0.4s ease both;
+}
+.auth__word {
+  margin-top: 12px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.auth__slogan {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+.auth__card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 22px;
+  box-shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.5);
+  animation: fadeUp 0.4s ease both 0.05s;
+}
+.auth__card h1 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.auth__lead {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.btn-tg {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 16px;
+  background: #229ed9;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  transition: transform 0.12s ease, opacity 0.2s ease;
+}
+.btn-tg:active {
+  transform: scale(0.98);
+}
+.btn-tg:disabled {
+  opacity: 0.7;
+}
+.auth__sms-toggle {
+  margin: 16px auto 0;
+  display: block;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  min-height: 44px;
+}
+.auth__note {
+  margin-top: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.auth__legal {
+  margin: 16px 0 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.auth__error {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 14px;
+  line-height: 1.45;
+  animation: fadeUp 0.25s ease both;
+}
+.auth__code {
+  width: 100%;
+  height: 60px;
+  border: 1.5px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: center;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.32em;
+  padding-left: 0.32em;
+}
+.auth__code:focus {
+  outline: none;
+  border-color: var(--canon-green-bright);
+}
+.auth__name {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 12px;
+  padding: 0 16px;
+  border: 1.5px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 16px;
+}
+.auth__name:focus {
+  outline: none;
+  border-color: var(--canon-green-bright);
+}
+.auth__submit,
+.invite-share {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.auth__submit {
+  margin-top: 16px;
+}
+
+/* ---- Списки-строки (Профиль / Согласия / Trust) ---- */
+.list {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ---- Секции меню (профиль как в настройках iOS) ---- */
+.list-group {
+  display: block;
+  margin-top: 22px;
+}
+.list-group:first-of-type {
+  margin-top: 16px;
+}
+.list-group__label {
+  margin: 0 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.list-group .list {
+  margin-top: 0;
+  gap: 8px;
+}
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px;
+  min-height: 48px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  text-align: left;
+  color: var(--text);
+  animation: fadeUp 0.3s ease both;
+}
+button.list-row {
+  transition: transform 0.12s ease;
+}
+button.list-row:active {
+  transform: scale(0.99);
+}
+.list-row__icon {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+}
+.list-row__main {
+  flex: 1;
+  min-width: 0;
+}
+.list-row__title {
+  font-size: 16px;
+  font-weight: 700;
+}
+.list-row__sub {
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.list-row__chev {
+  flex: none;
+  color: var(--muted);
+}
+.list-row--check {
+  cursor: pointer;
+}
+.checkbox {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  accent-color: var(--green-btn);
+}
+.consents__status {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
+}
+.consents__status.ok {
+  background: var(--mint);
+  color: var(--green);
+}
+
+/* ---- Trust ---- */
+.trust-hero {
+  margin-top: 16px;
+  padding: 24px 20px;
+  border-radius: var(--radius-card);
+  background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
+  color: #fff;
+  text-align: center;
+  animation: fadeUp 0.35s ease both;
+}
+.trust-hero__badge {
+  width: 60px;
+  height: 60px;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  display: grid;
+  place-items: center;
+}
+.trust-hero__level {
+  margin-top: 12px;
+  font-size: 24px;
+  font-weight: 800;
+}
+.trust-progress {
+  margin: 14px auto 0;
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+.trust-progress span {
+  width: 46px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.25);
+}
+.trust-progress span.on {
+  background: var(--canon-gold);
+}
+.trust-hero__next {
+  margin: 14px auto 0;
+  max-width: 320px;
+  font-size: 14px;
+  line-height: 1.5;
+  opacity: 0.92;
+}
+.trust-row {
+  align-items: flex-start;
+}
+.trust-row__dot {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.trust-row__dot.on {
+  background: var(--green-btn);
+  color: #fff;
+}
+.trust-row:not(.reached) {
+  opacity: 0.72;
+}
+
+/* ---- Invites ---- */
+.invite-card {
+  margin-top: 16px;
+  padding: 22px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-align: center;
+  box-shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.5);
+  animation: fadeUp 0.35s ease both;
+}
+.invite-card__gift {
+  width: 54px;
+  height: 54px;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: var(--canon-gold-soft);
+  color: #7a5200;
+  display: grid;
+  place-items: center;
+}
+.invite-card__label {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.invite-card__code {
+  margin-top: 6px;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--green);
+}
+.invite-card__actions {
+  margin-top: 18px;
+  display: flex;
+  gap: 10px;
+}
+.btn-soft {
+  flex: 1;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  transition: transform 0.12s ease;
+}
+.btn-soft:active {
+  transform: scale(0.98);
+}
+.invite-card__actions .invite-share {
+  flex: 1;
+  margin: 0;
+}
+.invite-stats {
+  margin-top: 16px;
+  display: flex;
+  gap: 12px;
+}
+.invite-stat {
+  flex: 1;
+  padding: 16px;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+.invite-stat b {
+  display: block;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text);
+}
+.invite-stat span {
+  font-size: 13px;
+  color: var(--muted);
+}
+.invite-hint {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+.invite-redeem {
+  margin-top: 22px;
+  padding: 18px;
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+}
+.invite-redeem__title {
+  font-size: 16px;
+  font-weight: 700;
+}
+.invite-redeem__row {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+}
+.invite-redeem__row .auth__name {
+  margin-top: 0;
+  flex: 1;
+}
+.invite-redeem__row .btn-primary {
+  margin-top: 0;
+  flex: none;
+}
+.invite-redeem__msg {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 14px;
+}
+.invite-redeem__msg.ok {
+  background: var(--mint);
+  color: var(--green);
+}
+
+/* ---- Профиль-хаб ---- */
+/* Шапка профиля — зелёный градиент + белый текст (как в андроиде: CanonGreenInk→InkDark). */
+.profile-card {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border-radius: var(--radius-card);
+  background: linear-gradient(155deg, #0b6b3a, #063a20);
+  border: 0;
+  color: #fff;
+  animation: fadeUp 0.35s ease both;
+}
+.profile-card__avatar {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  flex: none;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  font-weight: 800;
+}
+.profile-card__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.profile-card__name {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+.profile-card__meta {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.profile-card__rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+}
+.profile-guest {
+  margin-top: 16px;
+  padding: 28px 20px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-align: center;
+  animation: fadeUp 0.35s ease both;
+}
+.profile-guest__emoji {
+  font-size: 40px;
+}
+/* Брендовый знак Юлдаша в карточке гостя — вместо эмодзи-приветствия. */
+.profile-guest__mark {
+  display: inline-flex;
+  margin: 0 auto 4px;
+  filter: drop-shadow(0 12px 24px rgba(11, 107, 58, 0.28));
+}
+.profile-guest h2 {
+  margin: 12px 0 6px;
+  font-size: 20px;
+  font-weight: 800;
+}
+.profile-guest p {
+  margin: 0 auto 4px;
+  max-width: 320px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.logout-btn {
+  margin: 22px auto 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: transparent;
+  color: var(--danger);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* ================================================================
+   Волна 2А — Ядро попутки (пассажир): карта, заявка, лента,
+   отклики, бронь, активная поездка, чат, квитанция. Только Canon*.
+   ================================================================ */
+
+/* ---- Карта (Яндекс JS) + брендовый плейсхолдер без ключа ---- */
+.map-box {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.map-box__canvas {
+  width: 100%;
+  height: 100%;
+}
+.map-box__loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+}
+.map-placeholder {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: radial-gradient(120% 90% at 30% 10%, var(--mint), var(--surface-2));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 20px;
+  gap: 4px;
+}
+.map-placeholder__glow {
+  position: absolute;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(47, 179, 110, 0.28), transparent 70%);
+  top: -30px;
+  right: -30px;
+}
+.map-placeholder__pin {
+  font-size: 34px;
+}
+.map-placeholder__title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+}
+.map-placeholder__sub {
+  max-width: 260px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.home-map {
+  margin-top: 8px;
+  animation: fadeUp 0.35s ease both;
+}
+
+/* ---- Чипы-фильтры ---- */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.chip {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.chip:active {
+  transform: scale(0.97);
+}
+.chip--on {
+  border-color: var(--canon-green-bright);
+  background: var(--mint);
+  color: var(--green);
+}
+
+/* ---- Карусель быстрых действий ---- */
+.quick-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+.quick-row::-webkit-scrollbar {
+  display: none;
+}
+.quick-tile {
+  flex: 0 0 auto;
+  width: 108px;
+  min-height: 96px;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  text-align: left;
+  transition: transform 0.12s ease;
+  animation: fadeUp 0.35s ease both;
+}
+.quick-tile:active {
+  transform: scale(0.97);
+}
+.quick-tile__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+}
+.quick-tile__title {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.section-title {
+  margin: 22px 0 2px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.ride-card-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  transition: transform 0.12s ease;
+}
+.ride-card-btn:active {
+  transform: scale(0.99);
+}
+
+/* ---- Нижняя шторка (bottom sheet) ---- */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.42);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeIn 0.2s ease both;
+}
+.sheet {
+  width: 100%;
+  max-width: 640px;
+  background: var(--surface);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  padding: 12px 18px calc(20px + env(safe-area-inset-bottom));
+  box-shadow: 0 -20px 60px -20px rgba(0, 0, 0, 0.5);
+  animation: sheetUp 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  max-height: 88dvh;
+  overflow-y: auto;
+}
+.sheet__grip {
+  width: 40px;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--border);
+  margin: 0 auto 14px;
+}
+.sheet__comment {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.sheet__driver {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sheet__cta {
+  width: 100%;
+  margin-top: 18px;
+}
+.sheet__note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: center;
+}
+@keyframes sheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ---- Формы (заявка, отклик) ---- */
+.form {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field__label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.field__input {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  border: 1.5px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 16px;
+  font-family: inherit;
+}
+.field__input:focus {
+  outline: none;
+  border-color: var(--canon-green-bright);
+}
+.field__area {
+  min-height: 96px;
+  padding: 14px 16px;
+  resize: vertical;
+  line-height: 1.45;
+}
+.field-row {
+  display: flex;
+  gap: 12px;
+}
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 0 6px;
+  border: 1.5px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-2);
+}
+.stepper button {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--green);
+  font-size: 24px;
+  font-weight: 700;
+}
+.stepper b {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+/* Сегмент-переключатель (тип поездки) */
+.seg {
+  display: flex;
+  gap: 8px;
+}
+.seg__item {
+  flex: 1;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1.5px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.12s ease;
+}
+.seg__item span {
+  font-size: 20px;
+}
+.seg__item:active {
+  transform: scale(0.97);
+}
+.seg__item.is-active {
+  border-color: var(--canon-green-bright);
+  background: var(--mint);
+  color: var(--green);
+}
+
+.more-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+}
+.more-toggle__chev {
+  transition: transform 0.25s ease;
+  color: var(--muted);
+  font-size: 18px;
+}
+.more-toggle__chev.open {
+  transform: rotate(180deg);
+}
+.more-body {
+  animation: fadeUp 0.25s ease both;
+}
+/* «Дополнительно» как карточка (андроид: Surface CanonItemShape, шапка 56dp). */
+.more-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  overflow: hidden;
+}
+.more-block .more-toggle {
+  min-height: 56px;
+  padding: 0 16px;
+}
+.more-block .more-body {
+  padding: 0 14px 14px;
+}
+.opt-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.opt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.12s ease;
+}
+.opt-chip:active {
+  transform: scale(0.97);
+}
+.opt-chip.is-active {
+  border-color: var(--canon-green-bright);
+  background: var(--mint);
+  color: var(--green);
+}
+.submit-btn {
+  width: 100%;
+  margin-top: 6px;
+}
+
+/* ---- Бейдж danger ---- */
+.badge--danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* ---- Отклики (карточка водителя) ---- */
+.offer-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.5);
+  animation: fadeUp 0.32s ease both;
+}
+.offer-card__top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.offer-card__comment {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.offer-card__accepted {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  border-radius: 16px;
+  background: var(--mint);
+  color: var(--green);
+  font-weight: 700;
+}
+
+/* ---- Детали брони / поездки ---- */
+.trip,
+.form {
+  padding-top: 2px;
+}
+.trip__routecard {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  animation: fadeUp 0.32s ease both;
+}
+.trip__meta {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.trip__meta b {
+  color: var(--text);
+}
+.info-list {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  overflow: hidden;
+}
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  min-height: 48px;
+  border-bottom: 1px solid var(--border);
+}
+.info-row:last-child {
+  border-bottom: 0;
+}
+.info-row__k {
+  color: var(--muted);
+  font-size: 14px;
+  flex: none;
+}
+.info-row__v {
+  text-align: right;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.info-row--link {
+  color: inherit;
+}
+.info-row--link:active {
+  background: var(--surface-2);
+}
+.unlock-card {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.unlock-card__point {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* ---- Активная поездка ---- */
+.trip-banner {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  animation: fadeUp 0.3s ease both;
+}
+.trip-banner__hint {
+  color: var(--muted);
+  font-size: 14px;
+}
+.code-card {
+  margin-top: 14px;
+  padding: 20px;
+  border-radius: var(--radius-card);
+  background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
+  color: #fff;
+  text-align: center;
+  animation: fadeUp 0.32s ease both;
+}
+.code-card__label {
+  font-size: 13px;
+  opacity: 0.85;
+}
+.code-card__value {
+  margin-top: 6px;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  padding-left: 0.28em;
+}
+.code-card__hint {
+  margin-top: 6px;
+  font-size: 13px;
+  opacity: 0.85;
+}
+.sos-btn {
+  margin-top: 14px;
+  width: 100%;
+  min-height: 52px;
+  border: 1.5px solid var(--danger);
+  border-radius: 16px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 16px;
+  font-weight: 800;
+  transition: transform 0.12s ease;
+}
+.sos-btn:active {
+  transform: scale(0.98);
+}
+.rate-card {
+  margin-top: 16px;
+  padding: 20px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-align: center;
+  animation: fadeUp 0.32s ease both;
+}
+.rate-card__title {
+  font-size: 17px;
+  font-weight: 800;
+}
+.rate-stars {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+.rate-star {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--border);
+  transition: transform 0.12s ease, color 0.2s ease;
+}
+.rate-star:active {
+  transform: scale(1.15);
+}
+.rate-star:hover,
+.rate-star:focus-visible {
+  color: var(--canon-star);
+}
+
+/* ---- Чат брони ---- */
+.chat {
+  margin-top: 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  overflow: hidden;
+}
+.chat__title {
+  padding: 14px 16px;
+  font-size: 15px;
+  font-weight: 800;
+  border-bottom: 1px solid var(--border);
+}
+.chat__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--surface-2);
+}
+.chat__empty {
+  margin: 12px auto;
+  max-width: 240px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.bubble {
+  align-self: flex-start;
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: 16px 16px 16px 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.4;
+  animation: fadeUp 0.2s ease both;
+  overflow-wrap: anywhere;
+}
+.bubble--mine {
+  align-self: flex-end;
+  background: var(--green-btn);
+  color: #fff;
+  border-color: transparent;
+  border-radius: 16px 16px 4px 16px;
+}
+.bubble__admin {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--warn);
+  margin-bottom: 2px;
+}
+.chat__input {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.chat__input input {
+  flex: 1;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+}
+.chat__input input:focus {
+  outline: none;
+  border-color: var(--canon-green-bright);
+}
+.chat__input button {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: var(--green-btn);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  transition: transform 0.12s ease;
+}
+.chat__input button:active {
+  transform: scale(0.94);
+}
+
+/* ---- Квитанция ---- */
+.receipt {
+  margin-top: 16px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.5);
+  animation: fadeUp 0.32s ease both;
+}
+.receipt__brand {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--green);
+}
+.receipt__route {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.receipt__date {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.receipt__rows {
+  margin-top: 16px;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+}
+.receipt__rows .info-row {
+  border-bottom: 1px solid var(--border);
+}
+.receipt__rows .info-row:last-child {
+  border-bottom: 0;
+}
+.receipt__total {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 15px;
+  color: var(--muted);
+}
+.receipt__total b {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--green);
+}
+.receipt__foot {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* ================================================================
+   Волна 2Б — доп. экраны пассажира: Фильтры, Мои адреса, Повтор,
+   Мой Юлдаш, Подписки, Клиники, Кабинет. Только токены Canon*.
+   ================================================================ */
+
+/* Подсказка под полем формы */
+.field__hint {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* Кнопка-иконка (удалить в строке списка) */
+.icon-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  transition: background 0.2s ease, color 0.2s ease, transform 0.12s ease;
+}
+.icon-btn:active {
+  transform: scale(0.92);
+}
+.icon-btn:hover,
+.icon-btn:focus-visible {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+/* Подсказки геокодера (Мои адреса) */
+.geo-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: -6px;
+}
+.geo-hit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  font-size: 14px;
+  line-height: 1.35;
+  transition: transform 0.12s ease, border-color 0.2s ease;
+}
+.geo-hit:active {
+  transform: scale(0.99);
+}
+.geo-hit svg {
+  flex: none;
+  color: var(--green);
+}
+
+/* Маршрут в строке (Повтор / Подписки / Кабинет) */
+.repeat-route {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  min-width: 0;
+}
+.repeat-route span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repeat-route__arrow {
+  flex: none;
+  color: var(--canon-green-bright);
+}
+
+/* Плитки статистики (Мой Юлдаш) */
+.stat-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.stat-tile {
+  padding: 18px 16px;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-align: center;
+  animation: fadeUp 0.35s ease both;
+}
+.stat-tile b {
+  display: block;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--green);
+}
+.stat-tile span {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.stat-newbie {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* Быстрый доступ (Кабинет пассажира) */
+.cabinet-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.cabinet-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 96px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  text-align: left;
+  transition: transform 0.12s ease, border-color 0.2s ease;
+  animation: fadeUp 0.35s ease both;
+}
+.cabinet-tile:active {
+  transform: scale(0.98);
+}
+.cabinet-tile__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+}
+.cabinet-tile__title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text);
+}
+.cabinet-tile__soon {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+/* Описание клиники */
+.clinic-desc {
+  margin: 14px 0 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-item);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ================================================================
+   Волна 3 — Водитель (кабинет, профиль, заработок, boost, проверка)
+   Цвета — только токены Canon. Светлая/тёмная — автоматически.
+   ================================================================ */
+
+/* --- Плашка-CTA проверки в кабинете --- */
+.trust-cta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--warn-bg);
+  color: var(--warn);
+  text-align: left;
+  animation: fadeUp 0.35s ease both;
+}
+.trust-cta.is-static {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.trust-cta__emoji {
+  font-size: 22px;
+  flex: none;
+}
+.trust-cta__text {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* --- Дни недели (расписание) --- */
+.weekday-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+.weekday-chip {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.weekday-chip:active {
+  transform: scale(0.94);
+}
+.weekday-chip.is-active {
+  background: var(--green-btn);
+  border-color: var(--green-btn);
+  color: #fff;
+}
+
+/* --- Публичный профиль водителя --- */
+.dprofile-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 20px 16px 4px;
+  animation: fadeUp 0.35s ease both;
+}
+.dprofile-avatar {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 30px;
+  font-weight: 800;
+  border: 1px solid var(--border);
+}
+.dprofile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.dprofile-name {
+  margin-top: 12px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.dprofile-meta {
+  margin-top: 8px;
+}
+.dprofile-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 800;
+  color: var(--text);
+}
+.dprofile-rating svg {
+  color: var(--canon-star);
+}
+.dprofile-rating__count {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 14px;
+}
+.dprofile-car {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.dprofile-since {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* --- Отзывы --- */
+.review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.review-card {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp 0.35s ease both;
+}
+.review-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.review-card__author {
+  font-weight: 700;
+  color: var(--text);
+}
+.review-card__stars {
+  color: var(--canon-star);
+  letter-spacing: 1px;
+  font-size: 14px;
+}
+.review-card__stars-off {
+  color: var(--border);
+}
+.review-card__text {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.review-card__date {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* --- Заработок: столбики по дням --- */
+.earn-chart {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 2px 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.earn-bar {
+  flex: 0 0 auto;
+  width: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.earn-bar__value {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--green);
+}
+.earn-bar__track {
+  width: 26px;
+  height: 120px;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 10px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.earn-bar__fill {
+  width: 100%;
+  border-radius: 10px 10px 0 0;
+  background: linear-gradient(180deg, var(--canon-green-bright), var(--green-btn));
+  transition: height 0.4s ease;
+}
+.earn-bar__label {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.earn-bar__trips {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+/* --- Boost: выбор поездки + планы --- */
+.boost-ride {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.boost-ride + .boost-ride {
+  margin-top: 8px;
+}
+.boost-ride.is-active {
+  border-color: var(--green-btn);
+  background: var(--mint);
+}
+.boost-ride svg {
+  color: var(--green);
+  flex: none;
+}
+.plan-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.plan-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 16px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  text-align: left;
+  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
+  animation: fadeUp 0.35s ease both;
+}
+.plan-card:active {
+  transform: scale(0.98);
+}
+.plan-card.is-active {
+  border-color: var(--green-btn);
+  background: var(--mint);
+}
+.plan-card__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+}
+.plan-card.is-active .plan-card__icon {
+  background: var(--surface);
+}
+.plan-card__title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+}
+.plan-card__hours {
+  font-size: 13px;
+  color: var(--muted);
+}
+.plan-card__price {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--green);
+}
+
+/* --- Оплата по СБП «на доверии» --- */
+.pay-sbp {
+  animation: fadeUp 0.35s ease both;
+}
+.pay-sbp__amount {
+  text-align: center;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--green);
+  margin-top: 8px;
+}
+.pay-sbp__hint {
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 8px 0 16px;
+}
+.pay-sbp__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.pay-sbp__row + .pay-sbp__row {
+  margin-top: 10px;
+}
+.pay-sbp__label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.pay-sbp__value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* --- Проверка водителя: слоты фото + правила --- */
+.photo-slot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px;
+  margin-top: 12px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.photo-slot.is-done {
+  border-style: solid;
+  border-color: var(--green-btn);
+  background: var(--mint);
+}
+.photo-slot__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  color: var(--green);
+}
+.photo-slot.is-done .photo-slot__icon {
+  background: var(--surface);
+}
+.photo-slot__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.photo-slot__text b {
+  font-size: 15px;
+  font-weight: 700;
+}
+.photo-slot__text span {
+  font-size: 13px;
+  color: var(--muted);
+}
+.verify-rules {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.verify-rules__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  color: var(--text);
+}
+.verify-rules__head svg {
+  color: var(--green);
+}
+.verify-rules ul {
+  margin: 12px 0 0;
+  padding-left: 20px;
+}
+.verify-rules li {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.verify-rules p {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* --- Ссылка на профиль водителя в шторке --- */
+.sheet__driver-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  color: inherit;
+}
+.sheet__driver-link:active {
+  opacity: 0.7;
+}
+.sheet__driver-more {
+  color: var(--green);
+  font-weight: 600;
+}
+
+/* ================================================================
+   Волна 4 — Такси (быстрый заказ, предзаказ, оффер водителя)
+   ================================================================ */
+
+/* --- Точки маршрута (откуда/куда) --- */
+.taxi-route {
+  margin-top: 14px;
+  padding: 6px 4px;
+}
+.taxi-route__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  min-height: 56px;
+}
+.taxi-route__row + .taxi-route__row {
+  margin-top: 10px;
+}
+.taxi-route__dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.taxi-route__dot--a {
+  background: var(--canon-green-deep);
+  box-shadow: 0 0 0 4px rgba(11, 107, 58, 0.14);
+}
+.taxi-route__dot--b {
+  background: var(--canon-gold);
+  box-shadow: 0 0 0 4px rgba(245, 179, 1, 0.18);
+}
+.taxi-route__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.taxi-route__label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.taxi-route__value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.taxi-route__input {
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  width: 100%;
+  padding: 0;
+  outline: none;
+}
+.taxi-route__input::placeholder {
+  color: var(--muted);
+  font-weight: 500;
+}
+.taxi-route__chosen {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  width: 100%;
+  text-align: left;
+}
+.taxi-route__change {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--green);
+}
+
+/* Подсказки геокодера/быстрые адреса */
+.taxi-suggest {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.taxi-suggest__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 14px;
+  color: var(--text);
+  min-height: 48px;
+}
+.taxi-suggest__row:last-child {
+  border-bottom: none;
+}
+.taxi-suggest__row:active {
+  background: var(--surface-2);
+}
+.taxi-suggest__row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Классы (Эконом/Комфорт) --- */
+.taxi-classes {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.taxi-class {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: 76px;
+  justify-content: center;
+  padding: 10px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  text-align: left;
+  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.taxi-class:active {
+  transform: scale(0.98);
+}
+/* Выбранный класс — зелёный тинт (как InstantClassCard в андроиде: Green2@8% + рамка 2dp). */
+.taxi-class.is-active {
+  border-width: 2px;
+  border-color: var(--canon-green-deep);
+  background: var(--mint);
+}
+.taxi-class__icon {
+  color: var(--green);
+}
+.taxi-class__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.taxi-class__price {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--green);
+}
+
+.taxi-surge {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: var(--radius-item);
+  background: var(--taxi-bg);
+  border: 1px solid var(--taxi);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* --- Сейчас / На время --- */
+.taxi-when {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  padding: 5px;
+  background: var(--surface-2);
+  border-radius: 16px;
+}
+.taxi-when__tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.taxi-when__tab.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+.taxi-estimate-hint {
+  margin-top: 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* --- Поиск машины --- */
+.taxi-search {
+  margin-top: 24px;
+  text-align: center;
+  padding: 12px;
+}
+.taxi-search h2 {
+  margin: 18px 0 6px;
+  font-size: 20px;
+}
+.taxi-search p {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.taxi-search__pulse {
+  width: 92px;
+  height: 92px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--green);
+  background: var(--mint);
+  animation: taxiPulse 1.6s ease-in-out infinite;
+}
+@keyframes taxiPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(47, 179, 110, 0.32); }
+  50% { box-shadow: 0 0 0 18px rgba(47, 179, 110, 0); }
+}
+.taxi-fare-line {
+  margin-top: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 14px;
+  color: var(--muted);
+}
+.taxi-fare-line b {
+  color: var(--green);
+  font-size: 16px;
+}
+
+/* --- Карточка водителя/пассажира в поездке --- */
+.taxi-driver {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp 0.35s ease both;
+}
+.taxi-driver__avatar {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 22px;
+}
+.taxi-driver__info {
+  flex: 1;
+  min-width: 0;
+}
+.taxi-driver__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.taxi-driver__meta {
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.taxi-driver__rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--canon-star);
+  font-weight: 600;
+}
+.taxi-driver__actions {
+  display: flex;
+  gap: 8px;
+}
+.taxi-icon-btn {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--green);
+}
+.taxi-icon-btn:active {
+  transform: scale(0.94);
+}
+.taxi-icon-btn--call {
+  background: var(--green-btn);
+  color: #fff;
+  border-color: transparent;
+}
+
+.taxi-note {
+  margin-top: 16px;
+  padding: 0 4px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* --- Завершение поездки --- */
+.taxi-done {
+  margin-top: 20px;
+  text-align: center;
+}
+.taxi-done__emoji {
+  font-size: 44px;
+}
+.taxi-fare {
+  margin-top: 8px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.taxi-fare span {
+  font-size: 14px;
+  color: var(--muted);
+}
+.taxi-fare b {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--green);
+}
+.taxi-done__hint {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* --- Водитель: ожидание на линии --- */
+.taxi-online-wait {
+  margin-top: 22px;
+  text-align: center;
+  padding: 8px;
+}
+.taxi-online-wait h2 {
+  margin: 16px 0 6px;
+  font-size: 19px;
+}
+.taxi-online-wait p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* --- Оффер: полноэкранный оверлей --- */
+.offer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  background: rgba(6, 20, 12, 0.55);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease both;
+}
+.offer-card {
+  width: 100%;
+  max-width: 460px;
+  padding: 22px 20px 20px;
+  border-radius: 26px;
+  background: var(--surface);
+  box-shadow: 0 -10px 50px rgba(0, 0, 0, 0.3);
+  animation: fadeUp 0.28s ease both;
+}
+.offer-card__timer {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 10px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--green-btn);
+  animation: taxiPulse 1.2s ease-in-out infinite;
+}
+.offer-card__title {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+}
+.offer-card__price {
+  text-align: center;
+  margin-top: 6px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--green);
+}
+.offer-card__route {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.offer-card__pt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text);
+}
+.offer-card__meta {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.offer-card__actions {
+  margin-top: 18px;
+  display: flex;
+  gap: 12px;
+}
+.offer-card__actions .btn-ghost,
+.offer-card__actions .btn-primary {
+  flex: 1;
+}
+
+/* --- Предзаказы --- */
+.sched-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp 0.35s ease both;
+}
+.sched-card + .sched-card {
+  margin-top: 12px;
+}
+.sched-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.sched-card__when {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.sched-card__meta {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.sched-card__actions {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Чат заказа — на всю высоту */
+.chat--full {
+  margin-top: 12px;
+}
+.chat__readonly {
+  padding: 14px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
+/* ============================================================
+   Волна 5 — Курьер и посылки
+   ============================================================ */
+.parcel-tabs {
+  margin-top: 14px;
+}
+
+/* Карточка заявки/доставки */
+.parcel-card {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp 0.35s ease both;
+}
+.parcel-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.parcel-card__to {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.parcel-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.parcel-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.parcel-card__size {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.parcel-card__price {
+  margin-left: auto;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--green);
+}
+.parcel-card__desc {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.parcel-card__phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 700;
+}
+.parcel-card__settle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 14px;
+  color: var(--muted);
+}
+.parcel-card__settle b {
+  font-size: 16px;
+  color: var(--text);
+}
+.parcel-card__goods {
+  margin-top: 14px;
+}
+.parcel-card__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.parcel-card__actions .btn-primary,
+.parcel-card__actions .btn-soft {
+  flex: 1;
+}
+.parcel-card__code {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  font-size: 13px;
+  color: var(--muted);
+}
+.parcel-card__code b {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 20px;
+  letter-spacing: 0.16em;
+  color: var(--green);
+}
+.parcel-card__courier {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.parcel-card__courier-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.parcel-card__courier .btn-soft {
+  flex: none;
+  padding: 0 16px;
+}
+
+/* Успех отправки — крупный код вручения */
+.parcel-done {
+  margin-top: 18px;
+  text-align: center;
+  animation: fadeUp 0.35s ease both;
+}
+.parcel-done__emoji {
+  font-size: 46px;
+}
+.parcel-done h2 {
+  margin: 8px 0 6px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.parcel-code {
+  margin: 18px 0;
+  padding: 20px;
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.parcel-code__label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--green);
+}
+.parcel-code__value {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: var(--green);
+}
+.parcel-code .btn-soft {
+  margin-top: 10px;
+  flex: none;
+  padding: 0 18px;
+}
+
+/* Диалог ввода кода (нижняя шторка) */
+.code-sheet {
+  text-align: left;
+}
+
+/* Мягкая пауза по качеству */
+.courier-pause {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-item);
+  background: var(--canon-gold-soft, #fbf1d5);
+  color: #6a4a00;
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+/* Кабинет курьера */
+.courier-rating {
+  margin-top: 4px;
+  padding: 18px;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+.courier-rating__val {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 30px;
+  font-weight: 800;
+  color: var(--green);
+}
+.courier-rating__meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.courier-fee {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 16px 18px;
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.courier-fee__pct {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--green);
+}
+.courier-fee__label {
+  font-size: 13px;
+  color: var(--green);
+  font-weight: 600;
+}
+
+/* ================================================================
+   Волна 6 — Деньги и маркетплейс
+   (Кошелёк, «Скидки по пути», Промокод, Мой бизнес, Реклама, Оплата).
+   Цвета — только токены Canon. Светлая/тёмная — автоматически.
+   ================================================================ */
+
+/* ---- Кошелёк: крупная карточка баланса ---- */
+.wallet-card {
+  margin-top: 18px;
+  padding: 22px;
+  border-radius: var(--radius-card);
+  background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
+  color: #fff;
+  box-shadow: 0 20px 48px -30px rgba(0, 0, 0, 0.6);
+  animation: fadeUp 0.35s ease both;
+}
+.wallet-card__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wallet-card__chip {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.wallet-card__label {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+.wallet-card__amount {
+  margin-top: 14px;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.wallet-card__hint {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.86;
+}
+
+/* ---- Кошелёк: строка операции (ledger) ---- */
+.ledger-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp 0.3s ease both;
+}
+.ledger-row + .ledger-row {
+  margin-top: 10px;
+}
+.ledger-row__icon {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+  transform: rotate(-90deg); /* стрелка вверх = приход */
+}
+.ledger-row__icon.is-out {
+  background: var(--surface-2);
+  color: var(--muted);
+  transform: rotate(90deg); /* стрелка вниз = списание */
+}
+.ledger-row__main {
+  flex: 1;
+  min-width: 0;
+}
+.ledger-row__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.ledger-row__sub {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ledger-row__amount {
+  flex: none;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ledger-row__amount.is-in {
+  color: var(--green);
+}
+
+/* ---- «Скидки по пути»: карточка купона ---- */
+.coupon-card {
+  margin-top: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: 0 16px 40px -32px rgba(0, 0, 0, 0.5);
+  animation: fadeUp 0.35s ease both;
+}
+.coupon-card__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.coupon-card__emoji {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  background: var(--surface-2);
+}
+.coupon-card__partner {
+  min-width: 0;
+}
+.coupon-card__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.coupon-card__pro {
+  flex: none;
+}
+.coupon-card__place {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.coupon-card__title {
+  margin-top: 14px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.35;
+}
+.coupon-card__discount {
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--canon-star);
+}
+.coupon-card__desc {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.coupon-card__foot {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.coupon-card__left {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.coupon-card__btn {
+  flex: none;
+  min-height: 44px;
+}
+
+/* ---- Экран успеха: крупный код купона ---- */
+.coupon-code {
+  margin-top: 20px;
+  padding: 26px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  text-align: center;
+  box-shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.5);
+  animation: fadeUp 0.35s ease both;
+}
+.coupon-code__emoji {
+  font-size: 44px;
+}
+.coupon-code__title {
+  margin-top: 10px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+.coupon-code__discount {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--canon-star);
+}
+.coupon-code__label {
+  margin-top: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.coupon-code__value {
+  margin: 10px 0 18px;
+  font-family: "SF Mono", ui-monospace, "Roboto Mono", Menlo, monospace;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--green);
+}
+.coupon-code__disclaimer {
+  margin: 18px 0 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-item);
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: left;
+}
+
+/* ---- «Мои купоны»: строка активированного купона ---- */
+.mycoupon-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp 0.3s ease both;
+}
+.mycoupon-row + .mycoupon-row {
+  margin-top: 10px;
+}
+.mycoupon-row__main {
+  flex: 1;
+  min-width: 0;
+}
+.mycoupon-row__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.mycoupon-row__discount {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--canon-star);
+}
+.mycoupon-row__code {
+  margin-top: 6px;
+  font-family: "SF Mono", ui-monospace, "Roboto Mono", Menlo, monospace;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--green);
+}
+
+/* ---- Промокод: применённый ---- */
+.promo-applied {
+  margin-top: 22px;
+  padding: 26px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  text-align: center;
+  box-shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.5);
+  animation: fadeUp 0.35s ease both;
+}
+.promo-applied__gift {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+}
+.promo-applied__label {
+  margin-top: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.promo-applied__code {
+  margin-top: 6px;
+  font-family: "SF Mono", ui-monospace, "Roboto Mono", Menlo, monospace;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--green);
+}
+.promo-applied__title {
+  margin-top: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.promo-applied__perk {
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--canon-star);
+}
+
+/* ---- Мой бизнес / Реклама: статус-баннер и карточки ---- */
+.biz-banner {
+  margin-top: 16px;
+  padding: 18px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  text-align: center;
+  animation: fadeUp 0.35s ease both;
+}
+.biz-banner__emoji {
+  font-size: 40px;
+}
+.biz-banner h2 {
+  margin: 10px 0 6px;
+  font-size: 18px;
+}
+.biz-banner p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.biz-banner.is-warn {
+  background: var(--warn-bg);
+  border-color: transparent;
+}
+.biz-banner.is-warn h2,
+.biz-banner.is-warn p {
+  color: var(--warn);
+}
+
+/* Карточка-строка объявления/купона в кабинете */
+.biz-item {
+  margin-top: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  animation: fadeUp 0.3s ease both;
+}
+.biz-item__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.biz-item__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.35;
+}
+.biz-item__meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.biz-item__stats {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+.biz-item__stat b {
+  display: block;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--green);
+  line-height: 1.1;
+}
+.biz-item__stat span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.biz-item__actions {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.biz-item__actions .btn-soft,
+.biz-item__actions .btn-primary {
+  flex: 1;
+  min-width: 130px;
+  min-height: 46px;
+  margin-top: 0;
+}
+
+/* Крупная сумма-карточка (выписка бизнеса) */
+.money-card {
+  margin-top: 16px;
+  padding: 20px 22px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  animation: fadeUp 0.35s ease both;
+}
+.money-card__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.money-card__amount {
+  margin-top: 6px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.money-card__hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Информационные блоки «Как оплатить» */
+.pay-way {
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  animation: fadeUp 0.3s ease both;
+}
+.pay-way__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pay-way__emoji {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  background: var(--mint);
+}
+.pay-way__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.pay-way__badge {
+  margin-top: 3px;
+}
+.pay-way__text {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+/* ================================================================
+   Волна 7А — Безопасность и доступность (SOS / Простой режим /
+   Доверенные / За близкого / Голосовая / Перезвоните мне).
+   Только токены Canon*, крупные тач-цели, светлая/тёмная тема.
+   ================================================================ */
+
+/* ---- Крупные кнопки / варианты ---- */
+.btn-lg {
+  min-height: 60px;
+  font-size: 18px;
+  border-radius: 18px;
+}
+.btn-danger {
+  margin-top: 18px;
+  width: 100%;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--danger);
+  color: #fff;
+  font-weight: 800;
+  transition: transform 0.12s ease, opacity 0.2s ease;
+}
+.btn-danger:active {
+  transform: scale(0.97);
+}
+.btn-primary:disabled,
+.btn-danger:disabled {
+  background: var(--btn-disabled-bg);
+  color: var(--btn-disabled-fg);
+  opacity: 1;
+  cursor: not-allowed;
+}
+.link-btn {
+  display: block;
+  margin: 14px auto 0;
+  padding: 10px 14px;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* ---- Успех / крупные состояния ---- */
+.state--ok h2 {
+  color: var(--green);
+}
+.state--big {
+  padding: 48px 20px;
+}
+.state--big .state__emoji {
+  font-size: 60px;
+}
+.state--big h2 {
+  font-size: 24px;
+}
+.state--big p {
+  font-size: 16px;
+  max-width: 360px;
+}
+.state--big .btn-primary,
+.state--ok .btn-primary,
+.state--ok .btn-ghost {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ---- Мягкие пояснительные плашки ---- */
+.safe-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  margin: 14px 0 4px;
+  padding: 20px 18px;
+  background: var(--mint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+}
+.safe-note p {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.safe-note__emoji {
+  font-size: 40px;
+}
+.safe-note__ic {
+  font-size: 24px;
+}
+.safe-note--big {
+  padding: 26px 20px;
+}
+.safe-note--big p {
+  font-size: 17px;
+}
+.safe-note--tight {
+  flex-direction: row;
+  align-items: flex-start;
+  text-align: left;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.safe-note--tight p {
+  font-size: 14px;
+}
+.soft-note {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* ---- SOS: экстренные звонки ---- */
+.sos-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.sos-call {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 108px;
+  padding: 14px;
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+  border: 1.5px solid transparent;
+  color: var(--danger);
+  transition: transform 0.12s ease;
+}
+.sos-call:active {
+  transform: scale(0.97);
+}
+.sos-call__emoji {
+  font-size: 28px;
+}
+.sos-call__num {
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.sos-call__label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  opacity: 0.8;
+}
+.sos-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 2px 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.sos-hint--center {
+  justify-content: center;
+  margin-top: 12px;
+}
+.sos-panel {
+  margin-top: 4px;
+  padding: 18px 16px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.sos-panel__q {
+  font-size: 16px;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+.sos-send {
+  margin-top: 18px;
+}
+
+/* ---- «Перезвоните мне» ---- */
+.callback-panel {
+  margin-top: 6px;
+  text-align: center;
+}
+.callback-illust {
+  font-size: 64px;
+  margin-top: 8px;
+}
+.callback-lead {
+  margin: 10px auto 18px;
+  max-width: 380px;
+  font-size: 17px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.callback-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 15px;
+}
+.callback-panel .field {
+  text-align: left;
+}
+.callback-btn {
+  width: 100%;
+  margin-top: 16px;
+}
+
+/* ---- Голосовая заявка ---- */
+.voice-panel {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.voice-hint {
+  margin: 14px auto 0;
+  max-width: 320px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.voice-hint--center {
+  text-align: center;
+}
+.rec-btn {
+  width: 116px;
+  height: 116px;
+  margin-top: 8px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--green-btn);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 14px 34px -14px var(--canon-green-deep);
+  transition: transform 0.14s ease;
+}
+.rec-btn:active {
+  transform: scale(0.95);
+}
+.rec-btn__mic {
+  font-size: 46px;
+}
+.rec-btn.is-recording {
+  background: var(--danger);
+  animation: recPulse 1.4s ease-in-out infinite;
+}
+.rec-btn__stop {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #fff;
+}
+@keyframes recPulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--danger-bg); }
+  50% { box-shadow: 0 0 0 16px transparent; }
+}
+.rec-time {
+  margin: 14px 0 0;
+  font-size: 26px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--danger);
+}
+.voice-audio {
+  width: 100%;
+  margin-top: 12px;
+}
+.voice-actions {
+  margin-top: 10px;
+}
+
+/* ---- Простой режим: хаб крупными карточками ---- */
+.fontscale {
+  margin: 6px 0 18px;
+  padding: 16px;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.fontscale__label {
+  font-size: 15px;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+.fontscale__seg .seg__item {
+  min-height: 68px;
+}
+.fontscale__a {
+  font-weight: 900;
+  line-height: 1;
+}
+.fontscale__a--normal { font-size: 18px; }
+.fontscale__a--large { font-size: 24px; }
+.fontscale__a--xlarge { font-size: 30px; }
+
+.hub-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.hub-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 130px;
+  padding: 18px 16px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  text-align: left;
+  transition: transform 0.12s ease, border-color 0.2s ease;
+}
+.hub-card:active {
+  transform: scale(0.97);
+  border-color: var(--canon-green-bright);
+}
+.hub-card__emoji {
+  font-size: 38px;
+  margin-bottom: 6px;
+}
+.hub-card__title {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.hub-card__sub {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.hub-card--sos {
+  background: var(--danger-bg);
+  border-color: transparent;
+}
+.hub-card--sos .hub-card__title {
+  color: var(--danger);
+}
+
+/* ============================================================
+   Волна 7Б — Поддержка и помощь (уведомления / тикеты / FAQ / отзыв)
+   Только токены Canon, светлая/тёмная тема наследуется.
+   ============================================================ */
+
+/* --- Бейдж непрочитанного в строке профиля --- */
+.list-row__badge {
+  flex: none;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--green-btn);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* --- Точка «непрочитано» --- */
+.notif-dot {
+  flex: none;
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: var(--green-btn);
+  vertical-align: middle;
+}
+
+/* --- Список уведомлений --- */
+.notif-readall {
+  margin: 12px 0 0;
+}
+.notif-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.notif-row {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  transition: transform 0.12s ease, border-color 0.2s ease;
+  animation: fadeUp 0.24s ease both;
+}
+.notif-row:active {
+  transform: scale(0.99);
+}
+.notif-row--unread {
+  border-color: var(--canon-green-bright);
+  background: var(--mint);
+}
+.notif-row__ico {
+  flex: none;
+  font-size: 22px;
+  line-height: 1;
+  margin-top: 2px;
+}
+.notif-row__main {
+  flex: 1;
+  min-width: 0;
+}
+.notif-row__title {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+}
+.notif-row__body {
+  margin-top: 3px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.notif-row__meta {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+.notif-row__open {
+  font-weight: 800;
+  color: var(--green);
+}
+
+/* --- Поддержка: новое обращение + список --- */
+.support-new {
+  margin-top: 16px;
+}
+.support-compose {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  animation: fadeUp 0.24s ease both;
+}
+.support-compose__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+.support-compose__actions .btn-soft,
+.support-compose__actions .btn-primary {
+  flex: 1;
+}
+.support-list {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.support-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  transition: transform 0.12s ease;
+  animation: fadeUp 0.24s ease both;
+}
+.support-row:active {
+  transform: scale(0.99);
+}
+.support-row__main {
+  flex: 1;
+  min-width: 0;
+}
+.support-row__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.support-row__subject {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.support-row__last {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.support-row__meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.badge--muted {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+/* --- Тред обращения: время в пузыре + кнопка «закрыть» --- */
+.bubble__time {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.7;
+  text-align: right;
+}
+.support-close {
+  margin: 8px auto 0;
+}
+
+/* --- Помощь / FAQ --- */
+.help-search {
+  margin-top: 16px;
+}
+.faq-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.faq-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  overflow: hidden;
+  animation: fadeUp 0.24s ease both;
+}
+.faq-item--open {
+  border-color: var(--canon-green-bright);
+}
+.faq-q {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 16px;
+  min-height: 56px;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+.faq-q__chev {
+  flex: none;
+  color: var(--muted);
+  transition: transform 0.2s ease;
+}
+.faq-item--open .faq-q__chev {
+  transform: rotate(90deg);
+  color: var(--green);
+}
+.faq-a {
+  padding: 0 16px 16px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--muted);
+  animation: fadeUp 0.2s ease both;
+}
+.help-cta {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  text-align: center;
+}
+.help-cta__lead {
+  font-size: 16px;
+  font-weight: 800;
+  margin-bottom: 14px;
+}
+.help-tg {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  min-height: 44px;
+  padding: 0 14px;
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+/* --- Оценить приложение: активная звезда + подпись --- */
+.rate-star--on {
+  color: var(--canon-star);
+}
+.rate-card__hint {
+  margin-top: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--green);
+}
+
+/* ================================================================
+   Волна 7Б-2 — Настройки и правовое (Settings / Legal / Blocklist / Report).
+   Только токены Canon, светлая/тёмная тема, тач-цели ≥48px.
+   ================================================================ */
+
+/* ---- Опасная зона: удаление аккаунта ---- */
+.danger-zone {
+  margin: 26px 0 8px;
+  padding: 18px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+  animation: fadeUp 0.3s ease both;
+}
+.danger-zone__title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--danger);
+}
+.danger-zone__text {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.danger-zone__confirm {
+  margin-top: 14px;
+}
+.danger-zone__confirm-q {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--danger);
+  margin-bottom: 12px;
+}
+.danger-zone__actions {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.danger-zone__actions .btn-soft,
+.danger-zone__actions .btn-danger {
+  flex: 1;
+  margin-top: 0;
+}
+.danger-zone__err {
+  margin: 4px 0 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+/* ---- Юридический документ (Политика / Соглашение) ---- */
+.legal {
+  margin-top: 14px;
+  animation: fadeUp 0.3s ease both;
+}
+.legal__note {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.legal__link {
+  font-weight: 800;
+  text-decoration: underline;
+  word-break: break-word;
+}
+.legal__section {
+  margin-top: 22px;
+}
+.legal__h {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.legal__p {
+  margin: 0 0 10px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.legal__p--intro {
+  color: var(--muted);
+}
+
+/* ---- Report: цель жалобы (предзаполнена) ---- */
+.report-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.report-target__label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.report-target__name {
+  font-size: 16px;
+  font-weight: 800;
+  text-align: right;
+  min-width: 0;
+}
+
+/* Компактная кнопка «Разблокировать» в строке чёрного списка */
+.btn-soft--sm {
+  flex: none;
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+
+/* Ссылка-кнопка «Пожаловаться» (профиль водителя) */
+.report-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 18px auto 8px;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14.5px;
+  font-weight: 700;
+  transition: transform 0.12s ease, color 0.2s ease;
+}
+.report-link:active {
+  transform: scale(0.98);
+  color: var(--danger);
+}
+
+/* select как поле формы (используется в Report) */
+select.field__input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 40px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23686f66' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+
+/* ================================================================
+   Волна 8А — Админка (ядро модерации). Только токены Canon,
+   тач-цели ≥48px, светлая/тёмная тема наследуется от токенов.
+   ================================================================ */
+.admin-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.admin-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 16px;
+}
+.admin-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.admin-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+}
+.admin-card__sub {
+  font-size: 13.5px;
+  color: var(--muted);
+  margin-top: 4px;
+  line-height: 1.45;
+}
+.admin-card__phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--green);
+}
+.admin-card__reason {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-item);
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.admin-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  font-size: 13.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+.admin-check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--green);
+  flex: none;
+}
+
+/* Защищённые фото документов водителя */
+.doc-photos {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.doc-photos__item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.doc-photos__cap {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.doc-photo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-item);
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.doc-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.doc-photo--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* Горизонтальный ряд фильтр-чипов */
+.chip-scroll {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.chip-scroll::-webkit-scrollbar {
+  display: none;
+}
+.chip-scroll .chip {
+  flex: 0 0 auto;
+}
+
+/* ================================================================
+   Волна 8Б — отзывы, реклама, такси, лист ожидания, пульс, доход.
+   Только токены Canon, тач-цели ≥48px, светлая/тёмная тема.
+   ================================================================ */
+
+/* Звёзды отзыва (текстом, доступно) */
+.review-stars {
+  font-size: 17px;
+  letter-spacing: 1px;
+  color: var(--gold);
+}
+.review-stars__dim {
+  color: var(--border);
+}
+
+/* Статистика показов/кликов рекламы */
+.ad-stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-item);
+  font-size: 13px;
+  color: var(--muted);
+}
+.ad-stat-row b {
+  color: var(--text);
+}
+.ad-stat-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Лист ожидания — плавающая панель приглашения */
+.wait-invite-bar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 10px 12px 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.wait-invite-bar .btn-primary {
+  margin-top: 0;
+  min-height: 44px;
+  padding: 0 16px;
+}
+
+/* Пульс такси — сетка плиток */
+.pulse-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.stat-tile--hl {
+  background: var(--mint);
+  border-color: var(--canon-green-bright);
+}
+.stat-tile--hl b {
+  color: var(--green);
+}
+.pulse-updated {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 16px 0 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* Калькулятор дохода */
+.income-hero {
+  margin-top: 12px;
+  padding: 20px;
+  border-radius: var(--radius-card);
+  background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.income-hero__cap {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.92;
+}
+.income-hero__net {
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+.income-hero__note {
+  font-size: 12px;
+  opacity: 0.86;
+  line-height: 1.4;
+}
+.income-breakdown {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.income-breakdown b {
+  color: var(--text);
+  font-weight: 700;
+}
+.calc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+.calc-slider {
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+}
+.calc-slider__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.calc-slider__label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.calc-slider__value {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 800;
+}
+.calc-range {
+  width: 100%;
+  height: 28px;
+  accent-color: var(--green-btn);
+  cursor: pointer;
+}
+.calc-disclaimer {
+  margin: 14px 4px 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ================================================================
+   Волна 9 — Офлайн-индикатор + Web Push (Настройки).
+   Только токены Canon* (index.css), safe-area, тач-цели ≥48px.
+   ================================================================ */
+
+/* ---- Баннер «Нет сети» ---- */
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 8px) 16px 8px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  box-shadow: 0 8px 24px -16px rgba(0, 0, 0, 0.5);
+  animation: fadeDown 0.28s ease both;
+}
+.offline-banner--back {
+  background: var(--mint);
+  color: var(--green);
+}
+.offline-banner__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+  animation: pulseDot 1.4s ease-in-out infinite;
+}
+@keyframes fadeDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes pulseDot {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---- Секция «Пуш-уведомления» (Настройки) ---- */
+.push-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.push-block__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.push-block__main {
+  flex: 1;
+  min-width: 0;
+}
+.push-block__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.push-block__sub {
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.push-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--surface-2);
+  border: 2px solid var(--border);
+}
+.push-dot--on {
+  background: var(--canon-green-bright);
+  border-color: var(--canon-green-bright);
+  box-shadow: 0 0 0 4px var(--mint);
+}
+.push-block__hint {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.push-block__actions {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.push-block__note {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.push-block__msg {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.push-block__msg--ok {
+  color: var(--green);
+}
+.push-block__msg--info {
+  color: var(--muted);
+}
+.push-block__msg--warn {
+  color: var(--warn);
+}
+
+/* ============================================================
+   D1 — брендовые иконки/hero по экранам (паритет с Android)
+   ============================================================ */
+
+/* Бейджи с акцентными токенами (женский / такси / попутка) */
+.badge--woman {
+  background: var(--woman-bg);
+  color: var(--woman);
+}
+.badge--taxi {
+  background: var(--taxi-bg);
+  color: var(--taxi);
+}
+.badge--pooling {
+  background: var(--pooling-bg);
+  color: var(--pooling);
+}
+
+/* Логотип-картинка (Splash) — как в андроиде: круглый белый бейдж */
+.brand-logo-img {
+  display: block;
+  object-fit: contain;
+  border-radius: 26px;
+}
+
+/* Онбординг: hero-фото Башкортостана (как OnboardingHeroCard в андроиде) */
+.onb__hero {
+  width: 100%;
+  max-width: 340px;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border-radius: var(--radius-card);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.14);
+}
+.onb__hero-accent {
+  margin-top: 18px;
+  color: var(--green);
+}
+.onb__role-emoji svg,
+.onb__simple-emoji svg {
+  color: var(--green);
+}
+
+/* Login: hero-баннер (Салават Юлаев) */
+.auth__hero {
+  width: 100%;
+  height: 168px;
+  object-fit: cover;
+  border-radius: var(--radius-card);
+  margin: 4px 0 8px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
+}
+
+/* Простой режим: брендовые иконки в крупных карточках */
+.hub-card__emoji {
+  color: var(--green);
+  display: inline-flex;
+}
+.hub-card--sos .hub-card__emoji {
+  color: var(--danger);
+}
+
+/* Иконка удобства внутри чипа-бейджа поездки */
+.amenity-ic {
+  vertical-align: -2px;
+  margin-right: 2px;
+}
+
+/* ================================================================
+   Волны А–Г (веб догоняет Android): зимняя проверка «доехал?»,
+   быстрые ответы в чате, спрос рядом (такси), выплаты на карту.
+   Только токены Canon, светлая/тёмная тема, тач-цели ≥48px.
+   ================================================================ */
+
+/* ---- Зимняя проверка «Ты доехал(а)?» (ActiveTrip) ---- */
+.winter-check {
+  margin-top: 12px;
+  padding: 16px;
+  background: var(--mint);
+  border: 1px solid var(--hairline-green);
+  border-radius: var(--radius-item);
+  animation: fadeUp 0.35s ease both;
+}
+.winter-check__title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--green);
+}
+.winter-check__hint {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--muted-strong);
+}
+.winter-check__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.winter-check__actions .btn-primary,
+.winter-check__actions .btn-ghost {
+  flex: 1;
+  min-height: 48px;
+  margin: 0;
+}
+
+/* ---- Быстрые ответы в чате ---- */
+.quick-replies {
+  margin: 8px 0 0;
+  padding: 0 2px 6px;
+}
+.quick-replies .chip:disabled {
+  opacity: 0.5;
+}
+
+/* ---- Спрос рядом (карта спроса водителю) ---- */
+.demand {
+  margin-top: 6px;
+  animation: fadeUp 0.35s ease both;
+}
+.demand__quiet {
+  margin: 8px 2px 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.demand-row {
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  margin-bottom: 8px;
+}
+.demand-row__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.demand-row__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.demand-row__count {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--green2);
+  white-space: nowrap;
+}
+.demand-bar {
+  margin-top: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.demand-bar__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--canon-green-bright), var(--green2));
+  transition: width 0.6s ease;
+}
+
+/* ---- Выплаты на карту (кошелёк) ---- */
+.payout {
+  margin-top: 4px;
+}
+.payout__change {
+  margin-left: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--green2);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.payout__privacy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 2px 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+}

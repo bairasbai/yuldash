@@ -1,0 +1,13 @@
+# Gradle / сборка
+.gradle/
+build/
+local.properties
+
+# Kotlin/Native
+*.klib
+
+# Xcode / iOS
+xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+.DS_Store

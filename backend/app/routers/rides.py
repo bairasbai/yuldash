@@ -9,10 +9,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlmodel import Session, select
 
+from ..antifraud import moderate_open_text
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..flood import TOO_MANY_RIDES, guard_open_items
+from ..geo import bare_name
 from ..logs import log
 from ..models import Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory, RideStatus, User, UserRole
 from .. import workday as workday_mod
@@ -30,6 +32,10 @@ from ..services import (
 )
 
 router = APIRouter(tags=["rides"])
+
+# Окно, в котором повторная публикация с тем же содержимым считается тем же самым тапом.
+# Столько же, сколько у посылок (routers/parcels.py): одно правило — одно число.
+_DUPLICATE_WINDOW_SEC = 60
 
 RIDE_PAST_GRACE_HOURS = 2   # сколько часов после depart_at поездка ещё видна в выдаче (поздняя бронь / уехал впритык)
 
@@ -74,6 +80,28 @@ def _hide_trusted_only(items, user, session):
     return [r for r in items if not _f(r, "only_trusted") or _f(r, "driver_id") == uid]
 
 
+def _recent_twin_ride(session: Session, driver_id: int, body: RideIn):
+    """Только что опубликованная ПОЛНОСТЬЮ такая же поездка — значит это тот же самый тап.
+
+    Сравниваем ВЕСЬ смысл объявления, а не «маршрут и время»: первая версия гарда сверяла
+    подмножество полей и схлопнула две разные поездки — с остановками и без (поймано тестом
+    `test_ride_waypoints_flows_through`). Совпасть должно всё: изменил хоть остановку, хоть
+    комментарий — это новая поездка, и терять её нельзя.
+    """
+    fields = body.model_dump(exclude={"pickup_point_id"})
+    recent = session.exec(
+        select(Ride).where(
+            Ride.driver_id == driver_id,
+            Ride.status == RideStatus.active,
+            Ride.created_at >= utcnow() - timedelta(seconds=_DUPLICATE_WINDOW_SEC),
+        ).order_by(Ride.id.desc()).limit(20)
+    ).all()
+    for r in recent:
+        if all(getattr(r, k, None) == v for k, v in fields.items()):
+            return r
+    return None
+
+
 @router.post("/rides", response_model=Ride)
 def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) блокирует публикацию
@@ -109,12 +137,17 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     if body.depart_at < utcnow() - timedelta(minutes=30):
         raise HTTPException(400, {"ru": "Время выезда уже прошло",
                                   "ba": "Сығыу ваҡыты үтеп киткән"})
+    # Комментарий к объявлению — открытое поле: его видит весь район, как и комментарий заявки.
+    # Заявка пассажира проверялась, объявление водителя — нет (аудит 2026-08-06), хотя это
+    # ровно тот же текст с другой стороны. check_contact=False: у попуток обмен номерами —
+    # норма и суть «между своими», комиссии тут нет. Ловим мат и фишинг («переведи предоплату»).
+    moderate_open_text(body.comment, user.id, check_contact=False)
     # F22: клиника-назначение (опц.). Если указана — проверяем, что она есть и активна
     # (чтобы не осталось битой ссылки). Это ТОЛЬКО точка назначения, без мед.данных.
     if body.partner_id is not None:
         partner = session.get(MedicalPartner, body.partner_id)
         if not partner or not partner.active:
-            raise HTTPException(400, "Клиника не найдена")
+            raise herr(400, "Клиника не найдена", "Клиника табылманы")
     # Геокодим концы маршрута (для радиус-поиска: PostGIS на проде / haversine иначе).
     frm = geocode_city(body.from_city) or (None, None)
     to = geocode_city(body.to_city) or (None, None)
@@ -131,6 +164,20 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
                 body.pickup_lat = pt.lat
             if body.pickup_lng is None:
                 body.pickup_lng = pt.lng
+    # Двойная публикация (аудит 2026-08-06). У посылок такой гард поставили 2026-08-03 с точным
+    # доводом: «лаг сети или авто-ретрай запроса — и у человека две одинаковые заявки». У поездок
+    # его не поставили, хотя ApiClient повторяет POST при обрыве связи, а ответ сервера может
+    # опоздать дольше таймаута. Цена дубля тут выше, чем мусор в ленте: пассажиры бронируют
+    # РАЗНЫЕ копии одного рейса, и водитель получает две брони на одну машину.
+    # Дедуп по СОДЕРЖИМОМУ в коротком окне: тот же водитель, маршрут, время, цена и места —
+    # это тот же самый тап. «Исправил и опубликовал заново» отличается хотя бы одним полем
+    # и проходит как новая поездка. Лочим строку водителя: иначе два запроса пройдут SELECT
+    # одновременно и оба вставят.
+    session.exec(select(User).where(User.id == user.id).with_for_update()).first()
+    twin = _recent_twin_ride(session, user.id, body)
+    if twin is not None:
+        return twin
+
     # (время выезда уже приведено к UTC выше, вместе с проверкой «не в прошлом»)
     # pickup_point_id — не колонка Ride (только сигнал привязки), исключаем из дампа.
     dump = body.model_dump(exclude={"pickup_point_id"})
@@ -189,7 +236,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     if not ride:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     if ride.driver_id != user.id:
-        raise HTTPException(403, "Это не ваша поездка")
+        raise herr(403, "Это не ваша поездка", "Был һинең сәфәрең түгел")
     if ride.status != RideStatus.active:
         raise herr(400, "Менять можно только активную поездку", "Тик актив сәфәрҙе генә үҙгәртеп була")
     live = session.exec(select(Booking).where(
@@ -204,6 +251,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
         ride.price = body.price
         changed.append("цена")
     if body.comment is not None and body.comment != ride.comment:
+        moderate_open_text(body.comment, user.id, check_contact=False)   # правка — тот же путь, что публикация
         ride.comment = body.comment
         changed.append("комментарий")
     if body.depart_at is not None:
@@ -271,9 +319,9 @@ def search_rides(
         Ride.depart_at >= utcnow() - timedelta(hours=RIDE_PAST_GRACE_HOURS),
     )
     if from_city:
-        q = q.where(Ride.from_city.contains(from_city))
+        q = q.where(Ride.from_city.contains(bare_name(from_city)))
     if to_city:
-        q = q.where(Ride.to_city.contains(to_city))
+        q = q.where(Ride.to_city.contains(bare_name(to_city)))
     if category:
         q = q.where(Ride.category == category)
     if pets_allowed:
@@ -333,9 +381,9 @@ def price_hint(
     (без краша) — коэффициенты бензина в config, уточнит Александр."""
     q = select(Ride.price).where(Ride.price > 0)
     if from_city:
-        q = q.where(Ride.from_city.contains(from_city))
+        q = q.where(Ride.from_city.contains(bare_name(from_city)))
     if to_city:
-        q = q.where(Ride.to_city.contains(to_city))
+        q = q.where(Ride.to_city.contains(bare_name(to_city)))
     prices = [p for p in session.exec(q).all() if p and p > 0]
 
     # Бензин на весь маршрут: км × (расход/100) × цена_литра → ₽ → копейки.
@@ -371,9 +419,9 @@ def _route_avg_price(session: Session, from_city: str, to_city: str) -> dict:
         Ride.created_at > utcnow() - timedelta(days=90),
     )
     if from_city:
-        q = q.where(Ride.from_city.contains(from_city))
+        q = q.where(Ride.from_city.contains(bare_name(from_city)))
     if to_city:
-        q = q.where(Ride.to_city.contains(to_city))
+        q = q.where(Ride.to_city.contains(bare_name(to_city)))
     prices = [p for p in session.exec(q.order_by(Ride.id.desc()).limit(500)).all() if p and p > 0]
     return {"avg": round(sum(prices) / len(prices)) if prices else 0, "count": len(prices)}
 
@@ -437,9 +485,9 @@ def rides_near(
     Сценарий: водитель отменил/сломался → клиент видит ближайшую по времени машину на своём маршруте и уезжает."""
     q = select(Ride).where(Ride.status == RideStatus.active, Ride.seats_left > 0)
     if from_city:
-        q = q.where(Ride.from_city.contains(from_city))
+        q = q.where(Ride.from_city.contains(bare_name(from_city)))
     if to_city:
-        q = q.where(Ride.to_city.contains(to_city))
+        q = q.where(Ride.to_city.contains(bare_name(to_city)))
     bounds = _date_bounds(date)
     if bounds:
         q = q.where(Ride.depart_at >= bounds[0], Ride.depart_at < bounds[1])
@@ -532,7 +580,7 @@ def _ride_owned(session: Session, ride_id: int, user: User) -> Ride:
     if not ride:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     if ride.driver_id != user.id and user.role != UserRole.admin:
-        raise HTTPException(403, "Это не ваша поездка")
+        raise herr(403, "Это не ваша поездка", "Был һинең сәфәрең түгел")
     return ride
 
 
@@ -553,7 +601,7 @@ def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Sessi
     if ride.status == RideStatus.cancelled:
         return public_ride_payload(ride_out(ride, session))   # идемпотентно (двойной тап)
     if ride.status == RideStatus.done:
-        raise HTTPException(400, "Поездка уже завершена")
+        raise herr(400, "Поездка уже завершена", "Сәфәр инде тамамланған")
     affected = _live_bookings(session, ride_id)
     ride.status = RideStatus.cancelled
     session.add(ride)

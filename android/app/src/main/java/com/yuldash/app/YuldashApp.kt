@@ -340,6 +340,8 @@ internal fun YuldashApp() {
     var instantTripOrderId by rememberSaveable { mutableStateOf(0) }   // «Быстрый заказ»: id заказа для экрана поездки водителя
     var instantChatOrderId by rememberSaveable { mutableStateOf(0) }   // чат такси-заказа (B7b-1): id заказа
     var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
+    var sosBookingId by rememberSaveable { mutableStateOf(0) }         // SOS с контекстом попутки; 0 = без поездки
+    var sosContextNote by rememberSaveable { mutableStateOf("") }      // подпись дежурному (курьер: маршрут доставки)
     var receiptBookingId by rememberSaveable { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
     var taxiReceiptOrderId by rememberSaveable { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
     // Чат по посылке: id + с кем говорим + статус (по нему чат уходит в read-only после закрытия).
@@ -420,6 +422,20 @@ internal fun YuldashApp() {
         NavSignals.openSosForOrder.value = 0
         screen = Screen.Sos
     }
+    // Красная кнопка курьера: он глубоко внутри вкладки «Доставка», колбэк тянуть незачем.
+    // Подпись с маршрутом уходит дежурному в заметке сигнала — поля под доставку у события нет.
+    val wantSosNote by NavSignals.openSosWithNote
+    LaunchedEffect(wantSosNote, screen) {
+        val note = wantSosNote ?: return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        NavSignals.openSosWithNote.value = null
+        // Присваиваем состояние напрямую: openSos() объявлена ниже по телу композабла,
+        // локальную функцию до объявления не вызвать (тем же способом ходит сигнал такси выше).
+        sosOrderId = 0
+        sosBookingId = 0
+        sosContextNote = note
+        screen = Screen.Sos
+    }
     // Пуш о ходе такси-заказа (B9b-2): тап по «Водитель найден / Машина на месте / …» →
     // экран заказа пассажира (сам подхватывает активный заказ). Ждём, пока сплэш отработает.
     val wantInstantOrder by NavSignals.openInstantOrder
@@ -434,12 +450,36 @@ internal fun YuldashApp() {
     // Офлайн / ошибка ручки / min=0 → НИЧЕГО не блокируем, приложение стартует как обычно.
     var forceUpdateRequired by rememberSaveable { mutableStateOf(false) }
     var forceUpdateStoreUrl by rememberSaveable { mutableStateOf("") }
+    // Мягкое обновление (B9b-1b): версия ещё поддерживается, но вышла свежее → плашка сверху.
+    // Списки «что нового» держим строкой через \n, а не List: rememberSaveable переживает
+    // поворот экрана только для простых типов, иначе плашка теряла бы содержимое.
+    var updateLatestCode by rememberSaveable { mutableIntStateOf(0) }
+    var updateVersionName by rememberSaveable { mutableStateOf("") }
+    var updateStoreUrl by rememberSaveable { mutableStateOf("") }
+    var updateWhatsNewRu by rememberSaveable { mutableStateOf("") }
+    var updateWhatsNewBa by rememberSaveable { mutableStateOf("") }
+    // Какую версию человек уже отклонил. Живёт в настройках устройства, а не в памяти:
+    // иначе плашка возвращалась бы при каждом запуске, и «позже» ничего не значило.
+    var updateDismissedCode by remember { mutableIntStateOf(prefs.getInt(PREF_UPDATE_DISMISSED, 0)) }
     LaunchedEffect(Unit) {
         ApiClient.minAppVersion().onSuccess { o ->
             val min = o.optInt("min_version_code", 0)
             if (min > 0 && BuildConfig.VERSION_CODE < min) {
                 forceUpdateStoreUrl = o.optString("store_url", "")
                 forceUpdateRequired = true
+                return@onSuccess   // блокирующий экран старше плашки — вместе они бессмысленны
+            }
+            val latest = o.optInt("latest_version_code", 0)
+            val store = o.optString("store_url", "")
+            // Без ссылки плашку не показываем: звать обновиться и никуда не вести — хуже, чем молчать.
+            if (latest > BuildConfig.VERSION_CODE && store.isNotBlank()) {
+                updateStoreUrl = store
+                updateVersionName = o.optString("latest_version_name", "")
+                o.optJSONObject("whats_new")?.let { wn ->
+                    updateWhatsNewRu = jsonArrayToLines(wn.optJSONArray("ru"))
+                    updateWhatsNewBa = jsonArrayToLines(wn.optJSONArray("ba"))
+                }
+                updateLatestCode = latest
             }
         }
     }
@@ -483,6 +523,22 @@ internal fun YuldashApp() {
         if (!DeepLink.pendingParcels.value) return@LaunchedEffect
         DeepLink.pendingParcels.value = false   // одноразово — не переоткрываем при рекомпозиции
         screen = if (ApiClient.isLoggedIn()) Screen.Parcels else Screen.Login
+    }
+    // Тап по пушу «новое сообщение» в попутке → бронь с чатом (аудит 2026-08-06: раньше
+    // открывалась просто карта, а переписку человек искал сам). Экран брони сам догружает
+    // детали по id — здесь достаточно самого номера. Не вошёл — сначала вход.
+    LaunchedEffect(DeepLink.pendingBookingChatId.value, screen) {
+        val bid = DeepLink.pendingBookingChatId.value ?: return@LaunchedEffect
+        // P3: ждём, пока сплэш/интро/онбординг отработают — иначе они перезапишут screen, а сигнал
+        // уже погашен, и тап по пушу на холодном старте (самый частый случай) потерялся бы.
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        DeepLink.pendingBookingChatId.value = null   // одноразово — не переоткрываем при рекомпозиции
+        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
+        selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "",
+                            price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
+        activeBookingId = bid
+        selectedBookingStatus = ""
+        screen = Screen.Booking
     }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
     var partnerAds by vm.partnerAds
@@ -592,8 +648,10 @@ internal fun YuldashApp() {
         screen = Screen.Login
     }
 
-    fun openSos(orderId: Int = 0) {
-        sosOrderId = orderId   // контекст такси-заказа (0 = обычный SOS) — не даём протечь старому
+    fun openSos(orderId: Int = 0, bookingId: Int = 0, note: String = "") {
+        sosOrderId = orderId       // контекст такси-заказа (0 = обычный SOS) — не даём протечь старому
+        sosBookingId = bookingId   // контекст попутки (0 = обычный SOS)
+        sosContextNote = note      // подпись дежурному (курьер: маршрут доставки)
         screen = Screen.Sos
     }
     fun openHome(tab: HomeTab = HomeTab.Map) {
@@ -750,13 +808,33 @@ internal fun YuldashApp() {
         // background(CanonBg): без него за плашкой просвечивал зелёный фон окна
         // (он остаётся от системного сплэша) — над экраном висела зелёная полоса.
         val offlineNow by ApiClient.serverUnreachable.collectAsState()
+        // Плашка «вышла новая версия» (B9b-1b). На сплэше, интро, онбординге и входе не зовём:
+        // человек ещё не в приложении, и предложение обновиться там читается как сбой.
+        // Закрытую версию не показываем повторно — см. UpdateBanner.
+        val updateVisible = updateLatestCode > 0 && updateLatestCode > updateDismissedCode &&
+            screen != Screen.Splash && screen != Screen.Intro &&
+            screen != Screen.Onboarding && screen != Screen.Login
         Column(Modifier.fillMaxSize().background(CanonBg)) {
         ConnectionBanner(Modifier.align(Alignment.CenterHorizontally))
+        // Отступ под статус-бар даёт ПЕРВЫЙ видимый элемент сверху: если висит «нет связи» —
+        // он уже её забота, и второй превратится в полосу пустоты (урок 2026-08-04).
+        UpdateBanner(
+            visible = updateVisible,
+            versionName = updateVersionName,
+            whatsNewRu = linesToList(updateWhatsNewRu),
+            whatsNewBa = linesToList(updateWhatsNewBa),
+            storeUrl = updateStoreUrl,
+            ownsStatusBar = !offlineNow,
+            onLater = {
+                updateDismissedCode = updateLatestCode
+                prefs.edit().putInt(PREF_UPDATE_DISMISSED, updateLatestCode).apply()
+            },
+        )
         // consumeWindowInsets только когда плашка ВИДНА: отступ под статус-бар уже отдала она,
         // и без гашения экран добавлял его вторым — над содержимым висела полоса пустоты.
         // Когда плашки нет, она занимает ноль высоты и отступ должен давать сам экран.
         Box(Modifier.weight(1f).then(
-            if (offlineNow) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier
+            if (offlineNow || updateVisible) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier
         )) {
         AnimatedContent(
             targetState = screen,
@@ -1019,14 +1097,17 @@ internal fun YuldashApp() {
                 bookingId = activeBookingId,
                 onBack = { goBack() },
                 onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
-                onSos = { openSos() },
+                // Дежурный должен узнать из сигнала, с кем и куда человек уехал (аудит 2026-08-06).
+                onSos = { openSos(bookingId = activeBookingId ?: 0) },
                 onSupport = { screen = Screen.Support },
                 onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt }
             )
             Screen.Sos -> SosScreen(
                 onBack = { goBack() },
                 onLoginRequired = { screen = Screen.Login },
-                orderId = sosOrderId.takeIf { it > 0 }   // контекст такси-заказа (B7b-2); 0 = обычный SOS
+                orderId = sosOrderId.takeIf { it > 0 },     // контекст такси-заказа (B7b-2); 0 = обычный SOS
+                bookingId = sosBookingId.takeIf { it > 0 }, // контекст попутки; 0 = обычный SOS
+                contextNote = sosContextNote.takeIf { it.isNotBlank() },  // курьер: маршрут доставки
             )
             Screen.VerifyDriver -> VerifyDriverScreen(
                 onBack = { goBack() },
@@ -1046,7 +1127,13 @@ internal fun YuldashApp() {
                 onOpenResponses = { rid -> responsesRequestId = rid; screen = Screen.RequestResponses },
                 onRouteWatches = { routeWatchPrefillFrom = ""; routeWatchPrefillTo = ""; screen = Screen.RouteWatches },
                 // Тап по уведомлению поддержки → тред обращения (ref_id = id тикета).
-                onOpenSupport = { tid -> supportTicketId = tid; screen = Screen.SupportTicket }
+                onOpenSupport = { tid -> supportTicketId = tid; screen = Screen.SupportTicket },
+                // Доставка и такси (аудит 2026-08-06): раньше эти карточки не открывались вовсе.
+                onOpenParcels = { screen = Screen.Parcels },
+                onOpenInstantOrder = { NavSignals.openInstantOrder.value = true },
+                // «Появилась поездка» / «Поездка завершена, оцени» → карточка поездки
+                // (тем же путём, что ссылка yulbash.ru/r/{id}).
+                onOpenRide = { rid -> DeepLink.pendingRideId.value = rid },
             )
             Screen.RouteWatches -> RouteWatchesScreen(
                 onBack = { goBack() },
@@ -2236,7 +2323,7 @@ internal fun YuldashBottomBar(
             )
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Request,
-                label = appText("Заявка", "Заявка"),
+                label = appText("Заявка", "Ғариза"),
                 iconRes = R.drawable.yu_request_add,
                 onClick = { onSelect(HomeTab.Request) }
             )

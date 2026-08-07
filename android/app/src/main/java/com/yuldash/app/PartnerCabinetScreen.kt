@@ -480,7 +480,7 @@ private fun PartnerCouponRow(c: PartnerCouponDto, busy: Boolean, onEdit: () -> U
                 // Активировать / поставить на паузу
                 if (c.status == "active") {
                     OutlinedButton(onClick = { onToggleStatus("paused") }, enabled = !busy, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp)) {
-                        Text(appText("Пауза", "Пауза"), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(appText("Пауза", "Туҡтатылған"), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 } else if (c.status == "draft" || c.status == "paused") {
                     Button(onClick = { onToggleStatus("active") }, enabled = !busy, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {

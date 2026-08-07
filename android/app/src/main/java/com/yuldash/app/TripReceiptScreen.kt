@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
@@ -111,6 +112,13 @@ private fun ReceiptCard(r: TripReceiptDto) {
     val lostScope = rememberCoroutineScope()
     var lostOpened by remember(r.bookingId) { mutableStateOf(false) }
     var lostBusy by remember(r.bookingId) { mutableStateOf(false) }
+    val isDriver = r.role == "driver"
+    var thanked by remember(r.bookingId) { mutableStateOf(false) }
+    var thanksBusy by remember(r.bookingId) { mutableStateOf(false) }
+    // Уже говорил «рәхмәт» — не предлагаем второй раз (как в чеке такси).
+    LaunchedEffect(r.bookingId, isDriver) {
+        if (!isDriver) ApiClient.getBookingTipInfo(r.bookingId).onSuccess { thanked = it.alreadyThanked }
+    }
     val lostErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val payLabel = payMethodLabel(r.payMethod)
     val shareChooser = appText("Поделиться квитанцией", "Квитанция менән бүлешеү")
@@ -150,7 +158,7 @@ private fun ReceiptCard(r: TripReceiptDto) {
         // Детали
         AppCard {
             Column(Modifier.padding(4.dp)) {
-                ReceiptRow(Icons.Default.Place, appText("Маршрут", "Маршрут"), "${r.fromCity} → ${r.toCity}")
+                ReceiptRow(Icons.Default.Place, appText("Маршрут", "Юл"), "${r.fromCity} → ${r.toCity}")
                 ReceiptDivider()
                 ReceiptRow(Icons.Default.Schedule, appText("Дата и время", "Көн һәм ваҡыт"), formatDepart(r.departAt))
                 ReceiptDivider()
@@ -241,6 +249,55 @@ private fun ReceiptCard(r: TripReceiptDto) {
                         icon = Icons.Default.Search,
                         loading = lostBusy,
                     )
+                }
+            }
+        }
+
+        // «Рәхмәт» водителю — тёплый жест без денег. Сервер умел это с самого начала (ручку
+        // и придумали для попуток), но кнопка появилась только в чеке такси, и обе ручки
+        // никто не звал (аудит 2026-08-06). Сосед, подвёзший бесплатно, спасибо заслуживает
+        // не меньше таксиста — а денег тут не двигается вовсе.
+        if (!isDriver) {
+            AppCard {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = CanonMint, shape = CircleShape) {
+                            Icon(Icons.Default.Favorite, contentDescription = null, tint = CanonGreen2,
+                                modifier = Modifier.padding(8.dp).size(18.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                if (thanked) appText("Рәхмәт сказан 💚", "Рәхмәт әйтелде 💚")
+                                else appText("Сказать рәхмәт", "Рәхмәт әйтеү"),
+                                color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                appText("Тёплое спасибо водителю — без денег.", "Йөрөтөүсегә йылы рәхмәт — аҡсаһыҙ."),
+                                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                            )
+                        }
+                    }
+                    if (!thanked) {
+                        AppButton(
+                            text = appText("Сказать рәхмәт", "Рәхмәт әйтеү"),
+                            onClick = {
+                                if (thanksBusy) return@AppButton
+                                thanksBusy = true
+                                lostScope.launch {
+                                    ApiClient.sayBookingThanks(r.bookingId)
+                                        .onSuccess { thanked = true }
+                                        .onFailure {
+                                            Toast.makeText(ctx, serverSaid(it, lostErr), Toast.LENGTH_LONG).show()
+                                        }
+                                    thanksBusy = false
+                                }
+                            },
+                            style = AppButtonStyle.Accent,
+                            icon = Icons.Default.Favorite,
+                            loading = thanksBusy,
+                        )
+                    }
                 }
             }
         }

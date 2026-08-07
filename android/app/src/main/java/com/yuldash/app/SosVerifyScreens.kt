@@ -276,7 +276,18 @@ internal data class SosService(
 )
 
 @Composable
-internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, orderId: Int? = null) {
+internal fun SosScreen(
+    onBack: () -> Unit,
+    onLoginRequired: () -> Unit,
+    orderId: Int? = null,
+    // Из какой попутки нажали SOS. Аудит 2026-08-06: контекст такси уходил дежурному с самого
+    // начала, а из попутки — нет, хотя именно там человек садится в машину к незнакомцу.
+    // Первый вопрос спасателя — «с кем уехали», и ответ должен быть в самом сигнале.
+    bookingId: Int? = null,
+    // Свободная подпись-контекст для дежурного («Доставка #12 Баймак → Сибай»). Для доставки
+    // отдельного поля в сигнале нет, а знать, что человек был на маршруте, дежурному нужно.
+    contextNote: String? = null,
+) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -382,6 +393,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, orderId:
         sending = true
         // В note кладём текст + КООРДИНАТЫ (бэкенд без гео-поля → передаём строкой со ссылкой на карту).
         val note = buildString {
+            if (!contextNote.isNullOrBlank()) append(contextNote.trim() + ". ")
             if (description.isNotBlank()) append(description.trim() + " ")
             if (coordsText != null) append("Координаты: $coordsText (https://yandex.ru/maps/?pt=$sosLng,$sosLat&z=17)")
         }.trim().ifBlank { "SOS" }
@@ -389,7 +401,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, orderId:
             // Ждём сервер, НЕ fire-and-forget (кнопка безопасности). orderId — контекст такси-заказа (B7b-2).
             // Координаты шлём ещё и отдельными полями: из текста заметки их читал только админ,
             // а ссылку на карту должны получить близкие — им ехать (аудит 2026-08-06).
-            val r = ApiClient.sos(category, note, orderId, lat = sosLat, lng = sosLng)
+            val r = ApiClient.sos(category, note, orderId, lat = sosLat, lng = sosLng, bookingId = bookingId)
             sending = false
             if (r.isSuccess) {
                 sent = true
@@ -580,7 +592,12 @@ internal fun SosContent(
                     Text(appText("Сообщить близким и поддержке", "Яҡындарға һәм ярҙамға хәбәр итеү"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center)
                     Text(
                         if (loggedIn)
-                            appText("SMS твоим доверенным контактам + сигнал поддержке Юлдаш с твоими координатами.", "Ышаныслы контакттарыңа SMS + Юлдаш ярҙамына координаталарың менән сигнал.")
+                            // Честно говорим, ЧТО именно уйдёт: человек в панике не должен гадать.
+                            // Машину называем прямо — родным ехать искать, и это же спросит полиция.
+                            appText(
+                                "SMS твоим доверенным контактам с местом и машиной, в которой ты едешь, + сигнал поддержке Юлдаш.",
+                                "Ышаныслы контакттарыңа урыныңды һәм барған машинаңды күрһәткән SMS + Юлдаш ярҙамына сигнал.",
+                            )
                         else
                             appText("Для SMS близким и сигнала поддержке нужно войти. Звонок 112 работает без входа.", "Яҡындарға SMS һәм ярҙамға сигнал өсөн инергә кәрәк. 112 шылтырауы инеүһеҙ эшләй."),
                         color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center

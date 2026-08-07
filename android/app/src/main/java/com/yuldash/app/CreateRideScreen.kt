@@ -659,7 +659,7 @@ internal fun CreateRideFormContent(
             OutlinedTextField(
                 value = comment,
                 onValueChange = onCommentChange,
-                label = { Text(if (isCargo) appText("Что везёте", "Нимә алып бараһығыҙ") else appText("Комментарий", "Комментарий")) },
+                label = { Text(if (isCargo) appText("Что везёте", "Нимә алып бараһығыҙ") else appText("Комментарий", "Аңлатма")) },
                 placeholder = { Text(if (isCargo) appText("Напр.: диван и 2 коробки, хрупкое", "Мәҫәлән: диван һәм 2 ҡумта, һынғыс") else appText("Например: могу взять посылку, заеду через Темясово", "Мәҫәлән: посылка ала алам, Темясово аша инәм")) },
                 minLines = 3,
                 modifier = Modifier.fillMaxWidth(),

@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, or_, text
 from sqlmodel import Session, select
@@ -11,7 +11,8 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..flood import TOO_MANY_REQUESTS, guard_open_items
-from ..logs import log
+from ..geo import bare_name
+from ..logs import admin_action, log
 from ..models import (
     Block, Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
     RideRequest, RideStatus, User, UserRole,
@@ -30,6 +31,10 @@ from .. import workday as workday_mod
 from ..trust_service import INSIDER_LEVEL, trust_level
 
 router = APIRouter(tags=["requests"])
+
+# Окно, в котором повторная отправка того же содержимого — это тот же самый тап.
+# Столько же, сколько у посылок и поездок: одно правило — одно число.
+_DUPLICATE_WINDOW_SEC = 60
 
 
 class RequestIn(BaseModel):
@@ -81,6 +86,23 @@ def live_request_conds():
     ]
 
 
+def _recent_twin_request(session: Session, passenger_id: int, body: RequestIn):
+    """Только что созданная ПОЛНОСТЬЮ такая же заявка — тот же самый тап.
+    Сравниваем весь смысл заявки: поменял хоть одно поле — это новая заявка."""
+    fields = body.model_dump(exclude={"assisted", "pickup_point_id"})
+    recent = session.exec(
+        select(RideRequest).where(
+            RideRequest.passenger_id == passenger_id,
+            RideRequest.status == "active",
+            RideRequest.created_at >= utcnow() - timedelta(seconds=_DUPLICATE_WINDOW_SEC),
+        ).order_by(RideRequest.id.desc()).limit(20)
+    ).all()
+    for r in recent:
+        if all(getattr(r, k, None) == v for k, v in fields.items()):
+            return r
+    return None
+
+
 @router.post("/requests", response_model=RideRequest)
 def create_request(body: RequestIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) блокирует новую заявку
@@ -98,6 +120,16 @@ def create_request(body: RequestIn, user: User = Depends(current_user), session:
     # Геокодим концы маршрута (для карты водителя и радиус-поиска заявок) — как у POST /rides.
     frm = geocode_city(body.from_city) or (None, None)
     to = geocode_city(body.to_city) or (None, None)
+    # Двойной тап (аудит 2026-08-06). Тот же гард, что у посылок с 2026-08-03: лаг сети или
+    # авто-ретрай POST при обрыве — и в ленте водителей две одинаковые заявки. Водители
+    # откликаются на обе, пассажир разбирается с двумя переписками об одной поездке.
+    # Дедуп по содержимому в коротком окне; «поправил и отправил заново» отличается полем
+    # и проходит как новая. Лочим строку пассажира — иначе два запроса пройдут SELECT разом.
+    session.exec(select(User).where(User.id == user.id).with_for_update()).first()
+    twin = _recent_twin_request(session, user.id, body)
+    if twin is not None:
+        return twin
+
     req = RideRequest(
         passenger_id=user.id,
         **body.model_dump(exclude={"assisted", "pickup_point_id"}),
@@ -138,9 +170,9 @@ def requests_near(
     Приватность: отдаём только город/точку отправления + имя, без телефона/точного адреса."""
     q = select(RideRequest).where(*live_request_conds())   # прошедшие в ленту не попадают
     if from_city:
-        q = q.where(RideRequest.from_city.contains(from_city))
+        q = q.where(RideRequest.from_city.contains(bare_name(from_city)))
     if to_city:
-        q = q.where(RideRequest.to_city.contains(to_city))
+        q = q.where(RideRequest.to_city.contains(bare_name(to_city)))
     # PostGIS-префильтр по радиусу (postgres + координаты) — как у /rides/near; иначе Python-haversine ниже.
     if lat is not None and lng is not None and radius_km is not None and session.bind.dialect.name == "postgresql":
         try:
@@ -205,10 +237,10 @@ def admin_request_for_phone(body: AdminRequestIn, user: User = Depends(current_u
     """Админ создаёт заявку ЗА пользователя по телефону (после звонка «перезвоните мне»).
     Находит/создаёт юзера по номеру → заводит заявку → водители видят её как обычную."""
     if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для администратора")
+        raise herr(403, "Только для администратора", "Тик администратор өсөн")
     phone = body.phone.strip()
     if not phone:
-        raise HTTPException(400, "Нужен телефон")
+        raise herr(400, "Нужен телефон", "Телефон кәрәк")
     target = session.exec(select(User).where(User.phone == phone)).first()
     if not target:
         target = User(phone=phone, name=body.name or "Пользователь", verified=False)
@@ -227,6 +259,9 @@ def admin_request_for_phone(body: AdminRequestIn, user: User = Depends(current_u
     session.add(req)
     session.commit()
     session.refresh(req)
+    # Действие ЗА человека: админ мог и завести ему аккаунт по звонку. Телефон в лог не идёт (§8),
+    # только идентификаторы — по ним всё поднимается из базы (аудит 2026-08-06).
+    admin_action(user.id, "request.create_for_user", request_id=req.id, target_user=target.id)
     return req
 
 
@@ -261,11 +296,11 @@ def edit_request(request_id: int, body: RequestEditIn, user: User = Depends(curr
     Смена маршрута перегеокодит концы (карта водителя показывает верную точку)."""
     req = session.get(RideRequest, request_id)
     if not req:
-        raise HTTPException(404, "Заявка не найдена")
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
     if req.passenger_id != user.id and user.role != UserRole.admin:
-        raise HTTPException(403, "Можно править только свою заявку")
+        raise herr(403, "Можно править только свою заявку", "Тик үҙ заявкаңды ғына төҙәтеп була")
     if req.status != "active":
-        raise HTTPException(400, "Править можно только активную заявку")
+        raise herr(400, "Править можно только активную заявку", "Тик актив заявканы ғына төҙәтеп була")
     changed = False
     body.desired_at = client_dt_to_utc(body.desired_at)   # правка времени — то же соглашение, что и создание
     moderate_open_text(body.comment, req.passenger_id)   # правка — тот же путь, что создание
@@ -296,14 +331,14 @@ def cancel_request(request_id: int, user: User = Depends(current_user), session:
     водителей (/requests/feed и /requests/near отдают только active). Только владелец (или админ)."""
     req = session.get(RideRequest, request_id)
     if not req:
-        raise HTTPException(404, "Заявка не найдена")
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
     if req.passenger_id != user.id and user.role != UserRole.admin:
-        raise HTTPException(403, "Можно отменить только свою заявку")
+        raise herr(403, "Можно отменить только свою заявку", "Тик үҙ заявкаңды ғына кире алып була")
     if req.status == "cancelled":
         return req   # идемпотентно — повторная отмена не ошибка (двойной тап/ретрай)
     if req.status != "active":
         # matched (уже создана поездка+бронь) отменяется через отмену брони, не тут.
-        raise HTTPException(400, "Заявку уже нельзя отменить")
+        raise herr(400, "Заявку уже нельзя отменить", "Заявканы инде кире алып булмай")
     req.status = "cancelled"
     session.add(req)
     session.commit()
@@ -394,17 +429,17 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
     # (тесты однопоточны), на проде Postgres второй ждёт коммита первого и видит dup.
     req = session.exec(select(RideRequest).where(RideRequest.id == request_id).with_for_update()).first()
     if not req or req.status != "active":
-        raise HTTPException(404, "Заявка не найдена или закрыта")
+        raise herr(404, "Заявка не найдена или закрыта", "Заявка табылманы йәки ябылған")
     # И время не должно быть прошедшим: из ленты такая заявка уже ушла, но прямая ссылка
     # (старый пуш, открытый экран) обходила бы фильтр — водитель звонил бы человеку, который
     # уехал месяц назад (аудит 2026-08-06).
     if session.exec(select(RideRequest.id).where(RideRequest.id == request_id,
                                                  *live_request_conds())).first() is None:
-        raise HTTPException(404, "Заявка не найдена или закрыта")
+        raise herr(404, "Заявка не найдена или закрыта", "Заявка табылманы йәки ябылған")
     if req.passenger_id == user.id:
-        raise HTTPException(400, "Нельзя откликнуться на свою заявку")
+        raise herr(400, "Нельзя откликнуться на свою заявку", "Үҙ заявкаңа яуап биреп булмай")
     if is_blocked(session, user.id, req.passenger_id):
-        raise HTTPException(403, "Недоступно")
+        raise herr(403, "Недоступно", "Мөмкин түгел")
     # Пауза «Справедливости» (§2): отклик — это предложение человеку сесть в машину. Раньше
     # проверка стояла только на создании заявки, и отстранённый разбором жалобы водитель
     # спокойно откликался на чужие (аудит 2026-08-06).
@@ -413,7 +448,7 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
     # везёт «один попутчик» из СВОЕЙ публикации (POST /rides), а не отклики на заявки.
     workday_mod.guard_respond_request(session, user.id)
     if getattr(req, "only_trusted", False) and trust_level(session, user) < INSIDER_LEVEL:
-        raise HTTPException(403, "Заявка только для своих")   # IDOR-защита: прямой id не обходит фильтр
+        raise herr(403, "Заявка только для своих", "Заявка тик үҙ кешеләр өсөн")   # IDOR-защита: прямой id не обходит фильтр
     dup = session.exec(select(RequestResponse).where(
         RequestResponse.request_id == request_id, RequestResponse.driver_id == user.id)).first()
     if dup:
@@ -518,9 +553,9 @@ def request_responses(request_id: int, user: User = Depends(current_user), sessi
     """Отклики на МОЮ заявку — пассажир выбирает водителя."""
     req = session.get(RideRequest, request_id)
     if not req:
-        raise HTTPException(404, "Заявка не найдена")
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
     if req.passenger_id != user.id and user.role != UserRole.admin:   # админ видит любые (помощь по звонку)
-        raise HTTPException(403, "Нет доступа")
+        raise herr(403, "Нет доступа", "Рөхсәт юҡ")
     resps = session.exec(
         select(RequestResponse).where(RequestResponse.request_id == request_id).order_by(RequestResponse.id.desc())
     ).all()
@@ -679,9 +714,9 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
         select(RideRequest).where(RideRequest.id == resp.request_id).with_for_update()
     ).first()
     if not req:
-        raise HTTPException(404, "Заявка не найдена")
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
     if req.status != "active":
-        raise HTTPException(400, "Заявка уже закрыта")
+        raise herr(400, "Заявка уже закрыта", "Заявка инде ябылған")
     # Цена отклика идёт прямо в Ride/Booking мимо клампа create_ride (0..100000) → кламп здесь же,
     # иначе водитель отдаёт цену до 1_000_000 (потолок RespondIn) в обход общего лимита.
     # Берём цену НА СТОЛЕ (после торга), а не первое предложение водителя: иначе поездка
@@ -728,15 +763,15 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     но только когда ход действительно пассажирский."""
     resp = session.get(RequestResponse, response_id)
     if not resp:
-        raise HTTPException(404, "Отклик не найден")
+        raise herr(404, "Отклик не найден", "Яуап табылманы")
     req = session.get(RideRequest, resp.request_id)
     if not req:
-        raise HTTPException(404, "Заявка не найдена")
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
     role = _bargain_role(resp, req, user)
     last = (getattr(resp, "last_offer_by", "") or "driver")
     if role is None:
         if user.role != UserRole.admin:
-            raise HTTPException(403, "Нет доступа")
+            raise herr(403, "Нет доступа", "Рөхсәт юҡ")
         role = "passenger"        # админ действует от имени пассажира
     if resp.status == "declined":
         raise herr(409, "Торг закрыт — по этому отклику не договорились",
@@ -755,11 +790,11 @@ def withdraw_response(response_id: int, user: User = Depends(current_user), sess
     (поездка уже создана, за ней пассажир). Удаляем строку отклика."""
     resp = session.get(RequestResponse, response_id)
     if not resp:
-        raise HTTPException(404, "Отклик не найден")
+        raise herr(404, "Отклик не найден", "Яуап табылманы")
     if resp.driver_id != user.id:   # только свой отклик (даже админ чужой не трогает — это личное действие водителя)
-        raise HTTPException(403, "Можно отозвать только свой отклик")
+        raise herr(403, "Можно отозвать только свой отклик", "Тик үҙ яуабыңды ғына кире алып була")
     if resp.status == "accepted":
-        raise HTTPException(409, "Отклик уже принят — отозвать нельзя")
+        raise herr(409, "Отклик уже принят — отозвать нельзя", "Яуап инде ҡабул ителгән — кире алып булмай")
     session.delete(resp)
     session.commit()
     return {"ok": True}
@@ -769,9 +804,9 @@ def withdraw_response(response_id: int, user: User = Depends(current_user), sess
 def match_rides(request_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     req = session.get(RideRequest, request_id)
     if not req:
-        raise HTTPException(404, "Заявка не найдена")
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
     if req.passenger_id != user.id:
-        raise HTTPException(403, "Нет доступа к этой заявке")
+        raise herr(403, "Нет доступа к этой заявке", "Был заявкаға рөхсәт юҡ")
     q = select(Ride).where(
         Ride.status == RideStatus.active,
         Ride.from_city.contains(req.from_city),

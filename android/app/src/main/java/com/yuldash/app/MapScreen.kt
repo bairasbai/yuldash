@@ -1403,6 +1403,11 @@ private fun YandexMapCard(
                 val k = city.trim()
                 cityPoint(k)?.let { return it }
                 cityCache[k]?.let { return it }
+                // Деревня («Кузяново (Ишимбайский р-н)») есть в нашем справочнике с координатами —
+                // спрашиваем его раньше геокодера, иначе маршрут сельской поездки просто не рисуется.
+                ApiClient.settlementByName(k)?.let { st ->
+                    return Point(st.lat, st.lng).also { cityCache[k] = it }
+                }
                 val hit = GeocoderClient.suggest(k).firstOrNull() ?: return null
                 return Point(hit.lat, hit.lon).also { cityCache[k] = it }
             }
@@ -1451,6 +1456,11 @@ private fun YandexMapCard(
                 val k = city.trim()
                 cityPoint(k)?.let { return it }
                 cityCache[k]?.let { return it }
+                // Деревня («Кузяново (Ишимбайский р-н)») есть в нашем справочнике с координатами —
+                // спрашиваем его раньше геокодера, иначе маршрут сельской поездки просто не рисуется.
+                ApiClient.settlementByName(k)?.let { st ->
+                    return Point(st.lat, st.lng).also { cityCache[k] = it }
+                }
                 val hit = GeocoderClient.suggest(k).firstOrNull() ?: return null
                 return Point(hit.lat, hit.lon).also { cityCache[k] = it }
             }

@@ -137,7 +137,9 @@ gradle.taskGraph.whenReady {
             "Релизная сборка без подписи. Нужен файл android/keystore.properties " +
                 "(storeFile, storePassword, keyAlias, keyPassword) — он в .gitignore и в git не попадает. " +
                 "Без него APK не установится на телефон и не пройдёт модерацию стора. " +
-                "Для проверки без ключа собирай debug: gradlew :app:assembleDebug"
+                "Для проверки без ключа собирай debug: gradlew :app:assembleDebug, " +
+                "а если нужна именно проверка R8 без установки — добавь -Pyuldash.unsignedRelease " +
+                "(так делает CI; полученный APK НЕЛЬЗЯ ставить и заливать)."
         )
     }
     // Неподписанный релиз собрался — говорим это вслух. Иначе кто-нибудь скопирует флаг из CI

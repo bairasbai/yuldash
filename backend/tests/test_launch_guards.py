@@ -33,6 +33,7 @@ def _prod_ok(monkeypatch):
     monkeypatch.setattr(settings, "redis_url", "")
     monkeypatch.setattr(settings, "min_app_version_code", 0)
     monkeypatch.setattr(settings, "app_store_url", "")
+    monkeypatch.setattr(settings, "latest_app_version_code", 0)
     settings.validate_production()   # базовая конфигурация обязана проходить
 
 
@@ -56,13 +57,33 @@ def test_courier_without_redis_is_allowed(monkeypatch):
 
 
 def test_force_update_without_store_url_is_rejected(monkeypatch):
-    """Экран «Обнови приложение» без ссылки = человек заперт: пользоваться нельзя, обновиться некуда."""
+    """Экран «Обнови приложение» без ссылки = человек заперт: пользоваться нельзя, обновиться некуда.
+    Ссылкой считается и лендинг с APK: пока приложения нет в сторах, обновляются именно оттуда."""
     _prod_ok(monkeypatch)
     monkeypatch.setattr(settings, "min_app_version_code", 5)
+    monkeypatch.setattr(settings, "app_download_url", "")   # запасной адрес тоже стёрли — идти некуда
     with pytest.raises(RuntimeError) as e:
         settings.validate_production()
     assert "APP_STORE_URL" in str(e.value)
+    # Достаточно ЛЮБОГО из двух адресов: сначала проверяем лендинг, потом настоящий стор.
+    monkeypatch.setattr(settings, "app_download_url", "https://yulbash.ru/")
+    settings.validate_production()
     monkeypatch.setattr(settings, "app_store_url", "https://play.google.com/store/apps/details?id=com.yuldash.app")
+    settings.validate_production()
+
+
+def test_update_banner_below_force_threshold_is_rejected(monkeypatch):
+    """Конфиг, который сам себе противоречит: человека блокируют как устаревшего и тут же зовут
+    обновиться до версии, которую тоже заблокируют. Ловим на старте, а не по жалобам."""
+    _prod_ok(monkeypatch)
+    monkeypatch.setattr(settings, "min_app_version_code", 10)
+    monkeypatch.setattr(settings, "app_store_url", "https://yulbash.ru/")
+    monkeypatch.setattr(settings, "latest_app_version_code", 5)
+    with pytest.raises(RuntimeError) as e:
+        settings.validate_production()
+    assert "LATEST_APP_VERSION_CODE" in str(e.value)
+    # Нормальный случай — последняя версия не ниже минимальной.
+    monkeypatch.setattr(settings, "latest_app_version_code", 12)
     settings.validate_production()
 
 

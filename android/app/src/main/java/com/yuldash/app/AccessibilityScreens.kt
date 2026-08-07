@@ -361,6 +361,30 @@ internal fun SimpleSmallAction(title: String, icon: ImageVector, onClick: () -> 
 internal fun settlementTitleFor(language: AppLanguage, s: com.yuldash.app.data.SettlementDto): String =
     if (language == AppLanguage.Ba) (s.nameBa ?: s.nameRu) else s.nameRu
 
+/**
+ * Вторая строка подсказки: район и регион («Иглинский р-н · РБ»). Деревень-тёзок в
+ * Башкортостане десятки — без района человек не поймёт, ту ли Берёзовку он выбрал.
+ * Район пустой (город) → остаётся только регион.
+ */
+internal fun settlementHintFor(s: com.yuldash.app.data.SettlementDto): String =
+    listOfNotNull(s.district?.takeIf { it.isNotBlank() }, s.region.takeIf { it.isNotBlank() })
+        .joinToString(" · ")
+
+/** Есть ли в подсказках деревня — тогда показываем атрибуцию OpenStreetMap (лицензия ODbL). */
+internal fun needsOsmCredit(list: List<com.yuldash.app.data.SettlementDto>): Boolean =
+    list.any { it.kind == "village" }
+
+/**
+ * Что записываем в поле «откуда/куда», когда человек ткнул подсказку. У деревни к имени
+ * добавляем район — «Берёзовка (Иглинский р-н)»: Берёзовок в республике четыре, и без района
+ * поездка уедет за сто километров от нужной. Сервер такую запись понимает (`by_exact_name`).
+ */
+internal fun settlementPickText(language: AppLanguage, s: com.yuldash.app.data.SettlementDto): String {
+    val title = settlementTitleFor(language, s)
+    val d = s.district?.trim().orEmpty()
+    return if (s.kind == "village" && d.isNotEmpty()) "$title ($d)" else title
+}
+
 // Поле адреса с автоподсказкой: сначала наш справочник городов/сёл (/settlements, с 1-го символа),
 // ниже — Яндекс.Геокодер (адреса, с 2-х символов). Ошибка сети → подсказок просто нет, без красного.
 @Composable
@@ -405,25 +429,30 @@ internal fun AddressSuggestField(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
             ) {
                 Column {
-                    towns.take(6).forEach { town ->
+                    val shownTowns = towns.take(6)
+                    shownTowns.forEach { town ->
                         val title = settlementTitleFor(language, town)
+                        val hint = settlementHintFor(town)
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable { pick(title) }
+                                .clickable { pick(settlementPickText(language, town)) }
                                 .heightIn(min = 48.dp)
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text(title, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (town.region.isNotBlank()) {
-                                Spacer(Modifier.width(8.dp))
-                                Text(town.region, color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Column(Modifier.weight(1f)) {
+                                Text(title, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                // Район и регион под названием: «Берёзовка» без района — это лотерея.
+                                if (hint.isNotBlank()) {
+                                    Text(hint, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
                             }
                         }
                     }
+                    if (needsOsmCredit(shownTowns)) OsmCreditRow()
                     hits.forEach { hit ->
                         Row(
                             Modifier
@@ -992,7 +1021,7 @@ internal fun CreatePassengerRequestContent(
                             OutlinedTextField(
                                 value = comment,
                                 onValueChange = onCommentChange,
-                                label = { Text(appText("Комментарий", "Комментарий")) },
+                                label = { Text(appText("Комментарий", "Аңлатма")) },
                                 placeholder = { Text(appText("Например: буду с ребёнком", "Мәҫәлән: бала менән булам")) },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).heightIn(min = 96.dp),
                                 shape = RoundedCornerShape(14.dp)
@@ -1143,7 +1172,7 @@ internal fun FamilyOrderFormContent(
         item { Text(appText("Кто поедет?", "Кем бара?"), color = CanonGreen, fontSize = 24.sp, fontWeight = FontWeight.Bold) }
         item { OutlinedTextField(value = passenger, onValueChange = onPassengerChange, label = { Text(appText("Имя пассажира", "Пассажир исеме")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) }
         item { OutlinedTextField(value = phone, onValueChange = onPhoneChange, label = { Text(appText("Телефон пассажира", "Пассажир телефоны")) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) }
-        item { Text(appText("Маршрут", "Маршрут"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+        item { Text(appText("Маршрут", "Юл"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
         item {
             if (fromField != null) fromField() else OutlinedTextField(
                 value = from, onValueChange = {},

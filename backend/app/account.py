@@ -32,7 +32,7 @@ from sqlmodel import Session, select
 
 from .errors import herr
 from .models import (
-    Ad, AdEvent, AppReview, Block, Booking, CommissionDebt, Consent, Coupon, OfferDecline,
+    Ad, AdEvent, AppReview, Block, Booking, BookingStatus, CommissionDebt, Consent, Coupon, OfferDecline,
     CouponRedemption, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
     DriverProfile, DriverSchedule, Incident, InstantOrder, InstantOrderStatus, InviteCode,
     LedgerEntry, Message,
@@ -53,6 +53,8 @@ _LIVE_ORDER_STATUSES = (
 )
 # Посылка физически в работе: курьер её взял и ещё не закрыл (везёт туда или обратно).
 _LIVE_PARCEL_STATUSES = ("accepted", "in_transit", "returning")
+# Договорённость по попутке ещё в силе: люди рассчитывают друг на друга.
+_LIVE_BOOKING_STATUSES = (BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)
 
 
 def guard_can_delete(session: Session, user: User) -> None:
@@ -127,6 +129,42 @@ def guard_can_delete(session: Session, user: User) -> None:
                    "и возвращайся к удалению аккаунта.",
                    "Һинең бандеролең хәҙер курьерҙа. Еткереүен көт йәки заявканы кире ал — "
                    "шунан аккаунтты юйырға ҡайт.")
+
+    # 5) Живая договорённость по ПОПУТКЕ. Аудит 2026-08-06: у такси и доставки исчезнуть посреди
+    # дела было нельзя, а у попутки — можно, хотя это самый старый сценарий. Каскад ниже сносит
+    # поездку водителя ВМЕСТЕ с чужими бронями на ней («Брони: … чужие на МОИХ поездках»), и
+    # никто никого не предупреждает. Человек приходит к назначенному времени на трассу, машины
+    # нет, а в приложении нет и самой поездки — как будто её не было. Позвонить тоже некому:
+    # телефон второй стороны виден только внутри брони.
+    # Отказ не «навсегда»: отмена брони и отмена рейса уже шлют уведомление второй стороне —
+    # текст ведёт ровно туда.
+    live_booking = session.exec(
+        select(Booking.id).where(
+            Booking.passenger_id == user.id,
+            Booking.status.in_(_LIVE_BOOKING_STATUSES),
+        ).limit(1)
+    ).first()
+    if live_booking is not None:
+        raise herr(409,
+                   "У тебя есть бронь в попутке. Отмени её — водитель получит уведомление, "
+                   "и возвращайся к удалению аккаунта.",
+                   "Һинең юлдаш сәфәрендә бронең бар. Уны кире ал — йөрөтөүсегә хәбәр китә, "
+                   "шунан аккаунтты юйырға ҡайт.")
+
+    my_ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == user.id)).all())
+    if my_ride_ids:
+        passengers_waiting = session.exec(
+            select(Booking.id).where(
+                Booking.ride_id.in_(my_ride_ids),
+                Booking.status.in_(_LIVE_BOOKING_STATUSES),
+            ).limit(1)
+        ).first()
+        if passengers_waiting is not None:
+            raise herr(409,
+                       "На твою поездку рассчитывают пассажиры. Отмени рейс — они получат "
+                       "уведомление и успеют найти другую машину, — и возвращайся к удалению.",
+                       "Һинең сәфәреңә юлаусылар өмөт итә. Рейсты кире ал — улар хәбәр алыр һәм "
+                       "башҡа машина табып өлгөрөр, — шунан юйыуға ҡайт.")
 
 
 def _safe_unlink_media(url: str) -> None:

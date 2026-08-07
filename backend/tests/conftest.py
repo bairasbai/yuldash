@@ -1,18 +1,36 @@
 """Тестовое окружение: изолированная SQLite (НЕ трогает прод), env=dev."""
+import atexit
 import os
 import pathlib
 import tempfile
+import time
 
 import pytest
 
 os.environ["ENV"] = "dev"
 # По умолчанию — изолированная SQLite. Если снаружи задан Postgres DATABASE_URL
 # (CI-джоба для теста гонки брони `test_overbooking_concurrent`) — уважаем его, не перетираем.
+#
+# Файл СВОЙ У КАЖДОГО ПРОГОНА (в имени номер процесса). Раньше имя было общим, и два
+# одновременных pytest (например «прогоняю весь набор в фоне» + «проверяю один файл»)
+# сносили базу друг у друга: строка выше удаляет файл при импорте. Результат — 1151
+# «упавший» тест с ошибкой «disk I/O error», хотя код в полном порядке (2026-08-06).
+# Ложно-красный прогон опаснее отсутствующего: на него легко списать настоящую поломку —
+# или, наоборот, час искать несуществующую.
+_TMP = pathlib.Path(tempfile.gettempdir())
 if not os.environ.get("DATABASE_URL", "").startswith("postgres"):
-    _DB = pathlib.Path(tempfile.gettempdir()) / "yuldash_test.db"
+    _DB = _TMP / f"yuldash_test_{os.getpid()}.db"
     if _DB.exists():
         _DB.unlink()
     os.environ["DATABASE_URL"] = f"sqlite:///{_DB.as_posix()}"
+    atexit.register(lambda: _DB.unlink(missing_ok=True))   # свой файл за собой убираем
+    # Хвосты от прогонов, прибитых по Ctrl+C или таймауту: старше суток — мусор.
+    for _old in _TMP.glob("yuldash_test_*.db"):
+        try:
+            if _old != _DB and time.time() - _old.stat().st_mtime > 86_400:
+                _old.unlink()
+        except OSError:
+            pass
 os.environ["SEED_DEMO"] = "false"
 os.environ["JWT_SECRET"] = "test-secret-key-1234567890"
 # Лимитер выключен для тестов: все /auth-хиты сессии делят один IP 'testclient'

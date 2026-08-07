@@ -1000,6 +1000,8 @@ _CHAT_CHANNEL = "yuldash:chat"
 _redis_pub = None   # async-клиент для publish (заполняется в init_chat_redis, если есть Redis)
 _sub_task = None    # задача Redis pub/sub подписки (держим ссылку — иначе GC; снимаем на shutdown)
 MAP_FEED_KEY = 2_000_000_000   # спец-ключ ConnectionManager для подписчиков /ws/map (не пересекается с booking_id/-booking_id)
+_MAP_REFRESH_GATE = "map:refresh:gate"   # дебаунс-«ворота» для notify_map_changed (SET NX EX)
+_MAP_REFRESH_DEBOUNCE_SEC = 3            # не чаще 1 refresh в это окно (всплеск изменений схлопывается)
 
 
 class ConnectionManager:
@@ -1052,6 +1054,12 @@ def notify_map_changed():
     if client is None:
         return
     try:
+        # Дебаунс против «эффекта толпы»: при всплеске изменений (несколько публикаций/броней
+        # подряд) НЕ будим всех map-клиентов на каждое событие — иначе 2000 человек с открытой
+        # картой разом дёргают тяжёлый /rides/near. SET NX EX = «ворота»: проходит только первый
+        # refresh в окне, остальные схлопываются (клиент и так опрашивает раз в ~25с).
+        if not client.set(_MAP_REFRESH_GATE, "1", nx=True, ex=_MAP_REFRESH_DEBOUNCE_SEC):
+            return
         client.publish(_CHAT_CHANNEL, json.dumps({"booking_id": MAP_FEED_KEY, "data": {"type": "refresh"}}))
     except Exception:  # noqa: BLE001 — Redis недоступен → молча, polling подстрахует
         pass

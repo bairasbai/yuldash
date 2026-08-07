@@ -95,13 +95,16 @@ def test_отмена_поездки_освобождает_место(client, u
 def test_нельзя_забить_ленту_заявками(client, user_factory):
     cap = settings.flood_active_requests_max
     pax = user_factory("FloodReqPax")
+    # Заявки РАЗНЫЕ (комментарий свой у каждой). С 2026-08-06 повтор байт в байт схлопывается
+    # как двойной тап — и потолок таким спамом просто не достать. Настоящий флудер и шлёт разное:
+    # проверяем именно его, а не то, чего в жизни не бывает.
     for i in range(cap):
         r = client.post("/requests", headers=pax["auth"], json={
-            "from_city": "Баймак", "to_city": "Сибай", "seats": 1,
+            "from_city": "Баймак", "to_city": "Сибай", "seats": 1, "comment": f"заявка {i}",
         })
         assert r.status_code == 200, f"заявка {i + 1} из разрешённых {cap} не прошла: {r.text[:150]}"
     over = client.post("/requests", headers=pax["auth"], json={
-        "from_city": "Баймак", "to_city": "Сибай", "seats": 1,
+        "from_city": "Баймак", "to_city": "Сибай", "seats": 1, "comment": "ещё одна",
     })
     assert over.status_code == 429, (
         f"заявки создаются без потолка, а каждая будит пушем водителей направления: "
@@ -185,10 +188,13 @@ def test_отказ_объясняет_что_делать_и_на_двух_яз
         r = _publish(client, driver, 999)
     elif kind == "requests":
         pax = user_factory("FloodMsgReq")
-        body = {"from_city": "Баймак", "to_city": "Сибай", "seats": 1}
-        for _ in range(settings.flood_active_requests_max):
-            assert client.post("/requests", headers=pax["auth"], json=body).status_code == 200
-        r = client.post("/requests", headers=pax["auth"], json=body)
+        # Разные заявки: одинаковые схлопываются как двойной тап (2026-08-06) и до потолка
+        # не доводят. Флудер шлёт разное — его и проверяем.
+        def _body(i):
+            return {"from_city": "Баймак", "to_city": "Сибай", "seats": 1, "comment": f"№{i}"}
+        for i in range(settings.flood_active_requests_max):
+            assert client.post("/requests", headers=pax["auth"], json=_body(i)).status_code == 200
+        r = client.post("/requests", headers=pax["auth"], json=_body(999))
     else:
         driver, pax, bid = _chat(client, user_factory, "FloodMsgChat")
         for i in range(settings.flood_chat_per_min):

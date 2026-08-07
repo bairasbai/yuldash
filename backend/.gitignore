@@ -7,3 +7,6 @@ __pycache__/
 media/
 private/
 firebase-service-account.json
+
+# Кеш сырых ответов Overpass (scripts/import_villages.py --cache). Десятки мегабайт, в git не нужен.
+.osm-cache/

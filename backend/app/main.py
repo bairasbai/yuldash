@@ -64,7 +64,11 @@ async def lifespan(app: FastAPI):
         seed_tariffs(session)   # тарифы «Быстрого заказа» нужны и в проде (не под seed_demo)
         from .geo import seed_settlements, seed_villages
         seed_settlements(session)   # справочник НП (география, волна 2) — тоже нужен в проде
-        seed_villages(session)      # деревни РБ из app/data/villages_rb.json (пустой → no-op)
+        # Сёла РБ + приграничье соседей (app/data/villages_*.json). Первый старт заливает
+        # ~6600 строк, дальше no-op. Пишем в лог: молчаливый сид = непонятно, доехали ли данные.
+        _added = seed_villages(session)
+        if _added:
+            _say(f"[launch] справочник НП: добавлено сёл — {_added}")
         # Ориентиры точек сбора (F14) — публичный справочник, нужен и на проде
         # (не под флагом SEED_DEMO). Идемпотентно: повторный старт не дублирует.
         seed_pickup_points(session)

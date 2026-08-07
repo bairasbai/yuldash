@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- viewport-fit=cover — контент под «чёлку», отступы через env(safe-area-inset-*) -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"
+    />
+
+    <!-- iOS: работать как отдельное приложение с экрана «Домой» -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Юлдаш" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- Цвет статус-бара: разный для светлой/тёмной темы -->
+    <meta name="theme-color" content="#0B6B3A" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0F1613" media="(prefers-color-scheme: dark)" />
+
+    <meta
+      name="description"
+      content="Юлдаш — попутки между своими по Башкортостану. Двуязычное приложение."
+    />
+    <title>Юлдаш</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -18,6 +18,7 @@ from sqlmodel import Session, select
 
 from .. import debt as debt_mod
 from ..db import get_session
+from ..logs import admin_action
 from ..models import CommissionDebt, DebtStatus, User, UserRole
 from ..security import current_user
 from ..services import notify_admin_telegram, send_push
@@ -139,6 +140,7 @@ def admin_confirm(debt_id: int, user: User = Depends(current_user), session: Ses
         raise HTTPException(404, "Долг не найден")
     driver_id = debt.driver_id
     paid_kop = debt_mod.admin_confirm(session, debt_id)
+    admin_action(user.id, "debt.confirm", debt_id=debt_id, driver=driver_id, amount_kop=paid_kop)
     if paid_kop:
         send_push(session, driver_id, "Долг подтверждён",
                   "Оплата долга по комиссии принята. Можно возить такси 🚕")
@@ -180,6 +182,8 @@ def admin_forgive(debt_id: int, body: ForgiveIn | None = None,
     debt.note = (f"Списан админом: {reason}" if reason else "Списан админом")[:300]
     session.add(debt)
     session.commit()
+    admin_action(user.id, "debt.forgive", debt_id=debt_id, driver=debt.driver_id,
+                 amount_kop=debt.amount_kop)
     send_push(session, debt.driver_id, "Долг списан",
               (f"Комиссия списана: {reason}" if reason else "Комиссия по этой поездке списана.")
               + " · Комиссия алынды.")
@@ -195,6 +199,7 @@ def admin_reject(debt_id: int, user: User = Depends(current_user), session: Sess
         raise HTTPException(404, "Долг не найден")
     driver_id = debt.driver_id
     back_kop = debt_mod.admin_reject(session, debt_id)
+    admin_action(user.id, "debt.reject", debt_id=debt_id, driver=driver_id, amount_kop=back_kop)
     if back_kop:
         send_push(session, driver_id, "Оплата не найдена",
                   "Мы не увидели перевод долга. Проверь и попробуй ещё раз.")

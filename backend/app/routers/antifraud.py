@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..logs import admin_action
 from ..models import DeviceBan, User, UserRole
 from ..security import current_user
 from .. import antifraud as af
@@ -71,6 +72,9 @@ def admin_ban_device(body: DeviceBanIn, user: User = Depends(current_user),
         owner = session.exec(select(User).where(User.last_device_id == device_id)).first()
         target_user_id = owner.id if owner else None
     ban = af.ban_device(session, device_id, body.reason, target_user_id)
+    # Бан отрезает человека от сервиса — вопрос «кто это сделал» не должен остаться
+    # без ответа. Сам device_id не пишем: это идентификатор телефона (§8).
+    admin_action(user.id, "device.ban", target_user=target_user_id)
     return _ban_out(session, ban)
 
 
@@ -81,6 +85,7 @@ def admin_unban_device(device_id: str, user: User = Depends(current_user),
     _require_admin(user)
     if not af.unban_device(session, device_id):
         raise HTTPException(404, "Бан не найден")
+    admin_action(user.id, "device.unban")   # сам device_id не пишем: это идентификатор телефона
     return {"ok": True}
 
 

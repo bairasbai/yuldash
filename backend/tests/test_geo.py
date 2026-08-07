@@ -81,11 +81,17 @@ def test_seed_counts_by_kind(client):
 
 
 def test_seed_no_duplicates_and_rerun_noop(client):
+    """Города/райцентры/соседи уникальны по имени; деревни-тёзки («Берёзовка» в трёх районах) —
+    это НЕ дубли, у них ключ (имя, регион, район). Повторный сид ничего не добавляет."""
     with Session(engine) as s:
-        names = list(s.exec(select(Settlement.name_ru)).all())
-        assert len(names) == len(set(names))     # без дублей
-        before = len(names)
+        big = list(s.exec(select(Settlement.name_ru).where(Settlement.kind != "village")).all())
+        assert len(big) == len(set(big))
+        villages = [(x.name_ru, x.region, x.district) for x in
+                    s.exec(select(Settlement).where(Settlement.kind == "village")).all()]
+        assert len(villages) == len(set(villages))
+        before = len(s.exec(select(Settlement.name_ru)).all())
         geo.seed_settlements(s)                  # повторный сид
+        geo.seed_villages(s)
         after = len(s.exec(select(Settlement.name_ru)).all())
     assert after == before                       # no-op
 
@@ -141,7 +147,13 @@ def test_geocode_prefers_settlement_table(client):
         s.commit()
     assert services.geocode_city("Тестоград") == (50.5, 57.5)
     assert services.geocode_city("тестҡала") == (50.5, 57.5)   # BA-имя, без регистра
-    assert services.geocode_city("Темясово") == (52.972, 58.16)  # фолбэк на CITY_COORDS жив
+    # Темясово раньше жило только в хардкоде CITY_COORDS, теперь оно есть в справочнике (из OSM):
+    # координаты берутся оттуда. Хардкод был прикидкой и мазал на ~4,5 км — проверяем, что
+    # это по-прежнему то же село (в пределах 6 км), а не соседнее.
+    lat, lng = services.geocode_city("Темясово")
+    assert services.haversine_km(lat, lng, 52.972, 58.160) < 6.0
+    # Ни в справочнике, ни в CITY_COORDS, ключа Яндекса нет → честно None, а не выдумка.
+    assert services.geocode_city("Такогогороданет") is None
 
 
 # ============================ Популярные маршруты ============================
@@ -169,15 +181,37 @@ def test_zone_requires_approved_taxi_driver(client, user_factory):
 
 
 def test_zone_set_get_and_city_clears_direction(client, user_factory):
+    """Старое приложение шлёт work_zone=intercity — сервер переводит это в новую схему:
+    база остаётся городом, включается тумблер «выезд загород». Направление сохраняется."""
     d = _driver_online(client, user_factory, "ZoneSet")
     ufa_id = _settlement_id("Уфа")
     z = _set_zone(client, d, work_zone="intercity", work_direction_id=ufa_id)
-    assert z["work_zone"] == "intercity" and z["work_direction"]["name_ru"] == "Уфа"
+    assert z["work_zone"] == "city" and z["work_intercity"] is True
+    assert z["work_direction"]["name_ru"] == "Уфа"
     g = client.get("/instant/zone", headers=d["auth"]).json()
     assert g["work_direction_id"] == ufa_id
-    # город: направление не имеет смысла → сервер его чистит
+    # Без «загорода» направление смысла не имеет → сервер его чистит.
     z = _set_zone(client, d, work_zone="city", work_city="Баймак", work_direction_id=ufa_id)
     assert z["work_city"] == "Баймак" and z["work_direction_id"] is None
+    assert z["work_intercity"] is False and z["work_regions"] is False
+
+
+def test_zone_district_base_saved(client, user_factory):
+    """Новая база «мой район»: город чистится, район сохраняется, тумблеры — как прислали."""
+    d = _driver_online(client, user_factory, "ZoneDistrict")
+    z = _set_zone(client, d, work_zone="district", work_district="Абзелиловский р-н",
+                  work_city="Сибай", work_intercity=True, work_regions=True)
+    assert z["work_zone"] == "district" and z["work_district"] == "Абзелиловский р-н"
+    assert z["work_city"] is None                      # база одна: либо НП, либо район
+    assert z["work_intercity"] is True and z["work_regions"] is True
+
+
+def test_zone_regions_require_intercity(client, user_factory):
+    """«Соседние регионы» без «выезда загород» — бессмыслица: тумблер не включаем."""
+    d = _driver_online(client, user_factory, "ZoneRegOnly")
+    z = _set_zone(client, d, work_zone="city", work_city="Сибай",
+                  work_intercity=False, work_regions=True)
+    assert z["work_intercity"] is False and z["work_regions"] is False
 
 
 def test_zone_unknown_direction_404_and_bad_zone_422(client, user_factory):
@@ -271,3 +305,79 @@ def test_zone_null_prior_behavior(client, user_factory, fake_redis):
     order2 = _order(client, user_factory("NullPax2"))
     assert order2["status"] == "offered"
     assert _offer_driver_id(order2["id"]) == d["id"]
+
+
+# ============================ Зона «мой район» (2026-08-06) ============================
+# Точки: два села Баймакского района (заказ целиком внутри района). Водители стоят рядом
+# с подачей — подбор ищет в радиусе 3/7/15 км, дальше присланных просто не найдёт.
+ITKULOVO = (52.629, 57.968)       # 1-е Иткулово, Баймакский р-н
+ITKULOVO_2 = (52.825, 57.980)     # 2-е Иткулово, Баймакский р-н (~22 км — местная поездка)
+NEAR_ITKULOVO = (52.665, 57.968)  # ~4 км от подачи
+
+
+def test_zone_district_driver_gets_village_order_in_his_district(client, user_factory, fake_redis):
+    """Главный сценарий Александра: водитель выбрал «Баймакский район» — заказ между двумя
+    сёлами этого района приходит ему, а «абзелиловскому», стоящему прямо на подаче, — нет."""
+    foreign = _driver_online(client, user_factory, "AbzDrv")
+    _set_zone(client, foreign, work_zone="district", work_district="Абзелиловский р-н")
+    _heartbeat(client, foreign, ITKULOVO)                 # стоит прямо на подаче, но район чужой
+    mine = _driver_online(client, user_factory, "BaymakDistrictDrv")
+    _set_zone(client, mine, work_zone="district", work_district="Баймакский р-н")
+    _heartbeat(client, mine, NEAR_ITKULOVO)               # чуть дальше, зато район свой
+    order = _order(client, user_factory("VillPax"), frm=ITKULOVO, to=ITKULOVO_2)
+    assert order["status"] == "offered"
+    assert _offer_driver_id(order["id"]) == mine["id"]
+
+
+def test_zone_district_driver_not_offered_far_order_without_intercity(client, user_factory, fake_redis):
+    """«Работаю по своему району» без «выезда загород»: дальний заказ в Уфу не предлагаем."""
+    d = _driver_online(client, user_factory, "BaymakOnly")
+    _set_zone(client, d, work_zone="district", work_district="Баймакский р-н")
+    _heartbeat(client, d, ITKULOVO)
+    order = _order(client, user_factory("FarPax"), frm=ITKULOVO, to=UFA)
+    assert order["status"] == "expired"
+
+
+def test_zone_district_with_intercity_gets_far_order(client, user_factory, fake_redis):
+    """Тот же водитель включил «выезд загород» — дальний заказ приходит."""
+    d = _driver_online(client, user_factory, "BaymakOut")
+    _set_zone(client, d, work_zone="district", work_district="Баймакский р-н", work_intercity=True)
+    _heartbeat(client, d, ITKULOVO)
+    order = _order(client, user_factory("FarPax2"), frm=ITKULOVO, to=UFA)
+    assert order["status"] == "offered"
+    assert _offer_driver_id(order["id"]) == d["id"]
+
+
+def test_zone_city_driver_takes_short_hop_to_neighbour_town(client, user_factory, fake_redis):
+    """Баймак → Сибай (35 км) — для человека это «по-местному», а не межгород:
+    водитель с базой «Баймак» получает заказ и без тумблера «загород»."""
+    d = _driver_online(client, user_factory, "BaymakShort")
+    _set_zone(client, d, work_zone="city", work_city="Баймак")
+    _heartbeat(client, d, BAYMAK)
+    order = _order(client, user_factory("ShortPax"))       # Баймак → Сибай
+    assert order["status"] == "offered"
+    assert _offer_driver_id(order["id"]) == d["id"]
+
+
+def test_districts_endpoint_lists_bashkortostan_first(client):
+    """Список районов для пикера: публичный, РБ сверху, у района видно число НП."""
+    items = client.get("/settlements/districts").json()["items"]
+    assert len(items) > 50
+    assert items[0]["region"] == "РБ"
+    baymak = next(i for i in items if i["district"] == "Баймакский р-н")
+    assert baymak["settlements"] > 30
+    # Поиск по началу названия — как в подсказках НП.
+    only = client.get("/settlements/districts", params={"q": "абзел"}).json()["items"]
+    assert [i["district"] for i in only] == ["Абзелиловский р-н"]
+
+
+def test_zone_district_typo_rejected(client, user_factory):
+    """Район с опечаткой сервер не принимает: иначе водитель сидел бы без заказов
+    и не понимал, почему тихо."""
+    d = _driver_online(client, user_factory, "ZoneTypo")
+    r = client.post("/instant/zone", headers=d["auth"],
+                    json={"work_zone": "district", "work_district": "Абзелиловскй"})
+    assert r.status_code == 422
+    ok = client.post("/instant/zone", headers=d["auth"],
+                     json={"work_zone": "district", "work_district": "абзелиловский р-н"})
+    assert ok.status_code == 200      # регистр не важен — сверяем по свёртке

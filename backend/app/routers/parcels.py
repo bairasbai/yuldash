@@ -31,11 +31,12 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
-from ..flood import TOO_MANY_PARCELS, guard_open_items
+from ..flood import TOO_MANY_CARRYING, TOO_MANY_PARCELS, guard_open_items
 from ..models import ParcelDelivery, User, UserRole
 from ..safety_logic import (ensure_active,
                             is_own_media_url)
 from ..security import current_user
+from ..antifraud import moderate_open_text
 from ..services import blocked_user_ids, is_blocked, notify_admin_telegram, push_notification
 from ..timeutil import utcnow
 from ..workday import local_day
@@ -491,6 +492,12 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
     if twin is not None:
         return _parcel_for_sender(twin, session)
 
+    # Описание посылки видит каждый курьер в ленте — это открытое объявление на 2000 знаков,
+    # самое просторное поле в приложении. С курьера берётся комиссия, поэтому телефон в описании
+    # помечаем так же, как в заказе такси. Проверялись заявка, отклик и отзыв — это поле нет
+    # (аудит 2026-08-06). Текст не режем и заявку не роняем: решает человек, метка лишь копится.
+    moderate_open_text(body.description, user.id)
+
     parcel = ParcelDelivery(
         sender_id=user.id,
         from_city=from_city,
@@ -555,12 +562,23 @@ def _notify_couriers_new_parcel(session: Session, parcel: ParcelDelivery) -> int
             select(CourierProfile).where(CourierProfile.online == True)  # noqa: E712
         ).all()
         sent = 0
+        from .. import geo as geo_mod
+        from ..config import settings as _settings
+        area_a = geo_mod.area_by_name(session, parcel.from_city or "")
+        area_b = geo_mod.area_by_name(session, parcel.to_city or "")
         for prof in rows:
             if prof.user_id == parcel.sender_id:
                 continue                       # свою же посылку курьеру не предлагаем
-            # Город работы задан и не совпадает с точкой забора → мимо (пустой = берёт всё).
-            work_city = (getattr(prof, "work_city", "") or "").strip().casefold()
-            if work_city and parcel.from_city and work_city != parcel.from_city.strip().casefold():
+            # Зона курьера — те же правила, что в списке заказов (`geo.zone_allows`). Раньше
+            # здесь стояла своя проверка «по городу строкой»: пуш звал на заказ, которого
+            # человек потом не находил в списке — район и «загород» она не понимала.
+            if not geo_mod.zone_allows(
+                session,
+                zone=prof.zone, work_city=prof.work_city, work_district=prof.work_district,
+                intercity=bool(prof.work_intercity), regions=bool(prof.work_regions),
+                direction_id=prof.work_direction_id, a=area_a, b=area_b,
+                local_km=_settings.instant_intercity_km,
+            ):
                 continue
             push_notification(
                 session, prof.user_id, "parcel",
@@ -738,6 +756,16 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
     # и вместе с ней получал адрес, имя и телефон получателя.
     if is_blocked(session, user.id, parcel.sender_id):
         raise herr(403, "Эту посылку взять нельзя", "Был бандерольде алып булмай")
+    # Потолок на «сколько посылок у курьера на руках». Потолки на публикацию есть у водителя,
+    # у пассажира и у отправителя — а на ПРИЁМЕ не было ничего (аудит 2026-08-06). Один человек
+    # мог нажать «взять» на всех посылках района: каждая уходит из ленты, другие курьеры её
+    # больше не видят, а отправитель уверен, что она едет. У такси такой захват невозможен
+    # (занятому водителю заказы не предлагают), у попутки его ограничивают места в машине —
+    # у доставки не ограничивало ничто. Доставил → место освободилось.
+    guard_open_items(session, ParcelDelivery.id, ParcelDelivery.courier_id == user.id,
+                     ParcelDelivery.status.in_(("accepted", "in_transit", "returning")),
+                     limit=settings.flood_carrying_parcels_max,
+                     ru=TOO_MANY_CARRYING[0], ba=TOO_MANY_CARRYING[1])
     # C1: courier/buy_bring-заказы берут только одобренные курьеры на линии (гейт).
     # «По пути» (poputka) — как раньше, без гейта (любой попутчик помогает).
     if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "poputka":
@@ -1146,7 +1174,7 @@ def parcel_dispute(parcel_id: int, body: DisputeIn, background: BackgroundTasks,
 
 def _require_admin(user: User) -> None:
     if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
+        raise herr(403, "Только для админа", "Тик администратор өсөн")
 
 
 def _parcel_admin(p: ParcelDelivery) -> dict:
@@ -1230,7 +1258,7 @@ def admin_cancel_parcel(parcel_id: int, body: Optional[ParcelReasonIn] = None,
     _require_admin(user)
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel:
-        raise HTTPException(404, "Посылка не найдена")
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
     if parcel.status in _FINAL_STATUSES:
         return {"ok": True, "status": parcel.status, "already": True}
     reason = ((body.reason if body else "") or "").strip()[:200]
@@ -1253,9 +1281,9 @@ def admin_release_courier(parcel_id: int, body: Optional[ParcelReasonIn] = None,
     _require_admin(user)
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel:
-        raise HTTPException(404, "Посылка не найдена")
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
     if parcel.status in _FINAL_STATUSES:
-        raise HTTPException(409, "Доставка уже завершена")
+        raise herr(409, "Доставка уже завершена", "Доставка инде тамамланған")
     prev_courier = parcel.courier_id
     reason = ((body.reason if body else "") or "").strip()[:200]
     parcel.courier_id = None
@@ -1303,7 +1331,7 @@ def admin_close_parcel(parcel_id: int, body: AdminCloseIn,
     _require_admin(user)
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel:
-        raise HTTPException(404, "Посылка не найдена")
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
     status = (body.status or "").strip()
     if status not in _FINAL_STATUSES:
         raise HTTPException(422, f"status: {' | '.join(_FINAL_STATUSES)}")

@@ -114,6 +114,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.CourierEstimateDto
+import com.yuldash.app.data.GeoHit
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.PARCEL_ADDRESS_MAX_LEN
 import com.yuldash.app.data.ParcelDto
@@ -148,6 +149,19 @@ internal val DeliveryBody = 16.sp
 internal val DeliveryBodyLine = 23.sp
 internal val DeliveryCaption = 14.sp
 internal val DeliveryCaptionLine = 20.sp
+
+/**
+ * Город/село для расчёта доставки — из НАШЕГО справочника, в формате геокодера.
+ * Деревень там тысячи вместе с координатами, а геокодер про «Кузяново (Ишимбайский р-н)»
+ * знает хуже. Название возвращаем вместе с районом: иначе в посылке останется «Берёзовка»,
+ * и через день никто не вспомнит, какая из четырёх. Не нашли — null, дальше геокодер.
+ */
+private suspend fun settlementHit(city: String): GeoHit? =
+    ApiClient.settlementByName(city)?.let { s ->
+        val d = s.district?.trim().orEmpty()
+        val title = if (s.kind == "village" && d.isNotEmpty()) "${s.nameRu} ($d)" else s.nameRu
+        GeoHit(title, s.lat, s.lng)
+    }
 
 /** Заголовок раздела формы. Один вид на все три экрана доставки — раньше каждый раздел
  *  подписывался вручную своим кеглем (15/17/20), и разделы выглядели разной важности. */
@@ -1657,8 +1671,10 @@ private fun SendParcelTab(onSent: () -> Unit) {
                         if (working || !(baseFilled && buyBringOk)) return@AppButton
                         working = true; error = null
                         scope.launch {
-                            val fromHit = GeocoderClient.suggest(fromCity.trim()).firstOrNull()
-                            val toHit = GeocoderClient.suggest(toCity.trim()).firstOrNull()
+                            // Сначала наш справочник (там все сёла РБ и приграничья с координатами),
+                            // и только потом геокодер: «Кузяново (Ишимбайский р-н)» он ищет хуже.
+                            val fromHit = settlementHit(fromCity) ?: GeocoderClient.suggest(fromCity.trim()).firstOrNull()
+                            val toHit = settlementHit(toCity) ?: GeocoderClient.suggest(toCity.trim()).firstOrNull()
                             if (fromHit == null || toHit == null) {
                                 error = geoErr; working = false; return@launch
                             }
