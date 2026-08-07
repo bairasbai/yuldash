@@ -280,6 +280,26 @@ class AdminScreensIntegrationTest {
                 composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
             }
         } catch (e: Throwable) {
+            // ⬇️ РЕШАЮЩИЙ ЗАМЕР (2026-08-07). Измерение выше уже доказало: сеть отработала за
+            // 10 мс и отдала правильный ответ, ни один поток не завис. Значит ответ до экрана
+            // не доехал. Осталось разделить два случая, и они лечатся по-разному:
+            //
+            //   • продолжение ПОСТАВЛЕНО в очередь, но её никто не прокручивает → лечится
+            //     прокруткой в ожидании;
+            //   • продолжение вообще НЕ поставлено (корутина умерла/область отменена) → лечится
+            //     в коде экрана.
+            //
+            // Разделяем прямо: даём очередям хорошенько провернуться и смотрим, появится ли текст.
+            // Появился — значит он всё это время лежал и ждал, кто его прокрутит.
+            val appearedAfterPumping = runCatching {
+                composeRule.mainClock.advanceTimeBy(5_000)
+                repeat(50) {
+                    org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                    composeRule.mainClock.advanceTimeByFrame()
+                }
+                composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+            }.getOrElse { false }
+
             val asked = buildList {
                 while (true) {
                     val r = server.takeRequest(50, java.util.concurrent.TimeUnit.MILLISECONDS) ?: break
@@ -302,7 +322,10 @@ class AdminScreensIntegrationTest {
                     synchronized(dispatchLog) { dispatchLog.joinToString("\n") { "    $it" } }
                         .ifBlank { "    (сервер не принял ни одного запроса)" } + "\n" +
                     "ПОТОКИ СЕТИ (проверяем «все заняты чужими запросами»):\n" + networkThreads() +
-                    "Что было на экране:\n$screen",
+                    "ПОСЛЕ ПРИНУДИТЕЛЬНОЙ ПРОКРУТКИ ОЧЕРЕДЕЙ текст «$text» " +
+                    (if (appearedAfterPumping) "ПОЯВИЛСЯ → ответ всё это время лежал непрокрученным"
+                     else "так и НЕ появился → продолжение не поставили вовсе") + "\n" +
+                    "Что было на экране (до прокрутки):\n$screen",
                 e,
             )
         }
