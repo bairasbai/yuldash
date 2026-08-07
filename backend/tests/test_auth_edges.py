@@ -9,6 +9,7 @@ from app.models import (
     Payment, Rating, RefreshToken, Report, Ride, RideRequest, SosEvent, TgAuth,
     TrustedContact, UploadEvent, User, UserRole,
 )
+from app.services import public_media_url
 from app.timeutil import utcnow
 
 
@@ -415,14 +416,19 @@ def test_account_refresh_profile_and_push_edges(client, user_factory):
         token = session.exec(select(DeviceToken).where(DeviceToken.token == "shared-token")).first()
         assert token.user_id == second["id"]
 
+    # Пустое имя не затирает старое, пробелы вокруг ссылки обрезаются.
+    # Ссылка на аватар — обязательно наша: с 2026-08-07 чужой домен отвергается (иначе он
+    # подгружался бы у всех, кто видит этого человека, и собирал их IP). Свой отдельный
+    # тест на это — tests/test_profile_name_and_avatar.py.
+    ours = public_media_url("chat/edge.jpg")
     updated = client.post(
         "/me/update",
         headers=second["auth"],
-        json={"name": "   ", "avatar_url": " https://example.test/a.jpg "},
+        json={"name": "   ", "avatar_url": f"  {ours}  "},
     )
     assert updated.status_code == 200
     assert updated.json()["name"] == "PushSecond"
-    assert updated.json()["avatar_url"] == "https://example.test/a.jpg"
+    assert updated.json()["avatar_url"] == ours
 
 
 def test_me_update_city(client, user_factory):

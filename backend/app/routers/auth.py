@@ -2,6 +2,7 @@
 профиль `/me`, регистрация push-токена."""
 from datetime import timedelta
 from typing import Optional
+from urllib.parse import urlparse
 import hmac
 import uuid
 
@@ -12,13 +13,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..account import delete_user_account, guard_can_delete
-from ..antifraud import guard_device_not_banned, remember_login_device
-from ..config import settings
+from ..antifraud import MESSAGE_FLAG_CONTACT, guard_device_not_banned, moderate_open_text, remember_login_device
+from ..config import _phone_key, settings
 from ..db import engine, get_session
 from ..errors import herr
 from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, TgAuth, User, UserRole
 from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
-from ..services import send_push, send_sms, user_rating
+from ..services import public_media_url, send_push, send_sms, user_rating
 from ..trust_service import record_login_consents
 from ..timeutil import utcnow
 
@@ -27,10 +28,17 @@ router = APIRouter(tags=["auth"])
 
 def _maybe_promote_admin(session: Session, user: User) -> None:
     """Автоадмин: вход с Telegram-id владельца ИЛИ с админ-телефона (config) → роль admin.
-    Реюз admin_telegram_chat_id + список admin_phones. Кабинет админа появляется сам."""
-    admin_phones = {p.strip() for p in (settings.admin_phones or "").split(",") if p.strip()}
+    Реюз admin_telegram_chat_id + список admin_phones. Кабинет админа появляется сам.
+
+    Номера сверяем через `_phone_key` (последние 10 цифр) — тем же правилом, что стартовая
+    проверка конфигурации в `config.validate_production`. Раньше здесь стояло точное
+    сравнение строк, а телефон в базе всегда нормализован (`_norm_phone` → «+7…»): запись
+    `ADMIN_PHONES=8987…` в .env молча не срабатывала, и владелец не попадал в свой кабинет
+    админа, а стартовая проверка об этом не предупреждала — она-то номера нормализует.
+    """
+    admin_keys = {_phone_key(p) for p in (settings.admin_phones or "").split(",") if p.strip()}
     by_tg = bool(settings.admin_telegram_chat_id) and user.telegram_id == settings.admin_telegram_chat_id
-    by_phone = bool(user.phone) and user.phone in admin_phones
+    by_phone = bool(user.phone) and _phone_key(user.phone) in admin_keys
     if (by_tg or by_phone) and user.role != UserRole.admin:
         user.role = UserRole.admin
         session.add(user)
@@ -40,6 +48,74 @@ def _norm_phone(raw: str) -> str:
     """Нормализуем номер из Telegram-контакта: только цифры, ведущий +."""
     d = "".join(c for c in (raw or "") if c.isdigit())
     return ("+" + d) if d else ""
+
+
+def _name_flag(name: str, user_id: Optional[int] = None) -> str:
+    """Метка модерации для ОТОБРАЖАЕМОГО имени ('' — чисто).
+
+    Имя видно везде: в карточках поездок, в ленте заявок, в откликах, в чате, в отзывах.
+    Открытые поля (комментарий заявки, отклик, отзыв, описание посылки) проверяются
+    `moderate_open_text` с 2026-08-03 — имя было единственным публичным полем, куда проверку
+    забыли навесить (аудит 2026-08-07). Телефон в имени («Такси Баймак 8987…») — это
+    объявление в обход приложения, то есть обход комиссии в Такси и Курьере: ровно то,
+    от чего защищает проверка остальных полей.
+    """
+    return moderate_open_text((name or "").strip(), user_id)
+
+
+def _guard_display_name(name: str, user_id: Optional[int] = None) -> str:
+    """Имя, которое человек задаёт сам → честный отказ с объяснением.
+
+    В отличие от комментария имя редактируют осознанно и результат видят сразу, поэтому
+    здесь 422 с текстом, а не молчаливая метка: молча обрезать чужое имя хуже, чем сказать,
+    что так нельзя.
+    """
+    n = (name or "").strip()
+    if not n:
+        return ""
+    kind = _name_flag(n, user_id)
+    if kind == MESSAGE_FLAG_CONTACT:
+        raise herr(422,
+                   "В имени нельзя указывать телефон или ссылку.",
+                   "Исемдә телефон йәки һылтанма күрһәтергә ярамай.")
+    if kind:
+        raise herr(422,
+                   "Такое имя показать нельзя — выбери другое.",
+                   "Бындай исемде күрһәтеп булмай — башҡаһын һайла.")
+    return n[:120]
+
+
+def _safe_display_name(name: str) -> str:
+    """Имя, пришедшее ИЗВНЕ (профиль Telegram) → тихая замена, без отказа.
+
+    Отказать нельзя: это сломает вход человеку, который просто зашёл через бота. Но и брать
+    как есть нельзя — имя в Telegram человек ставит себе сам, туда так же помещается телефон.
+    Поэтому помеченное имя не сохраняем, а отдаём пустую строку — вызывающий подставит
+    нейтральное.
+    """
+    n = (name or "").strip()
+    return "" if (not n or _name_flag(n)) else n[:120]
+
+
+def _clean_avatar_url(raw: str) -> str:
+    """Аватар принимаем ТОЛЬКО ссылкой на наше хранилище (пустая строка = сброс).
+
+    Штатный путь один: приложение грузит фото через `/upload/chat-photo`, тот отдаёт
+    `public_media_url(...)` — всегда наш домен, при любом бэкенде хранилища. Раньше сервер
+    брал любую строку, и это давало тихую слежку: чужой URL подгружался у КАЖДОГО, кто видит
+    карточку, чат или отклик с этим человеком, а хозяин чужого сервера собирал их IP, город
+    и время просмотра (аудит 2026-08-07). Для приложения, чей продукт — доверие, это дыра.
+    """
+    u = (raw or "").strip()
+    if not u:
+        return ""
+    ours = urlparse(public_media_url("")).netloc.lower()
+    parsed = urlparse(u)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.netloc.lower() != ours:
+        raise herr(422,
+                   "Фото профиля загружается в приложении — чужая ссылка не подойдёт.",
+                   "Профиль фотоһы ҡушымтала тейәлә — ят һылтанма ярамай.")
+    return u[:500]
 
 
 def _review_login_active(phone: str) -> bool:
@@ -150,7 +226,9 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
     session.commit()
     user = session.exec(select(User).where(User.phone == body.phone)).first()
     if not user:
-        user = User(phone=body.phone, name=body.name or "Пользователь")   # B1: verified только через модерацию
+        # Имя при регистрации — то же публичное поле, что и в /me/update: проверяем так же,
+        # иначе телефон в имени просто въезжает через вход вместо правки профиля.
+        user = User(phone=body.phone, name=_guard_display_name(body.name) or "Пользователь")   # B1: verified только через модерацию
         session.add(user)
         session.commit()
         session.refresh(user)
@@ -452,7 +530,9 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
             existing_by_phone.telegram_id = row.telegram_id
             # B1: НЕ выставляем verified при входе — это только результат модерации документов.
             if not existing_by_phone.name:
-                existing_by_phone.name = row.first_name or row.username or "Telegram"
+                # Имя из профиля Telegram человек ставит себе сам — туда так же помещается
+                # телефон. Отказать нельзя (сломает вход), поэтому помеченное просто не берём.
+                existing_by_phone.name = _safe_display_name(row.first_name or row.username) or "Telegram"
             session.add(existing_by_phone)
             session.commit()
             session.refresh(existing_by_phone)
@@ -460,7 +540,7 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
     if not user:
         user = User(
             phone=f"tg{row.telegram_id}",   # плейсхолдер, пока юзер не поделился реальным номером
-            name=row.first_name or row.username or "Telegram",
+            name=_safe_display_name(row.first_name or row.username) or "Telegram",
             telegram_id=row.telegram_id,
             # B1: verified только через модерацию документов (не при входе)
         )
@@ -535,11 +615,11 @@ def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Ses
     city: свободная строка (name_ru из справочника Settlement); пустая строка сбрасывает город.
     language: клиент шлёт при переключении RU⇄BA — оживляет User.language (порт из notification-fixes)."""
     if body.name is not None:
-        n = body.name.strip()
+        n = _guard_display_name(body.name, user.id)
         if n:
-            user.name = n[:120]
+            user.name = n
     if body.avatar_url is not None:
-        user.avatar_url = body.avatar_url.strip()[:500]
+        user.avatar_url = _clean_avatar_url(body.avatar_url)
     if body.city is not None:
         user.city = body.city.strip()[:80]
     if body.language is not None:
