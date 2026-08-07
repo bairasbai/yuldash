@@ -120,10 +120,20 @@ export default function BookingScreen() {
                 )}
               </span>
             </div>
-            {d.driver_car && (
+            {(d.driver_car || d.driver_car_color) && (
               <div className="info-row">
                 <span className="info-row__k">{appText("Машина", "Машина")}</span>
-                <span className="info-row__v">{d.driver_car}</span>
+                <span className="info-row__v">
+                  {[d.driver_car_color, d.driver_car].filter(Boolean).join(" ")}
+                </span>
+              </div>
+            )}
+            {/* Госномер отдельной строкой: его сверяют глазами у машины, а не вычитывают
+                из описания. Приходит только после подтверждения брони. */}
+            {d.driver_plate && (
+              <div className="info-row">
+                <span className="info-row__k">{appText("Госномер", "Дәүләт номеры")}</span>
+                <span className="info-row__v">{d.driver_plate}</span>
               </div>
             )}
             <div className="info-row">

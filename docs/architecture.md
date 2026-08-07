@@ -243,6 +243,27 @@
 - **Быстрые ответы в чате**: `ChatComposer` (`RidesRequestsChatScreens.kt`) получил параметр `onQuickSend`; над полем ввода — `LazyRow` из `QuickReplyChip` (5 готовых фраз, тач-цель ≥48dp). `BookingActiveTripScreen.kt` (ActiveTrip) прокидывает `onQuickSend = { sendText(it) }` — тот же надёжный путь WS→REST.
 - **Экран «Честно о цене»**: новый `Screen.PricingInfo` → `PricingInfoScreen` (`SecondaryScreens.kt`, хелперы `PricingBlock`/`PricingWhereRow`). Объясняет: попутка бесплатна (бензин напрямую), тариф такси, сурж-потолок ×1.5, комиссия водителя 3–8% + куда идёт, оплата СБП «на доверии». Вход — карточка «Честно о цене» в `PaymentInfoScreen` (`onOpenPricing`, ветка в `YuldashApp.kt`). Цифры — реальные (без выдуманных), стиль сверен с сурж-плашкой `InstantOrderScreen`.
 
+## 🚗 Госномер в попутках + подтверждение пола водителя (2026-08-07, вторая волна разбора)
+
+- **Госномер и цвет в попутке.** `bookings.py::booking_details` отдаёт `driver_plate` и
+  `driver_car_color` — **только участникам и только при `unlocked`** (booking confirmed/onboard/done).
+  Поля объявлены в `BookingDetailsOut` — без этого `response_model` их молча отрезает (наступили).
+  В публичной `/rides` номера нет и быть не должно. Android: `BookingDetailsDto` +2 поля →
+  пишутся в `TripPass` (`driverPlate`, цвет склеен в `driverCar`) → `BoardingCodeCard(car=, plate=)`
+  показывает блок «Сверьте машину перед посадкой» рядом с кодом посадки; в `TripPassCard` номер
+  отдельной строкой. Источник на экране активной поездки — **офлайн-паспорт**, не сеть.
+- **Пол водителя: `DriverProfile.gender_verified`** (миграция `af_gender_verified`). Заявляет
+  водитель (`POST /driver/gender`, смена пола сбрасывает подтверждение), включает модератор
+  (`POST /admin/drivers/{id}/moderate`, поле `gender_verified`; `None` = не трогать, отклонение
+  документов снимает). `GET /admin/drivers/pending` отдаёт `gender_claimed` + `gender_verified`.
+  **Три места, где проверялся пол, — все переведены на подтверждённый:**
+  `services.py::ride_out_with` (бейдж `driver_is_woman`), `rides.py` SQL-фильтр `women_only`
+  (сравнивал `gender` напрямую, мимо витрины) и `instant_service.py::eligible` (подбор такси).
+  Android: `PendingDriverDto` +2 поля, `moderateDriver(id, approve, genderVerified?)`,
+  переключатель в карточке модерации (`SecondaryScreens.kt::AdminDriversContent`, `onApprove`
+  теперь принимает `(dto, Boolean?)`). Тесты — `backend/tests/test_car_and_gender_proof.py` (10),
+  плюс переписаны `test_women_driver.py` и `test_taxi_women_only.py`.
+
 ## 🛰 Честное «подъезжаю» + фильтр «Тихая поездка» (2026-08-07, разбор конкурентов по Reddit)
 
 - **Проверка «подъезжаю» по GPS.** `bookings.py::driver_status` при `status="arriving"` сверяет

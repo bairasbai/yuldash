@@ -81,6 +81,10 @@ class BookingDetailsOut(BaseModel):
     driver_verified: bool
     driver_phone: str = ""
     driver_car: str = ""
+    # Госномер и цвет — чтобы у подъезда было чем сверить машину с объявлением. Пусто до
+    # подтверждения брони (ПДн). Дефолты держат старый клиент: он поля просто не читает.
+    driver_plate: str = ""
+    driver_car_color: str = ""
     pickup: str = ""
     pickup_lat: Optional[float] = None
     pickup_lng: Optional[float] = None
@@ -176,6 +180,13 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "driver_verified": bool(driver.verified) if driver else False,
         "driver_phone": (driver.phone if (unlocked and driver) else ""),
         "driver_car": driver_car,
+        # Госномер — как в такси (instant_service), где это уже закрыто: «белая Гранта» у подъезда
+        # ничего не доказывает. В попутке риск выше: у такси машину назначает сервер, а тут
+        # пассажир идёт к машине, которую выбрал сам по объявлению. Разбор конкурентов
+        # 2026-08-07: у BlaBlaCar приезжала ДРУГАЯ машина с другим человеком за рулём, и сверить
+        # было нечем. Отдаём только участникам и только после подтверждения брони (ПДн).
+        "driver_plate": ((profile.car_plate or "") if (unlocked and profile) else ""),
+        "driver_car_color": ((profile.car_color or "") if (unlocked and profile) else ""),
         "pickup": (ride.pickup if unlocked else ""),
         "pickup_lat": (ride.pickup_lat if unlocked else None),
         "pickup_lng": (ride.pickup_lng if unlocked else None),

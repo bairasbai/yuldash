@@ -31,6 +31,10 @@ data class TripPass(
     val departAt: String,      // ISO с сервера, форматируется на экране
     val driverName: String,
     val driverCar: String,
+    // Госномер — по нему у машины и сверяют. Хранить локально ОБЯЗАТЕЛЬНО: сверяют ровно там,
+    // где связи может не быть (перевал, ночная трасса), а без сети деталей брони не поднять.
+    // Дефолт держит паспорта, сохранённые прошлой версией приложения.
+    val driverPlate: String = "",
     val driverPhone: String,   // ПДн — только в secure-хранилище, не логировать
     val boardingCode: String,
     val pickup: String,
@@ -48,6 +52,7 @@ data class TripPass(
         put("depart_at", departAt)
         put("driver_name", driverName)
         put("driver_car", driverCar)
+        put("driver_plate", driverPlate)
         put("driver_phone", driverPhone)
         put("boarding_code", boardingCode)
         put("pickup", pickup)
@@ -67,6 +72,7 @@ data class TripPass(
             departAt = o.optString("depart_at"),
             driverName = o.optString("driver_name"),
             driverCar = o.optString("driver_car"),
+            driverPlate = o.optString("driver_plate"),
             driverPhone = o.optString("driver_phone"),
             boardingCode = o.optString("boarding_code"),
             pickup = o.optString("pickup"),

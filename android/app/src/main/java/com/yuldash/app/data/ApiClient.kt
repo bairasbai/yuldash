@@ -727,6 +727,8 @@ object ApiClient {
                 driverVerified = o.optBoolean("driver_verified"),
                 driverPhone = o.optString("driver_phone"),
                 driverCar = o.optString("driver_car"),
+                driverPlate = o.optString("driver_plate"),
+                driverCarColor = o.optString("driver_car_color"),
                 pickup = o.optString("pickup"),
                 pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
                 pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),
@@ -1140,12 +1142,17 @@ object ApiClient {
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 PendingDriverDto(o.optInt("user_id"), o.optString("name"), o.optString("phone"), o.optString("car"), o.optString("license_url"), o.optString("car_photo_url"),
-                    o.optString("autocheck_result"), o.optDouble("autocheck_score", 0.0), o.optString("autocheck_data"))
+                    o.optString("autocheck_result"), o.optDouble("autocheck_score", 0.0), o.optString("autocheck_data"),
+                    o.optString("gender_claimed"), o.optBoolean("gender_verified"))
             }
         }
 
-    suspend fun moderateDriver(userId: Int, approve: Boolean): Result<Unit> =
-        call("POST", "/admin/drivers/$userId/moderate", JSONObject().put("approve", approve), auth = true).map { }
+    /** genderVerified=null — не трогать подтверждение пола (обычное одобрение документов). */
+    suspend fun moderateDriver(userId: Int, approve: Boolean, genderVerified: Boolean? = null): Result<Unit> =
+        call("POST", "/admin/drivers/$userId/moderate",
+            JSONObject().put("approve", approve).apply {
+                if (genderVerified != null) put("gender_verified", genderVerified)
+            }, auth = true).map { }
 
     suspend fun getAdminReports(): Result<List<AdminReportDto>> =
         call("GET", "/admin/reports", null, auth = true).map { obj ->
@@ -5009,6 +5016,10 @@ data class BookingDetailsDto(
     val driverVerified: Boolean,
     val driverPhone: String,
     val driverCar: String,
+    // Госномер и цвет — чтобы сверить машину у подъезда. Пусто до подтверждения брони.
+    // Дефолты держат старый сервер: клиент новее бэкенда не падает, просто не показывает.
+    val driverPlate: String = "",
+    val driverCarColor: String = "",
     val pickup: String,
     val pickupLat: Double?,
     val pickupLng: Double?,
@@ -5037,7 +5048,10 @@ data class RequestDto(
 data class BlockDto(val blockedUserId: Int, val name: String)
 data class ReportableUserDto(val id: Int, val name: String)
 data class PendingDriverDto(val userId: Int, val name: String, val phone: String, val car: String, val licenseUrl: String, val carPhotoUrl: String,
-    val autocheckResult: String = "", val autocheckScore: Double = 0.0, val autocheckData: String = "")
+    val autocheckResult: String = "", val autocheckScore: Double = 0.0, val autocheckData: String = "",
+    // Что водитель ЗАЯВИЛ о поле ("" / female / male) и подтвердил ли это модератор. Бейдж
+    // «женщина за рулём» и женские заказы включает только подтверждение — не самодекларация.
+    val genderClaimed: String = "", val genderVerified: Boolean = false)
 data class AdminReportDto(
     val id: Int, val reporterName: String, val targetName: String, val targetPhone: String,
     val reason: String, val createdAt: String,

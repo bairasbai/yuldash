@@ -881,8 +881,12 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
             continue
         if comfort_only and (p.car_class or "economy") != "comfort":
             continue          # NULL = economy: комфорт-заказ обычной машине не предлагаем
-        if getattr(order, "women_only", False) and (p.gender or "") != "female":
-            continue          # выбор «только женщина за рулём» — жёсткий, подмены быть не может
+        if getattr(order, "women_only", False) and not ((p.gender or "") == "female" and p.gender_verified):
+            # Выбор «только женщина за рулём» — жёсткий, подмены быть не может. Поэтому и пол
+            # нужен ПОДТВЕРЖДЁННЫЙ модератором: до 2026-08-07 водитель ставил его себе сам, и
+            # мужчина мог получать женские заказы, просто отметив галочку. Ночной заказ женщины
+            # в райцентре — последнее место, где можно верить на слово.
+            continue
         if driver_pause_until(session, did) is not None:
             continue          # бросал принятые заказы — пауза офферов (разбор №2)
         out.append(did)

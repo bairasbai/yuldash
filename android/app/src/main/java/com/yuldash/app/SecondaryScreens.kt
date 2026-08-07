@@ -1288,7 +1288,7 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
             drivers = list,
             token = token,
             onRetry = { reload() },
-            onApprove = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, true).onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } },
+            onApprove = { d, genderOk -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, true, genderOk).onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } },
             onReject = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, false).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } },
             modifier = Modifier.padding(padding),
         )
@@ -1306,7 +1306,9 @@ internal fun AdminDriversContent(
     drivers: List<com.yuldash.app.data.PendingDriverDto>,
     token: String,
     onRetry: () -> Unit,
-    onApprove: (com.yuldash.app.data.PendingDriverDto) -> Unit,
+    // Второй параметр — подтверждение пола: true/false, если водитель его заявил, иначе null
+    // («не трогать»). Так одобрение документов и подтверждение пола едут одним запросом.
+    onApprove: (com.yuldash.app.data.PendingDriverDto, Boolean?) -> Unit,
     onReject: (com.yuldash.app.data.PendingDriverDto) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1330,8 +1332,23 @@ internal fun AdminDriversContent(
                         DocImage(d.licenseUrl, token)
                         Text(appText("Фото автомобиля", "Автомобиль фотоһы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         DocImage(d.carPhotoUrl, token)
+                        // Пол подтверждает модератор по фото прав, которые уже перед глазами.
+                        // Пока не подтверждён — бейдж «женщина за рулём» не показывается и женские
+                        // заказы такси такому водителю не приходят. Самодекларации недостаточно:
+                        // иначе фильтр, который женщина включает ради безопасности, ничего не значит.
+                        var confirmGender by remember(d.userId) { mutableStateOf(d.genderVerified) }
+                        if (d.genderClaimed.isNotBlank()) {
+                            SettingSwitchRow(
+                                Icons.Default.Woman,
+                                if (d.genderClaimed == "female") appText("Это женщина — подтверждаю", "Был ҡатын-ҡыҙ — раҫлайым")
+                                else appText("Это мужчина — подтверждаю", "Был ир-ат — раҫлайым"),
+                                appText("Сверь с фото прав. Без подтверждения бейдж и женские заказы не работают.",
+                                    "Права фотоһы менән сағыштыр. Раҫлауһыҙ билдә лә, ҡатын-ҡыҙ заказы ла эшләмәй."),
+                                confirmGender,
+                            ) { confirmGender = it }
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { onApprove(d) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Одобрить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                            Button(onClick = { onApprove(d, if (d.genderClaimed.isNotBlank()) confirmGender else null) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Одобрить", "Раҫлау"), fontWeight = FontWeight.Bold) }
                             OutlinedButton(onClick = { onReject(d) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
                         }
                     }

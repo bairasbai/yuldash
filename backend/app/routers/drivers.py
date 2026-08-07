@@ -86,11 +86,19 @@ class GenderIn(BaseModel):
 def set_driver_gender(body: GenderIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """F9 «Женщинам — водитель-женщина»: водитель по желанию (opt-in) указывает пол.
     Публично раскрывается только полезный сигнал «женщина за рулём» (female);
-    male/пусто наружу не выпячиваются (см. schemas.RideOut.driver_is_woman)."""
+    male/пусто наружу не выпячиваются (см. schemas.RideOut.driver_is_woman).
+
+    Это ЗАЯВКА, а не подтверждение: бейдж и фильтр включает модератор
+    (`/admin/drivers/{id}/moderate`, поле gender_verified), сверив с фото прав. Иначе любой
+    может назваться женщиной и попасть в выдачу «женщина за рулём» — жалоба, которая копится
+    у Uber. Смена пола сбрасывает подтверждение: новое заявление — новый просмотр.
+    """
     g = (body.gender or "").strip().lower()
     if g not in _ALLOWED_GENDERS:
         raise HTTPException(400, "Недопустимое значение пола")
     dp = _get_or_create_profile(session, user.id)
+    if dp.gender != g:
+        dp.gender_verified = False       # заявили другое — прежнее подтверждение недействительно
     dp.gender = g
     session.add(dp)
     session.commit()
@@ -343,6 +351,10 @@ class PendingDriverOut(BaseModel):
     autocheck_result: str = ""        # pass / needs_human / reject / error / "" — подсказка админу
     autocheck_score: float = 0.0
     autocheck_data: str = ""          # JSON: распознанные поля + коды причин
+    # Что водитель ЗАЯВИЛ о поле ("" / female / male) и подтверждено ли это. Админ и так
+    # смотрит фото прав — сверить там же дешевле, чем строить отдельный процесс.
+    gender_claimed: str = ""
+    gender_verified: bool = False
 
 
 @router.get("/admin/drivers/pending", response_model=List[PendingDriverOut])
@@ -364,17 +376,25 @@ def pending_drivers(user: User = Depends(current_user), session: Session = Depen
             license_url=p.license_url, car_photo_url=p.car_photo_url,
             autocheck_result=p.autocheck_result, autocheck_score=p.autocheck_score,
             autocheck_data=p.autocheck_data,
+            gender_claimed=p.gender, gender_verified=p.gender_verified,
         ))
     return out
 
 
 class ModerateIn(BaseModel):
     approve: bool = True
+    # Подтверждение пола по фото прав. None = не трогать (старый клиент шлёт только approve
+    # и ничего не ломает). True включает бейдж «женщина за рулём», False — снимает.
+    gender_verified: Optional[bool] = None
 
 
 @router.post("/admin/drivers/{user_id}/moderate")
 def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Модерация водителя админом: подтвердить (verified=True) или отклонить."""
+    """Модерация водителя админом: подтвердить (verified=True) или отклонить.
+
+    Здесь же подтверждается пол: бейдж «женщина за рулём» и фильтр «только женщины» включает
+    модератор, сверив с фото прав, а не сам водитель (см. models.DriverProfile.gender_verified).
+    """
     if user.role != UserRole.admin:
         raise HTTPException(403, "Только для админа")
     target = session.get(User, user_id)
@@ -387,7 +407,14 @@ def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current
     else:
         target.verified = False
         dp.docs_status = "rejected"
+        dp.gender_verified = False       # отклонили документы — подтверждать по ним нечего
+    if body.gender_verified is not None:
+        # Подтверждать нечего, если водитель ничего не заявил: пустой пол нигде не показывается.
+        dp.gender_verified = bool(body.gender_verified) and dp.gender in ("female", "male")
     session.add(target)
     session.add(dp)
     session.commit()
-    return {"user_id": user_id, "verified": target.verified, "docs_status": dp.docs_status}
+    return {
+        "user_id": user_id, "verified": target.verified, "docs_status": dp.docs_status,
+        "gender_verified": dp.gender_verified,
+    }

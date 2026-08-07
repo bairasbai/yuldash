@@ -290,7 +290,8 @@ private suspend fun saveTripPass(context: android.content.Context, d: com.yuldas
             toCity = d.toCity,
             departAt = d.departAt,
             driverName = d.driverName,
-            driverCar = d.driverCar,
+            driverCar = listOf(d.driverCarColor, d.driverCar).filter { it.isNotBlank() }.joinToString(" "),
+            driverPlate = d.driverPlate,
             driverPhone = d.driverPhone,
             boardingCode = code,
             pickup = d.pickup,
@@ -1198,7 +1199,15 @@ internal fun ActiveTripScreen(
             }
             if (boardingCode.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus)) {
                 item {
-                    BoardingCodeCard(code = boardingCode, modifier = Modifier.appearIn(1))
+                    // Машину берём из офлайн-паспорта: он пишется при подтверждении брони и
+                    // доступен без сети — а сверяют машину как раз у дороги, где связи может
+                    // не быть. Госномера в публичной карточке поездки нет и быть не должно.
+                    BoardingCodeCard(
+                        code = boardingCode,
+                        modifier = Modifier.appearIn(1),
+                        car = tripPass?.driverCar.orEmpty().ifBlank { ride?.car.orEmpty() },
+                        plate = tripPass?.driverPlate.orEmpty(),
+                    )
                 }
             }
             if (bookingId != null) {
@@ -2059,17 +2068,54 @@ internal fun DriverApproachingBanner(
 internal fun BoardingCodeCard(
     code: String,
     modifier: Modifier = Modifier,
+    car: String = "",      // «белая Lada Vesta» — как выглядит машина
+    plate: String = "",    // госномер: по нему и сверяют
 ) {
     Surface(modifier = modifier, color = CanonMint, shape = CanonCardShape) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Pin, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(28.dp))
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(appText("Код посадки", "Ултырыу коды"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text(appText("Назовите водителю — он сверит. Это та самая машина.", "Водителгә әйтегеҙ — ул тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Pin, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(28.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(appText("Код посадки", "Ултырыу коды"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(appText("Назовите водителю — он сверит. Это та самая машина.", "Водителгә әйтегеҙ — ул тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(code, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 34.sp, letterSpacing = 4.sp)
             }
-            Spacer(Modifier.width(8.dp))
-            Text(code, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 34.sp, letterSpacing = 4.sp)
+            // Обещание «это та самая машина» до сих пор нечем было проверить: пассажир видел
+            // марку, но не номер. Разбор конкурентов 2026-08-07 — у BlaBlaCar приезжала другая
+            // машина с другим человеком за рулём. Показываем ровно то, что сверяют глазами.
+            if (car.isNotBlank() || plate.isNotBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.DirectionsCar,
+                        contentDescription = appText("Машина водителя", "Водитель машинаһы"),
+                        tint = CanonGreen2, modifier = Modifier.size(24.dp),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            appText("Сверьте машину перед посадкой", "Ултырыр алдынан машинаны тикшерегеҙ"),
+                            color = CanonMuted, fontSize = 12.sp,
+                        )
+                        if (car.isNotBlank()) {
+                            Text(car, color = CanonText, fontSize = 14.sp)
+                        }
+                    }
+                    if (plate.isNotBlank()) {
+                        Spacer(Modifier.width(8.dp))
+                        Surface(color = CanonSurface, shape = CanonTinyShape) {
+                            Text(
+                                plate,
+                                color = CanonText, fontWeight = FontWeight.Bold,
+                                fontSize = 19.sp, letterSpacing = 1.sp,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -2120,6 +2166,11 @@ internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifie
             if (pass.departAt.isNotBlank()) TripPassRow(Icons.Default.Schedule, appText("Время", "Ваҡыт"), formatDepart(pass.departAt))
             val driverLine = listOf(pass.driverName, pass.driverCar).filter { it.isNotBlank() }.joinToString(" · ")
             if (driverLine.isNotBlank()) TripPassRow(Icons.Default.Person, appText("Водитель", "Йөрөтөүсе"), driverLine)
+            // Номер отдельной строкой, а не в хвосте описания машины: его сверяют глазами
+            // в темноте у обочины, и он должен читаться сразу.
+            if (pass.driverPlate.isNotBlank()) {
+                TripPassRow(Icons.Default.DirectionsCar, appText("Госномер", "Дәүләт номеры"), pass.driverPlate)
+            }
             if (pass.driverPhone.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TripPassRow(Icons.Default.Phone, appText("Телефон", "Телефон"), pass.driverPhone, modifier = Modifier.weight(1f))
