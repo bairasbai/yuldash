@@ -88,6 +88,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.AddRoad
+import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Badge
@@ -2232,6 +2233,28 @@ internal fun RequestsFeedContent(
                             SmallAvatar(r.passengerAvatar, r.passengerName, 34)
                             Spacer(Modifier.width(8.dp))
                             Text("${r.passengerName} · " + seatsText(r.seats), color = CanonMuted, fontSize = 14.sp)
+                        }
+                        // Насколько заявка уводит с собственного маршрута. Раньше водитель читал
+                        // каждую руками и натыкался на «выехать на 4 часа позже и в другую сторону» —
+                        // именно это и выжигает водителей, а их у нас на старте мало.
+                        // «По пути» подсвечиваем зелёным, крюк — спокойно серым, без осуждения.
+                        r.detourKm?.let { km ->
+                            val alongTheWay = km <= 10
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (alongTheWay) Icons.Default.CheckCircle else Icons.Default.AltRoute,
+                                    contentDescription = null,
+                                    tint = if (alongTheWay) CanonGreen2 else CanonMuted,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    if (alongTheWay) appText("По пути", "Юл ыңғайында")
+                                    else appText("Крюк ≈ $km км", "Урау ≈ $km км"),
+                                    color = if (alongTheWay) CanonGreen2 else CanonMuted,
+                                    fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                                )
+                            }
                         }
                         if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
                         if (r.prefs.isNotEmpty()) {

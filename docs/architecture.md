@@ -243,6 +243,28 @@
 - **Быстрые ответы в чате**: `ChatComposer` (`RidesRequestsChatScreens.kt`) получил параметр `onQuickSend`; над полем ввода — `LazyRow` из `QuickReplyChip` (5 готовых фраз, тач-цель ≥48dp). `BookingActiveTripScreen.kt` (ActiveTrip) прокидывает `onQuickSend = { sendText(it) }` — тот же надёжный путь WS→REST.
 - **Экран «Честно о цене»**: новый `Screen.PricingInfo` → `PricingInfoScreen` (`SecondaryScreens.kt`, хелперы `PricingBlock`/`PricingWhereRow`). Объясняет: попутка бесплатна (бензин напрямую), тариф такси, сурж-потолок ×1.5, комиссия водителя 3–8% + куда идёт, оплата СБП «на доверии». Вход — карточка «Честно о цене» в `PaymentInfoScreen` (`onOpenPricing`, ветка в `YuldashApp.kt`). Цифры — реальные (без выдуманных), стиль сверен с сурж-плашкой `InstantOrderScreen`.
 
+## 🧒 Подростки + «остался один в машине» + крюк заявки (2026-08-07, третья волна)
+
+- **Несовершеннолетний пассажир.** `Booking.minor_passenger` + `minor_guardian_name/phone`,
+  `Ride.no_minors` (миграция `ag_minors`). `BookIn` принимает три поля; `book()` до списания мест
+  проверяет: `no_minors` → 409, отсутствие имени/телефона взрослого → 400 (оба текста двуязычные);
+  не подросток → контакты обнуляются (лишних ПДн не храним). Пуш водителю о новой брони содержит
+  пометку. `booking_details` отдаёт `minor_passenger` обеим сторонам, контакты взрослого —
+  только водителю (`is_driver`). Android: `book(..., minorPassenger, guardianName, guardianPhone)`,
+  `MinorPassengerBlock` в `BookingActiveTripScreen` (до брони — форма, после — справка водителю),
+  `PrefToggleRow` «Только 18+» в `CreateRideScreen`, `Ride.noMinors` в `Domain.kt`/`RideDto`.
+  Отказ сервера показываем его же словами (раньше на всё было «повтори»).
+- **«Остался один на один с водителем».** `bookings.py::_alone_with_driver` — были другие брони
+  (не cancelled), сейчас активных, кроме моей, нет; только пассажир, только активная бронь.
+  Отдаётся в `GET /bookings/{id}/role` полем `alone_with_driver`. Android: `TripStateDto` +
+  `aloneWithDriver` (тот же поллинг ~12с) → `AlonePassengerHint` — тихая карточка `CanonMint`
+  с одной кнопкой в существующий шит «поделиться поездкой». Без пуша, без звука, водителю не видна.
+- **Крюк заявки.** `requests.py::_detour_km(req, rides)` — минимум по активным поездкам водителя,
+  haversine, `RequestFeedOut.detour_km` (None = считать нечем). Свои поездки тянутся ОДНИМ
+  запросом на всю ленту (анти-N+1). Android: `RequestFeedDto.detourKm` → в карточке ленты
+  «По пути» (≤10 км, зелёным) / «Крюк ≈ N км» (серым).
+- Тесты — `backend/tests/test_minors_alone_detour.py` (14).
+
 ## 🚗 Госномер в попутках + подтверждение пола водителя (2026-08-07, вторая волна разбора)
 
 - **Госномер и цвет в попутке.** `bookings.py::booking_details` отдаёт `driver_plate` и

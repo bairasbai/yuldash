@@ -77,6 +77,7 @@ import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.EscalatorWarning
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LightMode
@@ -291,6 +292,9 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
     var airConditioner by remember { mutableStateOf(false) }
     var onlyTrusted by remember { mutableStateOf(false) }   // «только для своих» (L3)
     var quiet by remember { mutableStateOf(false) }
+    // Водитель заранее говорит, берёт ли подростков без сопровождения. Честнее, чем отказывать
+    // на месте, когда ребёнок уже стоит у дороги.
+    var noMinors by remember { mutableStateOf(false) }
     var waypoints by remember { mutableStateOf(listOf<String>()) }
     var recurrence by remember { mutableStateOf("none") }
     var category by remember { mutableStateOf("regular") }
@@ -338,7 +342,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
             pickup = pickup, pinned = pickupLat != null,
             womenOnly = womenOnly, childSeat = childSeat, petsAllowed = petsAllowed,
             baggage = baggage, airConditioner = airConditioner, smoking = smoking,
-            onlyTrusted = onlyTrusted, quiet = quiet, waypoints = waypoints,
+            onlyTrusted = onlyTrusted, quiet = quiet, noMinors = noMinors, waypoints = waypoints,
             priceHint = priceHint,
             fuelDistanceKm = priceHintDto?.distanceKm, fuelEstimateKop = priceHintDto?.fuelEstimateKop,
             loading = publishing, error = publishError,
@@ -355,7 +359,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
             onWomenOnly = { womenOnly = it }, onChildSeat = { childSeat = it },
             onPetsAllowed = { petsAllowed = it }, onBaggage = { baggage = it },
             onAirConditioner = { airConditioner = it }, onSmoking = { smoking = it },
-            onOnlyTrusted = { onlyTrusted = it }, onQuiet = { quiet = it }, onWaypointsChange = { waypoints = it },
+            onOnlyTrusted = { onlyTrusted = it }, onQuiet = { quiet = it }, onNoMinors = { noMinors = it }, onWaypointsChange = { waypoints = it },
             onPublish = {
                 if (publishing) return@CreateRideFormContent
                 val fromVal = from.ifBlank { "Баймаҡ" }
@@ -385,7 +389,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
                 publishing = true
                 // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
                 publishScope.launch {
-                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim(), pickupPointId, if (category == "hospital") partnerId else null, quiet, waypoints.filter { it.isNotBlank() }.joinToString(" | "))
+                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim(), pickupPointId, if (category == "hospital") partnerId else null, quiet, waypoints.filter { it.isNotBlank() }.joinToString(" | "), noMinors)
                         .onSuccess { publishing = false; onPublish(ride) }
                         // Сервер объясняет отказ по-человечески («время выезда уже прошло»,
                         // «слишком много активных поездок»). Показываем именно его слова:
@@ -446,6 +450,7 @@ internal fun CreateRideFormContent(
     baggage: Boolean,
     airConditioner: Boolean,
     quiet: Boolean,
+    noMinors: Boolean = false,
     waypoints: List<String>,
     smoking: Boolean,
     onlyTrusted: Boolean,
@@ -473,6 +478,7 @@ internal fun CreateRideFormContent(
     onBaggage: (Boolean) -> Unit,
     onAirConditioner: (Boolean) -> Unit,
     onQuiet: (Boolean) -> Unit,
+    onNoMinors: (Boolean) -> Unit = {},
     onWaypointsChange: (List<String>) -> Unit,
     onSmoking: (Boolean) -> Unit,
     onOnlyTrusted: (Boolean) -> Unit,
@@ -746,6 +752,11 @@ internal fun CreateRideFormContent(
             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                 Column(Modifier.padding(vertical = 4.dp)) {
                     PrefToggleRow(Icons.Default.Groups, appText("Только для своих", "Тик үҙебеҙҙекеләр өсөн"), onlyTrusted) { onOnlyTrusted(it) }
+                    // Не запрет сервиса, а выбор водителя: многие честно не готовы отвечать
+                    // за чужого ребёнка в дороге — пусть скажут заранее.
+                    // Стоит ПОСЛЕДНИМ осознанно: тесты формы жмут тумблеры по номеру
+                    // (CreateRideDeep2ContentTest), и вставка в середину сдвигает чужие индексы.
+                    PrefToggleRow(Icons.Default.EscalatorWarning, appText("Только 18+", "Тик 18+"), noMinors) { onNoMinors(it) }
                     Text(
                         appText(
                             "Поездку увидят и возьмут только проверенные «свои» (уровень «Свой»).",

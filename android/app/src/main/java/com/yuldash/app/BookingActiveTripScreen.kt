@@ -80,6 +80,7 @@ import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.EscalatorWarning
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LightMode
@@ -318,7 +319,7 @@ internal fun BookingScreen(
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
     canOpenActiveTrip: Boolean = true,
-    onConfirmRide: (payMethod: String, payAmount: Int?) -> Unit
+    onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
     val context = LocalContext.current
@@ -327,6 +328,10 @@ internal fun BookingScreen(
     // Способ по умолчанию — «договоримся»; сумма по умолчанию — из цены поездки.
     var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
     var payAmountText by remember(bookingId) { mutableStateOf(if (ride.price > 0) ride.price.toString() else "") }
+    // Едет подросток: отметка + взрослый на связи (сервер без него бронь не создаст).
+    var minorPassenger by remember { mutableStateOf(false) }
+    var guardianName by remember { mutableStateOf("") }
+    var guardianPhone by remember { mutableStateOf("") }
     var detailsLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
     var detailsError by remember(bookingId) { mutableStateOf(false) }
     var detailsReload by remember(bookingId) { mutableIntStateOf(0) }
@@ -548,6 +553,35 @@ internal fun BookingScreen(
                             onMethod = { payMethod = it },
                             onAmount = { payAmountText = it }
                         )
+                        // Едет подросток: до брони — форма со взрослым, после — просто пометка.
+                        // Водителю она приходит вместе с бронью, чтобы он решал заранее.
+                        if (bookingId == null) {
+                            if (!ride.noMinors) {
+                                MinorPassengerBlock(
+                                    checked = minorPassenger,
+                                    guardianName = guardianName,
+                                    guardianPhone = guardianPhone,
+                                    onChecked = { minorPassenger = it },
+                                    onName = { guardianName = it },
+                                    onPhone = { guardianPhone = it },
+                                )
+                            } else {
+                                InfoCard(
+                                    title = appText("Водитель берёт только 18+", "Водитель тик 18+ ала"),
+                                    text = appText("Этот водитель не везёт пассажиров младше 18 без взрослого. Поищи другую поездку — их много.",
+                                        "Был водитель 18-ҙән кесе юлсыларҙы оло кешеһеҙ йөрөтмәй. Башҡа сәфәр эҙлә — улар күп."),
+                                    icon = Icons.Default.EscalatorWarning,
+                                )
+                            }
+                        } else if (details?.minorPassenger == true) {
+                            InfoCard(
+                                title = appText("Едет пассажир младше 18", "18-ҙән кесе юлсы бара"),
+                                text = listOf(details?.minorGuardianName.orEmpty(), details?.minorGuardianPhone.orEmpty())
+                                    .filter { it.isNotBlank() }.joinToString(" · ")
+                                    .ifBlank { appText("Взрослый на связи указан", "Оло кеше күрһәтелгән") },
+                                icon = Icons.Default.EscalatorWarning,
+                            )
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(
                                 onClick = onMessage,
@@ -560,7 +594,7 @@ internal fun BookingScreen(
                                 Text(appText("Написать", "Яҙырға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                             }
                             Button(
-                                onClick = { onConfirmRide(payMethod, payAmountText.trim().toIntOrNull()) },
+                                onClick = { onConfirmRide(payMethod, payAmountText.trim().toIntOrNull(), minorPassenger, guardianName.trim(), guardianPhone.trim()) },
                                 enabled = bookingId == null || canOpenActiveTrip,
                                 modifier = Modifier.weight(1.15f).height(54.dp),
                                 shape = RoundedCornerShape(14.dp),
@@ -943,6 +977,8 @@ internal fun ActiveTripScreen(
     // Сервер сверил «подъезжаю» с GPS водителя → пассажир видит «подтверждено по GPS» и знает,
     // что машина правда рядом, а не «уже почти» на словах (разбор конкурентов 2026-08-07).
     var arrivalVerified by remember(bookingId) { mutableStateOf(false) }
+    // Попутчики вышли, остался один на один с водителем (см. AlonePassengerHint).
+    var aloneWithDriver by remember(bookingId) { mutableStateOf(false) }
     var bookingStatus by remember(bookingId) { mutableStateOf("") }
     // F11: офлайн-паспорт брони. Читаем СРАЗУ из локального (secure) хранилища — данные видны без сети.
     var tripPass by remember(bookingId) { mutableStateOf(bookingId?.let { TripPassStore.load(context, it) }) }
@@ -957,7 +993,7 @@ internal fun ActiveTripScreen(
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
                 ApiClient.getTripState(id)
-                    .onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; bookingStatus = st.status; offline = false }
+                    .onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; bookingStatus = st.status; offline = false }
                     // Сетевой сбой (не ApiException) → уходим в офлайн-режим: поднимаем сохранённый паспорт.
                     .onFailure { e -> if (e !is ApiException) offline = true }
                 kotlinx.coroutines.delay(12_000)
@@ -1097,7 +1133,7 @@ internal fun ActiveTripScreen(
             if (changed) {
                 queuedIds = emptySet()
                 ApiClient.getMessages(id).onSuccess { messages = it }
-                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; bookingStatus = st.status; offline = false }
+                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; bookingStatus = st.status; offline = false }
             }
         }
     }
@@ -1197,6 +1233,12 @@ internal fun ActiveTripScreen(
                     )
                 }
             }
+            // Подсказка только пассажиру и только когда салон реально опустел. Водителю её нет.
+            if (role == "passenger" && aloneWithDriver) {
+                item {
+                    AlonePassengerHint(onShare = { showShare = true }, modifier = Modifier.appearIn(1))
+                }
+            }
             if (boardingCode.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus)) {
                 item {
                     // Машину берём из офлайн-паспорта: он пишется при подтверждении брони и
@@ -1243,7 +1285,7 @@ internal fun ActiveTripScreen(
                                             if (st == "done") { TripPassStore.remove(context, bid); onTripEnd() }   // уходим с экрана только при реальном закрытии брони + чистим ПДн из паспорта
                                             else {
                                                 Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
-                                                ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; arrivalVerified = s.arrivalVerified; bookingStatus = s.status }   // сразу синхроним UI, не ждём 12с поллинга
+                                                ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; arrivalVerified = s.arrivalVerified; aloneWithDriver = s.aloneWithDriver; bookingStatus = s.status }   // сразу синхроним UI, не ждём 12с поллинга
                                             }
                                         }
                                         .onFailure { e ->
@@ -1261,7 +1303,7 @@ internal fun ActiveTripScreen(
                                         // «Завершить» уходит с экрана только при реальном закрытии брони на сервере.
                                         .onSuccess {
                                             if (st == "done") { TripPassStore.remove(context, bid); onTripEnd() }
-                                            else ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; arrivalVerified = s.arrivalVerified; bookingStatus = s.status }   // сразу синхроним статус/код посадки
+                                            else ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; arrivalVerified = s.arrivalVerified; aloneWithDriver = s.aloneWithDriver; bookingStatus = s.status }   // сразу синхроним статус/код посадки
                                         }
                                         .onFailure { e ->
                                             if (e !is ApiException) {   // нет сети → статус «сел/доехал» в очередь на авто-ретрай (F11)
@@ -2240,6 +2282,99 @@ internal fun TripStatusButtons(
                     contentColor = CanonText
                 )
             ) { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+    }
+}
+
+/**
+ * «Едет пассажир младше 18» — отметка и взрослый, который за него отвечает.
+ *
+ * Возраст у нас не спрашивался нигде: подросток регистрировался и садился к незнакомому
+ * человеку, водитель об этом не знал, а отвечать в случае чего пришлось бы ему. Запрещать
+ * нельзя — сайт прямо обещает «школьник доберётся», и в районе это реальная нужда: до школы,
+ * в райцентр, к врачу. Поэтому не запрет, а взрослый на связи + честная видимость.
+ *
+ * Имя и телефон взрослого обязательны (сервер без них бронь не создаст): это и есть запись
+ * согласия, и водителю есть кому позвонить, если что-то пойдёт не так.
+ */
+@Composable
+internal fun MinorPassengerBlock(
+    checked: Boolean,
+    guardianName: String,
+    guardianPhone: String,
+    onChecked: (Boolean) -> Unit,
+    onName: (String) -> Unit,
+    onPhone: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(modifier = modifier.fillMaxWidth(), color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            SettingSwitchRow(
+                Icons.Default.EscalatorWarning,
+                appText("Едет пассажир младше 18", "18-ҙән кесе юлсы бара"),
+                appText("Водитель увидит это до подтверждения", "Водитель быны раҫлауға тиклем күрер"),
+                checked,
+            ) { onChecked(it) }
+            AnimatedVisibility(visible = checked) {
+                Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        appText("Кто из взрослых отвечает за поездку. Водителю будет кому позвонить.",
+                            "Сәфәр өсөн ҡайһы оло кеше яуаплы. Водителгә шылтыратырға кем булыр."),
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                    )
+                    OutlinedTextField(
+                        guardianName, onName,
+                        label = { Text(appText("Имя взрослого", "Оло кешенең исеме")) },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    )
+                    OutlinedTextField(
+                        guardianPhone, onPhone,
+                        label = { Text(appText("Телефон взрослого", "Оло кешенең телефоны")) },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Тихая подсказка, когда салон опустел: попутчики вышли, человек остался один на один
+ * с водителем.
+ *
+ * Откуда взялось: история на 849 голосов (r/india) — приставания начались ровно после высадки
+ * второй пассажирки. Женщина доплатила сверху и промолчала, лишь бы доехать без конфликта.
+ * SOS в такой момент не жмут: он ощущается как «поднять шум из-за слов».
+ *
+ * Поэтому здесь НЕТ тревоги: спокойный факт и одно действие. Ни пуша, ни звука, ни красного
+ * цвета — иначе подсказка сама становится источником страха. Водителю она не видна и
+ * обвинением не является: поделиться поездкой — обычная вещь, а не сигнал недоверия.
+ */
+@Composable
+internal fun AlonePassengerHint(
+    onShare: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(modifier = modifier.fillMaxWidth(), color = CanonMint, shape = CanonCardShape) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    appText("Попутчики вышли — дальше едешь одна(один)", "Юлдаштар төштө — артабан яңғыҙ бараһың"),
+                    color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                )
+                Text(
+                    appText("Можно отправить близкому ссылку — он будет видеть, где ты едешь.",
+                        "Яҡыныңа һылтанма ебәрергә була — ул ҡайҙа барғаныңды күреп торор."),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            FilledTonalButton(onClick = onShare, shape = RoundedCornerShape(14.dp)) {
+                Text(appText("Отправить", "Ебәрергә"), fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
