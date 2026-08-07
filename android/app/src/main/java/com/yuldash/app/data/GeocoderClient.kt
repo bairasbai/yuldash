@@ -2,11 +2,6 @@ package com.yuldash.app.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
 
 /** Найденный адрес: подпись + координаты. */
 data class GeoHit(val title: String, val lat: Double, val lon: Double)
@@ -34,19 +29,13 @@ object GeocoderClient {
         val q = query.trim()
         if (q.length < 2) return@withContext Result.success(emptyList())
         synchronized(cache) { cache[q] }?.let { return@withContext Result.success(it) }
-        var conn: HttpURLConnection? = null
-        try {
-            val enc = URLEncoder.encode(q, "UTF-8")
-            val url = URL("${ApiClient.apiBase()}/geocode?q=$enc")
-            conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 8000
-                readTimeout = 8000
-                requestMethod = "GET"
-            }
-            val code = conn.responseCode
-            if (code !in 200..299) return@withContext Result.failure(IOException("geocode HTTP $code"))
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
-            val items = JSONObject(body).optJSONArray("items") ?: return@withContext Result.success(emptyList())
+        // Запрос идёт через ApiClient.geocode — то есть С ТОКЕНОМ и с авто-обновлением сессии.
+        // Раньше соединение открывалось здесь напрямую, без заголовка Authorization, а сервер
+        // авторизацию требует: подсказки адреса не работали НИГДЕ — ни в такси, ни в посылках,
+        // ни в «моих адресах». Человек вводил правильный адрес и получал «не нашли»
+        // (аудит 2026-08-07).
+        ApiClient.geocode(q).map { obj ->
+            val items = obj.optJSONArray("items") ?: return@map emptyList<GeoHit>()
             val hits = (0 until items.length()).mapNotNull { i ->
                 val o = items.getJSONObject(i)
                 val title = o.optString("title")
@@ -55,11 +44,7 @@ object GeocoderClient {
                 if (title.isBlank()) null else GeoHit(title, lat, lon)
             }
             synchronized(cache) { cache[q] = hits }
-            Result.success(hits)
-        } catch (e: Exception) {
-            Result.failure(e)
-        } finally {
-            conn?.disconnect()
+            hits
         }
     }
 

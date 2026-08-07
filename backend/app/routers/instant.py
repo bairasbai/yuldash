@@ -560,12 +560,19 @@ _DECLINE_REASONS = {"far", "cheap", "direction", "busy", "break", "other"}
 @router.post("/instant/orders/{order_id}/decline")
 def decline(order_id: int, body: DeclineIn | None = None,
             user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Водитель отклоняет оффер → matcher предлагает следующему. Идемпотентно."""
+    """Водитель отклоняет оффер → matcher предлагает следующему. Идемпотентно.
+
+    Права проверяем ДО отказа: ручка идемпотентна и постороннему ничего не меняла, но
+    исправно возвращала витрину чужого заказа — с точкой подачи и телефоном водителя
+    (аудит 2026-08-07). После отказа заказ уходит следующему кандидату, и отказавшийся
+    перестаёт быть участником — поэтому витрину отдаём с `actor_authorized`.
+    """
+    order = _order_for_view(session, order_id, user)
     reason = ((body.reason if body else "") or "").strip().lower()
     if reason and reason not in _DECLINE_REASONS:
         reason = "other"      # незнакомое значение не роняет отказ: отказаться важнее, чем классифицировать
     order = isv.decline_offer(session, order_id, user.id, reason=reason)
-    return isv.order_payload(session, order, user)
+    return isv.order_payload(session, order, user, actor_authorized=True)
 
 
 class ArrivedIn(BaseModel):
@@ -589,9 +596,11 @@ def arrived(order_id: int, body: ArrivedIn | None = None,
     штрафом и страйком: невиновный человек получал деньги в минус и блокировку такси на сутки.
     Координаты берём из тела, иначе из последней позиции водителя (Redis). Нет ни того, ни
     другого — пропускаем (не ломаем работу там, где GPS недоступен)."""
-    order = session.get(InstantOrder, order_id)
-    if not order:
-        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    # Права — ПЕРЕД гео-проверкой. Раньше порядок был обратный, и разные ответы («ты ещё не
+    # на месте» против успеха) отвечали постороннему на вопрос «водитель в 500 м от точки
+    # подачи?» для ЛЮБОГО заказа. Перебором координат так находится чужой адрес подачи —
+    # гео-оракул, утечка без всякой витрины (аудит 2026-08-07).
+    order = _order_for_view(session, order_id, user)
     lat = body.lat if body else None
     lng = body.lng if body else None
     if lat is None or lng is None:

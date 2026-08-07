@@ -285,6 +285,12 @@ def delete_user_account(session: Session, user: User) -> None:
     if sos_unlink:
         session.execute(update(SosEvent).where(or_(*sos_unlink))
                         .values(booking_id=None, order_id=None, note=""))
+    # `handled_by` — админ, принявший сигнал. Ссылку надо снять отдельно: она не про поездку,
+    # а про человека, поэтому под условия выше не попадала. Без разрыва удаление АДМИНА
+    # падало по внешнему ключу на Postgres, то есть аккаунт становился неудаляемым.
+    # На SQLite без `PRAGMA foreign_keys=ON` это было не видно — ровно та ловушка, ради
+    # которой проверку ключей включили в тестах (аудит 2026-08-07).
+    session.execute(update(SosEvent).where(SosEvent.handled_by == uid).values(handled_by=None))
     # 3.5 Жалобы. МОИ (я автор) — удаляем целиком: это мои персональные данные.
     # Жалобы НА МЕНЯ — НЕ удаляем, а обезличиваем (обнуляем ссылку на меня и стираем текст).
     #
@@ -325,14 +331,27 @@ def delete_user_account(session: Session, user: User) -> None:
     if partner_ids:
         pay.append(Payment.partner_id.in_(partner_ids))
     dele(Payment, *pay)
-    # 3.7 Финансы такси: долг по комиссии + записи ledger (мои + по удаляемым заказам).
-    debt = [CommissionDebt.driver_id == uid]
-    ledg = [LedgerEntry.driver_id == uid]
+    # 3.7 Финансы такси: МОИ долг по комиссии и записи кошелька — удаляем, это мои данные.
+    #
+    # А вот по удаляемым заказам удалять нельзя (аудит 2026-08-07). `order_ids` собран по
+    # «я пассажир ИЛИ я водитель», и раньше удаление шло по этому списку: пассажир, удаляя
+    # свой аккаунт, стирал долг ВОДИТЕЛЯ за уже сделанную поездку и его запись заработка.
+    # Это и бесплатный способ обнулить комиссию (договориться, чтобы пассажир удалился),
+    # и нарушение собственного правила ledger — «только append, историю денег не удаляем»
+    # (models.py: LedgerEntry). Поэтому у чужих записей снимаем ТОЛЬКО ссылку на заказ:
+    # деньги остаются, персональных данных удаляемого в них нет.
+    dele(CommissionDebt, CommissionDebt.driver_id == uid)
+    dele(LedgerEntry, LedgerEntry.driver_id == uid)
     if order_ids:
-        debt.append(CommissionDebt.order_id.in_(order_ids))
-        ledg.append(LedgerEntry.order_id.in_(order_ids))
-    dele(CommissionDebt, *debt)
-    dele(LedgerEntry, *ledg)
+        session.execute(update(CommissionDebt).where(CommissionDebt.order_id.in_(order_ids))
+                        .values(order_id=None))
+        session.execute(update(LedgerEntry).where(LedgerEntry.order_id.in_(order_ids))
+                        .values(order_id=None))
+    # То же самое ключом на бронь: без разрыва delete(Booking) падает по внешнему ключу
+    # на Postgres, а это уже неудаляемый аккаунт (152-ФЗ даёт право на удаление).
+    if booking_ids:
+        session.execute(update(LedgerEntry).where(LedgerEntry.booking_id.in_(booking_ids))
+                        .values(booking_id=None))
     # 3.7-bis «Справедливость»: споры, где я сторона.
     #
     # Почему НЕ удаляем (аудит 2026-08-03): раньше стиралась любая строка, где человек —

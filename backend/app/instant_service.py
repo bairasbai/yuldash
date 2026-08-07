@@ -24,6 +24,7 @@ from sqlmodel import Session, select
 from sqlalchemy import func
 
 from .config import settings
+from .errors import herr
 from . import pricing
 from . import promo_ride
 from .models import (
@@ -1243,8 +1244,30 @@ def maybe_receipt_reminder(session: Session, driver_id: Optional[int], now=None)
     return True
 
 
-def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
-    """Витрина заказа. Приватность: телефоны и контакты сторон — ТОЛЬКО после accept."""
+def is_order_participant(order: InstantOrder, viewer_id: int) -> bool:
+    """Имеет ли человек отношение к заказу: пассажир, назначенный водитель или тот,
+    кому заказ предложен прямо сейчас. Те же три роли, что в `_order_for_view`."""
+    return viewer_id in (order.passenger_id, order.driver_id, order.current_offer_driver_id)
+
+
+def order_payload(session: Session, order: InstantOrder, viewer: User, *,
+                  actor_authorized: bool = False) -> dict:
+    """Витрина заказа. Приватность: телефоны и контакты сторон — ТОЛЬКО после accept.
+
+    Проверка «а ты вообще участник?» стоит ЗДЕСЬ, а не в каждой из 17 ручек такси,
+    которые эту витрину отдают. Раньше её не было нигде, и роль вычислялась так: «водитель»,
+    если ты назначен или тебе сейчас предложен заказ, иначе — «пассажир». Значит посторонний
+    получал пассажирскую витрину чужого заказа: точную точку подачи (обычно — домашний адрес)
+    и телефон водителя. Вход был через идемпотентный `/decline`, который чужому ничего не
+    меняет, но исправно возвращает заказ (аудит 2026-08-07).
+
+    `actor_authorized=True` — для случая, когда ручка проверила права ДО перехода, а переход
+    снял с человека участие. Единственный такой случай — отказ от оффера: после него заказ
+    уходит следующему кандидату, и отказавшийся перестаёт быть участником, но ответ на свой
+    же запрос получить обязан.
+    """
+    if not (actor_authorized or is_order_participant(order, viewer.id)):
+        raise herr(403, "Нет доступа к заказу", "Заказға рөхсәт юҡ")
     role = "driver" if (order.driver_id == viewer.id
                         or order.current_offer_driver_id == viewer.id) else "passenger"
     unlocked = order.status in UNLOCKED

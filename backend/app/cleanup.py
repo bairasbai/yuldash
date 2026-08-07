@@ -86,7 +86,14 @@ def _rules(now):
          "AND NOT EXISTS (SELECT 1 FROM sosevent se WHERE se.booking_id = booking.id) "
          "AND NOT EXISTS (SELECT 1 FROM tripshare ts WHERE ts.booking_id = booking.id) "
          "AND NOT EXISTS (SELECT 1 FROM message m WHERE m.booking_id = booking.id) "
-         "AND NOT EXISTS (SELECT 1 FROM incident i WHERE i.booking_id = booking.id)",
+         "AND NOT EXISTS (SELECT 1 FROM incident i WHERE i.booking_id = booking.id) "
+         # Ниже три ссылки, которых тут не было (аудит 2026-08-07). Каждая — внешний ключ,
+         # и любая старая бронь с заработком, платежом или жалобой роняла ВЕСЬ пакет удаления.
+         # Пакет берётся по одному и тому же условию каждую ночь → одна такая бронь
+         # останавливала чистку броней навсегда, молча: строк удалено 0, ошибка в логе.
+         "AND NOT EXISTS (SELECT 1 FROM ledgerentry le WHERE le.booking_id = booking.id) "
+         "AND NOT EXISTS (SELECT 1 FROM payment p WHERE p.booking_id = booking.id) "
+         "AND NOT EXISTS (SELECT 1 FROM report rp WHERE rp.booking_id = booking.id)",
          {"c": cut(TRIP_DAYS)}),
         # Поездки: старые cancelled/done БЕЗ броней и платежей (финансы бережём; у done обычно есть брони → пропустятся).
         ("старые поездки без броней/платежей >180д",
@@ -108,6 +115,9 @@ def _rules(now):
          "AND NOT EXISTS (SELECT 1 FROM tripshare ts WHERE ts.order_id = instantorder.id) "
          "AND NOT EXISTS (SELECT 1 FROM sosevent se WHERE se.order_id = instantorder.id) "
          "AND NOT EXISTS (SELECT 1 FROM report rp WHERE rp.order_id = instantorder.id) "
+         # incident.order_id — тот же жёсткий случай, что и у брони: спор по такси-заказу
+         # держал ссылку, а гарда не было (аудит 2026-08-07).
+         "AND NOT EXISTS (SELECT 1 FROM incident i WHERE i.order_id = instantorder.id) "
          # promoredemption.used_order_id — жёсткий FK: заказ, на котором потрачена промо-скидка,
          # держит ссылку из погашения (оно живёт вечно, «один код на аккаунт»). Без гарда чистка
          # падает на внешнем ключе.
@@ -127,7 +137,12 @@ def _rules(now):
          "AND (commission_kop = 0 OR commission_paid = true) "
          "AND NOT EXISTS (SELECT 1 FROM report rp WHERE rp.parcel_id = parceldelivery.id) "
          "AND NOT EXISTS (SELECT 1 FROM rating rt WHERE rt.parcel_id = parceldelivery.id) "
-         "AND NOT EXISTS (SELECT 1 FROM message m WHERE m.parcel_id = parceldelivery.id)",
+         "AND NOT EXISTS (SELECT 1 FROM message m WHERE m.parcel_id = parceldelivery.id) "
+         # Спор по доставке и публичная ссылка «следить за курьером» тоже держат ссылку
+         # на доставку, а гардов не было (аудит 2026-08-07). Ссылку получатель хранит
+         # в переписке/SMS — она живёт дольше самой доставки.
+         "AND NOT EXISTS (SELECT 1 FROM incident i WHERE i.parcel_id = parceldelivery.id) "
+         "AND NOT EXISTS (SELECT 1 FROM tripshare ts WHERE ts.parcel_id = parceldelivery.id)",
          {"c": cut(TRIP_DAYS)}),
     ]
 

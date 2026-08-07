@@ -22,10 +22,22 @@ _WINDOW_SEC = 60  # окно счёта запросов (согласовано
 # /callback, /donate, /boost/create шлют уведомление админу → без строгого лимита их можно заспамить.
 # /waitlist — публичный без auth (ранний доступ, §11) → строгий бюджет против спама номеров.
 _STRICT_PREFIXES = (
-    "/auth", "/sos", "/callback", "/donate", "/support/donate", "/boost/create", "/waitlist",
-    "/api/v1/auth", "/api/v1/sos", "/api/v1/callback", "/api/v1/donate", "/api/v1/support/donate",
+    "/auth", "/callback", "/donate", "/support/donate", "/boost/create", "/waitlist",
+    "/api/v1/auth", "/api/v1/callback", "/api/v1/donate", "/api/v1/support/donate",
     "/api/v1/boost/create", "/api/v1/waitlist",
 )
+
+# SOS — СВОЙ бюджет, отдельно от /auth (аудит 2026-08-07).
+#
+# Раньше «красная кнопка» делила с входом один ключ и один бюджет на IP. В деревне это не
+# теория: один вышкой раздаваемый интернет, общий Wi-Fi в кафе или NAT оператора — и десяток
+# соседей выглядят для сервера одним адресом. Несколько попыток входа выбирали общий лимит,
+# и следующий запрос SOS получал 429 «слишком много запросов». Кнопка, которая обязана
+# сработать всегда, отказывала из-за чужих логинов.
+#
+# Спам SOS всё равно ограничиваем — но своим счётчиком, куда посторонний трафик не попадает.
+# Порог заметно выше: человек в беде жмёт кнопку несколько раз подряд, и это нормально.
+_SOS_PREFIXES = ("/sos", "/api/v1/sos")
 
 # Оценка цены — САМЫЙ дорогой для нас запрос: каждый вызов может уйти в платные Yandex Routing
 # и Weather. Кэш там по координатам, поэтому подобранные точки его обходят: один клиент с одного
@@ -79,6 +91,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._hits: dict[str, deque] = defaultdict(deque)
         self._hits_strict: dict[str, deque] = defaultdict(deque)
+        self._hits_sos: dict[str, deque] = defaultdict(deque)
         self._hits_estimate: dict[str, deque] = defaultdict(deque)
         self._redis = None
         self._redis_tried = False
@@ -126,6 +139,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         ip = _client_ip(request)
         strict = path.startswith(_STRICT_PREFIXES)
+        sos = path.startswith(_SOS_PREFIXES)
         estimate = path.startswith(_ESTIMATE_PREFIXES)
         client = self._get_redis()
         over, retry_after = False, 0
@@ -133,6 +147,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             try:
                 if strict:
                     over, retry_after = await self._over_redis(client, f"rl:s:{ip}", settings.rate_limit_auth_per_min)
+                if not over and sos:
+                    over, retry_after = await self._over_redis(client, f"rl:sos:{ip}",
+                                                               settings.rate_limit_sos_per_min)
                 if not over and estimate:
                     over, retry_after = await self._over_redis(client, f"rl:e:{ip}",
                                                                settings.rate_limit_estimate_per_min)
@@ -146,6 +163,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             now = time.monotonic()
             if strict:
                 over, retry_after = self._over_mem(self._hits_strict, ip, settings.rate_limit_auth_per_min, now)
+            if not over and sos:
+                over, retry_after = self._over_mem(self._hits_sos, ip,
+                                                   settings.rate_limit_sos_per_min, now)
             if not over and estimate:
                 over, retry_after = self._over_mem(self._hits_estimate, ip,
                                                    settings.rate_limit_estimate_per_min, now)
