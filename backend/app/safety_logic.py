@@ -199,13 +199,23 @@ def incidents_last_hour(session: Session, reporter_id: int) -> int:
 
 
 def completed_trips_for(session: Session, user_id: int) -> int:
-    """Число завершённых поездок (как пассажир или водитель) — для витрины доверия."""
+    """Число СОСТОЯВШИХСЯ поездок (как пассажир или водитель) — для витрины доверия.
+
+    «Состоявшаяся» = бронь закрыта И поездка уже выехала. Второе условие обязательно
+    (независимая проверка аудита 2026-08-07): один и тот же бейдж считали ТРИ разные функции
+    по трём разным правилам, и планку «поездка выехала» имела только одна — та, что рисует
+    ленту. Витрина доверия и публичная карточка водителя считали любую закрытую бронь,
+    включая закрытую до времени выезда. Правило должно быть одно на все три места, иначе
+    человек видит три разных числа и не знает, какому верить.
+    """
     my_ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == user_id)).all())
     conds = [Booking.passenger_id == user_id]
     if my_ride_ids:
         conds.append(Booking.ride_id.in_(my_ride_ids))
     return len(list(session.exec(
-        select(Booking.id).where(or_(*conds), Booking.status == BookingStatus.done)
+        select(Booking.id)
+        .join(Ride, Booking.ride_id == Ride.id)
+        .where(or_(*conds), Booking.status == BookingStatus.done, Ride.depart_at <= utcnow())
     ).all()))
 
 

@@ -22,6 +22,9 @@ from ..safety_logic import ensure_active
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
 from ..timeutil import client_dt_to_utc, utcnow
+# Планка «завершить можно только начавшуюся поездку» — одна на все три двери
+# к этому переходу (bookings.py, family.py и эта ручка).
+from .bookings import DONE_EARLY_GRACE
 from ..workday import local_now
 from ..trust_service import INSIDER_LEVEL, trust_level
 from ..services import (
@@ -648,6 +651,16 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
         return public_ride_payload(ride_out(ride, session))   # идемпотентно
     if ride.status == RideStatus.cancelled:
         raise herr(400, "Поездка отменена — завершать нечего", "Сәфәр кире алынған — тамамлар нәмә юҡ")
+    # Третья дверь к «поездка состоялась» (независимая проверка аудита 2026-08-07). Планку
+    # «завершить можно только начавшуюся» поставили на брони — водительскую (`bookings.py`)
+    # и пассажирскую из семейного контроля (`family.py`), — а вот эта ручка закрывает СРАЗУ
+    # ВСЕ брони рейса и на время не смотрела вовсе. Цикл «опубликовал на 2030 год →
+    # забронировал вторым аккаунтом → подтвердил → завершил рейс» из пяти запросов рисовал
+    # поездку в публичной карточке водителя и открывал оценку. Карточку отдают без входа:
+    # человек видит «5 поездок, рейтинг 5.0» у того, кто не проехал ни метра.
+    if ride.depart_at and utcnow() < ride.depart_at - DONE_EARLY_GRACE:
+        raise herr(409, "Поездка ещё не началась — завершить можно после времени выезда",
+                   "Сәфәр әле башланмаған — сығыу ваҡытынан һуң тамамлап була")
     affected = _live_bookings(session, ride_id)
     ride.status = RideStatus.done
     session.add(ride)

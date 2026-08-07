@@ -133,7 +133,11 @@ def _rules(now):
         # правило первое в списке, — но у свежих доставок они ещё живы).
         ("старые доставки >180д (комиссия закрыта, без спора/оценки/переписки)",
          "parceldelivery",
-         "status IN ('delivered', 'canceled') AND created_at < :c "
+         # `returned` — такой же терминальный статус, как delivered/canceled
+         # (`parcels.py: _FINAL_STATUSES`), но в правило чистки его забыли добавить:
+         # возвращённые доставки копились в базе вечно (независимая проверка аудита
+         # 2026-08-07). Не безопасность, но неаккуратно — и растёт молча.
+         "status IN ('delivered', 'canceled', 'returned') AND created_at < :c "
          "AND (commission_kop = 0 OR commission_paid = true) "
          "AND NOT EXISTS (SELECT 1 FROM report rp WHERE rp.parcel_id = parceldelivery.id) "
          "AND NOT EXISTS (SELECT 1 FROM rating rt WHERE rt.parcel_id = parceldelivery.id) "
@@ -402,6 +406,22 @@ def close_stale_parcels(now=None) -> int:
             "UPDATE parceldelivery SET status = 'canceled' "
             "WHERE status = 'created' AND created_at < :ccut"
         ), {"ccut": created_cut}).rowcount or 0
+        # «Везу обратно» без выхода (независимая проверка аудита 2026-08-07). Из `returning`
+        # ведут только две двери, и обе ручные: курьер жмёт «Вернул отправителю» либо
+        # вмешивается админ. Курьер пропал на обратном пути — заявка висит, пока Александр
+        # не разберёт её сам. Для `in_transit` это решено осознанно (посылка у человека
+        # в руках, автоматика тут вредна), про `returning` просто не подумали: там посылка
+        # едет НАЗАД, отправитель ничего не ждёт, и держать заявку живой смысла нет.
+        # Даём тот же щедрый срок, что и объявлению, и закрываем как возвращённую.
+        stuck = [(r[0], r[1]) for r in conn.execute(text(
+            "SELECT id, sender_id FROM parceldelivery "
+            "WHERE status = 'returning' AND created_at < :ccut"
+        ), {"ccut": created_cut}).all()]
+        n += conn.execute(text(
+            "UPDATE parceldelivery SET status = 'returned' "
+            "WHERE status = 'returning' AND created_at < :ccut"
+        ), {"ccut": created_cut}).rowcount or 0
+        victims += stuck
     _notify_closed("parcel", victims)
     return n
 

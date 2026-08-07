@@ -2,7 +2,7 @@
 
 from app.models import UserRole
 
-from test_flows import _book, _publish
+from test_flows import _book, _publish, just_left
 
 
 def test_driver_cancels_ride_cascades_bookings(client, user_factory):
@@ -33,7 +33,10 @@ def test_driver_completes_ride(client, user_factory):
     drv = user_factory("DoneDrv", role=UserRole.driver)
     pax = user_factory("DonePax")
     pending_pax = user_factory("DonePendingPax")
-    ride = _publish(client, drv, frm="ФинишА", to="ФинишБ", seats=3)
+    # Рейс УЖЕ выехал: завершить можно только начавшуюся поездку — это третья дверь к тому же
+    # переходу, и она закрыта той же планкой, что водительская и пассажирская
+    # (независимая проверка аудита 2026-08-07). По смыслу теста рейс как раз состоялся.
+    ride = _publish(client, drv, frm="ФинишА", to="ФинишБ", seats=3, depart_at=just_left())
     b_confirmed = _book(client, pax, ride["id"])
     client.post(f"/bookings/{b_confirmed['id']}/confirm", headers=drv["auth"])
     b_pending = _book(client, pending_pax, ride["id"])   # осталась pending

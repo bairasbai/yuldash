@@ -291,12 +291,20 @@ def driver_public(driver_id: int, limit: int = 5, session: Session = Depends(get
         raise HTTPException(404, "Пользователь не найден")
     dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver_id)).first()
 
-    # Завершённые поездки как водитель: брони со статусом done по его поездкам.
+    # СОСТОЯВШИЕСЯ поездки как водитель: бронь закрыта И поездка уже выехала.
+    # Второе условие обязательно (независимая проверка аудита 2026-08-07): эту карточку
+    # отдают БЕЗ входа, по ней человек решает, садиться ли в машину. Без планки по времени
+    # цикл «опубликовал на 2030 год → забронировал вторым аккаунтом → завершил рейс»
+    # рисовал «5 поездок, рейтинг 5.0» тому, кто не проехал ни метра. То же правило —
+    # в `services.driver_trips_agg` (лента) и `safety_logic.completed_trips_for` (доверие).
     ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == driver_id)).all())
     trips_done = 0
     if ride_ids:
         trips_done = len(session.exec(
-            select(Booking.id).where(Booking.ride_id.in_(ride_ids), Booking.status == BookingStatus.done)
+            select(Booking.id)
+            .join(Ride, Booking.ride_id == Ride.id)
+            .where(Booking.ride_id.in_(ride_ids), Booking.status == BookingStatus.done,
+                   Ride.depart_at <= utcnow())
         ).all())
 
     avg, cnt = user_rating(session, driver_id)

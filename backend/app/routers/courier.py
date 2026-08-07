@@ -31,7 +31,7 @@ from ..errors import herr
 from ..models import (CourierApplication, CourierProfile, ParcelDelivery, Payment, Rating,
                       User, UserRole)
 from ..safety_logic import ensure_active
-from .parcels import live_parcel_conds
+from .parcels import _FINAL_STATUSES, live_parcel_conds
 from ..security import current_user
 from ..services import haversine_km, notify_admin_telegram, send_push, user_rating
 from ..timeutil import utcnow
@@ -902,7 +902,12 @@ def courier_goods_cost(order_id: int, body: GoodsCostIn, user: User = Depends(cu
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "buy_bring":
         raise herr(409, "Только для «купи и привези»", "Тик «һатып ал да килтер» өсөн")
-    if parcel.status in ("delivered", "canceled"):
+    # Список терминальных статусов — общий (`parcels._FINAL_STATUSES`), а не свой.
+    # Здесь он отстал и не включал `returned`: курьер мог править стоимость товара,
+    # уже начав возврат (независимая проверка аудита 2026-08-07). Денег это не двигает
+    # (при возврате получатель ничего не платит), но два списка одного и того же
+    # неизбежно разъезжаются — поэтому список один.
+    if parcel.status in _FINAL_STATUSES:
         raise herr(409, "Заказ уже завершён", "Заказ инде тамамланған")
     actual_kop = int(body.actual_kop or 0)
     if actual_kop <= 0:
