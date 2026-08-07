@@ -1263,6 +1263,24 @@ private fun DocImage(url: String, token: String) {
 }
 
 /**
+ * След экрана для разбора мигающих админ-тестов. Пишет в тот же приёмник, что и сетевой клиент
+ * (`ApiClient.testTrace`), чтобы события экрана и события сети легли в ОДНУ ленту по времени —
+ * иначе их не сопоставить.
+ *
+ * Зачем понадобился. Измерение 2026-08-08 доказало: клиент отдаёт результат за 15–38 мс
+ * («ВЫШЛИ из вызова успешно»), а экран все 20 секунд показывает «Загрузка…». Виновник — участок
+ * между возвратом результата и записью стейта, и там до сих пор не было ни одного замера.
+ * Имя потока в каждой строке отвечает на главный вопрос: продолжение возобновилось на потоке
+ * теста или осталось на фоновом.
+ *
+ * В проде `testTrace` = null: лямбда не вызывается, строка не собирается, цена — одна проверка
+ * на null. Убрать можно ровно тогда, когда причина мигания названа и закрыта.
+ */
+internal inline fun screenTrace(what: () -> String) {
+    ApiClient.testTrace?.invoke(what())
+}
+
+/**
  * Админ: модерация водителей — умная обёртка. Держит стейт, грузит список, ходит в ApiClient/Toast.
  * Весь рендер вынесен в чистый [AdminDriversContent] → его покрывают Robolectric-тесты на JVM.
  */
@@ -1279,7 +1297,18 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
     val actionErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     // error отделяет «сеть упала» от «список пуст» — иначе админ решит, что заявок на проверку нет.
-    fun reload() { loading = true; error = null; scope.launch { ApiClient.getPendingDrivers().onSuccess { list = it }.onFailure { error = loadErr }; loading = false } }
+    fun reload() {
+        loading = true; error = null
+        screenTrace { "экран Водители: reload() позвали (поток ${Thread.currentThread().name})" }
+        scope.launch {
+            screenTrace { "экран Водители: корутина стартовала (поток ${Thread.currentThread().name})" }
+            val r = ApiClient.getPendingDrivers()
+            screenTrace { "экран Водители: результат вернулся, успех=${r.isSuccess} (поток ${Thread.currentThread().name})" }
+            r.onSuccess { list = it }.onFailure { error = loadErr }
+            loading = false
+            screenTrace { "экран Водители: стейт записан, loading=false (поток ${Thread.currentThread().name})" }
+        }
+    }
     LaunchedEffect(Unit) { reload() }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Модерация водителей", "Водителдәрҙе модерациялау"), onBack) }) { padding ->
         AdminDriversContent(
@@ -1388,7 +1417,18 @@ internal fun AdminReportsScreen(onBack: () -> Unit) {
     val doneMsg = appText("Готово", "Әҙер")
     val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     // error отделяет «сеть упала» от «жалоб нет» — иначе сбой выглядит как «всё хорошо».
-    fun reload() { loading = true; error = null; scope.launch { ApiClient.getAdminReports().onSuccess { list = it }.onFailure { error = loadErr }; loading = false } }
+    fun reload() {
+        loading = true; error = null
+        screenTrace { "экран Жалобы: reload() позвали (поток ${Thread.currentThread().name})" }
+        scope.launch {
+            screenTrace { "экран Жалобы: корутина стартовала (поток ${Thread.currentThread().name})" }
+            val r = ApiClient.getAdminReports()
+            screenTrace { "экран Жалобы: результат вернулся, успех=${r.isSuccess} (поток ${Thread.currentThread().name})" }
+            r.onSuccess { list = it }.onFailure { error = loadErr }
+            loading = false
+            screenTrace { "экран Жалобы: стейт записан, loading=false (поток ${Thread.currentThread().name})" }
+        }
+    }
     fun act(block: suspend () -> Result<Unit>) {
         scope.launch {
             block().onSuccess { Toast.makeText(ctx, doneMsg, Toast.LENGTH_SHORT).show(); reload() }

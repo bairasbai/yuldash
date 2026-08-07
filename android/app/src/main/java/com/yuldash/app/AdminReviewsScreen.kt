@@ -54,13 +54,20 @@ internal fun AdminReviewsScreen(onBack: () -> Unit) {
 
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
 
+    // След для разбора мигания — KDoc у `screenTrace` в SecondaryScreens.kt. В проде приёмник
+    // null, строки не собираются. Здесь загрузка идёт прямо в `LaunchedEffect`, а не через
+    // `rememberCoroutineScope().launch`, как у соседних админ-экранов, — и это ценно: если
+    // замирают ОБА способа, дело не в конкретной области корутин.
     suspend fun load() {
         loading = true
         error = null
-        ApiClient.getPendingReviews()
-            .onSuccess { list -> items.clear(); items.addAll(list) }
+        screenTrace { "экран Отзывы: load() вошли (поток ${Thread.currentThread().name})" }
+        val r = ApiClient.getPendingReviews()
+        screenTrace { "экран Отзывы: результат вернулся, успех=${r.isSuccess} (поток ${Thread.currentThread().name})" }
+        r.onSuccess { list -> items.clear(); items.addAll(list) }
             .onFailure { error = loadErr }
         loading = false
+        screenTrace { "экран Отзывы: стейт записан, loading=false (поток ${Thread.currentThread().name})" }
     }
 
     LaunchedEffect(Unit) { load() }
