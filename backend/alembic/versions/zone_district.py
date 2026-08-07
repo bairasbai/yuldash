@@ -16,14 +16,25 @@
 так и получают.
 
 Revision ID: zone_district
-Revises: villages_district
+Revises: ac_booking_lost_item
+
+ПОЧЕМУ ac_booking_lost_item, а не villages_district (как было в ветке). Ветка про районы
+отошла от `main`, когда очередь миграций заканчивалась на `analytics_events`. За месяц `main`
+дописал туда ещё десяток и закончил на `ac_booking_lost_item`. При сборке релизной ветки две
+очереди встретились — и у alembic стало ДВЕ головы: он перестаёт понимать, какую катить,
+а на проде это значило бы «колонки района не создались, и никто не заметил».
+
+Перевешена именно ЭТА миграция, а не `villages_district`: на ту уже ссылается сводка
+`merge_20260720`, и перевешивание делало её одновременно предком и потомком — кольцо
+(подробности в шапке `villages_district.py`). Здесь таких ссылок нет, и порядок не страдает:
+`villages_district` всё равно проходит раньше, она предок сводки.
 """
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import inspect
 
 revision = "zone_district"
-down_revision = "villages_district"
+down_revision = "ac_booking_lost_item"
 branch_labels = None
 depends_on = None
 
