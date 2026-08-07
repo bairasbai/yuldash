@@ -30,6 +30,12 @@ import org.robolectric.annotation.GraphicsMode
  * детально покрыты быстрыми unit-тестами `ApiClientCriticalBadPathTest` (30 тестов) — в интеграции они
  * упираются в реальный readTimeout и флейкуют под нагрузкой полного прогона, поэтому вынесены в unit.
  */
+// ⏸ ЭТОТ КЛАСС МИГАЕТ ТОЖЕ. История версий и что уже опровергнуто — в `AdminScreensIntegrationTest`,
+// не дублирую. Важно другое: 2026-08-06 в полном прогоне упали ОБА класса сразу, но разбирать было
+// нечего — вся диагностика стояла только в соседнем классе, а тут наружу выходил голый таймаут.
+// Поэтому 2026-08-08 обвязка здесь сделана ТАКОЙ ЖЕ: белый список адресов, журнал решений сервера,
+// след клиента и сводка по потокам. Расхождение классов по оснастке и есть причина, по которой
+// половина падений не давала показаний.
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -44,17 +50,86 @@ class AdminReviewsIntegrationTest {
     val composeRule = createComposeRule()
 
     private lateinit var server: MockWebServer
+    private lateinit var queue: QueueDispatcher
+    private lateinit var failFast: MockResponse
+
+    private companion object {
+        /** Адреса, ради которых поднят этот сервер. Всё, что не отсюда, — чужое:
+         *  получает 404 и очередь ответов не трогает. */
+        val SERVED = listOf("/admin/reviews")
+    }
+
+    /** Сколько ответов этот тест поставил в очередь. Без него нельзя отличить
+     *  «ответ приготовили, но он не понадобился» от «ответа и не готовили». */
+    private var enqueued = 0
+
+    /** Журнал РЕШЕНИЙ тестового сервера: что именно отдали на каждый запрос и когда.
+     *  Потокобезопасно: пишут потоки соединений сервера, читает поток теста. */
+    private val dispatchLog = java.util.Collections.synchronizedList(mutableListOf<String>())
+    private var startedAt = 0L
+
+    private fun note(what: String) {
+        dispatchLog.add("+${System.currentTimeMillis() - startedAt}мс  $what")
+    }
+
+    /** Сводка по потокам сети в момент падения — проверяет версию «пул занят чужими запросами».
+     *  Все тесты идут в ОДНОЙ виртуальной машине, поэтому `ApiClient` с пулом `Dispatchers.IO`
+     *  общий на весь прогон: висящий запрос раннего класса может съесть поток у позднего. */
+    private fun networkThreads(): String {
+        val all = Thread.getAllStackTraces()
+        val io = all.keys.filter { it.name.startsWith("DefaultDispatcher") || it.name.startsWith("kotlinx.coroutines") }
+        val busy = io.filter { t ->
+            all[t]?.any { it.className.contains("HttpURLConnection") || it.className.contains("SocketInputStream") } == true
+        }
+        val sample = busy.take(3).joinToString("\n") { t ->
+            "      «${t.name}» → " + (all[t]?.take(3)?.joinToString(" ← ") { "${it.className.substringAfterLast('.')}.${it.methodName}" } ?: "")
+        }
+        return "    потоков сети всего: ${io.size}, из них сидят в сетевом вызове: ${busy.size}\n" +
+            (if (sample.isBlank()) "" else "$sample\n")
+    }
+
+    /** Ответ в очередь. Идёт мимо `server.enqueue`: у сервера свой диспетчер
+     *  (он отсекает чужие запросы), а `enqueue` умеет только очередь. */
+    private fun enqueue(response: MockResponse) {
+        enqueued++
+        queue.enqueueResponse(response)
+        note("тест положил ответ в очередь (всего $enqueued)")
+    }
 
     @Before
     fun setup() {
+        enqueued = 0
         server = MockWebServer()
         // ЛИШНИЙ запрос не должен вешать тест. По умолчанию MockWebServer на запрос с пустой
-        // очередью НЕ отвечает вообще — соединение просто висит. Любой незапланированный поход
-        // в сеть (обновление токена по 401, повтор, фоновая подгрузка) в этот момент зависал
-        // навсегда, и тест падал по таймауту «условие не выполнено». Это выглядело как
-        // медленный раннер, но не лечилось ни 10, ни 60 секундами: ждать было нечего.
-        // failFast → на неожиданный запрос сразу 404, тест падает по существу и быстро.
-        (server.dispatcher as QueueDispatcher).setFailFast(MockResponse().setResponseCode(404))
+        // очередью НЕ отвечает вообще — соединение просто висит, и тест падает по таймауту
+        // «условие не выполнено». Это выглядело как медленный раннер, но не лечилось ни 10,
+        // ни 60 секундами: ждать было нечего. failFast → сразу 404, падаем по существу.
+        queue = server.dispatcher as QueueDispatcher
+        // Держим сам объект-заглушку: по нему отличаем «отдали заготовленный ответ»
+        // от «очередь была пуста». Сравнение по коду было бы хрупким — заготовленный
+        // ответ тоже может быть 404.
+        failFast = MockResponse().setResponseCode(404)
+        queue.setFailFast(failFast)
+        // БЕЛЫЙ список, а не чёрный: очередь достаётся ровно тем адресам, ради которых тест
+        // и поднят. У клиента четырнадцать фоновых запросов (`/me/update`, `/instant/presence`,
+        // `/ads/*/event`, выход, пуши…), и любой из них, прилетев из ЧУЖОГО тестового класса,
+        // забирал ответ, заготовленный для экрана. Чёрный список пришлось бы пополнять при
+        // каждом новом фоновом запросе — а никто об этом не вспомнит.
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                if (SERVED.none { path.startsWith(it) }) {
+                    note("${request.method} $path → 404 (чужой запрос, очередь не тронута)")
+                    return MockResponse().setResponseCode(404)
+                }
+                // Пусто ли в очереди — смотрим ДО обращения: `dispatch` очередь опустошает,
+                // и после него уже не отличить «отдали заготовленный» от «отдали 404 на пустой».
+                val fromQueue = queue.peek() !== failFast
+                val r = queue.dispatch(request)
+                note("${request.method} $path → ${r.status} (${if (fromQueue) "ЗАГОТОВЛЕННЫЙ ответ" else "очередь была ПУСТА"})")
+                return r
+            }
+        }
         // Обрываем всё фоновое, что осталось от предыдущих тестов. Область корутин у клиента
         // общая на весь процесс и раньше не отменялась никогда: «выстрелил и забыл» запрос из
         // раннего класса продолжал повторяться, когда давно шёл другой класс, — а адрес сервера
@@ -64,10 +139,16 @@ class AdminReviewsIntegrationTest {
         // минут, а тест ждёт двадцать: любая заминка выглядит как «навсегда Загрузка…».
         ApiClient.testTimeoutMs = 2000
         // Выход — ДО подмены адреса: `logout()` шлёт в фоне два запроса, и после подмены они
-        // прилетели бы на тестовый сервер и съели ответ, заготовленный для экрана.
+        // прилетели бы на тестовый сервер (белый список их всё равно отсечёт, но лишний шум
+        // в журнале ни к чему).
         ApiClient.logout()
         server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        startedAt = System.currentTimeMillis()
+        // След самого клиента: вошли в вызов / вышли с итогом / отменили. Показывает границу
+        // ответственности — если клиент вышел успешно, а экран пуст, виноват код экрана.
+        ApiClient.testTrace = { note("клиент: $it") }
+        note("сервер поднят: ${ApiClient.testBaseUrl}")
     }
 
     @After
@@ -75,11 +156,22 @@ class AdminReviewsIntegrationTest {
         // Порядок важен: сначала обрываем фоновое, потом гасим сервер. Иначе недобитый запрос
         // успевает уйти уже на СЛЕДУЮЩИЙ сервер — ровно тот механизм, из-за которого класс
         // проходит поодиночке и падает в полном прогоне.
+        ApiClient.testTrace = null
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
+        // Будим тех, кто мог заснуть на пустой очереди: выдача ответа у MockWebServer умеет
+        // блокировать поток, а наш диспетчер подменял исходный — и его `shutdown()`,
+        // который как раз будит спящих, не звался никогда.
+        queue.shutdown()
         server.shutdown()
     }
 
+    /**
+     * Ждём появления текста — и если не дождались, рассказываем ПОЧЕМУ.
+     *
+     * Голый таймаут («условие не выполнено за 20 с») — бесполезное сообщение: по нему нельзя
+     * отличить «сервер не ответил» от «экран показал ошибку» и от «просто не успели».
+     */
     private fun waitForText(text: String) {
         try {
             composeRule.waitUntil(timeoutMillis = 20_000) {
@@ -90,18 +182,32 @@ class AdminReviewsIntegrationTest {
                 composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
             }
         } catch (e: Throwable) {
-            // Тот же решающий замер, что и в AdminScreensIntegrationTest. Там измерение уже
-            // доказало: сеть отдаёт правильный ответ за 10 мс и потоки свободны — значит ответ
-            // не доезжает до экрана. Осталось разделить два случая, они лечатся по-разному:
-            // продолжение стоит в очереди и её никто не крутит, либо продолжения нет вовсе.
-            val appearedAfterPumping = runCatching {
+            // ⚠️ Итог прокрутки — ТРИ исхода, а не два. Раньше в соседнем классе стояло
+            // `.getOrElse { false }`, и любое падение самой прокрутки молча превращалось
+            // в «текст не появился» → отчёт печатал вывод «продолжение не поставили вовсе».
+            // Упасть тут есть чему: `advanceTimeBy`/`advanceTimeByFrame` крутят рекомпозицию
+            // и перебрасывают исключение, упавшее в композиции, а `fetchSemanticsNodes`
+            // падает на разрушенном дереве. Несостоявшееся измерение обязано называться
+            // несостоявшимся, иначе расследование идёт по выдуманному факту.
+            val pumped = runCatching {
                 composeRule.mainClock.advanceTimeBy(5_000)
                 repeat(50) {
                     org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
                     composeRule.mainClock.advanceTimeByFrame()
                 }
                 composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
-            }.getOrElse { false }
+            }
+            val pumpVerdict = pumped.fold(
+                onSuccess = { appeared ->
+                    if (appeared) "ПОЯВИЛСЯ → ответ всё это время лежал непрокрученным"
+                    else "так и НЕ появился → продолжение не поставили вовсе"
+                },
+                onFailure = { why ->
+                    "ИЗМЕРИТЬ НЕ УДАЛОСЬ — прокрутка упала сама: " +
+                        "${why::class.java.simpleName}: ${why.message}. " +
+                        "Вывод о продолжении по этому прогону делать НЕЛЬЗЯ."
+                },
+            )
             val asked = buildList {
                 while (true) {
                     val r = server.takeRequest(50, java.util.concurrent.TimeUnit.MILLISECONDS) ?: break
@@ -110,12 +216,23 @@ class AdminReviewsIntegrationTest {
             }
             val screen = runCatching { composeRule.onRoot().printToString(maxDepth = 10) }
                 .getOrElse { "дерево экрана прочитать не удалось: $it" }
+            // Сколько РЕАЛЬНОГО времени прожил тест до падения. Число маленькое (≈20 с) — ожидание
+            // честно вышло по своему таймауту, и виновата цепочка «сервер → экран». Число большое
+            // (≈минута и больше) — время съели ДО ожидания, а `createComposeRule` держит тело теста
+            // внутри `runTest`, у которого свой таймаут; по его срабатыванию область корутин теста
+            // отменяется вместе с областью экрана, и продолжение действительно «не ставится» —
+            // но виноват тогда не экран, а бюджет времени. Эти два случая до сих пор не различали.
+            val livedMs = System.currentTimeMillis() - startedAt
             throw AssertionError(
                 "Не дождались текста «$text».\n" +
+                    "Тест прожил до падения: $livedMs мс (само ожидание — 20 000 мс)\n" +
                     "Запросов пришло на сервер: ${server.requestCount} → $asked\n" +
-                    "ПОСЛЕ ПРИНУДИТЕЛЬНОЙ ПРОКРУТКИ ОЧЕРЕДЕЙ текст «$text» " +
-                    (if (appearedAfterPumping) "ПОЯВИЛСЯ → ответ всё это время лежал непрокрученным"
-                     else "так и НЕ появился → продолжение не поставили вовсе") + "\n" +
+                    "Ответов поставлено в очередь этим тестом: $enqueued\n" +
+                    "ЧТО ОТДАВАЛ СЕРВЕР (главное — было ли выдано заготовленное):\n" +
+                    synchronized(dispatchLog) { dispatchLog.joinToString("\n") { "    $it" } }
+                        .ifBlank { "    (сервер не принял ни одного запроса)" } + "\n" +
+                    "ПОТОКИ СЕТИ (проверяем «все заняты чужими запросами»):\n" + networkThreads() +
+                    "ПОСЛЕ ПРИНУДИТЕЛЬНОЙ ПРОКРУТКИ ОЧЕРЕДЕЙ текст «$text» " + pumpVerdict + "\n" +
                     "Что было на экране (до прокрутки):\n$screen",
                 e,
             )
@@ -124,7 +241,7 @@ class AdminReviewsIntegrationTest {
 
     @Test
     fun screenLoadsReviewsFromServerAndDisplaysThem() {
-        server.enqueue(
+        enqueue(
             MockResponse().setResponseCode(200)
                 .setBody("""{"items":[{"id":1,"name":"Айгуль","city":"Уфа","stars":5,"text":"Отличная поездка"}]}""")
         )
@@ -141,7 +258,7 @@ class AdminReviewsIntegrationTest {
 
     @Test
     fun emptyServerResponse_showsEmptyState() {
-        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"items":[]}"""))
+        enqueue(MockResponse().setResponseCode(200).setBody("""{"items":[]}"""))
         composeRule.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
                 AdminReviewsScreen(onBack = {})
