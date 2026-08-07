@@ -109,12 +109,20 @@ class AdminScreensIntegrationTest {
     private lateinit var server: MockWebServer
     private lateinit var queue: QueueDispatcher
 
+    /** Сколько ответов этот тест поставил в очередь. Нужен диагностике: без него нельзя
+     *  отличить «ответ приготовили, но он не понадобился» от «ответа и не готовили». */
+    private var enqueued = 0
+
     /** Ответ в очередь. Идёт мимо `server.enqueue`: у сервера свой диспетчер
      *  (он отсекает служебные запросы), а `enqueue` умеет только очередь. */
-    private fun enqueue(response: MockResponse) = queue.enqueueResponse(response)
+    private fun enqueue(response: MockResponse) {
+        enqueued++
+        queue.enqueueResponse(response)
+    }
 
     @Before
     fun setup() {
+        enqueued = 0
         server = MockWebServer()
         // ЛИШНИЙ запрос не должен вешать тест. По умолчанию MockWebServer на запрос с пустой
         // очередью НЕ отвечает вообще — соединение просто висит. Любой незапланированный поход
@@ -189,10 +197,16 @@ class AdminScreensIntegrationTest {
             }
             val screen = runCatching { composeRule.onRoot().printToString(maxDepth = 12) }
                 .getOrElse { "дерево экрана прочитать не удалось: $it" }
+            // ⚠️ Подпись этой строки была ЛОЖНОЙ (исправлено 2026-08-06). Стояло
+            // «Ответов в очереди осталось: ${server.requestCount}», но `requestCount` у
+            // MockWebServer — это счётчик ПРИШЕДШИХ ЗАПРОСОВ, а не остаток очереди ответов.
+            // То есть обе строки показывали одно и то же число под разными именами, и читатель
+            // делал вывод «подготовленный ответ никто не забрал» — вывод из воздуха.
+            // Расследование мигания идёт по этим цифрам, а цифра врала.
             throw AssertionError(
                 "Не дождались текста «$text».\n" +
-                    "Запросов на тестовый сервер пришло: ${asked.size} → $asked\n" +
-                    "Ответов в очереди осталось: ${server.requestCount}\n" +
+                    "Запросов пришло на сервер: ${server.requestCount} → $asked\n" +
+                    "Ответов поставлено в очередь этим тестом: $enqueued\n" +
                     "Что было на экране:\n$screen",
                 e,
             )
