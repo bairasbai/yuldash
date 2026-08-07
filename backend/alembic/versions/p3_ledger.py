@@ -104,6 +104,11 @@ def downgrade() -> None:
         ("payment", "method"), ("payment", "booking_id"), ("payment", "order_id"),
     ):
         if table in tables and col in _columns(bind, table):
-            op.drop_column(table, col)
+            # batch_alter_table, а не голый drop_column: payment.order_id/booking_id участвуют
+            # в FOREIGN KEY, и SQLite отказывается снимать такую колонку через ALTER TABLE
+            # ("unknown column ... in foreign key definition"). batch пересоздаёт таблицу без
+            # колонки и без её внешнего ключа; на PostgreSQL это тот же ALTER TABLE DROP COLUMN.
+            with op.batch_alter_table(table) as b:
+                b.drop_column(col)
     if "ledgerentry" in _tables(bind):
         op.drop_table("ledgerentry")

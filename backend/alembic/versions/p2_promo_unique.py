@@ -47,4 +47,8 @@ def downgrade() -> None:
     if "promoredemption" in insp.get_table_names():
         uniques = {c["name"] for c in insp.get_unique_constraints("promoredemption")}
         if _UQ in uniques:
-            op.drop_constraint(_UQ, "promoredemption", type_="unique")
+            # batch_alter_table, а не голый drop_constraint: SQLite не умеет ALTER констрейнтов
+            # (NotImplementedError), и откат падал. batch пересоздаёт таблицу без констрейнта;
+            # на PostgreSQL это тот же самый ALTER TABLE ... DROP CONSTRAINT, что и раньше.
+            with op.batch_alter_table("promoredemption") as b:
+                b.drop_constraint(_UQ, type_="unique")
