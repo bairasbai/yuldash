@@ -154,6 +154,7 @@ import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolunteerActivism
 import androidx.compose.material3.AssistChip
@@ -1225,6 +1226,7 @@ internal fun FiltersScreen(onBack: () -> Unit) {
                     SettingSwitchRow(Icons.Default.Luggage, appText("Багаж", "Багаж"), appText("Есть место под багаж", "Багаж өсөн урын бар"), "baggage" in sel) { toggle("baggage") }
                     SettingSwitchRow(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), appText("Есть кондиционер в салоне", "Салонда кондиционер бар"), "ac" in sel) { toggle("ac") }
                     SettingSwitchRow(Icons.Default.Block, appText("Некурящий", "Тартмаусы"), appText("Показывать поездки без курения", "Тартыуһыҙ сәфәрҙәр генә"), "nosmoke" in sel) { toggle("nosmoke") }
+                    SettingSwitchRow(Icons.Default.VolumeOff, appText("Тихая поездка", "Тыныс сәфәр"), appText("Едем без лишних разговоров и громкой музыки", "Артыҡ һөйләшеүһеҙ, ҡысҡырып музыкаһыҙ"), "quiet" in sel) { toggle("quiet") }
                 }
             }
         }

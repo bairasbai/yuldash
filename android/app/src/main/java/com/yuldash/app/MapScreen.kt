@@ -139,6 +139,7 @@ import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolunteerActivism
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -370,7 +371,11 @@ internal fun MapScreen(
                 ("pets" !in prefFilter || d.petsAllowed) &&
                 ("baggage" !in prefFilter || d.baggage) &&
                 ("ac" !in prefFilter || d.airConditioner) &&
-                ("nosmoke" !in prefFilter || !d.smoking)   // некурящий = поездки, где курить нельзя
+                ("nosmoke" !in prefFilter || !d.smoking) &&   // некурящий = поездки, где курить нельзя
+                // «Тихая поездка» водитель мог отметить с самого начала, а найти её пассажир не мог —
+                // условие было только на карточке. Главная жалоба попутчиков (BlaBlaCar, 1449 голосов)
+                // не про багаж, а про три часа разговора, от которого некуда деться.
+                ("quiet" !in prefFilter || d.quiet)
         }
     }
     // Пины-ценники на карте = те же «Ближайшие» (реальные поездки), макс 20 чтобы не захламлять.
@@ -527,6 +532,7 @@ internal fun MapScreen(
                             NearbyFilterChip(Icons.Default.Luggage, appText("Багаж", "Багаж"), "baggage" in prefFilter, modifier = chipTouch) { prefFilter = if ("baggage" in prefFilter) prefFilter - "baggage" else prefFilter + "baggage" }
                             NearbyFilterChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), "ac" in prefFilter, modifier = chipTouch) { prefFilter = if ("ac" in prefFilter) prefFilter - "ac" else prefFilter + "ac" }
                             NearbyFilterChip(Icons.Default.Block, appText("Некурящий", "Тартмаусы"), "nosmoke" in prefFilter, modifier = chipTouch) { prefFilter = if ("nosmoke" in prefFilter) prefFilter - "nosmoke" else prefFilter + "nosmoke" }
+                            NearbyFilterChip(Icons.Default.VolumeOff, appText("Тихая поездка", "Тыныс сәфәр"), "quiet" in prefFilter, modifier = chipTouch) { prefFilter = if ("quiet" in prefFilter) prefFilter - "quiet" else prefFilter + "quiet" }
                         }
                         // F9: поясняем, что фильтр «Только женщины» включает и женщин за рулём.
                         AnimatedVisibility(

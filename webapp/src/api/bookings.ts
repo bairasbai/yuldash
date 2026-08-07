@@ -72,6 +72,8 @@ export interface TripState {
   role: "driver" | "passenger";
   status: BookingStatus;
   driver_phase: DriverPhase;
+  /** Сервер сверил «подъезжаю» с живым GPS водителя: машина правда рядом с точкой подачи. */
+  arrival_verified?: boolean;
 }
 
 /** Квитанция завершённой поездки (GET /trips/{id}/receipt). */

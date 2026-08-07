@@ -6,12 +6,14 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from .. import livepos            # модулем, а не функцией: так подмена в тестах цепляет вызов
+from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Rating, Ride, RideStatus, User
 from ..safety_logic import CANCEL_REASONS, ensure_active
 from ..security import current_user, gen_otp
-from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, push_notification, user_rating
+from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["bookings"])
@@ -259,11 +261,47 @@ def booking_role(booking_id: int, user: User = Depends(current_user), session: S
         "role": "driver" if ride.driver_id == user.id else "passenger",
         "status": booking.status,
         "driver_phase": booking.driver_phase,
+        # true = сервер сам сверил «подъезжаю» с GPS водителя. Пассажир видит «подтверждено по GPS»
+        # и знает, что машина правда рядом, а не «уже почти» на словах.
+        "arrival_verified": bool(booking.arrival_verified),
     }
 
 
 class DriverStatusIn(BaseModel):
     status: str  # departed | arriving | done
+
+
+def _pickup_point(ride: Ride) -> Optional[tuple]:
+    """Куда водитель должен подъехать — ТОЛЬКО точный пин точки сбора.
+
+    Центр города сюда намеренно НЕ подставляем: Уфа больше 20 км в поперечнике, и водитель,
+    честно забирающий пассажира в Черниковке, оказался бы «в 12 км от центра» и получил отказ.
+    Нет пина — нет проверки; лучше пропустить обман, чем остановить честного.
+    """
+    if ride.pickup_lat is not None and ride.pickup_lng is not None:
+        return (ride.pickup_lat, ride.pickup_lng)
+    return None
+
+
+def _verify_arrival(booking: Booking, ride: Ride) -> Optional[float]:
+    """Сверить «подъезжаю» с живым GPS водителя. Возвращает расстояние в метрах или None.
+
+    None = проверить нечем (выключено рубильником, нет пина подачи, Redis молчит или водитель
+    ещё не прислал ни одного кадра). Тогда пропускаем как раньше — доверяем слову. Блокируем
+    только когда ТОЧНО знаем, что водитель далеко: ложный отказ дороже пропущенного обмана.
+    """
+    if not settings.arrival_verify_enabled:
+        return None
+    target = _pickup_point(ride)
+    if target is None:
+        return None
+    try:
+        pos = livepos.livepos_get("booking", booking.id)
+    except Exception:  # noqa: BLE001 — кэш позиции best-effort, он не вправе ронять статус
+        return None
+    if not pos or pos.get("lat") is None or pos.get("lng") is None:
+        return None
+    return haversine_km(float(pos["lat"]), float(pos["lng"]), target[0], target[1]) * 1000.0
 
 
 @router.post("/bookings/{booking_id}/driver-status")
@@ -298,6 +336,22 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     # «выехал/подъезжает» бессмысленны на мёртвой броне — иначе push «Водитель выехал» по отменённой/завершённой.
     if booking.status in (BookingStatus.cancelled, BookingStatus.done):
         raise herr(409, "Поездка не активна", "Сәфәр актив түгел")
+    # Честное «подъезжаю»: слово водителя сверяем с его же GPS. Пассажир, увидев «подъезжает»,
+    # выходит из дома — на морозе цена вранья высокая. Ловим только доказанный случай (см. _verify_arrival).
+    if body.status == "arriving":
+        meters = _verify_arrival(booking, ride)
+        if meters is not None and meters > settings.arrival_verify_radius_m:
+            km = meters / 1000.0
+            raise herr(
+                409,
+                f"Вы ещё далеко от места подачи (≈{km:.1f} км). "
+                "Нажмите «Подъезжаю», когда будете рядом — пассажир выйдет ровно к вашему приезду.",
+                f"Һеҙ алыу урынынан алыҫ әле (≈{km:.1f} км). "
+                "«Яҡынлашам»ды яҡын килгәс баҫығыҙ — юлсы тап һеҙ килгәнгә сыға.",
+            )
+        booking.arrival_verified = meters is not None
+    else:
+        booking.arrival_verified = False     # «выехал» — до места ещё ехать, подтверждать нечего
     booking.driver_phase = body.status       # сохраняем «выехал/подъезжает» → пассажир увидит live, не только пушем
     session.add(booking)
     session.commit()

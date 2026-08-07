@@ -25,6 +25,7 @@ export interface Ride {
   baggage?: boolean;
   child_seat?: boolean;
   pets_allowed?: boolean;
+  quiet?: boolean; // тихая поездка: без лишних разговоров и громкой музыки
   boosted?: boolean;
   status?: "active" | "done" | "cancelled" | string; // есть в /driver/rides (RideOut)
   driver_name: string;
