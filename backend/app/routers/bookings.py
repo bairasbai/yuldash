@@ -1,5 +1,6 @@
 """Брони: бронирование (с защитой от овербукинга и блокировок), подтверждение,
 отмена, список своих, список броней водителя для оценки пассажиров."""
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -13,6 +14,7 @@ from ..safety_logic import CANCEL_REASONS, ensure_active
 from ..security import current_user, gen_otp
 from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
+from ..trust_service import INSIDER_LEVEL, trust_level
 
 router = APIRouter(tags=["bookings"])
 
@@ -41,6 +43,11 @@ def _ensure_route_coords(session: Session, ride: Ride) -> None:
 
 
 MAX_PAY_AMOUNT = 100_000   # ₽ — здравый потолок для суммы договорённости (защита от опечатки/мусора)
+
+# На сколько раньше времени выезда разрешено сказать «поездка завершена». Допуск тот же, что у
+# публикации («время выезда уже прошло» прощает 30 минут): часы на телефоне врут на минуты,
+# и выехать пораньше — обычное дело. Всё, что раньше этого, — не поездка, а нажатая кнопка.
+DONE_EARLY_GRACE = timedelta(minutes=30)
 
 
 def _clean_pay_amount(amount: Optional[int]) -> Optional[int]:
@@ -101,6 +108,13 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         raise herr(400, "Нельзя бронировать собственную поездку", "Үҙ сәфәреңде бронларға ярамай")
     if is_blocked(session, user.id, ride.driver_id):
         raise herr(403, "Бронь недоступна", "Бронь мөмкин түгел")
+    # «Только для своих» (L3) закрывает поездку ЦЕЛИКОМ, а не только ленту. Фильтр стоял на всех
+    # выдачах и на отклике по заявке (requests.py: «прямой id не обходит фильтр»), а бронь его не
+    # знала: лента прячет, GET /rides/{id} даёт 404 — и тут же POST /bookings проходит с 200.
+    # Чужой становился полноправным участником закрытой поездки (чат, детали, телефон водителя),
+    # а id взять есть откуда: они последовательные, плюс пуш «карауль маршрут» (аудит 2026-08-07).
+    if getattr(ride, "only_trusted", False) and trust_level(session, user) < INSIDER_LEVEL:
+        raise herr(403, "Поездка только для своих", "Сәфәр тик үҙ кешеләр өсөн")
     # Защита от дубля: один пассажир не бронирует одну поездку повторно (двойной тап / повторный заход).
     # Идемпотентно — возвращаем существующую активную бронь, мест не списываем заново.
     existing = session.exec(
@@ -280,6 +294,15 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
         # Идемпотентно: уже завершённую/отменённую бронь не трогаем. (pending→done — легитимный
         # поток: пассажир не «подтверждает» отдельно, водитель завершает поездку напрямую.)
         if booking.status not in (BookingStatus.done, BookingStatus.cancelled):
+            # Завершить можно только НАЧАВШУЮСЯ поездку. Раньше проверки не было вовсе, и цикл
+            # «опубликовал на 2030 год → забронировал вторым аккаунтом → завершил» из трёх запросов
+            # рисовал бейдж «N поездок» и открывал обеим сторонам оценку — без единого метра пути
+            # (аудит 2026-08-07). Бейдж доверия и есть продукт «между своими», подделывать его
+            # нельзя. Проверка стоит ВНУТРИ ветки «статус меняется»: повторный тап по уже
+            # завершённой броне по-прежнему отвечает «ок», а не ошибкой.
+            if ride.depart_at and utcnow() < ride.depart_at - DONE_EARLY_GRACE:
+                raise herr(409, "Поездка ещё не началась — завершить можно после времени выезда",
+                           "Сәфәр әле башланмаған — сығыу ваҡытынан һуң тамамлап була")
             booking.status = BookingStatus.done
             booking.driver_phase = ""        # поездка кончилась — фазу сбрасываем
             session.add(booking)
@@ -356,9 +379,17 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
         # Блокируем строки поездки и брони → две одновременные отмены не вернут места ДВАЖДЫ.
         # V4: порядок локов Ride → Booking — ЕДИНЫЙ с cancel_ride (иначе обратный порядок
         # cancel_ride(Ride→Booking) vs cancel_booking(Booking→Ride) даёт deadlock под нагрузкой).
-        ride = session.exec(select(Ride).where(Ride.id == booking.ride_id).with_for_update()).first()
+        # populate_existing: БЕЗ него лок сторожит пустоту. Обе строки уже загружены выше
+        # (booking_and_ride_for_user), а SQLAlchemy при повторной загрузке известного объекта
+        # НЕ перезаписывает поля — под локом читались старые значения. На Postgres это хуже,
+        # чем на SQLite: ожидание на локе гарантирует, что данные прочитаны до чужого коммита.
+        # Итог был такой: места возвращались из устаревшего seats_left → в поездке «освобождалось»
+        # больше мест, чем есть в машине (аудит 2026-08-07).
+        ride = session.exec(select(Ride).where(Ride.id == booking.ride_id)
+                            .with_for_update().execution_options(populate_existing=True)).first()
         # Бронь перечитываем под локом и ПЕРЕПРОВЕРЯЕМ статус: первая отмена уже могла отработать.
-        booking = session.exec(select(Booking).where(Booking.id == booking_id).with_for_update()).first()
+        booking = session.exec(select(Booking).where(Booking.id == booking_id)
+                               .with_for_update().execution_options(populate_existing=True)).first()
         if booking.status in (BookingStatus.cancelled, BookingStatus.done):
             return booking                     # другая параллельная отмена опередила — места уже возвращены
         contact_opened = booking.status in (BookingStatus.confirmed, BookingStatus.onboard) or (
@@ -402,8 +433,12 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
     if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard):
         raise herr(409, "Неявку можно отметить только по подтверждённой брони", "Килмәүҙе тик раҫланған бронь буйынса ғына билдәләп була")
     # Порядок локов Ride → Booking — ЕДИНЫЙ с cancel_booking/cancel_ride (V4, без deadlock).
-    ride = session.exec(select(Ride).where(Ride.id == booking.ride_id).with_for_update()).first()
-    booking = session.exec(select(Booking).where(Booking.id == booking_id).with_for_update()).first()
+    # populate_existing — по той же причине, что в cancel_booking: обе строки уже загружены выше,
+    # и без него «перепроверка под локом» смотрела бы на устаревшие значения (аудит 2026-08-07).
+    ride = session.exec(select(Ride).where(Ride.id == booking.ride_id)
+                        .with_for_update().execution_options(populate_existing=True)).first()
+    booking = session.exec(select(Booking).where(Booking.id == booking_id)
+                           .with_for_update().execution_options(populate_existing=True)).first()
     if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard):
         return booking                         # параллельная отмена/неявка опередила — места уже возвращены
     booking.status = BookingStatus.cancelled

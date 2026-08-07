@@ -8,6 +8,18 @@ import pytest
 from app.models import UserRole
 
 
+def just_left() -> str:
+    """Время выезда «только что» (UTC с явным поясом).
+
+    Завершить поездку можно лишь у НАЧАВШЕЙСЯ — обе двери к этому переходу закрыты планкой
+    (аудит 2026-08-07: цикл «опубликовал на 2030 год → забронировал вторым аккаунтом →
+    завершил» рисовал бейдж «N поездок» без единого метра пути). Тесты, которые доводят
+    поездку до конца, передают это в `_ride(..., depart_at=just_left())`."""
+    from datetime import timedelta
+    from app.timeutil import utcnow
+    return (utcnow() - timedelta(minutes=1)).replace(microsecond=0).isoformat() + "+00:00"
+
+
 def _ride(client, drv, seats=3, **extra):
     """Общий помощник «опубликовать поездку». `extra` (например comment=…) нужен там,
     где тесту требуются ДВЕ разные поездки: байт-в-байт одинаковые схлопываются как

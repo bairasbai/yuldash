@@ -317,6 +317,12 @@ def search_rides(
     q = select(Ride).where(
         Ride.status == RideStatus.active,
         Ride.depart_at >= utcnow() - timedelta(hours=RIDE_PAST_GRACE_HOURS),
+        # Мест не осталось — в ленте показывать нечего (аудит 2026-08-07). Соседняя выдача
+        # «Ближайшие» (`/rides/near`, ниже) этот отсев делает с самого начала, а общая лента —
+        # нет. Заметнее всего это на поездке, созданной из принятого отклика: она рождается
+        # сразу занятой под одного пассажира и всё равно висела в списке. Человек открывает
+        # карточку, жмёт «Забронировать» и получает отказ — выглядит как поломка приложения.
+        Ride.seats_left > 0,
     )
     if from_city:
         q = q.where(Ride.from_city.contains(bare_name(from_city)))

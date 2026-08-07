@@ -16,13 +16,17 @@ from __future__ import annotations
 
 from app.models import UserRole
 
-from test_api import _ride
+from test_api import _ride, just_left
 
 
 def _done_trip(client, user_factory, tag):
-    """Состоявшаяся поездка: водитель, пассажир, номер брони."""
+    """Состоявшаяся поездка: водитель, пассажир, номер брони.
+
+    Выезд — «только что»: завершить можно лишь начавшуюся поездку (аудит 2026-08-07).
+    Поездка «в 2030 году», закрытая как состоявшаяся, — это и была накрутка, от которой
+    защищает этот файл, просто с другой стороны."""
     driver = user_factory(f"{tag}Driver", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=2)
+    ride_id = _ride(client, driver, seats=2, depart_at=just_left())
     passenger = user_factory(f"{tag}Passenger")
     bid = client.post("/bookings", headers=passenger["auth"], json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{bid}/confirm", headers=driver["auth"]).status_code == 200

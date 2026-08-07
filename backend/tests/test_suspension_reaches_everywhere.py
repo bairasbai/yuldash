@@ -29,7 +29,7 @@ from app.db import engine
 from app.models import SafetyProfile, UserRole
 from app.timeutil import utcnow
 
-from test_api import _ride
+from test_api import _ride, just_left
 
 ORIG = (52.5911, 58.3178)   # Баймак
 DEST = (52.9128, 58.6689)   # Сибай
@@ -204,7 +204,9 @@ def test_пауза_не_бросает_пассажира_в_начатой_п�
     """Водителя отстранили, пока он уже вёз человека. Завершить поездку он обязан суметь —
     иначе бронь зависнет, а пассажир останется без отметки о состоявшейся поездке."""
     driver = user_factory("SuspMidTripDrv", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=2)
+    # Поездка УЖЕ выехала — иначе её и завершить нельзя (аудит 2026-08-07), и тест проверял бы
+    # не паузу, а планку времени. По смыслу теста человек как раз в дороге.
+    ride_id = _ride(client, driver, seats=2, depart_at=just_left())
     passenger = user_factory("SuspMidTripPax")
     bid = client.post("/bookings", headers=passenger["auth"],
                       json={"ride_id": ride_id, "seats": 1}).json()["id"]

@@ -746,14 +746,25 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     if not order:
         raise HTTPException(404, "Заказ не найден")
     _guard_owns(order, actor, user_id)
-    if order.status in TERMINAL:
+    # Очередь «подожду машину» держит заказ в `expired` с проставленным `wait_until`: статус
+    # терминальный только на словах — фоновый воркер каждые пару минут перезапускает по нему
+    # поиск (taxi_worker.retry_waiting_orders). Из-за раннего выхода ниже отмена такого заказа
+    # молча отвечала 200 и не делала НИЧЕГО: человек нажал «Отмена», приложение сказало «ок»,
+    # а через две минуты к подъезду всё равно приезжал водитель. Пассажира там нет, водитель
+    # ждёт и жмёт «пассажир не вышел» → страйк и сутки без такси невиновному, водителю —
+    # пустой пробег (аудит 2026-08-07).
+    in_wait_queue = (actor == Actor.passenger and order.status == S.expired
+                     and order.wait_until is not None)
+    if order.status in TERMINAL and not in_wait_queue:
         return order   # уже терминальный — idempotent
     allowed = PASSENGER_CANCELLABLE if actor == Actor.passenger else DRIVER_CANCELLABLE
-    if order.status not in allowed:
+    if order.status not in allowed and not in_wait_queue:
         raise HTTPException(409, f"Сейчас отменить нельзя ({order.status.value})")
     now = utcnow()
+    # wait_until снимаем при ЛЮБОЙ отмене: отменённый заказ не может оставаться в очереди.
     values = dict(status=S.cancelled, cancelled_at=now, cancel_by=actor.value,
-                  cancel_reason=(reason or "")[:200], current_offer_driver_id=None, offer_expires_at=None)
+                  cancel_reason=(reason or "")[:200], current_offer_driver_id=None,
+                  offer_expires_at=None, wait_until=None)
     # Анти-фрод (B8-8, «увод мимо приложения»): отмена ПОСЛЕ accept = телефоны/чат уже
     # открылись (contact-then-cancel). Только помечаем (счётчик в админ-пульсе) — не наказываем.
     if order.accepted_at is not None:
@@ -1014,26 +1025,52 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     return start_matching(session, order)
 
 
+# Из каких статусов поиск можно (пере)запустить: свежесозданный заказ, предзаказ в момент
+# активации, очередь «рядом никого» (expired + wait_until) и уже идущий круг подбора.
+_MATCHABLE = (S.created, S.scheduled, S.searching, S.expired)
+
+
 def start_matching(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
     """created → searching → (offered | expired). Зовётся при создании заказа и при
-    перезапуске поиска из очереди «рядом никого» (там notify=False — см. _expire_no_drivers)."""
-    session.execute(
-        update(InstantOrder).where(InstantOrder.id == order.id)
-        .values(status=S.searching, searching_at=utcnow())
+    перезапуске поиска из очереди «рядом никого» (там notify=False — см. _expire_no_drivers).
+
+    Статус пишем УСЛОВНО (CAS), как `transition` и `cancel_order`. Раньше UPDATE был
+    безусловным, а зовут функцию фоновые задачи: воркер выбирает пачку до 200 строк и идёт
+    по ней с Redis-походом и пушем на каждую — объект в руках устаревает на секунды. Всё,
+    что за это время стало `cancelled`/`accepted`/`done`, откатывалось назад в поиск: человек
+    отменил заказ, получил «ок», а через минуту к нему ехал водитель (аудит 2026-08-07).
+
+    Счётчик офферов обнуляем на каждом круге: `instant_max_offers` — предохранитель «сколько
+    раз предлагать заказ ЗА КРУГ». Он копился за всю жизнь заказа, и очередь «подожду машину»
+    после 8 суммарных офферов замолкала навсегда — полоска «ищем машину» живая, а сервер уже
+    никому не предлагает, даже если свободный водитель стоит в ста метрах."""
+    result = session.execute(
+        update(InstantOrder)
+        .where(InstantOrder.id == order.id, InstantOrder.status.in_(_MATCHABLE))
+        .values(status=S.searching, searching_at=utcnow(), search_round=0)
     )
     session.commit()
     order = session.get(InstantOrder, order.id)
+    if result.rowcount == 0:
+        return order        # заказ успели закрыть/принять — поиск не начинаем
     return try_offer_next(session, order, notify)
 
 
 def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
-    """Оффер отклонён/протух → назад в searching → следующий кандидат."""
-    session.execute(
-        update(InstantOrder).where(InstantOrder.id == order.id)
+    """Оффер отклонён/протух → назад в searching → следующий кандидат.
+
+    Условие `status = offered` — то же CAS, что в `start_matching`: без него протухший оффер
+    из фоновой пачки воскрешал заказ, который водитель уже принял (заказ отбирался у него
+    посреди подачи) или который пассажир уже отменил."""
+    result = session.execute(
+        update(InstantOrder)
+        .where(InstantOrder.id == order.id, InstantOrder.status == S.offered)
         .values(status=S.searching, current_offer_driver_id=None, offer_expires_at=None)
     )
     session.commit()
     order = session.get(InstantOrder, order.id)
+    if result.rowcount == 0:
+        return order        # заказ уже не в оффере (принят/отменён/закрыт) — не трогаем
     return try_offer_next(session, order, notify)
 
 
@@ -1244,6 +1281,37 @@ def maybe_receipt_reminder(session: Session, driver_id: Optional[int], now=None)
     return True
 
 
+# Сколько ещё видны телефоны сторон после завершённой поездки. Ровно столько же живёт
+# «забытая вещь» (48 ч, routers/instant.py) — это одна и та же потребность: доехали, а через
+# час нашлась сумка на заднем сиденье.
+CONTACTS_AFTER_DONE = timedelta(hours=48)
+
+
+def phones_open(order: InstantOrder, now=None) -> bool:
+    """Открыт ли ПРЯМО СЕЙЧАС телефон второй стороны.
+
+    Раньше телефон определялся статусом: `accepted/arriving/onboard/done`. Но `done` заказ
+    остаётся `done` навсегда, значит водитель вечно видел имя и номер пассажирки, которую вёз
+    год назад, просто открыв старый заказ. Ручка «забыл вещь в машине» при этом прямо пишет,
+    что «телефон второй стороны виден, только пока заказ активен», и ради этого открывает чат
+    на 48 часов — окно было задумано, но в коде его не было (аудит 2026-08-07).
+
+    Сейчас: пока поездка живая — открыт; после завершения — ещё 48 часов, и дольше, если
+    заявлена забытая вещь (пока идёт поиск, связь нужна). Дальше закрыт: это и здравый смысл
+    в приложении «между своими», и требование 152-ФЗ показывать личные данные ровно столько,
+    сколько нужно для цели.
+    """
+    if order.status in (S.accepted, S.arriving, S.onboard):
+        return True
+    if order.status != S.done:
+        return False
+    now = now or utcnow()
+    if order.lost_item_until is not None and order.lost_item_until > now:
+        return True
+    since = order.done_at or order.created_at
+    return since is None or (now - since) <= CONTACTS_AFTER_DONE
+
+
 def is_order_participant(order: InstantOrder, viewer_id: int) -> bool:
     """Имеет ли человек отношение к заказу: пассажир, назначенный водитель или тот,
     кому заказ предложен прямо сейчас. Те же три роли, что в `_order_for_view`."""
@@ -1271,6 +1339,9 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
     role = "driver" if (order.driver_id == viewer.id
                         or order.current_offer_driver_id == viewer.id) else "passenger"
     unlocked = order.status in UNLOCKED
+    # Телефоны живут по своему, более короткому правилу — см. phones_open: имя, машина и
+    # госномер остаются в истории поездки (по ним разбирают спор), а номер телефона — нет.
+    phones = phones_open(order)
     # Рейтинг/опыт пассажира (B7a-4) — только витрине ВОДИТЕЛЯ (оффер и активный заказ):
     # анонимный агрегат, чтобы решать по данным. Пассажиру про себя не считаем (лишние запросы).
     p_rating, p_trips = (passenger_stats(session, order.passenger_id)
@@ -1379,13 +1450,14 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         "driver_verified": (bool(driver.verified) if (unlocked and driver) else False),
         "driver_rating": (prof.rating if (unlocked and prof) else 0.0),
         # Телефон водителя — только пассажиру после accept; телефон пассажира — только водителю.
-        "driver_phone": (driver.phone if (unlocked and driver and role == "passenger") else ""),
+        # И только пока телефон вообще открыт (`phones`): после поездки окно закрывается.
+        "driver_phone": (driver.phone if (phones and driver and role == "passenger") else ""),
         # Заказ ДЛЯ ДРУГОГО: водителю показываем имя и телефон ТОГО, КОГО ВЕЗЁМ (сын из Уфы
         # вызывает такси маме в Баймаке — звонить надо маме, а не заказчику в другой город).
         "passenger_name": ((order.for_name or (passenger.name if passenger else ""))
                            if (unlocked and role == "driver") else ""),
         "passenger_phone": ((order.for_phone or (passenger.phone if passenger else ""))
-                            if (unlocked and role == "driver") else ""),
+                            if (phones and role == "driver") else ""),
         "for_other": bool(order.for_phone or order.for_name),
         # id пассажира — только водителю и только после accept (как имя и телефон). Нужен, чтобы
         # водитель мог открыть РАЗБОР по этой поездке: спор требует указать вторую сторону,

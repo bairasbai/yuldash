@@ -9,9 +9,20 @@
   - «Земляк» требует города пользователя, а в модели User/DriverProfile города нет → честно пропущено.
   - «Отвечает быстро» требует времени подтверждения брони, а confirmed_at не хранится → честно пропущено.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.models import UserRole
+from app.timeutil import utcnow
+
+
+def _just_left():
+    """Поездка, которая только что выехала (время в UTC с явным поясом).
+
+    Бейдж «N поездок» считает ТОЛЬКО состоявшиеся поездки, и завершить бронь можно лишь
+    у начавшейся (аудит 2026-08-07: цикл «опубликовал на 2030 год → забронировал вторым
+    аккаунтом → завершил» рисовал сотню поездок за три запроса). Поэтому тесты про бейдж
+    ездят «прямо сейчас», как в жизни, а не в 2030 году."""
+    return (utcnow() - timedelta(minutes=1)).replace(microsecond=0).isoformat() + "+00:00"
 
 
 def _publish(client, drv, frm="Баймак", to="Сибай", seats=3, price=300, **extra):
@@ -53,7 +64,7 @@ def test_ride_out_has_badge_fields(client, user_factory):
 def test_trips_badge_counts_completed_trips(client, user_factory):
     drv = user_factory("TripsDrv", role=UserRole.driver)
     pax = user_factory("TripsPax")
-    ride = _publish(client, drv, frm="СтажГрад", to="Сибай")
+    ride = _publish(client, drv, frm="СтажГрад", to="Сибай", depart_at=_just_left())
     booking = _book(client, pax, ride["id"])
     # до завершения — 0 (бронь есть, но поездка не завершена)
     assert _ride_from(client, "СтажГрад")["driver_trips"] == 0
@@ -66,7 +77,7 @@ def test_trips_badge_distinct_by_ride_not_passengers(client, user_factory):
     drv = user_factory("DistinctDrv", role=UserRole.driver)
     p1 = user_factory("DistinctP1")
     p2 = user_factory("DistinctP2")
-    ride = _publish(client, drv, frm="ДистинктГрад", to="Сибай", seats=4)
+    ride = _publish(client, drv, frm="ДистинктГрад", to="Сибай", seats=4, depart_at=_just_left())
     b1 = _book(client, p1, ride["id"])
     b2 = _book(client, p2, ride["id"])
     _finish(client, drv, b1["id"])
@@ -77,10 +88,10 @@ def test_trips_badge_distinct_by_ride_not_passengers(client, user_factory):
 def test_trips_badge_two_rides_counts_two(client, user_factory):
     drv = user_factory("TwoDrv", role=UserRole.driver)
     pax = user_factory("TwoPax")
-    r1 = _publish(client, drv, frm="ДваГрад", to="Сибай")
+    r1 = _publish(client, drv, frm="ДваГрад", to="Сибай", depart_at=_just_left())
     b1 = _book(client, pax, r1["id"])
     _finish(client, drv, b1["id"])
-    r2 = _publish(client, drv, frm="ДваГрад", to="Уфа")
+    r2 = _publish(client, drv, frm="ДваГрад", to="Уфа", depart_at=_just_left())
     b2 = _book(client, pax, r2["id"])
     _finish(client, drv, b2["id"])
     assert _ride_from(client, "ДваГрад")["driver_trips"] == 2

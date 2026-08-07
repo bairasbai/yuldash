@@ -5,12 +5,14 @@
 Лимитер в тестах выключен (conftest).
 """
 import base64
+from datetime import timedelta
 
 from sqlmodel import Session
 
 from app.db import engine
 from app.models import Ride
 from app.models import UserRole
+from app.timeutil import utcnow
 
 
 # ----------------------------- helpers -----------------------------
@@ -28,11 +30,24 @@ def _book(client, pax, ride_id, seats=1):
     return r.json()
 
 
-def _trip(client, user_factory):
-    """Готовая поездка: водитель, поездка, пассажир, бронь. Возвращает (drv, pax, ride, booking)."""
+def just_left() -> str:
+    """Время выезда «только что» (UTC с явным поясом).
+
+    Завершить поездку можно лишь у НАЧАВШЕЙСЯ — обе двери к этому переходу закрыты планкой
+    (аудит 2026-08-07: цикл «опубликовал на 2030 год → забронировал вторым аккаунтом →
+    завершил» рисовал бейдж «N поездок» без единого метра пути). Поэтому тесты, которые
+    доводят поездку до конца, ездят «прямо сейчас», как в жизни, а не в 2030 году."""
+    return (utcnow() - timedelta(minutes=1)).replace(microsecond=0).isoformat() + "+00:00"
+
+
+def _trip(client, user_factory, depart_at: str | None = None):
+    """Готовая поездка: водитель, поездка, пассажир, бронь. Возвращает (drv, pax, ride, booking).
+
+    `depart_at` по умолчанию будущий (так тесты про бронь/отмену ближе к жизни). Тестам,
+    которые ЗАВЕРШАЮТ поездку, нужен `just_left()`."""
     drv = user_factory("Drv", role=UserRole.driver)
     pax = user_factory("Pax")
-    ride = _publish(client, drv)
+    ride = _publish(client, drv, **({"depart_at": depart_at} if depart_at else {}))
     booking = _book(client, pax, ride["id"])
     return drv, pax, ride, booking
 
@@ -286,7 +301,7 @@ def test_no_duplicate_booking(client, user_factory):
 
 
 def test_finish_trip_closes_booking(client, user_factory):
-    drv, pax, ride, booking = _trip(client, user_factory)
+    drv, pax, ride, booking = _trip(client, user_factory, depart_at=just_left())
     r = client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "done"})
     assert r.status_code == 200
     mine = client.get("/bookings/mine", headers=pax["auth"]).json()
@@ -401,7 +416,7 @@ def test_chat_conversations_notifications(client, user_factory):
 
 # ----------------------------- рейтинги -----------------------------
 def test_two_way_rating(client, user_factory):
-    drv, pax, ride, booking = _trip(client, user_factory)
+    drv, pax, ride, booking = _trip(client, user_factory, depart_at=just_left())
     bid = booking["id"]
     # Оценить можно только ЗАВЕРШЁННУЮ поездку (анти-накрутка): до завершения — 409, после — 200.
     assert client.post(f"/bookings/{bid}/rate", headers=pax["auth"], json={"stars": 5}).status_code == 409

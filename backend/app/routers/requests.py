@@ -114,6 +114,12 @@ def create_request(body: RequestIn, user: User = Depends(current_user), session:
                      *live_request_conds(),
                      limit=settings.flood_active_requests_max,
                      ru=TOO_MANY_REQUESTS[0], ba=TOO_MANY_REQUESTS[1])
+    # Модерация открытого поля. Комментарий заявки видит вся лента водителей района — это
+    # публичное объявление, а не личный чат. Проверка стояла на правке заявки (edit_request),
+    # на отклике и на заявке от админа, а на самом создании её не было: пока человек не зайдёт
+    # и не отредактирует заявку, ни счётчик меток, ни админ-пульс о тексте не узнают
+    # (аудит 2026-08-07). Как везде: ПОМЕЧАЕМ, текст не режем и сохранение не рвём.
+    moderate_open_text(body.comment, user.id)
     # Желаемое время → наивный UTC (разбор №2): без этого заявка «на 10:00» жила в ленте
     # до 17:00 по Уфе. Время без пояса от старых версий приложения считаем местным.
     body.desired_at = client_dt_to_utc(body.desired_at)
@@ -336,8 +342,12 @@ def cancel_request(request_id: int, user: User = Depends(current_user), session:
         raise herr(403, "Можно отменить только свою заявку", "Тик үҙ заявкаңды ғына кире алып була")
     if req.status == "cancelled":
         return req   # идемпотентно — повторная отмена не ошибка (двойной тап/ретрай)
-    if req.status != "active":
-        # matched (уже создана поездка+бронь) отменяется через отмену брони, не тут.
+    # Отменить можно активную И уже сведённую (matched) заявку. Из matched раньше не вело НИ ОДНОЙ
+    # двери: отмена и правка требуют active, ночная чистка тоже смотрит только на active — и если
+    # сделка развалилась (бронь отменили, водитель пропал), объявление «ищу машину» висело «в работе»
+    # вечно, а чужие отклики на нём навсегда оставались offered (аудит 2026-08-07).
+    # Бронь и поездку это не трогает: заявка — объявление, а не сама поездка, их отменяют отдельно.
+    if req.status not in ("active", "matched"):
         raise herr(400, "Заявку уже нельзя отменить", "Заявканы инде кире алып булмай")
     req.status = "cancelled"
     session.add(req)
@@ -710,8 +720,13 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
     чтобы приём отклика вёл себя одинаково откуда угодно. Заявка должна быть active, иначе 400/404."""
     # with_for_update на заявке: два параллельных accept (приложение + автоподбор/Telegram) не пройдут
     # оба проверку status=="active" (иначе — две Ride+Booking на одну заявку, два водителя за пассажиром).
+    # populate_existing обязателен: заявку уже прочитал вызывающий (accept_response берёт её через
+    # session.get), а SQLAlchemy при повторной загрузке известного объекта поля НЕ перезаписывает —
+    # проверка ниже смотрела на статус, каким он был ДО чужого коммита, и защиты не было вовсе
+    # (аудит 2026-08-07).
     req = session.exec(
-        select(RideRequest).where(RideRequest.id == resp.request_id).with_for_update()
+        select(RideRequest).where(RideRequest.id == resp.request_id)
+        .with_for_update().execution_options(populate_existing=True)
     ).first()
     if not req:
         raise herr(404, "Заявка не найдена", "Заявка табылманы")

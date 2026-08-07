@@ -17,7 +17,8 @@
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import Index, and_, func
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from . import promo_ride
@@ -28,6 +29,33 @@ from .timeutil import utcnow
 # Способы оплаты, при которых деньги идут ЧЕРЕЗ нас (начисляем водителю через ledger).
 # cash — мимо нас (ledger не трогаем).
 _CASHLESS = ("card", "sbp", "yookassa")
+
+# --- Барьер БД: одна компенсация промокода на заказ ------------------------------------
+# Проверка «уже начисляли?» в коде и сама вставка — два разных шага, между ними успевает
+# вклиниться параллельный «Завершил» (двойной тап, ретрай сети, дубль пуша): обе сессии
+# видят «компенсации нет» и обе её пишут. Аудит 2026-08-07: водителю вместо 279 ₽ падало
+# 558 ₽, причём кабинет показывал одну компенсацию, а дашборд — обе. Долг от той же гонки
+# защищён UNIQUE(order_id) на уровне БД — компенсация такой защиты не имела.
+#
+# Индекс ЧАСТИЧНЫЙ, а не просто UNIQUE(ext_id): тем же ext_id помечаются выплата (kind=payout)
+# и её возврат при отказе банка (kind=adj, ключ "payout:…"), а у earn/fee ext_id вообще пустой —
+# сплошная уникальность запретила бы законные записи. Поэтому сужаем ровно до неймспейса
+# компенсаций ("promo:{order_id}", см. promo_comp_ext_id).
+#
+# Индекс живёт здесь, а не в models.py, потому что смысл у него не «схема таблицы», а
+# «инвариант денег этого модуля» — и объяснение обязано быть рядом с кодом, который на него
+# опирается. Для прода то же самое делает миграция money_holes_20260807.
+#
+# substr вместо LIKE намеренно: одинаково читается на SQLite и PostgreSQL и не тащит символ
+# «%» в DDL (в миграции он превратился бы в плейсхолдер драйвера).
+_PROMO_COMP_WHERE = and_(
+    LedgerEntry.__table__.c.kind == LedgerKind.adj,
+    func.substr(LedgerEntry.__table__.c.ext_id, 1, 6) == "promo:",
+)
+Index(
+    "uq_ledgerentry_promo_comp", LedgerEntry.__table__.c.ext_id, unique=True,
+    sqlite_where=_PROMO_COMP_WHERE, postgresql_where=_PROMO_COMP_WHERE,
+)
 
 
 def fee_kop_for(amount_kop: int, percent: Optional[float] = None) -> int:
@@ -182,13 +210,21 @@ def post_promo_compensation(session: Session, driver_id: Optional[int], order_id
     как без промокода. Append-only запись kind=adj (+сумма), историю денег не правим.
 
     Идемпотентно по ext_id: повторный «done» / ретрай не начислит второй раз. Коммитит сам —
-    это самостоятельный денежный эффект, он не должен зависеть от того, завёлся ли долг."""
+    это самостоятельный денежный эффект, он не должен зависеть от того, завёлся ли долг.
+
+    Гонку двух «Завершил» проверка в коде не ловит (обе сессии видят «компенсации нет»), поэтому
+    последнее слово за частичным UNIQUE-индексом uq_ledgerentry_promo_comp: проигравший вставку
+    ловит IntegrityError и отдаёт запись победителя — деньги начисляются РОВНО один раз."""
     if driver_id is None or order_id is None or amount_kop <= 0:
         return None
     ext = promo_comp_ext_id(order_id)
-    prev = session.exec(
-        select(LedgerEntry).where(LedgerEntry.ext_id == ext, LedgerEntry.kind == LedgerKind.adj)
-    ).first()
+
+    def _existing():
+        return session.exec(
+            select(LedgerEntry).where(LedgerEntry.ext_id == ext, LedgerEntry.kind == LedgerKind.adj)
+        ).first()
+
+    prev = _existing()
     if prev is not None:
         return prev
     entry = LedgerEntry(
@@ -197,7 +233,13 @@ def post_promo_compensation(session: Session, driver_id: Optional[int], order_id
         note="Компенсация промокода пассажира",
     )
     session.add(entry)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        # Гонку выиграл параллельный «Завершил» — он уже начислил компенсацию по этому заказу.
+        # Откатываемся и отдаём его запись (как в debt.accrue_for_order при UNIQUE(order_id)).
+        session.rollback()
+        return _existing()
     session.refresh(entry)
     return entry
 
@@ -268,7 +310,9 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
                            fee_kop=(fee_due if int(order.promo_discount_kop or 0) > 0 else None))
         # Комиссия удержана в ledger fee → снимаем долг Модели А по этому заказу, иначе
         # двойная комиссия + фантомный unpaid-долг заблокирует водителя на онлайн-оплате.
-        _debt.void_debt_for_order(session, order.id)
+        # note важен: комиссию тут ВЗЯЛИ (записью fee), поэтому в расшифровке заработка она
+        # обязана остаться — в отличие от долга, снятого по разбору жалобы.
+        _debt.void_debt_for_order(session, order.id, note="Комиссия удержана при онлайн-оплате")
     session.commit()
     return "settled"
 

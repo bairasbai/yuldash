@@ -20,6 +20,9 @@ from ..safety_logic import clean_tags
 from ..security import current_user
 from ..services import booking_and_ride_for_user, send_push, send_text, user_rating
 from ..timeutil import utcnow
+# Планку «завершить можно только начавшуюся поездку» держим одну на оба пути к переходу
+# (водительский в bookings.py и пассажирский здесь) — иначе они разъедутся при первой же правке.
+from .bookings import DONE_EARLY_GRACE
 
 # Live-ссылка живёт 24ч (приватность): дольше любой реальной поездки, но не бессрочно —
 # если поездка «зависнет» в живом статусе, ссылка перестанет отдавать гео (см. _resolve_share).
@@ -334,11 +337,19 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
     # «Завершил поездку» → реально закрываем бронь на сервере (раньше статус уходил только близким,
     # а бронь висела активной). Идемпотентно: повторный done/отменённую не трогаем.
     if body.status == "done" and booking.status not in (BookingStatus.done, BookingStatus.cancelled):
+        # Завершить можно только НАЧАВШУЮСЯ поездку — та же планка, что у водительской ручки
+        # (`bookings.py`, `DONE_EARLY_GRACE`). Это второй путь к тому же переходу: закрыв один
+        # и оставив другой, мы бы просто перенесли дыру, а не убрали её (аудит 2026-08-07).
+        # Реферальный бонус за водителя начисляется прямо отсюда, поэтому цена ошибки не только
+        # в кривой статистике.
+        ride = session.get(Ride, booking.ride_id)
+        if ride and ride.depart_at and utcnow() < ride.depart_at - DONE_EARLY_GRACE:
+            raise herr(409, "Поездка ещё не началась — завершить можно после времени выезда",
+                       "Сәфәр әле башланмаған — сығыу ваҡытынан һуң тамамлап була")
         booking.status = BookingStatus.done
         session.add(booking)
         session.commit()
         # B8-4: пассажир завершил поездку → проверяем реферальный бонус за водителя (идемпотентно).
-        ride = session.get(Ride, booking.ride_id)
         if ride:
             from .referral import reward_driver_referral
             reward_driver_referral(session, ride.driver_id)

@@ -44,6 +44,23 @@ def _maybe_promote_admin(session: Session, user: User) -> None:
         session.add(user)
 
 
+def _is_owner_telegram(frm: dict) -> bool:
+    """Это владелец пишет боту? Только он управляет ботом и жмёт инлайн-кнопки админа.
+
+    Пустой `ADMIN_TELEGRAM_CHAT_ID` НИКОГО не пускает (аудит 2026-08-07). Раньше сравнение
+    шло в лоб — `str(frm.get("id")) == str(settings.admin_telegram_chat_id)`. При незаданной
+    настройке справа получалась пустая строка, и апдейт с `from.id = ""` совпадал с ней:
+    подделав такой апдейт, посторонний одобрял водителей, объявления и платежи. Сам вебхук
+    прикрыт секретным заголовком, а прод без него не стартует (`config.validate_production`),
+    так что дыра была второго эшелона — но настройка, которой нет, не должна открывать дверь,
+    она должна её закрывать.
+    """
+    owner = str(settings.admin_telegram_chat_id or "").strip()
+    if not owner:
+        return False
+    return str(frm.get("id") or "").strip() == owner
+
+
 def _norm_phone(raw: str) -> str:
     """Нормализуем номер из Telegram-контакта: только цифры, ведущий +."""
     d = "".join(c for c in (raw or "") if c.isdigit())
@@ -358,7 +375,7 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
     # Админ пишет боту текстом («Одобрить», «/Одобрить», «#1») — раньше бот молчал, и это путало.
     # Подсказываем, где реально одобрять (кнопка под откликом / Кабинет админа), вместо тишины.
     low = text.strip().lower()
-    if str(frm.get("id")) == str(settings.admin_telegram_chat_id) and (
+    if _is_owner_telegram(frm) and (
         low.startswith(("/", "#")) or "одобр" in low or "принят" in low or "прими" in low
     ):
         return {"method": "sendMessage", "chat_id": chat.get("id"),
@@ -389,7 +406,7 @@ def _handle_admin_callback(callback: dict):
     chat_id = chat.get("id")
     message_id = msg.get("message_id")
 
-    if str(frm.get("id")) != str(settings.admin_telegram_chat_id):
+    if not _is_owner_telegram(frm):
         if cb_id:
             _telegram_api("answerCallbackQuery", {"callback_query_id": cb_id, "text": "Нет доступа", "show_alert": True})
         return {"ok": True}

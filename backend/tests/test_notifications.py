@@ -3,10 +3,18 @@
 Уведомления пишутся в тех же местах, где шлётся push (services.push_notification).
 Тесты фиксируют контракт `/notifications` ({unread, items}) и `/notifications/read`.
 """
+from datetime import timedelta
+
 from app.models import UserRole
+from app.timeutil import utcnow
 
 
 # ----------------------------- helpers -----------------------------
+def _just_left():
+    """Время выезда «минуту назад» (UTC с явным поясом) — для тестов про завершение поездки."""
+    return (utcnow() - timedelta(minutes=1)).replace(microsecond=0).isoformat() + "+00:00"
+
+
 def _publish(client, drv, frm="Баймак", to="Сибай", seats=3, price=300, **extra):
     body = {"from_city": frm, "to_city": to, "depart_at": "2030-01-01T10:00:00",
             "seats_total": seats, "price": price, **extra}
@@ -83,7 +91,9 @@ def test_cancel_notifies_other_party(client, user_factory):
 def test_driver_status_notifies_passenger(client, user_factory):
     drv = user_factory("Ds Drv", role=UserRole.driver)
     pax = user_factory("Ds Pax")
-    ride = _publish(client, drv)
+    # Поездка «только что выехала»: завершить бронь можно лишь у начавшейся поездки
+    # (аудит 2026-08-07 — «done» на поездке 2030 года рисовал бейдж «N поездок» без дороги).
+    ride = _publish(client, drv, depart_at=_just_left())
     booking = _book(client, pax, ride["id"])
     client.post(f"/bookings/{booking['id']}/driver-status", headers=drv["auth"], json={"status": "departed"})
     client.post(f"/bookings/{booking['id']}/driver-status", headers=drv["auth"], json={"status": "done"})

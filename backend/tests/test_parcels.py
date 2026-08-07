@@ -169,6 +169,9 @@ def test_delivered_wrong_code(client, user_factory):
     courier = user_factory(role=UserRole.driver)
     pid = _create_parcel(client, sender).json()["id"]
     client.post(f"/parcels/{pid}/accept", headers=courier["auth"])
+    # «Забрал» — обязательный шаг перед вручением (аудит 2026-08-07): без него ответ был бы
+    # про порядок статусов, а тест здесь про другое — про неверный код.
+    client.post(f"/parcels/{pid}/status", headers=courier["auth"], json={"status": "in_transit"})
     r = client.post(f"/parcels/{pid}/status", headers=courier["auth"], json={"status": "delivered", "code": "ZZZZZZ"})
     assert r.status_code == 422
     assert "код" in str(r.json()["detail"]).lower() or "коды" in str(r.json()["detail"])
@@ -192,6 +195,9 @@ def test_cancel_delivered(client, user_factory):
     pid = r.json()["id"]
     code = r.json()["confirm_code"]
     client.post(f"/parcels/{pid}/accept", headers=courier["auth"])
+    # Полный путь: забрал → вручил. Прямой переход accepted→delivered закрыт (аудит 2026-08-07),
+    # а тест про отмену УЖЕ доставленной посылки — значит доставка должна реально состояться.
+    client.post(f"/parcels/{pid}/status", headers=courier["auth"], json={"status": "in_transit"})
     client.post(f"/parcels/{pid}/status", headers=courier["auth"], json={"status": "delivered", "code": code})
     rc = client.post(f"/parcels/{pid}/cancel", headers=sender["auth"])
     assert rc.status_code == 409

@@ -17,12 +17,14 @@ from __future__ import annotations
 
 from app.models import UserRole
 
-from test_api import _ride
+from test_api import _ride, just_left
 
 
-def _booking(client, user_factory, tag, seats=2):
+def _booking(client, user_factory, tag, seats=2, departed: bool = False):
+    """`departed=True` — поездка УЖЕ выехала. Нужна тестам, которые доводят её до «завершено»:
+    завершить можно только начавшуюся поездку (аудит 2026-08-07)."""
     driver = user_factory(f"{tag}Driver", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=seats)
+    ride_id = _ride(client, driver, seats=seats, **({"depart_at": just_left()} if departed else {}))
     passenger = user_factory(f"{tag}Passenger")
     bid = client.post("/bookings", headers=passenger["auth"], json={"ride_id": ride_id, "seats": 1}).json()["id"]
     return driver, passenger, ride_id, bid
@@ -60,7 +62,7 @@ def test_чужую_бронь_нельзя_подтвердить(client, user_
 def test_завершённую_поездку_нельзя_отменить(client, user_factory):
     """Поездка состоялась. Кнопка «Отменить» на старом экране не должна её отменять —
     иначе водитель теряет и поездку, и деньги задним числом."""
-    driver, passenger, _, bid = _booking(client, user_factory, "DoneCancel")
+    driver, passenger, _, bid = _booking(client, user_factory, "DoneCancel", departed=True)
     client.post(f"/bookings/{bid}/confirm", headers=driver["auth"])
     client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "boarded"})
     done = client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "done"})
@@ -80,7 +82,7 @@ def test_завершённую_поездку_нельзя_отменить(cli
 
 
 def test_нельзя_сесть_в_машину_после_завершения(client, user_factory):
-    driver, passenger, _, bid = _booking(client, user_factory, "BackwardStatus")
+    driver, passenger, _, bid = _booking(client, user_factory, "BackwardStatus", departed=True)
     client.post(f"/bookings/{bid}/confirm", headers=driver["auth"])
     client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "boarded"})
     done = client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "done"})

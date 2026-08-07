@@ -10,6 +10,8 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..errors import herr
+from ..middleware import user_over_limit
 from ..models import AppReview, Booking, Payment, Ride, User
 from ..security import current_user
 from ..services import (
@@ -144,6 +146,15 @@ def geocode(q: str = "", user: User = Depends(current_user)):
     cached = cache_get_json(ckey)
     if cached is not None:
         return cached
+    # Персональный бюджет — ТОЛЬКО на промах кеша, то есть на настоящий платный вызов
+    # (аудит 2026-08-07). Авторизация тут уже есть, но её мало: один вошедший человек
+    # уникальными запросами («аа», «аб», «ав»…) выжигает дневную квоту Яндекса за минуты,
+    # и подсказки адреса ложатся у ВСЕХ — а поле «Куда» есть в такси, в посылках и в заявке.
+    # Общий лимит на IP от этого не спасает: он на порядок выше и рассчитан на другое.
+    # Считаем после кеша, чтобы обычный набор текста по знакомым городам бюджет не тратил.
+    if user_over_limit("geocode", user.id, settings.rate_limit_geocode_per_min):
+        raise herr(429, "Слишком много запросов адресов. Подожди минуту.",
+                   "Адрес һорауҙары артыҡ күп. Бер минут көт.")
     try:
         import httpx
         r = httpx.get("https://geocode-maps.yandex.ru/1.x/", params={

@@ -214,6 +214,13 @@ def _clean_media():
 #
 # Уведомление идёт через единую точку `services.push_notification` — то есть остаётся записью
 # в Центре уведомлений, а не только пушем «как получится»: ночью пуш почти наверняка не увидят.
+#
+# Куда ведёт тап, если экран не совпадает с поводом написать: у одного объекта поводов бывает
+# несколько — «заказ закрыт» и «заказ закрыт, комиссия начислена» открывают один и тот же заказ.
+# Пустая строка = вести некуда (в Центре уведомлений это просто текст без перехода).
+_NOTIFY_LINK = {"order_done": "order", "debt": ""}
+
+
 def _notify_closed(kind: str, rows: list[tuple[int, int]]) -> None:
     """rows: (id объекта, id человека). Молча пропускаем, если уведомить не вышло:
     уведомление вторично, чистка важнее и падать из-за него не должна."""
@@ -244,13 +251,32 @@ def _notify_closed(kind: str, rows: list[tuple[int, int]]) -> None:
                 "Поездку долго не завершали, и мы закрыли её сами. Новые заказы снова доступны.",
                 "Сәфәр оҙаҡ тамамланманы, беҙ уны үҙебеҙ яптыҡ. Яңы заказдар тағы асыҡ.",
             ),
+            # Отдельный текст для поездки, закрытой как СОСТОЯВШАЯСЯ: по ней начислена комиссия,
+            # и водитель обязан узнать об этом от нас, а не обнаружить сумму в кабинете.
+            "order_done": (
+                "Поездка закрыта автоматически", "Сәфәр автоматик рәүештә ябылды",
+                "Ты не нажал «Завершил», и мы закрыли поездку сами. Комиссия по ней начислена. "
+                "Если поездки не было — напиши в поддержку, спишем.",
+                "Һин «Тамамланды» төймәһенә баҫманың, беҙ сәфәрҙе үҙебеҙ яптыҡ. Комиссия иҫәпләнде. "
+                "Әгәр сәфәр булмаған булһа — ярҙам хеҙмәтенә яҙ, алып ташлайбыҙ.",
+            ),
+            # «Я оплатил» без подтверждения деньгами протухло → долг снова неоплачен.
+            "debt": (
+                "Оплата комиссии не подтвердилась", "Комиссия түләүе раҫланманы",
+                "Мы так и не увидели твой перевод. Долг снова числится неоплаченным — "
+                "проверь платёж или переведи ещё раз.",
+                "Беҙ һинең күсереүеңде һаман күрмәнек. Бурыс тағы түләнмәгән булып тора — "
+                "түләүҙе тикшер йәки яңынан күсер.",
+            ),
         }[kind]
+        link = _NOTIFY_LINK.get(kind, kind)
         with Session(engine) as session:
             for obj_id, user_id in rows:
                 if not user_id:
                     continue
                 push_notification(session, user_id, "system", texts[0], texts[1],
-                                  texts[2], texts[3], ref_kind=kind, ref_id=obj_id)
+                                  texts[2], texts[3], ref_kind=link,
+                                  ref_id=(obj_id if link else None))
     except Exception as ex:  # noqa: BLE001 — чистка важнее уведомления
         print(f"  уведомления о закрытии ({kind}): ОШИБКА {type(ex).__name__}: {ex}")
 
@@ -393,10 +419,43 @@ def close_stale_parcels(now=None) -> int:
 #   onboard              -> done        человек сидел в машине — поездка почти наверняка была;
 #   scheduled в прошлом  -> expired     предзаказ на время, которое давно прошло.
 #
-# ВАЖНО про деньги: комиссию здесь НЕ начисляем. Обычный «завершил» её начисляет
-# (debt.accrue_for_order), но там факт поездки подтверждён нажатием водителя. Брать деньги
-# за поездку, которую никто не подтвердил, — хуже, чем не взять: спорить с таким начислением
-# водителю нечем. Если решим иначе, это отдельное продуктовое решение, а не правка чистки.
+# ВАЖНО про деньги (пересмотрено, аудит 2026-08-07). Раньше комиссию здесь не начисляли вообще:
+# «брать за поездку, которую никто не подтвердил, хуже, чем не взять». Но onboard ставит САМ
+# водитель — это и есть его подтверждение, что человек сел в машину, и ровно поэтому мы
+# закрываем такой заказ как СОСТОЯВШИЙСЯ (done), а не отменяем. Получалось нечестно в обе
+# стороны: поездка идёт в статистику и рейтинг как выполненная, а комиссия — нет. Хуже того,
+# это был рабочий бесплатный тариф: не жми «Завершил» на последней поездке за день — утром она
+# закроется сама, без комиссии и без штрафа. Одна бесплатная поездка в сутки, повторяемо.
+# Теперь начисляем — но по обычному пути (debt.accrue_for_order, идемпотентно), и спорный
+# случай админ по-прежнему закрывает списанием: POST /admin/debts/{id}/forgive.
+def _accrue_auto_done(order_ids: list[int]) -> None:
+    """Комиссия за поездки, которые закрыл автомат. Ошибку глотаем: чистка важнее начисления,
+    а пропущенное начисление подберёт следующий прогон (accrue_for_order идемпотентен)."""
+    if not order_ids:
+        return
+    try:
+        from sqlmodel import Session
+
+        from . import debt as debt_mod
+        from .models import InstantOrder
+        n = 0
+        with Session(engine) as session:
+            for oid in order_ids:
+                order = session.get(InstantOrder, oid)
+                if order is None:
+                    continue
+                d = debt_mod.accrue_for_order(session, order)
+                if d is not None and not d.note:
+                    # След для админа: по этой поездке водитель «Завершил» не нажимал.
+                    d.note = "Поездку закрыл автомат (водитель не нажал «Завершил»)"
+                    session.add(d)
+                    session.commit()
+                    n += 1
+        print(f"  комиссия за авто-закрытые заказы: начислено {n}")
+    except Exception as ex:  # noqa: BLE001 — чистка важнее начисления
+        print(f"  комиссия за авто-закрытые заказы: ОШИБКА {type(ex).__name__}: {ex}")
+
+
 def close_stale_orders(now=None) -> int:
     """Закрыть такси-заказы, зависшие в активном состоянии. Возвращает, сколько закрыто."""
     now = now or utcnow()
@@ -404,24 +463,68 @@ def close_stale_orders(now=None) -> int:
     closed = 0
     with engine.begin() as conn:
         # Водителю важнее всех: пока заказ висел, он не мог взять ни одного нового.
-        order_victims = [(r[0], r[1]) for r in conn.execute(text(
+        # Списки разные, потому что и правда разная: несостоявшийся заказ и состоявшаяся
+        # поездка с комиссией — это два разных письма человеку.
+        cancel_victims = [(r[0], r[1]) for r in conn.execute(text(
             "SELECT id, driver_id FROM instantorder "
-            "WHERE status IN ('accepted', 'arriving', 'onboard') AND created_at < :cut"
+            "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
+        ), {"cut": cut}).all()]
+        done_victims = [(r[0], r[1]) for r in conn.execute(text(
+            "SELECT id, driver_id FROM instantorder "
+            "WHERE status = 'onboard' AND created_at < :cut"
         ), {"cut": cut}).all()]
         closed += conn.execute(text(
             "UPDATE instantorder SET status = 'cancelled' "
             "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
         ), {"cut": cut}).rowcount or 0
+        # done_at обязателен: без него поездка выпадает из заработка водителя и из стажа для
+        # лесенки комиссии — комиссию бы взяли, а поездку человек в своей истории не нашёл.
         closed += conn.execute(text(
-            "UPDATE instantorder SET status = 'done' "
+            "UPDATE instantorder SET status = 'done', done_at = COALESCE(done_at, :now) "
             "WHERE status = 'onboard' AND created_at < :cut"
-        ), {"cut": cut}).rowcount or 0
+        ), {"cut": cut, "now": now}).rowcount or 0
         closed += conn.execute(text(
             "UPDATE instantorder SET status = 'expired' "
             "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut"
         ), {"cut": cut}).rowcount or 0
-    _notify_closed("order", order_victims)
+    _accrue_auto_done([oid for oid, _ in done_victims])
+    _notify_closed("order", cancel_victims)
+    _notify_closed("order_done", done_victims)
     return closed
+
+
+# ------------------------------ протухшее «Я оплатил» ------------------------------
+# Долг по комиссии — единственная выручка платформы, и держится она на честном слове:
+# водитель жмёт «Я оплатил», блокировка снимается, Александр потом подтверждает перевод.
+# Слово без срока превращалось в способ не платить никогда (аудит 2026-08-07): pending не
+# блокировал, не протухал, а счётчик обещаний рос только при новом нажатии — то есть никогда,
+# пока админ вручную не отклонит. Возвращаем протухшие заявления в unpaid: водитель снова
+# видит долг и может заявить оплату ещё раз, но уже под счётчиком (см. debt.taxi_block_reason).
+def expire_stale_declares(now=None) -> int:
+    """Вернуть в unpaid долги, где «Я оплатил» так и не подтвердилось деньгами. Сколько вернули."""
+    now = now or utcnow()
+    from .debt import DECLARE_TRUST_DAYS
+
+    edge = now - timedelta(days=DECLARE_TRUST_DAYS)
+    # COALESCE — на случай pending без заявления (ручная правка/старые строки): у них отсчёт
+    # идёт от начисления, «вечного доверия» не остаётся ни у кого.
+    where = "status = 'pending' AND COALESCE(paid_declared_at, created_at) < :edge"
+    with engine.begin() as conn:
+        victims = [(r[0], r[1]) for r in conn.execute(text(
+            f"SELECT id, driver_id FROM commissiondebt WHERE {where}"), {"edge": edge}).all()]
+        # declare_count НЕ трогаем: счётчик обещаний — память о том, сколько раз доверяли.
+        n = conn.execute(text(
+            f"UPDATE commissiondebt SET status = 'unpaid', paid_declared_at = NULL WHERE {where}"
+        ), {"edge": edge}).rowcount or 0
+    # Одно письмо на водителя, а не на каждую строку долга: у недели их бывает десяток.
+    seen: set = set()
+    per_driver = []
+    for debt_id, driver_id in victims:
+        if driver_id and driver_id not in seen:
+            seen.add(driver_id)
+            per_driver.append((debt_id, driver_id))
+    _notify_closed("debt", per_driver)
+    return n
 
 
 def main():
@@ -470,6 +573,11 @@ def main():
             print(f"  забытые такси-заказы: закрыто {n}")
         except Exception as ex:  # noqa: BLE001 — не роняем всю чистку
             print(f"  забытые такси-заказы: ОШИБКА {type(ex).__name__}: {ex}")
+        try:
+            n = expire_stale_declares(now)
+            print(f"  протухшие заявления «Я оплатил»: возвращено в долг {n}")
+        except Exception as ex:  # noqa: BLE001 — не роняем всю чистку
+            print(f"  протухшие заявления «Я оплатил»: ОШИБКА {type(ex).__name__}: {ex}")
     print(f"=== Итог: строк {'к удалению' if DRY else 'удалено'} — {total} ===")
 
 

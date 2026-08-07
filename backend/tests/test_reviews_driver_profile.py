@@ -4,12 +4,19 @@
 проходит модерацию (в профиль попадает только одобренное), агрегаты (число done-поездок,
 средний рейтинг, стаж) считаются, приватные данные не текут.
 """
+from datetime import timedelta
+
 from app.models import UserRole
+from app.timeutil import utcnow
 
 
 # ----------------------------- helpers -----------------------------
 def _publish(client, drv, frm="Баймак", to="Сибай", seats=3, price=300, **extra):
-    body = {"from_city": frm, "to_city": to, "depart_at": "2030-01-01T10:00:00",
+    # Выезд «только что»: весь файл про ЗАВЕРШЁННЫЕ поездки и публичный профиль, а завершить
+    # можно лишь начавшуюся поездку (аудит 2026-08-07). Поездка «в 2030 году», закрытая как
+    # состоявшаяся, рисовала бы отзывы и бейдж «N поездок» без единого метра пути.
+    body = {"from_city": frm, "to_city": to,
+            "depart_at": (utcnow() - timedelta(minutes=1)).replace(microsecond=0).isoformat() + "+00:00",
             "seats_total": seats, "price": price, **extra}
     r = client.post("/rides", headers=drv["auth"], json=body)
     assert r.status_code == 200, r.text

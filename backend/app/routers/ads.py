@@ -13,6 +13,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..middleware import user_over_limit
 from ..models import Ad, AdEvent, Payment, User, UserRole
 from ..security import current_user
 from ..services import notify_admin_telegram, send_push
@@ -35,6 +36,9 @@ AD_PACKAGES = {
 AD_EDITABLE_STATUSES = ("draft", "rejected")
 # Анти-спам: не даём одному владельцу плодить бесконечно объявлений.
 MAX_ADS_PER_OWNER = 20
+# Сколько событий рекламы засчитываем одному человеку в час. С запасом на обычную жизнь
+# (реклама мелькает в ленте, на карте, в профиле), но не на скрипт «5 000 показов за минуту».
+AD_EVENTS_PER_HOUR = 200
 
 
 def _csv(s: str) -> List[str]:
@@ -101,13 +105,30 @@ class AdEventIn(BaseModel):
 @router.post("/ads/{ad_id}/event")
 def ad_event(ad_id: int, body: AdEventIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Записать показ/клик (реальная статистика кабинета). Требует входа — иначе
-    любой неавторизованный накручивал бы статистику и засорял таблицу AdEvent."""
-    if not session.get(Ad, ad_id):
+    любой неавторизованный накручивал бы статистику и засорял таблицу AdEvent.
+
+    Два фильтра (аудит 2026-08-07). Денег накрутка не двигает — цена размещения фиксирована
+    пакетом, не CPM. Но показами без кликов конкурент роняет CTR в кабинете партнёра, а таблица
+    событий пухнет на каждый запрос от любого вошедшего.
+      • объявление, которого публика не видела ни разу (черновик / отклонённое) или у которого
+        срок показа истёк, — «показать» нельзя физически, такое событие просто мусор;
+      • персональный потолок в час — против скрипта.
+    Приостановленное (paused) по-прежнему считаем: оно было на экране секунду назад, и событие
+    вполне могло уйти уже после паузы.
+
+    Отказ считать — не ошибка: реклама не должна ломать экран, поэтому 200 и counted=false."""
+    ad = session.get(Ad, ad_id)
+    if not ad:
         raise HTTPException(404, "Объявление не найдено")
+    now = utcnow()
+    if ad.status in AD_EDITABLE_STATUSES or (ad.ends_at is not None and ad.ends_at <= now):
+        return {"ok": True, "counted": False}
+    if user_over_limit("ad_event", user.id, AD_EVENTS_PER_HOUR, window_sec=3600):
+        return {"ok": True, "counted": False}
     t = "click" if body.type == "click" else "impression"
     session.add(AdEvent(ad_id=ad_id, event_type=t))
     session.commit()
-    return {"ok": True}
+    return {"ok": True, "counted": True}
 
 
 @router.get("/ads/stats")

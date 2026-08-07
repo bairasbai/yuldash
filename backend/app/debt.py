@@ -107,6 +107,30 @@ def _promo_comp_kop(session: Session, order_ids: list) -> int:
     return int(total or 0)
 
 
+# Приставка в note у долга, которого водитель фактически НЕ платит: списан админом или снят
+# по разбору жалобы. Отдельного статуса под это в DebtStatus нет (там только unpaid/pending/paid),
+# поэтому «почему paid» хранится в note — и обе стороны договорённости держатся за эту константу.
+WRITTEN_OFF_PREFIX = "Списан"
+
+
+def fee_charged_kop(d: Optional[CommissionDebt]) -> int:
+    """Сколько комиссии по этому долгу реально осталось на водителе, копейки.
+
+    Долга нет (промо 0% / грошовый заказ) → ноль. Долг списан админом или снят по разбору →
+    тоже ноль: водителю пришёл пуш «комиссию сняли», и если после этого экран расшифровки
+    продолжает её вычитать, мы врём в минус тому самому человеку, ради спора с которым
+    экран и делали (аудит 2026-08-07 — раньше тут стоял вырожденный тернарник, обе ветки
+    которого возвращали одно и то же).
+
+    А вот долг, погашенный ОНЛАЙН-оплатой, показываем: комиссия там реально удержана, просто
+    не долгом, а записью fee в кошельке. Спрятать её — значит завысить заработок."""
+    if d is None:
+        return 0
+    if d.status == DebtStatus.paid and (d.note or "").startswith(WRITTEN_OFF_PREFIX):
+        return 0
+    return max(int(d.amount_kop or 0), 0)
+
+
 def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] = None) -> dict:
     """Данные дашборда таксиста для кабинета: заработок и заказы ЗА СЕГОДНЯ + текущая ступень
     комиссии. Лесенка комиссии — по СТАЖУ (дни с первого done-заказа), не по деньгам:
@@ -135,7 +159,7 @@ def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] =
         debts_today = session.exec(
             select(CommissionDebt).where(CommissionDebt.order_id.in_(order_ids))
         ).all()
-        fee_today_kop = sum(max(int(d.amount_kop or 0), 0) for d in debts_today)
+        fee_today_kop = sum(fee_charged_kop(d) for d in debts_today)
         # Промокод пассажира: на руки водитель получил меньше на размер скидки, зато комиссия
         # уменьшена, а остаток пришёл в кошелёк. Без этих двух слагаемых «чистыми» врало бы.
         promo_disc_kop = sum(max(int(o.promo_discount_kop or 0), 0) for o in done_today)
@@ -266,9 +290,7 @@ def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
         price_rub = int(o.price_final if o.price_final is not None else o.price_estimate)
         d = debts.get(o.id)
         # Долга нет (промо 0% / грошовый заказ / списан) → комиссия по этой поездке ноль.
-        fee_kop = int(d.amount_kop) if d and d.status != DebtStatus.paid else (
-            int(d.amount_kop) if d else 0
-        )
+        fee_kop = fee_charged_kop(d)
         # Промокод: на руки водитель взял меньше на скидку, зато комиссия уже уменьшена, а
         # остаток скидки платформа вернула в кошелёк. «Чистыми» = как будто промокода не было.
         disc_kop = max(int(o.promo_discount_kop or 0), 0)
@@ -354,7 +376,7 @@ def accrue_for_order(session: Session, order: InstantOrder) -> Optional[Commissi
     return debt
 
 
-def void_debt_for_order(session: Session, order_id: int) -> bool:
+def void_debt_for_order(session: Session, order_id: int, note: str = "") -> bool:
     """B2: снять долг по комиссии за заказ, оплаченный ОНЛАЙН (Модель Б).
 
     На done заказа всегда заводится долг Модели А («водитель взял нал напрямую, должен комиссию»).
@@ -362,7 +384,12 @@ def void_debt_for_order(session: Session, order_id: int) -> bool:
     (fee), а деньги получила платформа — значит долг Модели А фиктивен. Помечаем его paid, иначе
     водитель обложен комиссией дважды, а фантомный unpaid-долг блокирует ему такси.
 
-    Идемпотентно. НЕ коммитит — вызывается внутри транзакции settle_* (та и коммитит)."""
+    Идемпотентно. НЕ коммитит — вызывается внутри транзакции settle_* (та и коммитит).
+
+    note — ПОЧЕМУ долг стал paid. Это не косметика: от причины зависит расшифровка заработка
+    (см. fee_charged_kop). По умолчанию — «сняли по разбору», то есть комиссию с водителя НЕ
+    взяли (так зовёт жалоба «пассажир не заплатил»). Онлайн-оплата передаёт свой note: там
+    комиссия удержана, просто записью fee в кошельке."""
     debt = session.exec(
         select(CommissionDebt).where(CommissionDebt.order_id == order_id)
     ).first()
@@ -370,6 +397,8 @@ def void_debt_for_order(session: Session, order_id: int) -> bool:
         return False
     debt.status = DebtStatus.paid
     debt.confirmed_at = utcnow()
+    if not debt.note:                      # свой note (напр. от админского «простить») не трогаем
+        debt.note = note or f"{WRITTEN_OFF_PREFIX}: снят по разбору"
     session.add(debt)
     return True
 
@@ -392,6 +421,30 @@ def _pending(session: Session, driver_id: int) -> list[CommissionDebt]:
     ).all()
 
 
+# Сколько дней «слово» водителя («Я оплатил») снимает блокировку такси БЕЗ подтверждения
+# деньгами. Отдельной настройки в конфиге сознательно нет: это не тариф, который крутят под
+# город, а срок доверия — один для всех и заметный в коде.
+#
+# Зачем срок вообще (аудит 2026-08-07). Раньше pending не блокировал и не протухал: раз в
+# неделю водитель жал «Я оплатил», весь долг уходил в pending, блок снимался — и так до
+# бесконечности. Защита declare_abuse включалась только если админ РУКАМИ отклонит заявку:
+# счётчик обещаний растёт лишь при новом «Я оплатил», а долг, зависший в pending, второй раз
+# не заявляют. Александр один, отклонять каждую заявку вручную он не может — значит комиссию,
+# единственный доход платформы, можно было не платить вообще.
+#
+# Три дня, а не семь: обычно перевод подтверждается за вечер; неделя = ещё одна бесплатная
+# неделя работы на каждое нажатие кнопки.
+DECLARE_TRUST_DAYS = 3
+
+
+def _stale_declares(pending: list[CommissionDebt], now) -> list[CommissionDebt]:
+    """Долги, где «слово» протухло: заявили оплату, а деньги так и не подтвердились.
+    Фолбэк на created_at — для строк, где заявления не было (ручной pending из админки/миграции):
+    у них отсчёт идёт от начисления, «вечного доверия» не остаётся ни у кого."""
+    edge = now - timedelta(days=DECLARE_TRUST_DAYS)
+    return [d for d in pending if (d.paid_declared_at or d.created_at) < edge]
+
+
 def taxi_block_reason(session: Session, driver_id: int, now=None) -> Optional[str]:
     """Причина блокировки такси для водителя или None (можно возить).
 
@@ -403,14 +456,22 @@ def taxi_block_reason(session: Session, driver_id: int, now=None) -> Optional[st
     жать без счёта: заявил → pending → блок снят; админ отклонил → долг вернулся в unpaid →
     нажал снова → снова работает. Комиссию можно было не платить вообще, а это вся выручка
     платформы. Теперь долг, по которому «слово» давали больше debt_max_declares раз, в
-    pending блокировку НЕ снимает — ждём подтверждения деньгами."""
+    pending блокировку НЕ снимает — ждём подтверждения деньгами.
+
+    ⚠️ И у самого «слова» есть срок (аудит 2026-08-07): pending старше DECLARE_TRUST_DAYS
+    блокировку тоже не снимает — иначе долг висел бы в pending вечно и счётчик обещаний не
+    рос бы никогда. Выход из этого состояния честный: чистка возвращает протухший pending в
+    unpaid (cleanup.expire_stale_declares), водитель может заявить оплату снова — но уже под
+    счётчик, то есть ограниченное число раз."""
     now = now or utcnow()
     unpaid = _unpaid(session, driver_id)
+    pending = _pending(session, driver_id)
     # Долги, где доверие исчерпано: обещали оплату N+ раз, подтверждения так и нет.
-    abused = [d for d in _pending(session, driver_id)
-              if (d.declare_count or 0) > settings.debt_max_declares]
+    abused = [d for d in pending if (d.declare_count or 0) > settings.debt_max_declares]
     if abused:
         return "declare_abuse"
+    if _stale_declares(pending, now):
+        return "declare_stale"        # слово дали, деньги не пришли — доверие на паузе
     if not unpaid:
         return None
     if any(d.due_at is not None and d.due_at < now for d in unpaid):

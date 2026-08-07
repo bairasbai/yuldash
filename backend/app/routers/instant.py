@@ -8,6 +8,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
@@ -305,6 +306,20 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     # Лочим строку пассажира → два одновременных POST сериализуются: первый создаёт заказ,
     # второй под локом видит existing и возвращает его (без row-lock оба проходили SELECT→INSERT).
     session.exec(select(User).where(User.id == user.id).with_for_update()).first()
+    # «Заказать заново» из очереди «подожду машину». Заказ в очереди лежит в статусе `expired`
+    # с живым `wait_until` — воркер по нему продолжает искать, но в список активных ниже он
+    # не попадает (статус-то терминальный), и анти-дубль его не видел. Человек получал ВТОРОЙ
+    # заказ, а матчер отправлял к подъезду ДВУХ разных водителей: одну машину он берёт, вторая
+    # уезжает пустой и получает страйк ни за что (аудит 2026-08-07). Нажал «заказать заново» —
+    # значит старого больше не ждёт: гасим очередь до создания нового заказа.
+    session.execute(
+        update(InstantOrder)
+        .where(InstantOrder.passenger_id == user.id,
+               InstantOrder.status == S.expired,
+               InstantOrder.wait_until != None)          # noqa: E711 — SQL IS NOT NULL
+        .values(wait_until=None)
+    )
+    session.commit()
     existing = session.exec(
         select(InstantOrder).where(
             InstantOrder.passenger_id == user.id,
@@ -583,6 +598,13 @@ class ArrivedIn(BaseModel):
 
 # Насколько далеко от точки подачи ещё считаем «на месте» (GPS в селе гуляет, дом большой).
 _ARRIVED_RADIUS_KM = 0.5
+# Насколько СВЕЖЕЙ должна быть позиция из кэша WS-трека, чтобы по ней судить «где водитель».
+# Кэш живёт 2 минуты, а за две минуты машина проезжает километр-полтора: у водителя, который
+# реально доехал, но потерял связь на подъезде (в селе это обычное дело), последняя точка
+# осталась бы позади — и кнопка «Я на месте» отбилась бы у честного человека. Судим только
+# по свежей точке; протухла — проверку пропускаем. Недобросовестного это не спасает: он сидит
+# дома с открытым приложением, и его трек как раз свежий.
+_ARRIVED_POS_FRESH_SEC = 60
 
 
 @router.post("/instant/orders/{order_id}/arrived")
@@ -594,8 +616,8 @@ def arrived(order_id: int, body: ArrivedIn | None = None,
     Гео-проверка (аудит 2026-07-26): раньше кнопку можно было нажать откуда угодно — прямо из
     дома. С неё идёт ПЛАТНОЕ ожидание, а через 8 минут открывается «пассажир не вышел» со
     штрафом и страйком: невиновный человек получал деньги в минус и блокировку такси на сутки.
-    Координаты берём из тела, иначе из последней позиции водителя (Redis). Нет ни того, ни
-    другого — пропускаем (не ломаем работу там, где GPS недоступен)."""
+    Координаты берём из тела, иначе из последней СВЕЖЕЙ позиции водителя (WS-трек, Redis).
+    Нет ни того, ни другого — пропускаем (не ломаем работу там, где GPS недоступен)."""
     # Права — ПЕРЕД гео-проверкой. Раньше порядок был обратный, и разные ответы («ты ещё не
     # на месте» против успеха) отвечали постороннему на вопрос «водитель в 500 м от точки
     # подачи?» для ЛЮБОГО заказа. Перебором координат так находится чужой адрес подачи —
@@ -606,9 +628,15 @@ def arrived(order_id: int, body: ArrivedIn | None = None,
     if lat is None or lng is None:
         try:
             from .. import livepos
-            pos = livepos.livepos_get("instant", order_id)
-            if pos:
-                lat, lng = pos.get("lat"), pos.get("lng")
+            # Ключ ровно тот, что пишет WS-трек поездки (location.py, livepos_set("order", …)).
+            # Здесь читалось "instant" — ключи разные, позиция всегда None, проверка молча
+            # пропускалась ВСЕГДА. А тела запроса Android не шлёт, значит гео-проверки «Я на
+            # месте» в проде не существовало вовсе (аудит 2026-08-07).
+            pos = livepos.livepos_get("order", order_id)
+            if pos and pos.get("ts"):
+                age = (utcnow() - datetime.fromisoformat(pos["ts"])).total_seconds()
+                if 0 <= age <= _ARRIVED_POS_FRESH_SEC:
+                    lat, lng = pos.get("lat"), pos.get("lng")
         except Exception:  # noqa: BLE001 — Redis недоступен: проверку пропускаем, поездку не рубим
             lat = lng = None
     if lat is not None and lng is not None and order.from_lat and order.from_lng:

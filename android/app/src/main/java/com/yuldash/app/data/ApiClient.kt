@@ -17,8 +17,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.io.OutputStreamWriter
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.NoRouteToHostException
 import java.net.URL
+import java.net.UnknownHostException
 
 /**
  * Тонкий клиент к настоящему бэкенду (FastAPI, см. docs/server.md).
@@ -1647,10 +1650,15 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
+                val pl = o.optJSONArray("placements")
                 AdDto(
                     o.optString("id"), o.optString("title"), o.optString("text"), o.optString("button"), o.optString("erid"), o.optString("placement"),
                     partner = o.optString("partner"), contact = o.optString("contact"), target = o.optString("target"),
                     image = o.optString("image"), city = o.optString("city"),
+                    // Старый сервер массива не отдаёт — тогда падаем на одиночное `placement`,
+                    // чтобы объявление всё же где-то показалось, а не пропало совсем.
+                    placements = if (pl != null) (0 until pl.length()).map { j -> pl.getString(j) }
+                                 else listOfNotNull(o.optString("placement").takeIf { p -> p.isNotBlank() }),
                 )
             }
         }
@@ -2719,11 +2727,21 @@ object ApiClient {
     ): Result<JSONObject> = withContext(Dispatchers.IO) {
         val usedToken = if (auth) token else null
         // M5: паузы backoff между попытками ТОЛЬКО при сетевом обрыве ДО получения ответа.
-        // Повторяем лишь IOException/SocketTimeout (соединение не удалось/упало до ответа); ответ
-        // с HTTP-кодом (4xx/5xx) — это ApiException и НЕ повторяется, отмена корутины пробрасывается.
-        // Идемпотентность: даже POST безопасен — повтор идёт лишь когда ответ не получен вовсе,
-        // значит сервер запрос не обработал → дубля на бэкенде не будет. Флаг retryOnNetwork=false
-        // выключает ретрай точечно (например для заведомо неидемпотентных операций).
+        // Ответ с HTTP-кодом (4xx/5xx) — это ApiException и НЕ повторяется, отмена корутины
+        // пробрасывается.
+        //
+        // ⚠️ Здесь раньше стояло рассуждение «даже POST безопасен: повтор идёт лишь когда ответ
+        // не получен вовсе, значит сервер запрос не обработал». Оно НЕВЕРНО (аудит 2026-08-07).
+        // Обрыв бывает двух совершенно разных видов, и оба прилетают одним IOException:
+        //   • не смогли ДОЗВОНИТЬСЯ (нет сети, хост не резолвится, соединение отвергнуто) —
+        //     запрос не ушёл, повтор безопасен;
+        //   • ответ не пришёл ВОВРЕМЯ (SocketTimeoutException на чтении) — запрос ушёл, сервер
+        //     мог обработать его целиком, просто ответ не успел за 15 секунд. Повтор здесь
+        //     создаёт ВТОРУЮ бронь, вторую посылку, второй платёж.
+        // Дедуп на сервере есть только у двух ручек (бронь и заказ такси) — остальные ловили
+        // дубль молча. Поэтому: GET повторяем всегда (чтение безопасно), а меняющие запросы —
+        // только когда обрыв точно случился ДО отправки.
+        val idempotent = method.equals("GET", ignoreCase = true)
         val backoff = if (retryOnNetwork) longArrayOf(400L, 900L) else LongArray(0)
         var attempt = 0
         while (true) {
@@ -2770,9 +2788,12 @@ object ApiClient {
             } catch (ce: CancellationException) {
                 throw ce   // отмена корутины — не глотаем и не повторяем, пробрасываем дальше
             } catch (e: IOException) {
-                // Обрыв связи ДО получения ответа (вкл. SocketTimeoutException).
-                // Есть ещё попытки → закрываем соединение, ждём backoff и повторяем.
-                if (attempt < backoff.size) {
+                // Обрыв связи ДО получения ответа. Повторяем, только если это безопасно:
+                // чтение (GET) — всегда, меняющий запрос — лишь когда до сервера мы вообще
+                // не дозвонились. Таймаут ЧТЕНИЯ у POST не повторяем: запрос уже ушёл, и
+                // сервер мог его выполнить — второй такой же создаст дубль (см. выше).
+                val neverSent = e is ConnectException || e is UnknownHostException || e is NoRouteToHostException
+                if (attempt < backoff.size && (idempotent || neverSent)) {
                     conn?.disconnect(); conn = null
                     delay(backoff[attempt]); attempt++
                     continue
@@ -5501,6 +5522,11 @@ data class MyStatsDto(
 data class AdDto(
     val id: String, val title: String, val text: String, val button: String, val erid: String, val placement: String,
     val partner: String = "", val contact: String = "", val target: String = "", val image: String = "", val city: String = "",
+    /** ВСЕ места показа, купленные партнёром (`route`, `ridesList`, `nearby`, `tripDetails`,
+     *  `profile`, `help`). Раньше читалось только `placement` — первое из списка, и то лишь
+     *  ради совместимости со старым клиентом; в итоге объявление показывалось не там, за что
+     *  партнёр заплатил (аудит 2026-08-07). Пусто → показывать негде. */
+    val placements: List<String> = emptyList(),
 )
 /** Серверная статистика рекламы (показы/клики). */
 data class AdStatsDto(val impressions: Int, val clicks: Int)

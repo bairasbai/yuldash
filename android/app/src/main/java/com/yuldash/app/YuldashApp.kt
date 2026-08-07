@@ -265,6 +265,19 @@ internal fun bookingStatusAllowsActiveTrip(status: String): Boolean =
 internal fun bookingStatusAllowsBoarding(status: String): Boolean =
     status == "confirmed" || status == "onboard"
 
+/** Код места показа с сервера → место в приложении. Незнакомое имя (сервер завёл новое,
+ *  приложение ещё не знает) → null: такое объявление просто не покажем в этом слоте,
+ *  вместо того чтобы уронить разбор всего списка рекламы. */
+private fun adPlacementOf(code: String): AdPlacement? = when (code.trim().lowercase()) {
+    "route" -> AdPlacement.Route
+    "rideslist" -> AdPlacement.RidesList
+    "nearby" -> AdPlacement.Nearby
+    "tripdetails" -> AdPlacement.TripDetails
+    "profile" -> AdPlacement.Profile
+    "help" -> AdPlacement.Help
+    else -> null
+}
+
 @Composable
 internal fun YuldashApp() {
     val context = LocalContext.current
@@ -556,6 +569,13 @@ internal fun YuldashApp() {
                 // КРИТИЧНО: contact/mapPoint/имя/адрес НЕ наследуем от демо (иначе клик звонил на демо-номер).
                 tmpl.copy(
                     id = a.id, title = a.title, titleBa = a.title,
+                    // Места показа — С СЕРВЕРА, а не от демо-шаблона (аудит 2026-08-07).
+                    // Раньше их наследовали от демо, и партнёр, купивший пакет «Маршрут»
+                    // (места route + ridesList), показывался в Nearby/Profile/Help/TripDetails —
+                    // то есть ровно там, за что НЕ платил, и не показывался там, за что платил.
+                    // Пустой список = показывать негде: лучше не показать, чем показать не то,
+                    // за что человек отдал деньги.
+                    placements = a.placements.mapNotNull(::adPlacementOf).toSet(),
                     description = a.text, descriptionBa = a.text, erid = a.erid,
                     advertiserName = a.partner.ifBlank { a.title },
                     city = a.city.ifBlank { tmpl.city },

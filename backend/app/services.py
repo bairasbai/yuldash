@@ -16,7 +16,7 @@ import threading
 import time
 
 from fastapi import HTTPException
-from sqlalchemy import case, delete, distinct, func
+from sqlalchemy import case, delete
 from sqlmodel import Session, select
 
 from .config import settings
@@ -343,8 +343,21 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
         ).all()
         notified = 0
         to_push: list = []   # (user_id, title, body) — FCM отправим в фоне после записи в ленту
+        # Кого оповещать НЕЛЬЗЯ (аудит 2026-08-07). Рассылка обходила обе защиты сразу:
+        #  • чёрный список — человек, которого водитель заблокировал, получал пуш о его поездке;
+        #  • «только для своих» — закрытую поездку лента прячет и забронировать её нельзя,
+        #    а пуш о ней приходил кому угодно. Само существование поездки — тоже информация:
+        #    «кто, куда и когда едет» в Баймаке узнают по одному оповещению.
+        # Локальный импорт: trust_service тянет services на верхнем уровне — прямой импорт
+        # здесь замкнул бы круг на старте приложения.
+        from .trust_service import INSIDER_LEVEL, trust_level
+        blocked = blocked_user_ids(session, ride.driver_id)
         for w in watches:
             if w.watch_kind not in ("rides", "both"):   # G3: эта подписка караулит заявки, не поездки
+                continue
+            if w.user_id in blocked:
+                continue
+            if ride.only_trusted and trust_level(session, session.get(User, w.user_id)) < INSIDER_LEVEL:
                 continue
             w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
             forward = (w_from == r_from and w_to == r_to)
@@ -667,20 +680,50 @@ def user_rating(session: Session, user_id: int) -> tuple[float, int]:
     return _rating_from_rows(rows)
 
 
+# Анти-накрутка бейджа «N поездок» (аудит 2026-08-07). Средний балл от накрутки парой аккаунтов
+# защищён капом выше, а бейдж — не был ничем: он просто считал брони со статусом done, а перевести
+# бронь в done можно было за три запроса, не проехав ни метра. Бейдж доверия — и есть продукт
+# «между своими»: по нему человек решает, садиться ли в машину, поэтому подделка тут дороже
+# накрученной звезды. Кап тот же по смыслу, что рейтинговый, но щедрее: постоянный попутчик
+# (сосед на работу два раза в неделю) — норма района, а не сговор, и обрезать его до трёх
+# поездок в месяц значило бы врать о честном водителе в другую сторону.
+TRIPS_PAIR_CAP = 8
+TRIPS_PAIR_WINDOW_DAYS = 30
+
+
 def driver_trips_agg(session: Session, driver_ids: set) -> dict:
     """F8 «N поездок»: сколько поездок водитель реально ЗАВЕРШИЛ (агрегат, без новых таблиц).
     Считаем distinct поездок с завершённой бронью — поездка со статусом done не выставляется
     (её ставит только бронь: booking.status=done), поэтому меряем по броням. Один батч-запрос
-    на весь список карточек (без N+1). Нового водителя тут нет → бейдж не покажется (0)."""
+    на весь список карточек (без N+1). Нового водителя тут нет → бейдж не покажется (0).
+
+    Две планки честности (аудит 2026-08-07):
+      * поездка должна была СОСТОЯТЬСЯ — считаем только те, что уже выехали (depart_at в прошлом).
+        Бронь можно закрыть не одной ручкой (завершение поездки водителем, «доехал» пассажиром),
+        а бейдж считается здесь — значит и планка тут, одна на все пути;
+      * от ОДНОГО попутчика в бейдж идёт не больше TRIPS_PAIR_CAP поездок за скользящее окно —
+        иначе два аккаунта катают друг друга по кругу и рисуют «100 поездок».
+    Строки вместо SQL-агрегата: скользящее окно на пару в SQL не выражается, а объём тот же,
+    что уже читает рейтинг тех же водителей (drivers_bundle)."""
     if not driver_ids:
         return {}
     rows = session.exec(
-        select(Ride.driver_id, func.count(distinct(Booking.ride_id)))
+        select(Ride.driver_id, Booking.passenger_id, Booking.ride_id, Ride.depart_at)
         .join(Ride, Booking.ride_id == Ride.id)
-        .where(Ride.driver_id.in_(driver_ids), Booking.status == BookingStatus.done)
-        .group_by(Ride.driver_id)
+        .where(Ride.driver_id.in_(driver_ids), Booking.status == BookingStatus.done,
+               Ride.depart_at <= utcnow())
+        .order_by(Ride.depart_at)          # старые→свежие: окно пары считается по ходу времени
     ).all()
-    return {driver_id: cnt for driver_id, cnt in rows}
+    counted_rides: dict = {}
+    pair_seen: dict = {}
+    for driver_id, passenger_id, ride_id, at in rows:
+        seen = pair_seen.setdefault((driver_id, passenger_id), [])
+        recent = [t for t in seen if at - t <= timedelta(days=TRIPS_PAIR_WINDOW_DAYS)]
+        if len(recent) >= TRIPS_PAIR_CAP:
+            continue                       # сверх капа пары — в бейдж не идёт (история в БД цела)
+        seen.append(at)
+        counted_rides.setdefault(driver_id, set()).add(ride_id)
+    return {driver_id: len(rides) for driver_id, rides in counted_rides.items()}
 
 
 def drivers_bundle(session: Session, driver_ids: set) -> tuple[dict, dict, dict, dict]:

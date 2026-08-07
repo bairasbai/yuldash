@@ -155,11 +155,25 @@ def notify_target_new_report(session: Session, report: Report) -> None:
 
 def escalate_severe(session: Session, report: Report, reporter: User) -> None:
     """⛔ Тяжёлая категория: немедленный Telegram админу (личности видит ТОЛЬКО модератор)
-    + авто-пауза такси цели до разбора (попутка работает). SOS/безопасность — железно."""
+    + авто-пауза такси цели до разбора (попутка работает). SOS/безопасность — железно.
+
+    Пауза ставится ТОЛЬКО по жалобе, привязанной к общей поездке, заказу или доставке
+    (аудит 2026-08-07). Раньше привязки не требовалось: жалоба без поездки берёт цель прямо
+    из `target_user_id`, участие никто не проверяет — и любой вошедший одним запросом
+    выключал такси любому водителю на REVIEW_PAUSE_DAYS, то есть до ручного разбора. Для
+    водителя это потерянный заработок, для конкурента — кнопка «убрать соседа с линии».
+
+    Замысел был правильный и записан в самой модели: «привязка к поездке доказывает, что
+    стороны реально ехали вместе» (models.py, Report). Не хватало, чтобы авто-пауза этой
+    привязки требовала. Пожаловаться на постороннего по-прежнему можно, и админ такую жалобу
+    увидит — нет только автоматического наказания без доказательства встречи.
+    """
     from .services import notify_admin_telegram   # локальный импорт: тесты патчат services
     if report.category not in SEVERE_CATEGORIES:
         return
-    pause_taxi(session, report.target_user_id, hours=None, reason=PAUSE_REASON_REVIEW)
+    tied_to_trip = any((report.order_id, report.booking_id, report.parcel_id))
+    if tied_to_trip:
+        pause_taxi(session, report.target_user_id, hours=None, reason=PAUSE_REASON_REVIEW)
     target = session.get(User, report.target_user_id)
     ru, _ = category_label(report.category)
     notify_admin_telegram(
@@ -169,7 +183,12 @@ def escalate_severe(session: Session, report: Report, reporter: User) -> None:
         f"{target.phone if target else '—'})\n"
         f"От: {reporter.name or '—'} (id {reporter.id})\n"
         f"Детали: {report.reason or '—'}\n"
-        f"Такси цели на паузе до разбора. Разбор: /admin/reports"
+        # Честная строка вместо всегда-одинаковой: без общей поездки паузы НЕТ, и админ
+        # должен это видеть сразу — иначе решит, что человек уже отстранён, и не поспешит.
+        + (f"Такси цели на паузе до разбора. Разбор: /admin/reports"
+           if tied_to_trip else
+           f"⚠️ Жалоба БЕЗ общей поездки — паузу автоматически не ставим (иначе так можно "
+           f"выключить любого водителя). Реши вручную. Разбор: /admin/reports")
     )
 
 

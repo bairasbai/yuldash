@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from ..antifraud import moderate_open_text
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
@@ -778,6 +779,14 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
         shopping = body.shopping_list.strip()
         if shopping:  # список покупок кладём в описание (курьер видит, что купить)
             description = (shopping + ("\n" + description if description else "")).strip()
+
+    # То же правило, что у посылки «по пути»: открытое поле смотрим ДО того, как его увидит
+    # лента курьеров. Здесь мотив увести сделку мимо приложения даже сильнее — в платном режиме
+    # берётся комиссия, и «звони на другой номер» уносит вместе с деньгами SOS, чек и разбор
+    # спора. Проверка стояла только у попутки, курьерский заказ её не проходил вообще
+    # (аудит 2026-08-07). Текст не режем и заказ не роняем: метка копится, решает человек.
+    # Проверяем уже собранное описание — вместе со списком покупок, это одно открытое поле.
+    moderate_open_text(description, user.id)
 
     # Комиссия при создании — ОЦЕНКА (курьер ещё не назначен, лесенка зависит от ЕГО стажа):
     # дефолтная ступень (8%) + надбавка buy_bring + минимум. Финал пересчитается при вручении.

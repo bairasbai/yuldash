@@ -195,6 +195,34 @@ D. Двуязычие
 
 ---
 
+## ⚠️ Ограничение: откат миграций проверяется ТОЛЬКО на Postgres
+
+В `lessons.md` записано правило «миграции проверять в обе стороны: `upgrade head` →
+`downgrade base` → `upgrade head`». Проверено 2026-08-07: **на SQLite вторая половина
+не проходит**, и это не поломка проекта.
+
+```
+alembic downgrade base
+→ sqlite3.OperationalError: no such column: osago_until
+  [SQL: CREATE INDEX ix_taxiapplication_osago_until ON taxiapplication (osago_until)]
+  на ревизии o_gaps_taxi_courier
+```
+
+Почему так. SQLite не умеет `DROP COLUMN` — alembic обходит это через `batch_alter_table`:
+читает таблицу целиком (вместе с индексами), пересоздаёт её без колонки и заново вешает
+прочитанные индексы. Индекс на удалённой колонке при этом воскресает и падает. На Postgres
+`DROP COLUMN` родной, зависимые индексы уходят сами — этого шага просто нет.
+
+**Что это значит для работы.** Локально (sqlite) правило «проверить в обе стороны»
+выполнить нельзя — упрётесь в чужую особенность, а не в свою ошибку. Настоящую проверку
+делает CI на живом Postgres (`.github/workflows`, шаг «Alembic — одна голова +
+upgrade/downgrade идемпотентны»). Локально проверяйте только `upgrade head` и число голов:
+
+```bash
+cd backend && .venv/bin/python -m alembic heads          # должна быть ровно одна
+DATABASE_URL="sqlite:///./scratch.db" .venv/bin/python -m alembic upgrade head
+```
+
 ## 📎 Грабли проекта — не наступать снова
 
 | Грабли | Как проявились |

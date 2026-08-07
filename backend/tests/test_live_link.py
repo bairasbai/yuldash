@@ -148,12 +148,13 @@ def test_finished_hides_coordinates(client, user_factory, fake_redis):
     oid = order["id"]
     cid = _contact(client, pax, phone="+79990001007")
     token = _share(client, pax, oid, cid)["token"]
-    # Водитель успел прислать позицию — она в кэше.
+    # Водитель успел прислать позицию — она в кэше. Точка — у подачи: следующим шагом он жмёт
+    # «Я на месте», а эта кнопка теперь сверяется с последней позицией из трека (аудит 2026-08-07).
     with client.websocket_connect(f"/ws/instant/{oid}/location") as pax_ws:
         pax_ws.send_text(json.dumps({"type": "auth", "token": pax["token"]}))
         with client.websocket_connect(f"/ws/instant/{oid}/location") as drv_ws:
             drv_ws.send_text(json.dumps({"type": "auth", "token": d["token"]}))
-            drv_ws.send_text(json.dumps({"type": "loc", "lat": 52.61, "lng": 58.33}))
+            drv_ws.send_text(json.dumps({"type": "loc", "lat": 52.5915, "lng": 58.3175}))
             pax_ws.receive_json()
     for step in ("arrived", "onboard", "done"):
         assert client.post(f"/instant/orders/{oid}/{step}", headers=d["auth"]).status_code == 200

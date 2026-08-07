@@ -572,11 +572,25 @@ def send_parcel_message(parcel_id: int, body: MessageIn, user: User = Depends(cu
 def list_parcel_messages(parcel_id: int, limit: int = 500, user: User = Depends(current_user),
                          session: Session = Depends(get_session)):
     """История чата посылки. После вручения/возврата/отмены — read-only (читать можно, писать нет).
-    Отдаём последние `limit` сообщений в хронологическом порядке (защита от гигантской истории)."""
-    _parcel_for_chat(session, parcel_id, user.id, write=False)
+    Отдаём последние `limit` сообщений в хронологическом порядке (защита от гигантской истории).
+
+    Курьер видит переписку СВОЕЙ смены — с момента, как принял доставку. Доступ давался по
+    текущему courier_id, а сообщения выбирались по всей заявке: курьер, взявший её после
+    снятия предыдущего, одним запросом читал всё, что отправитель писал прошлому — где лежит
+    ключ, что получатель пожилая женщина и живёт одна, когда её застать. В самой заявке таких
+    полей нет, то есть мы отдавали заметно больше, чем вообще собирались (аудит 2026-08-07).
+    У отправителя история остаётся полной: это его память о том, кому что говорил, и его
+    аргумент в споре."""
+    parcel = _parcel_for_chat(session, parcel_id, user.id, write=False)
     limit = max(1, min(limit, 1000))
+    conds = [Message.parcel_id == parcel_id]
+    # Отправитель — единственный, кто здесь не курьер (свою посылку взять нельзя). accepted_at
+    # обнуляется при каждом снятии курьера (и своём, и админском), поэтому это честная граница
+    # смены. Нет отметки — значит и читать нечего.
+    if user.id != parcel.sender_id and parcel.accepted_at is not None:
+        conds.append(Message.created_at >= parcel.accepted_at)
     rows = session.exec(
-        select(Message).where(Message.parcel_id == parcel_id).order_by(Message.id.desc()).limit(limit)
+        select(Message).where(*conds).order_by(Message.id.desc()).limit(limit)
     ).all()
     rows = list(reversed(rows))
     return [m for m in rows if user.id not in _hidden_ids(m)]
