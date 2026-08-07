@@ -4,6 +4,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToString
 import com.yuldash.app.data.ApiClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -79,15 +81,44 @@ class AdminReviewsIntegrationTest {
     }
 
     private fun waitForText(text: String) {
-        composeRule.waitUntil(timeoutMillis = 20_000) {
-            // Прокручиваем очередь главного потока руками. Ответ сервера приходит в фоновом
-            // потоке, а обновить экран может только главный — и под Robolectric он не крутится
-            // сам. `waitUntil` только спрашивает «текст уже есть?», очередь не трогая, поэтому
-            // ответ, легший в неё в неудачный момент, остаётся лежать до конца ожидания:
-            // экран замирает на «Загрузка…», хотя данные пришли. Подробный разбор — в
-            // AdminScreensIntegrationTest.
-            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        try {
+            composeRule.waitUntil(timeoutMillis = 20_000) {
+                // Прокручиваем очередь главного потока руками. Ответ сервера приходит в фоновом
+                // потоке, а обновить экран может только главный — и под Robolectric он не крутится
+                // сам. `waitUntil` только спрашивает «текст уже есть?», очередь не трогая.
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (e: Throwable) {
+            // Тот же решающий замер, что и в AdminScreensIntegrationTest. Там измерение уже
+            // доказало: сеть отдаёт правильный ответ за 10 мс и потоки свободны — значит ответ
+            // не доезжает до экрана. Осталось разделить два случая, они лечатся по-разному:
+            // продолжение стоит в очереди и её никто не крутит, либо продолжения нет вовсе.
+            val appearedAfterPumping = runCatching {
+                composeRule.mainClock.advanceTimeBy(5_000)
+                repeat(50) {
+                    org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                    composeRule.mainClock.advanceTimeByFrame()
+                }
+                composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+            }.getOrElse { false }
+            val asked = buildList {
+                while (true) {
+                    val r = server.takeRequest(50, java.util.concurrent.TimeUnit.MILLISECONDS) ?: break
+                    add("${r.method} ${r.path}")
+                }
+            }
+            val screen = runCatching { composeRule.onRoot().printToString(maxDepth = 10) }
+                .getOrElse { "дерево экрана прочитать не удалось: $it" }
+            throw AssertionError(
+                "Не дождались текста «$text».\n" +
+                    "Запросов пришло на сервер: ${server.requestCount} → $asked\n" +
+                    "ПОСЛЕ ПРИНУДИТЕЛЬНОЙ ПРОКРУТКИ ОЧЕРЕДЕЙ текст «$text» " +
+                    (if (appearedAfterPumping) "ПОЯВИЛСЯ → ответ всё это время лежал непрокрученным"
+                     else "так и НЕ появился → продолжение не поставили вовсе") + "\n" +
+                    "Что было на экране (до прокрутки):\n$screen",
+                e,
+            )
         }
     }
 
