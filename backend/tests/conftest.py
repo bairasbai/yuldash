@@ -26,14 +26,30 @@ os.environ["TAXI_ENABLED"] = "true"
 os.environ["DAILY_DIGEST_ENABLED"] = "false"
 
 from datetime import date  # noqa: E402
+import sqlite3  # noqa: E402
 
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import event  # noqa: E402
+from sqlalchemy.engine import Engine  # noqa: E402
 from sqlmodel import Session  # noqa: E402
 
 from app.main import app  # noqa: E402
 from app.db import engine  # noqa: E402
 from app.models import TaxiApplication, TaxiApplicationStatus, User, UserRole  # noqa: E402
 from app.security import make_token  # noqa: E402
+
+
+# SQLite по умолчанию НЕ проверяет внешние ключи — это её историческая особенность, а не наша
+# настройка. Из-за неё тест мог посеять бронь на несуществующего пассажира, пройти зелёным
+# дома и упасть только в CI-джобе на Postgres (аудит 2026-08-06: так жили 12 тестов).
+# Хуже самой поломки то, что зелёный локальный прогон переставал что-либо значить.
+# Включаем проверку и здесь — пусть ловится там, где пишут код, а не через час в CI.
+@event.listens_for(Engine, "connect")
+def _sqlite_foreign_keys_on(dbapi_connection, _record):
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cur = dbapi_connection.cursor()
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.close()
 
 
 @pytest.fixture(scope="session")

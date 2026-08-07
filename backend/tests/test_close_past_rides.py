@@ -14,7 +14,7 @@ from sqlmodel import Session, select
 
 from app.cleanup import RIDE_CLOSE_GRACE_HOURS, close_past_rides
 from app.db import engine
-from app.models import Booking, BookingStatus, Ride, RideStatus
+from app.models import Booking, BookingStatus, Ride, RideStatus, User, UserRole
 from app.timeutil import utcnow
 
 
@@ -24,11 +24,28 @@ def _db(client):
     return client
 
 
+def _person(session: Session, marker: str, role: UserRole) -> int:
+    """Настоящий пользователь для посева — по одному на роль.
+
+    Раньше тут стояли голые номера (`driver_id=1`, `passenger_id=2`): пользователей с такими
+    номерами в базе может не быть. SQLite это пропускал (проверка связей выключена), Postgres
+    отказывал — тест был зелёным дома и красным в CI.
+    """
+    u = session.exec(select(User).where(User.phone == marker)).first()
+    if u is None:
+        u = User(phone=marker, name="Посев", telegram_id=marker, verified=True, role=role)
+        session.add(u)
+        session.commit()
+        session.refresh(u)
+    return u.id
+
+
 def _ride(session: Session, hours_ago: float, status=RideStatus.active) -> int:
     """Возвращает id, а не объект: после закрытия сессии объект отвязывается и обращение
     к его полям падает DetachedInstanceError. id — обычное число, оно переживёт что угодно."""
     r = Ride(
-        driver_id=1, from_city="Баймак", to_city="Сибай",
+        driver_id=_person(session, "seed-drv-close", UserRole.driver),
+        from_city="Баймак", to_city="Сибай",
         depart_at=utcnow() - timedelta(hours=hours_ago),
         seats_total=3, seats_left=3, price=300, status=status,
     )
@@ -55,7 +72,8 @@ def test_past_ride_with_confirmed_booking_becomes_done():
     """Поездка состоялась, её просто забыли закрыть."""
     with Session(engine) as s:
         rid = _ride(s, hours_ago=RIDE_CLOSE_GRACE_HOURS + 10)
-        s.add(Booking(ride_id=rid, passenger_id=2, seats=1, status=BookingStatus.confirmed))
+        pid = _person(s, "seed-pass-close", UserRole.passenger)
+        s.add(Booking(ride_id=rid, passenger_id=pid, seats=1, status=BookingStatus.confirmed))
         s.commit()
     close_past_rides()
     assert _status(rid) == RideStatus.done
@@ -65,7 +83,8 @@ def test_pending_booking_is_not_enough_for_done():
     """Бронь висела неподтверждённой — значит поездки не было."""
     with Session(engine) as s:
         rid = _ride(s, hours_ago=RIDE_CLOSE_GRACE_HOURS + 10)
-        s.add(Booking(ride_id=rid, passenger_id=2, seats=1, status=BookingStatus.pending))
+        pid = _person(s, "seed-pass-close", UserRole.passenger)
+        s.add(Booking(ride_id=rid, passenger_id=pid, seats=1, status=BookingStatus.pending))
         s.commit()
     close_past_rides()
     assert _status(rid) == RideStatus.expired
