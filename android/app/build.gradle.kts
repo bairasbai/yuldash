@@ -123,23 +123,31 @@ val hasReleaseKeystore = keystoreProps.getProperty("storePassword") != null
 // поэтому их не трогаем — иначе сломали бы CI, где keystore нет и не должно быть.
 val releaseArtifactTasks = setOf("assembleRelease", "bundleRelease", "packageRelease", "installRelease")
 
-// Явное «мне не нужен артефакт, я только проверяю сжатие кода (R8)» — этим ходит CI.
-// Зачем флаг вообще. Замысел сторожа выше — «CI не сломать, там ключа нет и не должно быть», но
-// сам шаг CI зовёт именно `assembleRelease`, то есть попадает под запрет. С 2026-08-03 проверка
-// R8 из-за этого падала за 10 секунд на КАЖДОМ прогоне — значит, релизная сборка не проверялась
-// вообще, и сломать её мог кто угодно незаметно (аудит 2026-08-06).
-// Защита человека при этом остаётся: без флага неподписанный релиз по-прежнему падает с
-// инструкцией. Флаг ставится осознанно и только там, где артефакт заведомо выбрасывается.
-val allowUnsignedRelease = (project.findProperty("allowUnsignedRelease") as String?) == "true"
+// Осознанное исключение для проверки R8 в CI (правка 2026-08-06).
+// Защита выше и шаг CI «Build release (R8 minify check)» противоречили друг другу: шагу нужен
+// релизный прогон, чтобы поймать «в debug работало, в release упало» (вырезанные R8 классы —
+// рефлексия, JSON, MapKit), а подписи у робота нет и быть не должно. В итоге чек краснел
+// с 3 августа, и красный CI переставал что-либо значить.
+// Флаг разделяет два разных намерения: человек собирает релиз (подпись обязательна) и робот
+// проверяет ужатие кода (артефакт выбрасывается, подпись не нужна). Ставит его ТОЛЬКО ci.yml.
+val unsignedReleaseAllowed = providers.gradleProperty("yuldash.unsignedRelease").isPresent
 gradle.taskGraph.whenReady {
-    if (!hasReleaseKeystore && !allowUnsignedRelease && allTasks.any { it.name in releaseArtifactTasks }) {
+    if (!hasReleaseKeystore && !unsignedReleaseAllowed && allTasks.any { it.name in releaseArtifactTasks }) {
         throw GradleException(
             "Релизная сборка без подписи. Нужен файл android/keystore.properties " +
                 "(storeFile, storePassword, keyAlias, keyPassword) — он в .gitignore и в git не попадает. " +
                 "Без него APK не установится на телефон и не пройдёт модерацию стора. " +
                 "Для проверки без ключа собирай debug: gradlew :app:assembleDebug, " +
-                "а если нужна именно проверка R8 без установки — добавь -PallowUnsignedRelease=true " +
+                "а если нужна именно проверка R8 без установки — добавь -Pyuldash.unsignedRelease " +
                 "(так делает CI; полученный APK НЕЛЬЗЯ ставить и заливать)."
+        )
+    }
+    // Неподписанный релиз собрался — говорим это вслух. Иначе кто-нибудь скопирует флаг из CI
+    // себе в команду, получит зелёную сборку и APK, который не примет стор.
+    if (!hasReleaseKeystore && unsignedReleaseAllowed && allTasks.any { it.name in releaseArtifactTasks }) {
+        logger.warn(
+            "⚠️  Релиз собирается БЕЗ ПОДПИСИ (-Pyuldash.unsignedRelease). Это режим проверки R8 " +
+                "в CI: полученный APK НЕЛЬЗЯ ставить на телефон и НЕЛЬЗЯ заливать в стор."
         )
     }
 }
