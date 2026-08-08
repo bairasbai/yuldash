@@ -123,3 +123,15 @@ def upload_doc(client, auth) -> str:
     r = client.post("/upload/photo", headers=auth, json={"photo_b64": b64, "ext": "jpg"})
     assert r.status_code == 200, r.text
     return r.json()["url"]
+
+# --- Настоящее загруженное фото-доказательство (спор, фото «взял/отдал целой») ---
+# Сервер принимает ТОЛЬКО снимок, который загрузил сам этот человек: имя файла начинается
+# с его id (`guard_own_evidence`). Выдуманная строка вида "secure/evidence/pickup.jpg"
+# скрывала настоящую дыру — чужое фото с лицами и травмами читалось посторонним
+# (аудит 2026-08-08, волна 9). Хелпер ведёт тест тем же путём, что человека.
+def upload_evidence(client, auth) -> str:
+    """Загрузить минимальный JPEG как фото-доказательство → его /secure/evidence URL."""
+    b64 = base64.b64encode(bytes([0xFF, 0xD8, 0xFF]) + b"test-evidence").decode()
+    r = client.post("/upload/evidence", headers=auth, json={"photo_b64": b64, "ext": "jpg"})
+    assert r.status_code == 200, r.text
+    return r.json()["url"]

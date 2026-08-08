@@ -212,6 +212,20 @@
 **Backend «Справедливость» (дополняет анонимные жалобы `Report`, НЕ заменяет):**
 - **Модели** (`backend/app/models.py`): `Incident` (двусторонний спор: `reporter`/`respondent`/`type`/`status` open→awaiting_response→under_review→resolved/appealed/closed, `resolution`/`fault`/`appeal_status`), `SafetyProfile` (1:1 с User: `strikes`/`warnings`/`standing` good→warned→limited→suspended, `suspended_until`). `Rating.excluded` (щит рейтинга), `Booking.cancelled_by` (Надёжность).
 - **`backend/app/safety_logic.py`** — ядро: `INCIDENT_TYPES`/`SEVERE_TYPES`, лестница §2 (`recompute_standing`/`refresh_standing`/`_escalation_days`/`apply_incident_resolution` — лок при мутации страйков), `reliability_for` (Надёжность 0..100, неявка ТОЛЬКО по resolved-инциденту — защита оболганного), `_exclude_linked_ratings` (снять оценку-месть). Гейт паузы: `ensure_active` (бросает 403) + `account_paused` (не бросает — для лент, где отказ показывают молча). **Гейт стоит поштучно на каждой ручке**, полноту сторожит `tests/test_suspension_reaches_everywhere.py`: попутка, заявка + отклик + торг, такси (общий `_guard_taxi_driver` → линия/оффер/приём) + предзаказ, доставка + приём, жалобы. Намеренно открыты SOS и завершение начатой поездки.
+- **Фото-доказательства принадлежат загрузившему (2026-08-08, волна 9).** `/upload/evidence`
+  даёт имя `{user_id}_{uuid}.{ext}`, и `safety_logic.guard_own_evidence(urls, user_id, already=…)`
+  бросает 403, если в записи есть ПРИВАТНЫЙ снимок другого человека. Стоит на четырёх дверях:
+  `create_incident` (общая точка — её зовут и `/incidents`, и спор по доставке), `/incidents/{id}/respond`,
+  `/parcels/{id}/accept` и `/parcels/{id}/status` (фото «взял/отдал целой»). Публичные `/media/...`
+  не проверяются (открыты по построению). Читать приложенное по-прежнему могут стороны спора и
+  админ (`_can_view_evidence`). Тесты — `test_audit_20260808.py` раздел 13.
+- **Пауза «Справедливости» закрывает и ВТОРОЙ шаг сделки (2026-08-08, волна 9).** Добавлено:
+  `ensure_active` + `account_paused(другая сторона)` в `/responses/{id}/accept` (проверяются ОБЕ
+  стороны), `ensure_active` в `/bookings/{id}/confirm` (отмена брони намеренно остаётся открытой),
+  и проверка внутри `instant_service.activate_scheduled` — там, а не на ручке, потому что
+  активацию зовут три пути (клиент, ленивый `GET /instant/scheduled`, `taxi_worker`); предзаказ
+  отстранённого отменяется с уведомлением (`ref_kind="instant"`). Полноту сторожит
+  `tests/test_suspension_reaches_everywhere.py` (13 тестов).
 - **«Только женщины» — правило сервера (2026-08-08).** Пол человека живёт на **`User.gender`**
   (`""` | `female` | `male`); `DriverProfile.gender` остался в базе, но НЕ читается (миграция
   `ag_user_gender` перенесла значения). Единственная проверка — `safety_logic.guard_women_only(user, msg=…)`

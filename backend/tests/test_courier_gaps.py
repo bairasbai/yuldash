@@ -14,7 +14,7 @@ from app import models as M
 from app.config import settings
 from app.db import engine
 from app.models import UserRole
-from conftest import upload_doc
+from conftest import upload_evidence, upload_doc
 
 
 @pytest.fixture(autouse=True)
@@ -183,7 +183,7 @@ def test_declared_value_and_photos_are_stored(client, user_factory):
     order = _order(client, sender, declared_value_kop=150000)
     pid, code = order["id"], order["confirm_code"]
     assert _parcel(pid).declared_value_kop == 150000
-    ok_url = "https://yulbash.ru/secure/evidence/pickup.jpg"
+    ok_url = upload_evidence(client, courier["auth"])   # свой загруженный снимок, как у человека
     r = client.post(f"/parcels/{pid}/accept", headers=courier["auth"],
                     json={"pickup_photo_url": ok_url})
     assert r.status_code == 200, r.text
@@ -195,7 +195,7 @@ def test_declared_value_and_photos_are_stored(client, user_factory):
     # Фото вручения СОХРАНЯЕТСЯ. Раньше этого никто не проверял: тест выше ловил только чужой
     # хост и проходил бы даже с полностью отключённым присвоением — что и было в жизни.
     # Телефон снимок слал, экран писал «Фото приложено ✓», сервер его выбрасывал.
-    give_url = "https://yulbash.ru/secure/evidence/delivered.jpg"
+    give_url = upload_evidence(client, courier["auth"])
     r = client.post(f"/parcels/{pid}/status", headers=courier["auth"],
                     json={"status": "delivered", "code": code, "delivery_photo_url": give_url})
     assert r.status_code == 200, r.text

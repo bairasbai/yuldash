@@ -215,6 +215,9 @@ async def upload_evidence(request: Request, user: User = Depends(current_user), 
     URL из ответа прикладывается к POST /incidents (evidence_urls) или /respond."""
     enforce_upload_quota(session, user.id)
     data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
-    name = f"{uuid.uuid4().hex}.{ext}"
+    # Имя НАЧИНАЕТСЯ с id загрузившего — по нему сервер потом отличает «моё фото» от чужого.
+    # Без этого чужое имя можно было вписать в свой спор и скачать фото с лицами и травмами
+    # (аудит 2026-08-08, волна 9). Тот же приём, что у документов водителя.
+    name = f"{user.id}_{uuid.uuid4().hex}.{ext}"
     await run_in_threadpool(get_storage().save, f"evidence/{name}", data)
     return {"url": secure_evidence_url(name)}

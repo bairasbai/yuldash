@@ -21,7 +21,8 @@ from ..db import get_session
 from ..models import Booking, Incident, InstantOrder, Ride, User, UserRole
 from ..safety_logic import (
     INCIDENT_TYPES, SEVERE_TYPES, active_incidents_count, apply_incident_resolution,
-    clamp, completed_trips_for, csv_from_urls, ensure_active, incidents_last_hour, is_suspended,
+    clamp, completed_trips_for, csv_from_urls, ensure_active, guard_own_evidence,
+    incidents_last_hour, is_suspended,
     refresh_standing, reliability_for, urls_from_csv,
 )
 from ..security import current_user
@@ -205,6 +206,9 @@ def create_incident(
     parcel_damage/parcel_lost были недостижимы: код требовал booking_id и отвечал 400 (аудит 2026-07-26)."""
     if respondent_id == reporter.id:
         raise HTTPException(400, "Нельзя пожаловаться на себя")
+    # Приложить можно только СВОИ фото. Проверка стоит здесь, в общей точке: её зовут и
+    # /incidents, и спор по доставке (parcels.py), и будущие авто-детекты — правило одно на всех.
+    guard_own_evidence(evidence_urls, reporter.id)
     if type not in INCIDENT_TYPES:
         raise HTTPException(400, "Неизвестный тип инцидента")
     if not session.get(User, respondent_id):
@@ -231,7 +235,7 @@ def create_incident(
         booking_id=booking_id, parcel_id=parcel_id, order_id=order_id,
         reporter_id=reporter.id, respondent_id=respondent_id,
         type=type, reporter_role=reporter_role, description=clamp(description, 2000),
-        evidence_urls=csv_from_urls(evidence_urls),   # только СВОИ URL, внешние хосты отброшены
+        evidence_urls=csv_from_urls(evidence_urls),   # владение проверено guard_own_evidence выше
         # severe → сразу на разбор человеком; иначе ждём объяснения обвинённого.
         status="under_review" if severe else "awaiting_response",
     )
@@ -318,7 +322,9 @@ def respond_incident(incident_id: int, body: RespondIn,
     if inc.status in ("resolved", "closed"):
         raise HTTPException(409, "Спор уже закрыт")
     inc.respondent_statement = clamp(body.statement, 2000)
-    if body.evidence_urls is not None:   # право на защиту — с фото (только свои URL)
+    if body.evidence_urls is not None:   # право на защиту — с фото (только СВОИ)
+        # `already`: обвинённый может дополнять свой список, ранее приложенное остаётся своим.
+        guard_own_evidence(body.evidence_urls, user.id, already=inc.respondent_evidence_urls)
         inc.respondent_evidence_urls = csv_from_urls(body.evidence_urls)
     inc.responded_at = utcnow()
     inc.status = "under_review"

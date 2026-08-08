@@ -22,7 +22,7 @@ from app.models import OtpCode, User, UserRole
 from app.timeutil import utcnow
 from datetime import timedelta
 
-from conftest import upload_doc
+from conftest import upload_doc, upload_evidence
 
 
 @pytest.fixture(autouse=True)
@@ -458,3 +458,102 @@ def test_gender_never_leaks_to_other_people(client, user_factory):
     public = client.get(f"/drivers/{drv['id']}/public")
     assert public.status_code == 200
     assert "gender" not in public.json()
+
+# --------------------- 13. Волна 9: чужое фото-доказательство читалось посторонним ---------------------
+# Найдено запросом, а не глазами. Фото-доказательства — самое чувствительное в проекте: лица,
+# травмы, номера машин. Читать их можно сторонам спора, к которому файл приложен. Но на ВХОДЕ
+# проверялось только «ссылка на наш хост», а не «файл твой». Полная цепочка, доступная любому:
+#   1) забронировать любую поездку любого водителя (это открыто всем);
+#   2) подать по ней спор, вписав в evidence_urls ЧУЖОЕ имя файла;
+#   3) стать «стороной спора с этим файлом» → GET /secure/evidence/{name} отвечает 200.
+# Побочно страдал и невиновный водитель: против него оставался выдуманный спор.
+
+def _ride_and_booking(client, user_factory, pax):
+    """Настоящая совместная поездка: ровно то, что делает любой пассажир."""
+    drv = user_factory("Водитель для спора", role=UserRole.driver)
+    r = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай",
+        "depart_at": (utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat(),
+        "seats_total": 3, "price": 300,
+    })
+    assert r.status_code == 200, r.text
+    b = client.post("/bookings", headers=pax["auth"], json={"ride_id": r.json()["id"], "seats": 1})
+    assert b.status_code == 200, b.text
+    return drv, b.json()["id"]
+
+
+def test_evidence_upload_is_bound_to_the_uploader(client, user_factory):
+    """Имя приватного снимка начинается с id загрузившего — по нему сервер и отличает своё."""
+    u = user_factory("Загрузил фото")
+    name = upload_evidence(client, u["auth"]).rsplit("/", 1)[-1]
+    assert name.startswith(f"{u['id']}_"), name
+
+
+def test_stranger_cannot_attach_and_read_someone_elses_photo(client, user_factory):
+    """Та самая цепочка целиком: сорваться должна на подаче спора, а файл остаться закрытым."""
+    victim = user_factory("Жертва фото")
+    url = upload_evidence(client, victim["auth"])
+    name = url.rsplit("/", 1)[-1]
+
+    stranger = user_factory("Посторонний")
+    assert client.get(f"/secure/evidence/{name}", headers=stranger["auth"]).status_code == 403
+
+    drv, booking_id = _ride_and_booking(client, user_factory, stranger)
+    denied = client.post("/incidents", headers=stranger["auth"], json={
+        "respondent_id": drv["id"], "type": "rude", "booking_id": booking_id,
+        "description": "Повод выдуман — нужен доступ к чужому фото",
+        "evidence_urls": [url],
+    })
+    assert denied.status_code == 403, denied.text
+    assert denied.json()["detail"]["ru"] and denied.json()["detail"]["ba"]
+
+    # И главное: файл по-прежнему закрыт.
+    assert client.get(f"/secure/evidence/{name}", headers=stranger["auth"]).status_code == 403
+
+
+def test_own_photo_still_works_end_to_end(client, user_factory):
+    """Починка не должна ломать нормальный разбор: своё фото прикладывается и открывается."""
+    pax = user_factory("Пассажир со снимком")
+    drv, booking_id = _ride_and_booking(client, user_factory, pax)
+    url = upload_evidence(client, pax["auth"])
+
+    inc = client.post("/incidents", headers=pax["auth"], json={
+        "respondent_id": drv["id"], "type": "rude", "booking_id": booking_id,
+        "description": "Нахамил в дороге", "evidence_urls": [url],
+    })
+    assert inc.status_code == 200, inc.text
+    name = url.rsplit("/", 1)[-1]
+    assert client.get(f"/secure/evidence/{name}", headers=pax["auth"]).status_code == 200
+
+    # Обвинённый видит приложенное к спору фото — это и есть смысл двустороннего разбора.
+    assert client.get(f"/secure/evidence/{name}", headers=drv["auth"]).status_code == 200
+
+    # А своё объяснение он вправе подкрепить СВОИМ снимком — и только своим.
+    his = upload_evidence(client, drv["auth"])
+    ok = client.post(f"/incidents/{inc.json()['id']}/respond", headers=drv["auth"],
+                     json={"statement": "Было не так", "evidence_urls": [his]})
+    assert ok.status_code == 200, ok.text
+    bad = client.post(f"/incidents/{inc.json()['id']}/respond", headers=drv["auth"],
+                      json={"statement": "И вот ещё", "evidence_urls": [upload_evidence(client, pax["auth"])]})
+    assert bad.status_code == 403, bad.text
+
+
+def test_courier_cannot_pass_off_a_foreign_photo_as_proof(client, user_factory):
+    """Фото «взял целой» — граница ответственности. Чужой снимок в неё не встаёт.
+
+    Тут вред другой: админ (он видит любые файлы) в разборе смотрел бы на снимок,
+    который курьер не делал.
+    """
+    from test_courier import _make_courier, _order
+    courier = _make_courier(client, user_factory)
+    outsider = user_factory("Чужой снимок")
+    foreign = upload_evidence(client, outsider["auth"])
+
+    sender = user_factory("Отправитель")
+    order = _order(client, sender)
+    assert order.status_code == 200, order.text
+    pid = order.json()["id"]
+
+    denied = client.post(f"/parcels/{pid}/accept", headers=courier["auth"],
+                         json={"pickup_photo_url": foreign})
+    assert denied.status_code == 403, denied.text

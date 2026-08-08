@@ -24,7 +24,7 @@ from ..services import (
     notify_map_changed, notify_request_watchers, public_rides_payload, push_notification,
     record_pickup_choice, rides_out, user_rating,
 )
-from ..safety_logic import (ensure_active, MSG_WOMEN_ONLY_RESPOND,
+from ..safety_logic import (account_paused, ensure_active, MSG_WOMEN_ONLY_RESPOND,
                             guard_women_only)
 from ..antifraud import moderate_open_text
 from ..timeutil import client_dt_to_utc, utcnow
@@ -815,6 +815,24 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     if last == role:
         raise herr(409, "Сейчас ход другой стороны — свою же цену принять нельзя",
                    "Хәҙер икенсе яҡтың сираты — үҙ хаҡыңды ҡабул итеп булмай")
+    # ⬇️ Пауза «Справедливости» (§2) на ОБЕИХ сторонах. Торг — это две двери, а гейт стоял
+    # только на одной: отклик и встречная цена отстранённому закрыты, а «принять» — нет.
+    # Значит висящий отклик доводился до конца, и отстранённый водитель снова садился за руль
+    # с пассажиром (проверено запросом: 200 и booking_id, аудит 2026-08-08, волна 9).
+    #
+    # Проверяем именно ОБОИХ, а не только нажимающего: иначе отстранённому достаточно
+    # дождаться, пока «принять» нажмёт вторая сторона, — и поездка всё равно состоится.
+    if user.role != UserRole.admin:
+        ensure_active(session, user.id)          # моё действие — про мой аккаунт, свой текст
+    other_id = resp.driver_id if role == "passenger" else req.passenger_id
+    if other_id and other_id != user.id and account_paused(session, other_id):
+        # Второй стороне НЕ говорим, что человека наказали (чужая история разбора), и не
+        # обвиняем её саму: текст про невозможность сделки, а не про чей-то аккаунт.
+        if role == "passenger":
+            raise herr(409, "Этот водитель сейчас не выходит в рейс. Заявка активна — дождись другого отклика.",
+                       "Был водитель хәҙер юлға сыҡмай. Заявка актив — башҡа яуапты көт.")
+        raise herr(409, "Пассажир сейчас не может оформить поездку. Попробуй другую заявку.",
+                   "Пассажир хәҙер сәфәр аса алмай. Башҡа заявканы ҡарап ҡара.")
     booking = accept_request_response(session, resp)
     return {"booking_id": booking.id}
 

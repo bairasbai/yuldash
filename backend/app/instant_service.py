@@ -1010,6 +1010,35 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     подошло. Идемпотентно: не-scheduled заказ возвращаем как есть."""
     if order.status != S.scheduled:
         return order
+    # ⬇️ Пауза «Справедливости» (§2) на ПАССАЖИРЕ. Гейт стоит на создании предзаказа, но между
+    # созданием и временем поездки человека могли отстранить разбором — и предзаказ всё равно
+    # ехал: активацию зовут ТРИ пути (кнопка клиента, ленивый GET /instant/scheduled и фоновый
+    # воркер), поэтому проверка на ручке была бы бесполезна. Ставим её здесь, в одной точке.
+    #
+    # Отменяем, а не подвешиваем: предзаказ «на время» без машины к сроку — это человек, который
+    # ждёт зря. Отмена системная, штрафа пассажиру не даёт (reason не «поздняя отмена»).
+    from .safety_logic import account_paused   # локальный импорт: safety_logic тянет services
+    if account_paused(session, order.passenger_id):
+        # Актор — пассажирская сторона (это его заказ, водителя ещё нет), reason честно говорит
+        # причину. Штрафа тут не возникает по построению: он считается только при поздней отмене
+        # уже назначенного водителя, а у предзаказа его нет. `Actor.system` не подходит: системный
+        # актор ходит по таблице переходов водителя, где статуса `scheduled` нет вовсе.
+        cancelled = cancel_order(session, order.id, Actor.passenger, order.passenger_id,
+                                 "passenger_suspended")
+        # Молча отменить нельзя: человек ждёт машину к назначенному часу. Говорим и причину,
+        # и куда идти (в Центре справедливости — срок и суть разбора).
+        from .services import push_notification
+        push_notification(
+            session, order.passenger_id, "taxi",
+            "Предзаказ отменён", "Алдан заказ кире алынды",
+            "Аккаунт на паузе до разбора — машину вызвать не получится. Причина и срок в Центре справедливости.",
+            "Иҫәп тикшереүгә тиклем паузада — машина саҡырып булмай. Сәбәбе һәм ваҡыты Ғәҙеллек үҙәгендә.",
+            # `instant`, а не `order`: по этому виду приложение умеет открывать такси-заказ.
+            # Выдуманный вид сделал бы уведомление немым по тапу (поймал
+            # tests/test_notifications_lead_somewhere.py).
+            ref_kind="instant", ref_id=order.id,
+        )
+        return cancelled
     est = estimate(session, (order.from_lat, order.from_lng),
                    (order.to_lat, order.to_lng), order.category or "standard")
     session.execute(

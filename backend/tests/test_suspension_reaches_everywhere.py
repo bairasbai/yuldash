@@ -22,7 +22,7 @@ from datetime import timedelta
 
 import fakeredis
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app import instant_service as isv
 from app.db import engine
@@ -184,6 +184,109 @@ def test_отстранённый_не_торгуется_о_цене(client, us
     assert r.status_code == 403, (
         f"отстранённый продолжает торговаться и закроет сделку: {r.status_code} {r.text[:200]}"
     )
+
+
+def test_отстранённый_не_принимает_цену_и_не_создаёт_поездку(client, user_factory):
+    """Торг — это ДВЕ двери: сделать ход и принять цену. Гейт стоял только на первой.
+
+    Отклик и встречная цена отстранённому были закрыты (тест выше), а «принять» — открыто.
+    Значит висящий отклик доводился до конца: создавались Ride+Booking, и отстранённый
+    водитель снова садился за руль с пассажиром. Проверено запросом: 200 и booking_id
+    (аудит 2026-08-08, волна 9)."""
+    pax = user_factory("SuspAcceptPax")
+    rid = _request_of(client, pax)
+    drv = user_factory("SuspAcceptDrv", role=UserRole.driver)
+    resp = client.post(f"/requests/{rid}/respond", headers=drv["auth"], json={"price": 500})
+    assert resp.status_code == 200, resp.text
+    resp_id = resp.json()["id"]
+    # Пассажир делает встречную — теперь ход водителя, и «принять» может именно он.
+    assert client.post(f"/responses/{resp_id}/counter", headers=pax["auth"],
+                       json={"price": 400}).status_code == 200
+
+    _suspend(drv["id"])
+    r = client.post(f"/responses/{resp_id}/accept", headers=drv["auth"])
+    assert r.status_code == 403, f"пауза обойдена, поездка создана: {r.status_code} {r.text[:200]}"
+
+
+def test_пассажир_не_доводит_сделку_за_отстранённого_водителя(client, user_factory):
+    """Гейта на одном нажимающем не хватило бы: отстранённому достаточно дождаться,
+    пока «принять» нажмёт вторая сторона. Поэтому проверяются ОБЕ стороны.
+
+    Пассажиру при этом не сообщают, что человека наказали (чужая история разбора),
+    и не обвиняют его самого — текст про невозможность сделки."""
+    pax = user_factory("SuspOtherPax")
+    rid = _request_of(client, pax)
+    drv = user_factory("SuspOtherDrv", role=UserRole.driver)
+    resp = client.post(f"/requests/{rid}/respond", headers=drv["auth"], json={"price": 500})
+    assert resp.status_code == 200, resp.text
+    resp_id = resp.json()["id"]
+
+    _suspend(drv["id"])            # ход сейчас пассажирский: принять может он
+    r = client.post(f"/responses/{resp_id}/accept", headers=pax["auth"])
+    assert r.status_code == 409, f"пассажир довёл сделку за отстранённого: {r.status_code} {r.text[:200]}"
+    detail = r.json()["detail"]
+    assert detail["ru"] and detail["ba"]
+    # Ни слова о наказании второй стороны и никаких обвинений в адрес самого пассажира.
+    low = detail["ru"].lower()
+    assert "пауз" not in low and "разбор" not in low, detail["ru"]
+
+
+def test_отстранённый_водитель_не_подтверждает_бронь(client, user_factory):
+    """Подтверждение брони — это ВСТУПЛЕНИЕ в сделку, а не «начатая поездка».
+
+    Поездку он опубликовал до паузы, пассажир забронировал — и водитель, уже отстранённый
+    разбором, спокойно жал «подтвердить» и вёз человека (проверено запросом: 200,
+    аудит 2026-08-08, волна 9). Отмена брони отстранённому остаётся открытой: иначе
+    пассажир висит в ожидании навсегда — это и проверяет вторая половина теста."""
+    driver = user_factory("SuspConfirmDrv", role=UserRole.driver)
+    rid = _ride(client, driver, price=300)
+    passenger = user_factory("SuspConfirmPax")
+    b = client.post("/bookings", headers=passenger["auth"], json={"ride_id": rid, "seats": 1})
+    assert b.status_code == 200, f"бронь до паузы не прошла: {b.text[:200]}"
+    booking_id = b.json()["id"]
+
+    _suspend(driver["id"])
+    r = client.post(f"/bookings/{booking_id}/confirm", headers=driver["auth"])
+    assert r.status_code == 403, f"отстранённый подтвердил бронь и поедет: {r.status_code} {r.text[:200]}"
+
+    # А отменить — можно и нужно: пассажира нельзя оставлять в подвешенном состоянии.
+    c = client.post(f"/bookings/{booking_id}/cancel", headers=driver["auth"], json={})
+    assert c.status_code == 200, f"отстранённый не смог освободить пассажира: {c.text[:200]}"
+
+
+def test_предзаказ_отстранённого_не_едет_а_отменяется_с_объяснением(client, user_factory, fake_redis):
+    """Предзаказ создан ДО паузы, а ехать ему уже нельзя.
+
+    Гейт на создании предзаказа есть (тест выше), но между созданием и часом поездки человека
+    могли отстранить разбором — и предзаказ всё равно уезжал. Проверку нельзя было поставить
+    на ручку активации: её зовут ТРИ пути (кнопка клиента, ленивый GET /instant/scheduled и
+    фоновый воркер), два из них ручку не трогают. Поэтому она внутри `activate_scheduled`.
+
+    Отменяем, а не подвешиваем: предзаказ без машины к сроку — это человек, который зря ждёт.
+    И обязательно говорим почему (аудит 2026-08-08, волна 9)."""
+    from app.models import Notification
+
+    passenger = user_factory("SuspActivatePax")
+    when = (utcnow() + timedelta(hours=6)).replace(microsecond=0).isoformat()
+    r = client.post("/instant/schedule", headers=passenger["auth"], json={
+        "from_lat": ORIG[0], "from_lng": ORIG[1], "to_lat": DEST[0], "to_lng": DEST[1],
+        "from_text": "Баймак", "to_text": "Сибай", "scheduled_at": when,
+    })
+    assert r.status_code == 200, f"предзаказ до паузы не прошёл: {r.text[:200]}"
+    oid = r.json()["id"]
+
+    _suspend(passenger["id"])
+    a = client.post(f"/instant/scheduled/{oid}/activate", headers=passenger["auth"])
+    assert a.status_code == 200, a.text
+    assert a.json()["status"] == "cancelled", (
+        f"предзаказ отстранённого поехал в обход паузы: {a.json()['status']}"
+    )
+
+    # Человек должен узнать причину, а не обнаружить отсутствие машины в назначенный час.
+    with Session(engine) as s2:
+        notes = s2.exec(select(Notification).where(Notification.user_id == passenger["id"])).all()
+    texts = " ".join((n.body_ru or "") for n in notes)
+    assert "паузе" in texts, f"отмену не объяснили: {[n.title_ru for n in notes]}"
 
 
 # ---------- Что пауза ломать НЕ должна ----------
