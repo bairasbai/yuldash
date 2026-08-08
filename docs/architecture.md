@@ -826,6 +826,23 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - `backend/alembic/versions/p2_instant_order.py` — миграция (rev `p2_instant_order`, down `0004`), идемпотентна: на свежей БД create_all уже создал таблицы → no-op; на проде создаёт `tariff` + `instantorder` c индексами.
 - `backend/tests/test_instant.py` — 25 тестов (тариф/presence/matcher/машина/гонка/таймаут/отмены/приватность).
 
+**Классы машин (2026-08-08, спека — [taxi-classes-2026-08.md](taxi-classes-2026-08.md)):**
+- `backend/app/car_class.py` — классы (economy/comfort/business/minivan) и опции салона.
+  Класс машины **считается** по характеристикам, каждый класс проверяется независимо
+  (иерархии нет). Потолок 8 пассажирских мест — выше это автобус (категория M1).
+  Цвет кузова для РБ: чёрный/белый/жёлтый. `available_or_legacy` держит совместимость
+  со старыми профилями, где класс был один.
+- `backend/app/class_rollout.py` — набор водителей по местам: класс открывается пассажирам,
+  когда в городе/районе набралось `settings.car_class_min_drivers` (по умолчанию 3).
+  Единица набора — город или район (не деревня), деревня наследует классы района.
+- `backend/alembic/versions/ai_car_classes_20260808.py` — миграция полей класса, опций и ОСГОП.
+  **Заодно свела две головы alembic** (`ah_text_flags` + `money_holes_20260807`): до неё
+  `alembic upgrade head` падал с «Multiple head revisions».
+- `backend/tests/test_car_classes.py` — 25 тестов (классификатор/мультитариф/опции/подбор/
+  набор по местам/фолбэк/витрина).
+- Эндпоинты: `GET|POST /instant/orders/{id}/alternatives` (соседний класс, когда своих машин
+  нет — только с согласия пассажира), `GET|POST /taxi/classes` (классы и опции водителя).
+
 **Модели (`models.py`):** `Tariff(zone, category, base, per_km, per_min, min_price, k, active)`; `InstantOrder(...+ таймстампы переходов)`; `InstantOrderStatus` (created→searching→offered→accepted→arriving→onboard→done, терминальные cancelled/expired). **Presence — только Redis** (эфемерно, в БД нет).
 
 **Presence:** `POST /instant/presence` (водитель «на линии») → `GEOADD presence` + `SET presence:hb:{id} EX 60`. Переиспользует `services._cache_client()`. Без Redis — graceful (заказ не находит водителей, не падает).

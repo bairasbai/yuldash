@@ -2316,7 +2316,14 @@ object ApiClient {
                 surgeNoteBa = note?.optString("ba") ?: "",
                 options = (0 until optArr.length()).map { i ->
                     val c = optArr.getJSONObject(i)
-                    InstantClassOption(category = c.optString("category"), price = c.optInt("price"))
+                    InstantClassOption(
+                        category = c.optString("category"),
+                        price = c.optInt("price"),
+                        // Класс, в котором в этом городе ещё не набралось водителей. Приходит
+                        // с open=false, чтобы показать «скоро» вместо кнопки, за которой пусто.
+                        // Старый сервер поля не шлёт → true, прежнее поведение.
+                        open = c.optBoolean("open", true),
+                    )
                 },
                 basePrice = o.optInt("base_price"),
                 dynamicK = o.optDouble("dynamic_k", 1.0),
@@ -2363,8 +2370,13 @@ object ApiClient {
         fromText: String = "", toText: String = "", category: String = "standard",
         comment: String = "", entrance: String = "", forName: String = "", forPhone: String = "",
         womenOnly: Boolean = false,
+        options: List<String> = emptyList(),
     ): Result<InstantOrderDto> {
         val body = instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category)
+        // Опции салона (детское кресло по возрасту, коляска, собака-проводник, животное,
+        // большой багаж). Фильтр на сервере жёсткий: машину без кресла к такому заказу
+        // не подберут вообще — это и есть смысл галочки.
+        if (options.isNotEmpty()) body.put("options", JSONArray(options))
         // Пустые поля не шлём: сервер их и так примет, но лишний шум в теле запроса ни к чему.
         if (comment.isNotBlank()) body.put("comment", comment.take(300))
         if (entrance.isNotBlank()) body.put("entrance", entrance.take(60))
@@ -2375,6 +2387,77 @@ object ApiClient {
         if (womenOnly) body.put("women_only", true)
         return call("POST", "/instant/orders", body, auth = true)
             .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_create") }
+    }
+
+    /** Что предложить, если в выбранном классе никого нет.
+     *
+     *  Клиент дёргает через `alternativesAfterSec` секунд поиска. Пустой список — предлагать
+     *  нечего, честно ждём дальше. Молчаливой подмены класса нет: решает пассажир. */
+    suspend fun getInstantAlternatives(orderId: Int): Result<Pair<Int, List<InstantAlternativeDto>>> =
+        call("GET", "/instant/orders/$orderId/alternatives", null, auth = true).map { o ->
+            val arr = o.optJSONArray("options") ?: JSONArray()
+            o.optInt("after_sec", 20) to (0 until arr.length()).map { i ->
+                val c = arr.getJSONObject(i)
+                InstantAlternativeDto(
+                    category = c.optString("category"),
+                    price = c.optInt("price"),
+                    priceDiff = c.optInt("price_diff"),
+                )
+            }
+        }
+
+    /** Пассажир согласился искать и в соседнем классе. Возвращает новую (уже зафиксированную)
+     *  цену: он видел её на экране до нажатия и заплатит ровно её. */
+    suspend fun addInstantAlternative(orderId: Int, category: String): Result<Int> =
+        call("POST", "/instant/orders/$orderId/alternatives",
+            JSONObject().put("category", category), auth = true)
+            .map { it.optInt("price") }
+            .onSuccess { Analytics.log("instant_alternative_add") }
+
+    /** Мои классы и опции (экран водителя): что доступно машине, что включено, чего не хватает
+     *  до остальных классов и сколько водителей набралось в районе. */
+    suspend fun getMyTaxiClasses(): Result<DriverClassesDto> =
+        call("GET", "/taxi/classes", null, auth = true).map { it.toDriverClassesDto() }
+
+    /** Включить/выключить классы и отметить опции салона — без пере-подачи заявки. */
+    suspend fun setMyTaxiClasses(
+        classesEnabled: List<String>? = null,
+        options: List<String>? = null,
+    ): Result<DriverClassesDto> {
+        val body = JSONObject()
+        if (classesEnabled != null) body.put("car_classes_enabled", JSONArray(classesEnabled))
+        if (options != null) body.put("car_options", JSONArray(options))
+        return call("POST", "/taxi/classes", body, auth = true).map { it.toDriverClassesDto() }
+    }
+
+    private fun JSONObject.toDriverClassesDto(): DriverClassesDto {
+        val arr = optJSONArray("classes") ?: JSONArray()
+        val opts = optJSONArray("options") ?: JSONArray()
+        val all = optJSONArray("all_options") ?: JSONArray()
+        val car = optJSONObject("car")
+        return DriverClassesDto(
+            place = optString("place"),
+            classes = (0 until arr.length()).map { i ->
+                val c = arr.getJSONObject(i)
+                val miss = c.optJSONArray("missing") ?: JSONArray()
+                DriverClassDto(
+                    carClass = c.optString("car_class"),
+                    category = c.optString("category"),
+                    available = c.optBoolean("available"),
+                    enabled = c.optBoolean("enabled"),
+                    missing = (0 until miss.length()).map { m -> miss.optString(m) },
+                    driversHave = c.optInt("drivers_have"),
+                    driversNeed = c.optInt("drivers_need"),
+                    open = c.optBoolean("open", true),
+                    first = c.optBoolean("first"),
+                )
+            },
+            options = (0 until opts.length()).map { opts.optString(it) },
+            allOptions = (0 until all.length()).map { all.optString(it) },
+            colorOk = car?.let { if (it.isNull("color_ok")) null else it.optBoolean("color_ok") },
+            carYear = car?.let { if (it.isNull("year")) null else it.optInt("year") },
+            seats = car?.let { if (it.isNull("seats")) null else it.optInt("seats") },
+        )
     }
 
     /** Мои быстрые заказы (свежие сверху) — восстановить активный заказ при возврате на экран. */
@@ -2482,6 +2565,10 @@ object ApiClient {
         permitPhotoUrl: String, osagoUrl: String,
         selfieUrl: String, criminalRecordUrl: String, carClass: String = "economy",
         osagoUntil: String = "", permitUntil: String = "", inspectionUntil: String = "",
+        osgopUrl: String = "", osgopUntil: String = "",
+        carYear: Int? = null, seats: Int? = null, carColor: String = "",
+        carAc: Boolean = false, carSedan: Boolean = false, carLeather: Boolean = false,
+        carOptions: List<String> = emptyList(), carClassesEnabled: List<String> = emptyList(),
     ): Result<TaxiApplicationDto> {
         val body = JSONObject()
             .put("inn", inn).put("permit_number", permitNumber)
@@ -2492,6 +2579,17 @@ object ApiClient {
         if (osagoUntil.isNotBlank()) body.put("osago_until", osagoUntil)
         if (permitUntil.isNotBlank()) body.put("permit_until", permitUntil)
         if (inspectionUntil.isNotBlank()) body.put("inspection_until", inspectionUntil)
+        // ОСГОП — страховка ответственности перевозчика, обязательна для всех с 01.09.2024.
+        if (osgopUrl.isNotBlank()) body.put("osgop_url", osgopUrl)
+        if (osgopUntil.isNotBlank()) body.put("osgop_until", osgopUntil)
+        // Характеристики машины: из них сервер САМ считает класс. Раньше класс заявлял водитель —
+        // и любой мог поставить себе «Комфорт», а пассажир получал Гранту по цене Комфорта.
+        if (carYear != null) body.put("car_year", carYear)
+        if (seats != null) body.put("seats", seats)
+        if (carColor.isNotBlank()) body.put("car_color", carColor.take(40))
+        body.put("car_ac", carAc).put("car_sedan", carSedan).put("car_leather", carLeather)
+        if (carOptions.isNotEmpty()) body.put("car_options", JSONArray(carOptions))
+        if (carClassesEnabled.isNotEmpty()) body.put("car_classes_enabled", JSONArray(carClassesEnabled))
         return call("POST", "/taxi/apply", body, auth = true)
             .map { it.toTaxiApplicationDto() }.onSuccess { Analytics.log("taxi_apply") }
     }
@@ -4371,8 +4469,36 @@ object ApiClient {
 /** Ошибка API с кодом и понятным текстом для пользователя. */
 class ApiException(val status: Int, message: String) : Exception(message)
 
-/** Цена одного класса машины (Эконом/Комфорт) в options оценки — обе цены одним запросом. */
-data class InstantClassOption(val category: String, val price: Int)
+/** Цена одного класса машины в options оценки — все цены одним запросом.
+ *  `open=false` — класс есть в тарифах, но в этом городе ещё не набралось водителей. */
+data class InstantClassOption(val category: String, val price: Int, val open: Boolean = true)
+
+/** Что предложить, когда в выбранном классе никого. Цена — уже пересчитанная под этот класс. */
+data class InstantAlternativeDto(val category: String, val price: Int, val priceDiff: Int)
+
+/** Один класс на экране водителя: доступен ли машине, включён ли, чего не хватает,
+ *  сколько водителей набралось в районе. */
+data class DriverClassDto(
+    val carClass: String,
+    val category: String,
+    val available: Boolean,
+    val enabled: Boolean,
+    val missing: List<String>,
+    val driversHave: Int,
+    val driversNeed: Int,
+    val open: Boolean,
+    val first: Boolean,
+)
+
+data class DriverClassesDto(
+    val place: String,
+    val classes: List<DriverClassDto>,
+    val options: List<String>,
+    val allOptions: List<String>,
+    val colorOk: Boolean?,      // null = цвет не распознан, решит модератор
+    val carYear: Int?,
+    val seats: Int?,
+)
 
 /** Один серверный фактор автоматической цены. kind: base | duration | multiplier | cap | notice. */
 data class InstantPriceFactorDto(

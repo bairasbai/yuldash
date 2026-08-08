@@ -30,6 +30,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -42,6 +44,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,6 +59,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
@@ -104,6 +109,11 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -119,9 +129,11 @@ import com.yandex.mapkit.map.CameraPosition
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
+import com.yuldash.app.data.Analytics
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.GeocoderClient
+import com.yuldash.app.data.InstantAlternativeDto
 import com.yuldash.app.data.InstantEstimateDto
 import com.yuldash.app.data.InstantOrderDto
 import kotlinx.coroutines.async
@@ -1271,7 +1283,17 @@ private fun InstantDestinationPicker(
     var estimateTick by remember { mutableIntStateOf(0) }
     var creating by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
-    var category by rememberSaveable { mutableStateOf("standard") }   // §6: standard = Эконом, comfort = Комфорт
+    var category by rememberSaveable { mutableStateOf("standard") }   // standard | comfort | business | minivan
+    // Класс, который человек хотел, но в его городе ещё не набралось водителей. Держим, чтобы
+    // показать тёплое «записали» — и чтобы посчитать спрос до того, как искать машины.
+    var classWanted by rememberSaveable { mutableStateOf<String?>(null) }
+    // Что нужно в салоне: кресло по возрасту, бустер, коляска, собака-проводник, животное, багаж.
+    // Храним CSV-строкой: Set в Bundle не кладётся, а строка переживает поворот экрана
+    // и возврат с карты без единой строчки лишнего кода.
+    var orderOptionsCsv by rememberSaveable { mutableStateOf("") }
+    val orderOptions = remember(orderOptionsCsv) {
+        orderOptionsCsv.split(",").filter { it.isNotBlank() }.toSet()
+    }
     var pickOnMap by rememberSaveable { mutableStateOf(false) }   // оверлей выбора точки Б на карте
     var pickFromOnMap by rememberSaveable { mutableStateOf(false) }
 
@@ -1528,27 +1550,80 @@ private fun InstantDestinationPicker(
             )
         }
 
-        // Класс машины (§6): Эконом / Комфорт — обе цены сразу, выбранная уходит в заказ.
+        // Класс машины: Эконом / Комфорт / Бизнес / Минивэн — все цены сразу, выбранная уходит
+        // в заказ. Класс, в котором в этом городе ещё не набралось водителей, приходит с
+        // open=false: показываем «скоро» вместо кнопки, за которой пусто. Ткнуть в пустоту и
+        // не дождаться — верный способ потерять человека навсегда.
         if (toPoint != null) {
-            val opts = estimate?.options.orEmpty().associate { it.category to it.price }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                InstantClassCard(
-                    title = appText("Эконом", "Эконом"),
-                    subtitle = appText("обычная машина", "ғәҙәти машина"),
-                    price = opts["standard"],
-                    selected = category == "standard",
-                    onClick = { category = "standard" },
-                    modifier = Modifier.weight(1f),
-                )
-                InstantClassCard(
-                    title = appText("Комфорт", "Комфорт"),
-                    subtitle = appText("новее и просторнее", "яңыраҡ һәм иркенерәк"),
-                    price = opts["comfort"],
-                    selected = category == "comfort",
-                    onClick = { category = "comfort" },
-                    modifier = Modifier.weight(1f),
-                )
+            val opts = estimate?.options.orEmpty().associateBy { it.category }
+            LazyRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                contentPadding = PaddingValues(horizontal = 2.dp),
+            ) {
+                items(InstantClasses, key = { it.category }) { cls ->
+                    val opt = opts[cls.category]
+                    val isOpen = opt?.open ?: true
+                    InstantClassCard(
+                        title = appText(cls.titleRu, cls.titleBa),
+                        subtitle = if (isOpen) appText(cls.subtitleRu, cls.subtitleBa)
+                        else appText("скоро", "тиҙҙән"),
+                        price = opt?.price,
+                        selected = isOpen && category == cls.category,
+                        enabled = isOpen,
+                        onClick = {
+                            if (isOpen) {
+                                category = cls.category
+                            } else {
+                                // Нажатие на закрытый класс — это заявка спроса. Считаем её:
+                                // так видно, сколько людей ждут Бизнес в Уфе, ещё до того,
+                                // как мы начнём искать под него водителей.
+                                Analytics.log("class_wanted_${cls.category}")
+                                classWanted = cls.category
+                            }
+                        },
+                        modifier = Modifier.width(156.dp),
+                    )
+                }
             }
+        }
+
+        // Подтверждение по «скоро»-классу: тёплым текстом, без формы и обещаний срока.
+        AnimatedVisibility(
+            visible = classWanted != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
+                Row(
+                    Modifier.fillMaxWidth().padding(CanonSpace.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("🔔", fontSize = TxTitle, lineHeight = LhTitle)
+                    Spacer(Modifier.width(CanonSpace.sm))
+                    Text(
+                        appText(
+                            "Записали. Напишем, как только этот класс появится рядом.",
+                            "Яҙып ҡуйҙыҡ. Был класс яҡында барлыҡҡа килгәс, хәбәр итәбеҙ.",
+                        ),
+                        color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+
+        // Что нужно в салоне: детское кресло по возрасту, коляска, животное, багаж.
+        // Это НЕ класс — галочка поверх любого класса: машина не может стоять в двух классах,
+        // а кресло возить может любая. Фильтр на сервере жёсткий: без кресла заказ не придёт.
+        if (toPoint != null) {
+            InstantOptionsBlock(
+                selected = orderOptions,
+                onToggle = { code ->
+                    val next = if (code in orderOptions) orderOptions - code else orderOptions + code
+                    orderOptionsCsv = next.joinToString(",")
+                },
+            )
         }
 
         // Сурж — честно и ДО заказа: почему дороже и на сколько (потолок ×1.5 на сервере).
@@ -1748,6 +1823,7 @@ private fun InstantDestinationPicker(
                             forName = if (forOther) forName else "",
                             forPhone = if (forOther) forPhone else "",
                             womenOnly = womenOnly,
+                            options = orderOptions.toList(),
                         )
                             .onSuccess {
                                 // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
@@ -2105,7 +2181,22 @@ private fun fullWhen(ms: Long): String {
     )
 }
 
-// ------------------------------ Карточка класса (Эконом/Комфорт) ------------------------------
+// ------------------------------ Классы машин ------------------------------
+/** Класс в витрине пассажира. Порядок = порядок на экране: от дешёвого к дорогому,
+ *  Минивэн последним — он не «дороже», а «вместительнее», и нужен реже остальных. */
+internal data class InstantClassInfo(
+    val category: String,
+    val titleRu: String, val titleBa: String,
+    val subtitleRu: String, val subtitleBa: String,
+)
+
+internal val InstantClasses = listOf(
+    InstantClassInfo("standard", "Эконом", "Эконом", "обычная машина", "ғәҙәти машина"),
+    InstantClassInfo("comfort", "Комфорт", "Комфорт", "новее и с кондиционером", "яңыраҡ, кондиционерлы"),
+    InstantClassInfo("business", "Бизнес", "Бизнес", "седан премиум-класса", "премиум класслы седан"),
+    InstantClassInfo("minivan", "Минивэн", "Минивэн", "6–8 мест", "6–8 урын"),
+)
+
 @Composable
 private fun InstantClassCard(
     title: String,
@@ -2114,18 +2205,129 @@ private fun InstantClassCard(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     // Сохраняем общий Mobility-компонент с radio-семантикой и добавляем
     // мягкий тактильный масштаб из входящей ветки.
     val scale by animateFloatAsState(if (selected) 1f else 0.98f, tween(CanonMotion.QUICK), label = "clsScale")
+    // Закрытый класс не прячем и не блокируем: приглушаем и оставляем нажимаемым. Нажатие —
+    // это заявка «хочу», по ней мы и поймём, где заводить водителей следующими.
+    val alpha by animateFloatAsState(if (enabled) 1f else 0.55f, tween(CanonMotion.QUICK), label = "clsAlpha")
     TaxiServiceClassTile(
         title = title,
         subtitle = subtitle,
         price = price,
         selected = selected,
         onClick = onClick,
-        modifier = modifier.graphicsLayer { scaleX = scale; scaleY = scale },
+        modifier = modifier.graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha },
     )
+}
+
+// ------------------------------ Опции салона ------------------------------
+/** Опция — не класс. Одна машина не может стоять в двух классах, а детское кресло возить
+ *  может любая: поэтому кресла, коляска и животные живут галочками поверх любого класса.
+ *  Коды совпадают с backend/app/car_class.py. */
+internal data class InstantOptionInfo(
+    val code: String,
+    val labelRu: String, val labelBa: String,
+    val emoji: String,
+)
+
+internal val InstantOptions = listOf(
+    InstantOptionInfo("seat_0_1", "Люлька 0–1", "Бәпес арбаһы 0–1", "👶"),
+    InstantOptionInfo("seat_1_4", "Кресло 1–4", "Ултырғыс 1–4", "🧒"),
+    InstantOptionInfo("seat_4_7", "Кресло 4–7", "Ултырғыс 4–7", "🧒"),
+    InstantOptionInfo("booster", "Бустер 7–12", "Бустер 7–12", "💺"),
+    InstantOptionInfo("stroller", "Коляска", "Балалар арбаһы", "🍼"),
+    InstantOptionInfo("wheelchair", "Инвалидная коляска", "Инвалид коляскаһы", "♿"),
+    InstantOptionInfo("guide_dog", "Собака-проводник", "Юл күрһәтеүсе эт", "🦮"),
+    InstantOptionInfo("pets", "С животным", "Хайуан менән", "🐾"),
+    InstantOptionInfo("big_luggage", "Большой багаж", "Ҙур багаж", "🧳"),
+)
+
+@Composable
+private fun InstantOptionsBlock(selected: Set<String>, onToggle: (String) -> Unit) {
+    // Свёрнут по умолчанию: девяти заказам из десяти ничего этого не нужно, и держать девять
+    // галочек на главном пути — значит мешать всем ради немногих. Но открыть — один тап.
+    var open by rememberSaveable { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+        Surface(
+            onClick = { open = !open },
+            shape = CanonItemShape,
+            color = if (selected.isEmpty()) CanonSurface else CanonTaxiBg,
+            border = BorderStroke(1.dp, if (selected.isEmpty()) CanonBorder else CanonTaxi),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("🧸", fontSize = TxBody, lineHeight = LhBody)
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text(
+                    if (selected.isEmpty()) appText("Нужно кресло, коляска, животное?",
+                        "Ултырғыс, арба, хайуан кәрәкме?")
+                    else appText("Выбрано: ${selected.size}", "Һайланды: ${selected.size}"),
+                    color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                    fontWeight = if (selected.isEmpty()) FontWeight.Normal else FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                val turn by animateFloatAsState(if (open) 180f else 0f, tween(CanonMotion.QUICK), label = "optTurn")
+                Icon(
+                    Icons.Default.ExpandMore,
+                    contentDescription = if (open) appText("Свернуть", "Йыйырға")
+                    else appText("Развернуть", "Асырға"),
+                    tint = CanonMuted,
+                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn },
+                )
+            }
+        }
+        AnimatedVisibility(
+            visible = open,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            ) {
+                InstantOptions.forEach { opt ->
+                    val on = opt.code in selected
+                    val optState = if (on) appText("Выбрано", "Һайланған")
+                    else appText("Не выбрано", "Һайланмаған")
+                    val bg by animateColorAsState(
+                        if (on) CanonTaxiBg else CanonSurface, tween(CanonMotion.QUICK), label = "optBg")
+                    val border by animateColorAsState(
+                        if (on) CanonTaxi else CanonBorder, tween(CanonMotion.QUICK), label = "optBorder")
+                    Surface(
+                        onClick = { onToggle(opt.code) },
+                        shape = CanonTinyShape,
+                        color = bg,
+                        border = BorderStroke(if (on) 2.dp else 1.dp, border),
+                        modifier = Modifier.heightIn(min = 48.dp).semantics {
+                            role = Role.Checkbox
+                            this.selected = on
+                            stateDescription = optState
+                        },
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(opt.emoji, fontSize = TxBody, lineHeight = LhBody)
+                            Spacer(Modifier.width(CanonSpace.xs))
+                            Text(
+                                appText(opt.labelRu, opt.labelBa),
+                                color = CanonText, fontSize = TxCaption, lineHeight = LhCaption,
+                                fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ------------------------------ Таймер ожидания (обе стороны) ------------------------------
@@ -2281,6 +2483,12 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
+        // «В Комфорте сейчас никого» — предложение поискать в соседнем классе.
+        // Появляется не сразу: первые секунды честнее отдать тому классу, что человек выбрал.
+        // Молча класс НЕ подменяем никогда: «заказал Комфорт — приехал Логан» это главная
+        // претензия к агрегаторам, и решать тут должен пассажир, а не мы за него.
+        InstantAlternativesBlock(order = order, watchedSec = watchedSec)
+
         Spacer(Modifier.height(24.dp))
         MobilityProgressRail(
             labels = listOf(
@@ -2302,6 +2510,114 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
                 appText("Отменить заказ", "Заказды кире алыу"),
                 color = CanonRed, fontSize = TxBody, lineHeight = LhBody,
             )
+        }
+    }
+}
+
+// ------------------------------ Соседний класс, когда своих машин нет ------------------------------
+/**
+ * Через `after_sec` секунд поиска показываем классы, в которых машины есть, — с ценой.
+ * Решает пассажир: одна кнопка расширяет поиск, ничего не подменяя за спиной.
+ *
+ * Цена, названная на этой карточке, и есть та, что он заплатит: сервер фиксирует её в момент
+ * согласия. Никаких «а потом оказалось дороже».
+ */
+@Composable
+private fun InstantAlternativesBlock(order: InstantOrderDto, watchedSec: Long) {
+    var options by remember(order.id) { mutableStateOf<List<InstantAlternativeDto>>(emptyList()) }
+    var afterSec by remember(order.id) { mutableIntStateOf(20) }
+    var added by remember(order.id) { mutableStateOf<String?>(null) }
+    var busy by remember(order.id) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // Тянем список один раз — когда ожидание перевалило за порог. Раньше незачем, а дёргать
+    // сервер каждую секунду ради «а вдруг появилось» — только жечь батарею и трафик в селе.
+    val ready = watchedSec >= afterSec
+    LaunchedEffect(order.id, ready) {
+        if (ready && options.isEmpty() && added == null) {
+            ApiClient.getInstantAlternatives(order.id).onSuccess { (sec, list) ->
+                afterSec = sec
+                options = list
+            }
+        }
+    }
+
+    AnimatedVisibility(
+        visible = ready && (options.isNotEmpty() || added != null),
+        enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(),
+        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(),
+    ) {
+        Surface(
+            shape = CanonCardShape,
+            color = CanonTaxiBg,
+            border = BorderStroke(1.dp, CanonTaxi),
+            modifier = Modifier.fillMaxWidth().padding(top = CanonSpace.lg),
+        ) {
+            Column(
+                Modifier.padding(CanonSpace.md),
+                verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            ) {
+                val addedTitle = added?.let { cat ->
+                    InstantClasses.firstOrNull { it.category == cat }
+                        ?.let { appText(it.titleRu, it.titleBa) }
+                }
+                if (addedTitle != null) {
+                    Text(
+                        appText("Ищем и в классе «$addedTitle» — цена уже пересчитана",
+                            "«$addedTitle» класында ла эҙләйбеҙ — хаҡ иҫәпләнде"),
+                        color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                        fontWeight = FontWeight.Bold,
+                    )
+                } else {
+                    val mine = InstantClasses.firstOrNull { it.category == order.category }
+                    val mineTitle = mine?.let { appText(it.titleRu, it.titleBa) }
+                        ?: appText("этом классе", "был класта")
+                    Text(
+                        appText("В классе «$mineTitle» рядом сейчас никого",
+                            "«$mineTitle» класында яҡында әлегә бер кем юҡ"),
+                        color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    options.forEach { alt ->
+                        val info = InstantClasses.firstOrNull { it.category == alt.category }
+                        val title = info?.let { appText(it.titleRu, it.titleBa) } ?: alt.category
+                        val cheaper = alt.priceDiff < 0
+                        Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+                            Text(
+                                if (cheaper)
+                                    appText("Рядом есть «$title» — ${alt.price} ₽, это дешевле",
+                                        "Яҡында «$title» бар — ${alt.price} һум, был арзаныраҡ")
+                                else
+                                    appText("Рядом есть «$title» — ${alt.price} ₽",
+                                        "Яҡында «$title» бар — ${alt.price} һум"),
+                                color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                            )
+                            Button(
+                                onClick = {
+                                    if (!busy) {
+                                        busy = true
+                                        scope.launch {
+                                            ApiClient.addInstantAlternative(order.id, alt.category)
+                                                .onSuccess { added = alt.category; options = emptyList() }
+                                            busy = false
+                                        }
+                                    }
+                                },
+                                enabled = !busy,
+                                shape = InstantControlShape,
+                                colors = ButtonDefaults.buttonColors(containerColor = CanonTaxi),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            ) {
+                                Text(
+                                    appText("Искать и в классе «$title»", "«$title» класында ла эҙләргә"),
+                                    color = CanonBg, fontSize = TxBody, lineHeight = LhBody,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

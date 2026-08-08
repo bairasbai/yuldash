@@ -6,6 +6,16 @@ package com.yuldash.app
 // стаж 2+). Состояния: форма → загрузка → на проверке (pending) → одобрено / отклонено (+повторная подача).
 // Бэкенд: POST /taxi/apply, GET /taxi/application (методы в data/ApiClient.kt).
 
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.foundation.layout.heightIn
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -60,6 +70,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.DriverClassesDto
+import com.yuldash.app.data.DriverClassDto
 import com.yuldash.app.data.TaxiApplicationDto
 import kotlinx.coroutines.launch
 
@@ -214,7 +226,20 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
     var uploadingCriminal by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
     var submitError by remember { mutableStateOf<String?>(null) }
-    var carClass by rememberSaveable { mutableStateOf("economy") }   // §6: заявляет водитель, подтверждает админ
+    // Класс машины больше НЕ выбирается — он считается на сервере из этих ответов
+    // (backend/app/car_class.py). Поле оставлено только для совместимости со старым API.
+    val carClass = "economy"
+    var carColor by rememberSaveable { mutableStateOf("") }
+    var carYearText by rememberSaveable { mutableStateOf("") }
+    var seatsText by rememberSaveable { mutableStateOf("") }
+    var carAc by rememberSaveable { mutableStateOf(false) }
+    var carSedan by rememberSaveable { mutableStateOf(false) }
+    var carLeather by rememberSaveable { mutableStateOf(false) }
+    // Опции салона CSV-строкой: Set в Bundle не кладётся, а строка переживает поворот экрана.
+    var carOptionsCsv by rememberSaveable { mutableStateOf("") }
+    val carOptions = remember(carOptionsCsv) {
+        carOptionsCsv.split(",").filter { it.isNotBlank() }.toSet()
+    }
 
     // Локальная валидация — до похода на сервер (сервер продублирует).
     val currentYear = remember { java.time.LocalDate.now().year }
@@ -435,24 +460,135 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                 )
             }
         }
-        // Класс машины (§6): Эконом на старте у всех; Комфорт — авто новее/чище, подтвердит админ.
-        item { Text(appText("Класс машины", "Машина класы"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine) }
+        // Машина. Класс отсюда СЧИТАЕТСЯ — водитель его не выбирает. Раньше выбирал, и любой
+        // мог поставить себе «Комфорт»: пассажир платил за Комфорт, приезжала Гранта.
+        item { Text(appText("Твоя машина", "Һинең машинаң"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine) }
+
+        // ЦВЕТ — ПЕРВЫМ ВОПРОСОМ. В Башкирии такси может быть только чёрным, белым или жёлтым
+        // (закон РБ № 77-з ст. 15.2), и это отсеивает больше людей, чем всё остальное вместе.
+        // Узнать об этом после заполнения всей анкеты — обидно и неуважительно к чужому времени.
+        item {
+            Text(
+                appText("Какого цвета кузов?", "Кузов ниндәй төҫтә?"),
+                color = CanonText, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        item {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TaxiColorOptions.forEach { c ->
+                    TaxiChoiceChip(
+                        text = appText(c.labelRu, c.labelBa),
+                        selected = carColor == c.code,
+                        onClick = { carColor = c.code },
+                    )
+                }
+            }
+        }
+        item {
+            AnimatedVisibility(
+                visible = carColor == "other",
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                Surface(shape = RoundedCornerShape(14.dp), color = CanonRed.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, CanonRed.copy(alpha = 0.4f))) {
+                    Text(
+                        appText(
+                            "В Башкирии такси может быть только чёрным, белым или жёлтым. " +
+                                "С другим цветом разрешение не дадут. Но попутка работает с любым — " +
+                                "там это не требуется, и заработать можно уже сегодня.",
+                            "Башҡортостанда такси ҡара, аҡ йәки һары ғына була ала. Башҡа төҫкә рөхсәт " +
+                                "бирелмәй. Ләкин юлдаш (попутка) теләһә ниндәй төҫ менән эшләй — " +
+                                "унда был талап юҡ, бөгөн үк эшләй алаһың.",
+                        ),
+                        color = CanonText, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
+        }
+
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TaxiClassChip(
-                    title = appText("Эконом", "Эконом"),
-                    subtitle = appText("обычная машина", "ғәҙәти машина"),
-                    selected = carClass == "economy",
-                    onClick = { carClass = "economy" },
+                OutlinedTextField(
+                    value = carYearText,
+                    onValueChange = { v -> carYearText = v.filter(Char::isDigit).take(4) },
+                    label = { Text(appText("Год выпуска", "Сығарылған йыл")) },
+                    placeholder = { Text("2019", color = CanonMuted) },
+                    supportingText = {
+                        Text(appText("Из СТС. Без него доступен только Эконом",
+                            "СТС-тан. Ул булмаһа, Эконом ғына"), color = CanonMuted)
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
                     modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp),
                 )
-                TaxiClassChip(
-                    title = appText("Комфорт", "Комфорт"),
-                    subtitle = appText("новее и просторнее", "яңыраҡ һәм иркенерәк"),
-                    selected = carClass == "comfort",
-                    onClick = { carClass = "comfort" },
+                OutlinedTextField(
+                    value = seatsText,
+                    onValueChange = { v -> seatsText = v.filter(Char::isDigit).take(2) },
+                    label = { Text(appText("Мест для пассажиров", "Пассажир урыны")) },
+                    placeholder = { Text("4", color = CanonMuted) },
+                    supportingText = {
+                        val n = seatsText.toIntOrNull() ?: 0
+                        if (n > 8) Text(appText("Больше 8 — это уже автобус, нужна лицензия",
+                            "8-ҙән күп — был автобус, лицензия кәрәк"), color = CanonRed)
+                        else Text(appText("6 и больше — Минивэн", "6 һәм күберәк — Минивэн"), color = CanonMuted)
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
                     modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp),
                 )
+            }
+        }
+        item {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TaxiChoiceChip(appText("Кондиционер работает", "Кондиционер эшләй"), carAc) { carAc = !carAc }
+                TaxiChoiceChip(appText("Кузов — седан", "Кузов — седан"), carSedan) { carSedan = !carSedan }
+                TaxiChoiceChip(appText("Салон кожаный", "Күн салон"), carLeather) { carLeather = !carLeather }
+            }
+        }
+        item {
+            Surface(shape = RoundedCornerShape(14.dp), color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
+                Text(
+                    appText(
+                        "Класс машины посчитаем сами — по этим ответам. Так у пассажира не будет " +
+                            "сюрприза: заказал Комфорт — приедет Комфорт.",
+                        "Машина класын үҙебеҙ иҫәпләйбеҙ — ошо яуаптар буйынса. Пассажирға сюрприз " +
+                            "булмаясаҡ: Комфорт заказ иткән — Комфорт килә.",
+                    ),
+                    color = CanonText, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
+        }
+
+        // Опции салона — заказы, которые придут только тебе. Это не «класс», а конкретная
+        // возможность: кресло, коляска, собака-проводник. Их часто ищут и почти нигде не находят.
+        item { Text(appText("Что есть в салоне", "Салонда нимә бар"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine) }
+        item {
+            Text(
+                appText("Отметь — и такие заказы будут приходить тебе. Их ищут часто, а находят редко.",
+                    "Билдәлә — шундай заказдар һиңә киләсәк. Уларҙы йыш эҙләйҙәр, әммә һирәк табалар."),
+                color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+        item {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                InstantOptions.forEach { opt ->
+                    val on = opt.code in carOptions
+                    TaxiChoiceChip(
+                        text = "${opt.emoji} " + appText(opt.labelRu, opt.labelBa),
+                        selected = on,
+                        onClick = {
+                            val next = if (on) carOptions - opt.code else carOptions + opt.code
+                            carOptionsCsv = next.joinToString(",")
+                        },
+                    )
+                }
             }
         }
         item { Text(appText("Документы (фото)", "Документтар (фото)"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine) }
@@ -529,6 +665,12 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                             permitPhotoUrl ?: "", osagoUrl ?: "", selfieUrl ?: "", criminalUrl ?: "", carClass,
                             osagoUntil = osagoUntil ?: "", permitUntil = permitUntil ?: "",
                             inspectionUntil = inspectionUntil ?: "",
+                            // Характеристики машины: из них сервер считает класс.
+                            carYear = carYearText.toIntOrNull(),
+                            seats = seatsText.toIntOrNull(),
+                            carColor = TaxiColorOptions.firstOrNull { it.code == carColor }?.serverValue ?: "",
+                            carAc = carAc, carSedan = carSedan, carLeather = carLeather,
+                            carOptions = carOptions.toList(),
                         )
                             .onSuccess { onSubmitted(it) }
                             .onFailure { submitError = (it as? ApiException)?.message ?: submitFailMsg }
@@ -573,6 +715,56 @@ private fun TaxiClassChip(
     }
 }
 
+
+/** Цвет кузова. `serverValue` — то слово, по которому сервер узнаёт цвет (см. car_class.py).
+ *  «Другой» шлём как есть: сервер честно ответит, что с таким цветом разрешение не дадут. */
+internal data class TaxiColorOption(
+    val code: String, val labelRu: String, val labelBa: String, val serverValue: String,
+)
+
+internal val TaxiColorOptions = listOf(
+    TaxiColorOption("black", "Чёрный", "Ҡара", "чёрный"),
+    TaxiColorOption("white", "Белый", "Аҡ", "белый"),
+    TaxiColorOption("yellow", "Жёлтый", "Һары", "жёлтый"),
+    TaxiColorOption("other", "Другой", "Башҡа", "другой"),
+)
+
+/** Чип-переключатель: цвет кузова, галочки про машину, опции салона.
+ *  Тач-цель 48dp — палец в перчатке зимой в это попадает, в 32dp нет. */
+@Composable
+private fun TaxiChoiceChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(
+        if (selected) CanonGreen2.copy(alpha = 0.10f) else CanonSurface,
+        tween(CanonMotion.QUICK), label = "chipBg",
+    )
+    val border by animateColorAsState(
+        if (selected) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "chipBorder",
+    )
+    val state = if (selected) appText("Выбрано", "Һайланған") else appText("Не выбрано", "Һайланмаған")
+    Surface(
+        onClick = onClick,
+        shape = CanonTinyShape,
+        color = bg,
+        border = BorderStroke(if (selected) 2.dp else 1.dp, border),
+        modifier = Modifier.heightIn(min = 48.dp).semantics {
+            role = Role.Checkbox
+            this.selected = selected
+            stateDescription = state
+        },
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text,
+                color = if (selected) CanonGreen2 else CanonText,
+                fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            )
+        }
+    }
+}
 
 /** Шкала комиссии 3% → 5% → 8%: три шага месяцев. */
 @Composable
@@ -649,6 +841,7 @@ private fun TaxiApprovedContent(onOpenDriverCabinet: () -> Unit) {
         onPrimary = onOpenDriverCabinet,
         secondaryLabel = null,
         onSecondary = null,
+        extra = { TaxiMyClassesCard() },
     )
 }
 
@@ -686,6 +879,9 @@ private fun TaxiStatusScaffold(
     onPrimary: () -> Unit,
     secondaryLabel: String?,
     onSecondary: (() -> Unit)?,
+    // Дополнительный блок над кнопкой: одобренному водителю показываем его классы и набор
+    // по району — это первое, что он хочет узнать после «поздравляем».
+    extra: (@Composable () -> Unit)? = null,
 ) {
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -721,6 +917,12 @@ private fun TaxiStatusScaffold(
                 Spacer(Modifier.height(16.dp))
             }
         }
+        if (extra != null) {
+            item {
+                extra()
+                Spacer(Modifier.height(16.dp))
+            }
+        }
         item {
             AppButton(primaryLabel, onPrimary, style = AppButtonStyle.Primary)
             if (secondaryLabel != null && onSecondary != null) {
@@ -728,6 +930,178 @@ private fun TaxiStatusScaffold(
                 TextButton(onClick = onSecondary, modifier = Modifier.fillMaxWidth()) {
                     Text(secondaryLabel, color = CanonMuted, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine)
                 }
+            }
+        }
+    }
+}
+
+// ==================================== МОИ КЛАССЫ ====================================
+/** Коды причин от сервера → человеческий текст. Сервер шлёт коды, потому что подписи живут
+ *  на двух языках и меняются чаще, чем логика. */
+@Composable
+private fun classMissingText(code: String): String = when (code) {
+    "too_old" -> appText("машина старше нужного", "машина кәрәгенән иҫкерәк")
+    "year_unknown" -> appText("не указан год выпуска", "сығарылған йыл күрһәтелмәгән")
+    "no_ac" -> appText("нужен рабочий кондиционер", "эшләүсе кондиционер кәрәк")
+    "clean_salon" -> appText("салон без чехлов и запаха", "салон чехолһыҙ, еҫһеҙ")
+    "body" -> appText("кузов без вмятин и ржавчины", "кузов бөгөлмәгән, тутыҡмаған")
+    "few_seats" -> appText("не хватает мест", "урын етмәй")
+    "not_sedan" -> appText("нужен седан", "седан кәрәк")
+    "color_business" -> appText("нужен чёрный или белый кузов", "ҡара йәки аҡ кузов кәрәк")
+    "no_leather" -> appText("нужен кожаный салон", "күн салон кәрәк")
+    "not_verified_premium" -> appText("нужен осмотр машины — напиши нам", "машинаны ҡарау кәрәк — беҙгә яҙ")
+    "too_many_seats" -> appText("больше 8 мест — нужна лицензия на автобус", "8-ҙән күп урын — автобус лицензияһы кәрәк")
+    else -> code
+}
+
+/**
+ * Классы водителя: что доступно машине, что он берёт, чего не хватает до остальных
+ * и сколько водителей уже набралось в его районе.
+ *
+ * Счётчик набора здесь не ради статистики: видя «не хватает одного», человек сам зовёт
+ * знакомого — и класс открывается им обоим. В попутках «между своими» это работает сильнее
+ * любой рекламы.
+ */
+@Composable
+private fun TaxiMyClassesCard() {
+    var data by remember { mutableStateOf<DriverClassesDto?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var failed by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var reloadKey by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(reloadKey) {
+        loading = true; failed = false
+        ApiClient.getMyTaxiClasses().onSuccess { data = it }.onFailure { failed = true }
+        loading = false
+    }
+
+    AppCard {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                appText("Какие заказы тебе приходят", "Һиңә ниндәй заказдар килә"),
+                color = CanonText, fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine,
+                fontWeight = FontWeight.Bold,
+            )
+            when {
+                loading -> Text(
+                    appText("Загружаем…", "Йөкләйбеҙ…"),
+                    color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                )
+                failed -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        appText("Не получилось загрузить.", "Йөкләп булманы."),
+                        color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                    )
+                    TextButton(onClick = { reloadKey++ }) {
+                        Text(appText("Повторить", "Ҡабатларға"), color = CanonGreen2,
+                             fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine)
+                    }
+                }
+                else -> {
+                    val d = data
+                    if (d == null || d.classes.isEmpty()) {
+                        Text(
+                            appText("Пока только Эконом — это нормальный старт.",
+                                "Әлегә Эконом ғына — был ғәҙәти башланғыс."),
+                            color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                        )
+                    } else {
+                        if (d.place.isNotBlank()) {
+                            Text(
+                                appText("Твой район: ${d.place}", "Һинең районың: ${d.place}"),
+                                color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                            )
+                        }
+                        d.classes.forEach { c ->
+                            val info = InstantClasses.firstOrNull { it.category == c.category }
+                            val title = info?.let { appText(it.titleRu, it.titleBa) } ?: c.carClass
+                            TaxiClassRow(
+                                title = title,
+                                cls = c,
+                                enabled = !busy,
+                                onToggle = {
+                                    if (!busy && c.available) {
+                                        busy = true
+                                        val next = d.classes.filter { it.enabled }.map { it.carClass }.toMutableSet()
+                                        if (c.enabled) next.remove(c.carClass) else next.add(c.carClass)
+                                        scope.launch {
+                                            ApiClient.setMyTaxiClasses(classesEnabled = next.toList())
+                                                .onSuccess { data = it }
+                                            busy = false
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Одна строка класса: включён / доступен, чего не хватает, сколько набралось в районе. */
+@Composable
+private fun TaxiClassRow(title: String, cls: DriverClassDto, enabled: Boolean, onToggle: () -> Unit) {
+    val on = cls.enabled && cls.available
+    val bg by animateColorAsState(
+        if (on) CanonGreen2.copy(alpha = 0.08f) else CanonSurface,
+        tween(CanonMotion.QUICK), label = "clsRowBg",
+    )
+    Surface(
+        onClick = onToggle,
+        shape = CanonItemShape,
+        color = bg,
+        border = BorderStroke(if (on) 2.dp else 1.dp, if (on) CanonGreen2 else CanonBorder),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    title, color = if (on) CanonGreen2 else CanonText,
+                    fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine,
+                    fontWeight = FontWeight.Bold,
+                )
+                // Причины считаем ДО when: appText — @Composable, внутри joinToString его не вызвать.
+                val missingText = cls.missing.take(2).map { classMissingText(it) }.joinToString(" · ")
+                when {
+                    // Машина не подходит — говорим ЧЕМ именно, а не «недоступно».
+                    !cls.available -> Text(
+                        missingText,
+                        color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                    )
+                    // Первому в районе — статус, а не ноль. «Набралось 0 из 3» демотивирует.
+                    cls.first -> Text(
+                        appText("Ты будешь первым здесь", "Һин бында беренсе булаһың"),
+                        color = CanonTaxi, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    !cls.open -> Text(
+                        appText("Нас ${cls.driversHave} из ${cls.driversNeed} — позови знакомого, и класс откроется",
+                            "Беҙ ${cls.driversHave}/${cls.driversNeed} — танышыңды саҡыр, класс асыла"),
+                        color = CanonTaxi, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                    )
+                    on -> Text(
+                        appText("Заказы приходят", "Заказдар килә"),
+                        color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                    )
+                    else -> Text(
+                        appText("Выключен — заказы не приходят", "Һүндерелгән — заказдар килмәй"),
+                        color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                    )
+                }
+            }
+            if (cls.available) {
+                Text(
+                    if (on) "✓" else "○",
+                    color = if (on) CanonGreen2 else CanonMuted,
+                    fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine,
+                )
             }
         }
     }

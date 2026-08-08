@@ -25,6 +25,8 @@ from sqlalchemy import func
 
 from .config import settings
 from .errors import herr
+from . import car_class as cc
+from . import class_rollout
 from . import pricing
 from . import promo_ride
 from .models import (
@@ -454,8 +456,13 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     base_price = _tariff_price(t, dist_km, eta_min, 1.0)
     price = _tariff_price(t, dist_km, eta_min, dynamic)
 
+    # Классы для витрины. Закрытые (не набралось водителей) отдаём с open=false — клиент
+    # покажет их строкой «скоро» с кнопкой «сообщить, когда появится», а не активной кнопкой.
+    # Так мы ещё и меряем спрос до того, как искать машины.
+    place = class_rollout.place_at(session, frm[0], frm[1])
+    opened = class_rollout.open_categories(session, place)
     options = []
-    for cat in ("standard", "comfort"):
+    for cat in cc.ORDER_CATEGORIES:
         ct = session.exec(
             select(Tariff).where(Tariff.zone == zone, Tariff.category == cat, Tariff.active == True)  # noqa: E712
         ).first()
@@ -466,6 +473,7 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
                 "price": _tariff_price(ct, dist_km, eta_min, ct_dynamic),
                 "base_price": _tariff_price(ct, dist_km, eta_min, 1.0),
                 "dynamic_k": ct_dynamic,
+                "open": cat in opened,
             })
 
     return {
@@ -510,6 +518,13 @@ def seed_tariffs(session: Session) -> None:
         # Комфорт (§6): авто новее/чище, немного дороже.
         dict(zone="city", category="comfort", base=90, per_km=14.0, per_min=4.0, min_price=130),
         dict(zone="intercity", category="comfort", base=100, per_km=12.0, per_min=3.0, min_price=200),
+        # ⚠️ СТАРТОВЫЕ ЦИФРЫ, УТОЧНИТ АЛЕКСАНДР (docs/taxi-classes-2026-08.md §8).
+        # Бизнес — премиум-седан, очный допуск водителя; ориентир ×2 к Комфорту.
+        dict(zone="city", category="business", base=150, per_km=25.0, per_min=7.0, min_price=300),
+        dict(zone="intercity", category="business", base=200, per_km=22.0, per_min=5.0, min_price=500),
+        # Минивэн — это про вместимость (6–8 мест), а не про люкс: между Комфортом и Бизнесом.
+        dict(zone="city", category="minivan", base=120, per_km=18.0, per_min=5.0, min_price=200),
+        dict(zone="intercity", category="minivan", base=150, per_km=16.0, per_min=4.0, min_price=350),
     )
     added = False
     for d in defaults:
@@ -521,6 +536,90 @@ def seed_tariffs(session: Session) -> None:
             added = True
     if added:
         session.commit()
+
+
+# ============================ Фолбэк класса: «в Комфорте никого» ============================
+# Официальная механика Яндекса (инженерный блог, 22.01.2026): через 15 секунд поиска
+# пассажиру показывают ДРУГИЕ тарифы с ценой и временем подачи, и он сам решает, добавлять
+# ли их к поиску. Их же цифра: в каждом четвёртом случае ожидание дольше 30 секунд именно
+# потому, что машин выбранного класса рядом нет.
+#
+# У нас 20 секунд, а не 15: расстояния сельские, подача дольше, и первые секунды честнее
+# отдать выбранному классу. Молча класс не подменяем НИКОГДА — «заказал Комфорт, приехал
+# Логан» это главный источник скандалов, там это считают нарушением водителя.
+
+# Для Бизнеса альтернатива — только Комфорт. Человек, заказавший Бизнес, обычно едет на
+# встречу или в аэропорт: Гранта вместо Мерседеса — не экономия, а испорченная поездка.
+# Яндекс делает так же: премиуму показывает только премиальные альтернативы.
+_FALLBACK_ALLOWED: dict = {
+    "business": ("comfort",),
+    "minivan": (),          # шестерым в седан не сесть — альтернативы нет в принципе
+    "comfort": ("standard",),
+    "standard": (),         # ниже Эконома ничего нет
+}
+
+
+def _category_price(session: Session, order: InstantOrder, category: str) -> Optional[int]:
+    """Цена этого же маршрута по другой категории. Сурж берём ЗАФИКСИРОВАННЫЙ на заказе,
+    чтобы альтернатива не «уехала» вверх, пока человек читает предложение."""
+    zone = zone_for_km(order.distance_km or 0.0)
+    t = active_tariff(session, zone, category)
+    if not t:
+        return None
+    return _tariff_price(t, max(order.distance_km or 0.5, 0.5),
+                         max(order.eta_min or 0.1, 0.1), order.surge_k or 1.0)
+
+
+def fallback_options(session: Session, order: InstantOrder) -> list:
+    """Что предложить пассажиру, если в его классе никого. Пустой список = предлагать нечего.
+
+    Показываем только те классы, что открыты в этом месте (набор водителей) и по которым
+    рядом реально кто-то есть — обещать «Эконом за 4 минуты», когда экономов тоже нет,
+    значит соврать второй раз подряд.
+    """
+    base = order.category or "standard"
+    already = {cc.class_to_category(c) for c in cc.parse_classes(order.fallback_categories or "")}
+    place = class_rollout.place_at(session, order.from_lat, order.from_lng)
+    opened = class_rollout.open_categories(session, place)
+    out = []
+    for cat in _FALLBACK_ALLOWED.get(base, ()):
+        if cat == base or cat in already or cat not in opened:
+            continue
+        price = _category_price(session, order, cat)
+        if price is None:
+            continue
+        out.append({"category": cat, "price": price,
+                    "price_diff": price - (order.price_estimate or 0)})
+    return out
+
+
+def add_fallback_category(session: Session, order: InstantOrder, category: str) -> dict:
+    """Пассажир согласился искать и в соседнем классе.
+
+    Цена пересчитывается СРАЗУ на минимальную из согласованных и фиксируется — человек видел
+    «Эконом 240 ₽» на экране и должен заплатить ровно 240, кто бы ни приехал. Это же снимает
+    вопрос «а если приедет Комфорт»: приедет — повезёт, доплаты не будет.
+    """
+    cat = (category or "").strip().lower()
+    allowed = set(_FALLBACK_ALLOWED.get(order.category or "standard", ()))
+    if cat not in allowed:
+        raise herr(400, "Этот класс нельзя добавить к поиску",
+                   "Был класты эҙләүгә ҡушып булмай")
+    place = class_rollout.place_at(session, order.from_lat, order.from_lng)
+    if cat not in class_rollout.open_categories(session, place):
+        raise herr(400, "Класс пока не работает в этом месте",
+                   "Был класс был урында әлегә эшләмәй")
+    cats = set(cc.parse_classes(order.fallback_categories or ""))
+    cats.add(cc.category_to_class(cat))
+    order.fallback_categories = cc.dump_classes(cats)
+    price = _category_price(session, order, cat)
+    if price is not None and price < (order.price_estimate or 0):
+        order.price_estimate = price
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return {"price": order.price_estimate,
+            "categories": sorted(order_categories(order))}
 
 
 # ============================ Отмены / ожидание / страйки (волна 2 §5, Модель А) ============================
@@ -868,13 +967,26 @@ def _zone_ok(session: Session, p: DriverProfile, a, b) -> bool:
     )
 
 
+def order_categories(order: InstantOrder) -> set:
+    """Категории, по которым ищем водителя: выбранная пассажиром + те, что он САМ согласился
+    добавить, когда в выбранной никого не оказалось (см. docs/taxi-classes-2026-08.md §5).
+    Молча класс не подменяем никогда — «заказал Комфорт, приехал Логан» это главный источник
+    скандалов у Яндекса, там это считают нарушением водителя, а не механикой."""
+    cats = {(order.category or "standard")}
+    cats |= {cc.class_to_category(c) for c in cc.parse_classes(getattr(order, "fallback_categories", ""))}
+    return cats
+
+
 def eligible(session: Session, ids: list, order: InstantOrder) -> list:
     """Фильтр кандидатов: онлайн + верифицирован + не занят + не в блоке пассажира +
-    не сам пассажир + зона работы (волна 2) + класс машины (§6: comfort-заказ — только
-    водителям car_class=comfort; standard — всем)."""
+    не сам пассажир + зона работы + класс машины + опции салона.
+
+    Класс: машина проходит классификатор независимо по каждому классу, из доступных водитель
+    включает нужные сам (car_classes_enabled). Оплата — по тарифу ЗАКАЗА, не по классу машины.
+    Опции: фильтр ЖЁСТКИЙ — заказ с детским креслом машине без кресла не предлагаем вообще."""
     if not ids:
         return []
-    comfort_only = (order.category or "standard") == "comfort"
+    wanted_cats = order_categories(order)
     users = {u.id: u for u in session.exec(select(User).where(User.id.in_(ids))).all()}
     profs = {p.user_id: p for p in session.exec(select(DriverProfile).where(DriverProfile.user_id.in_(ids))).all()}
     busy = busy_driver_ids(session, ids)
@@ -891,8 +1003,12 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
             continue
         if not _zone_ok(session, p, area_a, area_b):
             continue
-        if comfort_only and (p.car_class or "economy") != "comfort":
-            continue          # NULL = economy: комфорт-заказ обычной машине не предлагаем
+        avail = cc.available_or_legacy(getattr(p, "car_classes_available", ""), p.car_class)
+        if not any(cc.driver_takes(cat, avail, getattr(p, "car_classes_enabled", ""))
+                   for cat in wanted_cats):
+            continue          # машина не того класса — или водитель этот класс не берёт
+        if not cc.covers_options(getattr(p, "car_options", ""), getattr(order, "options", "")):
+            continue          # нет детского кресла/места под коляску — заказ не предлагаем
         if getattr(order, "women_only", False) and not ((p.gender or "") == "female" and p.gender_verified):
             # Выбор «только женщина за рулём» — жёсткий, подмены быть не может. Поэтому и пол
             # нужен ПОДТВЕРЖДЁННЫЙ модератором: до 2026-08-07 водитель ставил его себе сам, и
