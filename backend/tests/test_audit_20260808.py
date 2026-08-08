@@ -218,12 +218,12 @@ def test_every_public_free_text_field_reaches_moderation():
     assert any("receiver_name" in ln for ln in moderated_lines("courier.py"))
     # Расписание водителя: комментарий отдаётся вообще без входа.
     assert any("body.comment" in ln for ln in moderated_lines("driver_schedule.py"))
-    # Витрина купонов открыта без входа. Четыре двери: бизнес (создание + правка) и купон
-    # (создание + правка/включение). У купона проверка идёт через `_coupon_flag` — он ещё и
-    # решает, выпускать ли в витрину (строгий режим, решение Александра 2026-08-08).
+    # Витрина купонов открыта без входа. Двери: бизнес — создание и правка; купон — создание
+    # и правка. У купона проверка идёт через `_apply_review`: он не только помечает, но и
+    # решает, выпускать ли текст в витрину (очередь модерации, 2026-08-08).
     coupons_src = (root / "coupons.py").read_text(encoding="utf-8")
-    assert coupons_src.count("_moderate_storefront(user.id") == 3     # партнёр ×2 + создание купона
-    assert coupons_src.count("_coupon_flag(coupon, user.id") == 2     # правка купона + включение
+    assert coupons_src.count("_apply_review(coupon, user.id") == 2    # купон: создание + правка
+    assert coupons_src.count("_moderate_storefront(user.id") == 2     # бизнес: создание + правка
 
 
 def test_geocode_query_is_clamped():

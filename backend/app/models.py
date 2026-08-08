@@ -1271,6 +1271,34 @@ class Coupon(SQLModel, table=True):
     redeemed_count: int = 0                                  # денормализованный счётчик погашений
     premium: bool = False                                    # выделенная метка на карте (фича premium-подписки)
     status: str = Field(default="draft", max_length=16, index=True)     # draft|active|paused|archived
+    # --- Проверка текста (2026-08-08). Отдельно от `status`, потому что это РАЗНЫЕ вещи:
+    # status — чего хочет партнёр («показывай»), review — что решила проверка («можно»).
+    # Пока они были одним полем, чистый купон не видел никто и никогда: автопроверка ищет
+    # телефоны/ссылки/ругань по шаблонам и пропускает «скидка 90% при предоплате на карту».
+    #   held     — автопроверка пометила текст → в витрине НЕ виден, ждёт человека;
+    #   pending  — текст чистый → виден СРАЗУ (бизнес не тормозим), но лежит в очереди админа;
+    #   approved — админ посмотрел, всё в порядке;
+    #   blocked  — админ снял с витрины, партнёр видит причину в review_note.
+    review: str = Field(default="pending", max_length=16, index=True)
+    review_flag: str = Field(default="", max_length=16)      # метка автопроверки: ""|warn|contact|abuse
+    review_note: str = ""                                    # причина снятия (её видит партнёр)
+    reviewed_at: Optional[datetime] = None
+    reports_count: int = 0                                   # сколько живых людей пожаловались
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class CouponReport(SQLModel, table=True):
+    """Жалоба пользователя на купон: «обещали не то» / «обман» / «нет такой скидки».
+
+    Жалоба НЕ снимает купон с витрины — только возвращает его в очередь админа. Иначе
+    конкурент выключал бы чужую скидку одной кнопкой. UNIQUE(coupon_id, user_id): один
+    человек — одна жалоба, повторными нажатиями очередь не засыпать."""
+    __table_args__ = (UniqueConstraint("coupon_id", "user_id", name="uq_couponreport_coupon_user"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    coupon_id: int = Field(index=True, foreign_key="coupon.id")
+    user_id: int = Field(index=True, foreign_key="user.id")
+    reason: str = Field(default="", max_length=500)
     created_at: datetime = Field(default_factory=utcnow)
 
 

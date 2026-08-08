@@ -1207,6 +1207,7 @@ internal fun YuldashApp() {
                 onWaitlist = { screen = Screen.AdminWaitlist },
                 onTaxiPulse = { screen = Screen.AdminTaxiPulse },
                 onPartners = { screen = Screen.AdminPartners },
+                onModeration = { screen = Screen.AdminModeration },
                 onPromoAdmin = { screen = Screen.AdminPromo },
                 onParcelsAdmin = { screen = Screen.AdminParcels },
                 onCourierAdmin = { screen = Screen.AdminCourier },
@@ -1459,6 +1460,10 @@ internal fun YuldashApp() {
             Screen.Coupons -> CouponsScreen(onBack = { goBack() })
             Screen.PartnerCabinet -> PartnerCabinetScreen(onBack = { goBack() })
             Screen.AdminPartners -> AdminPartnersScreen(onBack = { goBack() })
+            Screen.AdminModeration -> AdminModerationScreen(
+                onBack = { goBack() },
+                onOpenPartners = { screen = Screen.AdminPartners },
+            )
             Screen.PromoCode -> PromoCodeScreen(onBack = { goBack() })
             Screen.AdminPromo -> AdminPromoScreen(onBack = { goBack() })
             Screen.Parcels -> ParcelsScreen(onBack = { goBack() })

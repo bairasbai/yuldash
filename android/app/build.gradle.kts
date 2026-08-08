@@ -239,7 +239,21 @@ android {
         debug {
             buildConfigField("String", "YULDASH_API_BASE_URL", "\"$debugApiBaseUrl\"")
             enableUnitTestCoverage = true
-            enableAndroidTestCoverage = true
+            // enableAndroidTestCoverage ВЫКЛЮЧЕН намеренно (2026-08-08).
+            //
+            // Он инструментировал классы прямо в debug-APK (задача `jacocoDebug`), и на 91-й
+            // ветке навигации `when` в `YuldashApp()` JaCoCo перестал справляться:
+            // «Unable to instrument file with Jacoco: YuldashAppKt.class» — сборка падала
+            // на ровном месте от добавления одного экрана.
+            //
+            // Терять при этом нечего: покрытие меряется по JVM unit-тестам
+            // (`jacocoTestReport` читает outputs/unit_test_code_coverage), и порог
+            // `jacocoCoverageVerification` смотрит туда же. Покрытие инструментальных тестов
+            // не читал никто: ни CI, ни отчёт, ни docs/testing.md — флаг просто стоял.
+            // Побочно: debug-APK перестаёт таскать инструментацию, ставится и работает быстрее.
+            //
+            // Понадобится покрытие по тестам НА УСТРОЙСТВЕ — включать вместе с разрезанием
+            // навигационного `when` (первопричина, а не флаг).
         }
 
         release {

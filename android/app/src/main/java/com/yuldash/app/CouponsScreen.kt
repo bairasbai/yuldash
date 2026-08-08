@@ -6,6 +6,7 @@ package com.yuldash.app
 // крупный КОД для показа в заведении. Скидку даёт заведение (честный дисклеймер). Всё двуязычно,
 // все состояния (загрузка/пусто/ошибка), цвета только Canon*, анимации плавные.
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -36,11 +37,14 @@ import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -426,7 +430,9 @@ private fun CouponDetailView(couponId: Int, preview: CouponDto, onBack: () -> Un
     var coupon by remember { mutableStateOf(preview) }
     var activating by remember { mutableStateOf(false) }
     var actError by remember { mutableStateOf<String?>(null) }
+    var reporting by remember { mutableStateOf(false) }
     val actErrDefault = appText("Не получилось активировать. Повтори.", "Активлаштырып булманы. Ҡабатла.")
+    val reportThanks = appText("Спасибо, посмотрим", "Рәхмәт, ҡарарбыҙ")
 
     // Догружаем свежий купон (актуальный remaining/срок), но UI сразу показывает preview.
     LaunchedEffect(couponId) {
@@ -517,8 +523,84 @@ private fun CouponDetailView(couponId: Int, preview: CouponDto, onBack: () -> Un
                     loading = activating,
                 )
             }
+            // «Тут что-то не так» — третий вход в очередь модерации, помимо автопроверки и
+            // правок бизнеса. Автопроверка ищет телефоны и ругань по шаблонам; «скидки на деле
+            // нет» она не увидит никогда — это может сказать только живой человек, который
+            // пришёл в заведение. Жалоба купон НЕ снимает (иначе конкурент гасил бы чужую
+            // скидку одной кнопкой) — только ставит его перед глазами админа.
+            item {
+                TextButton(onClick = { reporting = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        appText("Тут что-то не так — сообщить", "Бында ниҙер дөрөҫ түгел — хәбәр итеү"),
+                        color = CanonMuted, fontSize = 14.sp,
+                    )
+                }
+            }
         }
     }
+
+    if (reporting) {
+        ReportCouponDialog(
+            onDismiss = { reporting = false },
+            onSend = { reason ->
+                reporting = false
+                scope.launch {
+                    ApiClient.reportCoupon(coupon.id, reason)
+                        .onSuccess {
+                            Toast.makeText(ctx, reportThanks, Toast.LENGTH_SHORT).show()
+                        }
+                        .onFailure {
+                            Toast.makeText(
+                                ctx,
+                                (it as? com.yuldash.app.data.ApiException)?.message ?: actErrDefault,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                }
+            },
+        )
+    }
+}
+
+/** Жалоба на купон: коротко и без обвинений — человек просто говорит, что не сошлось. */
+@Composable
+private fun ReportCouponDialog(onDismiss: () -> Unit, onSend: (String) -> Unit) {
+    var reason by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(appText("Что не так с этой скидкой?", "Был ташлама менән ни дөрөҫ түгел?"),
+                 fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    appText(
+                        "Напиши в двух словах. Мы посмотрим сами — скидка пока останется на месте.",
+                        "Ике һүҙ менән яҙ. Беҙ үҙебеҙ ҡарарбыҙ — ташлама әлегә урынында ҡала.",
+                    ),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                )
+                OutlinedTextField(
+                    value = reason, onValueChange = { reason = it.take(500) },
+                    placeholder = {
+                        Text(appText("Например: скидку не дали", "Мәҫәлән: ташлама бирмәнеләр"))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSend(reason.trim()) }, enabled = reason.isNotBlank()) {
+                Text(appText("Отправить", "Ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(appText("Отмена", "Кире ҡағыу"), color = CanonMuted)
+            }
+        },
+    )
 }
 
 // ─────────────────────────── Активированный код (успех) ───────────────────────────

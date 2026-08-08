@@ -103,7 +103,10 @@ def test_flagged_edit_takes_the_coupon_off_the_storefront(client, user_factory, 
         "valid_until": _future(),
     })
     assert r.status_code == 200, r.text
-    assert r.json()["status"] == "draft"
+    # «Хочу показывать» (status) у партнёра не отбираем — это его решение. Не пускает в
+    # витрину состояние ПРОВЕРКИ: held = помечено автопроверкой, ждёт человека.
+    assert r.json()["status"] == "active"
+    assert r.json()["review"] == "held"
     assert not _in_storefront(client, "Темясово", cid)
 
 
@@ -128,3 +131,106 @@ def test_clean_coupon_publishes_as_before(client, user_factory, monkeypatch):
     owner, _admin, _pid = _paid_partner(client, user_factory, city="Зилаир")
     cid = _live_coupon(client, owner, city="Зилаир", title="Кофе в подарок")
     assert _in_storefront(client, "Зилаир", cid)
+
+
+# ------------------------- очередь модерации: чистое видно, но проверяется -------------------------
+
+def test_clean_coupon_is_visible_and_still_lands_in_the_queue(client, user_factory, monkeypatch):
+    """Главная дыра, ради которой всё затевалось: чистый купон не видел НИКТО и НИКОГДА.
+
+    Автопроверка ищет телефоны, ссылки и ругань по шаблонам — «скидка 90% при предоплате
+    на карту» проходит её насквозь. Поэтому чистое публикуем сразу (бизнес не тормозим),
+    но оно обязано попасть в очередь к человеку.
+    """
+    monkeypatch.setattr("app.routers.coupons.notify_admin_telegram", lambda *a, **k: None)
+    owner, admin, _pid = _paid_partner(client, user_factory, city="Кананикольское")
+    cid = _live_coupon(client, owner, city="Кананикольское", title="Скидка 90% при предоплате")
+
+    assert _in_storefront(client, "Кананикольское", cid)          # видно сразу
+    q = client.get("/admin/moderation", headers=admin["auth"]).json()
+    assert any(c["id"] == cid and c["review"] == "pending" for c in q["coupons"])
+
+    # Александр посмотрел → купон уходит из очереди, из витрины НЕ уходит
+    assert client.post(f"/admin/coupons/{cid}/approve", headers=admin["auth"]).status_code == 200
+    q2 = client.get("/admin/moderation", headers=admin["auth"]).json()
+    assert all(c["id"] != cid for c in q2["coupons"])
+    assert _in_storefront(client, "Кананикольское", cid)
+
+
+def test_held_coupon_is_first_in_the_queue(client, user_factory, monkeypatch):
+    """Задержанный автопроверкой блокирует человека — он должен быть выше просто непросмотренных."""
+    monkeypatch.setattr("app.routers.coupons.notify_admin_telegram", lambda *a, **k: None)
+    owner, admin, _pid = _paid_partner(client, user_factory, city="Исянгулово")
+    clean = _live_coupon(client, owner, city="Исянгулово", title="Чай в подарок")
+    held = client.post("/partner/coupons", headers=owner["auth"], json={
+        "title": "Скидка", "discount_text": "−10%", "city": "Исянгулово",
+        "description": "звони +7 987 000-11-22", "valid_until": _future(),
+    }).json()["id"]
+
+    ids = [c["id"] for c in client.get("/admin/moderation", headers=admin["auth"]).json()["coupons"]]
+    assert ids.index(held) < ids.index(clean)
+
+
+def test_admin_can_take_a_coupon_off_and_partner_cannot_switch_it_back(client, user_factory, monkeypatch):
+    """Снятое админом партнёр не воскрешает кнопкой «включить» — только правкой текста."""
+    monkeypatch.setattr("app.routers.coupons.notify_admin_telegram", lambda *a, **k: None)
+    owner, admin, _pid = _paid_partner(client, user_factory, city="Мраково")
+    cid = _live_coupon(client, owner, city="Мраково", title="Мойка −30%")
+
+    r = client.post(f"/admin/coupons/{cid}/block", headers=admin["auth"],
+                    json={"reason": "Скидки на деле нет"})
+    assert r.status_code == 200 and r.json()["review"] == "blocked"
+    assert not _in_storefront(client, "Мраково", cid)
+
+    # «Включить» не помогает — текст тот же, решение человека в силе
+    back = client.post(f"/partner/coupons/{cid}/status", headers=owner["auth"], json={"status": "active"})
+    assert back.status_code == 409, back.text
+    assert not _in_storefront(client, "Мраково", cid)
+
+    # А правка текста возвращает купон в очередь — решает снова человек
+    client.post(f"/partner/coupons/{cid}", headers=owner["auth"], json={
+        "title": "Мойка −15%", "discount_text": "−15%", "city": "Мраково", "valid_until": _future()})
+    q = client.get("/admin/moderation", headers=admin["auth"]).json()
+    assert any(c["id"] == cid for c in q["coupons"])
+
+
+# ------------------------- жалоба пользователя -------------------------
+
+def test_report_returns_the_coupon_to_the_queue_but_does_not_hide_it(client, user_factory, monkeypatch):
+    """Жалоба ставит купон перед глазами админа, но НЕ снимает: иначе конкурент гасит чужую
+    скидку одной кнопкой."""
+    monkeypatch.setattr("app.routers.coupons.notify_admin_telegram", lambda *a, **k: None)
+    owner, admin, _pid = _paid_partner(client, user_factory, city="Бурибай")
+    cid = _live_coupon(client, owner, city="Бурибай", title="Шаурма −50%")
+    assert client.post(f"/admin/coupons/{cid}/approve", headers=admin["auth"]).status_code == 200
+
+    passenger = user_factory(name="Обиженный")
+    r = client.post(f"/coupons/{cid}/report", headers=passenger["auth"],
+                    json={"reason": "Скидку не дали, сказали что закончилась"})
+    assert r.status_code == 200 and r.json()["already"] is False
+
+    assert _in_storefront(client, "Бурибай", cid)          # НЕ сняли
+    q = client.get("/admin/moderation", headers=admin["auth"]).json()
+    row = next(c for c in q["coupons"] if c["id"] == cid)
+    assert row["review"] == "pending" and row["reports_count"] == 1
+
+
+def test_second_report_from_the_same_person_changes_nothing(client, user_factory, monkeypatch):
+    """Один человек — одна жалоба: повторными нажатиями очередь не засыпать."""
+    monkeypatch.setattr("app.routers.coupons.notify_admin_telegram", lambda *a, **k: None)
+    owner, admin, _pid = _paid_partner(client, user_factory, city="Целинный")
+    cid = _live_coupon(client, owner, city="Целинный", title="Кофе −40%")
+    passenger = user_factory(name="Настойчивый")
+
+    client.post(f"/coupons/{cid}/report", headers=passenger["auth"], json={"reason": "обман"})
+    again = client.post(f"/coupons/{cid}/report", headers=passenger["auth"], json={"reason": "обман"})
+    assert again.status_code == 200 and again.json()["already"] is True
+
+    q = client.get("/admin/moderation", headers=admin["auth"]).json()
+    assert next(c for c in q["coupons"] if c["id"] == cid)["reports_count"] == 1
+
+
+def test_moderation_queue_is_admin_only(client, user_factory):
+    """Очередь показывает чужие тексты и решения — только админу."""
+    stranger = user_factory(name="Посторонний")
+    assert client.get("/admin/moderation", headers=stranger["auth"]).status_code == 403
