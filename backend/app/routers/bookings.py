@@ -148,12 +148,21 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     session.refresh(booking)
     notify_map_changed()   # места убыли → если 0, поездка уходит с карты live
     # Уведомление + push водителю о новой брони.
+    #
+    # У поездки «только женщины» напоминаем водителю, что решение за ним. Сервер эту отметку
+    # проверить НЕ МОЖЕТ: пола пассажира у нас нет вообще — ни поля, ни вопроса при регистрации
+    # (аудит 2026-08-08). Значит настоящий гейт здесь один — подтверждение брони водителем,
+    # и он должен знать, что именно подтверждает. Строчка в пуше стоит дёшево, а женщина,
+    # выбравшая такую поездку, рассчитывает именно на эту проверку.
     pax_name = user.name or "Пассажир"
     route = f"{ride.from_city} → {ride.to_city}"
+    women_hint_ru = " · поездка «только женщины» — подтвердите, если подходит" if ride.women_only else ""
+    women_hint_ba = " · «тик ҡатын-ҡыҙ» сәфәре — тура килһә, раҫлағыҙ" if ride.women_only else ""
     push_notification(
         session, ride.driver_id, "booking",
         "Новая бронь", "Яңы бронь",
-        f"{pax_name}: {route}, мест {body.seats}", f"{pax_name}: {route}, {body.seats} урын",
+        f"{pax_name}: {route}, мест {body.seats}{women_hint_ru}",
+        f"{pax_name}: {route}, {body.seats} урын{women_hint_ba}",
         ref_kind="booking", ref_id=booking.id,
     )
     return booking

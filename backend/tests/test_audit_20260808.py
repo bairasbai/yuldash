@@ -14,7 +14,7 @@ import base64
 import pathlib
 
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.config import _phone_key, settings
 from app.db import engine
@@ -371,3 +371,40 @@ def test_repeat_tap_on_the_same_report_does_not_eat_the_budget(client, user_fact
         again = client.post("/reports", headers=author["auth"], json=body)
         assert again.status_code == 200, again.text
         assert again.json()["id"] == first.json()["id"]
+
+
+# --------------------- 12. «Только женщины» на попутке: гейт — водитель ---------------------
+
+def test_women_only_ride_is_not_enforced_by_the_server_but_the_driver_is_warned(client, user_factory):
+    """Честная фиксация того, как оно устроено НА САМОМ ДЕЛЕ.
+
+    Пола пассажира на сервере нет вообще — ни поля, ни вопроса при регистрации, значит
+    проверить отметку «только женщины» на попутке нечем (в такси иначе: там сверяется пол
+    ВОДИТЕЛЯ, и он opt-in). Настоящий гейт — подтверждение брони водителем, поэтому в пуше
+    ему явно сказано, что поездка помечена (аудит 2026-08-08).
+
+    Тест держит два факта сразу: бронь не отклоняется (иначе сломали бы поездки людям,
+    у которых пол неизвестен) И водитель получает предупреждение.
+    """
+    from app.models import Notification
+
+    drv = user_factory("Женщина за рулём", role=UserRole.driver)
+    ride = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай",
+        "depart_at": (utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat(),
+        "seats_total": 3, "price": 300, "women_only": True,
+    })
+    assert ride.status_code == 200 and ride.json()["women_only"] is True
+
+    pax = user_factory("Пассажир без пола")
+    booked = client.post("/bookings", headers=pax["auth"], json={"ride_id": ride.json()["id"], "seats": 1})
+    assert booked.status_code == 200, booked.text          # сервер НЕ отклоняет: проверять нечем
+
+    with Session(engine) as s:
+        notes = s.exec(
+            select(Notification).where(Notification.user_id == drv["id"],
+                                       Notification.type == "booking")
+        ).all()
+    assert notes, "водителю не пришло уведомление о брони"
+    assert any("только женщины" in (n.body_ru or "") for n in notes), \
+        "водителя не предупредили, что поездка помечена «только женщины»"
