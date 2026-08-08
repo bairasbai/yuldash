@@ -13,6 +13,7 @@ import pytest
 
 from app.config import settings
 from app.models import UserRole
+from conftest import upload_doc
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +28,7 @@ def _make_courier(client, user_factory, name="Курьер"):
     admin = user_factory(name=f"Админ{name}", role=UserRole.admin)
     c = user_factory(name=name)
     aid = client.post("/courier/apply", headers=c["auth"],
-                      json={"transport": "car", "selfie_url": "secure/docs/selfie.jpg"}).json()["id"]
+                      json={"transport": "car", "selfie_url": upload_doc(client, c["auth"])}).json()["id"]
     assert client.post(f"/admin/courier-applications/{aid}/approve",
                        headers=admin["auth"]).status_code == 200
     assert client.post("/courier/online", headers=c["auth"],

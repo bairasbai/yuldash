@@ -11,7 +11,7 @@
 //                   GET /admin/payments/summary
 //  Все ручки требуют role == "admin" (иначе 403). До мержа release на прод — 404/405 (мягко).
 // ================================================================
-import { apiGet, apiPost, apiDelete, getToken } from "./client";
+import { apiGet, apiPost, apiDelete, getToken, isOwnApiUrl } from "./client";
 import type { ResponseItem } from "./requests";
 import type { Parcel } from "./parcels";
 
@@ -74,6 +74,9 @@ export function moderateDriver(
  * URL из бэка абсолютный (secure_docs_url). Вызывающий обязан URL.revokeObjectURL при размонтировании.
  */
 export async function fetchSecureDoc(url: string, signal?: AbortSignal): Promise<string> {
+  // Токен подставляем только своему серверу — иначе ссылка из чужой заявки увела бы
+  // доступ администратора на чужой домен (см. isOwnApiUrl).
+  if (!isOwnApiUrl(url)) throw new Error("doc host not allowed");
   const token = getToken();
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},

@@ -211,8 +211,18 @@ _PAGE_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <title>Юлдаш — живая поездка · тере сәфәр</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+<!-- integrity/crossorigin (SRI) обязательны: страницу открывает близкий человек, и на ней
+     живые координаты машины. Без хеша мы обещаем браузеру исполнить ЛЮБОЙ файл, который в этот
+     момент отдаст unpkg.com; подмена на их стороне (или у того, кто до них дотянулся) означала бы
+     чужой скрипт на странице с чьим-то местоположением. С хешем браузер сверяет содержимое и
+     при несовпадении просто не подключает файл — сработает штатный запасной путь «нет CDN →
+     статусы без карты» (аудит 2026-08-08). Хеши сверены с официальными для Leaflet 1.9.4. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H"
+      crossorigin="anonymous" referrerpolicy="no-referrer">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer
+        integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
   :root{
     --green:#1E7A46; --green-dark:#155C34; --yellow:#F5B301;

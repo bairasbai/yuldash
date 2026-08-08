@@ -42,12 +42,12 @@ val mapkitKey: String = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }.getProperty("YANDEX_MAPKIT_KEY", "")
 
-// Ключ Яндекс Геокодера (HTTP API, поиск адресов) — тоже из local.properties.
-val geocoderKey: String = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
-}.getProperty("YANDEX_GEOCODER_KEY", "")
-
+// Ключ Яндекс Геокодера в приложение НЕ попадает и попадать не должен.
+// Аудит 2026-06-27 перевёл поиск адресов на серверный прокси `/geocode` именно затем, чтобы
+// платный ключ не лежал в APK: APK раздаётся файлом, распаковывается за минуту, а `BuildConfig`
+// хранит строки открытым текстом — любой желающий выжигал бы дневную квоту (и наш счёт).
+// Строка `buildConfigField("YANDEX_GEOCODER_KEY", …)` пережила ту правку и продолжала зашивать
+// ключ в каждую сборку, хотя в коде его никто не читал (аудит 2026-08-08). Убрана.
 // URL backend API для debug/release. Можно переопределить в local.properties:
 // YULDASH_DEBUG_API_BASE_URL=http://10.0.2.2:8000
 // YULDASH_RELEASE_API_BASE_URL=https://yulbash.ru
@@ -173,7 +173,6 @@ android {
 
         // Пробрасываем ключ в BuildConfig (в коде не хардкодим).
         buildConfigField("String", "YANDEX_MAPKIT_KEY", "\"$mapkitKey\"")
-        buildConfigField("String", "YANDEX_GEOCODER_KEY", "\"$geocoderKey\"")
         buildConfigField("String", "YULDASH_SUPPORT_PHONE", "\"$supportPhone\"")
         buildConfigField("String", "TELEGRAM_BOT", "\"$telegramBot\"")
         buildConfigField("String", "VK_APP_ID", "\"$vkAppId\"")

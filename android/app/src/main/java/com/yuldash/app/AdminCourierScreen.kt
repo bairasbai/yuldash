@@ -315,7 +315,7 @@ private fun CourierStatusBadge(status: String) {
 private fun CourierDocImage(url: String, token: String) {
     val ctx = LocalContext.current
     coil.compose.AsyncImage(
-        model = coil.request.ImageRequest.Builder(ctx).data(url).addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+        model = authedImageRequest(ctx, url, token),
         contentDescription = appText("Фото документа курьера", "Курьер документы фотоһы"),
         // Нейтральный фон = аккуратный плейсхолдер, пока грузится / если не загрузилось (не пустая дыра).
         modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(14.dp)).background(CanonSurface),

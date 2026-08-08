@@ -16,6 +16,7 @@ from app.config import settings
 from app.db import engine
 from app.models import UserRole
 from app.timeutil import utcnow
+from conftest import upload_doc
 
 
 @pytest.fixture(autouse=True)
@@ -140,7 +141,7 @@ def test_small_debt_does_not_block(client, user_factory):
 def test_apply_stores_identity_fields(client, user_factory):
     u = user_factory("Новый курьер")
     r = client.post("/courier/apply", headers=u["auth"], json={
-        "transport": "car", "selfie_url": "secure/docs/x.jpg",
+        "transport": "car", "selfie_url": upload_doc(client, u["auth"]),
         "full_name": "Ахметов Ильдар", "car_plate": "х123ух102", "rules_accepted": True,
     })
     assert r.status_code == 200, r.text
@@ -155,7 +156,7 @@ def test_apply_without_identity_still_works_while_flag_off(client, user_factory)
     assert settings.courier_identity_required is False
     u = user_factory("Старое приложение")
     r = client.post("/courier/apply", headers=u["auth"], json={
-        "transport": "car", "selfie_url": "secure/docs/y.jpg",
+        "transport": "car", "selfie_url": upload_doc(client, u["auth"]),
     })
     assert r.status_code == 200, r.text
     assert r.json()["full_name"] == "" and r.json()["rules_accepted"] is False
@@ -165,7 +166,7 @@ def test_identity_required_when_flag_on(client, user_factory, monkeypatch):
     monkeypatch.setattr(settings, "courier_identity_required", True)
     u = user_factory("Строгий режим")
     r = client.post("/courier/apply", headers=u["auth"], json={
-        "transport": "car", "selfie_url": "secure/docs/z.jpg",
+        "transport": "car", "selfie_url": upload_doc(client, u["auth"]),
     })
     assert r.status_code == 422
     assert "фамилию" in r.json()["detail"]["ru"]
@@ -175,7 +176,7 @@ def test_one_word_name_rejected_even_with_flag_off(client, user_factory):
     """Прислали одним словом — это опечатка, а не старый клиент: говорим сразу."""
     u = user_factory("Односложный")
     r = client.post("/courier/apply", headers=u["auth"], json={
-        "transport": "car", "selfie_url": "secure/docs/w.jpg", "full_name": "Ильдар",
+        "transport": "car", "selfie_url": upload_doc(client, u["auth"]), "full_name": "Ильдар",
     })
     assert r.status_code == 422
 
@@ -183,7 +184,7 @@ def test_one_word_name_rejected_even_with_flag_off(client, user_factory):
 def test_rules_acceptance_is_recorded_with_timestamp(client, user_factory):
     u = user_factory("Согласился")
     client.post("/courier/apply", headers=u["auth"], json={
-        "transport": "cargo", "selfie_url": "secure/docs/q.jpg",
+        "transport": "cargo", "selfie_url": upload_doc(client, u["auth"]),
         "full_name": "Ишбулатов Айрат", "car_plate": "А001АА102", "rules_accepted": True,
     })
     with Session(engine) as s:

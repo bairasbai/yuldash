@@ -51,14 +51,20 @@ _ESTIMATE_PREFIXES = (
 
 # Освобождены от ЖЁСТКОГО лимита: пробы мониторинга (их долбит uptime-чек и деплой-гейт)
 # и вебхуки внешних сервисов (Telegram/ЮKassa) — у них своя защита (секрет/подпись), а объём
-# легитимного трафика может кратно превышать пользовательский. Важно: /auth/telegram/webhook
-# начинается с "/auth" → без этого списка попал бы в строгий бюджет и Telegram-бота при
-# активности резало бы 429. Проверяется ПЕРЕД _STRICT_PREFIXES. Совпадение и с /api/v1.
+# легитимного трафика может кратно превышать пользовательский. Проверяется ПЕРЕД
+# _STRICT_PREFIXES. Совпадение и с /api/v1.
+#
+# Путь вебхука Telegram — именно "/telegram/webhook" (см. routers/auth.py). Здесь три месяца
+# стояло "/auth/telegram/webhook": такого маршрута в приложении нет, поэтому исключение не
+# срабатывало ни разу, и апдейты бота считались как обычный трафик пользователя. Пока бот тихий,
+# это незаметно; в час пик (или когда кто-то насыпет боту сообщений с одного адреса) Telegram
+# начал бы получать 429 и ретраить — вход через бота встал бы у всех, а причина выглядела бы
+# как «Telegram сломался» (аудит 2026-08-08).
 _EXEMPT_PREFIXES = (
     "/health", "/version",
-    "/auth/telegram/webhook", "/payments/yookassa/webhook",
+    "/telegram/webhook", "/payments/yookassa/webhook",
     "/api/v1/health", "/api/v1/version",
-    "/api/v1/auth/telegram/webhook", "/api/v1/payments/yookassa/webhook",
+    "/api/v1/telegram/webhook", "/api/v1/payments/yookassa/webhook",
 )
 
 

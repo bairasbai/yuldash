@@ -26,6 +26,7 @@ from app.config import settings
 from app.db import engine
 from app.models import UserRole
 from app.timeutil import utcnow
+from conftest import upload_doc
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +48,7 @@ def _make_courier(client, user_factory, name="ГейтКурьер"):
     admin = user_factory(name="ГейтАдмин", role=UserRole.admin)
     c = user_factory(name=name)
     aid = client.post("/courier/apply", headers=c["auth"],
-                      json={"transport": "car", "selfie_url": "secure/docs/s.jpg"}).json()["id"]
+                      json={"transport": "car", "selfie_url": upload_doc(client, c["auth"])}).json()["id"]
     assert client.post(f"/admin/courier-applications/{aid}/approve",
                        headers=admin["auth"]).status_code == 200
     assert client.post("/courier/online", headers=c["auth"],

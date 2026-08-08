@@ -1,5 +1,6 @@
 """Тестовое окружение: изолированная SQLite (НЕ трогает прод), env=dev."""
 import atexit
+import base64
 import os
 import pathlib
 import tempfile
@@ -104,3 +105,17 @@ def user_factory(client):
             return {"id": u.id, "token": tok, "auth": {"Authorization": f"Bearer {tok}"}}
 
     return make
+
+
+# --- Настоящий загруженный документ (селфи курьера, фото прав и т.п.) ---
+# Сервер принимает в заявку ТОЛЬКО ссылку на файл, который этот же человек загрузил через
+# /upload/photo (`_ensure_owned_doc_url`). Раньше тесты слали выдуманную строку
+# "secure/docs/s.jpg", и это скрывало настоящую дыру: селфи курьера принималось каким угодно
+# адресом, а модерация грузила его с токеном админа в заголовке (аудит 2026-08-08).
+# Хелпер загружает крошечный JPEG и возвращает честный URL — тесты идут тем же путём, что люди.
+def upload_doc(client, auth) -> str:
+    """Загрузить минимальный JPEG как приватный документ → его /secure/docs URL."""
+    b64 = base64.b64encode(b"\xff\xd8\xfftest-jpeg").decode()
+    r = client.post("/upload/photo", headers=auth, json={"photo_b64": b64, "ext": "jpg"})
+    assert r.status_code == 200, r.text
+    return r.json()["url"]

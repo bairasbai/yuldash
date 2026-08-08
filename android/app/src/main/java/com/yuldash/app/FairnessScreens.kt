@@ -1141,8 +1141,7 @@ private fun EvidenceThumb(url: String, index: Int, total: Int, onClick: () -> Un
     val ctx = LocalContext.current
     val token = remember { ApiClient.currentToken() ?: "" }
     coil.compose.AsyncImage(
-        model = coil.request.ImageRequest.Builder(ctx).data(url)
-            .addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+        model = authedImageRequest(ctx, url, token),
         contentDescription = appText("Фото ${index + 1} из $total — открыть",
             "Фото ${index + 1} / $total — асыу"),
         contentScale = ContentScale.Crop,
@@ -1167,8 +1166,7 @@ private fun EvidenceViewer(photos: List<String>, startAt: Int, onClose: () -> Un
             contentAlignment = Alignment.Center,
         ) {
             coil.compose.AsyncImage(
-                model = coil.request.ImageRequest.Builder(ctx).data(photos[at])
-                    .addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+                model = authedImageRequest(ctx, photos[at], token),
                 contentDescription = appText("Фото ${at + 1} из ${photos.size}",
                     "Фото ${at + 1} / ${photos.size}"),
                 contentScale = ContentScale.Fit,

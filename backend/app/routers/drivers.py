@@ -46,12 +46,23 @@ def _is_owned_doc_name(name: str, user_id: int, profile: DriverProfile | None) -
 
 
 def _ensure_owned_doc_url(url: str, user: User, profile: DriverProfile | None) -> str:
+    """Ссылка на документ → она же, если это СВОЙ загруженный файл. Иначе 400/403/404.
+
+    Одна дверь для всех документов: права и фото авто водителя, разрешение/ОСАГО/селфи/справка
+    таксиста, селфи курьера. Без неё в заявку въезжает чужой адрес, а модерация грузит его
+    с токеном админа в заголовке (аудит 2026-08-08).
+    """
     name = _doc_name_from_url(url)
     if not name:
         raise HTTPException(400, "Нужен защищённый файл документа")
     if not _is_owned_doc_name(name, user.id, profile):
         raise HTTPException(403, "Можно отправить только свои загруженные документы")
-    if not os.path.isfile(os.path.join(DOC_DIR, name)):
+    # Наличие файла спрашиваем У ХРАНИЛИЩА, а не у диска. Загрузка идёт через
+    # `get_storage().save(...)`, и при STORAGE_BACKEND=s3 файла на диске нет вовсе — прямая
+    # проверка `os.path.isfile` отвечала бы «не найден» на КАЖДУЮ заявку водителя, таксиста и
+    # курьера. Сегодня включён локальный диск, поэтому мина не сработала ни разу; сработала бы
+    # в день переезда в облако, и выглядело бы это как «проверка документов сломалась».
+    if not get_storage().exists(f"docs/{name}"):
         raise HTTPException(404, "Файл документа не найден")
     return url.strip()
 

@@ -31,6 +31,7 @@ from ..errors import herr
 from ..models import (CourierApplication, CourierProfile, ParcelDelivery, Payment, Rating,
                       User, UserRole)
 from ..safety_logic import ensure_active
+from .drivers import _ensure_owned_doc_url
 from .parcels import _FINAL_STATUSES, live_parcel_conds
 from ..security import current_user
 from ..services import haversine_km, notify_admin_telegram, send_push, user_rating
@@ -392,6 +393,13 @@ def courier_apply(body: CourierApplyIn, user: User = Depends(current_user),
     selfie = (body.selfie_url or "").strip()
     if not selfie:
         raise herr(422, "Пришли селфи с документом", "Документ менән селфи ебәр")
+    # Селфи принимаем ТОЛЬКО как ссылку на свой файл, загруженный через /upload/photo
+    # (та же проверка, что у водителя и таксиста). Раньше строка бралась как есть, и это
+    # был не «мусор в базе», а угон админа: модерация показывает селфи через Coil
+    # с заголовком `Authorization: Bearer <токен админа>`, поэтому ссылка вида
+    # `https://чужой-сервер/x.jpg` в заявке отправляла токен администратора этому серверу
+    # ровно в тот момент, когда админ открывал очередь заявок (аудит 2026-08-08).
+    selfie = _ensure_owned_doc_url(selfie, user, None)
     full_name = (body.full_name or "").strip()[:120]
     car_plate = (body.car_plate or "").strip().upper()[:16]
     # Мы доверяем курьеру чужую посылку — знать о нём хотя бы столько же, сколько о попутчике,
