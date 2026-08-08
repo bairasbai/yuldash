@@ -234,3 +234,26 @@ def test_moderation_queue_is_admin_only(client, user_factory):
     """Очередь показывает чужие тексты и решения — только админу."""
     stranger = user_factory(name="Посторонний")
     assert client.get("/admin/moderation", headers=stranger["auth"]).status_code == 403
+
+
+def test_reports_have_a_ceiling_per_person(client, user_factory, monkeypatch):
+    """Первая жалоба на купон дёргает Telegram админа — значит поток жалоб надо ограничить.
+
+    Ровно та причина, по которой /callback и /donate живут в строгом бюджете лимитера: один
+    человек, пройдясь по витрине, иначе шлёт Александру столько сообщений, сколько там купонов.
+    """
+    from app.config import settings as app_settings
+    from app.routers.coupons import MAX_COUPON_REPORTS_PER_HOUR
+
+    monkeypatch.setattr("app.routers.coupons.notify_admin_telegram", lambda *a, **k: None)
+    monkeypatch.setattr(app_settings, "rate_limit_enabled", True)
+    owner, _admin, _pid = _paid_partner(client, user_factory, city="Кага")
+    # Купонов заведомо больше потолка — жаловаться будет на что.
+    ids = [_live_coupon(client, owner, city="Кага", title=f"Скидка {i}")
+           for i in range(MAX_COUPON_REPORTS_PER_HOUR + 2)]
+
+    spammer = user_factory(name="Жалобщик")
+    codes = [client.post(f"/coupons/{cid}/report", headers=spammer["auth"],
+                         json={"reason": "не понравилось"}).status_code for cid in ids]
+    assert codes.count(200) == MAX_COUPON_REPORTS_PER_HOUR, codes
+    assert 429 in codes, codes

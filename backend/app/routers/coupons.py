@@ -25,6 +25,7 @@ from sqlmodel import Session, select
 from ..antifraud import moderate_open_text
 from ..db import get_session
 from ..errors import herr
+from ..middleware import user_over_limit
 from ..models import Coupon, CouponReport, CouponRedemption, Partner, Payment, User, UserRole
 from ..security import current_user
 from ..services import notify_admin_telegram, send_push
@@ -47,6 +48,12 @@ PARTNER_REDEMPTION_FEE_KOP = 1000
 
 # Анти-спам: не даём одному бизнесу плодить бесконечно купонов.
 MAX_COUPONS_PER_PARTNER = 50
+
+# Анти-спам жалобами: первая жалоба на купон дёргает Telegram админа. Без потолка один человек,
+# пройдясь по витрине, шлёт Александру столько сообщений, сколько там купонов (аудит 2026-08-08 —
+# ровно та причина, по которой /callback и /donate живут в строгом бюджете лимитера). Живой
+# человек жалуется на один-два купона за раз, упереться можно только специально.
+MAX_COUPON_REPORTS_PER_HOUR = 10
 
 # Алфавит кода погашения — без похожих символов (0/O, 1/I), чтобы диктовать/вводить без ошибок.
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -1053,6 +1060,9 @@ def report_coupon(coupon_id: int, body: CouponReportIn, user: User = Depends(cur
 
     Один человек — одна жалоба на купон (UNIQUE в БД): повторными нажатиями очередь не засыпать.
     """
+    if user_over_limit("coupon_report", user.id, MAX_COUPON_REPORTS_PER_HOUR, window_sec=3600):
+        raise herr(429, "Слишком много жалоб подряд. Подожди немного.",
+                   "Артыҡ күп зар. Бер аҙ көт.")
     coupon = session.get(Coupon, coupon_id)
     if not coupon:
         raise herr(404, "Купон не найден", "Купон табылманы")
