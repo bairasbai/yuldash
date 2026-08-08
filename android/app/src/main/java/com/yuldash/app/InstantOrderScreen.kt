@@ -1129,11 +1129,22 @@ private fun carsWordRu(n: Int): String {
  *
  * @param loaded пришёл ли успешный ответ. Пока нет — молчим: «рядом никого» без ответа сервера
  *               было бы выдумкой.
+ * @param routeSet назвал ли человек, куда едет.
+ *
+ * Плохую новость («рядом машин нет») показываем ТОЛЬКО когда маршрут уже задан, то есть
+ * человек в процессе заказа и новость ему полезна. До этого она встречала его первой строкой
+ * на экране — сообщением о проблеме, которой ещё нет, и отбивала желание пробовать.
+ * Хорошую новость («3 машины рядом») показываем всегда — она, наоборот, придаёт уверенности.
  */
 @Composable
-private fun InstantNearbyBadge(count: Int, loaded: Boolean, modifier: Modifier = Modifier) {
+private fun InstantNearbyBadge(
+    count: Int,
+    loaded: Boolean,
+    routeSet: Boolean,
+    modifier: Modifier = Modifier,
+) {
     AnimatedVisibility(
-        visible = loaded,
+        visible = loaded && (count > 0 || routeSet),
         enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(),
         exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(),
         modifier = modifier,
@@ -1426,6 +1437,7 @@ private fun InstantDestinationPicker(
                     InstantNearbyBadge(
                         count = nearbyDrivers.size,
                         loaded = nearbyLoaded,
+                        routeSet = toPoint != null,
                         modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                     )
                 }

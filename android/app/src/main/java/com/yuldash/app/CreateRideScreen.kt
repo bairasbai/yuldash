@@ -501,7 +501,7 @@ internal fun CreateRideFormContent(
     ) {
         item {
             Text(appText("Маршрут для своих", "Үҙ кешеләрең өсөн маршрут"), fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text(appText("Укажите путь, места и цену. Контакты откроются после подтверждения.", "Юлды, урындарҙы һәм хаҡты күрһәтегеҙ. Контакттар раҫланғандан һуң асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(appText("Укажи путь, места и цену. Контакты откроются после подтверждения.", "Юлды, урындарҙы һәм хаҡты күрһәтегеҙ. Контакттар раҫланғандан һуң асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         // Чипы популярных направлений (слот): тап заполняет «откуда/куда». Пустой список — ничего не рисует.
         routeChips?.let { chips -> item { chips() } }
@@ -580,7 +580,7 @@ internal fun CreateRideFormContent(
                     onValueChange = {},
                     readOnly = true,
                     label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
-                    placeholder = { Text(appText("Выберите дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
+                    placeholder = { Text(appText("Выбери дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
                     leadingIcon = { Icon(Icons.Default.Schedule, null) },
                     trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
                     modifier = Modifier.fillMaxWidth(),

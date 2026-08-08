@@ -141,7 +141,7 @@ class LoginDeep2ContentTest {
         // кнопка «Изменить номер» и primary «Войти».
         smsSection(step = 1, phone = "+79991234567", showPhone = true, language = AppLanguage.Ru)
         composeRule.onNodeWithText("Код отправлен на +79991234567").assertIsDisplayed()
-        composeRule.onNodeWithText("Ваше имя (необязательно)").assertIsDisplayed()
+        composeRule.onNodeWithText("Твоё имя (необязательно)").assertIsDisplayed()
         composeRule.onNodeWithText("Код из SMS").assertIsDisplayed()
         composeRule.onNodeWithText("Изменить номер").assertIsDisplayed()
         composeRule.onNodeWithText("Войти").assertIsDisplayed()
@@ -150,7 +150,7 @@ class LoginDeep2ContentTest {
     @Test
     fun codeStep_bashkir_showsPlaceholdersChangeNumberAndPrimary() {
         smsSection(step = 1, phone = "+79991234567", showPhone = true, language = AppLanguage.Ba)
-        composeRule.onNodeWithText("Исемегеҙ (мотлаҡ түгел)").assertIsDisplayed()
+        composeRule.onNodeWithText("Исемең (мотлаҡ түгел)").assertIsDisplayed()
         composeRule.onNodeWithText("SMS коды").assertIsDisplayed()
         composeRule.onNodeWithText("Номерҙы үҙгәртеү").assertIsDisplayed()
         composeRule.onNodeWithText("Инеү").assertIsDisplayed()

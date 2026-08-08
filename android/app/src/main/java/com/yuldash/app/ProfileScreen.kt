@@ -1336,7 +1336,7 @@ internal fun DriverCabinetScreen(
     val editNotActiveMsg = appText("Менять можно только активную поездку.", "Тик актив сәфәрҙе генә үҙгәртеп була.")
     val editNetMsg = appText("Не получилось изменить. Проверь интернет и повтори.", "Үҙгәртеп булманы. Интернетты тикшереп ҡабатла.")
     val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
-    val onlineLoginMsg = appText("Войдите, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
+    val onlineLoginMsg = appText("Войди, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
     // D1/D2: выход «на линии» требует геолокации (без неё водитель невидим) и включённого такси в городе.
     val geoOnlineMsg = appText("Включи геолокацию — без неё заказы не придут и тебя не видно на карте.",
         "Геолокацияны ҡабыҙ — унһыҙ заказ килмәй, һине картала ла күренмәйһең.")
@@ -1384,7 +1384,7 @@ internal fun DriverCabinetScreen(
             Toast.makeText(ctx, if (coarseOnly) geoCoarseMsg else geoOnlineMsg, Toast.LENGTH_LONG).show()
         },
     )
-    val womanLoginMsg = appText("Войдите, чтобы изменить профиль", "Профильде үҙгәртер өсөн инегеҙ")
+    val womanLoginMsg = appText("Войди, чтобы изменить профиль", "Профильде үҙгәртер өсөн инегеҙ")
     Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = CanonBg,
@@ -2388,7 +2388,7 @@ internal fun DriverCabinetContent(
     ) {
         item {
             Text(appText("Маршруты и проверка", "Маршруттар һәм тикшереү"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
-            Text(appText("Публикуйте поездки, проходите проверку и поднимайте маршрут выше.", "Сәфәр баҫтырығыҙ, тикшереү үтегеҙ һәм маршрутты өҫкә күтәрегеҙ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+            Text(appText("Публикуй поездки, проходи проверку и поднимай маршрут выше.", "Сәфәр баҫтырығыҙ, тикшереү үтегеҙ һәм маршрутты өҫкә күтәрегеҙ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
         // Долг по комиссии за такси (Модель А «на доверии»): баннер только если есть что платить/подтверждать.
         if (debt != null && (debt.unpaidKop > 0 || debt.pendingKop > 0)) {
@@ -2480,7 +2480,7 @@ internal fun DriverCabinetContent(
             item {
                 EmptyStateCard(
                     title = appText("Твоих маршрутов пока нет", "Һинең маршруттар әлегә юҡ"),
-                    text = appText("Опубликуйте поездку, чтобы пассажиры могли откликнуться.", "Пассажирҙар яуап бирһен өсөн сәфәр баҫтырығыҙ."),
+                    text = appText("Опубликуй поездку, чтобы пассажиры могли откликнуться.", "Пассажирҙар яуап бирһен өсөн сәфәр баҫтырығыҙ."),
                     icon = Icons.Default.DirectionsCar,
                     action = appText("Опубликовать маршрут", "Маршрут баҫтырыу"),
                     onAction = onCreateRide
@@ -2662,8 +2662,8 @@ internal fun DriverCabinetContent(
                         Text(
                             when {
                                 !editing -> appText("Твоя оценка: ${starsText(stars)}", "Һинең баһаң: ${starsText(stars)}")
-                                stars == 0 -> appText("Выберите оценку", "Баһа һайлағыҙ")
-                                else -> appText("Выбрано ${starsText(stars)} — подтвердите", "${starsText(stars)} һайланды — раҫлағыҙ")
+                                stars == 0 -> appText("Выбери оценку", "Баһа һайлағыҙ")
+                                else -> appText("Выбрано ${starsText(stars)} — подтверди", "${starsText(stars)} һайланды — раҫлағыҙ")
                             },
                             color = CanonMuted, fontSize = 12.sp,
                         )

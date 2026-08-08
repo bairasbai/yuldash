@@ -596,7 +596,7 @@ internal fun LoginFormContent(
                 OutlinedTextField(
                     value = name,
                     onValueChange = onNameChange,
-                    placeholder = { Text(appTextFor(currentLanguage, "Ваше имя (необязательно)", "Исемегеҙ (мотлаҡ түгел)"), fontSize = LoginBody) },
+                    placeholder = { Text(appTextFor(currentLanguage, "Твоё имя (необязательно)", "Исемең (мотлаҡ түгел)"), fontSize = LoginBody) },
                     leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted) },
                     textStyle = TextStyle(fontSize = LoginBody, color = CanonText),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
@@ -864,7 +864,7 @@ internal fun ColumnScope.LoginSmsSection(
             OutlinedTextField(
                 value = name,
                 onValueChange = onNameChange,
-                placeholder = { Text(appTextFor(currentLanguage, "Ваше имя (необязательно)", "Исемегеҙ (мотлаҡ түгел)"), fontSize = LoginBody) },
+                placeholder = { Text(appTextFor(currentLanguage, "Твоё имя (необязательно)", "Исемең (мотлаҡ түгел)"), fontSize = LoginBody) },
                 leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted) },
                 textStyle = TextStyle(fontSize = LoginBody, color = CanonText),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),

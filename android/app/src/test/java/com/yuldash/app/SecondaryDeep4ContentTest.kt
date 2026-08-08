@@ -135,7 +135,7 @@ class SecondaryDeep4ContentTest {
             }
         }
         composeRule.onNodeWithText("Правила поездок").assertIsDisplayed()   // заголовок TopBar
-        composeRule.onNodeWithText("Уважайте друг друга").assertIsDisplayed()
+        composeRule.onNodeWithText("Уважай попутчика").assertIsDisplayed()
         composeRule.onNodeWithText("Безопасность прежде всего").assertIsDisplayed()
         // Предупреждение о SOS (2026-08-06). Водитель обязан узнать ЗАРАНЕЕ, что при сигнале
         // близкие увидят его машину: правило, о котором не предупредили, читается как слежка.
@@ -151,7 +151,7 @@ class SecondaryDeep4ContentTest {
             }
         }
         composeRule.onNodeWithText("Сәфәр ҡағиҙәләре").assertIsDisplayed()
-        composeRule.onNodeWithText("Бер-берегеҙҙе хөрмәт итегеҙ").assertIsDisplayed()   // «Уважайте друг друга»
+        composeRule.onNodeWithText("Юлдашыңды хөрмәт ит").assertIsDisplayed()   // «Уважай попутчика»
     }
 
     @Test

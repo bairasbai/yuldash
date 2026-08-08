@@ -705,9 +705,9 @@ internal fun SafetyScreen(
                     // Раньше тут был тумблер, который писал в prefs, но ни на что не влиял — убрали ложное обещание.
                     SettingsNavRow(Icons.Default.PhoneLocked, appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерелгән"), appText("Твой номер откроется попутчику только после подтверждения поездки — так устроен Юлдаш.", "Номерың юлдашҡа тик сәфәр раҫланғас ҡына асыла — Юлдаш шулай эшләй."))
                     SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it; AppPrefs.setVerifiedOnly(ctx, it) }
-                    SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправьте данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."), onClick = onShareTrip)
+                    SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправь данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."), onClick = onShareTrip)
                     SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Те, с кем ты не хочешь ездить.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."), onClick = onBlocklist)
-                    SettingsNavRow(Icons.Default.Report, appText("Пожаловаться на пользователя", "Ҡулланыусыға ялыу"), appText("Сообщите о нарушении правил или безопасности.", "Ҡағиҙә йәки хәүефһеҙлек боҙолоуын хәбәр итегеҙ."), onClick = onReport)
+                    SettingsNavRow(Icons.Default.Report, appText("Пожаловаться на пользователя", "Ҡулланыусыға ялыу"), appText("Сообщи о нарушении правил или безопасности.", "Ҡағиҙә йәки хәүефһеҙлек боҙолоуын хәбәр итегеҙ."), onClick = onReport)
                     SettingsNavRow(Icons.Default.Description, appText("Правила поездок", "Сәфәр ҡағиҙәләре"), appText("Ознакомьтесь с правилами сервиса Юлдаш.", "Юлдаш ҡағиҙәләре менән танышығыҙ."), onClick = onRules)
                 }
             }
@@ -778,7 +778,7 @@ internal fun SettingsScreen(
             item { Spacer(Modifier.height(8.dp)) }
             item {
                 Text(appText("Настройки", "Көйләүҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold)
-                Text(appText("Настройте приложение под себя", "Ҡушымтаны үҙегеҙгә көйләгеҙ"), color = CanonMuted, fontSize = 16.sp)
+                Text(appText("Настрой приложение под себя", "Ҡушымтаны үҙегеҙгә көйләгеҙ"), color = CanonMuted, fontSize = 16.sp)
             }
             item { CompactProfileBanner() }
             item {
@@ -922,16 +922,16 @@ internal fun FontScalePickerDialog(current: FontScaleOption, onPick: (FontScaleO
 internal fun RulesScreen(onBack: () -> Unit) {
     val rules = listOf(
         appText("Уважай попутчика", "Юлдашыңды хөрмәт ит") to appText("Юлдаш — поездки между своими. Веди себя по-соседски и приезжай вовремя.", "Юлдаш — үҙ кешеләр араһында сәфәр. Әҙәпле һәм ваҡытлы булығыҙ."),
-        appText("Договаривайтесь заранее", "Алдан килешегеҙ") to appText("Согласуйте место и время встречи в чате до выезда.", "Сығышҡа тиклем осрашыу урынын һәм ваҡытын чатта килешегеҙ."),
-        appText("Безопасность прежде всего", "Хәүефһеҙлек беренсе урында") to appText("Пристёгивайтесь, не отвлекайте водителя, при опасности — кнопка SOS.", "Бәйләнегеҙ, водителде борсомағыҙ, хәүеф булһа — SOS төймәһе."),
+        appText("Договаривайтесь заранее", "Алдан килешегеҙ") to appText("Согласуй место и время встречи в чате до выезда.", "Сығышҡа тиклем осрашыу урынын һәм ваҡытын чатта килешегеҙ."),
+        appText("Безопасность прежде всего", "Хәүефһеҙлек беренсе урында") to appText("Пристегнись, не отвлекай водителя, при опасности — кнопка SOS.", "Бәйләнегеҙ, водителде борсомағыҙ, хәүеф булһа — SOS төймәһе."),
         // Водитель узнаёт об этом ЗАРАНЕЕ, а не постфактум: правило, о котором не предупредили,
         // ощущается как слежка. Отдаём только то, что и так видно на улице (решение 2026-08-06).
         appText("Если кто-то нажмёт SOS", "Кемдер SOS баҫһа") to appText(
             "Близкие получат место и описание машины — цвет, модель, госномер. Имя и телефон водителя видит только дежурный Юлдаша. Это работает в обе стороны: за тебя тоже вступятся.",
             "Яҡындары урынды һәм машина һүрәтләмәһен ала — төҫө, моделе, дәүләт номеры. Йөрөтөүсенең исеме менән телефонын тик Юлдаш дежуры күрә. Был ике яҡҡа ла эшләй: һинең өсөн дә торорҙар.",
         ),
-        appText("Честная оплата", "Намыҫлы түләү") to appText("Оплачивайте поездку как договорились, переводом по СБП.", "Сәфәр өсөн килешеүсә, СБП аша түләгеҙ."),
-        appText("Оставляйте отзыв", "Баһа ҡалдырығыҙ") to appText("После поездки оцените попутчика — так доверие растёт у всех.", "Сәфәрҙән һуң юлдашты баһалағыҙ — шулай ышаныс үҫә."),
+        appText("Честная оплата", "Намыҫлы түләү") to appText("Оплати поездку как договорились, переводом по СБП.", "Сәфәр өсөн килешеүсә, СБП аша түләгеҙ."),
+        appText("Оставляй отзыв", "Баһа ҡалдырығыҙ") to appText("После поездки оцени попутчика — так доверие растёт у всех.", "Сәфәрҙән һуң юлдашты баһалағыҙ — шулай ышаныс үҫә."),
     )
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Правила поездок", "Сәфәр ҡағиҙәләре"), onBack) }) { padding ->
         LazyColumn(
@@ -984,8 +984,8 @@ internal fun PaymentInfoScreen(onBack: () -> Unit, onOpenPricing: () -> Unit = {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(appText("Как это работает", "Был нисек эшләй"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         PaymentStepRow("1", appText("Договоритесь о цене в чате", "Хаҡты чатта килешегеҙ"))
-                        PaymentStepRow("2", appText("После поездки переведите по СБП", "Сәфәрҙән һуң СБП аша күсерегеҙ"))
-                        PaymentStepRow("3", appText("Оставьте отзыв друг о друге", "Бер-берегеҙ тураһында баһа ҡалдырығыҙ"))
+                        PaymentStepRow("2", appText("После поездки переведи по СБП", "Сәфәрҙән һуң СБП аша күсерегеҙ"))
+                        PaymentStepRow("3", appText("Оставь отзыв о попутчике", "Бер-берегеҙ тураһында баһа ҡалдырығыҙ"))
                     }
                 }
             }
@@ -2134,7 +2134,7 @@ internal fun ReportListContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(vertical = 16.dp)
     ) {
-        item { Text(appText("Выберите, на кого пожаловаться. Видят только модераторы Юлдаша.", "Кемгә ялыу икәнен һайлағыҙ. Тик Юлдаш модераторҙары күрә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
+        item { Text(appText("Выбери, на кого пожаловаться. Видят только модераторы Юлдаша.", "Кемгә ялыу икәнен һайлағыҙ. Тик Юлдаш модераторҙары күрә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
         if (loading) {
             item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
         } else if (error != null) {
@@ -2222,7 +2222,7 @@ internal fun HelpScreen(
             }
             item { Text(appText("Популярные вопросы", "Популяр һорауҙар"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
             if (faqFiltered.isEmpty()) {
-                item { InfoCard(appText("Ничего не найдено", "Бер ни ҙә табылманы"), appText("Попробуйте другой запрос или напишите в поддержку ниже.", "Башҡа һорау яҙығыҙ йәки түбәндә ярҙамға мөрәжәғәт итегеҙ."), Icons.Default.Search) }
+                item { InfoCard(appText("Ничего не найдено", "Бер ни ҙә табылманы"), appText("Попробуй другой запрос или напиши в поддержку ниже.", "Башҡа һорау яҙығыҙ йәки түбәндә ярҙамға мөрәжәғәт итегеҙ."), Icons.Default.Search) }
             } else {
                 items(faqFiltered, key = { it.second }) { f -> ExpandableHelpRow(f.first, f.second, f.third) }
             }
@@ -2251,7 +2251,7 @@ internal fun HelpScreen(
                 SettingsGroup {
                     // Основной способ — внутренний чат поддержки Юлдаш (переписка сохраняется, ответы приходят сюда же).
                     SettingsNavRow(Icons.Default.HeadsetMic, appText("Поддержка Юлдаш", "Юлдаш ярҙамы"), appText("Написать нам в приложении — ответим здесь", "Ҡушымтала беҙгә яҙ — ошонда яуап бирербеҙ"), onClick = onSupportChat, badge = supportUnread)
-                    SettingsNavRow(Icons.Default.ChatBubble, appText("Попросить звонок", "Шылтыратыу һорау"), appText("Оставьте заявку — мы перезвоним", "Заявка ҡалдырығыҙ — шылтыратырбыҙ"), onClick = {
+                    SettingsNavRow(Icons.Default.ChatBubble, appText("Попросить звонок", "Шылтыратыу һорау"), appText("Оставь заявку — мы перезвоним", "Заявка ҡалдырығыҙ — шылтыратырбыҙ"), onClick = {
                         // Ждём результат: тост «отправлено» — только при успехе, иначе честная ошибка
                         // (раньше fire-and-forget + тост ДО результата → при офлайне заявка терялась молча).
                         scope.launch {

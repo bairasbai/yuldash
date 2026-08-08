@@ -376,7 +376,7 @@ internal fun RidesScreen(
                 visibleBookings.isEmpty() -> item {
                     EmptyStateCard(
                         title = appText("Поездок пока нет", "Әлегә сәфәрҙәр юҡ"),
-                        text = appText("Создайте заявку или опубликуйте маршрут водителя.", "Заявка булдырығыҙ йәки водитель маршрутын баҫтырығыҙ."),
+                        text = appText("Создай заявку или опубликуй маршрут водителя.", "Заявка булдырығыҙ йәки водитель маршрутын баҫтырығыҙ."),
                         icon = Icons.Default.Route,
                         action = appText("Создать заявку", "Заявка булдырыу"),
                         onAction = onCreateRequest
@@ -1302,7 +1302,7 @@ internal fun MyRequestsScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         InfoCard(
                             title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
-                            text = appText("Создайте заявку — водители увидят её и откликнутся.", "Заявка булдырығыҙ — водителдәр уны күреп яуап бирер."),
+                            text = appText("Создай заявку — водители увидят её и откликнутся.", "Заявка булдырығыҙ — водителдәр уны күреп яуап бирер."),
                             icon = Icons.Default.AddBox
                         )
                         CreateRequestButton(onCreateNew)
@@ -2378,7 +2378,7 @@ internal fun ResponsesContent(
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-        item { Text(appText("Выберите водителя — поездка начнётся, откроется чат. Цена не подходит — предложи свою.", "Водитель һайла — сәфәр башлана, чат асыла. Хаҡ ярамаһа — үҙеңдекен тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
+        item { Text(appText("Выбери водителя — поездка начнётся, откроется чат. Цена не подходит — предложи свою.", "Водитель һайла — сәфәр башлана, чат асыла. Хаҡ ярамаһа — үҙеңдекен тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
         if (loading) {
             item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
         } else if (error) {
@@ -2833,7 +2833,7 @@ internal fun VoiceMessageCard(message: LocalVoiceMessage) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(appText("Голосовое от ${message.author}", "Тауыш хәбәр: ${message.author}"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 if (message.audioPath != null) {
-                    Text(appText("${message.durationSec} сек · нажмите ▶", "${message.durationSec} сек · ▶ баҫығыҙ"), color = CanonMuted, fontSize = 14.sp)
+                    Text(appText("${message.durationSec} сек · нажми ▶", "${message.durationSec} сек · ▶ баҫығыҙ"), color = CanonMuted, fontSize = 14.sp)
                 } else {
                     Text(message.transcript, color = CanonText, fontSize = 14.sp, lineHeight = 20.sp)
                     Text(appText("Расшифровка для водителя", "Водитель өсөн текст"), color = CanonMuted, fontSize = 12.sp)

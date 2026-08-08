@@ -531,8 +531,8 @@ class RidesRequestsChatDeep2ContentTest {
                 )
             }
         }
-        // Есть аудио → подпись длительности «5 сек · нажмите ▶» (расшифровки не показываем).
-        composeRule.onNodeWithText("5 сек · нажмите ▶").assertIsDisplayed()
+        // Есть аудио → подпись длительности «5 сек · нажми ▶» (расшифровки не показываем).
+        composeRule.onNodeWithText("5 сек · нажми ▶").assertIsDisplayed()
         composeRule.onNodeWithText("Расшифровка для водителя").assertDoesNotExist()
     }
 

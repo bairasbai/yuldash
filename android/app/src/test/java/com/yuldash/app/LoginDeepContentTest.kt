@@ -108,16 +108,16 @@ class LoginDeepContentTest {
 
     @Test
     fun codeStep_russian_showsNameAndCodePlaceholders() {
-        // tgMode=true — видны поля «Ваше имя (необязательно)» и «Код из Telegram» (вверху формы → видны).
+        // tgMode=true — видны поля «Твоё имя (необязательно)» и «Код из Telegram» (вверху формы → видны).
         form(tgMode = true, language = AppLanguage.Ru)
-        composeRule.onNodeWithText("Ваше имя (необязательно)").assertIsDisplayed()
+        composeRule.onNodeWithText("Твоё имя (необязательно)").assertIsDisplayed()
         composeRule.onNodeWithText("Код из Telegram").assertIsDisplayed()
     }
 
     @Test
     fun codeStep_bashkir_showsCodePlaceholder() {
         form(tgMode = true, language = AppLanguage.Ba)
-        composeRule.onNodeWithText("Исемегеҙ (мотлаҡ түгел)").assertIsDisplayed()
+        composeRule.onNodeWithText("Исемең (мотлаҡ түгел)").assertIsDisplayed()
         composeRule.onNodeWithText("Telegram коды").assertIsDisplayed()
     }
 

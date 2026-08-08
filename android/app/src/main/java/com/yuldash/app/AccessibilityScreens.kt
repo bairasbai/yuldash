@@ -543,7 +543,7 @@ internal fun VoiceRequestScreen(
     val vrTitle = appText("Голосовая заявка", "Тауыш заявкаһы")
     val vrRoute = appText("Голосом — водитель слушает", "Тауыш менән — водитель тыңлай")
     val vrNow = appText("сейчас", "хәҙер")
-    val vrPrompt = appText("Скажите маршрут", "Маршрутты әйтегеҙ")
+    val vrPrompt = appText("Скажи маршрут", "Маршрутты әйтегеҙ")
     val vrNoStt = appText("Распознавание недоступно на устройстве", "Таныу ҡорамалда юҡ")
     val vrSendError = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Интернетте тикшереп ҡабатла.")
     val vrUploadError = appText("Не удалось загрузить запись. Проверь сеть и повтори.", "Яҙманы тейәп булманы. Интернетте тикшереп ҡабатла.")
@@ -577,8 +577,8 @@ internal fun VoiceRequestScreen(
         ) {
             item {
                 InfoCard(
-                    title = appText("Нажмите и скажите", "Баҫығыҙ һәм әйтегеҙ"),
-                    text = appText("Скажите голосом: откуда, куда и когда. Водитель послушает — на русском или башкирском.", "Тауыш менән әйтегеҙ: ҡайҙан, ҡайҙа, ҡасан. Водитель тыңлар — урыҫса йәки башҡортса."),
+                    title = appText("Нажми и скажи", "Баҫығыҙ һәм әйтегеҙ"),
+                    text = appText("Скажи голосом: откуда, куда и когда. Водитель послушает — на русском или башкирском.", "Тауыш менән әйтегеҙ: ҡайҙан, ҡайҙа, ҡасан. Водитель тыңлар — урыҫса йәки башҡортса."),
                     icon = Icons.Default.VolumeUp
                 )
             }
@@ -920,7 +920,7 @@ internal fun CreatePassengerRequestContent(
                     onValueChange = {},
                     readOnly = true,
                     label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
-                    placeholder = { Text(appText("Выберите дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
+                    placeholder = { Text(appText("Выбери дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
                     trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp)
@@ -1595,7 +1595,7 @@ private fun repeatRouteTitleRu(count: Int): String {
 
 @Composable
 internal fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onRequest: (String) -> Unit) {
-    val defaultReason = appText("Помогите создать заявку", "Заявка булдырырға ярҙам итегеҙ")
+    val defaultReason = appText("Помоги создать заявку", "Заявка булдырырға ярҙам итегеҙ")
     var reason by remember { mutableStateOf(defaultReason) }
     val context = LocalContext.current
     val supportPhone = BuildConfig.YULDASH_SUPPORT_PHONE
