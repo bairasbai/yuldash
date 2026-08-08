@@ -20,12 +20,14 @@ def _driver(user_factory, gender: str, name="WomenOnlyDrv"):
         p = s.exec(select(DriverProfile).where(DriverProfile.user_id == d["id"])).first()
         if p is None:
             p = DriverProfile(user_id=d["id"])
-        p.gender = gender
         p.online = True
         s.add(p)
         # Кандидатов фильтруем по verified — иначе отсеются раньше нашей проверки.
         u = s.get(User, d["id"])
         u.verified = True
+        # Пол живёт на ЧЕЛОВЕКЕ, а не на профиле водителя: он нужен и пассажиру, потому что
+        # «только женщины» проверяется у обеих сторон (аудит 2026-08-08).
+        u.gender = gender
         s.add(u)
         s.commit()
     return d

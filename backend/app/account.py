@@ -33,7 +33,7 @@ from sqlmodel import Session, select
 from .errors import herr
 from .models import (
     Ad, AdEvent, AppReview, Block, Booking, BookingStatus, CommissionDebt, Consent, Coupon, OfferDecline,
-    CouponRedemption, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
+    CouponRedemption, CouponReport, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
     DriverProfile, DriverSchedule, Incident, InstantOrder, InstantOrderStatus, InviteCode,
     LedgerEntry, Message,
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
@@ -428,7 +428,15 @@ def delete_user_account(session: Session, user: User) -> None:
     session.execute(update(ParcelDelivery).where(ParcelDelivery.courier_id == uid)
                     .values(courier_id=None))
     session.execute(delete(ParcelDelivery).where(ParcelDelivery.sender_id == uid))
-    # 3.13 Бизнес «Скидки по пути»: погашения → купоны → сам партнёр.
+    # 3.13 Бизнес «Скидки по пути»: жалобы → погашения → купоны → сам партнёр.
+    # Порядок важен: жалоба держит FK на купон, и без её удаления снос купонов падает
+    # с нарушением внешнего ключа — то есть человек НЕ МОГ БЫ удалить аккаунт вовсе
+    # (на Postgres это 500 на /me/delete). Таблица появилась 2026-08-08 вместе с
+    # модерацией витрины, и в каскад её тогда не внесли (аудит того же дня).
+    kr = [CouponReport.user_id == uid]
+    if partner_coupon_ids:
+        kr.append(CouponReport.coupon_id.in_(partner_coupon_ids))
+    dele(CouponReport, *kr)
     cr = [CouponRedemption.user_id == uid]
     if partner_coupon_ids:
         cr.append(CouponRedemption.coupon_id.in_(partner_coupon_ids))

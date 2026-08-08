@@ -20,6 +20,7 @@ from ..errors import herr
 from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, TgAuth, User, UserRole
 from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
 from ..services import public_media_url, send_push, send_sms, user_rating
+from ..safety_logic import GENDERS
 from ..trust_service import record_login_consents
 from ..timeutil import utcnow
 
@@ -638,6 +639,9 @@ class MeUpdateIn(BaseModel):
     avatar_url: Optional[str] = Field(None, max_length=500)
     city: Optional[str] = Field(None, max_length=80)
     language: Optional[str] = Field(None, max_length=2)   # "ru" | "ba" — двуязычные push идут на языке юзера
+    # Пол — по желанию: "" (не указывать/снять) | female | male. Нужен для отметки
+    # «только женщины» на попутке: она проверяется у ОБЕИХ сторон (аудит 2026-08-08).
+    gender: Optional[str] = Field(None, max_length=8)
 
 
 @router.post("/me/update")
@@ -657,11 +661,17 @@ def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Ses
         lang = body.language.strip().lower()
         if lang in ("ru", "ba"):        # только поддерживаемые языки; мусор молча игнорируем
             user.language = lang
+    if body.gender is not None:
+        g = body.gender.strip().lower()
+        # Мусор молча игнорируем, как и с языком: профиль сохранять надо, а не падать.
+        # Пустая строка — законное значение: «не указывать» / снять раньше указанное.
+        if g in GENDERS:
+            user.gender = g
     session.add(user)
     session.commit()
     session.refresh(user)
     return {"ok": True, "name": user.name, "avatar_url": user.avatar_url, "city": user.city,
-            "language": user.language}
+            "language": user.language, "gender": user.gender or ""}
 
 
 @router.post("/me/delete")

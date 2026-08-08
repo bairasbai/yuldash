@@ -485,6 +485,19 @@ object ApiClient {
         call("POST", "/me/update", JSONObject().put("city", city.trim()), auth = true).onSuccess { invalidate("me") }.map { }
 
     /**
+     * Пол: "" (не указан) | "female" | "male". Нужен ровно для одного — чтобы отметка
+     * «Только женщины» была настоящей: сервер пускает в такую поездку только женщин
+     * (и за руль, и в салон). Без этого поля обещание проверить нечем (аудит 2026-08-08).
+     * Наружу пол не отдаётся никому: другие видят лишь бейдж «женщина за рулём».
+     */
+    suspend fun updateGender(gender: String): Result<Unit> {
+        val g = gender.trim().lowercase()
+        if (g != "" && g != "female" && g != "male") return Result.success(Unit)
+        return call("POST", "/me/update", JSONObject().put("gender", g), auth = true)
+            .onSuccess { invalidate("me") }.map { }
+    }
+
+    /**
      * Язык интерфейса на сервер («ru» | «ba») — чтобы ПУШИ приходили на языке человека.
      * Сервер это поле давно принимает и умеет выбирать RU/BA, но клиент его никогда не слал:
      * башкироязычный пользователь получал русские уведомления (аудит 2026-07-26).

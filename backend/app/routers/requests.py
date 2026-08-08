@@ -24,7 +24,8 @@ from ..services import (
     notify_map_changed, notify_request_watchers, public_rides_payload, push_notification,
     record_pickup_choice, rides_out, user_rating,
 )
-from ..safety_logic import ensure_active
+from ..safety_logic import (ensure_active, MSG_WOMEN_ONLY_RESPOND,
+                            guard_women_only)
 from ..antifraud import moderate_open_text
 from ..timeutil import client_dt_to_utc, utcnow
 from .. import workday as workday_mod
@@ -465,6 +466,11 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
         raise herr(400, "Нельзя откликнуться на свою заявку", "Үҙ заявкаңа яуап биреп булмай")
     if is_blocked(session, user.id, req.passenger_id):
         raise herr(403, "Недоступно", "Мөмкин түгел")
+    # Заявка «только женщины» — зеркало правила на поездке: пассажирка просит женщину за рулём,
+    # значит откликнуться может женщина (решение Александра, 2026-08-08). Без этого отметка на
+    # заявке оставалась украшением: чипы её рисовали, а отклик принимал кого угодно.
+    if getattr(req, "women_only", False):
+        guard_women_only(user, msg=MSG_WOMEN_ONLY_RESPOND)
     # Пауза «Справедливости» (§2): отклик — это предложение человеку сесть в машину. Раньше
     # проверка стояла только на создании заявки, и отстранённый разбором жалобы водитель
     # спокойно откликался на чужие (аудит 2026-08-06).

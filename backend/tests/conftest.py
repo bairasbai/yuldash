@@ -82,13 +82,17 @@ _uid_counter = {"n": 0}   # глобальный — уникальные юзе
 
 @pytest.fixture
 def user_factory(client):
-    def make(name="User", role=UserRole.passenger, taxi_approved: bool | None = None):
+    def make(name="User", role=UserRole.passenger, taxi_approved: bool | None = None,
+             gender: str = ""):
         """taxi_approved: None → водителю авто-одобряем заявку таксиста (существующие тесты
         такси-стека написаны про работающих таксистов); False → без заявки (для тестов гейта)."""
         _uid_counter["n"] += 1
         i = _uid_counter["n"]
         with Session(engine) as s:
-            u = User(phone=f"tg-test-{i}", name=name, telegram_id=f"test{i}", verified=True, role=role)
+            # gender: "" | female | male. Нужен тестам про «только женщины» — правило
+            # проверяется у ОБЕИХ сторон (аудит 2026-08-08).
+            u = User(phone=f"tg-test-{i}", name=name, telegram_id=f"test{i}", verified=True,
+                     role=role, gender=gender)
             s.add(u)
             s.commit()
             s.refresh(u)

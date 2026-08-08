@@ -16,9 +16,9 @@ from ..errors import herr
 from ..flood import TOO_MANY_RIDES, guard_open_items
 from ..geo import bare_name
 from ..logs import log
-from ..models import Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory, RideStatus, User, UserRole
+from ..models import Booking, BookingStatus, MedicalPartner, Ride, RideCategory, RideStatus, User, UserRole
 from .. import workday as workday_mod
-from ..safety_logic import ensure_active
+from ..safety_logic import MSG_WOMEN_ONLY_DRIVER, ensure_active, guard_women_only
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
 from ..timeutil import client_dt_to_utc, utcnow
@@ -118,6 +118,12 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     guard_open_items(session, Ride.id, Ride.driver_id == user.id, Ride.status == RideStatus.active,
                      limit=settings.flood_active_rides_max,
                      ru=TOO_MANY_RIDES[0], ba=TOO_MANY_RIDES[1])
+    # «Только женщины» ставит поездке женщина за рулём. Иначе отметка превращается в приманку:
+    # мужчина за рулём зовёт в машину только женщин, и та едет, думая, что проверено
+    # (решение Александра, 2026-08-08). Пол — по желанию, поэтому «не указан» получает не
+    # отказ, а просьбу заполнить профиль (см. guard_women_only).
+    if getattr(body, "women_only", False):
+        guard_women_only(user, msg=MSG_WOMEN_ONLY_DRIVER)
     # Санити-границы (анти-мусор в ленте): мест 1..8, цена 0..100000 ₽. Клампим, а не падаем.
     body.seats_total = max(1, min(8, body.seats_total))
     body.price = max(0, min(100_000, body.price))
@@ -339,10 +345,11 @@ def search_rides(
         q = q.where(Ride.child_seat == True)  # noqa: E712
     if women_only:
         # F9: фильтр «только женщины» показывает и поездки с флагом women_only,
-        # И поездки, где сама водитель — женщина (opt-in gender=female). OUTER JOIN,
-        # чтобы поездки без профиля водителя не выпадали из общей проверки.
-        q = q.outerjoin(DriverProfile, DriverProfile.user_id == Ride.driver_id).where(
-            (Ride.women_only == True) | (DriverProfile.gender == "female")  # noqa: E712
+        # И поездки, где сама водитель — женщина (пол opt-in). Соединяем с USER, а не с
+        # профилем водителя: пол переехал на человека (аудит 2026-08-08), и у водителя без
+        # заполненного профиля он всё равно есть. OUTER JOIN — чтобы ничего не выпало.
+        q = q.outerjoin(User, User.id == Ride.driver_id).where(
+            (Ride.women_only == True) | (User.gender == "female")  # noqa: E712
         )
     if baggage:
         q = q.where(Ride.baggage == True)  # noqa: E712

@@ -1,7 +1,7 @@
 package com.yuldash.app
 
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -46,6 +46,18 @@ class AdminReviewsIntegrationTest {
     @get:Rule(order = 0)
     val retry = RetryOnFlakeRule()
 
+    // ⬇️ КОРЕНЬ МИГАНИЯ НАЗВАН И УБРАН (2026-08-08). Обрати внимание на `.v2` в импорте.
+    // Старое правило крутило эффекты экрана на `UnconfinedTestDispatcher`: он НЕ переотправляет
+    // продолжение, и после `withContext(IO)` внутри ApiClient корутина экрана возобновлялась
+    // прямо на сетевом потоке. Стейт (`list`, `loading = false`) писался оттуда — композиция
+    // узнавала об этом не сразу, а «когда-нибудь»: 40 мс на здоровом прогоне, 13 секунд на
+    // медленном, больше 20 секунд на падающем. Порога нет, разница зелёного и красного была
+    // количественной — отсюда «падает случайный тест» и «поодиночке проходит».
+    //
+    // `v2` использует `StandardTestDispatcher`: продолжение всегда идёт через планировщик теста
+    // и возвращается на главный поток — как в настоящем приложении, где эффекты живут на
+    // `AndroidUiDispatcher.Main`. Об этом дословно писал компилятор в каждой сборке
+    // (предупреждение об устаревании старого правила), и девять разборов читали мимо.
     @get:Rule(order = 1)
     val composeRule = createComposeRule()
 

@@ -12,7 +12,8 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Rating, Ride, RideStatus, User
-from ..safety_logic import CANCEL_REASONS, ensure_active
+from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, ensure_active,
+                            guard_women_only)
 from ..security import current_user, gen_otp
 from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
@@ -117,6 +118,12 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     # а id взять есть откуда: они последовательные, плюс пуш «карауль маршрут» (аудит 2026-08-07).
     if getattr(ride, "only_trusted", False) and trust_level(session, user) < INSIDER_LEVEL:
         raise herr(403, "Поездка только для своих", "Сәфәр тик үҙ кешеләр өсөн")
+    # «Только женщины» — теперь правило, а не пожелание (решение Александра, 2026-08-08).
+    # Стоит РЯДОМ с «только для своих» намеренно: обе отметки закрывают поездку целиком, и
+    # обе должны стоять на самой броне, а не на выдаче. Лента может спрятать, но id
+    # последовательные — фильтр в списке ничего не гарантирует.
+    if getattr(ride, "women_only", False):
+        guard_women_only(user, msg=MSG_WOMEN_ONLY_RIDE)
     # Защита от дубля: один пассажир не бронирует одну поездку повторно (двойной тап / повторный заход).
     # Идемпотентно — возвращаем существующую активную бронь, мест не списываем заново.
     existing = session.exec(

@@ -212,6 +212,19 @@
 **Backend «Справедливость» (дополняет анонимные жалобы `Report`, НЕ заменяет):**
 - **Модели** (`backend/app/models.py`): `Incident` (двусторонний спор: `reporter`/`respondent`/`type`/`status` open→awaiting_response→under_review→resolved/appealed/closed, `resolution`/`fault`/`appeal_status`), `SafetyProfile` (1:1 с User: `strikes`/`warnings`/`standing` good→warned→limited→suspended, `suspended_until`). `Rating.excluded` (щит рейтинга), `Booking.cancelled_by` (Надёжность).
 - **`backend/app/safety_logic.py`** — ядро: `INCIDENT_TYPES`/`SEVERE_TYPES`, лестница §2 (`recompute_standing`/`refresh_standing`/`_escalation_days`/`apply_incident_resolution` — лок при мутации страйков), `reliability_for` (Надёжность 0..100, неявка ТОЛЬКО по resolved-инциденту — защита оболганного), `_exclude_linked_ratings` (снять оценку-месть). Гейт паузы: `ensure_active` (бросает 403) + `account_paused` (не бросает — для лент, где отказ показывают молча). **Гейт стоит поштучно на каждой ручке**, полноту сторожит `tests/test_suspension_reaches_everywhere.py`: попутка, заявка + отклик + торг, такси (общий `_guard_taxi_driver` → линия/оффер/приём) + предзаказ, доставка + приём, жалобы. Намеренно открыты SOS и завершение начатой поездки.
+- **«Только женщины» — правило сервера (2026-08-08).** Пол человека живёт на **`User.gender`**
+  (`""` | `female` | `male`); `DriverProfile.gender` остался в базе, но НЕ читается (миграция
+  `ag_user_gender` перенесла значения). Единственная проверка — `safety_logic.guard_women_only(user, msg=…)`
+  (+ `gender_of`/`is_female`, константы `GENDERS`): `female` → пропуск, `""` → 403 «укажи пол
+  в профиле» (`MSG_GENDER_UNKNOWN`), `male` → 403 текстом двери. Три двери зовут её:
+  бронь (`bookings.py`, `MSG_WOMEN_ONLY_RIDE`), публикация поездки (`rides.py`,
+  `MSG_WOMEN_ONLY_DRIVER`), отклик на заявку (`requests.py`, `MSG_WOMEN_ONLY_RESPOND`).
+  Правка поездки отметку не принимает (`RideEditIn` без `women_only`). Пишут пол
+  `/me/update` (`gender`) и старый `/driver/gender`; фильтр ленты и `driver_is_woman`
+  читают `User`. Наружу пол не отдаётся — только бейдж «женщина за рулём»
+  (тест `test_gender_never_leaks_to_other_people`). Клиент: строка «Пол» в профиле
+  (`ProfileScreen.kt`, диалог с тремя вариантами) + `ApiClient.updateGender`.
+  Тесты — `tests/test_audit_20260808.py` (раздел 12), `test_women_driver.py`.
 - **`backend/app/routers/incidents.py`** — `POST /incidents` (подать, гейт `ensure_active`), `/incidents/{id}/respond` (объясниться), `/appeal`, `/withdraw` (мир), `/incidents/mine`, `GET /admin/incidents`, `POST /admin/incidents/{id}/resolve` (лестница), `GET /me/standing`, `GET /users/{id}/trust` (витрина: рейтинг+поездки+Надёжность), `GET /safety/policy`. Приватность: телефон 2-й стороны — только админу; SEVERE → сразу Telegram.
 - **`backend/app/collusion.py` + `routers/sybil.py`** — детект накрутки доверия сговором (взаимный реферал / взаимные 5★ / много броней между собой), `GET /admin/sybil/suspects` (read-only админ-сигнал, без авто-наказаний).
 - **`backend/app/routers/reviews.py`** — `POST /admin/ratings/{id}/exclude` (снять оценку из среднего). Фильтр `excluded=False` — в ОБОИХ путях агрегата (`services.user_rating` + `drivers_bundle`).

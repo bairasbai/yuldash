@@ -769,7 +769,10 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
         driver_online=(prof.online if prof else False),
         driver_trips=trips,
         driver_since=since,
-        driver_is_woman=(prof.gender == "female" if prof else False),
+        # Пол берём у ЧЕЛОВЕКА, а не у профиля водителя: он переехал на User
+        # (аудит 2026-08-08). Наружу отдаём только полезный сигнал «женщина за рулём» —
+        # male и «не указан» тут неразличимы.
+        driver_is_woman=(drv is not None and (drv.gender or "") == "female"),
     )
 
 

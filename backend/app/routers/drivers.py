@@ -96,15 +96,20 @@ class GenderIn(BaseModel):
 
 @router.post("/driver/gender", response_model=DriverProfile)
 def set_driver_gender(body: GenderIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """F9 «Женщинам — водитель-женщина»: водитель по желанию (opt-in) указывает пол.
-    Публично раскрывается только полезный сигнал «женщина за рулём» (female);
-    male/пусто наружу не выпячиваются (см. schemas.RideOut.driver_is_woman)."""
+    """Пол по желанию (opt-in). Публично раскрывается только полезный сигнал «женщина за рулём»
+    (female); male/пусто наружу не выпячиваются (см. schemas.RideOut.driver_is_woman).
+
+    Пишем в `User.gender` — пол переехал на человека (аудит 2026-08-08), потому что он нужен
+    и пассажиру: отметка «только женщины» на попутке проверяется у обеих сторон. Ручку
+    оставляем как есть: установленные приложения зовут именно её. Тот же смысл теперь есть
+    и в `POST /me/update` (поле gender), где пол задаёт любой человек, а не только водитель.
+    """
     g = (body.gender or "").strip().lower()
     if g not in _ALLOWED_GENDERS:
         raise HTTPException(400, "Недопустимое значение пола")
+    user.gender = g
+    session.add(user)
     dp = _get_or_create_profile(session, user.id)
-    dp.gender = g
-    session.add(dp)
     session.commit()
     session.refresh(dp)
     return dp
@@ -262,7 +267,7 @@ def driver_status(user: User = Depends(current_user), session: Session = Depends
         "license_url": dp.license_url if dp else "",
         "car_photo_url": dp.car_photo_url if dp else "",
         "online": dp.online if dp else False,
-        "gender": dp.gender if dp else "",   # виден только самому водителю (свой профиль)
+        "gender": user.gender or "",   # виден только самому себе; источник — User.gender
         "autocheck_result": dp.autocheck_result if dp else "",
         "autocheck_score": dp.autocheck_score if dp else 0.0,
         "autocheck_data": dp.autocheck_data if dp else "",

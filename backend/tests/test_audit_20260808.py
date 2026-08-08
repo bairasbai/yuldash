@@ -14,7 +14,7 @@ import base64
 import pathlib
 
 import pytest
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.config import _phone_key, settings
 from app.db import engine
@@ -373,38 +373,88 @@ def test_repeat_tap_on_the_same_report_does_not_eat_the_budget(client, user_fact
         assert again.json()["id"] == first.json()["id"]
 
 
-# --------------------- 12. «Только женщины» на попутке: гейт — водитель ---------------------
+# --------------------- 12. «Только женщины» — теперь ПРАВИЛО, а не пожелание ---------------------
+# Волна 7 зафиксировала факт: отметку никто не проверял, потому что пола пассажира на сервере
+# не было вовсе. Александр выбрал «проверять по-настоящему» — пол переехал на User, и правило
+# стоит у обеих сторон. Эти тесты держат ОБЕЩАНИЕ целиком: за рулём женщина И в салоне женщины.
 
-def test_women_only_ride_is_not_enforced_by_the_server_but_the_driver_is_warned(client, user_factory):
-    """Честная фиксация того, как оно устроено НА САМОМ ДЕЛЕ.
-
-    Пола пассажира на сервере нет вообще — ни поля, ни вопроса при регистрации, значит
-    проверить отметку «только женщины» на попутке нечем (в такси иначе: там сверяется пол
-    ВОДИТЕЛЯ, и он opt-in). Настоящий гейт — подтверждение брони водителем, поэтому в пуше
-    ему явно сказано, что поездка помечена (аудит 2026-08-08).
-
-    Тест держит два факта сразу: бронь не отклоняется (иначе сломали бы поездки людям,
-    у которых пол неизвестен) И водитель получает предупреждение.
-    """
-    from app.models import Notification
-
-    drv = user_factory("Женщина за рулём", role=UserRole.driver)
-    ride = client.post("/rides", headers=drv["auth"], json={
+def _women_ride(client, drv) -> int:
+    r = client.post("/rides", headers=drv["auth"], json={
         "from_city": "Баймак", "to_city": "Сибай",
         "depart_at": (utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat(),
         "seats_total": 3, "price": 300, "women_only": True,
     })
-    assert ride.status_code == 200 and ride.json()["women_only"] is True
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
 
-    pax = user_factory("Пассажир без пола")
-    booked = client.post("/bookings", headers=pax["auth"], json={"ride_id": ride.json()["id"], "seats": 1})
-    assert booked.status_code == 200, booked.text          # сервер НЕ отклоняет: проверять нечем
 
-    with Session(engine) as s:
-        notes = s.exec(
-            select(Notification).where(Notification.user_id == drv["id"],
-                                       Notification.type == "booking")
-        ).all()
-    assert notes, "водителю не пришло уведомление о брони"
-    assert any("только женщины" in (n.body_ru or "") for n in notes), \
-        "водителя не предупредили, что поездка помечена «только женщины»"
+def test_woman_can_book_a_women_only_ride(client, user_factory):
+    """Ради кого всё делалось: женщина бронирует и едет."""
+    drv = user_factory("Водитель-женщина", role=UserRole.driver, gender="female")
+    rid = _women_ride(client, drv)
+    pax = user_factory("Пассажирка", gender="female")
+    b = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1})
+    assert b.status_code == 200, b.text
+
+
+def test_man_cannot_book_a_women_only_ride(client, user_factory):
+    """То, что раньше проходило с кодом 200."""
+    drv = user_factory("Водитель-женщина 2", role=UserRole.driver, gender="female")
+    rid = _women_ride(client, drv)
+    man = user_factory("Мужчина", gender="male")
+    b = client.post("/bookings", headers=man["auth"], json={"ride_id": rid, "seats": 1})
+    assert b.status_code == 403, b.text
+    assert b.json()["detail"]["ru"] and b.json()["detail"]["ba"]
+
+
+def test_unknown_gender_gets_a_way_out_not_a_wall(client, user_factory):
+    """Пол не указан → не пускаем (иначе обещание пустое), но говорим, ЧТО СДЕЛАТЬ.
+
+    И проверяем весь путь: человек указывает пол в профиле — и бронь проходит.
+    """
+    drv = user_factory("Водитель-женщина 3", role=UserRole.driver, gender="female")
+    rid = _women_ride(client, drv)
+    pax = user_factory("Без пола")
+
+    denied = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1})
+    assert denied.status_code == 403
+    assert "профил" in denied.json()["detail"]["ru"].lower()
+
+    assert client.post("/me/update", headers=pax["auth"], json={"gender": "female"}).status_code == 200
+    ok = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1})
+    assert ok.status_code == 200, ok.text
+
+
+def test_only_a_woman_can_respond_to_a_women_only_request(client, user_factory):
+    """Зеркало правила со стороны пассажира: заявка «только женщины» — отклик от женщины."""
+    pax = user_factory("Пассажирка с заявкой", gender="female")
+    req = client.post("/requests", headers=pax["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай", "seats": 1, "women_only": True,
+    })
+    assert req.status_code == 200, req.text
+    rid = req.json()["id"]
+
+    man = user_factory("Водитель-мужчина", role=UserRole.driver, gender="male")
+    bad = client.post(f"/requests/{rid}/respond", headers=man["auth"], json={"price": 300})
+    assert bad.status_code == 403, bad.text
+
+    woman = user_factory("Водитель-женщина 4", role=UserRole.driver, gender="female")
+    good = client.post(f"/requests/{rid}/respond", headers=woman["auth"], json={"price": 300})
+    assert good.status_code == 200, good.text
+
+
+def test_gender_never_leaks_to_other_people(client, user_factory):
+    """Пол — личное. Наружу идёт только сигнал «женщина за рулём», сам пол не отдаём никому."""
+    drv = user_factory("Водитель-женщина 5", role=UserRole.driver, gender="female")
+    rid = _women_ride(client, drv)
+    stranger = user_factory("Посторонний", gender="male")
+
+    card = client.get(f"/rides/{rid}", headers=stranger["auth"])
+    assert card.status_code == 200
+    body = card.json()
+    assert "gender" not in body and "driver_gender" not in body
+    assert body.get("driver_is_woman") is True          # полезный сигнал остаётся
+
+    public = client.get(f"/drivers/{drv['id']}/public")
+    assert public.status_code == 200
+    assert "gender" not in public.json()
