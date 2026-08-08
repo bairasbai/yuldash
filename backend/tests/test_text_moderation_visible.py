@@ -83,13 +83,27 @@ def test_carpool_phone_is_not_flagged(client, user_factory):
 
 # ----------------------------- три новых поля -----------------------------
 
-def test_profile_name_is_moderated(client, user_factory):
-    """Имя видно всем и везде — и было единственным непроверенным публичным полем."""
+def test_profile_name_is_rejected_not_just_flagged(client, user_factory):
+    """Имя видно всем и везде — и было единственным непроверенным публичным полем.
+
+    ⚠️ Имя — ИСКЛЮЧЕНИЕ из общего правила «не блокируем, помечаем для админа». Правку внесли
+    2026-08-08 при слиянии двух параллельных веток: одна помечала имя как обычный открытый
+    текст, вторая (аудит) отказывала сразу. Оставили отказ.
+
+    Почему. Остальной открытый текст человек пишет один раз и больше не видит — там молчаливая
+    метка уместна. Имя же редактируют осознанно и результат видят сразу: молча пропустить чужое
+    имя, а потом показывать его всем в карточках, чате и отзывах — хуже, чем честно сказать
+    «так нельзя». Отказ живёт в `_guard_display_name` (`routers/auth.py`), 422 + двуязычный текст.
+    """
     u = user_factory("NameUser")
     r = client.post("/me/update", headers=u["auth"], json={"name": ABUSE})
-    assert r.status_code == 200, r.text
-    rows = _flags(u["id"], "name")
-    assert len(rows) == 1 and rows[0].kind == "abuse"
+    assert r.status_code == 422, r.text
+    # Отказ обязан быть на двух языках — иначе башкироязычный увидит пустоту.
+    detail = r.json()["detail"]
+    assert detail["ru"] and detail["ba"], detail
+    # И имя действительно не сохранилось.
+    me = client.get("/me", headers=u["auth"])
+    assert me.status_code == 200 and ABUSE not in (me.json().get("name") or "")
 
 
 def test_pickup_field_is_moderated(client, user_factory):
