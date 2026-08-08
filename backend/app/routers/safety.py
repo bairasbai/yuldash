@@ -10,6 +10,7 @@ from ..db import get_session
 from ..errors import herr
 from ..config import settings
 from ..logs import log
+from ..middleware import user_over_limit
 from ..models import (
     Block, Booking, BookingStatus, DriverProfile, InstantOrder, Report, Ride, SosEvent,
     TripShare, TrustedContact, User, UserRole,
@@ -258,6 +259,15 @@ ReportCategory = Literal[
 ]
 
 
+# Потолок НОВЫХ жалоб на человека в час. Дедуп (`_dedup_report`) держит «один автор — одна
+# жалоба по одному поводу», но повод включает ЦЕЛЬ: меняя target_user_id, один вошедший
+# создаёт сколько угодно разных жалоб, а тяжёлая категория на каждой дёргает Telegram
+# Александра (`quality.escalate_severe`). Ровно та причина, по которой /callback и /donate
+# живут в строгом бюджете лимитера, — а /reports в него не попал (аудит 2026-08-08).
+# Живой человек жалуется по итогу поездки, то есть единицы раз в день.
+MAX_REPORTS_PER_HOUR = 10
+
+
 class ReportIn(BaseModel):
     # target_user_id опционален при привязке к поездке (вторая сторона вычисляется сервером).
     target_user_id: Optional[int] = None
@@ -451,6 +461,11 @@ def create_report(body: ReportIn,
     if dup is not None:   # повторный тап идемпотентен: возвращаем уже созданную жалобу
         return ReportCreatedOut(id=dup.id, category=dup.category,
                                 status=dup.status, created_at=dup.created_at)
+    # Потолок считаем ЗДЕСЬ, а не в начале: повторный тап по той же жалобе выше вернулся
+    # идемпотентно и бюджет не потратил. Ограничиваем только создание НОВОЙ жалобы.
+    if user_over_limit("report_create", user.id, MAX_REPORTS_PER_HOUR, window_sec=3600):
+        raise herr(429, "Слишком много жалоб подряд. Подожди немного.",
+                   "Артыҡ күп зар. Бер аҙ көт.")
     report = Report(
         reporter_id=user.id, target_user_id=target_id, reason=body.reason,
         category=body.category, order_id=body.order_id, booking_id=body.booking_id,

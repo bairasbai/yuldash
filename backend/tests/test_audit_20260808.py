@@ -332,3 +332,42 @@ def test_waitlist_has_a_retention_rule():
     labels = [label for label, table, _w, _p in _rules(utcnow()) if table == "waitlistentry"]
     assert len(labels) == 2, labels
     assert 0 < WAITLIST_INVITED_DAYS < WAITLIST_STALE_DAYS
+
+
+# --------------------- 11. Жалоба на человека: поток к админу ограничен ---------------------
+
+def test_reports_have_a_ceiling_per_person(client, user_factory, monkeypatch):
+    """Тяжёлая жалоба дёргает Telegram Александра. Дедуп держит «один автор — одна жалоба
+    по одному поводу», но повод включает ЦЕЛЬ: меняя target_user_id, один человек создаёт
+    сколько угодно разных жалоб — и столько же сообщений (аудит 2026-08-08)."""
+    from app.routers.safety import MAX_REPORTS_PER_HOUR
+
+    sent = []
+    monkeypatch.setattr("app.services.notify_admin_telegram", lambda *a, **k: sent.append(1))
+    monkeypatch.setattr(settings, "rate_limit_enabled", True)
+    author = user_factory("Жалобщик на всех")
+    targets = [user_factory(f"Цель{i}")["id"] for i in range(MAX_REPORTS_PER_HOUR + 3)]
+
+    codes = [client.post("/reports", headers=author["auth"],
+                         json={"target_user_id": t, "category": "safety_threat",
+                               "reason": "проверка"}).status_code
+             for t in targets]
+    assert codes.count(200) == MAX_REPORTS_PER_HOUR, codes
+    assert 429 in codes, codes
+
+
+def test_repeat_tap_on_the_same_report_does_not_eat_the_budget(client, user_factory, monkeypatch):
+    """Повторный тап по той же жалобе идемпотентен и бюджет не тратит — иначе человек на
+    слабой связи (жмёт второй раз, «ничего не произошло») ловил бы 429 за свою же жалобу."""
+    monkeypatch.setattr("app.services.notify_admin_telegram", lambda *a, **k: None)
+    monkeypatch.setattr(settings, "rate_limit_enabled", True)
+    author = user_factory("Настойчивый заявитель")
+    target = user_factory("Одна цель")["id"]
+    body = {"target_user_id": target, "category": "rude", "reason": "нагрубил"}
+
+    first = client.post("/reports", headers=author["auth"], json=body)
+    assert first.status_code == 200, first.text
+    for _ in range(30):                       # много раз больше потолка — всё та же жалоба
+        again = client.post("/reports", headers=author["auth"], json=body)
+        assert again.status_code == 200, again.text
+        assert again.json()["id"] == first.json()["id"]
