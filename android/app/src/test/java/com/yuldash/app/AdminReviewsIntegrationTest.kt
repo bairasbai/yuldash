@@ -42,9 +42,10 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class AdminReviewsIntegrationTest {
 
-    // ⛔ Повтор (`RetryOnFlakeRule`) СНЯТ 2026-08-08 — причина мигания найдена и починена,
-    // подробности в `AdminScreensIntegrationTest`. Пока костыль стоит, «починили» и
-    // «повезло дважды» выглядят одинаково.
+    // ⛔ Повтор упавшего теста СНЯТ 2026-08-08, файл правила (`RetryOnFlakeRule.kt`) удалён —
+    // причина мигания найдена и починена, подробности в `AdminScreensIntegrationTest`.
+    // Пока костыль стоит, «починили» и «повезло дважды» выглядят одинаково. Разбор самого
+    // костыля — в docs/lessons.md, раздел «Костыль-повтор уничтожил диагностику».
 
     /**
      * ⚠️ Аргумент здесь — ПОЧИНКА МИГАНИЯ (2026-08-08), а не украшение. Не убирать.
