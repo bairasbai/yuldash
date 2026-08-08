@@ -624,7 +624,7 @@ internal fun BookingScreen(
             }
             item {
                 InfoCard(
-                    title = appText("Мы заботимся о вашей безопасности", "Беҙ һеҙҙең хәүефһеҙлек тураһында ҡайғыртабыҙ"),
+                    title = appText("Мы бережём твою безопасность", "Беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ"),
                     text = appText("Все поездки защищены и отслеживаются службой поддержки Юлдаш.", "Бөтә сәфәрҙәр Юлдаш ярҙам хеҙмәте тарафынан күҙәтелә."),
                     icon = Icons.Default.Shield
                 )
@@ -2082,7 +2082,7 @@ internal fun DriverApproachingBanner(
             Spacer(Modifier.width(12.dp))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    if (arriving) appText("Водитель подъезжает", "Водитель яҡынлаша") else appText("Водитель выехал к вам", "Водитель сыҡты"),
+                    if (arriving) appText("Водитель подъезжает", "Водитель яҡынлаша") else appText("Водитель выехал к тебе", "Водитель сыҡты"),
                     color = if (arriving) Color.White else CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp
                 )
                 // Показываем ТОЛЬКО когда проверка реально прошла. Нет подтверждения — молчим,

@@ -380,7 +380,7 @@ internal fun ProfileScreen(
     LaunchedEffect(referralReload) { ApiClient.getReferral().onSuccess { referral = it } }
     var showRedeem by remember { mutableStateOf(false) }
     var redeemCode by remember { mutableStateOf("") }
-    val redeemOkMsg = appText("Бонус начислен — вам и другу", "Бонус яҙылды — һеҙгә һәм дуҫҡа")
+    val redeemOkMsg = appText("Бонус начислен — тебе и другу", "Бонус яҙылды — һиңә һәм дуҫҡа")
     val redeemErrMsg = appText("Код не подошёл", "Код тура килмәне")
     if (showRedeem) {
         AlertDialog(
@@ -436,8 +436,8 @@ internal fun ProfileScreen(
         AlertDialog(
             onDismissRequest = { showEditName = false },
             containerColor = CanonSurface,
-            title = { Text(appText("Ваше имя", "Исемегеҙ"), color = CanonText, fontWeight = FontWeight.Bold) },
-            text = { OutlinedTextField(nameDraft, { nameDraft = it.take(120) }, singleLine = true, modifier = Modifier.fillMaxWidth(), placeholder = { Text(appText("Как вас зовут?", "Исемегеҙ нисек?")) }, shape = RoundedCornerShape(14.dp)) },
+            title = { Text(appText("Твоё имя", "Исемең"), color = CanonText, fontWeight = FontWeight.Bold) },
+            text = { OutlinedTextField(nameDraft, { nameDraft = it.take(120) }, singleLine = true, modifier = Modifier.fillMaxWidth(), placeholder = { Text(appText("Как тебя зовут?", "Исемең нисек?")) }, shape = RoundedCornerShape(14.dp)) },
             confirmButton = {
                 TextButton(onClick = {
                     val n = nameDraft.trim()
@@ -695,7 +695,7 @@ internal fun ProfileScreen(
                                     Spacer(Modifier.width(8.dp))
                                     Text(appText("Позови своего", "Үҙеңдекен саҡыр"), color = CanonGreen, fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.weight(1f))
                                 }
-                                Text(appText("Пригласил соседа → вы оба получаете бонус (бесплатное поднятие поездки).", "Күршеңде саҡырҙың → икәүегеҙ ҙә бонус (сәфәрҙе бушлай күтәреү) аласаҡ."), color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp)
+                                Text(appText("Пригласил соседа → бонус обоим: бесплатное поднятие поездки.", "Күршеңде саҡырҙың → икәүегеҙ ҙә бонус (сәфәрҙе бушлай күтәреү) аласаҡ."), color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp)
                                 // Три равные колонки вместо жёсткого spacedBy(20): длинные
                                 // башкирские подписи больше не выталкивают код за край карточки.
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1109,7 +1109,7 @@ internal fun PassengerCabinetContent(
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         item {
-            Text(appText("Ваши поездки и заявки", "Һеҙҙең сәфәрҙәр һәм заявкалар"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
+            Text(appText("Твои поездки и заявки", "Һинең сәфәрҙәр һәм заявкалар"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             Text(appText("Быстрый доступ к бронированиям, заявкам и защите поездки.", "Брондәргә, заявкаларға һәм хәүефһеҙлеккә тиҙ инеү."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
         // §9 Качество: активные ограничения (пауза такси-заказов) + «написать в поддержку».
@@ -2407,7 +2407,7 @@ internal fun DriverCabinetContent(
                         SettingSwitchRow(
                             Icons.Default.DirectionsCar,
                             appText("Я на линии", "Мин эштә"),
-                            appText("Пассажиры видят, что вы готовы везти сейчас", "Пассажирҙар хәҙер әҙер икәнегеҙҙе күрә"),
+                            appText("Пассажиры видят, что ты сейчас на линии", "Пассажирҙар һинең линияла икәнеңде күрә"),
                             online,
                             onToggleOnline,
                         )
@@ -2479,7 +2479,7 @@ internal fun DriverCabinetContent(
         } else if (driverRides.isEmpty()) {
             item {
                 EmptyStateCard(
-                    title = appText("Ваших маршрутов пока нет", "Һеҙҙең маршруттар әлегә юҡ"),
+                    title = appText("Твоих маршрутов пока нет", "Һинең маршруттар әлегә юҡ"),
                     text = appText("Опубликуйте поездку, чтобы пассажиры могли откликнуться.", "Пассажирҙар яуап бирһен өсөн сәфәр баҫтырығыҙ."),
                     icon = Icons.Default.DirectionsCar,
                     action = appText("Опубликовать маршрут", "Маршрут баҫтырыу"),
@@ -2661,7 +2661,7 @@ internal fun DriverCabinetContent(
                         // Подпись под звёздами = состояние словами. Незрячим она же читает оценку.
                         Text(
                             when {
-                                !editing -> appText("Вы поставили ${starsText(stars)}", "Һеҙ ${starsText(stars)} ҡуйҙығыҙ")
+                                !editing -> appText("Твоя оценка: ${starsText(stars)}", "Һинең баһаң: ${starsText(stars)}")
                                 stars == 0 -> appText("Выберите оценку", "Баһа һайлағыҙ")
                                 else -> appText("Выбрано ${starsText(stars)} — подтвердите", "${starsText(stars)} һайланды — раҫлағыҙ")
                             },

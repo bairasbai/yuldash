@@ -673,7 +673,7 @@ internal fun SafetyScreen(
             item { Spacer(Modifier.height(8.dp)) }
             item {
                 Text(
-                    appText("Ваши данные и поездки под защитой", "Һеҙҙең мәғлүмәт һәм сәфәрҙәр һаҡланған"),
+                    appText("Твои данные и поездки под защитой", "Һинең мәғлүмәт һәм сәфәрҙәр һаҡланған"),
                     color = CanonMuted,
                     fontSize = 16.sp
                 )
@@ -706,13 +706,13 @@ internal fun SafetyScreen(
                     SettingsNavRow(Icons.Default.PhoneLocked, appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерелгән"), appText("Твой номер откроется попутчику только после подтверждения поездки — так устроен Юлдаш.", "Номерың юлдашҡа тик сәфәр раҫланғас ҡына асыла — Юлдаш шулай эшләй."))
                     SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it; AppPrefs.setVerifiedOnly(ctx, it) }
                     SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправьте данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."), onClick = onShareTrip)
-                    SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Пользователи, с которыми вы не хотите ездить.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."), onClick = onBlocklist)
+                    SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Те, с кем ты не хочешь ездить.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."), onClick = onBlocklist)
                     SettingsNavRow(Icons.Default.Report, appText("Пожаловаться на пользователя", "Ҡулланыусыға ялыу"), appText("Сообщите о нарушении правил или безопасности.", "Ҡағиҙә йәки хәүефһеҙлек боҙолоуын хәбәр итегеҙ."), onClick = onReport)
                     SettingsNavRow(Icons.Default.Description, appText("Правила поездок", "Сәфәр ҡағиҙәләре"), appText("Ознакомьтесь с правилами сервиса Юлдаш.", "Юлдаш ҡағиҙәләре менән танышығыҙ."), onClick = onRules)
                 }
             }
             item {
-                InfoCard(appText("Мы заботимся о вашей безопасности", "Беҙ хәүефһеҙлек тураһында ҡайғыртабыҙ"), appText("Проверяем участников, скрываем телефон и даём быстрый SOS.", "Ҡатнашыусыларҙы тикшерәбеҙ, телефонды йәшерәбеҙ һәм тиҙ SOS бирәбеҙ."), Icons.Default.Shield)
+                InfoCard(appText("Безопасность в Юлдаше", "Юлдашта хәүефһеҙлек"), appText("Проверяем участников, скрываем телефон и даём быстрый SOS.", "Ҡатнашыусыларҙы тикшерәбеҙ, телефонды йәшерәбеҙ һәм тиҙ SOS бирәбеҙ."), Icons.Default.Shield)
             }
         }
     }
@@ -921,7 +921,7 @@ internal fun FontScalePickerDialog(current: FontScaleOption, onPick: (FontScaleO
 @Composable
 internal fun RulesScreen(onBack: () -> Unit) {
     val rules = listOf(
-        appText("Уважайте друг друга", "Бер-берегеҙҙе хөрмәт итегеҙ") to appText("Юлдаш — поездки между своими. Будьте вежливы и пунктуальны.", "Юлдаш — үҙ кешеләр араһында сәфәр. Әҙәпле һәм ваҡытлы булығыҙ."),
+        appText("Уважай попутчика", "Юлдашыңды хөрмәт ит") to appText("Юлдаш — поездки между своими. Веди себя по-соседски и приезжай вовремя.", "Юлдаш — үҙ кешеләр араһында сәфәр. Әҙәпле һәм ваҡытлы булығыҙ."),
         appText("Договаривайтесь заранее", "Алдан килешегеҙ") to appText("Согласуйте место и время встречи в чате до выезда.", "Сығышҡа тиклем осрашыу урынын һәм ваҡытын чатта килешегеҙ."),
         appText("Безопасность прежде всего", "Хәүефһеҙлек беренсе урында") to appText("Пристёгивайтесь, не отвлекайте водителя, при опасности — кнопка SOS.", "Бәйләнегеҙ, водителде борсомағыҙ, хәүеф булһа — SOS төймәһе."),
         // Водитель узнаёт об этом ЗАРАНЕЕ, а не постфактум: правило, о котором не предупредили,
@@ -1925,7 +1925,7 @@ internal fun BlocklistContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(vertical = 16.dp)
     ) {
-        item { Text(appText("Заблокированные не видят ваши поездки и не могут писать.", "Блоктағылар сәфәрегеҙҙе күрмәй һәм яҙа алмай."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
+        item { Text(appText("Заблокированные не видят твои поездки и не могут писать.", "Блоктағылар сәфәреңде күрмәй һәм яҙа алмай."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
         if (loading) {
             item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
         } else if (error != null) {
@@ -1947,7 +1947,7 @@ internal fun BlocklistContent(
                 }
             }
             if (addable.isNotEmpty()) {
-                item { Text(appText("Ваши попутчики", "Юлдаштарығыҙ"), color = CanonGreen, fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.padding(top = 8.dp)) }
+                item { Text(appText("Твои попутчики", "Юлдаштарың"), color = CanonGreen, fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.padding(top = 8.dp)) }
                 items(addable.size, key = { addable[it].id }) { i ->
                     val p = addable[i]
                     PersonRow(p.name, appText("Заблокировать", "Блоклау"), danger = true) { onBlock(p.id) }
@@ -2177,7 +2177,7 @@ internal fun HelpScreen(
         ?: ads.forPlacement(AdPlacement.Help).firstOrNull { it.city == "Баймаҡ" }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val supportSent = appText("Заявка отправлена — мы свяжемся с вами.", "Заявка ебәрелде — һеҙҙең менән бәйләнешербеҙ.")
+    val supportSent = appText("Заявка отправлена — мы свяжемся с тобой.", "Заявка ебәрелде — һинең менән бәйләнешербеҙ.")
     val supportErr = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Сетте тикшереп ҡабатла.")
     var helpQuery by remember { mutableStateOf("") }
     // FAQ строим в composable-контексте (appText), не внутри LazyColumn-лямбды.

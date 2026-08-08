@@ -448,7 +448,7 @@ internal fun RidesScreen(
             item {
                 InfoCard(
                     title = appText("Поездки защищены системой Юлдаш", "Сәфәрҙәр Юлдаш системаһы менән һаҡлана"),
-                    text = appText("Мы заботимся о вашей безопасности", "Беҙ һеҙҙең хәүефһеҙлек тураһында ҡайғыртабыҙ"),
+                    text = appText("Мы бережём твою безопасность", "Беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ"),
                     icon = Icons.Default.Shield
                 )
             }
@@ -1850,7 +1850,7 @@ internal fun ChatScreen(
         item {
             InfoCard(
                 title = appText("Телефон открывается только после подтверждения поездки", "Телефон сәфәр раҫланғандан һуң ғына асыла"),
-                text = appText("Мы заботимся о вашей безопасности", "Һеҙҙең хәүефһеҙлек тураһында ҡайғыртабыҙ"),
+                text = appText("Мы бережём твою безопасность", "Беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ"),
                 icon = Icons.Default.Shield
             )
         }
@@ -2143,7 +2143,7 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
             onDismissRequest = { if (!withdrawing) withdrawTarget = null },
             containerColor = CanonSurface,
             title = { Text(appText("Отозвать отклик?", "Яуапты кире аларғамы?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-            text = { Text(appText("Пассажир больше не увидит ваш отклик на «${t.from} → ${t.to}».", "Пассажир «${t.from} → ${t.to}» яуабығыҙҙы башҡа күрмәйәсәк."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) },
+            text = { Text(appText("Пассажир больше не увидит твой отклик на «${t.from} → ${t.to}».", "Пассажир «${t.from} → ${t.to}» яуабыңды башҡа күрмәйәсәк."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) },
             confirmButton = {
                 TextButton(enabled = !withdrawing, onClick = {
                     val respId = t.myResponseId ?: return@TextButton
@@ -2276,7 +2276,7 @@ internal fun RequestsFeedContent(
                         if (r.responded) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text(appText("Вы откликнулись", "Яуап бирҙегеҙ"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(appText("Отклик отправлен", "Яуап ебәрелде"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Spacer(Modifier.weight(1f))
                             // Отозвать можно, пока пассажир не принял (после accept заявка уходит из ленты; сервер всё равно вернёт 409).
                             if (r.myResponseId != null) TextButton(
@@ -2720,7 +2720,7 @@ internal fun ChatEmptyState() {
                 )
             }
             Text(
-                appText("Здесь будут ваши чаты", "Бында чаттарығыҙ булыр"),
+                appText("Здесь будут твои чаты", "Бында чаттарың булыр"),
                 color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp, textAlign = TextAlign.Center
             )
             Text(
