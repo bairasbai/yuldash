@@ -687,6 +687,7 @@ object ApiClient {
         partnerId: Int? = null,      // F22: клиника-назначение (category=hospital)
         quiet: Boolean = false,      // тихая поездка (в конце — чтобы не сдвигать позиционные вызовы)
         waypoints: String = "",     // остановки по пути (названия через " | ")
+        noMinors: Boolean = false,  // не беру пассажиров младше 18 без сопровождения взрослого
     ): Result<Unit> = call(
         "POST", "/rides",
         JSONObject()
@@ -704,6 +705,7 @@ object ApiClient {
             .put("baggage", baggage)
             .put("air_conditioner", airConditioner)
             .put("quiet", quiet)
+            .put("no_minors", noMinors)
             .put("waypoints", waypoints)
             .put("recurrence", recurrence)
             .put("pickup", pickup)
@@ -749,11 +751,23 @@ object ApiClient {
     /** Забронировать поездку. Возвращает id брони.
      * payMethod/payAmount — договорённость об оплате (ЗАПИСЬ, не платёж): как решили платить.
      * Способ по умолчанию — "negotiate" (договоримся); сумма опц. (null = сервер возьмёт цену поездки). */
-    suspend fun book(rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null): Result<Int> = call(
+    suspend fun book(
+        rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
+        // Едет несовершеннолетний: взрослый обязателен (имя + телефон) — это и запись согласия,
+        // и водителю есть кому позвонить. Сервер без них бронь не создаст.
+        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "",
+    ): Result<Int> = call(
         "POST", "/bookings",
         JSONObject().put("ride_id", rideId).put("seats", seats)
             .put("pay_method", payMethod)
-            .put("pay_amount", payAmount ?: JSONObject.NULL),
+            .put("pay_amount", payAmount ?: JSONObject.NULL)
+            .apply {
+                if (minorPassenger) {
+                    put("minor_passenger", true)
+                    put("minor_guardian_name", guardianName)
+                    put("minor_guardian_phone", guardianPhone)
+                }
+            },
         auth = true,
     ).map { it.optInt("id") }.onSuccess { Analytics.log("booking") }
 
@@ -787,6 +801,11 @@ object ApiClient {
                 driverVerified = o.optBoolean("driver_verified"),
                 driverPhone = o.optString("driver_phone"),
                 driverCar = o.optString("driver_car"),
+                driverPlate = o.optString("driver_plate"),
+                driverCarColor = o.optString("driver_car_color"),
+                minorPassenger = o.optBoolean("minor_passenger"),
+                minorGuardianName = o.optString("minor_guardian_name"),
+                minorGuardianPhone = o.optString("minor_guardian_phone"),
                 pickup = o.optString("pickup"),
                 pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
                 pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),
@@ -1106,7 +1125,8 @@ object ApiClient {
                 val o = arr.getJSONObject(i)
                 val pa = o.optJSONArray("prefs")
                 val prefs = if (pa != null) (0 until pa.length()).map { pa.optString(it) } else emptyList()
-                RequestFeedDto(o.optInt("id"), o.optString("passenger_name"), o.optString("from_city"), o.optString("to_city"), o.optInt("seats"), o.optString("comment"), o.optBoolean("responded"), o.optString("passenger_avatar"), prefs, if (o.isNull("my_response_id")) null else o.optInt("my_response_id"))
+                RequestFeedDto(o.optInt("id"), o.optString("passenger_name"), o.optString("from_city"), o.optString("to_city"), o.optInt("seats"), o.optString("comment"), o.optBoolean("responded"), o.optString("passenger_avatar"), prefs, if (o.isNull("my_response_id")) null else o.optInt("my_response_id"),
+                    if (o.isNull("detour_km")) null else o.optInt("detour_km"))
             }
         }
 
@@ -1200,12 +1220,32 @@ object ApiClient {
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 PendingDriverDto(o.optInt("user_id"), o.optString("name"), o.optString("phone"), o.optString("car"), o.optString("license_url"), o.optString("car_photo_url"),
-                    o.optString("autocheck_result"), o.optDouble("autocheck_score", 0.0), o.optString("autocheck_data"))
+                    o.optString("autocheck_result"), o.optDouble("autocheck_score", 0.0), o.optString("autocheck_data"),
+                    o.optString("gender_claimed"), o.optBoolean("gender_verified"))
             }
         }
 
-    suspend fun moderateDriver(userId: Int, approve: Boolean): Result<Unit> =
-        call("POST", "/admin/drivers/$userId/moderate", JSONObject().put("approve", approve), auth = true).map { }
+    /** genderVerified=null — не трогать подтверждение пола (обычное одобрение документов). */
+    suspend fun moderateDriver(userId: Int, approve: Boolean, genderVerified: Boolean? = null): Result<Unit> =
+        call("POST", "/admin/drivers/$userId/moderate",
+            JSONObject().put("approve", approve).apply {
+                if (genderVerified != null) put("gender_verified", genderVerified)
+            }, auth = true).map { }
+
+    /** Помеченные тексты (модерация). kind — фильтр по виду метки, пусто = все. */
+    suspend fun getTextFlags(kind: String = ""): Result<List<TextFlagDto>> =
+        call("GET", "/admin/text-flags" + (if (kind.isNotBlank()) "?kind=$kind" else ""), null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                TextFlagDto(
+                    o.optInt("id"), o.optInt("user_id"), o.optString("user_name"), o.optString("user_phone"),
+                    o.optString("kind"), o.optString("place_label"),
+                    if (o.isNull("ref_id")) null else o.optInt("ref_id"),
+                    o.optString("created_at"), o.optInt("user_flags_total"),
+                )
+            }
+        }
 
     suspend fun getAdminReports(): Result<List<AdminReportDto>> =
         call("GET", "/admin/reports", null, auth = true).map { obj ->
@@ -1330,7 +1370,8 @@ object ApiClient {
     suspend fun getTripState(bookingId: Int): Result<TripStateDto> =
         call("GET", "/bookings/$bookingId/role", null, auth = true).map {
             TripStateDto(it.optString("role"), it.optString("status"), it.optString("driver_phase"),
-                         it.optBoolean("arrival_verified", false))
+                         it.optBoolean("arrival_verified", false),
+                         it.optBoolean("alone_with_driver", false))
         }
 
     /** Водитель отмечает «выехал»/«подъезжаю» → push пассажиру. status: "departed"|"arriving". */
@@ -4856,6 +4897,7 @@ private fun JSONObject.toRideDto() = RideDto(
     baggage = optBoolean("baggage"),
     airConditioner = optBoolean("air_conditioner"),
     quiet = optBoolean("quiet"),
+    noMinors = optBoolean("no_minors"),
     waypoints = optString("waypoints").split(" | ").map { it.trim() }.filter { it.isNotBlank() },
     pickup = optString("pickup"),
     pickupLat = if (isNull("pickup_lat")) null else optDouble("pickup_lat"),
@@ -4930,6 +4972,7 @@ data class RideDto(
     val baggage: Boolean = false,
     val airConditioner: Boolean = false,
     val quiet: Boolean = false,
+    val noMinors: Boolean = false,   // водитель не берёт младше 18 без взрослого
     val waypoints: List<String> = emptyList(),
     val pickup: String = "",          // где водитель забирает (точка сбора)
     val pickupLat: Double? = null,    // координаты точки сбора (пин на карте)
@@ -5000,6 +5043,9 @@ data class TripStateDto(
     val status: String,
     val driverPhase: String,
     val arrivalVerified: Boolean = false,
+    // Ехал(а) не один(на), а теперь остался(ась) в машине один на один с водителем. Клиент
+    // ТИХО (без пуша и звука) предлагает поделиться поездкой с близким. Водителю не видно.
+    val aloneWithDriver: Boolean = false,
 )
 
 data class RequestNearDto(
@@ -5092,6 +5138,14 @@ data class BookingDetailsDto(
     val driverVerified: Boolean,
     val driverPhone: String,
     val driverCar: String,
+    // Госномер и цвет — чтобы сверить машину у подъезда. Пусто до подтверждения брони.
+    // Дефолты держат старый сервер: клиент новее бэкенда не падает, просто не показывает.
+    val driverPlate: String = "",
+    val driverCarColor: String = "",
+    // Несовершеннолетний пассажир: пометку видят оба, контакты взрослого — только водитель.
+    val minorPassenger: Boolean = false,
+    val minorGuardianName: String = "",
+    val minorGuardianPhone: String = "",
     val pickup: String,
     val pickupLat: Double?,
     val pickupLng: Double?,
@@ -5120,7 +5174,21 @@ data class RequestDto(
 data class BlockDto(val blockedUserId: Int, val name: String)
 data class ReportableUserDto(val id: Int, val name: String)
 data class PendingDriverDto(val userId: Int, val name: String, val phone: String, val car: String, val licenseUrl: String, val carPhotoUrl: String,
-    val autocheckResult: String = "", val autocheckScore: Double = 0.0, val autocheckData: String = "")
+    val autocheckResult: String = "", val autocheckScore: Double = 0.0, val autocheckData: String = "",
+    // Что водитель ЗАЯВИЛ о поле ("" / female / male) и подтвердил ли это модератор. Бейдж
+    // «женщина за рулём» и женские заказы включает только подтверждение — не самодекларация.
+    val genderClaimed: String = "", val genderVerified: Boolean = false)
+/** Помеченный текст для админа. Самого текста тут НЕТ — только ссылка (place/refId):
+ *  текст лежит в своей записи, админ открывает её и видит в контексте (приватность §8). */
+data class TextFlagDto(
+    val id: Int, val userId: Int, val userName: String, val userPhone: String,
+    val kind: String,            // warn (фишинг) / contact (телефон, увод) / abuse (мат)
+    val placeLabel: String,      // «Отзыв», «Имя профиля» — уже по-человечески, с сервера
+    val refId: Int?,             // id записи
+    val createdAt: String,
+    val userFlagsTotal: Int,     // сколько всего у этого человека: разовое ≠ система
+)
+
 data class AdminReportDto(
     val id: Int, val reporterName: String, val targetName: String, val targetPhone: String,
     val reason: String, val createdAt: String,
@@ -5147,7 +5215,10 @@ data class RestrictionsDto(
     val items: List<RestrictionDto> = emptyList(),
     val supportRu: String = "", val supportBa: String = "",
 )
-data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "", val prefs: List<String> = emptyList(), val myResponseId: Int? = null)
+data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "", val prefs: List<String> = emptyList(), val myResponseId: Int? = null,
+    // На сколько км заявка уводит с собственного маршрута. null = у водителя нет активных
+    // поездок или где-то нет координат — тогда числа не показываем, а не выдумываем.
+    val detourKm: Int? = null)
 data class ResponseDto(
     val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?,
     val price: Int,                    // первая цена водителя (историческая)

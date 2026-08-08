@@ -755,6 +755,7 @@ internal fun YuldashApp() {
                             baggage = d.baggage,
                             airConditioner = d.airConditioner,
                             quiet = d.quiet,
+                            noMinors = d.noMinors,
                             waypoints = d.waypoints,
                             pickup = d.pickup,
                             pickupLat = d.pickupLat,
@@ -1087,7 +1088,7 @@ internal fun YuldashApp() {
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick,
                 canOpenActiveTrip = activeBookingId == null || bookingStatusAllowsActiveTrip(selectedBookingStatus),
-                onConfirmRide = { payMethod, payAmount ->
+                onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
                     if (activeBookingId != null) {
                         activeTrip = selectedRide
                         screen = Screen.ActiveTrip
@@ -1102,9 +1103,16 @@ internal fun YuldashApp() {
                         if (rid != null && !bookingInFlight) {
                             bookingInFlight = true
                             appScope.launch {
-                                ApiClient.book(rid, 1, payMethod, payAmount)
+                                ApiClient.book(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone)
                                     .onSuccess { bid -> activeBookingId = bid; selectedBookingStatus = "confirmed"; activeTrip = selectedRide; screen = Screen.ActiveTrip }
-                                    .onFailure { Toast.makeText(context, if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори.", Toast.LENGTH_SHORT).show() }
+                                    // Сервер объясняет отказ по-человечески («укажите взрослого»,
+                                    // «водитель берёт только 18+»). Показываем его слова, а не
+                                    // общее «повтори»: иначе человек не поймёт, что чинить.
+                                    .onFailure { e ->
+                                        val msg = (e as? ApiException)?.message?.takeIf { it.isNotBlank() }
+                                            ?: if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори."
+                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                    }
                                 bookingInFlight = false
                             }
                         }
@@ -1202,6 +1210,7 @@ internal fun YuldashApp() {
                 onAds = { screen = Screen.AdsCabinet },
                 onDrivers = { screen = Screen.AdminDrivers },
                 onReports = { screen = Screen.AdminReports },
+                onTextFlags = { screen = Screen.AdminTextFlags },
                 onPaymentRequests = { screen = Screen.AdminPaymentRequests },
                 onTaxi = { screen = Screen.AdminTaxi },
                 onWaitlist = { screen = Screen.AdminWaitlist },
@@ -1218,6 +1227,7 @@ internal fun YuldashApp() {
             Screen.IncomeCalculator -> IncomeCalculatorScreen(onBack = { goBack() })
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
+            Screen.AdminTextFlags -> AdminTextFlagsScreen(onBack = { goBack() })
             Screen.AdminPaymentRequests -> AdminPaymentRequestsScreen(onBack = { goBack() })
             Screen.AdminRequest -> AdminRequestScreen(onBack = { goBack() })
             Screen.AdminResponses -> AdminResponsesScreen(onBack = { goBack() })

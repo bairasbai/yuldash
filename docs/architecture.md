@@ -271,6 +271,72 @@
 - **Быстрые ответы в чате**: `ChatComposer` (`RidesRequestsChatScreens.kt`) получил параметр `onQuickSend`; над полем ввода — `LazyRow` из `QuickReplyChip` (5 готовых фраз, тач-цель ≥48dp). `BookingActiveTripScreen.kt` (ActiveTrip) прокидывает `onQuickSend = { sendText(it) }` — тот же надёжный путь WS→REST.
 - **Экран «Честно о цене»**: новый `Screen.PricingInfo` → `PricingInfoScreen` (`SecondaryScreens.kt`, хелперы `PricingBlock`/`PricingWhereRow`). Объясняет: попутка бесплатна (бензин напрямую), тариф такси, сурж-потолок ×1.5, комиссия водителя 3–8% + куда идёт, оплата СБП «на доверии». Вход — карточка «Честно о цене» в `PaymentInfoScreen` (`onOpenPricing`, ветка в `YuldashApp.kt`). Цифры — реальные (без выдуманных), стиль сверен с сурж-плашкой `InstantOrderScreen`.
 
+## 🛡 Модерация текста: журнал для админа + три поля (2026-08-08)
+
+- **Журнал.** `models.TextFlag` (user_id, kind, place, ref_id, created_at; миграция
+  `ah_text_flags`). **Текста в нём НЕТ** — только ссылка (§8): текст лежит в своей таблице.
+  Пишет `antifraud.log_text_flag` своей короткой транзакцией (не подмешивается в чужую),
+  ошибки глотает целиком — журнал не вправе уронить сохранение текста.
+- **`moderate_open_text(text, user_id, *, check_contact, place, ref_id, session)`** — новые
+  параметры опциональны: без `session` ведёт себя как раньше (только счётчик Redis), поэтому
+  старые вызовы не ломаются. Все существующие места переведены на новую форму с `place`.
+- **Места (`place`):** ride_comment · pickup · request · response · review · order_comment ·
+  parcel · name · incident · incident_reply. Человеческие подписи — `_PLACE_LABELS` в
+  `routers/antifraud.py` (клиент их не хардкодит, приходят с сервера).
+- **Новое под проверкой:** имя профиля (`auth.py::update_me`), «Где встречаемся»
+  (`rides.py::create_ride`, `check_contact=False` — правила попутки), описание спора и
+  объяснение по нему (`incidents.py`).
+- **Админ:** `GET /admin/text-flags?kind=&limit=` → `TextFlagOut` (имя, телефон, вид, место
+  по-человечески, ref_id, всего пометок у человека). `user_flags_total` считается ОДНИМ
+  группировочным запросом на выдачу, не в цикле.
+- **Android:** `TextFlagDto` + `ApiClient.getTextFlags(kind)`; экран
+  `AdminTextFlagsScreen.kt` (`AdminTextFlagsContent` — чистый рендер, тестируется на JVM),
+  `Screen.AdminTextFlags` + ветка в `YuldashApp`, строка в кабинете админа.
+- Тесты: `backend/tests/test_text_moderation_visible.py` (10), `AdminTextFlagsContentTest` (9).
+
+## 🧒 Подростки + «остался один в машине» + крюк заявки (2026-08-07, третья волна)
+
+- **Несовершеннолетний пассажир.** `Booking.minor_passenger` + `minor_guardian_name/phone`,
+  `Ride.no_minors` (миграция `ag_minors`). `BookIn` принимает три поля; `book()` до списания мест
+  проверяет: `no_minors` → 409, отсутствие имени/телефона взрослого → 400 (оба текста двуязычные);
+  не подросток → контакты обнуляются (лишних ПДн не храним). Пуш водителю о новой брони содержит
+  пометку. `booking_details` отдаёт `minor_passenger` обеим сторонам, контакты взрослого —
+  только водителю (`is_driver`). Android: `book(..., minorPassenger, guardianName, guardianPhone)`,
+  `MinorPassengerBlock` в `BookingActiveTripScreen` (до брони — форма, после — справка водителю),
+  `PrefToggleRow` «Только 18+» в `CreateRideScreen`, `Ride.noMinors` в `Domain.kt`/`RideDto`.
+  Отказ сервера показываем его же словами (раньше на всё было «повтори»).
+- **«Остался один на один с водителем».** `bookings.py::_alone_with_driver` — были другие брони
+  (не cancelled), сейчас активных, кроме моей, нет; только пассажир, только активная бронь.
+  Отдаётся в `GET /bookings/{id}/role` полем `alone_with_driver`. Android: `TripStateDto` +
+  `aloneWithDriver` (тот же поллинг ~12с) → `AlonePassengerHint` — тихая карточка `CanonMint`
+  с одной кнопкой в существующий шит «поделиться поездкой». Без пуша, без звука, водителю не видна.
+- **Крюк заявки.** `requests.py::_detour_km(req, rides)` — минимум по активным поездкам водителя,
+  haversine, `RequestFeedOut.detour_km` (None = считать нечем). Свои поездки тянутся ОДНИМ
+  запросом на всю ленту (анти-N+1). Android: `RequestFeedDto.detourKm` → в карточке ленты
+  «По пути» (≤10 км, зелёным) / «Крюк ≈ N км» (серым).
+- Тесты — `backend/tests/test_minors_alone_detour.py` (14).
+
+## 🚗 Госномер в попутках + подтверждение пола водителя (2026-08-07, вторая волна разбора)
+
+- **Госномер и цвет в попутке.** `bookings.py::booking_details` отдаёт `driver_plate` и
+  `driver_car_color` — **только участникам и только при `unlocked`** (booking confirmed/onboard/done).
+  Поля объявлены в `BookingDetailsOut` — без этого `response_model` их молча отрезает (наступили).
+  В публичной `/rides` номера нет и быть не должно. Android: `BookingDetailsDto` +2 поля →
+  пишутся в `TripPass` (`driverPlate`, цвет склеен в `driverCar`) → `BoardingCodeCard(car=, plate=)`
+  показывает блок «Сверьте машину перед посадкой» рядом с кодом посадки; в `TripPassCard` номер
+  отдельной строкой. Источник на экране активной поездки — **офлайн-паспорт**, не сеть.
+- **Пол водителя: `DriverProfile.gender_verified`** (миграция `af_gender_verified`). Заявляет
+  водитель (`POST /driver/gender`, смена пола сбрасывает подтверждение), включает модератор
+  (`POST /admin/drivers/{id}/moderate`, поле `gender_verified`; `None` = не трогать, отклонение
+  документов снимает). `GET /admin/drivers/pending` отдаёт `gender_claimed` + `gender_verified`.
+  **Три места, где проверялся пол, — все переведены на подтверждённый:**
+  `services.py::ride_out_with` (бейдж `driver_is_woman`), `rides.py` SQL-фильтр `women_only`
+  (сравнивал `gender` напрямую, мимо витрины) и `instant_service.py::eligible` (подбор такси).
+  Android: `PendingDriverDto` +2 поля, `moderateDriver(id, approve, genderVerified?)`,
+  переключатель в карточке модерации (`SecondaryScreens.kt::AdminDriversContent`, `onApprove`
+  теперь принимает `(dto, Boolean?)`). Тесты — `backend/tests/test_car_and_gender_proof.py` (10),
+  плюс переписаны `test_women_driver.py` и `test_taxi_women_only.py`.
+
 ## 🛰 Честное «подъезжаю» + фильтр «Тихая поездка» (2026-08-07, разбор конкурентов по Reddit)
 
 - **Проверка «подъезжаю» по GPS.** `bookings.py::driver_status` при `status="arriving"` сверяет

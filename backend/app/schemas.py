@@ -32,6 +32,7 @@ class RideIn(BaseModel):
     air_conditioner: bool = False
     only_trusted: bool = False        # «только для своих» — поездку увидят/забронируют лишь L3
     quiet: bool = False
+    no_minors: bool = False           # не беру пассажиров младше 18 без сопровождения взрослого
     waypoints: str = ""
     recurrence: str = "none"          # none / daily / weekdays / weekly
     receiver_name: Optional[str] = Field(None, max_length=120)   # посылка: кому отдать
@@ -65,6 +66,7 @@ class RideOut(BaseModel):
     air_conditioner: bool = False
     only_trusted: bool = False        # «только для своих» — клиент рисует бейдж «круг своих»
     quiet: bool = False
+    no_minors: bool = False           # клиент прячет кнопку брони «за подростка» и объясняет почему
     waypoints: str = ""
     status: RideStatus
     boosted: bool = False             # активный Boost (для подсветки/бейджа на клиенте)

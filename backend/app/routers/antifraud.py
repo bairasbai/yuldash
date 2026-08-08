@@ -95,3 +95,84 @@ def admin_list_bans(user: User = Depends(current_user), session: Session = Depen
     _require_admin(user)
     rows = session.exec(select(DeviceBan).order_by(DeviceBan.id.desc()).limit(500)).all()
     return [_ban_out(session, b) for b in rows]
+
+
+# ------------------------------ помеченные тексты (модерация) ------------------------------
+# Пометки ставились и раньше, но ложились только в счётчик Redis: в пульсе админ видел ЧИСЛО
+# помеченных за сегодня и не мог посмотреть, КТО и ЗА ЧТО. Помечать и не показывать —
+# работа впустую. Здесь журнал: кто · какая метка · в каком поле · id записи · когда.
+#
+# Приватность: сам текст НЕ отдаём и в журнале его нет (§8) — только ссылка на запись.
+# Админ открывает объект в своём экране и видит текст в контексте.
+
+# Человеческие названия мест — чтобы админ не гадал, что такое "incident_reply".
+_PLACE_LABELS = {
+    "ride_comment": "Комментарий к поездке",
+    "pickup": "Где встречаемся",
+    "request": "Заявка пассажира",
+    "response": "Отклик водителя",
+    "review": "Отзыв",
+    "order_comment": "Комментарий к заказу такси",
+    "parcel": "Описание посылки",
+    "name": "Имя профиля",
+    "incident": "Описание спора",
+    "incident_reply": "Объяснение по спору",
+}
+
+
+class TextFlagOut(BaseModel):
+    id: int
+    user_id: int
+    user_name: str
+    user_phone: str          # админу нужен контакт, чтобы связаться; ручка admin-only
+    kind: str                # warn (фишинг) / contact (телефон, увод) / abuse (мат)
+    place: str               # машинный код места
+    place_label: str         # то же по-человечески
+    ref_id: Optional[int]    # id записи — по нему админ открывает сам объект
+    created_at: str
+    user_flags_total: int    # сколько всего пометок у этого человека (разовое ≠ система)
+
+
+@router.get("/admin/text-flags", response_model=List[TextFlagOut])
+def admin_text_flags(
+    kind: Optional[str] = None,
+    limit: int = 200,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """Помеченные тексты, новые сверху. `kind` фильтрует по виду метки.
+
+    `user_flags_total` считаем одним запросом на всю выдачу (а не в цикле): у человека с
+    сотней пометок иначе была бы сотня запросов, и экран админа тормозил бы ровно на тех,
+    ради кого он и открыт.
+    """
+    _require_admin(user)
+    from sqlalchemy import func
+    from ..models import TextFlag
+
+    q = select(TextFlag).order_by(TextFlag.id.desc()).limit(max(1, min(500, limit)))
+    if kind:
+        q = q.where(TextFlag.kind == kind)
+    rows = session.exec(q).all()
+    if not rows:
+        return []
+    uids = {r.user_id for r in rows}
+    users = {u.id: u for u in session.exec(select(User).where(User.id.in_(uids))).all()}
+    totals = dict(session.exec(
+        select(TextFlag.user_id, func.count(TextFlag.id)).where(TextFlag.user_id.in_(uids))
+        .group_by(TextFlag.user_id)
+    ).all())
+    out: List[TextFlagOut] = []
+    for r in rows:
+        u = users.get(r.user_id)
+        out.append(TextFlagOut(
+            id=r.id, user_id=r.user_id,
+            user_name=(u.name if u and u.name else "Пользователь"),
+            user_phone=(u.phone if u else ""),
+            kind=r.kind, place=r.place,
+            place_label=_PLACE_LABELS.get(r.place, r.place),
+            ref_id=r.ref_id,
+            created_at=r.created_at.isoformat() if r.created_at else "",
+            user_flags_total=int(totals.get(r.user_id, 0)),
+        ))
+    return out

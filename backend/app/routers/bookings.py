@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from .. import livepos            # модулем, а не функцией: так подмена в тестах цепляет вызов
@@ -68,6 +68,12 @@ class BookIn(BaseModel):
     # Способ по умолчанию — «договоримся»; сумма по умолчанию — из цены поездки.
     pay_method: Optional[PayMethod] = None
     pay_amount: Optional[int] = None
+    # Едет несовершеннолетний. Отмечает тот, кто бронирует (сам подросток или родитель за него).
+    # Взрослый обязателен: имя + телефон — это и есть запись согласия, и водителю есть кому
+    # позвонить. Дефолты держат старые клиенты: не прислали — бронь обычная, как раньше.
+    minor_passenger: bool = False
+    minor_guardian_name: str = Field("", max_length=120)
+    minor_guardian_phone: str = Field("", max_length=32)
 
 
 class BookingDetailsOut(BaseModel):
@@ -88,6 +94,15 @@ class BookingDetailsOut(BaseModel):
     driver_verified: bool
     driver_phone: str = ""
     driver_car: str = ""
+    # Госномер и цвет — чтобы у подъезда было чем сверить машину с объявлением. Пусто до
+    # подтверждения брони (ПДн). Дефолты держат старый клиент: он поля просто не читает.
+    driver_plate: str = ""
+    driver_car_color: str = ""
+    # Несовершеннолетний пассажир. Флаг видят ОБЕ стороны (пассажир — что отметил, водитель —
+    # кого везёт). Контакты взрослого — только водителю этой брони: это чужие ПДн.
+    minor_passenger: bool = False
+    minor_guardian_name: str = ""
+    minor_guardian_phone: str = ""
     pickup: str = ""
     pickup_lat: Optional[float] = None
     pickup_lng: Optional[float] = None
@@ -130,6 +145,26 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         return existing
     if ride.seats_left < body.seats:
         raise herr(400, "Не хватает мест", "Урын етмәй")
+    # Несовершеннолетний пассажир: взрослый обязателен и назван поимённо. Это не бюрократия —
+    # без имени и телефона взрослого никто не отвечает за ребёнка в дороге, а водитель узнаёт
+    # о подростке только когда тот сядет в машину. Проверяем ДО списания мест.
+    guardian_name = (body.minor_guardian_name or "").strip()
+    guardian_phone = (body.minor_guardian_phone or "").strip()
+    if body.minor_passenger:
+        if ride.no_minors:
+            raise herr(
+                409,
+                "Водитель не берёт пассажиров младше 18 без сопровождения взрослого. Поищите другую поездку.",
+                "Водитель 18-ҙән кесе юлсыларҙы оло кеше оҙатыуынан башҡа алмай. Башҡа сәфәр эҙләгеҙ.",
+            )
+        if not guardian_name or not guardian_phone:
+            raise herr(
+                400,
+                "Для поездки пассажира младше 18 укажите взрослого: имя и телефон. Он отвечает за поездку, и водителю есть кому позвонить.",
+                "18-ҙән кесе юлсы өсөн оло кешене күрһәтегеҙ: исеме һәм телефоны. Ул сәфәр өсөн яуаплы, водителгә шылтыратырға кем булыр.",
+            )
+    else:
+        guardian_name = guardian_phone = ""   # не подросток — лишних ПДн не храним
     total_price = ride.price * body.seats
     # Договорённость об оплате: способ по умолчанию — «договоримся»; сумма — из цены поездки, если не задана.
     pay_method = body.pay_method or PayMethod.negotiate
@@ -140,6 +175,8 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         ride_id=ride.id, passenger_id=user.id, seats=body.seats,
         price=total_price, boarding_code=gen_otp(),
         pay_method=pay_method, pay_amount=pay_amount,
+        minor_passenger=bool(body.minor_passenger),
+        minor_guardian_name=guardian_name, minor_guardian_phone=guardian_phone,
     )
     ride.seats_left -= body.seats
     session.add(booking)
@@ -150,10 +187,15 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     # Уведомление + push водителю о новой брони.
     pax_name = user.name or "Пассажир"
     route = f"{ride.from_city} → {ride.to_city}"
+    # Про подростка говорим прямо в пуше: решение «беру или нет» водитель должен принимать
+    # заранее, а не обнаруживать ребёнка у машины, когда отказать уже некрасиво.
+    minor_ru = " · младше 18, со взрослым на связи" if booking.minor_passenger else ""
+    minor_ba = " · 18-ҙән кесе, оло кеше бәйләнештә" if booking.minor_passenger else ""
     push_notification(
         session, ride.driver_id, "booking",
         "Новая бронь", "Яңы бронь",
-        f"{pax_name}: {route}, мест {body.seats}", f"{pax_name}: {route}, {body.seats} урын",
+        f"{pax_name}: {route}, мест {body.seats}{minor_ru}",
+        f"{pax_name}: {route}, {body.seats} урын{minor_ba}",
         ref_kind="booking", ref_id=booking.id,
     )
     return booking
@@ -173,6 +215,7 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
     profile = session.exec(select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)).first()
     driver_car = f"{profile.car_make} {profile.car_model}".strip() if profile else ""
     unlocked = booking.status in (BookingStatus.confirmed, BookingStatus.onboard, BookingStatus.done)
+    is_driver = ride.driver_id == user.id
     return {
         "booking_id": booking.id,
         "ride_id": ride.id,
@@ -190,6 +233,18 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "driver_verified": bool(driver.verified) if driver else False,
         "driver_phone": (driver.phone if (unlocked and driver) else ""),
         "driver_car": driver_car,
+        # Госномер — как в такси (instant_service), где это уже закрыто: «белая Гранта» у подъезда
+        # ничего не доказывает. В попутке риск выше: у такси машину назначает сервер, а тут
+        # пассажир идёт к машине, которую выбрал сам по объявлению. Разбор конкурентов
+        # 2026-08-07: у BlaBlaCar приезжала ДРУГАЯ машина с другим человеком за рулём, и сверить
+        # было нечем. Отдаём только участникам и только после подтверждения брони (ПДн).
+        "driver_plate": ((profile.car_plate or "") if (unlocked and profile) else ""),
+        "driver_car_color": ((profile.car_color or "") if (unlocked and profile) else ""),
+        # Пометку видят оба; телефон взрослого — только водителю (и сразу, ещё до подтверждения:
+        # именно на этих данных он и решает, берёт ли ответственность).
+        "minor_passenger": bool(booking.minor_passenger),
+        "minor_guardian_name": (booking.minor_guardian_name if is_driver else ""),
+        "minor_guardian_phone": (booking.minor_guardian_phone if is_driver else ""),
         "pickup": (ride.pickup if unlocked else ""),
         "pickup_lat": (ride.pickup_lat if unlocked else None),
         "pickup_lng": (ride.pickup_lng if unlocked else None),
@@ -264,6 +319,36 @@ def trip_receipt(booking_id: int, user: User = Depends(current_user), session: S
     }
 
 
+def _alone_with_driver(session: Session, booking: Booking, ride: Ride, user: User) -> bool:
+    """Пассажир ехал не один, а теперь остался в машине один на один с водителем.
+
+    Отдельная история на 849 голосов (r/india): девушка ехала с водителем и второй пассажиркой;
+    как только ту высадили, водитель начал приставать. Она доплатила сверху и промолчала — лишь
+    бы доехать без конфликта. Момент, когда салон пустеет, и есть точка, где человек становится
+    уязвим, а SOS в этот момент как раз не нажимают: боятся «поднимать шум из-за слов».
+
+    Считаем: у поездки БЫЛИ другие попутчики (не отменённые брони, кроме моей), а сейчас
+    активных, кроме меня, нет. Тогда клиент тихо, БЕЗ пуша и звука, предложит поделиться
+    поездкой с близким. Водителю это не видно и обвинением не является.
+
+    Только для пассажира в активной броне: водителю флаг бессмыслен, в завершённой — поздно.
+    """
+    if ride.driver_id == user.id:
+        return False
+    if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard):
+        return False
+    others = session.exec(
+        select(Booking).where(
+            Booking.ride_id == ride.id,
+            Booking.id != booking.id,
+            Booking.status != BookingStatus.cancelled,
+        )
+    ).all()
+    if not others:
+        return False       # изначально ехал(а) один(на) — это не перемена, напоминать не о чем
+    return not any(o.status in (BookingStatus.confirmed, BookingStatus.onboard) for o in others)
+
+
 @router.get("/bookings/{booking_id}/role")
 def booking_role(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Роль текущего юзера в брони — водитель/пассажир. Экран активной поездки показывает
@@ -272,6 +357,7 @@ def booking_role(booking_id: int, user: User = Depends(current_user), session: S
     # + статус и подфаза → экран активной поездки опрашивает это и показывает пассажиру live-баннер
     # «водитель выехал/подъезжает» (раньше это приходило только пушем, в UI не обновлялось).
     return {
+        "alone_with_driver": _alone_with_driver(session, booking, ride, user),
         "role": "driver" if ride.driver_id == user.id else "passenger",
         "status": booking.status,
         "driver_phase": booking.driver_phase,

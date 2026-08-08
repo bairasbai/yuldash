@@ -4,11 +4,24 @@
 1. opt-in по умолчанию: водитель без указанного пола не считается «женщиной» и
    не подмешивается в фильтр women_only только из-за пола.
 2. Фильтр women_only находит поездку женщины-водителя, даже если у самой поездки
-   флаг women_only НЕ выставлен.
+   флаг women_only НЕ выставлен — но ТОЛЬКО после подтверждения модератором (см. ниже).
 3. Приватность: мужской пол наружу не выпячивается — витрина мужчины неотличима
    от «не указан» (driver_is_woman=False), и мужчина не попадает в women_only.
+4. С 2026-08-07 самодекларации НЕДОСТАТОЧНО. Раньше водитель сам ставил себе «женщина»,
+   и этого хватало для бейджа и фильтра — то есть фича безопасности женщин держалась на
+   честном слове (у Uber ровно отсюда растут жалобы «заказала женщину — приехал муж»).
+   Теперь витрина верит только паре «заявлено + подтверждено модератором по фото прав».
+   Подробнее — models.DriverProfile.gender_verified и test_car_and_gender_proof.py.
 """
 from app.models import UserRole
+
+
+def _confirm_gender(client, admin, drv):
+    """Модератор сверил пол с фото прав — без этого шага бейдж не появится."""
+    r = client.post(f"/admin/drivers/{drv['id']}/moderate", headers=admin["auth"],
+                    json={"approve": True, "gender_verified": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["gender_verified"] is True
 
 
 def _publish(client, drv, frm, to="Сибай", **extra):
@@ -42,15 +55,33 @@ def test_gender_optin_default_not_woman(client, user_factory):
 
 # 2. Фильтр находит женщину-водителя ---------------------------------------
 def test_women_only_filter_finds_female_driver(client, user_factory):
-    """Женщина-водитель без флага women_only на поездке — всё равно видна в фильтре."""
+    """Подтверждённая женщина-водитель без флага women_only на поездке — видна в фильтре."""
     drv = user_factory("FemDrv", role=UserRole.driver)
+    admin = user_factory("FemAdmin", role=UserRole.admin)
     _set_gender(client, drv, "female")
+    _confirm_gender(client, admin, drv)
     ride = _publish(client, drv, frm="ЖенГрад")     # women_only НЕ выставлен намеренно
 
     wonly = client.get("/rides", params={"from_city": "ЖенГрад", "women_only": True}).json()
     match = next((r for r in wonly if r["id"] == ride["id"]), None)
     assert match is not None                         # найдена по полу водителя
     assert match["driver_is_woman"] is True          # бейдж «Водитель-женщина»
+
+
+def test_unconfirmed_female_is_not_in_women_filter(client, user_factory):
+    """Заявил «женщина», модератор не сверил → в фильтр «только женщины» НЕ попадает.
+
+    Это и есть суть правки: женщина, выбравшая фильтр ради безопасности, не должна получить
+    непроверенного водителя. Пока не сверили — не показываем, даже ценой пустой выдачи.
+    """
+    drv = user_factory("UnconfirmedFemDrv", role=UserRole.driver)
+    _set_gender(client, drv, "female")
+    ride = _publish(client, drv, frm="НепроверГрад")
+
+    wonly = client.get("/rides", params={"from_city": "НепроверГрад", "women_only": True}).json()
+    assert all(r["id"] != ride["id"] for r in wonly)
+    rows = client.get("/rides", params={"from_city": "НепроверГрад"}).json()
+    assert next(r for r in rows if r["id"] == ride["id"])["driver_is_woman"] is False
 
 
 def test_women_only_still_matches_flag_ride(client, user_factory):

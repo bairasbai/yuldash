@@ -769,7 +769,9 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
         driver_online=(prof.online if prof else False),
         driver_trips=trips,
         driver_since=since,
-        driver_is_woman=(prof.gender == "female" if prof else False),
+        # Только ПОДТВЕРЖДЁННЫЙ модератором пол. Самодекларация в витрину не попадает —
+        # иначе бейдж «женщина за рулём» ставит себе кто угодно (см. models.DriverProfile).
+        driver_is_woman=(bool(prof.gender == "female" and prof.gender_verified) if prof else False),
     )
 
 

@@ -49,7 +49,7 @@ def create_review(body: AppReviewIn, user: User = Depends(current_user), session
     text = (body.text or "").strip()
     if len(text) < 10:
         raise HTTPException(400, "Отзыв слишком короткий")
-    moderate_open_text(text, getattr(user, "id", None))   # отзыв публичный — телефон и грубость помечаем
+    moderate_open_text(text, getattr(user, "id", None), place="review", session=session)   # отзыв публичный — телефон и грубость помечаем
     if len(text) > 600:
         raise HTTPException(400, "Отзыв слишком длинный")
     review = AppReview(

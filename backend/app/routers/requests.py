@@ -256,7 +256,7 @@ def admin_request_for_phone(body: AdminRequestIn, user: User = Depends(current_u
     # Модерация открытого поля. В личном чате попутки телефон не трогаем (соседи так и
     # договариваются), но заявку и отклик видят ВСЕ — это уже публичное объявление,
     # и номер там висит для кого угодно. Помечаем, текст не меняем, сохранение не рвём.
-    moderate_open_text(body.comment, target.id)
+    moderate_open_text(body.comment, target.id, place="request", session=session)
     req = RideRequest(
         passenger_id=target.id, from_city=body.from_city, to_city=body.to_city,
         desired_at=client_dt_to_utc(body.desired_at), seats=body.seats, comment=body.comment,
@@ -309,7 +309,7 @@ def edit_request(request_id: int, body: RequestEditIn, user: User = Depends(curr
         raise herr(400, "Править можно только активную заявку", "Тик актив заявканы ғына төҙәтеп була")
     changed = False
     body.desired_at = client_dt_to_utc(body.desired_at)   # правка времени — то же соглашение, что и создание
-    moderate_open_text(body.comment, req.passenger_id)   # правка — тот же путь, что создание
+    moderate_open_text(body.comment, req.passenger_id, place="request", ref_id=req.id, session=session)   # правка — тот же путь, что создание
     for field in ("from_city", "to_city", "desired_at", "seats", "max_price", "comment"):
         val = getattr(body, field)
         if val is not None and val != getattr(req, field):
@@ -384,6 +384,40 @@ class RequestFeedOut(BaseModel):
     responded: bool                          # уже откликался ли текущий водитель
     my_response_id: Optional[int] = None      # id своего отклика (чтобы можно было отозвать); null если не откликался
     prefs: list = []                          # условия заявки (women/child/pets/wheelchair/baggage/nosmoke/ac)
+    # Насколько заявка уводит водителя с его собственного маршрута, км (округлено).
+    # None = посчитать нечем: у водителя нет активных поездок или где-то нет координат.
+    # Клиент показывает «+40 км крюк» и убирает явную ерунду наверх списка.
+    detour_km: Optional[int] = None
+
+
+def _detour_km(req, rides: list) -> Optional[int]:
+    """Минимальный крюк по всем активным поездкам водителя, км. None — считать не из чего.
+
+    Зачем: водителю сыпались заявки без всякой связи с его маршрутом, и он читал каждую
+    руками. Живая жалоба на 823 голоса (r/luftablassen): человек 15 лет возит попутчиков, а
+    его просят выехать на 4 часа позже, из другого города и в пункт, которого рядом с
+    маршрутом нет. Такие «предложения» и выжигают водителей — а их у нас на старте мало.
+
+    Крюк = (доехать до пассажира + провезти его + вернуться на свой маршрут) − прямой путь.
+    Это грубая оценка по прямой, без дорог: она нужна, чтобы отличить «по пути» от «в другую
+    сторону», а не чтобы печатать точный километраж.
+    """
+    if req.from_lat is None or req.from_lng is None or req.to_lat is None or req.to_lng is None:
+        return None
+    best: Optional[float] = None
+    for ride in rides:
+        if ride.from_lat is None or ride.from_lng is None or ride.to_lat is None or ride.to_lng is None:
+            continue
+        direct = haversine_km(ride.from_lat, ride.from_lng, ride.to_lat, ride.to_lng)
+        through = (
+            haversine_km(ride.from_lat, ride.from_lng, req.from_lat, req.from_lng)
+            + haversine_km(req.from_lat, req.from_lng, req.to_lat, req.to_lng)
+            + haversine_km(req.to_lat, req.to_lng, ride.to_lat, ride.to_lng)
+        )
+        extra = max(0.0, through - direct)
+        if best is None or extra < best:
+            best = extra
+    return None if best is None else int(round(best))
 
 
 @router.get("/requests/feed", response_model=List[RequestFeedOut])
@@ -407,6 +441,10 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
     blk = session.exec(select(Block).where(or_(Block.user_id == user.id, Block.blocked_user_id == user.id))).all()
     blocked_ids = {(b.blocked_user_id if b.user_id == user.id else b.user_id) for b in blk}
     is_insider = trust_level(session, user) >= INSIDER_LEVEL   # заявки «только для своих» видит лишь L3
+    # Свои активные поездки — один запрос на всю ленту (не в цикле по 200 заявкам).
+    my_rides = session.exec(
+        select(Ride).where(Ride.driver_id == user.id, Ride.status == RideStatus.active).limit(50)
+    ).all()
     out: list = []
     for r in reqs:
         if r.passenger_id in blocked_ids:
@@ -421,6 +459,7 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
             seats=r.seats, comment=r.comment, responded=(r.id in mine),
             my_response_id=mine.get(r.id),
             prefs=request_prefs(r),
+            detour_km=_detour_km(r, my_rides),
         ))
     return out
 
@@ -467,7 +506,7 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
     # Модерация открытого поля. В личном чате попутки телефон не трогаем (соседи так и
     # договариваются), но заявку и отклик видят ВСЕ — это уже публичное объявление,
     # и номер там висит для кого угодно. Помечаем, текст не меняем, сохранение не рвём.
-    moderate_open_text(body.comment, user.id)
+    moderate_open_text(body.comment, user.id, place="response", session=session)
     resp = RequestResponse(request_id=request_id, driver_id=user.id, price=body.price,
                            comment=body.comment, current_price=body.price, last_offer_by="driver")
     session.add(resp)

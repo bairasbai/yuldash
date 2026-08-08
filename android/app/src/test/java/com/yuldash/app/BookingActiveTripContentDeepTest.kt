@@ -141,6 +141,45 @@ class BookingActiveTripContentDeepTest {
         composeRule.onNodeWithText("GPS раҫланы — машина янда").assertIsDisplayed()
     }
 
+    /**
+     * Госномер у кода посадки. Плашка давно обещала «это та самая машина», но проверить это
+     * было нечем: пассажир видел марку и не видел номера. Разбор конкурентов 2026-08-07 —
+     * у BlaBlaCar на встречу приезжала ДРУГАЯ машина с другим человеком за рулём.
+     */
+    @Test
+    fun boardingCode_withPlate_showsCarAndPlate() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                BoardingCodeCard(code = "7421", car = "белая Lada Vesta", plate = "А123ВС102")
+            }
+        }
+        composeRule.onNodeWithText("Сверьте машину перед посадкой").assertIsDisplayed()
+        composeRule.onNodeWithText("белая Lada Vesta").assertIsDisplayed()
+        composeRule.onNodeWithText("А123ВС102").assertIsDisplayed()
+    }
+
+    @Test
+    fun boardingCode_withoutCar_hidesTheCheckBlock() {
+        // Старый сервер номера не отдаёт — блок не рисуем, пустых заголовков в интерфейсе быть не должно.
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                BoardingCodeCard(code = "7421")
+            }
+        }
+        composeRule.onNodeWithText("7421").assertIsDisplayed()
+        composeRule.onNodeWithText("Сверьте машину перед посадкой").assertDoesNotExist()
+    }
+
+    @Test
+    fun boardingCode_plateBlock_isBilingual() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
+                BoardingCodeCard(code = "7421", car = "аҡ Lada Vesta", plate = "А123ВС102")
+            }
+        }
+        composeRule.onNodeWithText("Ултырыр алдынан машинаны тикшерегеҙ").assertIsDisplayed()
+    }
+
     // --- BoardingCodeCard: плашка кода посадки ---
 
     @Test

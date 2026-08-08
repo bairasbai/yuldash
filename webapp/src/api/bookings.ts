@@ -58,6 +58,9 @@ export interface BookingDetails {
   driver_verified: boolean;
   driver_phone: string; // пусто до разблокировки
   driver_car: string;
+  /** Госномер и цвет — чтобы сверить машину у обочины. Пусто до подтверждения брони (ПДн). */
+  driver_plate?: string;
+  driver_car_color?: string;
   pickup: string; // пусто до разблокировки
   pickup_lat?: number | null;
   pickup_lng?: number | null;

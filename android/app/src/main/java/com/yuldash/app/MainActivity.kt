@@ -420,6 +420,7 @@ internal enum class Screen {
     AdminResponses,
     AdminDrivers,
     AdminReports,
+    AdminTextFlags,   // помеченные тексты: кто и за что (модерация стала видимой)
     AdminPaymentRequests,
     RequestsFeed,
     RequestResponses,
@@ -651,6 +652,7 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     baggage = baggage,
     airConditioner = airConditioner,
     quiet = quiet,
+    noMinors = noMinors,
     waypoints = waypoints,
     pickup = pickup,
     pickupLat = pickupLat,

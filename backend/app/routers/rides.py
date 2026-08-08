@@ -144,7 +144,12 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     # Заявка пассажира проверялась, объявление водителя — нет (аудит 2026-08-06), хотя это
     # ровно тот же текст с другой стороны. check_contact=False: у попуток обмен номерами —
     # норма и суть «между своими», комиссии тут нет. Ловим мат и фишинг («переведи предоплату»).
-    moderate_open_text(body.comment, user.id, check_contact=False)
+    moderate_open_text(body.comment, user.id, check_contact=False, place="ride_comment", session=session)
+    # «Где встречаемся» — такое же открытое поле, как комментарий, и его тоже видит весь
+    # район. Проверки тут не было вовсе. Правила те же, что у комментария попутки:
+    # ловим мат и фишинг, телефон НЕ помечаем — обмен номерами между соседями это норма
+    # и суть «между своими», комиссии в попутках нет.
+    moderate_open_text(body.pickup, user.id, check_contact=False, place="pickup", session=session)
     # F22: клиника-назначение (опц.). Если указана — проверяем, что она есть и активна
     # (чтобы не осталось битой ссылки). Это ТОЛЬКО точка назначения, без мед.данных.
     if body.partner_id is not None:
@@ -254,7 +259,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
         ride.price = body.price
         changed.append("цена")
     if body.comment is not None and body.comment != ride.comment:
-        moderate_open_text(body.comment, user.id, check_contact=False)   # правка — тот же путь, что публикация
+        moderate_open_text(body.comment, user.id, check_contact=False, place="ride_comment", ref_id=ride.id, session=session)   # правка — тот же путь, что публикация
         ride.comment = body.comment
         changed.append("комментарий")
     if body.depart_at is not None:
@@ -341,8 +346,13 @@ def search_rides(
         # F9: фильтр «только женщины» показывает и поездки с флагом women_only,
         # И поездки, где сама водитель — женщина (opt-in gender=female). OUTER JOIN,
         # чтобы поездки без профиля водителя не выпадали из общей проверки.
+        #
+        # gender_verified обязателен (2026-08-07). Без него любой мужчина ставил себе
+        # «женщина» и попадал в эту выдачу — а её открывают именно те, кому небезопасно
+        # ехать с незнакомым мужчиной. Лучше пустой список, чем непроверенный водитель.
         q = q.outerjoin(DriverProfile, DriverProfile.user_id == Ride.driver_id).where(
-            (Ride.women_only == True) | (DriverProfile.gender == "female")  # noqa: E712
+            (Ride.women_only == True)  # noqa: E712
+            | ((DriverProfile.gender == "female") & (DriverProfile.gender_verified == True))  # noqa: E712
         )
     if baggage:
         q = q.where(Ride.baggage == True)  # noqa: E712

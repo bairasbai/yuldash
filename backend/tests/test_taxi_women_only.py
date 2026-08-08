@@ -6,6 +6,11 @@
 Главное правило файла: фильтр ЖЁСТКИЙ. Подставить мужчину, «раз женщин рядом нет», —
 значит обмануть в том единственном, ради чего галочку и ставили. Никого нет — заказ
 честно не подбирается, и человек сам решает, искать ли шире.
+
+С 2026-08-07 «жёсткий» означает ещё и «проверенный»: пол должен быть подтверждён
+модератором по фото прав (gender_verified), а не просто заявлен самим водителем. Иначе
+мужчина получал женские заказы, поставив себе галочку, — ровно та жалоба, что копится
+у Uber. Ночной заказ женщины в райцентре — последнее место, где верят на слово.
 """
 from app.instant_service import eligible
 from app.models import DriverProfile, InstantOrder, User, UserRole
@@ -14,13 +19,17 @@ from sqlmodel import Session, select
 from app.db import engine
 
 
-def _driver(user_factory, gender: str, name="WomenOnlyDrv"):
+def _driver(user_factory, gender: str, name="WomenOnlyDrv", *, gender_verified: bool = True):
+    """gender_verified=True по умолчанию: большинство тестов файла проверяют САМ фильтр,
+    и им нужен нормальный, уже проверенный модератором водитель. Непроверенного заводит
+    отдельный тест ниже."""
     d = user_factory(name, role=UserRole.driver)
     with Session(engine) as s:
         p = s.exec(select(DriverProfile).where(DriverProfile.user_id == d["id"])).first()
         if p is None:
             p = DriverProfile(user_id=d["id"])
         p.gender = gender
+        p.gender_verified = gender_verified
         p.online = True
         s.add(p)
         # Кандидатов фильтруем по verified — иначе отсеются раньше нашей проверки.
@@ -53,6 +62,19 @@ def test_women_only_order_keeps_female_driver(client, user_factory):
     with Session(engine) as s:
         picked = eligible(s, [female["id"]], _order(pax["id"], women_only=True))
     assert picked == [female["id"]], "женщина-водитель не прошла собственный фильтр"
+
+
+def test_self_declared_female_without_moderation_is_skipped(client, user_factory):
+    """Водитель сам отметил «женщина», модератор не сверил → женский заказ ему НЕ уходит.
+
+    Именно эту дыру закрывали 2026-08-07: галочка в своём профиле не должна открывать доступ
+    к заказам, которые женщина оформила ради безопасности.
+    """
+    pax = user_factory("WomenOnlyPax5")
+    unverified = _driver(user_factory, "female", "WOUnverified", gender_verified=False)
+    with Session(engine) as s:
+        picked = eligible(s, [unverified["id"]], _order(pax["id"], women_only=True))
+    assert picked == [], "непроверенный «женский» профиль получил женский заказ"
 
 
 def test_driver_without_stated_gender_is_not_assumed_female(client, user_factory):

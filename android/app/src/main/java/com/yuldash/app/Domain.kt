@@ -30,6 +30,7 @@ internal data class Ride(
     val baggage: Boolean = false,
     val airConditioner: Boolean = false,
     val quiet: Boolean = false,
+    val noMinors: Boolean = false,   // водитель не берёт пассажиров младше 18 без взрослого
     val waypoints: List<String> = emptyList(),   // остановки по пути (A→точки→B)
     val pickup: String = "",
     val pickupLat: Double? = null,

@@ -18,6 +18,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..antifraud import moderate_open_text
 from ..models import Booking, Incident, InstantOrder, Ride, User, UserRole
 from ..safety_logic import (
     INCIDENT_TYPES, SEVERE_TYPES, active_incidents_count, apply_incident_resolution,
@@ -238,6 +239,9 @@ def create_incident(
     session.add(inc)
     session.commit()
     session.refresh(inc)
+    # Текст спора читает вторая сторона — это такое же открытое поле, как отзыв, и оно
+    # не проверялось. Спор и так место напряжённое; мат в нём мешает разобраться по сути.
+    moderate_open_text(inc.description, reporter.id, place="incident", ref_id=inc.id, session=session)
 
     # Пуш обвинённому: приглашение объясниться (право на защиту). Исключение — SEVERE без общей
     # поездки: связь сторон не доказана, сначала жалобу видит человек (админ). Иначе это канал
@@ -318,6 +322,7 @@ def respond_incident(incident_id: int, body: RespondIn,
     if inc.status in ("resolved", "closed"):
         raise HTTPException(409, "Спор уже закрыт")
     inc.respondent_statement = clamp(body.statement, 2000)
+    moderate_open_text(inc.respondent_statement, user.id, place="incident_reply", ref_id=inc.id, session=session)
     if body.evidence_urls is not None:   # право на защиту — с фото (только свои URL)
         inc.respondent_evidence_urls = csv_from_urls(body.evidence_urls)
     inc.responded_at = utcnow()
