@@ -234,6 +234,22 @@ def account_paused(session: Session, user_id: int) -> bool:
     return is_suspended(refresh_standing(session, user_id))
 
 
+def suspended_user_ids(session: Session) -> set[int]:
+    """Все, кто ПРЯМО СЕЙЧАС на паузе. Один запрос на всю ленту, а не проверка на каждого.
+
+    Зачем именно так. Лента поездок — самый горячий запрос сервиса, и `account_paused` по
+    каждому водителю превратилась бы в N запросов на страницу. Приостановленных единицы, поэтому
+    дешевле спросить «кто на паузе» один раз и отфильтровать список в памяти.
+
+    Ленивый пересчёт (`refresh_standing`) тут не нужен: условие `suspended_until > сейчас` само
+    перестаёт выполняться, когда срок вышел, — истёкшая пауза исчезает без чьей-либо помощи.
+    """
+    rows = session.exec(
+        select(SafetyProfile.user_id).where(SafetyProfile.suspended_until > utcnow())
+    ).all()
+    return {int(r) for r in rows}
+
+
 def ensure_active(session: Session, user_id: int) -> None:
     """Гейт лестницы (§2): приостановленный аккаунт не совершает активных действий — жалобы,
     брони, публикации поездок/заявок, отклики на заявки, торг о цене, такси-заказы и предзаказы,

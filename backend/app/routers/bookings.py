@@ -12,7 +12,7 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Rating, Ride, RideStatus, User
-from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, ensure_active,
+from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused, ensure_active,
                             guard_women_only)
 from ..security import current_user, gen_otp
 from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
@@ -111,6 +111,13 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         raise herr(400, "Нельзя бронировать собственную поездку", "Үҙ сәфәреңде бронларға ярамай")
     if is_blocked(session, user.id, ride.driver_id):
         raise herr(403, "Бронь недоступна", "Бронь мөмкин түгел")
+    # Водитель на паузе за нарушения — бронь бессмысленна: подтвердить её ему закрыто (волна 9),
+    # и человек просто ждал бы ответа, которого не будет. Из ленты такие поездки убраны, но
+    # прямая ссылка (старый пуш, открытый экран, «поделился в чате») ленту обходит.
+    # Пассажиру НЕ сообщаем, что водителя наказали, — это чужая история разбора.
+    if account_paused(session, ride.driver_id):
+        raise herr(409, "Этот водитель сейчас не выходит в рейс. Посмотри другие поездки — рядом есть ещё.",
+                   "Был водитель хәҙер юлға сыҡмай. Башҡа сәфәрҙәрҙе ҡара — яҡында тағы бар.")
     # «Только для своих» (L3) закрывает поездку ЦЕЛИКОМ, а не только ленту. Фильтр стоял на всех
     # выдачах и на отклике по заявке (requests.py: «прямой id не обходит фильтр»), а бронь его не
     # знала: лента прячет, GET /rides/{id} даёт 404 — и тут же POST /bookings проходит с 200.

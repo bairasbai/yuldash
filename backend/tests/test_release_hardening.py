@@ -123,7 +123,12 @@ def test_parcel_available_blurs_coords_exact_after_accept():
 # ---------------- Приватность: точка подачи пассажира до accept ----------------
 
 def test_driver_offer_pickup_blurred_before_accept(client, user_factory):
-    """Водителю до accept точку ПОДАЧИ отдаём округлённой (как телефоны); направление — как есть."""
+    """Водителю до accept ОБЕ точки отдаём округлёнными (как телефоны).
+
+    Направление раньше не прятали, и это была несогласованность: адрес, куда человек едет, —
+    чаще всего его дом, а отказаться от предложения можно бесплатно, то есть адреса собирались
+    отказами. С 2026-08-08 (решение Александра) назначение округляется вместе с подачей,
+    а номер дома уходит из текста — см. test_audit_20260808.py раздел 15."""
     from app.instant_service import order_payload
     drv = user_factory("OfDrv", role=UserRole.driver)
     pax = user_factory("OfPax")
@@ -134,7 +139,7 @@ def test_driver_offer_pickup_blurred_before_accept(client, user_factory):
         payload = order_payload(s, s.get(InstantOrder, oid), s.get(User, drv["id"]))
     assert payload["role"] == "driver"
     assert (payload["from_lat"], payload["from_lng"]) == (54.74, 55.96)   # подача округлена до accept
-    assert (payload["to_lat"], payload["to_lng"]) == (53.63099, 55.95012)  # направление не прячем
+    assert (payload["to_lat"], payload["to_lng"]) == (53.63, 55.95)       # и назначение тоже
 
 
 # ---------------- Приватность: TTL live-ссылки поездки ----------------

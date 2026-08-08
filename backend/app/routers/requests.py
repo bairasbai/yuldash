@@ -25,7 +25,7 @@ from ..services import (
     record_pickup_choice, rides_out, user_rating,
 )
 from ..safety_logic import (account_paused, ensure_active, MSG_WOMEN_ONLY_RESPOND,
-                            guard_women_only)
+                            guard_women_only, suspended_user_ids)
 from ..antifraud import moderate_open_text
 from ..timeutil import client_dt_to_utc, utcnow
 from .. import workday as workday_mod
@@ -422,10 +422,13 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
     # Блокировки текущего водителя — ОДНИМ запросом (анти-N+1 вместо is_blocked в цикле по 200 заявкам).
     blk = session.exec(select(Block).where(or_(Block.user_id == user.id, Block.blocked_user_id == user.id))).all()
     blocked_ids = {(b.blocked_user_id if b.user_id == user.id else b.user_id) for b in blk}
+    # Пассажиры на паузе — тоже ОДНИМ запросом. Принять отклик им закрыто (волна 9), значит
+    # водитель торговался бы впустую: заявка живая на вид, а сделку по ней уже не закрыть.
+    paused_ids = suspended_user_ids(session)
     is_insider = trust_level(session, user) >= INSIDER_LEVEL   # заявки «только для своих» видит лишь L3
     out: list = []
     for r in reqs:
-        if r.passenger_id in blocked_ids:
+        if r.passenger_id in blocked_ids or r.passenger_id in paused_ids:
             continue
         if getattr(r, "only_trusted", False) and not is_insider:
             continue
@@ -466,6 +469,11 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
         raise herr(400, "Нельзя откликнуться на свою заявку", "Үҙ заявкаңа яуап биреп булмай")
     if is_blocked(session, user.id, req.passenger_id):
         raise herr(403, "Недоступно", "Мөмкин түгел")
+    # Пассажир на паузе — принять отклик он не сможет (волна 9). Из ленты такие заявки убраны,
+    # но прямая ссылка ленту обходит. Про наказание второй стороны не сообщаем.
+    if account_paused(session, req.passenger_id):
+        raise herr(409, "Эта заявка сейчас недоступна. Посмотри другие — рядом есть ещё.",
+                   "Был заявка хәҙер юҡ. Башҡаларын ҡара — яҡында тағы бар.")
     # Заявка «только женщины» — зеркало правила на поездке: пассажирка просит женщину за рулём,
     # значит откликнуться может женщина (решение Александра, 2026-08-08). Без этого отметка на
     # заявке оставалась украшением: чипы её рисовали, а отклик принимал кого угодно.

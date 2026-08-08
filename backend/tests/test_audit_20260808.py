@@ -23,6 +23,7 @@ from app.timeutil import utcnow
 from datetime import timedelta
 
 from conftest import upload_doc, upload_evidence
+from test_instant import fake_redis  # noqa: F401 — фикстура для тестов такси
 
 
 @pytest.fixture(autouse=True)
@@ -610,3 +611,50 @@ def test_blocked_driver_cannot_confirm_the_booking(client, user_factory):
                        json={"blocked_user_id": drv["id"]}).status_code == 200
     c = client.post(f"/bookings/{b.json()['id']}/confirm", headers=drv["auth"])
     assert c.status_code == 403, f"заблокированный подтвердил бронь: {c.status_code} {c.text[:160]}"
+
+# --------------------- 15. Адрес назначения до принятия заказа ---------------------
+# Точку ПОДАЧИ водителю до accept округляли (~1 км), а точку НАЗНАЧЕНИЯ отдавали точно —
+# вместе с номером дома в тексте. Адрес, куда человек едет, чаще всего его дом; для женщины,
+# возвращающейся ночью, он важнее места посадки. Предложение можно отклонить бесплатно и
+# получить следующее, то есть адреса собирались отказами. Решение Александра — округлять
+# и назначение (2026-08-08, волна 10).
+
+def test_street_only_cuts_the_house_number():
+    """Резак адреса: улица и город остаются, номер дома уходит."""
+    from app.instant_service import street_only
+    assert street_only("Уфа, ул. Пушкина, 12") == "Уфа, ул. Пушкина"
+    assert street_only("Уфа, Пушкина 12") == "Уфа, Пушкина"
+    assert street_only("Уфа, ул. Ленина, д. 5к2") == "Уфа, ул. Ленина"
+    assert street_only("Сибай, 8 Марта, 3") == "Сибай, 8 Марта"      # цифра в названии улицы цела
+    assert street_only("Уфа, вокзал") == "Уфа, вокзал"               # номера нет — не трогаем
+    assert street_only("") == ""
+
+
+def test_driver_sees_only_the_area_until_he_accepts(client, user_factory, fake_redis):
+    """До принятия — район; после принятия — точный адрес и номер дома."""
+    from test_instant import _driver_online, _heartbeat, _create_order, ORIG, DEST
+
+    d = _driver_online(client, user_factory, "BlurDrv")
+    _heartbeat(client, d, ORIG)
+    pax = user_factory("BlurPax")
+    order = _create_order(client, pax, to_text="Сибай, ул. Горького, 15")
+    assert order["status"] == "offered"
+    oid = order["id"]
+
+    offer = client.get("/instant/driver/offer", headers=d["auth"]).json()["offer"]
+    assert offer is not None, "оффер не пришёл — тест ничего не проверяет"
+    assert offer["to_text"] == "Сибай, ул. Горького", offer["to_text"]
+    assert offer["to_lat"] == round(DEST[0], 2) and offer["to_lng"] == round(DEST[1], 2)
+    assert offer["from_lat"] == round(ORIG[0], 2)          # подача пряталась и раньше
+    # Решать, брать ли заказ, водителю по-прежнему есть по чему.
+    assert offer["price_estimate"] and offer["distance_km"] and offer["eta_min"]
+
+    # Пассажир свой адрес видит целиком — прячем от водителя, не от него.
+    mine = client.get(f"/instant/orders/{oid}", headers=pax["auth"]).json()
+    assert mine["to_text"] == "Сибай, ул. Горького, 15"
+    assert mine["to_lat"] == DEST[0]
+
+    # После принятия водителю открывается всё — как и телефон.
+    acc = client.post(f"/instant/orders/{oid}/accept", headers=d["auth"]).json()
+    assert acc["to_text"] == "Сибай, ул. Горького, 15"
+    assert acc["to_lat"] == DEST[0] and acc["to_lng"] == DEST[1]

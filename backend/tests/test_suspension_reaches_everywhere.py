@@ -289,6 +289,75 @@ def test_предзаказ_отстранённого_не_едет_а_отме
     assert "паузе" in texts, f"отмену не объяснили: {[n.title_ru for n in notes]}"
 
 
+# ---------- Выдача: не показываем то, что всё равно не состоится ----------
+
+def test_поездка_отстранённого_уходит_из_ленты_но_видна_ему_самому(client, user_factory):
+    """Везти он уже не может (подтвердить бронь закрыто), а поездка висела в ленте — пассажир
+    бронировал и ждал ответа, которого не будет. Своё объявление водитель видит всегда,
+    иначе решит, что оно пропало, и опубликует заново (просьба Александра, 2026-08-08)."""
+    driver = user_factory("FeedSuspDrv", role=UserRole.driver)
+    rid = _ride(client, driver, price=333)
+    passenger = user_factory("FeedSuspPax")
+
+    def _ids(auth):
+        # С фильтром по маршруту, а НЕ голый /rides: без фильтров ручка отдаёт общий кеш
+        # активных поездок (20 с), и в полном прогоне он прогрет соседним тестом — свежая
+        # поездка в него не попадает. Первая версия теста падала именно так: «до паузы
+        # поездка должна быть в ленте», хотя фильтр был не при чём.
+        r = client.get("/rides", headers=auth, params={"from_city": "Баймак", "to_city": "Сибай"})
+        assert r.status_code == 200, r.text
+        items = r.json()
+        items = items.get("items", items) if isinstance(items, dict) else items
+        return {x["id"] for x in items}
+
+    assert rid in _ids(passenger["auth"]), "до паузы поездка должна быть в ленте"
+    _suspend(driver["id"])
+    assert rid not in _ids(passenger["auth"]), "поездка отстранённого осталась в ленте"
+    assert rid in _ids(driver["auth"]), "водитель перестал видеть СВОЮ поездку — решит, что она пропала"
+    # Прямая ссылка (старый пуш, пересланная карточка) ленту обходит — фильтр стоит и там.
+    assert client.get(f"/rides/{rid}", headers=passenger["auth"]).status_code == 404
+    assert client.get(f"/rides/{rid}", headers=driver["auth"]).status_code == 200
+
+
+def test_бронь_к_отстранённому_по_прямой_ссылке_не_проходит(client, user_factory):
+    """Лента прячет, а прямая ссылка (старый пуш, открытый экран) её обходит.
+    Пассажиру не сообщаем, что водителя наказали, — это чужая история разбора."""
+    driver = user_factory("LinkSuspDrv", role=UserRole.driver)
+    rid = _ride(client, driver, price=333)
+    passenger = user_factory("LinkSuspPax")
+    _suspend(driver["id"])
+
+    b = client.post("/bookings", headers=passenger["auth"], json={"ride_id": rid, "seats": 1})
+    assert b.status_code == 409, f"бронь к отстранённому прошла: {b.status_code} {b.text[:200]}"
+    detail = b.json()["detail"]
+    assert detail["ru"] and detail["ba"]
+    low = detail["ru"].lower()
+    assert "пауз" not in low and "разбор" not in low and "наруш" not in low, detail["ru"]
+
+
+def test_заявка_отстранённого_пассажира_не_зовёт_водителя_впустую(client, user_factory):
+    """Зеркало для второй стороны: принять отклик пассажир не сможет (тест выше),
+    значит и звать водителя торговаться незачем — ни лентой, ни прямой ссылкой."""
+    passenger = user_factory("FeedSuspPax2")
+    rid = _request_of(client, passenger)
+    driver = user_factory("FeedSuspDrv2", role=UserRole.driver)
+
+    feed = client.get("/requests/feed", headers=driver["auth"])
+    assert feed.status_code == 200, feed.text
+    before = feed.json()
+    before = before.get("items", before) if isinstance(before, dict) else before
+    assert rid in {x["id"] for x in before}, "до паузы заявка должна быть в ленте водителя"
+
+    _suspend(passenger["id"])
+    feed2 = client.get("/requests/feed", headers=driver["auth"])
+    after = feed2.json()
+    after = after.get("items", after) if isinstance(after, dict) else after
+    assert rid not in {x["id"] for x in after}, "заявка отстранённого осталась в ленте водителя"
+
+    r = client.post(f"/requests/{rid}/respond", headers=driver["auth"], json={"price": 300})
+    assert r.status_code == 409, f"отклик на заявку отстранённого прошёл: {r.status_code} {r.text[:200]}"
+
+
 # ---------- Что пауза ломать НЕ должна ----------
 
 def test_отстранённый_всё_равно_может_позвать_на_помощь(client, user_factory):

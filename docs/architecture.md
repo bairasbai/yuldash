@@ -219,6 +219,19 @@
   `/parcels/{id}/accept` и `/parcels/{id}/status` (фото «взял/отдал целой»). Публичные `/media/...`
   не проверяются (открыты по построению). Читать приложенное по-прежнему могут стороны спора и
   админ (`_can_view_evidence`). Тесты — `test_audit_20260808.py` раздел 13.
+- **Пауза убирает из ВЫДАЧИ, а не только из действий (2026-08-08, по просьбе Александра).**
+  `safety_logic.suspended_user_ids(session)` — один select «кто сейчас на паузе» (условие
+  `suspended_until > now`, ленивый пересчёт не нужен). Применяется: `rides.py::_hide_suspended`
+  в четырёх точках выдачи (кеш, свежая лента, поиск с пагинацией, `GET /rides/{id}`) и в ленте
+  заявок `requests.py`. Своя поездка/заявка автору видна всегда. Прямую ссылку закрывают гейты:
+  `account_paused(ride.driver_id)` в `POST /bookings` (409) и `account_paused(req.passenger_id)`
+  в `/requests/{id}/respond` (409) — текст нейтральный, о наказании второй стороне не сообщаем.
+- **Такси: до accept водителю округлены ОБЕ точки (2026-08-08, решение Александра).**
+  `instant_service.order_payload`: `blur = role=="driver" and not unlocked` → `round(…, 2)` для
+  from/to и `street_only(order.to_text)` (регулярка `_HOUSE_TAIL` срезает номер дома, «8 Марта»
+  не ломает). Пассажир свой адрес видит целиком; после accept водителю открывается точный —
+  в том же ответе на принятие, доп. запрос клиенту не нужен. Тесты — `test_audit_20260808.py`
+  раздел 15, `test_release_hardening.py::test_driver_offer_pickup_blurred_before_accept`.
 - **Блокировка тоже закрывает ВТОРОЙ шаг (2026-08-08, волна 10).** `is_blocked` добавлен в
   `/responses/{id}/accept` и `/bookings/{id}/confirm` — рядом с гейтами паузы, теми же строками.
   Отказ глухой («Недоступно»), чтобы не выдавать факт блокировки. Тесты — `test_audit_20260808.py`
