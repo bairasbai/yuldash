@@ -21,6 +21,7 @@ from sqlalchemy import func
 from sqlalchemy import update as sa_update
 from sqlmodel import Session, select
 
+from ..antifraud import moderate_open_text
 from ..db import get_session
 from ..errors import herr
 from ..models import Coupon, CouponRedemption, Partner, Payment, User, UserRole
@@ -94,6 +95,23 @@ class CouponStatusIn(BaseModel):
 
 def _csv(s: str) -> List[str]:
     return [x.strip() for x in (s or "").split(",") if x.strip()]
+
+
+def _moderate_storefront(user_id: int, *parts: str) -> None:
+    """Проверить текст, который попадёт в ПУБЛИЧНУЮ витрину купонов.
+
+    Витрина `/coupons` открыта без входа, а модерации у неё не было вовсе (аудит 2026-08-08).
+    Одобрение админом закрывает только первый шаг: правка бизнеса и купонов после одобрения
+    ничем не гейтится, то есть чистую карточку можно переписать во что угодно и никто не
+    узнает. Как везде: ПОМЕЧАЕМ (метка + счётчик в админ-пульсе), текст не режем и
+    сохранение не рвём — решает человек.
+
+    ⚠️ Это не полное решение «переписал после одобрения»: чтобы правка возвращала карточку
+    на модерацию (как у рекламы — `_own_editable_ad`), нужно решение Александра, см. tasks.md.
+    """
+    text = "\n".join(p.strip() for p in parts if p and p.strip())
+    if text:
+        moderate_open_text(text, user_id)
 
 
 def _gen_code(session: Session) -> str:
@@ -404,6 +422,7 @@ def partner_register(body: PartnerIn, user: User = Depends(current_user), sessio
     city = body.city.strip()
     if not city:
         raise herr(422, "Укажи город бизнеса", "Бизнес ҡалаһын күрһәт")
+    _moderate_storefront(user.id, name, body.description, body.address)
     partner = Partner(
         owner_id=user.id, name=name, category=(body.category.strip() or "other"), city=city,
         address=body.address.strip(), phone=body.phone.strip(), description=body.description.strip(),
@@ -567,6 +586,7 @@ def partner_coupon_create(body: CouponIn, user: User = Depends(current_user), se
     title = body.title.strip()
     if not title:
         raise herr(422, "Заголовок купона обязателен", "Купон исеме мотлаҡ")
+    _moderate_storefront(user.id, title, body.description, body.route_hint, body.discount_text)
     coupon = Coupon(
         partner_id=partner.id, title=title, description=body.description.strip(),
         discount_text=body.discount_text.strip(),
@@ -597,6 +617,7 @@ def partner_coupon_update(coupon_id: int, body: CouponIn, user: User = Depends(c
     """Правка своего купона. Чужой → 404."""
     coupon = _own_coupon(coupon_id, user, session)
     partner = session.get(Partner, coupon.partner_id)
+    _moderate_storefront(user.id, body.title, body.description, body.route_hint, body.discount_text)
     if body.title.strip():
         coupon.title = body.title.strip()
     coupon.description = body.description.strip()
@@ -656,6 +677,7 @@ def partner_coupon_stats(coupon_id: int, user: User = Depends(current_user), ses
 def partner_update(partner_id: int, body: PartnerIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Правка своего бизнеса (name/category/address/phone/description/lat/lng). Чужой → 404."""
     partner = _own_partner(partner_id, user, session)
+    _moderate_storefront(user.id, body.name, body.description, body.address)
     if body.name.strip():
         partner.name = body.name.strip()
     if body.category.strip():

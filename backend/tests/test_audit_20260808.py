@@ -11,6 +11,7 @@
 4. Исключение вебхука Telegram из лимитера стояло на несуществующем пути.
 """
 import base64
+import pathlib
 
 import pytest
 from sqlmodel import Session
@@ -203,7 +204,7 @@ def test_every_public_free_text_field_reaches_moderation():
     переложив текст в соседнее (аудит 2026-08-08). Тест держит сами вызовы: если кто-то снова
     сузит проверку до одного поля, здесь станет красно.
     """
-    import pathlib
+
     root = pathlib.Path(__file__).resolve().parents[1] / "app" / "routers"
 
     def moderated_lines(name: str) -> list[str]:
@@ -217,6 +218,15 @@ def test_every_public_free_text_field_reaches_moderation():
     assert any("receiver_name" in ln for ln in moderated_lines("courier.py"))
     # Расписание водителя: комментарий отдаётся вообще без входа.
     assert any("body.comment" in ln for ln in moderated_lines("driver_schedule.py"))
+    # Витрина купонов открыта без входа: и создание, и ПРАВКА (бизнес + купон) — четыре двери.
+    coupons_src = (root / "coupons.py").read_text(encoding="utf-8")
+    assert coupons_src.count("_moderate_storefront(user.id") == 4
+
+
+def test_geocode_query_is_clamped():
+    """Запрос уезжает в КЛЮЧ кеша Redis — необрезанный мегабайт с суточным TTL там не нужен."""
+    src = (pathlib.Path(__file__).resolve().parents[1] / "app" / "routers" / "discovery.py").read_text(encoding="utf-8")
+    assert 'query = (q or "").strip()[:200]' in src
 
 
 # --------------------- 7. Витрина водителя — только для водителей ---------------------
@@ -273,7 +283,7 @@ def test_sentry_scrub_masks_the_live_link_token():
 
 def test_apk_does_not_ship_geocoder_key():
     """Ключ платного геокодера живёт только на сервере (клиент ходит через /geocode)."""
-    import pathlib
+
     gradle = pathlib.Path(__file__).resolve().parents[2] / "android" / "app" / "build.gradle.kts"
     if not gradle.exists():          # облачная сессия без папки android — пропускаем
         pytest.skip("android/ недоступна")
