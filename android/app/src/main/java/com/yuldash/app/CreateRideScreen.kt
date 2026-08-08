@@ -940,7 +940,11 @@ internal fun FuelHintBlock(km: Int, fuelRub: Int, perPerson: Int, seats: Int) {
  * F14 · Подсказки точек сбора по ориентирам города/села («у мечети», «у Магнита», «автовокзал»).
  * РБ-фишка: в сёлах адресов нет — «встретимся у мечети» понятнее координат. Сам грузит справочник
  * для [city] (публичный, без токена); тап по чипу отдаёт выбранную точку через [onSelect] (координаты
- * подставятся вместо ручного тыка в карту). Пусто/нет сети → ничего не показываем, ручной выбор остаётся.
+ * подставятся вместо ручного тыка в карту).
+ *
+ * Обрыв связи раньше выглядел как «в моём селе точек сбора нет»: список молча оставался пустым,
+ * блок скрывался, и человек делал вывод про своё село, а не про сеть. Теперь сбой виден и
+ * поправим одной кнопкой — в деревне со слабым 3G это обычное дело, а не редкий случай.
  */
 @Composable
 internal fun PickupSuggestionChips(
@@ -950,12 +954,35 @@ internal fun PickupSuggestionChips(
 ) {
     val isBa = LocalAppLanguage.current == AppLanguage.Ba
     var points by remember { mutableStateOf<List<PickupPointDto>>(emptyList()) }
+    var failed by remember { mutableStateOf(false) }
+    var retryKey by remember { mutableIntStateOf(0) }
     // Дебаунс: город печатают по буквам — не дёргаем сервер на каждый символ.
-    LaunchedEffect(city) {
+    LaunchedEffect(city, retryKey) {
         val c = city.trim()
-        if (c.isBlank()) { points = emptyList(); return@LaunchedEffect }
+        if (c.isBlank()) { points = emptyList(); failed = false; return@LaunchedEffect }
         delay(350)
-        points = ApiClient.getPickupPoints(c).getOrNull().orEmpty()
+        ApiClient.getPickupPoints(c)
+            .onSuccess { points = it; failed = false }
+            .onFailure { points = emptyList(); failed = true }
+    }
+    AnimatedVisibility(
+        visible = failed,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                appText("Точки сбора не загрузились", "Осрашыу нөктәләре йөкләнмәне"),
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { retryKey++ }) {
+                Text(appText("Повторить", "Ҡабатларға"), color = CanonGreen2, fontSize = 14.sp)
+            }
+        }
     }
     AnimatedVisibility(visible = points.isNotEmpty()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

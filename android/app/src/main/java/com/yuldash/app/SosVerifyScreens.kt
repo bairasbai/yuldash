@@ -731,8 +731,16 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
     val tStatusFail = appText("Не удалось загрузить твой статус водителя. Проверь сеть.", "Водитель статусыңды йөкләп булманы. Сетте тикшер.")
 
     // При сетевом сбое честно предупреждаем (не молчим и не показываем пустую форму как
-    // «документы не отправлены», если статус на сервере другой). Повтор — переоткрытием экрана.
-    LaunchedEffect(Unit) {
+    // «документы не отправлены», если статус на сервере другой).
+    //
+    // Раньше единственным сигналом был Toast: он живёт пару секунд и исчезает, а повторить
+    // предлагалось «переоткрытием экрана» — то есть человек должен был сам догадаться выйти
+    // и зайти. Теперь сбой держится на экране строкой с кнопкой «Повторить».
+    var statusFailed by remember { mutableStateOf(false) }
+    var statusLoading by remember { mutableStateOf(true) }
+    var statusRetry by remember { mutableIntStateOf(0) }
+    LaunchedEffect(statusRetry) {
+        statusLoading = true
         ApiClient.getDriverStatus()
             .onSuccess { s ->
                 docsStatus = s.docsStatus
@@ -746,9 +754,16 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
                 if (s.seats > 0) seats = s.seats.toString()
                 if (s.licenseUrl.isNotBlank()) licenseUrl = s.licenseUrl
                 if (s.carPhotoUrl.isNotBlank()) carPhotoUrl = s.carPhotoUrl
+                statusFailed = false
             }
             // 401 (не вошёл) — норм, показываем чистую форму. Иначе сеть упала → предупреждаем.
-            .onFailure { e -> if ((e as? com.yuldash.app.data.ApiException)?.status != 401) Toast.makeText(context, tStatusFail, Toast.LENGTH_LONG).show() }
+            .onFailure { e ->
+                if ((e as? com.yuldash.app.data.ApiException)?.status != 401) {
+                    Toast.makeText(context, tStatusFail, Toast.LENGTH_LONG).show()
+                    statusFailed = true
+                }
+            }
+        statusLoading = false
     }
     val pickLicense = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
@@ -811,6 +826,8 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
         verified = verified,
         submitting = submitting,
         submitError = submitError,
+        statusFailed = statusFailed,
+        onRetryStatus = { statusRetry++ },
         autocheckResult = autocheckResult,
         autocheckData = autocheckData,
         canSubmit = canSubmit,
@@ -840,6 +857,9 @@ internal fun VerifyDriverContent(
     verified: Boolean,
     submitting: Boolean,
     submitError: Boolean,
+    // Дефолты: экран вызывают и из тестов, и из превью — там сбоя статуса нет.
+    statusFailed: Boolean = false,
+    onRetryStatus: () -> Unit = {},
     autocheckResult: String,
     autocheckData: String,
     canSubmit: Boolean,
@@ -858,6 +878,32 @@ internal fun VerifyDriverContent(
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
             item { Spacer(Modifier.height(8.dp)) }
+            // Статус не загрузился: держим сообщение на экране, а не две секунды в Toast.
+            if (statusFailed) {
+                item {
+                    Surface(
+                        shape = CanonItemShape,
+                        color = CanonDangerBg,
+                        border = BorderStroke(1.dp, CanonRed.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                appText("Не удалось загрузить твой статус. Проверь связь.",
+                                        "Статусыңды йөкләп булманы. Бәйләнеште тикшер."),
+                                color = CanonText, fontSize = 14.sp, lineHeight = 20.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = onRetryStatus) {
+                                Text(appText("Повторить", "Ҡабатларға"), color = CanonGreen2, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                }
+            }
             item {
                 Text(appText("Проверка водителя", "Водителде тикшереү"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
                 Text(appText("Пройди проверку — так пассажиры будут доверять", "Пассажирҙар ышанһын өсөн тикшереүҙе үт"), color = CanonMuted, fontSize = 16.sp, lineHeight = 23.sp)

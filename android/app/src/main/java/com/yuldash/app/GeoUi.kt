@@ -15,6 +15,8 @@ package com.yuldash.app
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.material3.TextButton
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
@@ -167,13 +169,15 @@ internal fun SettlementPickField(
 ) {
     var query by remember { mutableStateOf("") }
     var hits by remember { mutableStateOf<List<SettlementDto>>(emptyList()) }
+    var suggestFailed by remember { mutableStateOf(false) }
+    var suggestRetry by remember { mutableIntStateOf(0) }
     val shown = picked?.let { settlementTitle(it) } ?: query
-    LaunchedEffect(query, picked) {
-        if (picked != null || query.isBlank()) { hits = emptyList(); return@LaunchedEffect }
+    LaunchedEffect(query, picked, suggestRetry) {
+        if (picked != null || query.isBlank()) { hits = emptyList(); suggestFailed = false; return@LaunchedEffect }
         delay(250)   // дебаунс, чтобы не дёргать сервер на каждую букву
         ApiClient.searchSettlements(query, 6)
-            .onSuccess { hits = it }
-            .onFailure { hits = emptyList() }
+            .onSuccess { hits = it; suggestFailed = false }
+            .onFailure { hits = emptyList(); suggestFailed = true }
     }
     Column(Modifier.fillMaxWidth()) {
         OutlinedTextField(
@@ -188,6 +192,7 @@ internal fun SettlementPickField(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
         )
+        GeoSuggestError(visible = suggestFailed) { suggestRetry++ }
         AnimatedVisibility(hits.isNotEmpty(), enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Surface(
                 color = CanonSurface, shape = RoundedCornerShape(14.dp),
@@ -346,15 +351,17 @@ internal fun DriverZoneSheet(
 private fun CitySuggestInput(value: String, onChange: (String) -> Unit) {
     var picked by remember { mutableStateOf(true) }   // не подсказывать для предзаполненного города
     var hits by remember { mutableStateOf<List<SettlementDto>>(emptyList()) }
-    LaunchedEffect(value) {
+    var cityFailed by remember { mutableStateOf(false) }
+    var cityRetry by remember { mutableIntStateOf(0) }
+    LaunchedEffect(value, cityRetry) {
         if (picked) { picked = false; return@LaunchedEffect }
-        if (value.isBlank()) { hits = emptyList(); return@LaunchedEffect }
+        if (value.isBlank()) { hits = emptyList(); cityFailed = false; return@LaunchedEffect }
         delay(250)
         // Зона таксиста — это ГОРОД: заказ привязывается к ближайшему городу/райцентру,
         // деревня зоной быть не может (иначе водитель не увидит ни одного заказа).
         ApiClient.searchSettlements(value, 8)
-            .onSuccess { list -> hits = list.filter { it.kind != "village" }.take(5) }
-            .onFailure { hits = emptyList() }
+            .onSuccess { list -> hits = list.filter { it.kind != "village" }.take(5); cityFailed = false }
+            .onFailure { hits = emptyList(); cityFailed = true }
     }
     Column(Modifier.fillMaxWidth()) {
         OutlinedTextField(
@@ -365,6 +372,7 @@ private fun CitySuggestInput(value: String, onChange: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
         )
+        GeoSuggestError(visible = cityFailed) { cityRetry++ }
         AnimatedVisibility(hits.isNotEmpty()) {
             Column(Modifier.padding(top = 4.dp)) {
                 hits.forEach { s ->
@@ -441,11 +449,15 @@ private fun ZoneToggleCard(
 internal fun DistrictPickInput(value: String, onChange: (String) -> Unit, enabled: Boolean = true) {
     var picked by remember { mutableStateOf(true) }   // предзаполненный район не подсказываем
     var hits by remember { mutableStateOf<List<DistrictDto>>(emptyList()) }
-    LaunchedEffect(value) {
+    var districtFailed by remember { mutableStateOf(false) }
+    var districtRetry by remember { mutableIntStateOf(0) }
+    LaunchedEffect(value, districtRetry) {
         if (picked) { picked = false; return@LaunchedEffect }
-        if (value.isBlank()) { hits = emptyList(); return@LaunchedEffect }
+        if (value.isBlank()) { hits = emptyList(); districtFailed = false; return@LaunchedEffect }
         delay(250)
-        ApiClient.searchDistricts(value, 6).onSuccess { hits = it }.onFailure { hits = emptyList() }
+        ApiClient.searchDistricts(value, 6)
+            .onSuccess { hits = it; districtFailed = false }
+            .onFailure { hits = emptyList(); districtFailed = true }
     }
     Column(Modifier.fillMaxWidth()) {
         OutlinedTextField(
@@ -458,6 +470,7 @@ internal fun DistrictPickInput(value: String, onChange: (String) -> Unit, enable
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
         )
+        GeoSuggestError(visible = districtFailed) { districtRetry++ }
         AnimatedVisibility(hits.isNotEmpty()) {
             Column(Modifier.padding(top = 4.dp)) {
                 hits.forEach { d ->
@@ -524,3 +537,35 @@ private fun ZoneOptionCard(
     }
 }
 
+
+
+/**
+ * Подсказки не загрузились (нет связи). Показываем это ЯВНО.
+ *
+ * Раньше сбой сети выглядел как «такого населённого пункта нет»: список подсказок молча
+ * оставался пустым. Человек вводил своё село, ничего не находил и делал вывод про
+ * приложение, а не про связь — а в деревне слабый сигнал это норма, а не исключение.
+ */
+@Composable
+private fun GeoSuggestError(visible: Boolean, onRetry: () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                appText("Подсказки не загрузились — проверь связь",
+                        "Ишараттар йөкләнмәне — бәйләнеште тикшер"),
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onRetry) {
+                Text(appText("Повторить", "Ҡабатларға"), color = CanonGreen2, fontSize = 14.sp)
+            }
+        }
+    }
+}
