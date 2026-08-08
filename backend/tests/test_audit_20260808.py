@@ -296,3 +296,39 @@ def test_apk_does_not_ship_geocoder_key():
 
 # base64 нужен conftest.upload_doc; держим импорт «живым» для линтера
 assert base64 is not None
+
+
+# --------------------- 10. Лист ожидания: телефон с сайта — тоже перс.данные ---------------------
+# Форма «ранний доступ» на лендинге собирает НОМЕР у человека, у которого нет аккаунта.
+# Таблицы не было ни в ретеншене, ни в удалении аккаунта, и удалить строку было нечем —
+# номер лежал вечно (аудит 2026-08-08, 152-ФЗ ст. 5 п. 7 и ст. 14).
+
+def test_admin_can_remove_a_number_from_the_waitlist(client, user_factory):
+    """Человек просит убрать номер — у Александра должна быть кнопка, а не поход в базу."""
+    admin = user_factory("АдминЛиста", role=UserRole.admin)
+    assert client.post("/waitlist", json={"phone": "+79990007777", "city": "Баймак"}).status_code == 200
+    rows = client.get("/admin/waitlist", headers=admin["auth"]).json()["items"]
+    row = next(r for r in rows if r["phone"] == "+79990007777")
+
+    assert client.delete(f"/admin/waitlist/{row['id']}", headers=admin["auth"]).status_code == 200
+    left = client.get("/admin/waitlist", headers=admin["auth"]).json()["items"]
+    assert all(r["phone"] != "+79990007777" for r in left)
+    # Идемпотентно: повторное удаление не 404 — «уже удалили» это успех, а не ошибка.
+    assert client.delete(f"/admin/waitlist/{row['id']}", headers=admin["auth"]).status_code == 200
+
+
+def test_waitlist_removal_is_admin_only(client, user_factory):
+    """Чужой номер из списка посторонний удалить не может."""
+    stranger = user_factory("Посторонний")
+    assert client.delete("/admin/waitlist/1", headers=stranger["auth"]).status_code == 403
+
+
+def test_waitlist_has_a_retention_rule():
+    """Список не хранится вечно: у обеих веток (позвали / так и не позвали) есть срок."""
+    from app.cleanup import WAITLIST_INVITED_DAYS, WAITLIST_STALE_DAYS, _ALLOWED_TABLES, _rules
+    from app.timeutil import utcnow
+
+    assert "waitlistentry" in _ALLOWED_TABLES
+    labels = [label for label, table, _w, _p in _rules(utcnow()) if table == "waitlistentry"]
+    assert len(labels) == 2, labels
+    assert 0 < WAITLIST_INVITED_DAYS < WAITLIST_STALE_DAYS

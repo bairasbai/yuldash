@@ -852,7 +852,9 @@ def lost_item(order_id: int, user: User = Depends(current_user),
             send_push(session, other_id, "Забытая вещь · Онотолған әйбер",
                       "Вторая сторона ищет вещь из этой поездки — чат снова открыт на 48 часов."
                       " · Сәфәрҙән әйбер эҙләйҙәр — чат 48 сәғәткә асыҡ.",
-                      {"type": "chat", "id": order.id})
+                      # «order_chat», а не «chat»: id — заказ такси. Под «chat» приложение
+                      # открывает бронь попутки с этим номером (аудит 2026-08-08).
+                      {"type": "order_chat", "id": order.id})
         except Exception:  # noqa: BLE001 — пуш вторичен
             pass
     return {"ok": True, "chat_open_until": order.lost_item_until.isoformat()}

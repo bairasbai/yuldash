@@ -37,6 +37,12 @@ NOTIF_DAYS = 90      # старые уведомления (быстрораст
 SOS_DAYS = 180       # ТОЛЬКО закрытые (handled) SOS; открытые не трогаем
 REPORT_DAYS = 180    # жалобы (история модерации)
 TRIP_DAYS = 180      # старые завершённые поездки/заявки — только без рейтингов/платежей/SOS
+# Лист ожидания раннего доступа. Телефон человека, оставленный на САЙТЕ (аккаунта у него нет).
+# Хранился вечно: таблицы не было ни в ретеншене, ни в удалении аккаунта — а это персональные
+# данные, которые по 152-ФЗ (ст. 5 п. 7) уничтожают по достижении цели сбора (аудит 2026-08-08).
+# Цель одна — «позвать на запуск», поэтому:
+WAITLIST_INVITED_DAYS = 90    # позвали → цель достигнута, даём запас на повторную волну
+WAITLIST_STALE_DAYS = 365     # так и не позвали за год → обещание не сбылось, номер не держим
 
 
 # Белый список имён таблиц: имена в _rules() — наши константы, НЕ юзер-ввод (инъекции нет).
@@ -46,7 +52,7 @@ _ALLOWED_TABLES = frozenset({
     "message", "otpcode", "tgauth", "uploadevent", "refreshtoken", "adevent", "offerdecline",
     "sosevent", "report", "tripshare", "requestresponse", "riderequest",
     "booking", "ride", "notification", "instantorder", "parceldelivery",
-    "analyticsevent",
+    "analyticsevent", "waitlistentry",
 })
 
 
@@ -67,6 +73,11 @@ def _rules(now):
         ("причины отказа от офферов >90д", "offerdecline", "created_at < :c", {"c": cut(DECLINE_DAYS)}),
         ("аналитика веб (события) >90д", "analyticsevent", "created_at < :c", {"c": cut(ANALYTICS_DAYS)}),
         ("уведомления >90д", "notification", "created_at < :c", {"c": cut(NOTIF_DAYS)}),
+        # Лист ожидания: позванным цель достигнута, непозванным за год — обещание не сбылось.
+        ("лист ожидания: позваны >90д", "waitlistentry",
+         "invited_at IS NOT NULL AND invited_at < :c", {"c": cut(WAITLIST_INVITED_DAYS)}),
+        ("лист ожидания: ждут больше года", "waitlistentry",
+         "invited_at IS NULL AND created_at < :c", {"c": cut(WAITLIST_STALE_DAYS)}),
         # --- Фаза 2: старое завершённое (осторожно, с гардами) ---
         ("закрытые SOS >180д", "sosevent", "status = 'handled' AND created_at < :c", {"c": cut(SOS_DAYS)}),
         ("жалобы >180д", "report", "created_at < :c", {"c": cut(REPORT_DAYS)}),

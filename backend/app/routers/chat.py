@@ -394,7 +394,11 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
                         send_push, session, other_id,
                         (sender.name if sender else None) or "Новое сообщение",
                         (msg.text or "Сообщение")[:120],
-                        {"type": "chat", "id": order_id},   # канал «Сообщения» + deep-link (см. booking-чат)
+                        # Тип «order_chat», а не общий «chat»: id здесь — ЗАКАЗ ТАКСИ, а под
+                        # словом «chat» приложение открывает БРОНЬ попутки с этим номером —
+                        # то есть чужую поездку или пустой экран. REST-близнец этого же чата
+                        # починили 2026-08-06, а сокет пропустили (аудит 2026-08-08).
+                        {"type": "order_chat", "id": order_id},   # канал «Сообщения» + deep-link
                     )
     except WebSocketDisconnect:
         pass

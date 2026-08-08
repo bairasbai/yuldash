@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { LEGAL } from "./config";
 import { useLang } from "./lang";
 import { Reveal } from "./Reveal";
 import { BorderBeam } from "./BorderBeam";
@@ -145,7 +146,15 @@ export function EarlyAccess() {
                   >
                     {sending ? tr("ea_sending") : tr("ea_cta")}
                   </button>
-                  <p className="text-center text-xs text-white/40">{tr("ea_privacy")}</p>
+                  <p className="text-center text-xs text-white/40">
+                    {tr("ea_privacy")}{" "}
+                    <a
+                      href={LEGAL.privacy}
+                      className="text-green-glow underline-offset-2 hover:underline"
+                    >
+                      {tr("foot_privacy")}
+                    </a>
+                  </p>
                 </div>
               </form>
             )}
