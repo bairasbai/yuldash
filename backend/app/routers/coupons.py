@@ -97,21 +97,47 @@ def _csv(s: str) -> List[str]:
     return [x.strip() for x in (s or "").split(",") if x.strip()]
 
 
-def _moderate_storefront(user_id: int, *parts: str) -> None:
-    """Проверить текст, который попадёт в ПУБЛИЧНУЮ витрину купонов.
+def _moderate_storefront(user_id: int, *parts: str) -> str:
+    """Проверить текст, который попадёт в ПУБЛИЧНУЮ витрину купонов. Возвращает метку ('' — чисто).
 
     Витрина `/coupons` открыта без входа, а модерации у неё не было вовсе (аудит 2026-08-08).
-    Одобрение админом закрывает только первый шаг: правка бизнеса и купонов после одобрения
-    ничем не гейтится, то есть чистую карточку можно переписать во что угодно и никто не
-    узнает. Как везде: ПОМЕЧАЕМ (метка + счётчик в админ-пульсе), текст не режем и
-    сохранение не рвём — решает человек.
-
-    ⚠️ Это не полное решение «переписал после одобрения»: чтобы правка возвращала карточку
-    на модерацию (как у рекламы — `_own_editable_ad`), нужно решение Александра, см. tasks.md.
+    Метка (`contact`/`abuse`/`warn`) копится в админ-пульсе, как везде, и дополнительно
+    решает судьбу купона: помеченный в витрину не выпускаем (см. `_hold_flagged_coupon`).
     """
     text = "\n".join(p.strip() for p in parts if p and p.strip())
-    if text:
-        moderate_open_text(text, user_id)
+    return moderate_open_text(text, user_id) if text else ""
+
+
+# Поля витрины бизнеса, которые ЧИТАЕТ человек. Их правка после одобрения возвращает карточку
+# на модерацию (решение Александра, 2026-08-08). Категория, город и координаты сюда не входят
+# намеренно: бизнес, передвинувший пин на карте или сменивший категорию, не должен пропадать
+# из витрины до следующего захода админа — переписать этим текст объявления нельзя.
+_PARTNER_TEXT_FIELDS = ("name", "description", "address", "phone")
+
+
+def _partner_text(partner: Partner) -> tuple:
+    return tuple((getattr(partner, f, "") or "").strip() for f in _PARTNER_TEXT_FIELDS)
+
+
+def _requeue_partner_after_edit(session: Session, partner: Partner, before: tuple) -> bool:
+    """Одобренный бизнес переписал видимый текст → карточка снова на модерации.
+
+    Зачем строго. Одобрение админом закрывало только ПЕРВЫЙ показ: карточку, одобренную
+    чистой, владелец потом переписывал во что угодно, и она уходила в витрину сразу — это
+    классическая подмена после проверки (аудит 2026-08-08). Теперь как у рекламы: правка
+    текста снимает карточку с витрины до нового одобрения.
+
+    Цена решения принята сознательно: бизнес, поправивший телефон, пропадает из витрины до
+    захода админа. Поэтому и re-moderation только на ТЕКСТ (см. `_PARTNER_TEXT_FIELDS`) и
+    только при реальном изменении — повторное сохранение той же формы карточку не роняет.
+    """
+    if partner.status != "active" or _partner_text(partner) == before:
+        return False
+    partner.status = "pending"
+    partner.reviewed_at = None
+    partner.reject_reason = ""
+    session.add(partner)
+    return True
 
 
 def _gen_code(session: Session) -> str:
@@ -602,6 +628,25 @@ def partner_coupon_create(body: CouponIn, user: User = Depends(current_user), se
     return _coupon_mine(coupon, session)
 
 
+def _coupon_flag(coupon: Coupon, user_id: int) -> str:
+    """Метка модерации по тексту купона, который увидит витрина ('' — чисто)."""
+    return _moderate_storefront(user_id, coupon.title, coupon.description,
+                                coupon.route_hint, coupon.discount_text)
+
+
+def _tell_admin_coupon_held(coupon: Coupon, kind: str) -> None:
+    try:  # best-effort: правку/смену статуса не роняем из-за Telegram
+        notify_admin_telegram(
+            f"🚫 Купон задержан проверкой текста\n"
+            f"ID: {coupon.id}\n"
+            f"Заголовок: «{coupon.title}»\n"
+            f"Метка: {kind}\n"
+            f"В витрину не выпущен, лежит черновиком. Разбор: Кабинет админа → Бизнесы"
+        )
+    except Exception:
+        pass
+
+
 def _own_coupon(coupon_id: int, user: User, session: Session) -> Coupon:
     """Достать СВОЙ купон (по владельцу бизнеса) или 404."""
     coupon = session.get(Coupon, coupon_id)
@@ -614,10 +659,15 @@ def _own_coupon(coupon_id: int, user: User, session: Session) -> Coupon:
 
 @router.post("/partner/coupons/{coupon_id}")
 def partner_coupon_update(coupon_id: int, body: CouponIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Правка своего купона. Чужой → 404."""
+    """Правка своего купона. Чужой → 404.
+
+    Купоны бизнес публикует сам (их до 50 на бизнес — ставить каждый в очередь к админу
+    значило бы утопить его в работе). Поэтому строгость здесь другая, чем у карточки
+    бизнеса: помеченный проверкой текст в витрину не выпускаем — купон уходит в черновик,
+    а админ получает сигнал. Чистый текст публикуется сразу, как и раньше.
+    """
     coupon = _own_coupon(coupon_id, user, session)
     partner = session.get(Partner, coupon.partner_id)
-    _moderate_storefront(user.id, body.title, body.description, body.route_hint, body.discount_text)
     if body.title.strip():
         coupon.title = body.title.strip()
     coupon.description = body.description.strip()
@@ -630,19 +680,40 @@ def partner_coupon_update(coupon_id: int, body: CouponIn, user: User = Depends(c
     coupon.limit_total = max(0, body.limit_total)
     coupon.limit_per_user = max(1, body.limit_per_user)
     coupon.premium = bool(body.premium) and _partner_has_premium(partner)
+    # Проверяем УЖЕ СОБРАННЫЙ купон (а не присланные поля): правка может подменить одно поле,
+    # а «в витрину» уедет вся карточка целиком.
+    kind = _coupon_flag(coupon, user.id)
+    held = bool(kind) and coupon.status == "active"
+    if held:
+        coupon.status = "draft"
     session.add(coupon)
     session.commit()
     session.refresh(coupon)
+    if held:
+        _tell_admin_coupon_held(coupon, kind)
+        send_push(session, user.id, "Купон снят с витрины",
+                  f"«{coupon.title}»: текст не прошёл проверку и убран в черновик. Поправь и включи снова.")
     return _coupon_mine(coupon, session)
 
 
 @router.post("/partner/coupons/{coupon_id}/status")
 def partner_coupon_status(coupon_id: int, body: CouponStatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Сменить статус купона (draft↔active↔paused↔archived)."""
+    """Сменить статус купона (draft↔active↔paused↔archived).
+
+    Включить в витрину можно только купон с чистым текстом: иначе достаточно было сохранить
+    карточку черновиком и нажать «включить» — правка проверяется, а включение нет.
+    """
     coupon = _own_coupon(coupon_id, user, session)
     new_status = (body.status or "").strip()
     if new_status not in ("draft", "active", "paused", "archived"):
         raise herr(422, "Недопустимый статус", "Ярамаған статус")
+    if new_status == "active":
+        kind = _coupon_flag(coupon, user.id)
+        if kind:
+            _tell_admin_coupon_held(coupon, kind)
+            raise herr(422,
+                       "Текст купона не прошёл проверку — убери телефон, ссылку или резкие слова.",
+                       "Купон тексты тикшереүҙе үтмәне — телефонды, һылтанманы йәки ҡаты һүҙҙәрҙе алып ташла.")
     coupon.status = new_status
     session.add(coupon)
     session.commit()
@@ -675,9 +746,14 @@ def partner_coupon_stats(coupon_id: int, user: User = Depends(current_user), ses
 # FastAPI не сужает int-path на уровне роутинга, иначе «coupons»/«subscribe» ловились бы сюда → 422.
 @router.post("/partner/{partner_id}")
 def partner_update(partner_id: int, body: PartnerIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Правка своего бизнеса (name/category/address/phone/description/lat/lng). Чужой → 404."""
+    """Правка своего бизнеса (name/category/address/phone/description/lat/lng). Чужой → 404.
+
+    Правка ВИДИМОГО ТЕКСТА у одобренного бизнеса возвращает карточку на модерацию —
+    см. `_requeue_partner_after_edit`. Категория, город и координаты карточку не роняют.
+    """
     partner = _own_partner(partner_id, user, session)
     _moderate_storefront(user.id, body.name, body.description, body.address)
+    before = _partner_text(partner)
     if body.name.strip():
         partner.name = body.name.strip()
     if body.category.strip():
@@ -691,9 +767,28 @@ def partner_update(partner_id: int, body: PartnerIn, user: User = Depends(curren
         partner.lat = body.lat
     if body.lng is not None:
         partner.lng = body.lng
+    requeued = _requeue_partner_after_edit(session, partner, before)
     session.add(partner)
     session.commit()
     session.refresh(partner)
+    if requeued:
+        # Человеку — честно и сразу: почему его купоны исчезли из витрины.
+        send_push(
+            session, partner.owner_id, "Карточка снова на проверке",
+            f"«{partner.name}»: текст изменён, поэтому купоны скрыты из витрины до проверки. "
+            "Обычно это недолго.",
+        )
+        try:  # админу — best-effort, правку не роняем
+            notify_admin_telegram(
+                f"✏️ Бизнес изменил карточку — нужна проверка\n"
+                f"ID: {partner.id}\n"
+                f"Название: «{partner.name}»\n"
+                f"Город: {partner.city}\n"
+                f"Телефон: {partner.phone or '—'}\n"
+                f"Купоны скрыты из витрины. Разбор: Кабинет админа → Бизнесы"
+            )
+        except Exception:
+            pass
     return _partner_mine(partner)
 
 
