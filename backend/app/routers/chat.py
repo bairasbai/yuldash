@@ -193,6 +193,19 @@ class MessageIn(BaseModel):
     transcript: Optional[str] = Field(None, max_length=4000)
 
 
+def _flag_for(body: "MessageIn", *, check_contact: bool) -> str:
+    """Метка модерации по ВСЕМУ, что увидит собеседник: текст + расшифровка голосового.
+
+    Расшифровку присылает клиент (распознавание идёт на телефоне), собеседнику её показывают
+    наравне с текстом — а проверялся только `text` (аудит 2026-08-08). В Такси и Курьере это
+    сводило проверку на нет: номер телефона достаточно было положить в `transcript`, и он
+    приезжал без метки — то есть ровно тот увод сделки мимо комиссии, от которого проверка
+    и стоит. Тот же класс, что забытое имя пользователя (аудит 2026-08-07).
+    """
+    joined = "\n".join(p for p in ((body.text or "").strip(), (body.transcript or "").strip()) if p)
+    return moderate_text(joined, check_contact=check_contact)
+
+
 @router.websocket("/ws/bookings/{booking_id}")
 async def websocket_endpoint(websocket: WebSocket, booking_id: int):
     """WebSocket чат брони. Токен — ТОЛЬКО первым сообщением {"type":"auth","token":...}.
@@ -401,7 +414,7 @@ def send_order_message(order_id: int, body: MessageIn, user: User = Depends(curr
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
         raise herr(422, "Недопустимая ссылка на медиа", "Ярамаған медиа һылтанмаһы")
     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
-    msg = Message(order_id=order_id, sender_id=user.id, flag=moderate_text(body.text, check_contact=True),
+    msg = Message(order_id=order_id, sender_id=user.id, flag=_flag_for(body, check_contact=True),
                   from_admin=(user.role == UserRole.admin), **body.model_dump())
     session.add(msg)
     session.commit()
@@ -545,7 +558,7 @@ def send_parcel_message(parcel_id: int, body: MessageIn, user: User = Depends(cu
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
         raise herr(422, "Недопустимая ссылка на медиа", "Ярамаған медиа һылтанмаһы")
     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
-    msg = Message(parcel_id=parcel_id, sender_id=user.id, flag=moderate_text(body.text, check_contact=True),
+    msg = Message(parcel_id=parcel_id, sender_id=user.id, flag=_flag_for(body, check_contact=True),
                   from_admin=(user.role == UserRole.admin), **body.model_dump())
     session.add(msg)
     session.commit()
@@ -609,7 +622,7 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
         raise herr(422, "Недопустимая ссылка на медиа", "Ярамаған медиа һылтанмаһы")
     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
-    msg = Message(booking_id=booking_id, sender_id=user.id, flag=moderate_text(body.text, check_contact=False),
+    msg = Message(booking_id=booking_id, sender_id=user.id, flag=_flag_for(body, check_contact=False),
                   from_admin=(user.role == UserRole.admin), **body.model_dump())
     session.add(msg)
     session.commit()

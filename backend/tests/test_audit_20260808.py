@@ -181,7 +181,95 @@ def test_live_page_pins_cdn_files_with_integrity():
     assert _PAGE_HTML.count("crossorigin=\"anonymous\"") == 2
 
 
-# --------------------- 6. Ключ геокодера не уезжает в приложение ---------------------
+# --------------------- 6. Модерация чата смотрит и расшифровку голосового ---------------------
+
+def test_chat_moderation_covers_the_voice_transcript():
+    """Расшифровку голосового показывают собеседнику наравне с текстом, а проверялся только
+    `text` — номер телефона достаточно было положить в `transcript`, и он приезжал без метки."""
+    from app.antifraud import MESSAGE_FLAG_CONTACT
+    from app.routers.chat import MessageIn, _flag_for
+
+    hidden = MessageIn(text="давай спишемся", transcript="мой номер +7 999 123-45-67")
+    assert _flag_for(hidden, check_contact=True) == MESSAGE_FLAG_CONTACT
+    # В попутке обмен номерами — норма (комиссии нет): метку не ставим, поведение прежнее.
+    assert _flag_for(hidden, check_contact=False) == ""
+    assert _flag_for(MessageIn(text="еду, буду через пять минут"), check_contact=True) == ""
+
+
+def test_every_public_free_text_field_reaches_moderation():
+    """Открытые поля проверяются ЦЕЛИКОМ, а не по одному «главному».
+
+    Три места, где проверка смотрела одно поле из нескольких видимых, и обойти её можно было,
+    переложив текст в соседнее (аудит 2026-08-08). Тест держит сами вызовы: если кто-то снова
+    сузит проверку до одного поля, здесь станет красно.
+    """
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[1] / "app" / "routers"
+
+    def moderated_lines(name: str) -> list[str]:
+        src = (root / name).read_text(encoding="utf-8")
+        return [ln for ln in src.split("\n") if "moderate_open_text(" in ln and "def " not in ln]
+
+    # Заявка: комментарий + расшифровка голосовой + имя близкого — одним текстом.
+    assert any("_visible_request_text(body)" in ln for ln in moderated_lines("requests.py"))
+    # Посылка и курьерский заказ: описание И имя получателя (оба едут в открытую ленту).
+    assert any("receiver_name" in ln for ln in moderated_lines("parcels.py"))
+    assert any("receiver_name" in ln for ln in moderated_lines("courier.py"))
+    # Расписание водителя: комментарий отдаётся вообще без входа.
+    assert any("body.comment" in ln for ln in moderated_lines("driver_schedule.py"))
+
+
+# --------------------- 7. Витрина водителя — только для водителей ---------------------
+
+def test_driver_card_hides_plain_passengers(client, user_factory):
+    """Витрина открыта без входа. По номеру обычного пассажира она отдавала его имя, фото,
+    дату регистрации и отзывы — то есть позволяла перебрать всю базу по возрастанию id."""
+    passenger = user_factory("Обычный пассажир", taxi_approved=False)
+    r = client.get(f"/drivers/{passenger['id']}/public")
+    assert r.status_code == 404, r.text
+
+
+def test_driver_card_still_opens_for_a_real_driver(client, user_factory):
+    """Штатный путь (тап по карточке поездки) не сломался."""
+    drv = user_factory("Настоящий водитель", role=UserRole.driver)
+    published = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай",
+        # Клиент шлёт МЕСТНОЕ время (сервер вычтет часовой пояс Уфы) — берём запас с избытком.
+        "depart_at": (utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat(),
+        "seats_total": 3, "price": 300,
+    })
+    assert published.status_code == 200, published.text
+    r = client.get(f"/drivers/{drv['id']}/public")
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == drv["id"]
+
+
+# --------------------- 7. Телеметрия без входа — свой бюджет ---------------------
+
+def test_events_have_their_own_rate_budget(client, monkeypatch):
+    """Единственная ручка, пишущая в базу без входа, не должна забивать диск."""
+    monkeypatch.setattr(settings, "rate_limit_enabled", True)
+    monkeypatch.setattr(settings, "rate_limit_per_min", 10_000)   # общий заведомо не мешает
+    monkeypatch.setattr(settings, "rate_limit_events_per_min", 3)
+    ip = {"X-Real-IP": "203.0.113.77"}
+    codes = [client.post("/events", json={"event": "ping"}, headers=ip).status_code
+             for _ in range(6)]
+    assert 429 in codes, codes
+
+
+# --------------------- 8. Секретная ссылка не уезжает в Sentry ---------------------
+
+def test_sentry_scrub_masks_the_live_link_token():
+    """Токен в пути /t/{token} — ключ к живым координатам поездки. Sentry прикладывает
+    полный адрес запроса сам, и `send_default_pii=False` от этого не спасает."""
+    from app.observability import scrub_text
+    dirty = "GET https://yulbash.ru/t/Aa1Bb2Cc3Dd4Ee5Ff6Gg7/state.json → 500"
+    clean = scrub_text(dirty)
+    assert "Aa1Bb2Cc3Dd4Ee5Ff6Gg7" not in clean
+    assert "/t/***" in clean
+
+
+# --------------------- 9. Ключ геокодера не уезжает в приложение ---------------------
 
 def test_apk_does_not_ship_geocoder_key():
     """Ключ платного геокодера живёт только на сервере (клиент ходит через /geocode)."""

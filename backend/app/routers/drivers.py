@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, UserRole
 from ..security import current_user
 from ..services import DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url, user_rating
@@ -299,7 +300,7 @@ def driver_public(driver_id: int, limit: int = 5, session: Session = Depends(get
     limit = max(1, min(20, limit))
     u = session.get(User, driver_id)
     if not u:
-        raise HTTPException(404, "Пользователь не найден")
+        raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
     dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver_id)).first()
 
     # СОСТОЯВШИЕСЯ поездки как водитель: бронь закрыта И поездка уже выехала.
@@ -309,6 +310,18 @@ def driver_public(driver_id: int, limit: int = 5, session: Session = Depends(get
     # рисовал «5 поездок, рейтинг 5.0» тому, кто не проехал ни метра. То же правило —
     # в `services.driver_trips_agg` (лента) и `safety_logic.completed_trips_for` (доверие).
     ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == driver_id)).all())
+    # Это витрина ВОДИТЕЛЯ, и открыта она без входа. Раньше id в адресе не проверялся ничем:
+    # подставив номер обычного пассажира, посторонний получал его имя, фото, дату регистрации,
+    # рейтинг и тексты отзывов о нём — и мог перебрать так всю базу по возрастанию id
+    # (аудит 2026-08-08). Для приложения «между своими» это ровно то, от чего мы прячем
+    # закрытые поездки и точные координаты заявок.
+    #
+    # Водителем считаем по трём признакам, любого достаточно: роль, кабинет водителя или хоть
+    # одна опубликованная поездка. Роль здесь не «слово пользователя о себе» — подделать её
+    # можно только СЕБЕ, а закрываем мы перебор ЧУЖИХ профилей. Никто из трёх — 404 тем же
+    # текстом, существование аккаунта не раскрываем.
+    if u.role != UserRole.driver and dp is None and not ride_ids:
+        raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
     trips_done = 0
     if ride_ids:
         trips_done = len(session.exec(

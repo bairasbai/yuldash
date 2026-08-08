@@ -49,6 +49,13 @@ _ESTIMATE_PREFIXES = (
     "/api/v1/instant/estimate", "/api/v1/courier/estimate",
 )
 
+# Приём телеметрии — единственная ручка, которая ПИШЕТ строку в базу вообще без входа.
+# Общего бюджета (300/мин) тут мало: это 430 тысяч строк в сутки с одного адреса, и на нашем
+# маленьком сервере такой «аналитикой» забивают диск за неделю (аудит 2026-08-08). Настоящий
+# клиент шлёт единицы событий на действие человека, поэтому свой бюджет ничего не ломает,
+# а бессмысленный поток обрубает.
+_EVENTS_PREFIXES = ("/events", "/api/v1/events")
+
 # Освобождены от ЖЁСТКОГО лимита: пробы мониторинга (их долбит uptime-чек и деплой-гейт)
 # и вебхуки внешних сервисов (Telegram/ЮKassa) — у них своя защита (секрет/подпись), а объём
 # легитимного трафика может кратно превышать пользовательский. Проверяется ПЕРЕД
@@ -99,6 +106,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._hits_strict: dict[str, deque] = defaultdict(deque)
         self._hits_sos: dict[str, deque] = defaultdict(deque)
         self._hits_estimate: dict[str, deque] = defaultdict(deque)
+        self._hits_events: dict[str, deque] = defaultdict(deque)
         self._redis = None
         self._redis_tried = False
 
@@ -147,6 +155,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         strict = path.startswith(_STRICT_PREFIXES)
         sos = path.startswith(_SOS_PREFIXES)
         estimate = path.startswith(_ESTIMATE_PREFIXES)
+        events = path.startswith(_EVENTS_PREFIXES)
         client = self._get_redis()
         over, retry_after = False, 0
         if client is not None:
@@ -159,6 +168,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 if not over and estimate:
                     over, retry_after = await self._over_redis(client, f"rl:e:{ip}",
                                                                settings.rate_limit_estimate_per_min)
+                if not over and events:
+                    over, retry_after = await self._over_redis(client, f"rl:ev:{ip}",
+                                                               settings.rate_limit_events_per_min)
                 if not over:
                     over, retry_after = await self._over_redis(client, f"rl:g:{ip}", settings.rate_limit_per_min)
             except Exception as e:  # noqa: BLE001 — Redis недоступен → in-memory
@@ -175,6 +187,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if not over and estimate:
                 over, retry_after = self._over_mem(self._hits_estimate, ip,
                                                    settings.rate_limit_estimate_per_min, now)
+            if not over and events:
+                over, retry_after = self._over_mem(self._hits_events, ip,
+                                                   settings.rate_limit_events_per_min, now)
             if not over:
                 over, retry_after = self._over_mem(self._hits, ip, settings.rate_limit_per_min, now)
         if over:

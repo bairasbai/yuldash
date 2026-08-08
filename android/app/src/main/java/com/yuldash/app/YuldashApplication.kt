@@ -71,6 +71,10 @@ private val SCRUB: List<Pair<Regex, String>> = listOf(
     Regex("""\b(lat|lng|lon|latitude|longitude)=-?\d+\.\d+""", RegexOption.IGNORE_CASE) to "$1=<коорд>",
     // JWT: три base64-куска через точку. Токен = доступ к аккаунту
     Regex("""\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b""") to "<токен>",
+    // Live-ссылка близкому (/t/{token}) — ключ к живым координатам поездки. Приложение её
+    // строит и показывает при «поделиться», поэтому она может попасть в текст сбоя или в
+    // хлебную крошку. Зеркало серверного правила (аудит 2026-08-08).
+    Regex("""/t/[A-Za-z0-9_-]{16,}""") to "/t/***",
     Regex("""\b(token|access_token|refresh_token|code|otp|password|secret|api_key|key)=[^&\s"']+""",
         RegexOption.IGNORE_CASE) to "$1=<скрыто>",
 )

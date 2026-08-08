@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
+from ..antifraud import moderate_open_text
 from ..db import get_session
 from ..models import DriverSchedule, User
 from ..security import current_user
@@ -90,6 +91,11 @@ def create_schedule(body: ScheduleIn, user: User = Depends(current_user), sessio
         raise HTTPException(400, "Города отправления и назначения совпадают")
     weekdays = _normalize_weekdays(body.weekdays)
     tm = _normalize_time(body.time)
+    # Комментарий к расписанию отдаётся БЕЗ входа (`GET /drivers/{id}/schedule`) — то есть это
+    # самое открытое поле из всех: его видно даже тем, кто в приложение не заходил. Модерации
+    # тут не было вовсе (аудит 2026-08-08), и постоянное объявление «звони 8987…, вожу дёшево»
+    # висело бы в профиле мимо всех проверок. Как везде: помечаем, текст не режем.
+    moderate_open_text((body.comment or "").strip(), user.id)
     # Идемпотентность ПОСЛЕДОВАТЕЛЬНОГО двойного тапа / ретрая: вернём существующее вместо дубля.
     # Дедуп на уровне приложения (без миграции) — покрывает обычный кейс; РОВНО одновременные
     # идентичные POST теоретически создадут дубль (расписание косметическое, не деньги/безопасность).

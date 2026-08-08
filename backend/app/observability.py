@@ -31,6 +31,11 @@ _SCRUB = (
     (re.compile(r"\b(lat|lng|lon|latitude|longitude)=-?\d+\.\d+", re.IGNORECASE), r"\1=<коорд>"),
     # JWT: три base64-куска через точку. Токен = доступ к аккаунту
     (re.compile(r"\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"), "<токен>"),
+    # Live-ссылка близкому (/t/{token}): токен в ПУТИ — это и есть ключ к живым координатам
+    # поездки. Access-лог его маскирует, алерт админу тоже (middleware.py), а Sentry
+    # прикладывает полный адрес запроса САМ — и `send_default_pii=False` тут не помогает,
+    # потому что URL не считается персональными данными (аудит 2026-08-08). Маскируем здесь.
+    (re.compile(r"/t/[A-Za-z0-9_-]{16,}"), "/t/***"),
     # секреты в параметрах
     (re.compile(r"\b(token|access_token|refresh_token|code|otp|password|secret|api_key|key)=[^&\s\"']+",
                 re.IGNORECASE), r"\1=<скрыто>"),
