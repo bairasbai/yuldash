@@ -422,6 +422,12 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     # спокойно доводил дело до рейса (проверено запросом: 200, аудит 2026-08-08, волна 9).
     # Отмена брони отстранённому ОСТАЁТСЯ открытой — иначе пассажир висит в ожидании.
     ensure_active(session, user.id)
+    # Та же вторая дверь для блокировки: бронировать заблокированного нельзя (см. create_booking),
+    # а ПОДТВЕРДИТЬ бронь, поставленную до блокировки, было можно — и водитель ехал к человеку,
+    # который от него закрылся (аудит 2026-08-08, волна 10). Текст глухой — про факт блокировки
+    # второй стороне не сообщаем.
+    if is_blocked(session, user.id, booking.passenger_id):
+        raise herr(403, "Недоступно", "Мөмкин түгел")
     booking.status = BookingStatus.confirmed
     session.add(booking)
     session.commit()

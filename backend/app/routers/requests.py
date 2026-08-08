@@ -825,6 +825,13 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     if user.role != UserRole.admin:
         ensure_active(session, user.id)          # моё действие — про мой аккаунт, свой текст
     other_id = resp.driver_id if role == "passenger" else req.passenger_id
+    # Блокировка — инструмент защиты от преследования, и у неё была та же вторая дверь, что у
+    # паузы: ОТКЛИК заблокированному закрыт (403 выше), а ПРИНЯТЬ цену он мог. Достаточно было
+    # откликнуться до блокировки и дождаться своего хода — и человек, которого заблокировали,
+    # оказывался за рулём у того, кто от него закрылся (проверено запросом: 200 и booking_id,
+    # аудит 2026-08-08, волна 10). Текст намеренно глухой: он не сообщает о факте блокировки.
+    if other_id and other_id != user.id and is_blocked(session, user.id, other_id):
+        raise herr(403, "Недоступно", "Мөмкин түгел")
     if other_id and other_id != user.id and account_paused(session, other_id):
         # Второй стороне НЕ говорим, что человека наказали (чужая история разбора), и не
         # обвиняем её саму: текст про невозможность сделки, а не про чей-то аккаунт.

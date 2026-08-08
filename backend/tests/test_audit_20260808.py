@@ -557,3 +557,56 @@ def test_courier_cannot_pass_off_a_foreign_photo_as_proof(client, user_factory):
     denied = client.post(f"/parcels/{pid}/accept", headers=courier["auth"],
                          json={"pickup_photo_url": foreign})
     assert denied.status_code == 403, denied.text
+
+# --------------------- 14. Волна 10: блокировку обходил ВТОРОЙ шаг ---------------------
+# Блокировка — инструмент защиты от преследования, и у неё оказалась та же вторая дверь,
+# что у паузы в волне 9: первый шаг закрыт, второй открыт. Заблокированный водитель
+# доводил сделку до конца и приезжал к человеку, который от него закрылся.
+
+def test_blocked_driver_cannot_accept_the_price(client, user_factory):
+    """Откликнуться заблокированному нельзя (403), а «принять цену» было можно (200)."""
+    pax = user_factory("Пассажирка с блокировкой")
+    req = client.post("/requests", headers=pax["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай", "seats": 1})
+    assert req.status_code == 200, req.text
+    rid = req.json()["id"]
+    drv = user_factory("Неприятный водитель", role=UserRole.driver)
+
+    resp = client.post(f"/requests/{rid}/respond", headers=drv["auth"], json={"price": 500})
+    assert resp.status_code == 200, resp.text
+    resp_id = resp.json()["id"]
+    # Встречная цена пассажирки → теперь ход водителя, «принять» может он.
+    assert client.post(f"/responses/{resp_id}/counter", headers=pax["auth"],
+                       json={"price": 400}).status_code == 200
+
+    assert client.post("/blocks", headers=pax["auth"],
+                       json={"blocked_user_id": drv["id"]}).status_code == 200
+
+    # Первая дверь закрыта и раньше.
+    assert client.post(f"/requests/{rid}/respond", headers=drv["auth"],
+                       json={"price": 450}).status_code == 403
+    # Вторая — теперь тоже.
+    a = client.post(f"/responses/{resp_id}/accept", headers=drv["auth"])
+    assert a.status_code == 403, f"заблокированный довёл сделку и поедет: {a.status_code} {a.text[:160]}"
+    # Текст глухой: о самом факте блокировки второй стороне не сообщаем.
+    ru = a.json()["detail"]["ru"].lower()
+    assert "блок" not in ru and "чёрн" not in ru, a.json()["detail"]["ru"]
+
+
+def test_blocked_driver_cannot_confirm_the_booking(client, user_factory):
+    """Бронировать заблокированного нельзя, а подтвердить бронь, поставленную ДО блокировки,
+    было можно — и водитель ехал к человеку, который от него закрылся."""
+    drv = user_factory("Водитель до блокировки", role=UserRole.driver)
+    r = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай",
+        "depart_at": (utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat(),
+        "seats_total": 3, "price": 300})
+    assert r.status_code == 200, r.text
+    pax = user_factory("Пассажирка, закрывшаяся позже")
+    b = client.post("/bookings", headers=pax["auth"], json={"ride_id": r.json()["id"], "seats": 1})
+    assert b.status_code == 200, b.text
+
+    assert client.post("/blocks", headers=pax["auth"],
+                       json={"blocked_user_id": drv["id"]}).status_code == 200
+    c = client.post(f"/bookings/{b.json()['id']}/confirm", headers=drv["auth"])
+    assert c.status_code == 403, f"заблокированный подтвердил бронь: {c.status_code} {c.text[:160]}"
