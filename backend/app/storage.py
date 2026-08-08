@@ -69,10 +69,11 @@ class Storage(ABC):
         """Удалить (best-effort: отсутствие объекта — не ошибка)."""
 
     def iter_old(self, prefixes: list[str], older_than_ts: float):
-        """Итерировать (key, size_bytes) ПУБЛИЧНЫХ объектов старше older_than_ts под указанными
-        префиксами (напр. voice/chat) — для ретеншен-чистки. БЕЗ удаления: удаляет вызывающий
-        через delete() (уважая dry-run). Приватные docs не трогаем. Не abstractmethod — чтобы
-        частичные/тестовые реализации Storage не ломались; по умолчанию перечислять нечего."""
+        """Итерировать (key, size_bytes) объектов старше older_than_ts под указанными
+        префиксами — для ретеншен-чистки. БЕЗ удаления: удаляет вызывающий через delete()
+        (уважая dry-run). Работает и с приватными областями (evidence): что именно чистить,
+        решает `cleanup._clean_media` по списку живых ссылок, а не хранилище. Не abstractmethod —
+        чтобы частичные/тестовые реализации Storage не ломались; по умолчанию перечислять нечего."""
         return iter(())
 
     @abstractmethod
@@ -121,7 +122,12 @@ class LocalStorage(Storage):
 
     def iter_old(self, prefixes: list[str], older_than_ts: float):
         for prefix in prefixes:
-            d = os.path.join(MEDIA_DIR, prefix)
+            # Базовый каталог — по тому же правилу, что в `_path`: приватные области лежат
+            # отдельно от публичных. Раньше здесь стоял жёсткий MEDIA_DIR, и обход приватных
+            # префиксов молча не находил НИЧЕГО: файл есть, а чистка его не видит
+            # (аудит 2026-08-08, волна 11 — из-за этого фото доказательств копились вечно).
+            base = PRIVATE_DIR if prefix in PRIVATE_AREAS else MEDIA_DIR
+            d = os.path.join(base, prefix)
             if not os.path.isdir(d):
                 continue
             for name in os.listdir(d):

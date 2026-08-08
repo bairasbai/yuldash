@@ -28,7 +28,7 @@ from .. import geo as geo_mod
 from .. import instant_service as isv
 from .. import pretrip as pretrip_mod
 from .. import taxi as taxi_mod
-from .drivers import _ensure_owned_doc_url
+from .drivers import _ensure_owned_doc_url, drop_replaced_doc
 
 router = APIRouter(tags=["taxi"])
 
@@ -217,6 +217,8 @@ def taxi_apply(body: TaxiApplyIn, user: User = Depends(current_user), session: S
         app = TaxiApplication(user_id=user.id)
     app.inn = body.inn.strip()
     app.permit_number = body.permit_number.strip()
+    prev_docs = [(app.permit_photo_url, permit_url), (app.osago_url, osago_url),
+                 (app.selfie_url, selfie_url), (app.criminal_record_url, criminal_url)]
     app.permit_photo_url = permit_url
     app.osago_url = osago_url
     app.selfie_url = selfie_url
@@ -240,6 +242,11 @@ def taxi_apply(body: TaxiApplyIn, user: User = Depends(current_user), session: S
     _set_car_class(session, user.id, body.car_class)   # заявленный класс — на профиль водителя
     session.commit()
     session.refresh(app)
+    # Прежние версии документов (просроченное ОСАГО, старое разрешение, устаревшее селфи)
+    # цели больше не служат. Приватную область ретеншен не чистит намеренно (580-ФЗ хранит
+    # ДЕЙСТВУЮЩИЕ документы), поэтому старые файлы стираем здесь — иначе лежали бы вечно.
+    for was, now in prev_docs:
+        drop_replaced_doc(was, now)
     return _application_payload(app)
 
 

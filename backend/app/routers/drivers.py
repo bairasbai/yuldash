@@ -2,6 +2,7 @@
 отправка на проверку, статус проверки, выдача защищённых документов, модерация админом."""
 import json
 import os
+from urllib.parse import urlparse
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -66,6 +67,30 @@ def _ensure_owned_doc_url(url: str, user: User, profile: DriverProfile | None) -
     if not get_storage().exists(f"docs/{name}"):
         raise HTTPException(404, "Файл документа не найден")
     return url.strip()
+
+
+def drop_replaced_doc(old_url: str, new_url: str) -> None:
+    """Старый документ заменили новым — стираем прежний файл.
+
+    Документы лежат в приватной области `docs/`, и ретеншен её НЕ трогает намеренно: пока
+    человек работает, 580-ФЗ требует хранить действующие документы. Но ПРЕЖНЯЯ версия —
+    просроченные права, старое ОСАГО, устаревшее селфи — цели больше не служит и оставалась
+    на диске навсегда (аудит 2026-08-08, волна 11). Ст. 5 п. 7 152-ФЗ: хранить ровно столько,
+    сколько нужно.
+
+    Зовётся ПОСЛЕ commit: пока строка не сохранена, файл ещё нужен. Ничего не делает, если
+    ссылка не изменилась (обычный случай — человек прислал ту же) или старой не было.
+    """
+    old, new = (old_url or "").strip(), (new_url or "").strip()
+    if not old or old == new:
+        return
+    name = os.path.basename(urlparse(old).path)
+    if not name or name in (".", ".."):
+        return
+    try:
+        get_storage().delete(f"docs/{name}")
+    except Exception:  # noqa: BLE001 — уборка мусора не вправе ронять сохранение документов
+        pass
 
 
 class OnlineIn(BaseModel):
@@ -224,6 +249,7 @@ def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user
     if not body.license_url or not body.car_photo_url:
         raise HTTPException(400, "Нужны фото прав и фото автомобиля")
     dp = _get_or_create_profile(session, user.id)
+    prev_license, prev_car = dp.license_url, dp.car_photo_url
     dp.license_url = _ensure_owned_doc_url(body.license_url, user, dp)
     dp.car_photo_url = _ensure_owned_doc_url(body.car_photo_url, user, dp)
     dp.docs_status = "pending"
@@ -232,6 +258,9 @@ def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user
     session.add(dp)
     session.commit()
     session.refresh(dp)
+    # Прежние фото прав и авто больше не нужны — стираем, чтобы не копить чужие ПДн навсегда.
+    drop_replaced_doc(prev_license, dp.license_url)
+    drop_replaced_doc(prev_car, dp.car_photo_url)
     if dp.docs_status == "pending":
         car = " ".join(x for x in [dp.car_make, dp.car_model, dp.car_color, dp.car_plate] if x).strip() or "авто не указано"
         details = f"OCR: {dp.autocheck_result or 'нет'} · score {dp.autocheck_score:.2f}"

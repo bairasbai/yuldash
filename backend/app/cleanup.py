@@ -184,7 +184,14 @@ def _referenced_media_keys() -> set:
     """Ключи файлов, на которые живут ПОСТОЯННЫЕ ссылки из БД (аватар профиля, картинка рекламы).
     Они загружаются через /upload/chat-photo и лежат в области chat/ — но это НЕ эфемерный чат:
     без этого исключения ретеншен через 35 дней молча стирал бы фото профиля у всех давних юзеров.
-    URL вида '/media/chat/<файл>' (или абсолютный) → ключ 'chat/<файл>'."""
+
+    Вторая группа — ПРИВАТНЫЕ доказательства (evidence/): фото споров и снимки границ
+    ответственности по доставке. Они не чистились НИКОГДА. Посылка старше 180 дней уходит по
+    ретеншену, спор разрешается — а снимок с лицом, подъездом и содержимым коробки оставался
+    на диске навсегда (аудит 2026-08-08, волна 11). Это прямо против ст. 5 п. 7 152-ФЗ:
+    хранить ровно столько, сколько нужно для цели.
+
+    URL '/media/chat/<файл>' → ключ 'chat/<файл>'; '/secure/evidence/<файл>' → 'evidence/<файл>'."""
     keys = set()
     with engine.begin() as conn:
         for sql in ('SELECT avatar_url FROM "user" WHERE avatar_url <> \'\'',
@@ -192,12 +199,28 @@ def _referenced_media_keys() -> set:
             for (url,) in conn.execute(text(sql)):
                 if url and "/media/" in url:
                     keys.add(url.split("/media/", 1)[1])
+        # Живые ссылки на приватные доказательства. CSV-поля спора разбираем по запятой.
+        for sql in ("SELECT evidence_urls FROM incident WHERE evidence_urls <> ''",
+                    "SELECT respondent_evidence_urls FROM incident WHERE respondent_evidence_urls <> ''",
+                    "SELECT pickup_photo_url FROM parceldelivery WHERE pickup_photo_url <> ''",
+                    "SELECT delivery_photo_url FROM parceldelivery WHERE delivery_photo_url <> ''"):
+            for (val,) in conn.execute(text(sql)):
+                for one in (val or "").split(","):
+                    if "/secure/evidence/" in one:
+                        keys.add("evidence/" + one.rsplit("/secure/evidence/", 1)[1].strip())
     return keys
 
 
 def _clean_media():
-    """Удаляем публичные медиа (фото/голос) старше MEDIA_DAYS — на диске И в S3 (через storage).
-    Драйвер-доки (docs, приватные) НЕ трогаем. В S3-режиме без этого объекты копились бы вечно."""
+    """Удаляем медиа старше MEDIA_DAYS, на которые не осталось ссылок — на диске и в S3.
+
+    Области: публичные `voice`/`chat` и приватные `evidence` (фото споров и границ
+    ответственности по доставке). Документы водителя и таксиста (`docs`) НЕ трогаем: их
+    хранение требует 580-ФЗ, пока человек работает, и стирает их только удаление аккаунта.
+
+    Защита от потери улики — список живых ссылок (`_referenced_media_keys`): пока запись в БД
+    ссылается на файл, он остаётся, сколько бы ему ни было лет. Не смогли собрать список —
+    чистку пропускаем целиком, а не удаляем вслепую."""
     cutoff = time.time() - MEDIA_DAYS * 86400
     removed, freed = 0, 0
     try:
@@ -207,8 +230,8 @@ def _clean_media():
         return
     try:
         storage = get_storage()
-        for key, size in storage.iter_old(["voice", "chat"], cutoff):
-            if key in keep:            # аватар/картинка рекламы — живая ссылка, не эфемерный чат
+        for key, size in storage.iter_old(["voice", "chat", "evidence"], cutoff):
+            if key in keep:            # живая ссылка (аватар, реклама, доказательство) — не трогаем
                 continue
             if not DRY:
                 storage.delete(key)
@@ -218,7 +241,7 @@ def _clean_media():
         print(f"  медиа-файлы: хранилище недоступно — пропуск ({e})")
         return
     verb = "удалилось бы" if DRY else "удалено"
-    print(f"  медиа-файлы (фото/голос >{MEDIA_DAYS}д): {verb} {removed} шт, {freed // (1024 * 1024)} МБ")
+    print(f"  медиа без ссылок (фото/голос/доказательства >{MEDIA_DAYS}д): {verb} {removed} шт, {freed // (1024 * 1024)} МБ")
 
 
 

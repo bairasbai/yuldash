@@ -206,6 +206,22 @@ def delete_user_account(session: Session, user: User) -> None:
         media_urls += [ta.selfie_url, ta.permit_photo_url, ta.osago_url, ta.criminal_record_url]
     media_urls += list(session.exec(select(Message.voice_url).where(Message.sender_id == uid)).all())
     media_urls += list(session.exec(select(RideRequest.voice_url).where(RideRequest.passenger_id == uid)).all())
+    # Фото границ ответственности по МОИМ посылкам («взял целой» / «отдал целой»). Сама
+    # посылка удаляется на 3.12, а снимки лежат в приватной области — без этой строки они
+    # оставались бы на диске навсегда, хотя запись о них исчезла (аудит 2026-08-08, волна 11:
+    # проверено — файл переживал удаление аккаунта). Та же мина, что чинили для документов
+    # таксиста, только в новых полях.
+    #
+    # Только там, где отправитель Я: эти посылки и удаляются. Снимки, которые я делал КУРЬЕРОМ
+    # на чужих посылках, остаются — это доказательства второй стороны в возможном споре,
+    # тот же принцип, что с чужими фото в спорах ниже.
+    for a, b in session.exec(
+        select(ParcelDelivery.pickup_photo_url, ParcelDelivery.delivery_photo_url)
+        .where(ParcelDelivery.sender_id == uid)
+    ).all():
+        media_urls += [u for u in (a, b) if u]
+    # Картинки моих рекламных объявлений — сами объявления удаляются на 3.19.
+    media_urls += [u for u in session.exec(select(Ad.image_url).where(Ad.owner_id == uid)).all() if u]
     # Фото-доказательства МОИХ споров (лица/номера/травмы — чувствительное): мои как заявителя
     # и мои как обвинённого. Чужие фото в тех же спорах не трогаем (не наши данные).
     for csv_ in session.exec(select(Incident.evidence_urls).where(Incident.reporter_id == uid)).all():

@@ -212,6 +212,14 @@
 **Backend «Справедливость» (дополняет анонимные жалобы `Report`, НЕ заменяет):**
 - **Модели** (`backend/app/models.py`): `Incident` (двусторонний спор: `reporter`/`respondent`/`type`/`status` open→awaiting_response→under_review→resolved/appealed/closed, `resolution`/`fault`/`appeal_status`), `SafetyProfile` (1:1 с User: `strikes`/`warnings`/`standing` good→warned→limited→suspended, `suspended_until`). `Rating.excluded` (щит рейтинга), `Booking.cancelled_by` (Надёжность).
 - **`backend/app/safety_logic.py`** — ядро: `INCIDENT_TYPES`/`SEVERE_TYPES`, лестница §2 (`recompute_standing`/`refresh_standing`/`_escalation_days`/`apply_incident_resolution` — лок при мутации страйков), `reliability_for` (Надёжность 0..100, неявка ТОЛЬКО по resolved-инциденту — защита оболганного), `_exclude_linked_ratings` (снять оценку-месть). Гейт паузы: `ensure_active` (бросает 403) + `account_paused` (не бросает — для лент, где отказ показывают молча). **Гейт стоит поштучно на каждой ручке**, полноту сторожит `tests/test_suspension_reaches_everywhere.py`: попутка, заявка + отклик + торг, такси (общий `_guard_taxi_driver` → линия/оффер/приём) + предзаказ, доставка + приём, жалобы. Намеренно открыты SOS и завершение начатой поездки.
+- **Файлы удаляются вместе с записью (2026-08-08, волна 11).** `account.py`: в `media_urls`
+  добавлены `ParcelDelivery.pickup_photo_url/delivery_photo_url` (только своих посылок) и
+  `Ad.image_url`. `cleanup._clean_media` ходит и по приватной `evidence/`, удаляя ТОЛЬКО
+  осиротевшие файлы — живые ссылки собирает `_referenced_media_keys` из четырёх полей
+  (спор ×2, доставка ×2); полноту списка сторожит `test_cleanup.py::test_every_evidence_field_is_known_to_the_cleaner`.
+  `LocalStorage.iter_old` выбирает базовый каталог как `_path` (раньше жёсткий MEDIA_DIR —
+  приватные области не обходились вовсе). `drivers.drop_replaced_doc(old, new)` стирает
+  прежнюю версию документа после commit; зовётся из `/driver/verify` и `/taxi/apply`.
 - **Фото-доказательства принадлежат загрузившему (2026-08-08, волна 9).** `/upload/evidence`
   даёт имя `{user_id}_{uuid}.{ext}`, и `safety_logic.guard_own_evidence(urls, user_id, already=…)`
   бросает 403, если в записи есть ПРИВАТНЫЙ снимок другого человека. Стоит на четырёх дверях:

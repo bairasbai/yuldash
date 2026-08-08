@@ -658,3 +658,59 @@ def test_driver_sees_only_the_area_until_he_accepts(client, user_factory, fake_r
     acc = client.post(f"/instant/orders/{oid}/accept", headers=d["auth"]).json()
     assert acc["to_text"] == "Сибай, ул. Горького, 15"
     assert acc["to_lat"] == DEST[0] and acc["to_lng"] == DEST[1]
+
+# --------------------- 16. Волна 11: файлы переживали удаление записи ---------------------
+# Строку из базы стирали, а сам файл оставался на диске навсегда. Три места одного корня:
+# фото посылок при удалении аккаунта, приватная область целиком в ретеншене и замена
+# документа новым. Для приватных снимков это прямо против ст. 5 п. 7 152-ФЗ.
+
+def test_parcel_photos_die_with_the_account(client, user_factory):
+    """Посылку при удалении аккаунта стирали, а снимки «взял/отдал целой» — нет."""
+    from app.account import delete_user_account
+    from app.db import engine as _engine
+    from app.storage import get_storage
+    from sqlmodel import Session as _S
+    from test_courier import _make_courier, _order
+
+    courier = _make_courier(client, user_factory)
+    sender = user_factory("Отправитель с фото")
+    pid = _order(client, sender).json()["id"]
+    pickup = upload_evidence(client, courier["auth"])
+    assert client.post(f"/parcels/{pid}/accept", headers=courier["auth"],
+                       json={"pickup_photo_url": pickup}).status_code == 200
+
+    name = pickup.rsplit("/", 1)[-1]
+    storage = get_storage()
+    assert storage.exists(f"evidence/{name}"), "фото не сохранилось — тест ничего не проверяет"
+
+    with _S(_engine) as s:
+        delete_user_account(s, s.get(User, sender["id"]))
+    assert not storage.exists(f"evidence/{name}"), "приватное фото пережило удаление аккаунта"
+
+
+def test_replacing_a_document_erases_the_previous_file(client, user_factory):
+    """Обновил права — прежнее фото удостоверения больше не нужно.
+
+    Приватную область ретеншен не чистит намеренно (580-ФЗ хранит ДЕЙСТВУЮЩИЕ документы),
+    поэтому старая версия оставалась на диске навсегда.
+    """
+    from app.storage import get_storage
+
+    drv = user_factory("Водитель с документами", role=UserRole.driver)
+    old_license, old_car = upload_doc(client, drv["auth"]), upload_doc(client, drv["auth"])
+    r = client.post("/driver/verify", headers=drv["auth"],
+                    json={"license_url": old_license, "car_photo_url": old_car})
+    assert r.status_code == 200, r.text
+
+    storage = get_storage()
+    old_name = old_license.rsplit("/", 1)[-1]
+    assert storage.exists(f"docs/{old_name}")
+
+    new_license = upload_doc(client, drv["auth"])
+    assert client.post("/driver/verify", headers=drv["auth"],
+                       json={"license_url": new_license, "car_photo_url": old_car}).status_code == 200
+
+    assert not storage.exists(f"docs/{old_name}"), "старое фото прав осталось на диске навсегда"
+    # А то, что НЕ меняли, трогать нельзя.
+    assert storage.exists(f"docs/{old_car.rsplit('/', 1)[-1]}"), "снесли документ, который не меняли"
+
