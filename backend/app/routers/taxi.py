@@ -21,7 +21,7 @@ from ..models import (
     TaxiApplicationStatus, TaxiCity, User, UserRole,
 )
 from ..security import current_user
-from ..services import send_push
+from ..services import push_notification
 from ..timeutil import utcnow
 from .. import antifraud as af_mod
 from .. import geo as geo_mod
@@ -425,8 +425,14 @@ def admin_approve_taxi(app_id: int, body: ApproveIn | None = None,
     if body is not None and body.car_class is not None:
         _set_car_class(session, app.user_id, body.car_class)
     session.commit()
-    send_push(session, app.user_id, "Ты в такси Юлдаша! 🚕",
-              "Заявка одобрена — выходи на линию · Ғариза хупланды — линияға сыҡ")
+    # Допуск к заработку человек ждёт днями — такое нельзя слать так, что оно может не дойти
+    # (аудит 2026-08-08, волна 20). Запись остаётся, тап ведёт на экран заявки.
+    push_notification(
+        session, app.user_id, "system",
+        "Ты в такси Юлдаша! 🚕", "Һин Юлдаш таксиһында! 🚕",
+        "Заявка одобрена — выходи на линию.", "Ғариза хупланды — линияға сыҡ.",
+        ref_kind="taxi_apply", ref_id=app.id,
+    )
     return {"id": app.id, "status": app.status.value}
 
 
@@ -445,8 +451,13 @@ def admin_reject_taxi(app_id: int, body: RejectIn, user: User = Depends(current_
     app.reviewed_at = utcnow()
     session.add(app)
     session.commit()
-    send_push(session, app.user_id, "Заявка в такси отклонена",
-              "Поправь документы и подай снова · Документтарҙы төҙәт тә яңынан ебәр")
+    push_notification(
+        session, app.user_id, "system",
+        "Заявка в такси отклонена", "Такси ғаризаһы кире ҡағылды",
+        (app.comment or "Поправь документы и подай снова."),
+        (app.comment or "Документтарҙы төҙәт тә яңынан ебәр."),
+        ref_kind="taxi_apply", ref_id=app.id,
+    )
     return {"id": app.id, "status": app.status.value}
 
 

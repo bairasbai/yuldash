@@ -27,7 +27,7 @@ from ..safety_logic import (
 )
 from ..security import current_user
 from ..services import (EVIDENCE_DIR, booking_and_ride_for_user, notify_admin_telegram,
-                        push_notification, send_push, user_rating)
+                        push_notification, user_rating)
 from ..storage import get_storage
 from ..timeutil import utcnow
 
@@ -343,7 +343,12 @@ def respond_incident(incident_id: int, body: RespondIn,
     session.commit()
     session.refresh(inc)
     if inc.reporter_id is not None:   # заявитель мог удалить аккаунт — спор жив, писать некому
-        send_push(session, inc.reporter_id, "Ответ по спору", "Вторая сторона описала свою версию.")
+        push_notification(
+            session, inc.reporter_id, "safety",
+            "Ответ по спору", "Бәхәс буйынса яуап",
+            "Вторая сторона описала свою версию.", "Икенсе яҡ үҙ версияһын яҙҙы.",
+            ref_kind="incident", ref_id=inc.id,
+        )
     return _incident_out(session, inc, user)
 
 
@@ -402,7 +407,13 @@ def withdraw_incident(incident_id: int, user: User = Depends(current_user), sess
     for uid in (inc.reporter_id, inc.respondent_id):
         if uid is None:          # сторона удалила аккаунт — писать некому
             continue
-        send_push(session, uid, "Спор закрыт миром", "Спасибо, что договорились по-соседски 🤝")
+        push_notification(
+            session, uid, "safety",
+            "Спор закрыт миром", "Бәхәс тыныслыҡ менән ябылды",
+            "Спасибо, что договорились по-соседски 🤝",
+            "Күршеләрсә килешкәнегеҙ өсөн рәхмәт 🤝",
+            ref_kind="incident", ref_id=inc.id,
+        )
     return _incident_out(session, inc, user)
 
 

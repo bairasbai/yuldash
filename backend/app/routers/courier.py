@@ -34,7 +34,8 @@ from ..safety_logic import ensure_active
 from .drivers import _ensure_owned_doc_url
 from .parcels import _FINAL_STATUSES, live_parcel_conds
 from ..security import current_user
-from ..services import haversine_km, notify_admin_telegram, send_push, user_rating
+from ..services import (haversine_km, notify_admin_telegram, push_notification,
+                        send_push, user_rating)
 from ..timeutil import utcnow
 from . import parcels as parcels_mod
 from .. import debt as debt_mod   # переиспользуем _local_day_expr: одна логика «локального дня» на проект
@@ -177,9 +178,13 @@ def _maybe_courier_soft_ladder(session: Session, courier_id: int, avg: float, cn
         session.add(prof)
         session.commit()
         try:
-            send_push(session, courier_id, "Пауза по качеству",
-                      "Рейтинг заметно просел. Дадим паузу на пару дней — вернёшься с новыми силами 💚"
-                      " · Рейтинг ныҡ төштө. Бер-ике көн тәнәфес — яңы көс менән ҡайтырһың 💚")
+            # Наказание = запись, а не пуш «как получится» (аудит 2026-08-08, волна 20).
+            push_notification(
+                session, courier_id, "safety",
+                "Пауза по качеству", "Сифат буйынса пауза",
+                "Рейтинг заметно просел. Дадим паузу на пару дней — вернёшься с новыми силами 💚",
+                "Рейтинг ныҡ төштө. Бер-ике көн тәнәфес — яңы көс менән ҡайтырһың 💚",
+            )
         except Exception:
             pass
         return
@@ -520,8 +525,12 @@ def admin_approve_courier(app_id: int, user: User = Depends(current_user),
     session.add(prof)
     session.commit()
     try:
-        send_push(session, app.user_id, "Ты курьер Юлдаша! 📦",
-                  "Заявка одобрена — выходи на линию · Ғариза хупланды — линияға сыҡ")
+        push_notification(
+            session, app.user_id, "system",
+            "Ты курьер Юлдаша! 📦", "Һин Юлдаш курьеры! 📦",
+            "Заявка одобрена — выходи на линию.", "Ғариза хупланды — линияға сыҡ.",
+            ref_kind="courier_apply", ref_id=app.id,
+        )
     except Exception:
         pass
     return {"id": app.id, "status": app.status}
@@ -543,8 +552,13 @@ def admin_reject_courier(app_id: int, body: CourierRejectIn, user: User = Depend
     session.add(app)
     session.commit()
     try:
-        send_push(session, app.user_id, "Заявка курьера отклонена",
-                  "Поправь и подай снова · Төҙәт тә яңынан ебәр")
+        push_notification(
+            session, app.user_id, "system",
+            "Заявка курьера отклонена", "Курьер ғаризаһы кире ҡағылды",
+            (app.reject_reason or "Поправь и подай снова."),
+            (app.reject_reason or "Төҙәт тә яңынан ебәр."),
+            ref_kind="courier_apply", ref_id=app.id,
+        )
     except Exception:
         pass
     return {"id": app.id, "status": app.status}

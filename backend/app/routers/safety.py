@@ -16,7 +16,8 @@ from ..models import (
     TripShare, TrustedContact, User, UserRole,
 )
 from ..security import current_user
-from ..services import booking_and_ride_for_user, notify_admin_telegram, send_push, send_text
+from ..services import (booking_and_ride_for_user, notify_admin_telegram,
+                        push_notification, send_push, send_text)
 from ..timeutil import utcnow
 from .. import quality
 
@@ -526,9 +527,15 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
                 session.commit()
                 order = session.get(InstantOrder, r.order_id)
                 if order and order.driver_id:
-                    send_push(session, order.driver_id, "Комиссия за поездку списана",
-                              "Жалоба «пассажир не заплатил» подтверждена — комиссию за эту "
-                              "поездку с тебя сняли. · Комиссия алынды.")
+                    push_notification(
+                        session, order.driver_id, "money",
+                        "Комиссия за поездку списана", "Сәфәр комиссияһы алып ташланды",
+                        "Жалоба «пассажир не заплатил» подтверждена — комиссию за эту "
+                        "поездку с тебя сняли.",
+                        "«Пассажир түләмәне» ялыуы раҫланды — был сәфәр өсөн комиссия "
+                        "һинән алып ташланды.",
+                        ref_kind="debt", ref_id=order.driver_id,
+                    )
         except Exception as e:  # noqa: BLE001 — разбор жалобы важнее, чем побочка со списанием
             log.warning(f"[DEBT] списание долга по заказу {r.order_id}: {type(e).__name__}: {e}")
     # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).

@@ -283,6 +283,9 @@ internal fun NotificationsScreen(
     onOpenInstantOrder: () -> Unit = {},
     onOpenRide: (Int) -> Unit = {},
     onOpenIncident: (Int) -> Unit = {},
+    onOpenDriverCabinet: () -> Unit = {},
+    onOpenTaxiApply: () -> Unit = {},
+    onOpenCourierApply: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var selected by remember { mutableStateOf("all") }
@@ -341,6 +344,11 @@ internal fun NotificationsScreen(
             // «Открыт разбор» / «Решение по спору» — самое тяжёлое, что бывает с аккаунтом:
             // человеку надо видеть, за что именно и на какой срок (аудит 2026-08-08, волна 19).
             "incident" -> onOpenIncident(ref)
+            // Деньги и допуск к работе (аудит 2026-08-08, волна 20): долг, списание комиссии,
+            // пауза такси — всё это видно в кабинете водителя; статус заявки — на её экране.
+            "debt" -> onOpenDriverCabinet()
+            "taxi_apply" -> onOpenTaxiApply()
+            "courier_apply" -> onOpenCourierApply()
         }
     }
 

@@ -1156,6 +1156,11 @@ internal fun YuldashApp() {
                 onOpenRide = { rid -> DeepLink.pendingRideId.value = rid },
                 // «Открыт разбор» / «Решение по спору» → карточка разбора: там причина и срок.
                 onOpenIncident = { id -> incidentId = id; screen = Screen.IncidentDetail },
+                // Долг, списанная комиссия, пауза такси → кабинет водителя: там это всё видно.
+                onOpenDriverCabinet = { screen = Screen.DriverCabinet },
+                // Решение по заявке → её экран со статусом проверки.
+                onOpenTaxiApply = { screen = Screen.TaxiOnboarding },
+                onOpenCourierApply = { screen = Screen.CourierOnboarding },
             )
             Screen.RouteWatches -> RouteWatchesScreen(
                 onBack = { goBack() },

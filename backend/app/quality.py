@@ -27,7 +27,7 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .models import DriverProfile, Report, User
-from .services import send_push
+from .services import push_notification, send_push
 from .timeutil import utcnow
 
 # ------------------------------ перечень категорий ------------------------------
@@ -144,11 +144,12 @@ def notify_target_new_report(session: Session, report: Report) -> None:
     """Пуш цели о жалобе — БЕЗ имени/деталей автора (анонимность = продукт).
     Только категория + спокойный тон + путь (кабинет/поддержка)."""
     ru, ba = category_label(report.category)
-    send_push(
-        session, report.target_user_id, "Поступила жалоба",
+    push_notification(
+        session, report.target_user_id, "safety",
+        "Поступила жалоба", "Ялыу килде",
         f"Категория: {ru}. Мы разберёмся спокойно — детали в кабинете, "
-        f"своя версия — через поддержку."
-        f" · Ялыу килде: {ba}. Тыныс ҡына тикшерәбеҙ — ентеклеләр кабинетта, "
+        f"своя версия — через поддержку.",
+        f"Категория: {ba}. Тыныс ҡына тикшерәбеҙ — ентеклеләр кабинетта, "
         f"үҙ һүҙең — ярҙам хеҙмәте аша.",
     )
 
@@ -219,12 +220,17 @@ def apply_ladder_after_resolve(session: Session, target_id: int, now: Optional[d
     if prof is None:
         return False
     h = settings.quality_pause_hours
-    send_push(
-        session, target_id, "Такси на паузе",
+    # Это наказание: человека отключили от заработка. Проверено пробой — записей у него было
+    # НОЛЬ, он узнавал о паузе, упершись в закрытые заказы (аудит 2026-08-08, волна 20).
+    # Заодно тексты разъехались по языкам: раньше в одном пуше шли оба через « · ».
+    push_notification(
+        session, target_id, "safety",
+        "Такси на паузе", "Такси паузала",
         f"За месяц накопилось несколько подтверждённых жалоб — такси на паузе {h} ч. "
-        f"Попутка работает как обычно 💚 Своя версия — напиши в поддержку."
-        f" · Айҙа бер нисә раҫланған ялыу йыйылды — такси {h} сәғәткә паузала. "
+        f"Попутка работает как обычно 💚 Своя версия — напиши в поддержку.",
+        f"Айҙа бер нисә раҫланған ялыу йыйылды — такси {h} сәғәткә паузала. "
         f"Юлдаш ғәҙәттәгесә эшләй 💚 Үҙ һүҙең булһа — ярҙам хеҙмәтенә яҙ.",
+        ref_kind="debt", ref_id=target_id,
     )
     return True
 

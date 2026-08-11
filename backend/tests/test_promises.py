@@ -11,7 +11,7 @@
 Половина — не «дыра в защите», а «защиту поставили на первый шаг и забыли про второй». Такое
 не ловится чтением диффа, только сквозной проверкой.
 """
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 from sqlmodel import Session
@@ -660,3 +660,86 @@ def test_обещание_отстранённый_знает_срок_и_при
     assert n.title_ba and n.title_ba != n.title_ru, "письмо про наказание только по-русски"
     # Дата окончания — обязательна: без неё человек не знает, когда всё вернётся.
     assert any(ch.isdigit() for ch in (n.body_ru or "")), n.body_ru
+
+# ---------------------------------------------------------------------------
+# «Деньги и допуск к работе не приходят молча»
+# ---------------------------------------------------------------------------
+# Продолжение волны 19: там наказание слали голым пушем, тут — деньги и право работать.
+# Пуш это вещь, которой МОЖЕТ не быть (ночь, нет сети, уведомления выключены), поэтому всё,
+# что человек обязан узнать позже, идёт записью в Центр уведомлений и на его языке.
+def test_обещание_водитель_узнаёт_что_оплату_не_приняли(client, user_factory):
+    """Долг вернулся в неоплаченные, такси снова закрыто — об этом пишут.
+
+    Проверено пробой: записей у водителя было НОЛЬ, он узнавал об этом, упершись
+    в блокировку (аудит 2026-08-08, волна 20).
+    """
+    from app.models import CommissionDebt
+
+    admin = user_factory("Долг: админ", role=UserRole.admin)
+    drv = user_factory("Долг: таксист", role=UserRole.driver)
+    with Session(engine) as s:
+        d = CommissionDebt(driver_id=drv["id"], order_id=None, amount_kop=15000,
+                           status="pending", paid_declared_at=utcnow())
+        s.add(d)
+        s.commit()
+        s.refresh(d)
+        did = d.id
+
+    assert client.post(f"/admin/debts/{did}/reject", headers=admin["auth"]).status_code == 200
+
+    got = _notes(drv["id"])
+    assert any("оплата" in t.lower() for t, _ in got), f"про деньги не сказали: {got}"
+    assert all(k == "debt" for _, k in got), got   # тап ведёт в кабинет, где виден долг
+
+
+def test_обещание_таксист_на_паузе_узнаёт_об_этом(client, user_factory):
+    """Человека отключили от заработка — это наказание, а не техническая мелочь."""
+    from app import quality
+    from app.config import settings
+    from app.models import DriverProfile, Report
+
+    drv = user_factory("Пауза такси: водитель", role=UserRole.driver)
+    other = user_factory("Пауза такси: жалобщик")
+    with Session(engine) as s:
+        s.add(DriverProfile(user_id=drv["id"]))
+        for k in range(settings.quality_pause_reports):
+            s.add(Report(reporter_id=other["id"], target_user_id=drv["id"],
+                         category="rude", text="жалоба", status="resolved",
+                         resolved_at=utcnow() - timedelta(days=k)))
+        s.commit()
+    with Session(engine) as s:
+        assert quality.apply_ladder_after_resolve(s, drv["id"]) is True
+
+    titles = [t for t, _ in _notes(drv["id"])]
+    assert any("паузе" in t.lower() for t in titles), f"про паузу не сказали: {titles}"
+
+
+def test_обещание_решение_по_заявке_приходит_на_своём_языке(client, user_factory):
+    """Допуск к работе человек ждёт днями. Раньше RU и BA ехали склеенными в одном пуше.
+
+    Теперь это запись с двумя раздельными текстами — и человек читает свой.
+    """
+    from app.models import Notification, TaxiApplication, TaxiApplicationStatus
+    from sqlmodel import select as _sel
+
+    admin = user_factory("Заявка: админ", role=UserRole.admin)
+    drv = user_factory("Заявка: водитель", role=UserRole.driver, taxi_approved=False)
+    with Session(engine) as s:
+        a = TaxiApplication(user_id=drv["id"], inn="123456789012", permit_number="Т-0002",
+                            birth_date=date(1990, 1, 1), license_since_year=2010,
+                            status=TaxiApplicationStatus.pending)
+        s.add(a)
+        s.commit()
+        s.refresh(a)
+        aid = a.id
+
+    r = client.post(f"/admin/taxi-applications/{aid}/reject", headers=admin["auth"],
+                    json={"comment": "Фото прав нечитаемое"})
+    assert r.status_code == 200, r.text
+
+    with Session(engine) as s:
+        notes = s.exec(_sel(Notification).where(Notification.user_id == drv["id"])).all()
+    assert notes, "человеку не сказали, что заявку отклонили"
+    n = notes[-1]
+    assert n.title_ba and n.title_ba != n.title_ru, "решение по заявке только на одном языке"
+    assert "нечитаемое" in (n.body_ru or ""), n.body_ru   # причина, а не общая отписка
