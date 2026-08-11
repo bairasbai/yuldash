@@ -714,3 +714,65 @@ def test_replacing_a_document_erases_the_previous_file(client, user_factory):
     # А то, что НЕ меняли, трогать нельзя.
     assert storage.exists(f"docs/{old_car.rsplit('/', 1)[-1]}"), "снесли документ, который не меняли"
 
+# --------------------- 17. Волна 12: третье хранилище — Redis ---------------------
+# У базы и диска есть каскад удаления, а Redis про удаление не знал вовсе. Точка водителя
+# лежит в GEO-множестве БЕЗ срока жизни (в отличие от heartbeat), и `presence_offline` —
+# функция ровно для её удаления — не вызывалась НИКЕМ. Матчер «залипших» игнорировал, поэтому
+# поломки было не видно, а последнее местоположение человека хранилось вечно.
+
+def test_leaving_the_line_removes_the_coordinates(client, user_factory, fake_redis):
+    """Снял тумблер «Я на линии» — точки в Redis больше нет."""
+    from app.instant_service import PRESENCE_KEY
+    from test_instant import _driver_online, _heartbeat, ORIG
+
+    d = _driver_online(client, user_factory, "OfflineDrv")
+    _heartbeat(client, d, ORIG)
+    member = f"driver:{d['id']}"
+    assert member in set(fake_redis.zrange(PRESENCE_KEY, 0, -1)), "координаты не записались"
+
+    assert client.post("/driver/online", headers=d["auth"], json={"online": False}).status_code == 200
+    assert member not in set(fake_redis.zrange(PRESENCE_KEY, 0, -1)),         "координаты остались в Redis навсегда"
+
+
+def test_deleting_the_account_removes_the_coordinates(client, user_factory, fake_redis):
+    """Удалил аккаунт — следов в Redis тоже не остаётся."""
+    from app.account import delete_user_account
+    from app.db import engine as _engine
+    from app.instant_service import PRESENCE_KEY
+    from sqlmodel import Session as _S
+    from test_instant import _driver_online, _heartbeat, ORIG
+
+    d = _driver_online(client, user_factory, "GoneDrv")
+    _heartbeat(client, d, ORIG)
+    member = f"driver:{d['id']}"
+    assert member in set(fake_redis.zrange(PRESENCE_KEY, 0, -1))
+
+    with _S(_engine) as s:
+        delete_user_account(s, s.get(User, d["id"]))
+    assert member not in set(fake_redis.zrange(PRESENCE_KEY, 0, -1)),         "местоположение удалённого человека осталось в Redis"
+
+
+def test_retention_sweeps_coordinates_without_heartbeat(client, user_factory, fake_redis):
+    """Главный случай: человек не снимает тумблер, а просто закрывает приложение.
+
+    Heartbeat истекает сам, а точка в GEO — нет. Чистка убирает только тех, у кого свежего
+    сигнала уже нет; кто на линии — остаётся.
+    """
+    from app import cleanup
+    from app.instant_service import PRESENCE_KEY
+    from test_instant import _driver_online, _heartbeat, ORIG
+
+    live = _driver_online(client, user_factory, "LiveDrv")
+    _heartbeat(client, live, ORIG)
+    gone = _driver_online(client, user_factory, "GhostDrv")
+    _heartbeat(client, gone, ORIG)
+
+    # У «призрака» heartbeat истёк (в жизни — просто закрыл приложение).
+    fake_redis.delete(f"presence:hb:{gone['id']}")
+
+    cleanup._clean_stale_presence()
+
+    members = set(fake_redis.zrange(PRESENCE_KEY, 0, -1))
+    assert f"driver:{gone['id']}" not in members, "залипшие координаты остались навсегда"
+    assert f"driver:{live['id']}" in members, "чистка убрала водителя, который сейчас на линии"
+

@@ -107,6 +107,14 @@ def driver_online(body: OnlineIn, user: User = Depends(current_user), session: S
     session.add(dp)
     session.commit()
     session.refresh(dp)
+    if not body.online:
+        # Снял тумблер — убираем координаты из Redis. Функция `presence_offline` была написана
+        # ровно для этого, но её не звал НИКТО: точка водителя оставалась в GEO-множестве
+        # навсегда (у GEO нет срока жизни, в отличие от heartbeat). Матчер её игнорировал, так
+        # что поломки не было видно, — а последнее местоположение человека лежало вечно
+        # (аудит 2026-08-08, волна 12).
+        from ..instant_service import presence_offline
+        presence_offline(user.id)
     return dp
 
 

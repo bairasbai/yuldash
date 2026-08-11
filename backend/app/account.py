@@ -528,3 +528,13 @@ def delete_user_account(session: Session, user: User) -> None:
     # 4) Best-effort стираем медиа-файлы (после успешного удаления строк).
     for url in media_urls:
         _safe_unlink_media(url)
+
+    # 5) И следы в Redis. У базы и диска есть каскад, а третье хранилище про удаление аккаунта
+    # не знало вовсе: точка водителя лежит в GEO-множестве БЕЗ срока жизни, то есть последнее
+    # местоположение удалённого человека осталось бы там навсегда (аудит 2026-08-08, волна 12).
+    # Остальные ключи (heartbeat, livepos, кэши) живут по TTL и уходят сами.
+    try:
+        from .instant_service import presence_offline
+        presence_offline(uid)
+    except Exception:  # noqa: BLE001 — Redis недоступен: аккаунт уже удалён, это не повод падать
+        pass

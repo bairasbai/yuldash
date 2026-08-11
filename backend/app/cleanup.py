@@ -581,6 +581,40 @@ def expire_stale_declares(now=None) -> int:
     return n
 
 
+def _clean_stale_presence() -> None:
+    """Убрать из GEO-множества водителей без свежего heartbeat.
+
+    У Redis GEO нет срока жизни: точка, записанная один раз, лежит вечно. Heartbeat
+    (`presence:hb:<id>`) истекает сам, и матчер по нему отсеивает «залипших», поэтому поломки
+    было не видно — а координаты копились. Большинство водителей не снимают тумблер «на линии»,
+    а просто закрывают приложение, так что чистки на выходе мало (аудит 2026-08-08, волна 12).
+
+    Удаляем ТОЛЬКО тех, у кого heartbeat уже нет: кто сейчас на линии, останется на месте.
+    """
+    try:
+        from .instant_service import PRESENCE_KEY, _member_driver_id, _redis, presence_alive
+        r = _redis()
+        if r is None:
+            print("  presence: Redis недоступен — пропуск")
+            return
+        members = r.zrange(PRESENCE_KEY, 0, -1)
+        stale = []
+        for m in members:
+            try:
+                did = _member_driver_id(m)
+            except (ValueError, IndexError, AttributeError):
+                stale.append(m)      # мусорный ключ — тоже нечего хранить
+                continue
+            if not presence_alive(r, did):
+                stale.append(m)
+        if stale and not DRY:
+            r.zrem(PRESENCE_KEY, *stale)
+        verb = "удалилось бы" if DRY else "удалено"
+        print(f"  presence без heartbeat: {verb} {len(stale)} из {len(members)}")
+    except Exception as e:  # noqa: BLE001 — уборка кэша не вправе ронять всю чистку
+        print(f"  presence: пропуск ({type(e).__name__}: {e})")
+
+
 def main():
     now = utcnow()
     mode = "СУХОЙ ПРОГОН (ничего не удаляется)" if DRY else "РЕАЛЬНАЯ чистка"
@@ -603,6 +637,7 @@ def main():
         except Exception as e:  # одна таблица упала — не роняем всю чистку
             print(f"  {label}: ОШИБКА {type(e).__name__}: {e}")
     _clean_media()
+    _clean_stale_presence()
     # Прошедшие поездки: не удаляем, а закрываем — иначе висят active вечно (см. выше).
     if DRY:
         print("  прошедшие поездки: в сухом прогоне не трогаем")
