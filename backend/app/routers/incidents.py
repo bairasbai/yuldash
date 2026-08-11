@@ -26,7 +26,8 @@ from ..safety_logic import (
     refresh_standing, reliability_for, urls_from_csv,
 )
 from ..security import current_user
-from ..services import EVIDENCE_DIR, booking_and_ride_for_user, notify_admin_telegram, send_push, user_rating
+from ..services import (EVIDENCE_DIR, booking_and_ride_for_user, notify_admin_telegram,
+                        push_notification, send_push, user_rating)
 from ..storage import get_storage
 from ..timeutil import utcnow
 
@@ -247,8 +248,17 @@ def create_incident(
     # поездки: связь сторон не доказана, сначала жалобу видит человек (админ). Иначе это канал
     # харассмента: пуш «открыт спор» любому произвольному user_id, до 240/сутки с одного аккаунта.
     if not (severe and not has_context):
-        send_push(session, respondent_id, "Открыт разбор",
-                  "По одной из поездок или доставок открыт спор. Опишите свою версию — это важно.")
+        # Именно push_notification, а не голый пуш: право на защиту не должно зависеть от того,
+        # дошёл ли пуш. Телефон был выключен — человек молчит «сам», и разбор уходит к админу
+        # без его версии (аудит 2026-08-08, волна 19). Запись в Центре уведомлений остаётся
+        # и ведёт прямо в карточку разбора.
+        push_notification(
+            session, respondent_id, "safety",
+            "Открыт разбор", "Тикшереү асылды",
+            "По одной из поездок или доставок открыт спор. Опиши свою версию — это важно.",
+            "Сәфәрҙәрҙең йәки ебәреүҙәрҙең береһе буйынса бәхәс асылды. Үҙ версияңды яҙ — был мөһим.",
+            ref_kind="incident", ref_id=inc.id,
+        )
     if severe:
         reporter_u = session.get(User, reporter.id)
         respondent_u = session.get(User, respondent_id)
@@ -481,17 +491,42 @@ def resolve_incident(incident_id: int, body: ResolveIn,
     # наказал бы невиновного. Наказание лживого заявителя — встречным спором, где он respondent.
     if body.fault == "reporter" and (body.strike or body.resolution in ("warning", "strike", "suspend", "ban")):
         raise HTTPException(422, "Вина на заявителе: наказание легло бы на обвинённого — заведи встречный спор")
-    inc, _prof = apply_incident_resolution(
+    inc, prof = apply_incident_resolution(
         session, inc, resolution=body.resolution, fault=body.fault, note=body.note,
         compensation_kop=body.compensation_kop, strike=body.strike, suspend_days=body.suspend_days,
         exclude_rating=body.exclude_rating, shield=body.shield, resolver_id=user.id,
     )
     # Прозрачность: обе стороны получают решение с человеческим объяснением.
+    #
+    # Голым пушем это слать нельзя (аудит 2026-08-08, волна 19). Проверено пробой: человека
+    # отстранили на 7 дней — в Центре уведомлений у него НОЛЬ записей, а пуш ушёл только
+    # по-русски, хотя в профиле выбран башкирский. Пуш не дошёл (ночь, выключенный телефон) —
+    # и человек не знает ни за что его наказали, ни на какой срок, ни куда идти спорить.
     note = inc.resolution_note or "Решение принято."
     for uid in (inc.reporter_id, inc.respondent_id):
         if uid is None:          # сторона удалила аккаунт — писать некому
             continue
-        send_push(session, uid, "Решение по спору", note)
+        push_notification(
+            session, uid, "safety",
+            "Решение по спору", "Бәхәс буйынса ҡарар",
+            # Заметку админа не переводим — это его живые слова о конкретном разборе.
+            # Двуязычна рамка: заголовок и, при паузе, срок с подсказкой ниже.
+            note, note,
+            ref_kind="incident", ref_id=inc.id,
+        )
+    # Отстранение — отдельным письмом обвинённому: срок и что делать дальше. Без даты
+    # «пауза» превращается в «забанили навсегда» на ощущениях, а это чаще всего неправда.
+    if inc.respondent_id and prof is not None and prof.suspended_until:
+        until = prof.suspended_until.strftime("%d.%m.%Y")
+        push_notification(
+            session, inc.respondent_id, "safety",
+            "Аккаунт на паузе", "Иҫәп паузала",
+            f"Пауза до {until}. После неё всё вернётся само. "
+            "Не согласен — открой разбор и подай апелляцию.",
+            f"{until} тиклем пауза. Унан һуң бөтәһе лә үҙе ҡайта. "
+            "Риза түгелһең — тикшереүҙе асып, апелляция бир.",
+            ref_kind="incident", ref_id=inc.id,
+        )
     return _incident_out(session, inc, user)
 
 

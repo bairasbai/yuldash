@@ -1154,6 +1154,8 @@ internal fun YuldashApp() {
                 // «Появилась поездка» / «Поездка завершена, оцени» → карточка поездки
                 // (тем же путём, что ссылка yulbash.ru/r/{id}).
                 onOpenRide = { rid -> DeepLink.pendingRideId.value = rid },
+                // «Открыт разбор» / «Решение по спору» → карточка разбора: там причина и срок.
+                onOpenIncident = { id -> incidentId = id; screen = Screen.IncidentDetail },
             )
             Screen.RouteWatches -> RouteWatchesScreen(
                 onBack = { goBack() },

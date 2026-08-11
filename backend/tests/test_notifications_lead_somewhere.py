@@ -45,7 +45,12 @@ def _py_sources() -> str:
 
 
 def _server_ref_kinds() -> set[str]:
-    return set(re.findall(r'ref_kind\s*=\s*"([a-z_]+)"', _py_sources())) - {""}
+    kinds = set(re.findall(r'ref_kind\s*=\s*"([a-z_]+)"', _py_sources())) - {""}
+    # Ночная чистка передаёт вид ПЕРЕМЕННОЙ (`ref_kind=link` по таблице `_NOTIFY_LINK`), поэтому
+    # литерала в коде нет и регулярка выше слепа. Ровно так мимо сторожа прошёл такси-заказ
+    # с видом "order", которого приложение не знает (аудит 2026-08-08, волна 19).
+    from app.cleanup import _NOTIFY_LINK
+    return kinds | {v for v in _NOTIFY_LINK.values() if v}
 
 
 def _server_push_types() -> set[str]:

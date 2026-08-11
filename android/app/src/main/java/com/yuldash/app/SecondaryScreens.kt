@@ -282,6 +282,7 @@ internal fun NotificationsScreen(
     onOpenParcels: () -> Unit = {},
     onOpenInstantOrder: () -> Unit = {},
     onOpenRide: (Int) -> Unit = {},
+    onOpenIncident: (Int) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var selected by remember { mutableStateOf("all") }
@@ -337,6 +338,9 @@ internal fun NotificationsScreen(
             "parcel" -> onOpenParcels()          // «Посылки»: там карточка с ходом доставки
             "instant" -> onOpenInstantOrder()    // экран такси-заказа (сам подхватывает активный)
             "ride" -> onOpenRide(ref)            // моя поездка (событие по опубликованному рейсу)
+            // «Открыт разбор» / «Решение по спору» — самое тяжёлое, что бывает с аккаунтом:
+            // человеку надо видеть, за что именно и на какой срок (аудит 2026-08-08, волна 19).
+            "incident" -> onOpenIncident(ref)
         }
     }
 

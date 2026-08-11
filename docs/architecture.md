@@ -212,6 +212,19 @@
 **Backend «Справедливость» (дополняет анонимные жалобы `Report`, НЕ заменяет):**
 - **Модели** (`backend/app/models.py`): `Incident` (двусторонний спор: `reporter`/`respondent`/`type`/`status` open→awaiting_response→under_review→resolved/appealed/closed, `resolution`/`fault`/`appeal_status`), `SafetyProfile` (1:1 с User: `strikes`/`warnings`/`standing` good→warned→limited→suspended, `suspended_until`). `Rating.excluded` (щит рейтинга), `Booking.cancelled_by` (Надёжность).
 - **`backend/app/safety_logic.py`** — ядро: `INCIDENT_TYPES`/`SEVERE_TYPES`, лестница §2 (`recompute_standing`/`refresh_standing`/`_escalation_days`/`apply_incident_resolution` — лок при мутации страйков), `reliability_for` (Надёжность 0..100, неявка ТОЛЬКО по resolved-инциденту — защита оболганного), `_exclude_linked_ratings` (снять оценку-месть). Гейт паузы: `ensure_active` (бросает 403) + `account_paused` (не бросает — для лент, где отказ показывают молча). **Гейт стоит поштучно на каждой ручке**, полноту сторожит `tests/test_suspension_reaches_everywhere.py`: попутка, заявка + отклик + торг, такси (общий `_guard_taxi_driver` → линия/оффер/приём) + предзаказ, доставка + приём, жалобы. Намеренно открыты SOS и завершение начатой поездки.
+- **Ночная чистка пишет ОБЕИМ сторонам (2026-08-08, волна 19).** `cleanup.py`: у каждого
+  закрытия два списка получателей — `booking_closed` (пассажиру погашенной брони),
+  `order_pax` / `order_done_pax` (пассажиру такси), `response` (водителю протухшего отклика),
+  `parcel_returning` (отправителю, чью вещь курьер увёз и не вернул — отдельный текст, не
+  «никто не взял»). Гасимой броне ставятся `cancelled_at` + `cancel_reason="ride_closed"`,
+  а `cancelled_by` НЕТ: протухание не должно бить по «Надёжности».
+  Таблица `_NOTIFY_LINK` полная (`KeyError` на новом виде) и сверяется с приложением сторожем
+  `tests/test_notifications_lead_somewhere.py`. Сценарии — `tests/test_promises.py`.
+- **Наказание — запись, а не пуш (2026-08-08, волна 19).** `routers/incidents.py`: открытие
+  разбора, решение по спору и пауза идут через `push_notification` (запись в Центре
+  уведомлений + два языка + `ref_kind="incident"` → карточка разбора). Отстранённому уходит
+  отдельное письмо с датой окончания и подсказкой про апелляцию. В приложении ветка
+  `"incident" -> onOpenIncident(ref)` (`SecondaryScreens.kt`, проброшена в `YuldashApp.kt`).
 - **Завершение рейса не гасит брони молча (2026-08-08, волна 18).** `rides.complete_ride`:
   неподтверждённые брони получают `cancelled_at` + `cancel_reason="driver_no_response"`,
   пассажиру уходит `push_notification` («Бронь не подтвердили» / «Бронь раҫланманы»).

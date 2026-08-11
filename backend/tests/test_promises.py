@@ -461,3 +461,202 @@ def test_обещание_за_минутную_бронь_водителя_не
         bk = s.get(Booking, bid)
         assert bk.cancel_reason == "driver_no_response", "факт всё равно фиксируем"
         assert bk.cancelled_by is None, "за бронь, которую он не мог увидеть, наказывать нельзя"
+
+# ---------------------------------------------------------------------------
+# «Автомат закрывает сделку — узнают ОБА»
+# ---------------------------------------------------------------------------
+# Ночная чистка закрывает то, что зависло: уехавшие рейсы, забытые такси-заказы, протухшие
+# заявки и посылки. Каждое такое закрытие человек не запускал — значит обязан о нём узнать.
+# Письмо уходило только одной стороне: водителю по рейсу, пассажиру по заявке. Второй
+# оставался с открытым ожиданием в приложении (аудит 2026-08-08, волна 19).
+def _notes(user_id):
+    from app.models import Notification
+    from sqlmodel import select as _sel
+    with Session(engine) as s:
+        return [(n.title_ru, n.ref_kind) for n in
+                s.exec(_sel(Notification).where(Notification.user_id == user_id)).all()]
+
+
+def test_обещание_пассажир_узнаёт_что_рейс_уехал_без_него(client, user_factory):
+    """Рейс уехал, бронь так и не подтвердили — пассажир узнаёт об этом от нас.
+
+    Проверено запросом до правки: бронь тихо становилась cancelled, у пассажира ноль
+    уведомлений, у водителя — «Поездка закрыта». Человек продолжал ждать подтверждения.
+    """
+    from app.cleanup import close_past_rides
+    from app.models import Ride
+
+    drv = user_factory("Чистка рейса: водитель", role=UserRole.driver)
+    pax = user_factory("Чистка рейса: пассажир")
+    rid = _ride(client, drv)
+    b = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1})
+    assert b.status_code == 200, b.text
+    bid = b.json()["id"]
+    with Session(engine) as s:
+        ride = s.get(Ride, rid)
+        ride.depart_at = utcnow() - timedelta(days=2)
+        s.add(ride)
+        s.commit()
+
+    close_past_rides()
+
+    with Session(engine) as s:
+        bk = s.get(Booking, bid)
+        assert bk.status == BookingStatus.cancelled
+        assert bk.cancelled_at is not None, "не записано даже время"
+        assert bk.cancel_reason == "ride_closed", bk.cancel_reason
+        # Протухание — не отмена человеком. Иначе «Надёжность» накажет за работу автомата.
+        assert bk.cancelled_by is None, "автоматическое закрытие нельзя вешать на человека"
+    titles = [t for t, _ in _notes(pax["id"])]
+    assert any("рейс" in t.lower() for t in titles), f"пассажиру не сказали: {titles}"
+
+
+def test_обещание_водитель_узнаёт_что_заявка_закрылась(client, user_factory):
+    """Водитель назвал цену и ждёт ответа — заявка протухла, и мы об этом пишем.
+
+    Было: заявка тихо уходила в expired, отклик тихо закрывался, пассажир получал письмо,
+    водитель — ничего. У него в откликах висел торг по заявке, которой больше нет.
+    """
+    from app.cleanup import close_past_requests
+    from app.models import RideRequest
+
+    pax = user_factory("Чистка заявки: пассажир")
+    drv = user_factory("Чистка заявки: водитель", role=UserRole.driver)
+    r = client.post("/requests", headers=pax["auth"],
+                    json={"from_city": "Баймак", "to_city": "Сибай", "seats": 1})
+    assert r.status_code == 200, r.text
+    rqid = r.json()["id"]
+    assert client.post(f"/requests/{rqid}/respond", headers=drv["auth"],
+                       json={"price": 300}).status_code == 200
+    with Session(engine) as s:
+        q = s.get(RideRequest, rqid)
+        q.created_at = utcnow() - timedelta(days=90)
+        q.desired_at = None
+        s.add(q)
+        s.commit()
+
+    close_past_requests()
+
+    titles = [t for t, _ in _notes(drv["id"])]
+    assert any("заявка" in t.lower() for t in titles), f"водителю не сказали: {titles}"
+
+
+def test_обещание_пассажир_такси_узнаёт_о_закрытии_заказа(client, user_factory):
+    """«Вы едете» не висит вечно: заказ закрыл автомат — пассажиру об этом пишут.
+
+    Водитель получал письмо (у него ещё и комиссия начислялась), пассажир — ноль.
+    """
+    from app.cleanup import close_stale_orders
+    from app.models import InstantOrder
+
+    drv = user_factory("Чистка такси: водитель", role=UserRole.driver)
+    pax = user_factory("Чистка такси: пассажир")
+    with Session(engine) as s:
+        o = InstantOrder(passenger_id=pax["id"], driver_id=drv["id"],
+                         from_lat=52.5, from_lon=58.3, to_lat=52.6, to_lon=58.4,
+                         from_text="Баймак", to_text="Сибай", price=300,
+                         status="onboard", created_at=utcnow() - timedelta(days=3))
+        s.add(o)
+        s.commit()
+
+    close_stale_orders()
+
+    got = _notes(pax["id"])
+    assert got, "пассажиру не сказали, что поездка закрыта"
+    # Тап обязан вести на экран, который приложение умеет открывать (см. следующий тест).
+    assert all(k == "instant" for _, k in got), got
+
+
+def test_обещание_про_пропавшую_посылку_не_врут(client, user_factory):
+    """Курьер вёз посылку обратно и пропал — отправителю говорят правду.
+
+    Слался текст «посылку никто не взял, создай заново». Это неправда: вещь у курьера
+    на руках. Человек читал такое и переставал искать.
+    """
+    from app.cleanup import close_stale_parcels
+    from app.models import Notification, ParcelDelivery
+    from sqlmodel import select as _sel
+
+    snd = user_factory("Пропавшая посылка: отправитель")
+    cur = user_factory("Пропавшая посылка: курьер", role=UserRole.driver)
+    with Session(engine) as s:
+        p = ParcelDelivery(sender_id=snd["id"], courier_id=cur["id"],
+                           from_city="Баймак", to_city="Сибай",
+                           recipient_name="Получатель", recipient_phone="+70000000000",
+                           status="returning", created_at=utcnow() - timedelta(days=400))
+        s.add(p)
+        s.commit()
+
+    close_stale_parcels()
+
+    with Session(engine) as s:
+        texts = [(n.title_ru, n.body_ru) for n in
+                 s.exec(_sel(Notification).where(Notification.user_id == snd["id"])).all()]
+    assert texts, "отправителю не сказали ничего"
+    joined = " ".join(t + " " + b for t, b in texts).lower()
+    assert "никто не взял" not in joined, f"человеку соврали про его вещь: {texts}"
+    assert "поддержк" in joined, f"не сказали, куда идти искать: {texts}"
+
+# ---------------------------------------------------------------------------
+# «Наказание не приходит молча»
+# ---------------------------------------------------------------------------
+# Разбор и отстранение — самое тяжёлое, что бывает с аккаунтом. Уходило это голым пушем: без
+# записи в Центре уведомлений и только по-русски. Проверено пробой: человека отстранили
+# на 7 дней — у него НОЛЬ записей, а в профиле выбран башкирский. Пуш ночью не увидят никогда,
+# и человек не знает ни за что наказан, ни на какой срок (аудит 2026-08-08, волна 19).
+def _incident_against(client, admin, reporter, respondent):
+    """Живой разбор: бронь → жалоба на водителя. Возвращает id спора."""
+    rid = _ride(client, respondent)
+    b = client.post("/bookings", headers=reporter["auth"], json={"ride_id": rid, "seats": 1})
+    assert b.status_code == 200, b.text
+    assert client.post(f"/bookings/{b.json()['id']}/confirm",
+                       headers=respondent["auth"]).status_code == 200
+    inc = client.post("/incidents", headers=reporter["auth"], json={
+        "booking_id": b.json()["id"], "respondent_id": respondent["id"],
+        "type": "rude", "description": "Грубил всю дорогу"})
+    assert inc.status_code == 200, inc.text
+    return inc.json()["id"]
+
+
+def test_обещание_обвинённый_узнаёт_о_разборе(client, user_factory):
+    """Право на защиту не должно зависеть от того, дошёл ли пуш.
+
+    Телефон был выключен — человек «молчит сам», и разбор уходит к админу без его версии.
+    """
+    admin = user_factory("Разбор: админ", role=UserRole.admin)
+    pax = user_factory("Разбор: заявитель")
+    drv = user_factory("Разбор: обвинённый", role=UserRole.driver)
+    _incident_against(client, admin, pax, drv)
+
+    got = _notes(drv["id"])
+    assert any("разбор" in t.lower() for t, _ in got), f"обвинённому не сказали: {got}"
+    # Тап ведёт в саму карточку разбора — там видно, в чём обвиняют.
+    assert any(k == "incident" for _, k in got), got
+
+
+def test_обещание_отстранённый_знает_срок_и_причину(client, user_factory):
+    """Пауза без даты читается как «забанили навсегда» — а это почти всегда неправда.
+
+    Проверяем и двуязычие: письмо про наказание обязано быть на языке человека.
+    """
+    from app.models import Notification
+    from sqlmodel import select as _sel
+
+    admin = user_factory("Пауза: админ", role=UserRole.admin)
+    pax = user_factory("Пауза: заявитель")
+    drv = user_factory("Пауза: наказанный", role=UserRole.driver)
+    iid = _incident_against(client, admin, pax, drv)
+
+    r = client.post(f"/admin/incidents/{iid}/resolve", headers=admin["auth"], json={
+        "resolution": "suspend", "fault": "respondent",
+        "note": "Подтверждено записями.", "suspend_days": 7})
+    assert r.status_code == 200, r.text
+
+    with Session(engine) as s:
+        notes = s.exec(_sel(Notification).where(Notification.user_id == drv["id"])).all()
+    pause = [n for n in notes if "паузе" in (n.title_ru or "").lower()]
+    assert pause, f"человеку не сказали, что он отстранён: {[n.title_ru for n in notes]}"
+    n = pause[0]
+    assert n.title_ba and n.title_ba != n.title_ru, "письмо про наказание только по-русски"
+    # Дата окончания — обязательна: без неё человек не знает, когда всё вернётся.
+    assert any(ch.isdigit() for ch in (n.body_ru or "")), n.body_ru

@@ -256,7 +256,22 @@ def _clean_media():
 # Куда ведёт тап, если экран не совпадает с поводом написать: у одного объекта поводов бывает
 # несколько — «заказ закрыт» и «заказ закрыт, комиссия начислена» открывают один и тот же заказ.
 # Пустая строка = вести некуда (в Центре уведомлений это просто текст без перехода).
-_NOTIFY_LINK = {"order_done": "order", "debt": ""}
+#
+# Названия здесь НЕ произвольные: приложение разбирает ref_kind точным списком
+# (`SecondaryScreens.openDeepLink`) и молча ничего не делает на незнакомом. Такси-заказ там
+# зовётся `instant`; стояло `order` — карточка пружинила под пальцем и никуда не вела
+# (аудит 2026-08-08, волна 19). Добавляя вид, сверься со списком в приложении.
+#
+# Таблица ПОЛНАЯ — запись обязана быть у каждого вида, даже когда она совпадает с его именем.
+# Раньше недостающие брались как есть (`.get(kind, kind)`), и сторож
+# `tests/test_notifications_lead_somewhere.py` их не видел: он ищет в коде литералы
+# `ref_kind="..."`, а тут вид приходит переменной. Так «order» и проскочил мимо сторожа.
+# Теперь неизвестный вид падает с KeyError у автора, а не немым тапом у человека.
+_NOTIFY_LINK = {"ride": "ride", "request": "request", "parcel": "parcel",
+                "order": "instant", "order_done": "instant",
+                "order_pax": "instant", "order_done_pax": "instant",
+                "parcel_returning": "parcel", "response": "request",
+                "booking_closed": "booking", "debt": ""}
 
 
 def _notify_closed(kind: str, rows: list[tuple[int, int]]) -> None:
@@ -279,6 +294,16 @@ def _notify_closed(kind: str, rows: list[tuple[int, int]]) -> None:
                 "Она снята с ленты курьеров. Если всё ещё нужно отправить — создай заново.",
                 "Ул курьерҙар таҫмаһынан алынды. Әгәр ебәрергә кәрәк булһа — яңынан булдыр.",
             ),
+            # Курьер вёз посылку ОБРАТНО и пропал — вещь у него на руках. Слать сюда текст
+            # «никто не взял, создай заново» было прямой неправдой: человек решал, что посылка
+            # так и лежит дома, и переставал искать (аудит 2026-08-08, волна 19).
+            "parcel_returning": (
+                "Посылку так и не вернули", "Бандероль кире ҡайтарылманы",
+                "Курьер вёз её обратно, но не отметил возврат. Заявку мы закрыли. "
+                "Если посылку не отдали — напиши в поддержку, поможем найти.",
+                "Курьер уны кире алып ҡайта ине, әммә ҡайтарыуҙы билдәләмәне. Заявканы яптыҡ. "
+                "Әгәр бандеролде бирмәгән булһалар — ярҙам хеҙмәтенә яҙ, табырға булышабыҙ.",
+            ),
             "ride": (
                 "Поездка закрыта", "Сәфәр ябылды",
                 "Время выезда прошло, попутчиков не было. Опубликуй новую, когда поедешь.",
@@ -298,6 +323,39 @@ def _notify_closed(kind: str, rows: list[tuple[int, int]]) -> None:
                 "Һин «Тамамланды» төймәһенә баҫманың, беҙ сәфәрҙе үҙебеҙ яптыҡ. Комиссия иҫәпләнде. "
                 "Әгәр сәфәр булмаған булһа — ярҙам хеҙмәтенә яҙ, алып ташлайбыҙ.",
             ),
+            # --- вторая сторона (аудит 2026-08-08, волна 19) ---
+            # Автомат закрывал сделку и писал только ОДНОМУ её участнику. Второй оставался
+            # с открытым ожиданием в приложении: пассажир ждал подтверждения брони по рейсу,
+            # который уехал два дня назад; человек в такси видел «вы едете» по поездке
+            # месячной давности; водитель ждал ответа на отклик по несуществующей заявке.
+            "booking_closed": (
+                "Рейс уехал без ответа", "Сәфәр яуапһыҙ китте",
+                "Водитель так и не подтвердил твою бронь, а время выезда прошло. "
+                "Посмотри другие поездки — по этому направлению обычно есть ещё.",
+                "Водитель һинең броныңды раҫламаны, ә сығыу ваҡыты үтте. "
+                "Башҡа сәфәрҙәрҙе ҡара — был йүнәлештә ғәҙәттә тағы бар.",
+            ),
+            "order_pax": (
+                "Заказ закрыт", "Заказ ябылды",
+                "Водитель так и не начал поездку, и мы закрыли заказ. "
+                "Деньги не списывались. Можно вызвать машину заново.",
+                "Водитель сәфәрҙе башламаны, беҙ заказды яптыҡ. "
+                "Аҡса алынманы. Машинаны яңынан саҡырырға була.",
+            ),
+            "order_done_pax": (
+                "Поездка завершена", "Сәфәр тамамланды",
+                "Водитель не закрыл поездку сам, и мы отметили её выполненной. "
+                "Если что-то пошло не так — напиши в поддержку.",
+                "Водитель сәфәрҙе үҙе япманы, беҙ уны үтәлгән тип билдәләнек. "
+                "Әгәр берәй нәмә дөрөҫ булмаһа — ярҙам хеҙмәтенә яҙ.",
+            ),
+            "response": (
+                "Заявка закрылась", "Заявка ябылды",
+                "Пассажир не ответил на твоё предложение, и время заявки прошло. "
+                "Твой отклик закрыт — посмотри свежие заявки.",
+                "Пассажир һинең тәҡдимеңә яуап бирмәне, заявка ваҡыты үтте. "
+                "Откликың ябылды — яңы заявкаларҙы ҡара.",
+            ),
             # «Я оплатил» без подтверждения деньгами протухло → долг снова неоплачен.
             "debt": (
                 "Оплата комиссии не подтвердилась", "Комиссия түләүе раҫланманы",
@@ -307,7 +365,7 @@ def _notify_closed(kind: str, rows: list[tuple[int, int]]) -> None:
                 "түләүҙе тикшер йәки яңынан күсер.",
             ),
         }[kind]
-        link = _NOTIFY_LINK.get(kind, kind)
+        link = _NOTIFY_LINK[kind]   # см. комментарий к таблице: список полный, дырок быть не должно
         with Session(engine) as session:
             for obj_id, user_id in rows:
                 if not user_id:
@@ -367,13 +425,31 @@ def close_past_rides(now=None) -> tuple:
             "  SELECT 1 FROM ride r WHERE r.id = booking.ride_id "
             "  AND r.status = 'done' AND r.depart_at < :cut)"
         ), {"cut": cut})
-        conn.execute(text(
-            "UPDATE booking SET status = 'cancelled' "
+        #
+        # Кого гасим — собираем ДО обновления (после него признак пропадёт). Гасим МОЛЧА —
+        # так было до аудита 2026-08-08 (волна 19): человек забронировал, ждал подтверждения,
+        # рейс уехал, бронь стала cancelled — и ни уведомления, ни причины, ни времени.
+        # Проверено запросом: у пассажира ноль уведомлений, у водителя — «Поездка закрыта».
+        #
+        # `cancelled_by` НЕ ставим намеренно. Это не чья-то отмена, а протухание по времени;
+        # поле читает «Надёжность» (`reliability_for` считает по нему поздние отмены), и записать
+        # туда кого-то — значит наказать человека за то, что сделал автомат.
+        booking_victims = [(r[0], r[1]) for r in conn.execute(text(
+            "SELECT id, passenger_id FROM booking "
             "WHERE status IN ('pending', 'confirmed') AND EXISTS ("
             "  SELECT 1 FROM ride r WHERE r.id = booking.ride_id "
             "  AND r.status IN ('done', 'expired') AND r.depart_at < :cut)"
-        ), {"cut": cut})
+        ), {"cut": cut}).all()]
+        conn.execute(text(
+            "UPDATE booking SET status = 'cancelled', "
+            "  cancelled_at = COALESCE(cancelled_at, :now), "
+            "  cancel_reason = COALESCE(cancel_reason, 'ride_closed') "
+            "WHERE status IN ('pending', 'confirmed') AND EXISTS ("
+            "  SELECT 1 FROM ride r WHERE r.id = booking.ride_id "
+            "  AND r.status IN ('done', 'expired') AND r.depart_at < :cut)"
+        ), {"cut": cut, "now": now})
     _notify_closed("ride", ride_victims)
+    _notify_closed("booking_closed", booking_victims)
     return done, expired
 
 
@@ -409,6 +485,15 @@ def close_past_requests(now=None) -> int:
         # Отклики закрытых заявок. Та же болезнь, что у броней: заявка закрывалась, а отклик
         # навсегда оставался «в торге» — водитель видел у себя открытый торг по заявке,
         # которой уже месяц нет (аудит 2026-08-06).
+        # Водителю об этом тоже говорим (аудит 2026-08-08, волна 19). Он назвал цену и ждёт
+        # ответа; заявка тихо протухала, отклик тихо закрывался, и у него в «моих откликах»
+        # висел торг, которого больше нет. Ссылка ведёт на заявку — там видно, что она закрыта.
+        resp_victims = [(r[0], r[1]) for r in conn.execute(text(
+            "SELECT request_id, driver_id FROM requestresponse "
+            "WHERE status = 'offered' AND EXISTS ("
+            "  SELECT 1 FROM riderequest rq WHERE rq.id = requestresponse.request_id "
+            "  AND rq.status = 'expired')"
+        )).all()]
         conn.execute(text(
             "UPDATE requestresponse SET status = 'expired' "
             "WHERE status = 'offered' AND EXISTS ("
@@ -416,6 +501,7 @@ def close_past_requests(now=None) -> int:
             "  AND rq.status = 'expired')"
         ))
     _notify_closed("request", victims)
+    _notify_closed("response", resp_victims)
     return n
 
 
@@ -455,8 +541,12 @@ def close_stale_parcels(now=None) -> int:
             "UPDATE parceldelivery SET status = 'returned' "
             "WHERE status = 'returning' AND created_at < :ccut"
         ), {"ccut": created_cut}).rowcount or 0
-        victims += stuck
+    # Два списка, а не один: случаи разные, и текст обязан быть разным. Пропавший на обратном
+    # пути курьер держит вещь у себя, а отправитель получал письмо «посылку никто не взял,
+    # создай заново» — прямую неправду, из-за которой человек переставал искать вещь
+    # (аудит 2026-08-08, волна 19).
     _notify_closed("parcel", victims)
+    _notify_closed("parcel_returning", stuck)
     return n
 
 
@@ -519,12 +609,24 @@ def close_stale_orders(now=None) -> int:
         # Водителю важнее всех: пока заказ висел, он не мог взять ни одного нового.
         # Списки разные, потому что и правда разная: несостоявшийся заказ и состоявшаяся
         # поездка с комиссией — это два разных письма человеку.
+        #
+        # Пассажира тоже уведомляем (аудит 2026-08-08, волна 19). Ровно та беда, что описана
+        # в шапке этой функции — «у пассажира в приложении оставалось "вы едете"» — чинилась
+        # только со стороны водителя: он получал письмо, пассажир не получал ничего.
         cancel_victims = [(r[0], r[1]) for r in conn.execute(text(
             "SELECT id, driver_id FROM instantorder "
             "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
         ), {"cut": cut}).all()]
+        cancel_pax = [(r[0], r[1]) for r in conn.execute(text(
+            "SELECT id, passenger_id FROM instantorder "
+            "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
+        ), {"cut": cut}).all()]
         done_victims = [(r[0], r[1]) for r in conn.execute(text(
             "SELECT id, driver_id FROM instantorder "
+            "WHERE status = 'onboard' AND created_at < :cut"
+        ), {"cut": cut}).all()]
+        done_pax = [(r[0], r[1]) for r in conn.execute(text(
+            "SELECT id, passenger_id FROM instantorder "
             "WHERE status = 'onboard' AND created_at < :cut"
         ), {"cut": cut}).all()]
         closed += conn.execute(text(
@@ -544,6 +646,8 @@ def close_stale_orders(now=None) -> int:
     _accrue_auto_done([oid for oid, _ in done_victims])
     _notify_closed("order", cancel_victims)
     _notify_closed("order_done", done_victims)
+    _notify_closed("order_pax", cancel_pax)
+    _notify_closed("order_done_pax", done_pax)
     return closed
 
 
