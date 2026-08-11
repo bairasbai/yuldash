@@ -392,3 +392,72 @@ def test_обещание_ранняя_отмена_водителя_безвр�
 
     t = client.get(f"/users/{drv['id']}/trust", headers=admin["auth"]).json()
     assert t["reliability"] == 100, f"ранняя отмена наказана — это уже другой продукт: {t}"
+
+# ---------------------------------------------------------------------------
+# «О судьбе брони человек узнаёт всегда»
+# ---------------------------------------------------------------------------
+def _ride_in_the_past(client, drv, hours_ago: int = 1):
+    """Опубликованный рейс, время выезда которого уже прошло (публиковать в прошлое нельзя)."""
+    from app.models import Ride
+
+    r = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай",
+        "depart_at": (utcnow() + timedelta(hours=6)).replace(microsecond=0).isoformat(),
+        "seats_total": 3, "price": 300})
+    assert r.status_code == 200, r.text
+    rid = r.json()["id"]
+    with Session(engine) as s:
+        ride = s.get(Ride, rid)
+        ride.depart_at = utcnow() - timedelta(hours=hours_ago)
+        s.add(ride)
+        s.commit()
+    return rid
+
+
+def test_обещание_неподтверждённую_бронь_не_гасят_молча(client, user_factory):
+    """Человек забронировал, ждал ответа — а рейс уехал без него.
+
+    Бронь гасилась МОЛЧА: ни причины, ни времени, ни уведомления. Пассажир продолжал ждать
+    подтверждения, которого уже не будет (аудит 2026-08-08, волна 18).
+    """
+    from app.models import Notification
+    from sqlmodel import select as _sel
+
+    drv = user_factory("Молча: водитель", role=UserRole.driver)
+    rid = _ride_in_the_past(client, drv)
+    pax = user_factory("Молча: пассажир")
+    b = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1})
+    assert b.status_code == 200, b.text
+    bid = b.json()["id"]
+
+    assert client.post(f"/rides/{rid}/complete", headers=drv["auth"]).status_code == 200
+
+    with Session(engine) as s:
+        bk = s.get(Booking, bid)
+        assert bk.status == BookingStatus.cancelled
+        assert bk.cancelled_at is not None, "не записано даже время отмены"
+        assert bk.cancel_reason == "driver_no_response", bk.cancel_reason
+        notes = s.exec(_sel(Notification).where(Notification.user_id == pax["id"])).all()
+    assert notes, "пассажиру не сказали, что бронь отменена — он так и будет ждать"
+    assert any("бронь" in (n.title_ru or "").lower() for n in notes), [n.title_ru for n in notes]
+
+
+def test_обещание_за_минутную_бронь_водителя_не_наказывают(client, user_factory):
+    """Бронь за пять минут до отправления водитель мог не увидеть — это не его срыв.
+
+    Обратная сторона предыдущего теста: фиксируем факт, но авторство ставим, только если
+    у водителя реально было время заметить бронь.
+    """
+    drv = user_factory("Минутная бронь: водитель", role=UserRole.driver)
+    rid = _ride_in_the_past(client, drv)
+    pax = user_factory("Минутная бронь: пассажир")
+    b = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1})
+    assert b.status_code == 200, b.text
+    bid = b.json()["id"]
+
+    assert client.post(f"/rides/{rid}/complete", headers=drv["auth"]).status_code == 200
+
+    with Session(engine) as s:
+        bk = s.get(Booking, bid)
+        assert bk.cancel_reason == "driver_no_response", "факт всё равно фиксируем"
+        assert bk.cancelled_by is None, "за бронь, которую он не мог увидеть, наказывать нельзя"

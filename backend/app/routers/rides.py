@@ -26,6 +26,11 @@ from ..timeutil import client_dt_to_utc, utcnow
 # Планка «завершить можно только начавшуюся поездку» — одна на все три двери
 # к этому переходу (bookings.py, family.py и эта ручка).
 from .bookings import DONE_EARLY_GRACE
+
+# Сколько времени до выезда бронь должна провисеть, чтобы «не подтвердил» считалось виной
+# водителя. Бронь за пять минут до отправления он мог физически не увидеть; полчаса и больше —
+# уже его ответственность: пуш о новой брони приходит сразу (волна 18).
+_CONFIRM_GRACE = timedelta(minutes=30)
 from ..workday import local_now
 from ..trust_service import INSIDER_LEVEL, trust_level
 from ..services import (
@@ -712,17 +717,40 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
     ride.status = RideStatus.done
     session.add(ride)
     done_ids: list[int] = []
+    dropped: list[Booking] = []      # брони, которые водитель так и не подтвердил
+    now = utcnow()
     for b in affected:
-        b.status = BookingStatus.done if b.status != BookingStatus.pending else BookingStatus.cancelled
-        session.add(b)
-        if b.status == BookingStatus.done:
+        if b.status == BookingStatus.pending:
+            # Человек забронировал, ждал ответа — а рейс уехал без него. Раньше такая бронь
+            # гасилась МОЛЧА: ни причины, ни времени, ни уведомления. Пассажир продолжал ждать
+            # подтверждения, которого уже не будет (аудит 2026-08-08, волна 18).
+            b.status = BookingStatus.cancelled
+            b.cancelled_at = now
+            b.cancel_reason = "driver_no_response"
+            # Авторство ставим, только если у водителя реально было время заметить бронь.
+            # Бронь за пять минут до выезда — не его вина; бронь, висевшая полчаса и дольше,
+            # уже его ответственность, и Надёжность обязана это видеть (см. reliability_for).
+            if b.created_at and ride.depart_at and b.created_at <= ride.depart_at - _CONFIRM_GRACE:
+                b.cancelled_by = ride.driver_id
+            dropped.append(b)
+        else:
+            b.status = BookingStatus.done
             done_ids.append(b.passenger_id)
+        session.add(b)
     session.commit()
     session.refresh(ride)
     notify_map_changed()
     # Как и отмена (см. cancel_ride): запись в Центре уведомлений + два языка. Здесь это ещё
     # и приглашение оценить поездку — без следа оно живёт ровно до пропущенного пуша.
     route = f"{ride.from_city} → {ride.to_city}"
+    for b in dropped:
+        push_notification(
+            session, b.passenger_id, "booking",
+            "Бронь не подтвердили", "Бронь раҫланманы",
+            f"{route}: рейс уехал, а бронь так и осталась без ответа. Посмотри другие поездки рядом.",
+            f"{route}: рейс китте, ә бронь яуапһыҙ ҡалды. Яҡындағы башҡа сәфәрҙәрҙе ҡара.",
+            ref_kind="booking", ref_id=b.id,
+        )
     for pid in done_ids:
         push_notification(
             session, pid, "ride",
