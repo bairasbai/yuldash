@@ -820,3 +820,56 @@ def test_repeated_boost_taps_reuse_the_same_bill(client, user_factory, monkeypat
     assert other.status_code == 200, other.text
     assert other.json()["payment_id"] != ids[0], "смена тарифа должна давать новый счёт"
 
+# --------------------- 19. Волна 14: телефон уезжал в лог сервера ---------------------
+# Скруб персональных данных был написан и работал — но только на выходе в Sentry. Локальный
+# лог сервера писал текст исключения как есть, а SQLAlchemy вкладывает в `IntegrityError`
+# параметры запроса: телефон, имя, город. Логи лежат на диске и попадают в чужие руки при
+# разборе инцидента — §8 CLAUDE.md и 152-ФЗ говорят прямо: чувствительное не логируем.
+
+def test_phone_never_reaches_the_server_log():
+    """Текст ошибки БД со стеком — через скруб: номер заменяется, стек остаётся целым."""
+    from app.observability import scrub_exc
+
+    try:
+        raise ValueError(
+            "(sqlite3.IntegrityError) UNIQUE constraint failed: user.phone "
+            "[parameters: ('+79991234567', 'Айгуль', 'Баймак')]"
+        )
+    except ValueError as e:
+        text = scrub_exc(e)
+
+    assert "+79991234567" not in text, "телефон ушёл в лог сервера"
+    assert "<телефон>" in text
+    # Стек нужен для отладки — его не режем.
+    assert "Traceback" in text and "test_phone_never_reaches_the_server_log" in text
+
+
+def test_error_handler_logs_through_the_scrubber(caplog):
+    """Проверяем не хелпер, а саму дверь: обработчик 500 обязан звать скруб."""
+    import asyncio
+    import logging
+
+    from app.middleware import unhandled_exception_handler
+
+    class _FakeURL:
+        path = "/rides"
+
+    class _FakeReq:
+        method = "POST"
+        url = _FakeURL()
+
+    exc = ValueError("[parameters: ('+79991234567', 'Айгуль')]")
+    loop = asyncio.new_event_loop()
+    try:
+        with caplog.at_level(logging.ERROR):
+            loop.run_until_complete(unhandled_exception_handler(_FakeReq(), exc))
+    finally:
+        loop.close()
+
+    # getMessage() уже подставляет аргументы (%s) — берём его как есть.
+    logged = chr(10).join(r.getMessage() for r in caplog.records)
+    # Сначала убеждаемся, что прибор вообще что-то поймал: тест, проверяющий пустую строку,
+    # зелёный всегда и не значит ничего (эту ошибку ловили в этой же сессии дважды).
+    assert caplog.records, "обработчик не записал в лог ничего — тест ничего не проверяет"
+    assert "+79991234567" not in logged, f"телефон в логе: {logged[:300]}"
+    assert "<телефон>" in logged, "скруб не сработал в самом обработчике"

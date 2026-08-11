@@ -265,7 +265,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     path = request.url.path
     if path.startswith("/t/") or path.startswith("/api/v1/t/"):
         path = path[: path.index("/t/") + 3] + "***"   # токен live-ссылки — секрет (B7c)
-    log.error(f"[ERR] {request.method} {path}: {type(exc).__name__}: {exc}", exc_info=exc)
+    # Текст ошибки и стек — через скруб: в `IntegrityError` SQLAlchemy кладёт параметры
+    # запроса, то есть телефон и имя человека. `exc_info` не используем намеренно — он
+    # печатает исходный текст мимо очистки (аудит 2026-08-08, волна 14).
+    from .observability import scrub_exc
+    log.error("[ERR] %s %s: %s\n%s", request.method, path, type(exc).__name__, scrub_exc(exc))
     # Обработчик bare Exception мог бы «съесть» авто-захват Sentry — шлём явно.
     from .observability import capture
     capture(exc)

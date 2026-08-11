@@ -212,6 +212,14 @@
 **Backend «Справедливость» (дополняет анонимные жалобы `Report`, НЕ заменяет):**
 - **Модели** (`backend/app/models.py`): `Incident` (двусторонний спор: `reporter`/`respondent`/`type`/`status` open→awaiting_response→under_review→resolved/appealed/closed, `resolution`/`fault`/`appeal_status`), `SafetyProfile` (1:1 с User: `strikes`/`warnings`/`standing` good→warned→limited→suspended, `suspended_until`). `Rating.excluded` (щит рейтинга), `Booking.cancelled_by` (Надёжность).
 - **`backend/app/safety_logic.py`** — ядро: `INCIDENT_TYPES`/`SEVERE_TYPES`, лестница §2 (`recompute_standing`/`refresh_standing`/`_escalation_days`/`apply_incident_resolution` — лок при мутации страйков), `reliability_for` (Надёжность 0..100, неявка ТОЛЬКО по resolved-инциденту — защита оболганного), `_exclude_linked_ratings` (снять оценку-месть). Гейт паузы: `ensure_active` (бросает 403) + `account_paused` (не бросает — для лент, где отказ показывают молча). **Гейт стоит поштучно на каждой ручке**, полноту сторожит `tests/test_suspension_reaches_everywhere.py`: попутка, заявка + отклик + торг, такси (общий `_guard_taxi_driver` → линия/оффер/приём) + предзаказ, доставка + приём, жалобы. Намеренно открыты SOS и завершение начатой поездки.
+- **Лог сервера чистится от ПДн (2026-08-08, волна 14).** `observability.scrub_exc(exc)` —
+  текст исключения со стеком через тот же скруб, что и Sentry; зовётся из
+  `middleware.unhandled_exception_handler`. `exc_info` не используем: он печатает исходный
+  текст мимо очистки. Тесты — `test_audit_20260808.py` раздел 19.
+- **Чат-уведомления приватны (2026-08-08, волна 14).** `FcmService.showNotification`: для канала
+  `CHANNEL_CHAT` ставится `VISIBILITY_PRIVATE` + `setPublicVersion` («Юлдаш · Новое сообщение» /
+  «Яңы хәбәр»). Остальные типы не трогаем — они полезны с локскрина. Гарантию даст только
+  тумблер в приложении (предложение в `docs/tasks.md`).
 - **Redis тоже чистится (2026-08-08, волна 12).** `presence_offline(driver_id)` (была мёртвой)
   зовётся из `POST /driver/online {online:false}` и из `account.delete_user_account`;
   `cleanup._clean_stale_presence()` в ночной чистке убирает из GEO точки без свежего

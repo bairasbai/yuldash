@@ -11,6 +11,7 @@ import com.google.firebase.messaging.RemoteMessage
 import com.yuldash.app.AppPrefs
 import com.yuldash.app.MainActivity
 import com.yuldash.app.R
+import com.yuldash.app.appTextFor
 import com.yuldash.app.TaxiOfferNotifier
 
 /**
@@ -84,7 +85,7 @@ class FcmService : FirebaseMessagingService() {
             this, reqCode, intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val notif = NotificationCompat.Builder(this, channelId)
+        val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_stat_notification)
             .setContentTitle(title)
             .setContentText(body)
@@ -94,7 +95,23 @@ class FcmService : FirebaseMessagingService() {
             .setPriority(if (silent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
             .setSilent(silent)
             .setContentIntent(pi)
-            .build()
+        // Переписка — личное, и телефон часто лежит на столе или в общей семье. Уведомление
+        // чата помечаем приватным и даём системе БЕЗОПАСНУЮ версию: на заблокированном экране
+        // видно «Юлдаш · Новое сообщение», а имя собеседника и текст открываются после разблокировки.
+        // Остальные пуши (машина подъезжает, бронь подтверждена) остаются как были: они полезны
+        // именно с экрана блокировки и ничего личного не раскрывают (аудит 2026-08-08, волна 14).
+        if (channelId == CHANNEL_CHAT) {
+            val lang = AppPrefs.language(this)
+            val safe = NotificationCompat.Builder(this, channelId)
+                .setSmallIcon(R.drawable.ic_stat_notification)
+                .setContentTitle("Юлдаш")            // имя приложения — одно на оба языка
+                .setContentText(appTextFor(lang, "Новое сообщение", "Яңы хәбәр"))
+                .setAutoCancel(true)
+                .setContentIntent(pi)
+                .build()
+            builder.setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(safe)
+        }
+        val notif = builder.build()
         // id тоже по ключу: новое сообщение того же чата ЗАМЕНЯЕТ прежнее, а не сыплет столбиком
         // (было System.currentTimeMillis() → 20 сообщений = 20 уведомлений). Без id — по времени.
         val notifId = if (refId.isNullOrBlank()) (System.currentTimeMillis().toInt() and 0x7FFFFFFF) else key.hashCode()
