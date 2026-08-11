@@ -776,3 +776,47 @@ def test_retention_sweeps_coordinates_without_heartbeat(client, user_factory, fa
     assert f"driver:{gone['id']}" not in members, "залипшие координаты остались навсегда"
     assert f"driver:{live['id']}" in members, "чистка убрала водителя, который сейчас на линии"
 
+# --------------------- 18. Волна 13: двойной тап плодил счета ---------------------
+# Каждый вызов «поднять поездку» создавал НОВЫЙ счёт. Человек видел три разных QR на одну
+# поездку и мог заплатить дважды — а поднятие одно. Админу при этом прилетало три
+# уведомления «поступил платёж». Проверено: 3 тапа = 3 счёта и 3 пинга.
+
+def test_repeated_boost_taps_reuse_the_same_bill(client, user_factory, monkeypatch):
+    """Повтор возвращает ТОТ ЖЕ счёт и не будит админа второй раз."""
+    import app.routers.payments as pay
+    from app.config import settings as cfg
+    from app.db import engine as _engine
+    from app.models import Payment
+    from sqlmodel import Session as _S, select as _sel
+
+    pings = []
+    monkeypatch.setattr(pay, "notify_admin_telegram", lambda *a, **k: pings.append(1), raising=False)
+    monkeypatch.setattr(cfg, "payments_provider", "sbp_manual", raising=False)
+
+    drv = user_factory("Буст: двойной тап", role=UserRole.driver)
+    r = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай",
+        "depart_at": (utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat(),
+        "seats_total": 3, "price": 300})
+    assert r.status_code == 200, r.text
+    rid = r.json()["id"]
+
+    ids = []
+    for _ in range(3):
+        resp = client.post("/boost/create", headers=drv["auth"], json={"ride_id": rid, "tier": "quick"})
+        assert resp.status_code == 200, resp.text
+        ids.append(resp.json()["payment_id"])
+
+    assert len(set(ids)) == 1, f"на один буст выписано несколько счетов: {ids}"
+    assert len(pings) == 1, f"админа разбудили {len(pings)} раза на один счёт"
+
+    with _S(_engine) as s2:
+        n = len(s2.exec(_sel(Payment.id).where(Payment.user_id == drv["id"],
+                                               Payment.purpose == "boost")).all())
+    assert n == 1, f"счетов в базе: {n}"
+
+    # Другой тариф — осознанный выбор человека, ему нужен свой счёт.
+    other = client.post("/boost/create", headers=drv["auth"], json={"ride_id": rid, "tier": "day"})
+    assert other.status_code == 200, other.text
+    assert other.json()["payment_id"] != ids[0], "смена тарифа должна давать новый счёт"
+
