@@ -223,3 +223,111 @@ def test_обещание_адрес_назначения_до_принятия_
 
     acc = client.post(f"/instant/orders/{order['id']}/accept", headers=d["auth"]).json()
     assert acc["to_text"] == "Сибай, ул. Горького, 15", "после принятия адрес обязан открыться"
+
+# ---------------------------------------------------------------------------
+# «Пожаловался — тебе не отомстят звёздочкой»
+# ---------------------------------------------------------------------------
+def test_обещание_щит_снимает_месть_за_жалобу(client, user_factory):
+    """Самый частый и болезненный случай: человек пожаловался, виновного наказали,
+    а тот в отместку поставил единицу — и она оставалась в рейтинге жертвы.
+
+    Щит смотрел только в одну сторону (оценка заявителя на обвинённого). Проверено
+    запросом: админ признал вину и включил щит, а рейтинг жертвы всё равно 1.0
+    (аудит 2026-08-08, волна 16). Теперь снимаются обе оценки по спорной поездке:
+    когда дело дошло до разбора, звёзды уже не про поездку, а про конфликт.
+    """
+    drv = user_factory("Щит: виновный", role=UserRole.driver)
+    rid = _ride(client, drv)
+    pax = user_factory("Щит: пожаловалась")
+    b = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1})
+    assert b.status_code == 200, b.text
+    bid = b.json()["id"]
+    assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
+    with Session(engine) as s:
+        bk = s.get(Booking, bid)
+        bk.status = BookingStatus.done
+        s.add(bk)
+        s.commit()
+
+    inc = client.post("/incidents", headers=pax["auth"], json={
+        "respondent_id": drv["id"], "type": "rude", "booking_id": bid,
+        "description": "Нахамил в дороге"})
+    assert inc.status_code == 200, inc.text
+
+    # обвинённый мстит единицей
+    assert client.post(f"/bookings/{bid}/rate", headers=drv["auth"],
+                       json={"stars": 1}).status_code == 200
+    admin = user_factory("Щит: админ", role=UserRole.admin)
+    before = client.get(f"/users/{pax['id']}/trust", headers=admin["auth"]).json()
+    assert before["rating_count"] == 1, "месть не записалась — тест ничего не проверяет"
+
+    res = client.post(f"/admin/incidents/{inc.json()['id']}/resolve", headers=admin["auth"],
+                      json={"resolution": "warning", "fault": "respondent", "shield": True})
+    assert res.status_code == 200, res.text
+
+    after = client.get(f"/users/{pax['id']}/trust", headers=admin["auth"]).json()
+    assert after["rating_count"] == 0, f"месть осталась в рейтинге жертвы: {after}"
+
+
+# ---------------------------------------------------------------------------
+# «За попутку сервис не берёт ничего»
+# ---------------------------------------------------------------------------
+def test_обещание_попутка_без_комиссии(client, user_factory):
+    """На лендинге это первая цифра: 0 ₽ за попутку. Такси и доставка — 8%, попутка — ноль."""
+    from app.models import CommissionDebt, LedgerEntry
+    from sqlmodel import select as _sel
+
+    drv = user_factory("Комиссия: водитель попутки", role=UserRole.driver)
+    rid = _ride(client, drv, price=500)
+    pax = user_factory("Комиссия: пассажир")
+    b = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1})
+    assert b.status_code == 200, b.text
+    bid = b.json()["id"]
+    assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
+    with Session(engine) as s:
+        bk = s.get(Booking, bid)
+        bk.status = BookingStatus.done
+        s.add(bk)
+        s.commit()
+
+    assert client.post(f"/bookings/{bid}/pay", headers=pax["auth"],
+                       json={"method": "cash"}).status_code == 200
+
+    with Session(engine) as s:
+        debts = s.exec(_sel(CommissionDebt).where(CommissionDebt.driver_id == drv["id"])).all()
+        led = s.exec(_sel(LedgerEntry).where(LedgerEntry.driver_id == drv["id"])).all()
+    assert not debts, f"за попутку начислили комиссию: {[(d.amount_kop, d.status) for d in debts]}"
+    assert not led, f"за попутку тронули кошелёк: {[(e.kind, e.amount_kop) for e in led]}"
+
+
+# ---------------------------------------------------------------------------
+# «Посылку отдадут только по коду»
+# ---------------------------------------------------------------------------
+def test_обещание_посылку_без_кода_не_вручить(client, user_factory):
+    """Код вручения — единственное, что отделяет получателя от постороннего."""
+    from app.config import settings as cfg
+    from test_courier import _make_courier, _order
+
+    prev = cfg.courier_enabled
+    cfg.courier_enabled = True
+    try:
+        courier = _make_courier(client, user_factory)
+        sender = user_factory("Код: отправитель")
+        order = _order(client, sender).json()
+        pid, code = order["id"], order["confirm_code"]
+
+        assert client.post(f"/parcels/{pid}/accept", headers=courier["auth"]).status_code == 200
+        assert client.post(f"/parcels/{pid}/status", headers=courier["auth"],
+                           json={"status": "in_transit"}).status_code == 200
+
+        for body in ({"status": "delivered"},
+                     {"status": "delivered", "code": ""},
+                     {"status": "delivered", "code": "000000"}):
+            r = client.post(f"/parcels/{pid}/status", headers=courier["auth"], json=body)
+            assert r.status_code == 422, f"вручили без верного кода: {body} → {r.status_code}"
+
+        ok = client.post(f"/parcels/{pid}/status", headers=courier["auth"],
+                         json={"status": "delivered", "code": str(code).lower()})
+        assert ok.status_code == 200, "верный код (в любом регистре) обязан работать"
+    finally:
+        cfg.courier_enabled = prev

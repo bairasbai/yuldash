@@ -212,6 +212,10 @@
 **Backend «Справедливость» (дополняет анонимные жалобы `Report`, НЕ заменяет):**
 - **Модели** (`backend/app/models.py`): `Incident` (двусторонний спор: `reporter`/`respondent`/`type`/`status` open→awaiting_response→under_review→resolved/appealed/closed, `resolution`/`fault`/`appeal_status`), `SafetyProfile` (1:1 с User: `strikes`/`warnings`/`standing` good→warned→limited→suspended, `suspended_until`). `Rating.excluded` (щит рейтинга), `Booking.cancelled_by` (Надёжность).
 - **`backend/app/safety_logic.py`** — ядро: `INCIDENT_TYPES`/`SEVERE_TYPES`, лестница §2 (`recompute_standing`/`refresh_standing`/`_escalation_days`/`apply_incident_resolution` — лок при мутации страйков), `reliability_for` (Надёжность 0..100, неявка ТОЛЬКО по resolved-инциденту — защита оболганного), `_exclude_linked_ratings` (снять оценку-месть). Гейт паузы: `ensure_active` (бросает 403) + `account_paused` (не бросает — для лент, где отказ показывают молча). **Гейт стоит поштучно на каждой ручке**, полноту сторожит `tests/test_suspension_reaches_everywhere.py`: попутка, заявка + отклик + торг, такси (общий `_guard_taxi_driver` → линия/оффер/приём) + предзаказ, доставка + приём, жалобы. Намеренно открыты SOS и завершение начатой поездки.
+- **Щит рейтинга симметричен (2026-08-08, волна 16).** `safety_logic._exclude_linked_ratings`
+  снимает оценки по спорной броне в ОБЕ стороны (`rater_id`/`ratee_id` ∈ пара заявитель↔обвинённый),
+  а не только оценку заявителя. Срабатывает по флагу `shield`/`exclude_rating` в решении админа.
+  Сценарий — `tests/test_promises.py::test_обещание_щит_снимает_месть_за_жалобу`.
 - **Удаление аккаунта стирает и «ничьи» файлы (2026-08-08, волна 15).**
   `Storage.iter_owned(areas, user_id)` (диск и S3) перечисляет файлы по префиксу имени
   `{user_id}_`; `account.delete_user_account` проходит по `docs/evidence/chat/voice` и удаляет

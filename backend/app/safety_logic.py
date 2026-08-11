@@ -381,14 +381,25 @@ def _escalation_days(session: Session, respondent_id: int, exclude_incident_id: 
 
 
 def _exclude_linked_ratings(session: Session, incident: Incident) -> None:
-    """Щит рейтинга: снять из среднего оценку-месть заявителя на обвинённого по спорной броне
-    (использует Rating.excluded, фаза 1) и пересчитать витринный рейтинг обвинённого."""
+    """Щит рейтинга: снять из среднего оценки, связанные со спором, — по спорной броне
+    и в ОБЕ стороны (`Rating.excluded`, фаза 1), затем пересчитать витринные рейтинги.
+
+    Почему в обе. Сначала щит снимал только оценку ЗАЯВИТЕЛЯ на обвинённого — на случай, когда
+    жалобу подают, чтобы оправдать поставленную единицу. Но самый частый и самый болезненный
+    случай обратный: человек пожаловался, виновного наказали, а тот в отместку поставил ему
+    единицу — и она оставалась (проверено запросом: админ признал вину, включил щит, рейтинг
+    жертвы всё равно 1.0; аудит 2026-08-08, волна 16).
+
+    Снимаем обе: когда дело дошло до разбора, оценки по этой поездке уже не про поездку,
+    а про конфликт. Кто прав, решает разбор, а не звёзды.
+    """
     if not incident.booking_id:
         return
+    pair = (incident.reporter_id, incident.respondent_id)
     ratings = list(session.exec(select(Rating).where(
         Rating.booking_id == incident.booking_id,
-        Rating.rater_id == incident.reporter_id,
-        Rating.ratee_id == incident.respondent_id,
+        Rating.rater_id.in_(pair),
+        Rating.ratee_id.in_(pair),
     )).all())
     affected: set[int] = set()
     for r in ratings:
