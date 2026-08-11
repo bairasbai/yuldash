@@ -768,12 +768,12 @@ internal fun ProfileScreen(
             }
             item { Box(Modifier.appearIn(8)) { SeniorAccessCard(onSimpleMode = onSimpleMode) } }
             item { Box(Modifier.appearIn(9)) { ProfileActionCard(appText("Доверенные контакты", "Ышаныслы контакттар"), appText("Кому отправлять статус поездки", "Сәфәр статусын кемгә ебәрергә"), Icons.Default.Person, onTrustedContacts) } }
-            item { Box(Modifier.appearIn(10)) { ProfileActionCard(appText("Попросить звонок", "Шылтыратыу һорау"), appText("Помощь без чата и сложных форм", "Чатһыҙ һәм ҡатмарлы формаларһыҙ ярҙам"), R.drawable.yu_support, onCallbackHelp) } }
+            item { Box(Modifier.appearIn(10)) { ProfileActionCard(appText("Попросить звонок", "Шылтыратыу һорау"), appText("Помощь без чата и сложных форм", "Чатһыҙ һәм ҡатмарлы формаларһыҙ ярҙам"), Icons.Default.HeadsetMic, onCallbackHelp) } }
             item {
                 ProfileSectionLabel(appText("Настройки и помощь", "Көйләүҙәр һәм ярҙам"))
             }
             item { Box(Modifier.appearIn(3)) { ProfileActionCard(appText("Язык", "Тел"), if (isBashkir) "Башҡортса / Русский" else "Русский / Башҡортса", Icons.Default.Language, onToggleLanguage) } }
-            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Настройки", "Көйләүҙәр"), appText("Уведомления, карта, предпочтения", "Хәбәрҙәр, карта, өҫтөнлөктәр"), Icons.Default.Settings, onSettings) } }
+            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Уведомления и карта", "Хәбәрҙәр һәм карта"), appText("Что присылать и как показывать карту", "Нимә ебәрергә һәм картаны нисек күрһәтергә"), Icons.Default.Settings, onSettings) } }
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Конфиденциальность", "Хосусилыҡ"), appText("Геолокация и разрешения", "Геолокация һәм рөхсәттәр"), Icons.Default.Shield, onPrivacy) } }
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Согласия и данные", "Ризалыҡтар һәм мәғлүмәт"), appText("Оферта, политика, геолокация", "Оферта, сәйәсәт, геолокация"), Icons.Default.Description, onConsents) } }
             item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Помощь", "Ярҙам"), appText("Ответы на частые вопросы", "Йыш һорауҙарға яуаптар"), R.drawable.yu_support, onHelp) } }

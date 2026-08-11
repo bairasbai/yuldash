@@ -1142,7 +1142,7 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
             ) { t ->
                 when (t) {
                     0 -> SendParcelTab(onSent = { tab = 1 })
-                    else -> MyParcelsTab()
+                    else -> MyParcelsTab(onGoSend = { tab = 0 })
                 }
             }
         }
@@ -2328,7 +2328,7 @@ private fun ParcelCreatedView(
 // ─────────────────────────── Вкладка «Мои посылки» ───────────────────────────
 
 @Composable
-private fun MyParcelsTab() {
+private fun MyParcelsTab(onGoSend: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var list by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
@@ -2404,8 +2404,13 @@ private fun MyParcelsTab() {
                 list.isEmpty() -> item {
                     AppEmptyState(
                         title = appText("Пока нет посылок", "Әлегә бандеролдәр юҡ"),
-                        text = appText("Отправь первую на вкладке «Отправить» — код появится здесь.", "«Ебәреү» бүлегендә беренсеһен ебәр — код бында күренер."),
+                        text = appText("Отправь первую — код появится здесь.",
+                                       "Беренсеһен ебәр — код бында күренер."),
                         icon = Icons.Default.Inventory2,
+                        // Раньше текст звал на вкладку «Отправить», а перейти туда было нечем:
+                        // подсказка называла действие, но не давала его сделать.
+                        actionLabel = appText("Отправить посылку", "Бандероль ебәреү"),
+                        onAction = onGoSend,
                     )
                 }
                 else -> items(list.size, key = { "myp-" + list[it].id }) { i ->
