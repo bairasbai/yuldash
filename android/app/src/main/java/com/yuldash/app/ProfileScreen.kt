@@ -623,8 +623,23 @@ internal fun ProfileScreen(
                                 }
                                 // Фото уходит на сервер — честно показываем это на самом аватаре.
                                 AvatarUploadOverlay(uploading = avatarUploading)
-                                // BA-draft
-                                Icon(Icons.Default.PhotoCamera, contentDescription = appText("Изменить фото", "Фотоны үҙгәртеү"), tint = Color.White, modifier = Modifier.size(15.dp).align(Alignment.BottomEnd))
+                                // Значок в кружке: без подложки иконка наезжала на соседнюю
+                                // колонку с ролью и читалась как символ посреди текста.
+                                Surface(
+                                    shape = CircleShape,
+                                    color = CanonGreen2,
+                                    border = BorderStroke(1.5.dp, Color.White),
+                                    modifier = Modifier.size(24.dp).align(Alignment.BottomEnd),
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.PhotoCamera,
+                                            contentDescription = appText("Изменить фото", "Фотоны үҙгәртеү"),
+                                            tint = Color.White,
+                                            modifier = Modifier.size(13.dp),
+                                        )
+                                    }
+                                }
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -726,13 +741,22 @@ internal fun ProfileScreen(
                 ProfileSectionLabel(appText("Личный кабинет", "Шәхси кабинет"))
             }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Мой Юлдаш", "Минең Юлдаш"), appText("Твои километры, поездки и звание", "Километрҙарың, сәфәрҙәрең һәм исемең"), Icons.Default.Insights, onMyStats) } }
+            item {
+                ProfileSectionLabel(appText("Сервисы", "Хеҙмәттәр"))
+            }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Скидки по пути", "Юл буйынса ташламалар"), appText("Скидки от местных заведений по маршруту", "Маршрут буйынса ерле урындарҙан ташлама"), Icons.Default.LocalOffer, onCoupons) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Промокод", "Промокод"), appText("Ввести код друга или акции", "Дуҫ йәки акция кодын индереү"), Icons.Default.Redeem, onPromo) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Посылки", "Бандеролдәр"), appText("Отправить с попутчиком или подвезти", "Юлдаш менән ебәреү йәки илтеү"), R.drawable.yu_mode_parcel, onParcels) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Режим курьера", "Курьер режимы"), appText("Возить заказы или стать курьером", "Заказ илтеү йәки курьер булыу"), R.drawable.yu_mode_courier, onCourier) } }
+            item {
+                ProfileSectionLabel(appText("Мои кабинеты", "Минең кабинеттар"))
+            }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Кабинет пассажира", "Пассажир кабинеты"), appText("Мои брони, заявки и безопасность", "Брондәр, заявкалар һәм хәүефһеҙлек"), Icons.Default.EventSeat, onPassengerCabinet) } }
             item { Box(Modifier.appearIn(2)) { ProfileActionCard(appText("Кабинет водителя", "Водитель кабинеты"), appText("Маршруты, проверка и поднятие", "Маршруттар, тикшереү һәм күтәреү"), Icons.Default.DirectionsCar, onDriverCabinet) } }
             item { Box(Modifier.appearIn(3)) { ProfileActionCard(appText("Язык", "Тел"), if (isBashkir) "Башҡортса / Русский" else "Русский / Башҡортса", Icons.Default.Language, onToggleLanguage) } }
+            item {
+                ProfileSectionLabel(appText("Доверие и безопасность", "Ышаныс һәм хәүефһеҙлек"))
+            }
             item { Box(Modifier.appearIn(4)) { ProfileActionCard(appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото авто", "Права, машина, авто фотоһы"), Icons.Default.Verified, onVerifyDriver) } }
             item { Box(Modifier.appearIn(5)) { ProfileActionCard(appText("Доверие", "Ышаныс"), appText("Твой уровень и круг «своих»", "Кимәлең һәм «үҙебеҙҙекеләр» түңәрәге"), Icons.Default.Handshake, onTrust) } }
             item { Box(Modifier.appearIn(6)) { ProfileActionCard(appText("Безопасность", "Хәүефһеҙлек"), appText("SOS, скрытый телефон, подтверждённые участники", "SOS, йәшерен телефон, раҫланған ҡатнашыусылар"), R.drawable.yu_safe_trip, onSafety) } }
