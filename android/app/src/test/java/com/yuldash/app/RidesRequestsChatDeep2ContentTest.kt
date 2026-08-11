@@ -413,8 +413,9 @@ class RidesRequestsChatDeep2ContentTest {
             }
         }
         composeRule.onNodeWithText("Заявок пока нет").assertIsDisplayed()
-        // Кнопка «Создать новую» есть всегда (в конце ленты).
-        composeRule.onNodeWithText("Создать новую").assertIsDisplayed()
+        // Кнопка живёт ВНУТРИ карточки пустого состояния — как на соседней вкладке «Поездки».
+        // Раньше в пустом списке она звалась «Создать новую» (новую — по отношению к чему?).
+        composeRule.onNodeWithText("Создать заявку").assertIsDisplayed()
     }
 
     @Test

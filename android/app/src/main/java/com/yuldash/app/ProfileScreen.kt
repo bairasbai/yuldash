@@ -624,7 +624,7 @@ internal fun ProfileScreen(
                                 // Фото уходит на сервер — честно показываем это на самом аватаре.
                                 AvatarUploadOverlay(uploading = avatarUploading)
                                 // BA-draft
-                                Icon(Icons.Default.Edit, contentDescription = appText("Изменить фото", "Фотоны үҙгәртеү"), tint = Color.White, modifier = Modifier.size(15.dp).align(Alignment.BottomEnd))
+                                Icon(Icons.Default.PhotoCamera, contentDescription = appText("Изменить фото", "Фотоны үҙгәртеү"), tint = Color.White, modifier = Modifier.size(15.dp).align(Alignment.BottomEnd))
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -668,8 +668,6 @@ internal fun ProfileScreen(
                                         fontSize = 14.sp,
                                         fontWeight = if (city.isBlank()) FontWeight.Normal else FontWeight.SemiBold,
                                     )
-                                    Spacer(Modifier.width(4.dp))
-                                    Icon(Icons.Default.Edit, contentDescription = appText("Изменить город", "Ҡаланы үҙгәртеү"), tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(13.dp))
                                 }
                                 Text(appText("Телефон скрыт до подтверждения поездки", "Телефон сәфәр раҫланғанға тиклем йәшерелгән"), color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp, lineHeight = 20.sp)
                             }

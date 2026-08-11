@@ -80,6 +80,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -1521,6 +1522,20 @@ private fun InstantDestinationPicker(
                     onValueChange = { query = it; if (it.isBlank()) { toPoint = null; estimate = null } },
                     label = { Text(appText("Куда", "Ҡайҙа")) },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = CanonMuted) },
+                    // Карта живёт прямо в поле: одно место для «куда», два способа его задать.
+                    trailingIcon = {
+                        IconButton(
+                            onClick = { pickOnMap = true },
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Map,
+                                contentDescription = appText("Выбрать точку на карте", "Картала нөктә һайлау"),
+                                tint = CanonGreen2,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -1534,19 +1549,6 @@ private fun InstantDestinationPicker(
                     },
                     onRetry = { searchTick++ },
                 )
-                OutlinedButton(
-                    onClick = { pickOnMap = true },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    shape = InstantControlShape,
-                ) {
-                    Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        appText("Выбрать точку на карте", "Картала нөктә һайлау"),
-                        fontSize = TxBody, lineHeight = LhBody,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-                    )
-                }
             }
         }
 
