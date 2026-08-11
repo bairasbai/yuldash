@@ -331,3 +331,64 @@ def test_обещание_посылку_без_кода_не_вручить(cli
         assert ok.status_code == 200, "верный код (в любом регистре) обязан работать"
     finally:
         cfg.courier_enabled = prev
+
+# ---------------------------------------------------------------------------
+# «Надёжность честна к обеим сторонам»
+# ---------------------------------------------------------------------------
+def test_обещание_надёжность_видит_и_срывы_водителя(client, user_factory):
+    """Отмена в последний момент бьёт по Надёжности одинаково — кто бы её ни сделал.
+
+    Было иначе: при отмене ПОЕЗДКИ водителем брони гасились без пометки «кто отменил», а
+    формула Надёжности считает поздние отмены именно по ней. Проверено запросом: водитель
+    трижды снял рейс за 20 минут до выезда — Надёжность 100, пассажирка за одну позднюю
+    отмену — 0 (аудит 2026-08-08, волна 17). Человек, оставшийся на дороге, страдал дважды.
+
+    Время выезда берём с запасом на местный пояс: сервер трактует наивную дату как уфимскую.
+    """
+    admin = user_factory("Надёжность: админ", role=UserRole.admin)
+    drv = user_factory("Надёжность: срывает рейсы", role=UserRole.driver)
+    pax = user_factory("Надёжность: его пассажир")
+
+    def _soon_ride():
+        r = client.post("/rides", headers=drv["auth"], json={
+            "from_city": "Баймак", "to_city": "Сибай",
+            "depart_at": (utcnow() + timedelta(hours=5, minutes=20)).replace(microsecond=0).isoformat(),
+            "seats_total": 3, "price": 300})
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    for _ in range(3):
+        rid = _soon_ride()
+        b = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1})
+        assert b.status_code == 200, b.text
+        assert client.post(f"/bookings/{b.json()['id']}/confirm", headers=drv["auth"]).status_code == 200
+        assert client.post(f"/rides/{rid}/cancel", headers=drv["auth"]).status_code == 200
+
+    t = client.get(f"/users/{drv['id']}/trust", headers=admin["auth"]).json()
+    assert t["reliability"] < 100, f"срывы водителя не видны в Надёжности: {t}"
+
+
+def test_обещание_ранняя_отмена_водителя_безвредна(client, user_factory):
+    """Наказывается внезапность, а не сам отказ: снял рейс заранее — Надёжность цела.
+
+    Обратная сторона предыдущего теста. Без неё правка «считать отмены водителя» легко
+    превратилась бы в «наказывать за любую отмену», а это уже другой продукт.
+    """
+    admin = user_factory("Ранняя отмена: админ", role=UserRole.admin)
+    drv = user_factory("Ранняя отмена: водитель", role=UserRole.driver)
+    pax = user_factory("Ранняя отмена: пассажир")
+
+    for _ in range(3):
+        r = client.post("/rides", headers=drv["auth"], json={
+            "from_city": "Баймак", "to_city": "Сибай",
+            "depart_at": (utcnow() + timedelta(days=3)).replace(microsecond=0).isoformat(),
+            "seats_total": 3, "price": 300})
+        assert r.status_code == 200, r.text
+        rid = r.json()["id"]
+        b = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1})
+        assert b.status_code == 200, b.text
+        assert client.post(f"/bookings/{b.json()['id']}/confirm", headers=drv["auth"]).status_code == 200
+        assert client.post(f"/rides/{rid}/cancel", headers=drv["auth"]).status_code == 200
+
+    t = client.get(f"/users/{drv['id']}/trust", headers=admin["auth"]).json()
+    assert t["reliability"] == 100, f"ранняя отмена наказана — это уже другой продукт: {t}"

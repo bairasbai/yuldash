@@ -649,8 +649,20 @@ def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Sessi
     affected = _live_bookings(session, ride_id)
     ride.status = RideStatus.cancelled
     session.add(ride)
+    now = utcnow()
     for b in affected:
         b.status = BookingStatus.cancelled
+        # КТО отменил — обязательно. Без этой пометки «Надёжность» водителя не знала о его
+        # сорванных рейсах вовсе: формула считает поздние отмены по `cancelled_by`, а здесь
+        # поле оставалось пустым. Проверено запросом: водитель трижды снял поездку за 20 минут
+        # до выезда — Надёжность 100, а пассажирка за одну позднюю отмену получила 0
+        # (аудит 2026-08-08, волна 17). Человек, оставшийся на дороге, страдал дважды.
+        #
+        # Ранняя отмена по-прежнему без последствий: `is_late_cancel` смотрит на срок до выезда,
+        # так что отмена за сутки Надёжность не тронет — наказывается не отказ, а внезапность.
+        b.cancelled_at = now
+        b.cancelled_by = user.id
+        b.cancel_reason = "not_going"
         session.add(b)
     session.commit()                     # атомарно: поездка+брони одной транзакцией
     session.refresh(ride)
