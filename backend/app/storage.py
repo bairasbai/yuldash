@@ -76,6 +76,18 @@ class Storage(ABC):
         чтобы частичные/тестовые реализации Storage не ломались; по умолчанию перечислять нечего."""
         return iter(())
 
+    def iter_owned(self, areas: list[str], user_id: int):
+        """Ключи файлов, которые загрузил ЭТОТ человек. Имя даёт сервер: `{user_id}_{uuid}.{ext}`.
+
+        Нужен удалению аккаунта. Каскад по БД находит только те снимки, ссылка на которые
+        где-то сохранена (документы, споры, доставки). Файл, который человек загрузил и
+        передумал прикладывать, не значится нигде — и переживал удаление аккаунта, а уходил
+        лишь ночной чисткой через месяц (аудит 2026-08-08, волна 15).
+
+        По умолчанию нечего перечислять — чтобы частичные реализации Storage не ломались.
+        """
+        return iter(())
+
     @abstractmethod
     def url(self, key: str) -> str:
         """URL, по которому клиент реально забирает файл.
@@ -137,6 +149,17 @@ class LocalStorage(Storage):
                         yield (f"{prefix}/{name}", os.path.getsize(path))
                 except OSError:
                     pass
+
+    def iter_owned(self, areas: list[str], user_id: int):
+        want = f"{user_id}_"
+        for area in areas:
+            base = PRIVATE_DIR if area in PRIVATE_AREAS else MEDIA_DIR
+            d = os.path.join(base, area)
+            if not os.path.isdir(d):
+                continue
+            for name in os.listdir(d):
+                if name.startswith(want) and os.path.isfile(os.path.join(d, name)):
+                    yield f"{area}/{name}"
 
     def url(self, key: str) -> str:
         # Локально файлы отдаёт StaticFiles(/media) и /secure/{docs,evidence} — метод для симметрии.
@@ -220,6 +243,17 @@ class S3Storage(Storage):
             self.client.delete_object(Bucket=self.bucket, Key=self._key(key))
         except Exception:
             pass  # best-effort, как и на диске
+
+    def iter_owned(self, areas: list[str], user_id: int):
+        # То же для облака: перечисляем по префиксу ключа `{area}/{user_id}_`.
+        try:
+            paginator = self.client.get_paginator("list_objects_v2")
+            for area in areas:
+                for page in paginator.paginate(Bucket=self.bucket, Prefix=f"{area}/{user_id}_"):
+                    for obj in page.get("Contents", []):
+                        yield obj["Key"]
+        except Exception:           # список не отдался — удаление аккаунта важнее, идём дальше
+            return
 
     def iter_old(self, prefixes: list[str], older_than_ts: float):
         # Сметаем ретеншеном и облако: без этого при S3 старые фото/голос оставались бы в бакете

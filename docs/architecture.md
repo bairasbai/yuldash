@@ -212,6 +212,11 @@
 **Backend «Справедливость» (дополняет анонимные жалобы `Report`, НЕ заменяет):**
 - **Модели** (`backend/app/models.py`): `Incident` (двусторонний спор: `reporter`/`respondent`/`type`/`status` open→awaiting_response→under_review→resolved/appealed/closed, `resolution`/`fault`/`appeal_status`), `SafetyProfile` (1:1 с User: `strikes`/`warnings`/`standing` good→warned→limited→suspended, `suspended_until`). `Rating.excluded` (щит рейтинга), `Booking.cancelled_by` (Надёжность).
 - **`backend/app/safety_logic.py`** — ядро: `INCIDENT_TYPES`/`SEVERE_TYPES`, лестница §2 (`recompute_standing`/`refresh_standing`/`_escalation_days`/`apply_incident_resolution` — лок при мутации страйков), `reliability_for` (Надёжность 0..100, неявка ТОЛЬКО по resolved-инциденту — защита оболганного), `_exclude_linked_ratings` (снять оценку-месть). Гейт паузы: `ensure_active` (бросает 403) + `account_paused` (не бросает — для лент, где отказ показывают молча). **Гейт стоит поштучно на каждой ручке**, полноту сторожит `tests/test_suspension_reaches_everywhere.py`: попутка, заявка + отклик + торг, такси (общий `_guard_taxi_driver` → линия/оффер/приём) + предзаказ, доставка + приём, жалобы. Намеренно открыты SOS и завершение начатой поездки.
+- **Удаление аккаунта стирает и «ничьи» файлы (2026-08-08, волна 15).**
+  `Storage.iter_owned(areas, user_id)` (диск и S3) перечисляет файлы по префиксу имени
+  `{user_id}_`; `account.delete_user_account` проходит по `docs/evidence/chat/voice` и удаляет
+  всё загруженное человеком — включая снимки, ссылок на которые нет нигде в БД.
+  Сквозные проверки обещаний — `tests/test_promises.py` (7 сценариев).
 - **Лог сервера чистится от ПДн (2026-08-08, волна 14).** `observability.scrub_exc(exc)` —
   текст исключения со стеком через тот же скруб, что и Sentry; зовётся из
   `middleware.unhandled_exception_handler`. `exc_info` не используем: он печатает исходный
