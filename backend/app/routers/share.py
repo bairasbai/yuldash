@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlmodel import Session, select
 
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from ..config import settings
@@ -38,6 +39,41 @@ from ..timeutil import utcnow
 router = APIRouter(tags=["share"])
 
 _NO_STORE = {"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"}
+
+# Публичная страница слежения — единственный HTML, который открывают ЧУЖИМ браузером, и на нём
+# живые координаты человека. Заголовки ниже — вторая стена к тому, что уже есть (SRI на CDN,
+# Referrer-Policy: no-referrer, X-Frame-Options: DENY, см. middleware).
+#
+# CSP перечисляет ровно то, что странице нужно: свой origin, Leaflet с unpkg, тайлы карты
+# с OSM. Всё остальное браузер не загрузит и не выполнит — включая скрипт, который однажды
+# смог бы туда попасть. Инлайновый скрипт страницы разрешается по одноразовому nonce, а не
+# 'unsafe-inline': иначе разрешение распространялось бы и на чужой скрипт тоже.
+#
+# Стили: 'unsafe-inline' оставлен осознанно. Leaflet ставит стили прямо на элементы (позиция
+# тайлов и маркеров), запрет сломал бы карту, а риск инлайнового СТИЛЯ несопоставим с риском
+# инлайнового скрипта.
+_CSP_TEMPLATE = (
+    "default-src 'none'; "
+    "script-src 'nonce-{nonce}' https://unpkg.com; "
+    "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "img-src 'self' data: https://*.tile.openstreetmap.org; "
+    "connect-src 'self'; "
+    "base-uri 'none'; "
+    "form-action 'none'; "
+    "frame-ancestors 'none'"
+)
+# Странице не нужны ни камера, ни микрофон, ни геолокация САМОГО смотрящего: она показывает,
+# где едет другой человек. Явный запрет — чтобы никакой будущий скрипт не спросил их от нашего
+# имени (аудит 2026-08-12, волна 33).
+_PERMISSIONS_POLICY = "geolocation=(), camera=(), microphone=(), payment=()"
+
+
+def _page_headers(nonce: str) -> dict:
+    return {
+        **_NO_STORE,
+        "Content-Security-Policy": _CSP_TEMPLATE.format(nonce=nonce),
+        "Permissions-Policy": _PERMISSIONS_POLICY,
+    }
 
 # Фазы поездки для близкого — упрощённые (внутренние статусы наружу не отдаём).
 # BA — черновики модели, финалит Александр (docs/tasks.md «Переводы — Live-ссылка»).
@@ -201,7 +237,10 @@ def live_page(token: str, session: Session = Depends(get_session)):
     двуязычная (RU основной + BA подписи), мобильная. Все данные тянет из state.json
     и вставляет через textContent (никакого user-контента в HTML — анти-XSS)."""
     _resolve_share(session, token)   # невалидный/отозванный токен → 404 сразу
-    return HTMLResponse(_PAGE_HTML, headers=_NO_STORE)
+    # nonce СВОЙ на каждый показ: угадать его заранее нельзя, значит и «пронести» скрипт
+    # в страницу под чужим nonce тоже нельзя.
+    nonce = secrets.token_urlsafe(16)
+    return HTMLResponse(_PAGE_HTML.replace("__CSP_NONCE__", nonce), headers=_page_headers(nonce))
 
 
 # Страница: без ключей и без сборки. Leaflet — с CDN (guard: нет CDN → статусы без карты).
@@ -282,7 +321,7 @@ _PAGE_HTML = """<!DOCTYPE html>
 </div>
 <div class="err" id="err">Ссылка не работает или поездка недоступна.<br>Һылтанма эшләмәй йәки сәфәр асылмай.</div>
 <div class="foot" id="foot">Обновляется каждые 5 секунд · Һәр 5 секунд һайын яңыртыла</div>
-<script>
+<script nonce="__CSP_NONCE__">
 (function(){
   "use strict";
   var stateUrl = location.pathname.replace(/\\/+$/, "") + "/state.json";

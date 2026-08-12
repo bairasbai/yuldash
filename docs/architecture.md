@@ -262,6 +262,11 @@
   WEBP EXIF/XMP (с пересчётом RIFF); пиксели не трогаем, битый файл отдаём как есть.
   Тесты: `tests/test_image_metadata_stripped.py` (метки исчезли И картинка цела) +
   сквозное обещание в `tests/test_promises.py`.
+- **Публичная страница слежения заперта заголовками (2026-08-12, волна 33).** `share._page_headers`:
+  CSP с одноразовым nonce (`default-src 'none'`, разрешены unpkg + тайлы OSM + свой origin),
+  `Permissions-Policy` без камеры/микрофона/геолокации. HSTS ставит `SecurityHeadersMiddleware`
+  только в проде. Проверено настоящим браузером: карта и тайлы грузятся, нарушений нет.
+  Тесты — `tests/test_public_page_is_locked_down.py` (включая регресс на SRI и Referrer-Policy).
 - **Личное копируется через `copySensitive` (2026-08-12, волна 32).** `SensitiveClipboard.kt`
   ставит `ClipDescription.EXTRA_IS_SENSITIVE` (Android 13+): нет предпросмотра во всплывашке,
   клавиатуры значение не запоминают. Через него идут код вручения посылки, ссылка слежения,

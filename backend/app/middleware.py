@@ -235,6 +235,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("X-Frame-Options", "DENY")
         resp.headers.setdefault("Referrer-Policy", "no-referrer")
+        # HSTS (только прод): браузер запоминает, что к нам ходят ТОЛЬКО по https, и второй раз
+        # уже не отправит первый запрос открытым текстом. Для нас это не абстракция: ссылку
+        # слежения близкий получает сообщением, а в адресе этой ссылки лежит ключ доступа
+        # к живым координатам человека — один http-переход по ней означал бы ключ в открытом
+        # виде (аудит 2026-08-12, волна 33). В dev не ставим: локально ходят по http, и браузер
+        # заблокировал бы себе доступ к localhost на год.
+        if settings.is_prod:
+            resp.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+            )
         return resp
 
 
