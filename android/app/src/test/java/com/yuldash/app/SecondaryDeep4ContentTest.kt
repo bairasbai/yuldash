@@ -326,7 +326,8 @@ class SecondaryDeep4ContentTest {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) { helpScreen() }
         }
         // Ответ скрыт (AnimatedVisibility collapsed) до клика по вопросу.
-        val answerStart = "Откройте вкладку «Карта» или «Поездки»."
+        // Тон Юлдаша — «ты» (ToneSourceGuardTest): было «Откройте», стало «Открой».
+        val answerStart = "Открой вкладку «Карта» или «Поездки»."
         composeRule.onAllNodesWithText(answerStart, substring = true).assertCountEquals(0)
         composeRule.onNodeWithText("Как найти поездку?").performClick()
         // После клика ответ раскрылся (substring — текст длинный).

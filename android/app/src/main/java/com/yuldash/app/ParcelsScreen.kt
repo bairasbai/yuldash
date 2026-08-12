@@ -1352,7 +1352,11 @@ private fun SendParcelTab(onSent: () -> Unit) {
         // «Где забрать» — конкретная калитка в нём. Порядок не декоративный: человек заполняет
         // сверху вниз ровно так, как рассказывал бы дорогу вслух.
         if (step == stepRoute) item {
-            ParcelField(fromCity, { fromCity = it; estimate = null }, appText("Откуда", "Ҡайҙан"), appText("Город отправления", "Ебәреү ҡалаһы"), cap = true)
+            ParcelField(
+                fromCity, { fromCity = it; estimate = null },
+                appText("Откуда", "Ҡайҙан"), appText("Город отправления", "Ебәреү ҡалаһы"), cap = true,
+                hint = appText("Город или село", "Ҡала йәки ауыл"),
+            )
         }
         if (step == stepRoute) item {
             ParcelField(
@@ -1360,10 +1364,15 @@ private fun SendParcelTab(onSent: () -> Unit) {
                 appText("Где забрать", "Ҡайҙан алырға"),
                 appText("У мечети, синие ворота", "Мәсет янында, зәңгәр ҡапҡа"),
                 minLines = 2,
+                hint = appText("Место в этом селе: «у мечети», «синие ворота»", "Ошо ауылдағы урын: «мәсет янында», «зәңгәр ҡапҡа»"),
             )
         }
         if (step == stepRoute) item {
-            ParcelField(toCity, { toCity = it; estimate = null }, appText("Куда", "Ҡайҙа"), appText("Город получения", "Алыу ҡалаһы"), cap = true)
+            ParcelField(
+                toCity, { toCity = it; estimate = null },
+                appText("Куда", "Ҡайҙа"), appText("Город получения", "Алыу ҡалаһы"), cap = true,
+                hint = appText("Город или село", "Ҡала йәки ауыл"),
+            )
         }
         if (step == stepRoute) item {
             ParcelField(
@@ -1371,6 +1380,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
                 appText("Куда привезти", "Ҡайҙа илтергә"),
                 appText("За школой, белый дом с зелёной крышей", "Мәктәп артында, йәшел түбәле аҡ йорт"),
                 minLines = 2,
+                hint = appText("Место в том селе: «за школой», «белый дом»", "Теге ауылдағы урын: «мәктәп артында», «аҡ йорт»"),
             )
         }
         // Одна честная строка про оба поля: кто это увидит и когда. Про «необязательно» не пишем
@@ -1382,8 +1392,10 @@ private fun SendParcelTab(onSent: () -> Unit) {
                     "Больше $PARCEL_ADDRESS_MAX_LEN символов не влезет — оставь самое главное.",
                     "$PARCEL_ADDRESS_MAX_LEN символдан артыҡ һыймай — иң мөһимен ҡалдыр.",
                 ) else appText(
-                    "Не улица с табличкой, а как объясняешь соседу: «у мечети», «синие ворота», «за магазином». Курьер увидит это, когда возьмёт посылку.",
-                    "Таблицалы урам түгел, ә күршегә аңлатҡан кеүек: «мәсет янында», «зәңгәр ҡапҡа», «кибет артында». Курьер быны бандеролде алғас күрер.",
+                    // Примеры переехали под сами поля — тут остаётся то, чего они не говорят:
+                    // кто это увидит и когда.
+                    "Пиши не улицу с табличкой, а как объясняешь соседу. Курьер увидит эти ориентиры, когда возьмёт посылку.",
+                    "Таблицалы урамды түгел, ә күршегә аңлатҡан кеүек яҙ. Курьер был билдәләрҙе бандеролде алғас күрер.",
                 ),
                 tone = if (atLimit) CanonRed else CanonMuted,
             )
@@ -2033,20 +2045,32 @@ private fun EstimateRow(label: String, value: String) {
 private fun ParcelField(
     value: String, onValue: (String) -> Unit, label: String, placeholder: String,
     cap: Boolean = false, phone: Boolean = false, minLines: Int = 1,
+    // Подсказка ПОД полем — видна всегда, а не только когда в поле стоит курсор.
+    hint: String? = null,
 ) {
-    OutlinedTextField(
-        value = value, onValueChange = onValue,
-        modifier = Modifier.fillMaxWidth(),
-        label = { Text(label) },
-        placeholder = { Text(placeholder, color = CanonMuted) },
-        shape = RoundedCornerShape(14.dp),
-        minLines = minLines,
-        singleLine = minLines == 1,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = if (phone) KeyboardType.Phone else KeyboardType.Text,
-            capitalization = if (cap) KeyboardCapitalization.Words else KeyboardCapitalization.Sentences,
-        ),
-    )
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        OutlinedTextField(
+            value = value, onValueChange = onValue,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(label) },
+            placeholder = { Text(placeholder, color = CanonMuted) },
+            shape = RoundedCornerShape(14.dp),
+            minLines = minLines,
+            singleLine = minLines == 1,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = if (phone) KeyboardType.Phone else KeyboardType.Text,
+                capitalization = if (cap) KeyboardCapitalization.Words else KeyboardCapitalization.Sentences,
+            ),
+        )
+        // Пустое поле показывает ТОЛЬКО название («Откуда», «Где забрать»), а пример прячется
+        // до касания. Четыре адресных поля подряд становились неразличимы: человек не понимал,
+        // чем «Откуда» отличается от «Где забрать», и писал город дважды (живая проверка
+        // 2026-08-12). Один пример под полем снимает вопрос, ничего не разворачивая.
+        if (hint != null) {
+            Text(hint, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                 modifier = Modifier.padding(start = 12.dp))
+        }
+    }
 }
 
 /**

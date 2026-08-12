@@ -644,7 +644,7 @@ internal fun VoiceRequestScreen(
             }
             recordedPath?.let { path ->
                 item {
-                    VoiceMessageCard(LocalVoiceMessage(appText("Вы", "Һеҙ"), "", appText("сейчас", "хәҙер"), audioPath = path, durationSec = recordedDur))
+                    VoiceMessageCard(LocalVoiceMessage(appText("Я", "Мин"), "", appText("сейчас", "хәҙер"), audioPath = path, durationSec = recordedDur))
                 }
                 item {
                     AppButton(
@@ -1408,8 +1408,8 @@ internal fun RepeatTripScreen(
                         titleBa = "${s.count} тапҡыр",
                         from = s.from,
                         to = s.to,
-                        timeHint = "из вашей истории",
-                        timeHintBa = "һеҙҙең тарихтан",
+                        timeHint = "из твоей истории",
+                        timeHintBa = "һинең тарихтан",
                         categoryKey = "regular"
                     )
                 }
@@ -1489,8 +1489,10 @@ internal fun RepeatTripContent(
             SectionHeader(
                 title = appText("Частые маршруты", "Йыш маршруттар"),
                 subtitle = appText(
-                    "Выберите маршрут — Юлдаш сразу создаст заявку.",
-                    "Маршрутты һайлағыҙ — Юлдаш шунда уҡ заявка булдыра."
+                    // Оба языка были на «вы» — единственный тон Юлдаша «ты», и в простом
+                    // режиме он важнее всего: тут читают пожилые, и «вы» звучит казённо.
+                    "Выбери маршрут — Юлдаш сразу создаст заявку.",
+                    "Маршрутты һайла — Юлдаш шунда уҡ заявка булдыра."
                 )
             )
         }

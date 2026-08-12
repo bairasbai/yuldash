@@ -286,7 +286,10 @@ internal fun RidesScreen(
     onBoost: () -> Unit,
     onCreateRequest: () -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
-    onAdClick: (PartnerAd) -> Unit
+    onAdClick: (PartnerAd) -> Unit,
+    // Список показывает только БРОНИ — то, куда человек едет сам. Опубликованные им маршруты
+    // живут в кабинете водителя, и пустой экран обязан уметь туда отправить.
+    onDriverCabinet: () -> Unit = {},
 ) {
     var selectedStatus by remember { mutableStateOf("active") }
     val activeLabel = appText("Активные", "Актив")
@@ -322,6 +325,15 @@ internal fun RidesScreen(
     }
     val activeStatuses = listOf("pending", "confirmed", "onboard")
     val historyStatuses = listOf("done", "cancelled")
+    // Сколько у человека своих опубликованных маршрутов. Спрашиваем только когда список
+    // броней пуст: это единственное место, где ответ на что-то влияет, а лишний запрос
+    // на каждом открытии вкладки не нужен.
+    var myDriverRides by remember { mutableStateOf(0) }
+    LaunchedEffect(bookings, bookingsLoading) {
+        if (!bookingsLoading && bookings.isEmpty() && ApiClient.isLoggedIn()) {
+            ApiClient.getDriverRides().onSuccess { myDriverRides = it.size }
+        }
+    }
     // contentWindowInsets = 0: вкладки живут ВНУТРИ общего Scaffold в YuldashApp, он уже отдал
     // отступ под статус-бар. Свой Scaffold добавлял его второй раз — заголовок «Мои поездки»
     // висел на 70dp от верха, а соседние «Мои заявки» на 33dp. Разнобой между вкладками одного
@@ -374,13 +386,34 @@ internal fun RidesScreen(
                     )
                 }
                 visibleBookings.isEmpty() -> item {
-                    EmptyStateCard(
-                        title = appText("Поездок пока нет", "Әлегә сәфәрҙәр юҡ"),
-                        text = appText("Создай заявку или опубликуй маршрут водителя.", "Заявка булдыр йәки водитель маршрутын баҫтыр."),
-                        icon = Icons.Default.Route,
-                        action = appText("Создать заявку", "Заявка булдырыу"),
-                        onAction = onCreateRequest
-                    )
+                    // Здесь только брони. Прежний текст обещал, что тут появится и «маршрут
+                    // водителя», — водитель с опубликованным рейсом видел «поездок пока нет»
+                    // и решал, что рейс пропал (живая проверка 2026-08-12). Говорим правду
+                    // и, если маршруты есть, отправляем туда, где они лежат.
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        EmptyStateCard(
+                            title = appText("Ты пока никуда не едешь", "Әлегә бер ҡайҙа ла бармайһың"),
+                            text = appText(
+                                "Здесь появятся поездки, на которые ты забронировал место.",
+                                "Бында һин урын алған сәфәрҙәр күренәсәк.",
+                            ),
+                            icon = Icons.Default.Route,
+                            action = appText("Создать заявку", "Заявка булдырыу"),
+                            onAction = onCreateRequest
+                        )
+                        if (myDriverRides > 0) {
+                            EmptyStateCard(
+                                title = appText("Твои маршруты — в кабинете водителя", "Һинең маршруттар — водитель кабинетында"),
+                                text = appText(
+                                    "Опубликованных маршрутов: $myDriverRides. Там же брони пассажиров и «поднять».",
+                                    "Баҫтырылған маршруттар: $myDriverRides. Пассажир брондары ла, «күтәреү» ҙә шунда.",
+                                ),
+                                icon = Icons.Default.DirectionsCar,
+                                action = appText("Кабинет водителя", "Водитель кабинеты"),
+                                onAction = onDriverCabinet
+                            )
+                        }
+                    }
                 }
                 else -> {
                     itemsIndexed(visibleBookings, key = { _, b -> b.id }) { i, b ->
@@ -1702,7 +1735,8 @@ internal fun ChatScreen(
         item {
             Text(appText("Чат", "Чат"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             Text(
-                appText("Общайтесь по активным поездкам и заявкам", "Актив сәфәрҙәр һәм заявкалар буйынса аралаш"),
+                // Тон Юлдаша — на «ты», и башкирский тут уже был на «ты» («аралаш»).
+                appText("Общайся по активным поездкам и заявкам", "Актив сәфәрҙәр һәм заявкалар буйынса аралаш"),
                 color = CanonMuted,
                 fontSize = 14.sp,
                 lineHeight = 20.sp
@@ -2729,7 +2763,8 @@ internal fun ChatEmptyState() {
             )
             Text(
                 appText(
-                    "Найдите поездку и забронируйте место — после брони откроется чат с водителем или пассажиром.",
+                    // Русский был на «вы», башкирский рядом — на «ты» («бронла»). Тон один.
+                    "Найди поездку и забронируй место — после брони откроется чат с водителем или пассажиром.",
                     "Сәфәр табып, урын бронла — бронынан һуң водитель йәки пассажир менән чат асыла."
                 ),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center

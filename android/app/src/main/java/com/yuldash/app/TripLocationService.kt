@@ -129,7 +129,8 @@ class TripLocationService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL)
             .setContentTitle(appTextFor(currentLang, "Юлдаш — поездка идёт", "Юлдаш — сәфәр бара"))
-            .setContentText(appTextFor(currentLang, "Показываем вашу позицию попутчику", "Урынығыҙҙы юлдашығыҙға күрһәтәбеҙ"))
+            // Уведомление в шторке — тоже голос Юлдаша: на «ты», как везде.
+            .setContentText(appTextFor(currentLang, "Показываем твою позицию попутчику", "Урыныңды юлдашыңа күрһәтәбеҙ"))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
             .setContentIntent(open)

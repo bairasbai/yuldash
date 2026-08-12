@@ -2232,7 +2232,8 @@ internal fun HomeScreen(
                     onBoost = onBoost,
                     onCreateRequest = { selectTab(HomeTab.Request) },
                     onAdImpression = onAdImpression,
-                    onAdClick = onAdClick
+                    onAdClick = onAdClick,
+                    onDriverCabinet = onDriverCabinet,
                 )
                 HomeTab.Request -> MyRequestsScreen(
                     requests = requests,
