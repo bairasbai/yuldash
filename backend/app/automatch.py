@@ -22,6 +22,7 @@ from sqlmodel import Session, select
 from .config import settings
 from .db import engine
 from .models import DeviceToken, RequestResponse, RideRequest
+from .safety_logic import may_ride_together
 from .services import notify_admin_telegram, user_rating
 from .timeutil import utcnow
 
@@ -61,6 +62,10 @@ def automatch_once(session: Session, dry_run: bool = False) -> list[tuple[int, i
             continue
         offers = session.exec(select(RequestResponse).where(
             RequestResponse.request_id == req.id, RequestResponse.status == "offered")).all()
+        # Отстранённого и заблокированного отсеиваем ЗДЕСЬ, а не полагаемся на отказ при приёме:
+        # иначе один негодный отклик уводил бы всю заявку в except ниже, и человек без приложения
+        # остался бы без машины при живых честных откликах (аудит 2026-08-12, волна 46).
+        offers = [o for o in offers if may_ride_together(session, req.passenger_id, o.driver_id)]
         if not offers:
             continue
         # Пауза: дать другим водителям откликнуться, чтобы выбрать лучшего, а не первого попавшегося.

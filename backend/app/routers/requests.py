@@ -24,8 +24,8 @@ from ..services import (
     notify_map_changed, notify_request_watchers, public_rides_payload, push_notification,
     record_pickup_choice, rides_out, user_rating,
 )
-from ..safety_logic import (account_paused, ensure_active, MSG_WOMEN_ONLY_RESPOND,
-                            guard_women_only, suspended_user_ids)
+from ..safety_logic import (account_paused, ensure_active, may_ride_together,
+                            MSG_WOMEN_ONLY_RESPOND, guard_women_only, suspended_user_ids)
 from ..antifraud import moderate_open_text
 from ..timeutil import client_dt_to_utc, utcnow
 from .. import workday as workday_mod
@@ -800,6 +800,14 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
         raise herr(404, "Заявка не найдена", "Заявка табылманы")
     if req.status != "active":
         raise herr(400, "Заявка уже закрыта", "Заявка инде ябылған")
+    # Пауза «Справедливости» и блокировка — здесь, в общей точке, а не только на кнопке в
+    # приложении. Дверей три (приложение, авто-подбор «за пожилого», Telegram-кнопка админа),
+    # и гейты стояли лишь на первой: авто-подбор сводил пассажира без приложения с отстранённым
+    # или заблокированным водителем (аудит 2026-08-12, волна 46). Текст нейтральный — сюда
+    # приходят и те, кому не положено знать о чужом разборе.
+    if not may_ride_together(session, req.passenger_id, resp.driver_id):
+        raise herr(409, "Сейчас эту поездку оформить не получится. Заявка активна — дождись другого отклика.",
+                   "Хәҙер был сәфәрҙе асып булмай. Заявка актив — башҡа яуапты көт.")
     # Цена отклика идёт прямо в Ride/Booking мимо клампа create_ride (0..100000) → кламп здесь же,
     # иначе водитель отдаёт цену до 1_000_000 (потолок RespondIn) в обход общего лимита.
     # Берём цену НА СТОЛЕ (после торга), а не первое предложение водителя: иначе поездка

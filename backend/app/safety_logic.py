@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 from .config import settings
 from .errors import herr
 from .models import Booking, BookingStatus, DriverProfile, Incident, Rating, Ride, SafetyProfile
-from .services import user_rating
+from .services import is_blocked, user_rating
 from .timeutil import utcnow
 
 # Коды типов инцидентов. Клиент локализует по коду.
@@ -262,6 +262,24 @@ def ensure_active(session: Session, user_id: int) -> None:
         raise herr(403,
                "Аккаунт на паузе до разбора. Загляни в Центр справедливости — там причина и срок.",
                "Аккаунт тикшереүгә тиклем паузала. Ғәҙеллек үҙәгенә ин — сәбәбе һәм ваҡыты шунда.")
+
+
+def may_ride_together(session: Session, passenger_id: int, driver_id: int) -> bool:
+    """Можно ли вообще свести этих двоих в одну поездку. Вопрос про ПАРУ, а не про того,
+    кто нажал кнопку, — потому и решается без `user`.
+
+    Пауза лестницы (§2) и блокировка — правила о людях, а не о кнопках. У приёма отклика
+    двери три: приложение, авто-подбор «за пожилого» и Telegram-кнопка админа. Гейты стояли
+    только на первой, и авто-подбор сажал отстранённого (а также заблокированного) водителя
+    к пассажиру БЕЗ приложения — то есть ровно к тому, кто не увидит подбор и не отменит его
+    сам (проверено запросом: подбор состоялся, бронь создана; аудит 2026-08-12, волна 46).
+
+    Проверяем обе стороны сразу: одностороннего «мне можно» тут не бывает — едут вдвоём."""
+    if not passenger_id or not driver_id or passenger_id == driver_id:
+        return True
+    if account_paused(session, passenger_id) or account_paused(session, driver_id):
+        return False
+    return not is_blocked(session, passenger_id, driver_id)
 
 
 def active_incidents_count(session: Session, user_id: int) -> int:
