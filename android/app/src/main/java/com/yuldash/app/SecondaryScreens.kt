@@ -1305,6 +1305,8 @@ internal inline fun screenTrace(what: () -> String) {
  */
 @Composable
 internal fun AdminDriversScreen(onBack: () -> Unit) {
+    // Права и фото машины водителя — чужие документы (волна 30).
+    SecureWindow()
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var list by remember { mutableStateOf<List<com.yuldash.app.data.PendingDriverDto>>(emptyList()) }

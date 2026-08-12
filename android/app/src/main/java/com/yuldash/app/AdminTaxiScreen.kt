@@ -66,6 +66,9 @@ import java.util.Locale
 
 @Composable
 internal fun AdminTaxiScreen(onBack: () -> Unit) {
+    // Здесь видны СЕЛФИ и документы посторонних людей → ни скриншота, ни снимка
+    // в списке недавних приложений (аудит 2026-08-12, волна 30).
+    SecureWindow()
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     val token = remember { ApiClient.currentToken() ?: "" }

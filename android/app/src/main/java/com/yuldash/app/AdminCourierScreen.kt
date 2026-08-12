@@ -67,6 +67,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun AdminCourierScreen(onBack: () -> Unit) {
+    // Селфи курьера — паспортные данные постороннего человека (волна 30).
+    SecureWindow()
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     val token = remember { ApiClient.currentToken() ?: "" }
