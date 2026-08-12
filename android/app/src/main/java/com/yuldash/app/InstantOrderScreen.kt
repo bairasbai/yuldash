@@ -124,6 +124,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.map.CameraPosition
@@ -489,14 +492,24 @@ private fun TaxiPromoPayRow(order: InstantOrderDto, forDriver: Boolean, modifier
     }
 }
 
-/** Тикающее «сейчас» (раз в секунду) для живых таймеров ожидания. */
+/**
+ * Тикающее «сейчас» (раз в секунду) для живых таймеров ожидания.
+ *
+ * В фоне тикание останавливается: пересчитывать секунды для экрана, которого не видно, —
+ * зря разбуженный процессор раз в секунду на всё время ожидания машины. При возврате время
+ * берётся заново из системных часов, поэтому таймер сразу показывает правильное значение,
+ * а не досчитывает пропущенное.
+ */
 @Composable
 private fun rememberNowMs(): State<Long> {
     val state = remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            state.value = System.currentTimeMillis()
-            delay(1_000)
+    val owner = LocalLifecycleOwner.current
+    LaunchedEffect(owner) {
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                state.value = System.currentTimeMillis()
+                delay(1_000)
+            }
         }
     }
     return state
@@ -823,16 +836,26 @@ internal fun InstantOrderScreen(
     }
 
     // Поллинг статуса активного заказа (пока заказ есть и не терминальный или стоит в очереди ожидания).
+    //
+    // В фоне цикл СТОИТ (repeatOnLifecycle RESUMED). Раз в 3 секунды — самый частый опрос в
+    // приложении, и свёрнутое ожидание машины (а сворачивают его всегда: человек листает другое,
+    // пока едет такси) означало двести запросов за десять минут в никуда. О смене статуса на
+    // погашенном экране сообщает пуш, экрану обновляться незачем — его не видно.
+    //
+    // Запрос идёт ПЕРЕД паузой: вернулся на экран — данные свежие сразу, а не через три секунды.
     val activeId = order?.takeIf { !it.isTerminal || it.isWaitingQueue }?.id
-    LaunchedEffect(activeId) {
+    val pollLifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(activeId, pollLifecycleOwner) {
         val id = activeId ?: return@LaunchedEffect
-        while (isActive) {
-            delay(3_000)
-            ApiClient.getInstantOrder(id)
-                .onSuccess { order = it; pollOffline = false }
-                .onFailure { pollOffline = true }   // связь потеряна — не глотаем, показываем баннер
-            val o = order
-            if (o != null && o.isTerminal && !o.isWaitingQueue) break
+        pollLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                ApiClient.getInstantOrder(id)
+                    .onSuccess { order = it; pollOffline = false }
+                    .onFailure { pollOffline = true }   // связь потеряна — не глотаем, показываем баннер
+                val o = order
+                if (o != null && o.isTerminal && !o.isWaitingQueue) break
+                delay(3_000)
+            }
         }
     }
 

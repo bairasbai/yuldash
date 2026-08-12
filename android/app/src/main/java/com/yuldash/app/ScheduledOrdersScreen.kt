@@ -62,6 +62,9 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.InstantOrderDto
 import com.yuldash.app.data.ScheduledOrdersDto
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -108,7 +111,10 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
     // Сбой сети тут ОБЯЗАН быть виден: раньше поллинг обрабатывал только удачу, и при пропаже
     // связи отсчёт «через 10 мин» продолжал тикать по замороженным данным, а отменённый на
     // сервере предзаказ так и висел в списке. Человек шёл к дороге к несуществующей машине.
-    LaunchedEffect(Unit) {
+    // В фоне цикл стоит (repeatOnLifecycle RESUMED) — как остальные опросы приложения.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
         while (isActive) {
             delay(30_000)
             ApiClient.getScheduledOrders()
@@ -123,12 +129,17 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                     if ((e as? ApiException)?.status != 401) stale = true
                 }
         }
+        }
     }
 
     // «Часы» для обратного отсчёта: обновляются раз в 30с (перерисовка меток «через …»).
+    // В фоне стоят: считать метки для невидимого экрана незачем, а при возврате время
+    // берётся заново из системных часов — отсчёт сразу правильный.
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (isActive) { nowMs = System.currentTimeMillis(); delay(30_000) }
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) { nowMs = System.currentTimeMillis(); delay(30_000) }
+        }
     }
 
     fun activate(id: Int) {

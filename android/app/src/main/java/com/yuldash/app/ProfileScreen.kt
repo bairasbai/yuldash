@@ -248,6 +248,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Circle
 import com.yandex.mapkit.geometry.Point
@@ -2221,15 +2222,20 @@ internal fun DriverDemandSection(online: Boolean) {
 
     // Вне линии сервер не дёргаем (экономим квоту) — показываем спокойное «Пока тихо».
     // На линии: разовая загрузка + мягкий авто-refresh раз в минуту, пока секция в композиции.
-    LaunchedEffect(online, reload) {
+    // В фоне цикл стоит (repeatOnLifecycle RESUMED): свёрнутый кабинет обновлял карту спроса,
+    // которую никто не видит. Вернулся на экран — запрос идёт сразу, до паузы.
+    val demandLifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(online, reload, demandLifecycleOwner) {
         if (!online) { zones = emptyList(); loading = false; loadError = false; return@LaunchedEffect }
         loading = zones.isEmpty()
-        while (true) {
-            ApiClient.getInstantDemand()
-                .onSuccess { zones = it.zones; loadError = false }
-                .onFailure { if (zones.isEmpty()) loadError = true }
-            loading = false
-            delay(60_000)
+        demandLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                ApiClient.getInstantDemand()
+                    .onSuccess { zones = it.zones; loadError = false }
+                    .onFailure { if (zones.isEmpty()) loadError = true }
+                loading = false
+                delay(60_000)
+            }
         }
     }
 
