@@ -64,6 +64,11 @@ def weather_for_route(
     Вход открыт и без входа в аккаунт: это данные о погоде, а не о человеке. Ограничение
     нагрузки общее (rate-limit по IP), отдельного тут не нужно — ответы кешируются на полчаса
     и одинаковы для всех, кто едет тем же маршрутом.
+
+    Названия резолвим ТОЛЬКО по своим спискам (`allow_external=False`). Платный Яндекс.Геокодер
+    из открытой двери недоступен: иначе любой прохожий выбирал бы наш суточный лимит выдуманными
+    названиями, а вместе с лимитом ложился бы радиус-поиск поездок у настоящих людей
+    (аудит 2026-08-12, волна 34).
     """
     when = utcnow()
     if at:
@@ -76,13 +81,13 @@ def weather_for_route(
     if from_lat is not None and from_lng is not None:
         points.append((from_lat, from_lng))
     elif from_city:
-        found = geocode_city(from_city.strip())
+        found = geocode_city(from_city.strip(), allow_external=False)
         if found:
             points.append(found)
     if to_lat is not None and to_lng is not None:
         points.append((to_lat, to_lng))
     elif to_city:
-        found = geocode_city(to_city.strip())
+        found = geocode_city(to_city.strip(), allow_external=False)
         if found:
             points.append(found)
     if not points:

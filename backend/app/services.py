@@ -846,10 +846,17 @@ CITY_COORDS = {
 }
 
 
-def geocode_city(name: str) -> tuple[float, float] | None:
+def geocode_city(name: str, *, allow_external: bool = True) -> tuple[float, float] | None:
     """Координаты города. Приоритет (волна 2, география): 1) справочник Settlement
     (точное имя RU/BA, без регистра), 2) старый CITY_COORDS, 3) Яндекс.Геокодер
-    (если задан ключ). Нужно для радиус-поиска поездок."""
+    (если задан ключ). Нужно для радиус-поиска поездок.
+
+    `allow_external=False` — ходить ТОЛЬКО по своим спискам, наружу не выходить. Нужно там,
+    где имя города приходит от человека БЕЗ ВХОДА в аккаунт: у Яндекс.Геокодера суточный лимит
+    и он платный, а выдуманное название стоит нам запроса. Пробой волны 34: 25 анонимных
+    обращений к погоде с несуществующими городами = 50 платных запросов, и лимит на день
+    выбирается за минуту — вместе с ним ломается радиус-поиск для настоящих людей.
+    """
     if not name:
         return None
     try:
@@ -864,6 +871,8 @@ def geocode_city(name: str) -> tuple[float, float] | None:
     c = CITY_COORDS.get(name.strip())
     if c:
         return c
+    if not allow_external:
+        return None            # своих списков не хватило, а наружу нам отсюда нельзя
     key = settings.yandex_geocoder_key
     if not key:
         return None

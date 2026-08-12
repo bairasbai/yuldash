@@ -262,6 +262,10 @@
   WEBP EXIF/XMP (с пересчётом RIFF); пиксели не трогаем, битый файл отдаём как есть.
   Тесты: `tests/test_image_metadata_stripped.py` (метки исчезли И картинка цела) +
   сквозное обещание в `tests/test_promises.py`.
+- **Открытые ручки не ходят в платный геокодер (2026-08-12, волна 34).** `services.geocode_city`
+  принимает `allow_external` (по умолчанию True); `/weather/route`, открытая без авторизации,
+  зовёт его с `allow_external=False` — только справочник `Settlement` и `CITY_COORDS`.
+  Тесты — `tests/test_open_door_costs_nothing.py`.
 - **Публичная страница слежения заперта заголовками (2026-08-12, волна 33).** `share._page_headers`:
   CSP с одноразовым nonce (`default-src 'none'`, разрешены unpkg + тайлы OSM + свой origin),
   `Permissions-Policy` без камеры/микрофона/геолокации. HSTS ставит `SecurityHeadersMiddleware`
