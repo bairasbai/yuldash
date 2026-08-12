@@ -80,8 +80,8 @@ class PartnerIn(BaseModel):
     address: str = Field("", max_length=200)
     phone: str = Field("", max_length=40)
     description: str = Field("", max_length=2000)
-    lat: Optional[float] = None
-    lng: Optional[float] = None
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lng: Optional[float] = Field(None, ge=-180, le=180)
 
 
 class CouponIn(BaseModel):

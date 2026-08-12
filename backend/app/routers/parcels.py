@@ -156,10 +156,10 @@ class ParcelIn(BaseModel):
     receiver_name: str = Field("", max_length=120)
     receiver_phone: str = Field("", max_length=40)
     rules_accepted: bool = False
-    from_lat: Optional[float] = None
-    from_lng: Optional[float] = None
-    to_lat: Optional[float] = None
-    to_lng: Optional[float] = None
+    from_lat: Optional[float] = Field(None, ge=-90, le=90)
+    from_lng: Optional[float] = Field(None, ge=-180, le=180)
+    to_lat: Optional[float] = Field(None, ge=-90, le=90)
+    to_lng: Optional[float] = Field(None, ge=-180, le=180)
     # Объявленная ценность (коп) — ориентир при споре. Раньше форма «по пути» её не слала, и в
     # разборе всегда была ветка «ценность не объявлена» (аудит 2026-07-26). Потолок 100 000 ₽.
     declared_value_kop: int = Field(0, ge=0, le=100_000_00)

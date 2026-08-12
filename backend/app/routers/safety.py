@@ -48,8 +48,8 @@ class SosIn(BaseModel):
     # Где человек. Мягкая кнопка «застрял на трассе» слала близким ссылку на карту, а красный
     # SOS — нет: родные получали «нужна срочная помощь» и не знали, куда ехать (аудит 2026-08-06).
     # Необязательны: GPS мог не схватиться — тогда шлём хотя бы сам сигнал.
-    lat: Optional[float] = None
-    lng: Optional[float] = None
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lng: Optional[float] = Field(None, ge=-180, le=180)
 
 
 def _car_of(session: Session, driver_id: "int | None") -> str:
@@ -718,8 +718,8 @@ def _maps_link(lat: Optional[float], lng: Optional[float]) -> str:
 
 class StuckIn(BaseModel):
     # Координаты необязательны (GPS мог не схватиться) — тогда шлём хотя бы сигнал «нужна помощь».
-    lat: Optional[float] = None
-    lng: Optional[float] = None
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lng: Optional[float] = Field(None, ge=-180, le=180)
     note: str = Field("", max_length=500)
 
 

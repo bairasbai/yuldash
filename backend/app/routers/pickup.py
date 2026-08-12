@@ -6,7 +6,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from ..db import get_session
@@ -20,8 +20,8 @@ class PickupPointOut(BaseModel):
     city: str
     title_ru: str
     title_ba: str
-    lat: Optional[float] = None
-    lng: Optional[float] = None
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lng: Optional[float] = Field(None, ge=-180, le=180)
     usage_count: int
 
 

@@ -105,12 +105,12 @@ class BookingDetailsOut(BaseModel):
     minor_guardian_name: str = ""
     minor_guardian_phone: str = ""
     pickup: str = ""
-    pickup_lat: Optional[float] = None
-    pickup_lng: Optional[float] = None
-    from_lat: Optional[float] = None
-    from_lng: Optional[float] = None
-    to_lat: Optional[float] = None
-    to_lng: Optional[float] = None
+    pickup_lat: Optional[float] = Field(None, ge=-90, le=90)
+    pickup_lng: Optional[float] = Field(None, ge=-180, le=180)
+    from_lat: Optional[float] = Field(None, ge=-90, le=90)
+    from_lng: Optional[float] = Field(None, ge=-180, le=180)
+    to_lat: Optional[float] = Field(None, ge=-90, le=90)
+    to_lng: Optional[float] = Field(None, ge=-180, le=180)
 
 
 @router.post("/bookings", response_model=Booking)
