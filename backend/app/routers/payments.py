@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..logs import admin_action
+from ..logs import admin_action, log
 from ..models import Ad, Payment, Ride, RideStatus, User, UserRole
 from ..payments import BOOST_PLANS, create_payment, fetch_payment
 from ..security import current_user
@@ -25,6 +25,73 @@ router = APIRouter(tags=["payments"])
 # Сколько минут неоплаченный счёт на поднятие считается «тем же самым». Окно короткое: человек
 # либо платит по QR сразу, либо передумал. Дольше держать нельзя — цена тарифа может смениться.
 BOOST_PENDING_REUSE_MIN = 30
+
+# Деньги пришли, а применить их не к чему: наш платёж к этому моменту уже отменён (человек
+# заплатил наличными / админ отклонил), а ссылка ЮKassa жила и по ней заплатили. Отменить
+# неоплаченный платёж их API не умеет, так что случай реальный, а не выдуманный.
+# Статус нужен, чтобы деньги не растворились: по нему видно, кому мы должны вернуть.
+REFUND_DUE = "refund_due"
+
+
+def _handle_unclaimed_payment(session: Session, payment: Payment) -> None:
+    """Пришли деньги, которые не к чему применить → возврат, и об этом узнают все стороны.
+
+    Раньше здесь был молчаливый выход. Для человека это выглядело так: заплатил наличными
+    водителю, потом случайно открыл старую ссылку и заплатил ещё раз картой — деньги списались,
+    в приложении ничего, спросить не у кого. Деньги оставались у платформы, и о долге не знал
+    никто, включая нас самих (аудит 2026-08-12, волна 26).
+
+    Что делаем: помечаем платёж как «нужен возврат» (это запись в базе, а не сигнал в воздух),
+    открываем человеку обращение в поддержку — оно и есть его нить для разговора — и даём знать
+    админу в Telegram. Идемпотентно: повторный вебхук по тому же платежу второго тикета
+    не заведёт (гейт по статусу в самом вебхуке).
+    """
+    from ..models import SupportMessage, SupportSender, SupportTicket
+    from ..services import push_notification
+
+    payment.status = REFUND_DUE
+    session.add(payment)
+    session.commit()
+
+    rub = payment.amount_kop // 100
+    payer = session.get(User, payment.user_id)
+    lang = (getattr(payer, "language", "") or "ru").lower()
+    # Тред поддержки пишем НА ЯЗЫКЕ ЧЕЛОВЕКА: тело сообщения одно, выбрать язык можно только так.
+    body_ru = (f"Мы получили от тебя оплату {rub} ₽, которую не к чему применить — эта поездка "
+               "уже была оплачена другим способом. Деньги вернём на ту же карту. "
+               "Напиши сюда, если возврат не придёт в течение 3 рабочих дней.")
+    body_ba = (f"Беҙ һинән {rub} һум түләү алдыҡ, ләкин уны ҡулланырға урын юҡ — был сәфәр "
+               "башҡа юл менән түләнгән инде. Аҡсаны шул уҡ картаға ҡайтарабыҙ. "
+               "3 эш көнө эсендә ҡайтмаһа, бында яҙ.")
+    try:
+        ticket = SupportTicket(user_id=payment.user_id, subject="Возврат лишней оплаты")
+        session.add(ticket)
+        session.commit()
+        session.refresh(ticket)
+        session.add(SupportMessage(ticket_id=ticket.id, sender=SupportSender.admin,
+                                   body=(body_ba if lang == "ba" else body_ru)))
+        session.commit()
+        ref_id = ticket.id
+    except Exception as e:  # noqa: BLE001 — тред вторичен, отметку о возврате не теряем
+        ref_id = None
+        log.warning(f"[REFUND] не удалось открыть тред по платежу {payment.id}: {e}")
+
+    push_notification(
+        session, payment.user_id, "system",
+        "Вернём лишнюю оплату", "Артыҡ түләүҙе ҡайтарабыҙ",
+        f"Оплата {rub} ₽ пришла, когда поездка уже была оплачена. Деньги вернём на карту.",
+        f"{rub} һумлыҡ түләү сәфәр түләнгәндән һуң килде. Аҡсаны картаға ҡайтарабыҙ.",
+        ref_kind=("support" if ref_id else ""), ref_id=ref_id,
+    )
+    try:    # админу — best-effort; телефон не шлём (несрочное уведомление, волна 12)
+        notify_admin_telegram(
+            f"💸 Нужен ВОЗВРАТ: платёж #{payment.id} на {rub} ₽\n"
+            f"Пришёл по старой ссылке, применить не к чему (заказ уже оплачен).\n"
+            f"Плательщик: {(payer.name if payer else '—')} (id {payment.user_id})\n"
+            f"Верни в кабинете ЮKassa, потом ответь человеку в поддержке."
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @router.get("/boost/plans")
@@ -367,13 +434,20 @@ def payment_status(payment_id: int, user: User = Depends(current_user), session:
     payment = session.get(Payment, payment_id)
     if not payment or payment.user_id != user.id:
         raise HTTPException(404, "Платёж не найден")
-    if payment.status == "pending" and payment.provider_id and settings.payments_provider == "yookassa":
+    # Дверей к «деньги пришли» две: вебхук и вот эта перепроверка. Отменённый платёж раньше
+    # сюда не заходил вовсе — то есть если вебхук не дошёл (а он может), поздняя оплата
+    # оставалась незамеченной и по второму пути тоже (аудит 2026-08-12, волна 26).
+    if (payment.provider_id and settings.payments_provider == "yookassa"
+            and payment.status not in ("succeeded", REFUND_DUE)):
         try:
             info = fetch_payment(payment.provider_id)   # перепроверка у ЮKassa (телу вебхука не доверяем)
         except Exception:  # noqa: BLE001 — сеть/ЮKassa недоступна → вернём текущий статус, клиент повторит
             info = None
         if info and info["status"] == "succeeded":
-            _activate_payment(session, payment)
+            if payment.status == "pending":
+                _activate_payment(session, payment)
+            else:
+                _handle_unclaimed_payment(session, payment)   # применить не к чему → возврат
     boosted_until = None
     if payment.purpose == "boost" and payment.ride_id is not None:
         ride = session.get(Ride, payment.ride_id)
@@ -489,12 +563,18 @@ async def yookassa_webhook(request: Request, session: Session = Depends(get_sess
     # вебхук случайными id и заставлять сервер ходить наружу (амплификация/DoS), а чужой id
     # уходил бы в URL-путь ЮKassa. Наружу ходим только за id, что сами выпустили.
     payment = session.exec(select(Payment).where(Payment.provider_id == provider_id)).first()
-    if not payment or payment.status == "succeeded":
+    if not payment or payment.status in ("succeeded", REFUND_DUE):
         return {"ok": True}
     try:
         info = fetch_payment(provider_id)   # верификация статуса у ЮKassa (телу не доверяем)
     except Exception:  # noqa: BLE001 — ошибка сети/ЮKassa → игнор (ЮKassa повторит вебхук)
         return {"ok": True}
-    if info["status"] == "succeeded":
+    if info["status"] != "succeeded":
+        return {"ok": True}
+    if payment.status == "pending":
         _activate_payment(session, payment)
+    else:
+        # Деньги пришли, а применить их не к чему: платёж у нас уже отменён. Раньше здесь был
+        # молчаливый выход — деньги оставались у платформы, и об этом не знал НИКТО (волна 26).
+        _handle_unclaimed_payment(session, payment)
     return {"ok": True}
