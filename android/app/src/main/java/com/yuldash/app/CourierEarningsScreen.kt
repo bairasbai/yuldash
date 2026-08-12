@@ -138,8 +138,15 @@ internal fun CourierEarningsScreen(onBack: () -> Unit) {
             translationY = (1f - reveal) * 16.dp.toPx()
         }
 
+        // Заработок пополняется после каждой доставки — обновить его должно быть можно
+        // жестом, а не выходом с экрана.
+        AppPullRefresh(
+            refreshing = loading && d != null,
+            onRefresh = { reload++ },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
         ) {
@@ -206,6 +213,7 @@ internal fun CourierEarningsScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 }

@@ -117,8 +117,15 @@ internal fun TrustScreen(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Доверие", "Ышаныс"), onBack) },
     ) { padding ->
+        // Уровень поднимается после проверки документов — а её делает админ вручную.
+        // Человек отправил и ждёт; жест сверху вниз спрашивает сервер заново.
+        AppPullRefresh(
+            refreshing = loading && data != null,
+            onRefresh = { reload++ },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
         ) {
@@ -173,6 +180,7 @@ internal fun TrustScreen(
                     }
                 }
             }
+        }
         }
     }
 }

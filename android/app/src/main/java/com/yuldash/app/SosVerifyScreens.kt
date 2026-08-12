@@ -828,6 +828,9 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
         submitError = submitError,
         statusFailed = statusFailed,
         onRetryStatus = { statusRetry++ },
+        // Одобряет документы админ, вручную. Человек отправил фото и ждёт — теперь проверить
+        // «не одобрили ли уже» можно жестом, а не выходом с экрана и заходом обратно.
+        refreshing = statusLoading && docsStatus != "none",
         autocheckResult = autocheckResult,
         autocheckData = autocheckData,
         canSubmit = canSubmit,
@@ -860,6 +863,7 @@ internal fun VerifyDriverContent(
     // Дефолты: экран вызывают и из тестов, и из превью — там сбоя статуса нет.
     statusFailed: Boolean = false,
     onRetryStatus: () -> Unit = {},
+    refreshing: Boolean = false,
     autocheckResult: String,
     autocheckData: String,
     canSubmit: Boolean,
@@ -872,8 +876,15 @@ internal fun VerifyDriverContent(
         containerColor = CanonBg,
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
     ) { padding ->
+        // Статус проверки меняет админ — человеку остаётся только ждать. Жест сверху вниз
+        // спрашивает сервер заново; тот же путь, что и у кнопки «Повторить» при сбое.
+        AppPullRefresh(
+            refreshing = refreshing,
+            onRefresh = onRetryStatus,
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
@@ -956,6 +967,7 @@ internal fun VerifyDriverContent(
             item {
                 Text(appText("Фото нужны только для проверки и не видны другим пользователям.", "Фотолар тик тикшереү өсөн, башҡаларға күренмәй."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
             }
+        }
         }
     }
 }

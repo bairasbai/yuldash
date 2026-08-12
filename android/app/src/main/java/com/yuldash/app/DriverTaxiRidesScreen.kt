@@ -91,8 +91,15 @@ internal fun DriverTaxiRidesScreen(onBack: () -> Unit, onOpenReceipt: (Int) -> U
             translationY = (1f - reveal) * 16.dp.toPx()
         }
 
+        // Список пополняется после каждой поездки, а комиссию по ним считает сервер.
+        // Жест сверху вниз — привычный способ увидеть свежие деньги, не выходя с экрана.
+        AppPullRefresh(
+            refreshing = loading && d != null,
+            onRefresh = { reload++ },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
         ) {
@@ -146,6 +153,7 @@ internal fun DriverTaxiRidesScreen(onBack: () -> Unit, onOpenReceipt: (Int) -> U
                     }
                 }
             }
+        }
         }
     }
 }
