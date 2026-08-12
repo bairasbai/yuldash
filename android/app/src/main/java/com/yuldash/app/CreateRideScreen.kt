@@ -404,6 +404,12 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
             fromField = { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
             toField = { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) },
             routeChips = { PopularRouteChips(geoRoutes) { f, t -> from = f; to = t } },
+            // Погода на маршруте: гололёд и метель водитель должен увидеть ДО публикации рейса,
+            // а не когда на него уже сели люди. Города резолвит сервер — клиенту геокодер
+            // ради погоды не нужен.
+            weatherCard = {
+                WeatherWarningCard(rememberRouteWeather(fromCity = from, toCity = to))
+            },
             pickupChips = {
                 PickupSuggestionChips(city = from, selectedId = pickupPointId) { p ->
                     pickup = if (isBa && p.titleBa.isNotBlank()) p.titleBa else p.titleRu
@@ -490,6 +496,10 @@ internal fun CreateRideFormContent(
     fromField: (@Composable () -> Unit)? = null,
     toField: (@Composable () -> Unit)? = null,
     routeChips: (@Composable () -> Unit)? = null,
+    // Погода на маршруте (слот): гололёд/метель/туман на время выезда. Пусто или нет данных —
+    // ничего не рисуется. Слотом, а не параметром-данными, чтобы форма осталась чистой:
+    // сеть и состояние держит обёртка, здесь только место на экране.
+    weatherCard: (@Composable () -> Unit)? = null,
     pickupChips: (@Composable () -> Unit)? = null,   // F14: подсказки точек сбора (умный слот)
     modifier: Modifier = Modifier,
 ) {
@@ -523,6 +533,9 @@ internal fun CreateRideFormContent(
                 singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
             )
         }
+        // Погода — сразу под маршрутом: водитель решает «ехать ли завтра» здесь, а не после
+        // того, как опубликует рейс и на него сядут люди.
+        weatherCard?.let { card -> item { card() } }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(appText("Тип поездки", "Сәфәр төрө"), fontWeight = FontWeight.Bold, fontSize = 14.sp)

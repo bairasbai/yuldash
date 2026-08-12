@@ -2560,6 +2560,31 @@ object ApiClient {
     // (самозанятость/разрешение/ОСАГО, возраст 20+, стаж 2+) → модерация админом → выход на линию.
 
     /** Доступно ли такси в точке (глобальный флаг + города). message — тёплый текст заглушки RU/BA. */
+    /**
+     * Погода на маршруте: гололёд, метель, туман, мороз — перед выездом.
+     *
+     * Тексты приходят ГОТОВЫМИ на двух языках: что считать опасным, решает сервер, и пороги
+     * можно поправить без выпуска приложения. Сбой — не ошибка экрана: возвращаем «данных нет»,
+     * и карточка просто не появляется (поездку погода блокировать не вправе).
+     */
+    suspend fun getRouteWeather(
+        fromLat: Double? = null, fromLng: Double? = null,
+        toLat: Double? = null, toLng: Double? = null,
+        fromCity: String? = null, toCity: String? = null,
+        atIso: String? = null,
+    ): Result<RouteWeatherDto> {
+        val q = StringBuilder("/weather/route?")
+        if (fromLat != null && fromLng != null) q.append("from_lat=$fromLat&from_lng=$fromLng&")
+        if (toLat != null && toLng != null) q.append("to_lat=$toLat&to_lng=$toLng&")
+        // Названия городов вместо координат: в форме публикации человек печатает «Баймак»,
+        // и геокодить их на клиенте ради погоды — лишний запрос к платному геокодеру.
+        if (!fromCity.isNullOrBlank()) q.append("from_city=").append(enc(fromCity.trim())).append('&')
+        if (!toCity.isNullOrBlank()) q.append("to_city=").append(enc(toCity.trim())).append('&')
+        if (!atIso.isNullOrBlank()) q.append("at=").append(enc(atIso)).append('&')
+        return call("GET", q.toString().trimEnd('&', '?'), null, auth = false)
+            .map { it.toRouteWeatherDto() }
+    }
+
     suspend fun getTaxiAvailability(lat: Double, lng: Double): Result<TaxiAvailabilityDto> =
         call("GET", "/instant/availability?lat=$lat&lng=$lng", null, auth = true).map { o ->
             val msg = o.optJSONObject("message") ?: JSONObject()
@@ -4824,6 +4849,27 @@ data class TaxiAvailabilityDto(
     val city: String = "",
 )
 
+/**
+ * Одно предупреждение о погоде на маршруте.
+ *
+ * Текст приходит с сервера сразу на двух языках, клиент его только показывает: пороги
+ * («что считать метелью») живут в одном месте и правятся без выпуска приложения.
+ * kind — для иконки и цвета: ice | blizzard | snow | fog | wind | frost | thunder.
+ */
+data class WeatherWarningDto(
+    val kind: String,
+    val ru: String,
+    val ba: String,
+    val severe: Boolean,
+)
+
+/** Погода на маршруте. available=false → карточки нет вовсе (нет данных, сбой источника). */
+data class RouteWeatherDto(
+    val available: Boolean,
+    val warnings: List<WeatherWarningDto>,
+    val temperatureC: Double?,
+)
+
 /** Запись листа ожидания (админ). role: passenger | driver; invitedAt = null → ещё ждёт. */
 data class WaitlistEntryDto(
     val id: Int,
@@ -4996,6 +5042,23 @@ private fun JSONObject.toSettlementDto() = SettlementDto(
     lng = optDouble("lng"),
     district = optNullableString("district"),
 )
+
+private fun JSONObject.toRouteWeatherDto(): RouteWeatherDto {
+    val arr = optJSONArray("warnings") ?: org.json.JSONArray()
+    return RouteWeatherDto(
+        available = optBoolean("available"),
+        warnings = (0 until arr.length()).map { i ->
+            val w = arr.getJSONObject(i)
+            WeatherWarningDto(
+                kind = w.optString("kind"),
+                ru = w.optString("ru"),
+                ba = w.optString("ba"),
+                severe = w.optBoolean("severe"),
+            )
+        },
+        temperatureC = if (isNull("temperature_c")) null else optDouble("temperature_c"),
+    )
+}
 
 private fun JSONObject.toInstantZoneDto() = InstantZoneDto(
     workZone = optNullableString("work_zone"),
