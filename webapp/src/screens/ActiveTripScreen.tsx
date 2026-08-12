@@ -5,7 +5,11 @@
 //  - Код посадки: GET /bookings/{id}/boarding-code (для confirmed/onboard).
 //  - Чат брони: REST-история + живой WS /ws/bookings/{id} (иначе поллинг).
 //  - Оценка при завершении: POST /bookings/{id}/rate.
-//  - Договорённость об оплате — read-only. SOS — заглушка (волна 7).
+//  - Договорённость об оплате: POST /bookings/{id}/pay-agreement —
+//    запись «как решили платить», её правит любая сторона. SOS ведёт на /sos.
+//  - Водитель двигает статус: POST /bookings/{id}/driver-status
+//    («выехал / подъезжаю / завершил») — пассажир перестаёт гадать.
+//  - «Поделиться поездкой с близким» + статусы для близких (family.py).
 //  - Зимняя проверка «доехал?» (safety.py): по расчётной ETA пассажиру
 //    показываем мягкий вопрос; «Доехал ✓» → POST winter-check/ok.
 // ================================================================
@@ -19,7 +23,9 @@ import {
   fetchTripState,
   fetchBoardingCode,
   rateBooking,
+  setPayAgreement,
   type BookingDetails,
+  type PayMethod,
   type TripState,
 } from "../api/bookings";
 import {
@@ -30,12 +36,17 @@ import {
   type ChatMessage,
 } from "../api/chat";
 import { winterCheck, winterCheckOk } from "../api/safety";
+import { setDriverStatus, type DriverPhase } from "../api/driver";
 import { LoadingList, ErrorState } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
 import { StatusPill } from "../components/StatusPill";
 import QuickReplies from "../components/QuickReplies";
 import { SubHeader } from "./ConsentsScreen";
-import { IconArrow, IconStar, IconPhone, IconWarn, IconCheck } from "../components/Icons";
+import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarningCard";
+import ShareTripCard from "../components/ShareTripCard";
+import { ChatPhotoButton, ChatMessageBody } from "../components/ChatPhoto";
+import { ChatVoiceButton, VoiceBubble } from "../components/ChatVoice";
+import { IconArrow, IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 
 // ---- Зимняя проверка «доехал?» ----
@@ -83,6 +94,13 @@ export default function ActiveTripScreen() {
   const [driverLoc, setDriverLoc] = useState<GeoPoint | null>(null);
   const [rated, setRated] = useState(false);
   const [winterAsk, setWinterAsk] = useState(false); // показать мягкий вопрос «Ты доехал(а)?»
+  const [phaseBusy, setPhaseBusy] = useState(false); // водитель отправляет «выехал/подъезжаю/завершил»
+  const [phaseNote, setPhaseNote] = useState("");
+  // Договорённость об оплате — правит любая сторона, видят оба.
+  const [payMethod, setPayMethod] = useState<PayMethod>("cash");
+  const [payAmount, setPayAmount] = useState("");
+  const [payBusy, setPayBusy] = useState(false);
+  const [payNote, setPayNote] = useState("");
 
   // ---- Загрузка деталей ----
   const load = useCallback(
@@ -110,6 +128,13 @@ export default function ActiveTripScreen() {
     load(ac.signal);
     return () => ac.abort();
   }, [load]);
+
+  // Форму оплаты заполняем тем, о чём уже договорились: человек правит, а не вводит заново.
+  useEffect(() => {
+    if (!details) return;
+    setPayMethod(details.pay_method);
+    setPayAmount(details.pay_amount != null ? String(details.pay_amount) : "");
+  }, [details]);
 
   // ---- Поллинг live-статуса каждые 10 сек ----
   useEffect(() => {
@@ -198,6 +223,63 @@ export default function ActiveTripScreen() {
     };
   }, [bookingId, details, st]);
 
+  // ❄️ Погода на маршруте. Хук зовём ДО ранних return — порядок хуков должен быть постоянным.
+  // Поездка завершена/отменена → предупреждать уже поздно и незачем.
+  const weather = useRouteWeather(
+    {
+      fromLat: details?.from_lat ?? null,
+      fromLng: details?.from_lng ?? null,
+      toLat: details?.to_lat ?? null,
+      toLng: details?.to_lng ?? null,
+      fromCity: details?.from_city ?? "",
+      toCity: details?.to_city ?? "",
+      at: details?.depart_at ?? undefined,
+    },
+    Boolean(details) && st !== "done" && st !== "cancelled"
+  );
+
+  /** Записать, как договорились платить. Это не платёж — только запись для обеих сторон. */
+  async function savePay() {
+    if (payBusy) return;
+    setPayBusy(true);
+    setPayNote("");
+    try {
+      const amount = payAmount.trim() ? Math.max(0, Math.round(Number(payAmount))) : null;
+      await setPayAgreement(bookingId, payMethod, amount);
+      load(); // перечитываем детали — договорённость показывается выше
+      setPayNote(appText("Записали. Вторая сторона это видит.", "Яҙҙыҡ. Икенсе яҡ быны күрә."));
+    } catch (e) {
+      setPayNote(
+        e instanceof ApiError && e.message
+          ? e.message
+          : appText("Не удалось сохранить. Проверь сеть.", "Һаҡлап булманы. Селтәрҙе тикшер.")
+      );
+    } finally {
+      setPayBusy(false);
+    }
+  }
+
+  /** Водитель: «выехал / подъезжаю / завершил». Ошибку показываем текстом, экран не ломаем. */
+  async function sendPhase(phase: DriverPhase) {
+    if (phaseBusy) return;
+    setPhaseBusy(true);
+    setPhaseNote("");
+    try {
+      await setDriverStatus(bookingId, phase);
+      const fresh = await fetchTripState(bookingId);
+      setTrip(fresh);
+      if (phase === "done") setPhaseNote(appText("Поездка завершена", "Сәфәр тамамланды"));
+    } catch (e) {
+      setPhaseNote(
+        e instanceof ApiError && e.message
+          ? e.message
+          : appText("Не получилось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер.")
+      );
+    } finally {
+      setPhaseBusy(false);
+    }
+  }
+
   async function winterAnswerOk() {
     setWinterAsk(false);
     try {
@@ -247,6 +329,9 @@ export default function ActiveTripScreen() {
         subtitle={formatWhen(details.depart_at, ru)}
         onBack={() => navigate(-1)}
       />
+
+      {/* ❄️ Погода на маршруте — до выезда, а не когда машина уже на трассе */}
+      <WeatherWarningCard weather={weather} />
 
       {/* Живой баннер статуса */}
       <div className="trip-banner">
@@ -332,21 +417,114 @@ export default function ActiveTripScreen() {
         )}
       </div>
 
-      {/* SOS — заглушка (полноценно в волне 7) */}
+      {/* Как договорились платить. Это ЗАПИСЬ, а не платёж: деньги через приложение не идут.
+          Менять может любая сторона — запись видна обоим и служит опорой в споре
+          «мы же договаривались о 400». Раньше на сайте её можно было только читать. */}
       {active && (
-        <button
-          type="button"
-          className="sos-btn"
-          onClick={() =>
-            window.alert(
-              appText(
-                "Экстренная помощь появится в ближайшем обновлении. В опасности — звони 112.",
-                "Ашығыс ярҙам яҡын яңыртыуҙа буласаҡ. Хәүефтә — 112-гә шылтырат."
-              )
-            )
-          }
-        >
-          <IconWarn size={16} /> {appText("SOS — помощь", "SOS — ярҙам")}
+        <div className="act-card">
+          <div className="act-card__title">
+            <IconWallet size={18} /> {appText("Как договорились платить", "Түләү тураһында нисек килештек")}
+          </div>
+          <p className="act-card__text">
+            {appText(
+              "Это просто запись договорённости — деньги через приложение не проходят.",
+              "Был — килешеү яҙмаһы ғына, аҡса ҡушымта аша үтмәй."
+            )}
+          </p>
+          <div className="seg">
+            {(["cash", "sbp", "negotiate"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={"seg__item" + (payMethod === m ? " is-active" : "")}
+                onClick={() => setPayMethod(m)}
+              >
+                {m === "cash"
+                  ? appText("Наличными", "Аҡса менән")
+                  : m === "sbp"
+                    ? appText("Перевод по СБП", "СБП аша күсереү")
+                    : appText("Договоримся", "Килешербеҙ")}
+              </button>
+            ))}
+          </div>
+          <label className="field" style={{ marginTop: 10 }}>
+            <span className="field__label">{appText("Сумма, ₽ (необязательно)", "Сумма, ₽ (мотлаҡ түгел)")}</span>
+            <input
+              className="field__input"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              value={payAmount}
+              onChange={(e) => setPayAmount(e.target.value)}
+              placeholder={String(details.pay_amount ?? details.price ?? "")}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn-soft"
+            style={{ width: "100%", marginTop: 10 }}
+            onClick={savePay}
+            disabled={payBusy}
+          >
+            {payBusy
+              ? appText("Сохраняем…", "Һаҡлайбыҙ…")
+              : appText("Записать договорённость", "Килешеүҙе яҙып ҡуйыу")}
+          </button>
+          {payNote && <p className="demand__quiet">{payNote}</p>}
+        </div>
+      )}
+
+      {/* Водитель двигает статус — пассажир перестаёт гадать, едут за ним или нет */}
+      {details.role === "driver" && active && (
+        <div className="act-card">
+          <div className="act-card__title">
+            <IconCar size={18} /> {appText("Сообщить пассажиру", "Пассажирға хәбәр итеү")}
+          </div>
+          <p className="act-card__text">
+            {appText(
+              "Он увидит, что ты уже в пути, и не будет гадать.",
+              "Ул һинең юлда икәнеңде күрер, уйланып торманы."
+            )}
+          </p>
+          <div className="chips">
+            <button
+              type="button"
+              className={"chip" + (trip?.driver_phase === "departed" ? " chip--on" : "")}
+              onClick={() => sendPhase("departed")}
+              disabled={phaseBusy}
+            >
+              {appText("Выехал", "Сыҡтым")}
+            </button>
+            <button
+              type="button"
+              className={"chip" + (trip?.driver_phase === "arriving" ? " chip--on" : "")}
+              onClick={() => sendPhase("arriving")}
+              disabled={phaseBusy}
+            >
+              {appText("Подъезжаю", "Килеп етәм")}
+            </button>
+            <button
+              type="button"
+              className="chip"
+              onClick={() => sendPhase("done")}
+              disabled={phaseBusy}
+            >
+              {appText("Завершить поездку", "Сәфәрҙе тамамлау")}
+            </button>
+          </div>
+          {phaseNote && <p className="demand__quiet">{phaseNote}</p>}
+        </div>
+      )}
+
+      {/* Поделиться поездкой с близким + статусы (у пассажира) */}
+      {active && details.role === "passenger" && (
+        <ShareTripCard bookingId={bookingId} showStatuses />
+      )}
+
+      {/* SOS — ведёт на настоящий экран помощи */}
+      {active && (
+        <button type="button" className="sos-btn" onClick={() => navigate("/sos")}>
+          <IconWarn size={16} /> {appText("SOS — нужна помощь", "SOS — ярҙам")}
         </button>
       )}
 
@@ -463,6 +641,16 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
     }
   }
 
+  /** Голос уходит по REST: сокет передаёт только текст, а ссылку надо положить в поле. */
+  async function sendVoice(voiceUrl: string) {
+    try {
+      const m = await sendMessageRest(bookingId, "", voiceUrl);
+      upsert(m);
+    } catch {
+      /* не отправилось — человек запишет заново, чат не ломаем */
+    }
+  }
+
   async function send() {
     const t = text.trim();
     if (!t) return;
@@ -486,7 +674,7 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
               {m.from_admin && (
                 <span className="bubble__admin">{appText("Поддержка", "Ярҙам")}</span>
               )}
-              {m.text}
+              {m.voice_url ? <VoiceBubble url={m.voice_url} /> : <ChatMessageBody text={m.text} />}
             </div>
           );
         })}
@@ -504,6 +692,8 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
           placeholder={appText("Сообщение…", "Хат…")}
           aria-label={appText("Сообщение", "Хат")}
         />
+        <ChatPhotoButton onReady={(t) => void sendText(t)} />
+                <ChatVoiceButton onSend={(u) => void sendVoice(u)} />
         <button type="button" onClick={send} aria-label={appText("Отправить", "Ебәрергә")}>
           <IconArrow size={20} />
         </button>

@@ -5,11 +5,12 @@
 //  диалог ввода кода. Переиспользуют Canon-токены и i18n appText.
 // ================================================================
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import type { Parcel, ParcelSize } from "../api/parcels";
 import { isCarrying } from "../api/parcels";
 import { rubLabel } from "../utils/format";
-import { IconArrow, IconPhone, IconCheck } from "./Icons";
+import { IconArrow, IconPhone, IconCheck, IconChat } from "./Icons";
 
 // ------------------------------- Подписи -------------------------------
 export function sizeLabel(size: ParcelSize | string, ru: boolean): string {
@@ -52,8 +53,26 @@ export function ParcelRoute({ p }: { p: Parcel }) {
         {p.urgency === "now" && (
           <span className="badge badge--gold">{appText("Срочно", "Ашығыс")}</span>
         )}
+        {p.fragile && (
+          <span className="badge badge--muted">{appText("Хрупкое", "Ватыла торған")}</span>
+        )}
+        {p.weight_kg != null && p.weight_kg > 0 && (
+          <span className="badge badge--muted">
+            {appText(`${p.weight_kg} кг`, `${p.weight_kg} кг`)}
+          </span>
+        )}
         {price > 0 && <span className="parcel-card__price">{rubLabel(price)}</span>}
       </div>
+      {/* Срок отдельной строкой: по нему курьер решает, успевает ли он вообще */}
+      {p.deliver_by && (
+        <div className="parcel-card__desc">
+          {appText("Нужно не позже: ", "Ошо көндән һуң түгел: ")}
+          {new Date(p.deliver_by + "T00:00:00").toLocaleDateString("ru-RU", {
+            day: "numeric",
+            month: "long",
+          })}
+        </div>
+      )}
       {p.description && <div className="parcel-card__desc">{p.description}</div>}
     </div>
   );
@@ -218,6 +237,10 @@ export function CarryParcelCard({
               {appText("В пути", "Юлда")}
             </button>
           )}
+          {/* Чат вместо звонка: за рулём написать проще, чем говорить. */}
+          <Link className="btn-soft" to={`/parcel-chat/${p.id}`}>
+            <IconChat size={18} /> {appText("Чат", "Чат")}
+          </Link>
           <button type="button" className="btn-primary" onClick={onDeliver} disabled={busy}>
             <IconCheck size={18} /> {appText("Доставлено", "Тапшырылды")}
           </button>

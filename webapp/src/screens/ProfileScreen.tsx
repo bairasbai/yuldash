@@ -167,7 +167,7 @@ export default function ProfileScreen() {
       to: "/places",
       icon: <IconHome size={22} />,
       title: appText("Мои адреса", "Адрестарым"),
-      sub: appText("Дом, работа и любимые точки", "Өй, эш һәм яҡын нөктәләр"),
+      sub: appText("Дом, работа и любимые места", "Өй, эш һәм яҡын нөктәләр"),
       authed: true,
     },
     {
@@ -296,13 +296,29 @@ export default function ProfileScreen() {
       to: "/trust",
       icon: <YuSafeTrip size={22} />,
       title: appText("Доверие", "Ышаныс"),
-      sub: appText("Твой уровень и круг «между своими»", "Кимәлең һәм «үҙебеҙ араһында» түңәрәк"),
+      sub: appText("Твой уровень и круг «своих»", "Кимәлең һәм «үҙебеҙ араһында» түңәрәк"),
+    },
+    {
+      // Хаб безопасности: в тревоге искать SOS по меню человек не должен.
+      key: "safety",
+      to: "/safety",
+      icon: <IconShield size={22} />,
+      title: appText("Безопасность", "Хәүефһеҙлек"),
+      sub: appText("SOS, чёрный список, жалоба, правила", "SOS, ҡара исемлек, ялыу, ҡағиҙәләр"),
+    },
+    {
+      // «Что теперь со мной?» после плохой поездки — один экран вместо тишины.
+      key: "fairness",
+      to: "/fairness",
+      icon: <IconShield size={22} />,
+      title: appText("Центр справедливости", "Ғәҙеллек үҙәге"),
+      sub: appText("Твоё положение и разборы споров", "Хәлең һәм бәхәстәр"),
     },
     {
       key: "invites",
       to: "/invites",
       icon: <IconGift size={22} />,
-      title: appText("Позови своих", "Үҙеңдекеләрҙе саҡыр"),
+      title: appText("Позови своего", "Үҙеңдекеләрҙе саҡыр"),
       sub: appText("Инвайт-код и бонусы", "Саҡырыу коды һәм бонустар"),
     },
     {
@@ -343,7 +359,12 @@ export default function ProfileScreen() {
       <ScreenHeader title={appText("Профиль", "Профиль")} />
 
       {isAuthed && user ? (
-        <div className="profile-card">
+        <button
+          type="button"
+          className="profile-card"
+          style={{ width: "100%", textAlign: "left" }}
+          onClick={() => navigate("/profile/edit")}
+        >
           <div className="profile-card__avatar">
             {user.avatar_url ? (
               <img src={user.avatar_url} alt="" />
@@ -365,8 +386,14 @@ export default function ProfileScreen() {
                 </span>
               )}
             </div>
+            {/* Профиль редактируется тапом по карточке — как в приложении */}
+            <div className="profile-card__meta">
+              <span className="badge badge--muted">
+                {appText("Изменить профиль", "Профилде үҙгәртеү")}
+              </span>
+            </div>
           </div>
-        </div>
+        </button>
       ) : (
         <div className="profile-guest">
           <div className="profile-guest__mark">
@@ -411,7 +438,7 @@ export default function ProfileScreen() {
           },
           {
             label: appText("Безопасность и доверие", "Именлек һәм ышаныс"),
-            keys: ["sos", "trusted", "trust"],
+            keys: ["sos", "safety", "trusted", "trust", "fairness"],
           },
           {
             label: appText("Приложение", "Ҡушымта"),

@@ -76,7 +76,7 @@ export default function CourierOnboardingScreen() {
       setError(
         e instanceof ApiError && e.message
           ? e.message
-          : appText("Не удалось загрузить фото. Попробуй снова.", "Фотоны йөкләргә булманы. Ҡабат ҡара.")
+          : appText("Не удалось загрузить фото, попробуй ещё раз", "Фотоны йөкләргә булманы. Ҡабат ҡара.")
       );
     } finally {
       setUploading(false);

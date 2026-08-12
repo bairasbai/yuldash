@@ -8,13 +8,15 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
-import { publishRide, type RideCreateInput } from "../api/driver";
+import { publishRide, fetchPriceHint, type RideCreateInput, type PriceHint } from "../api/driver";
 import { fetchMedicalPartners, type MedicalPartner } from "../api/medical";
 import type { RideCategory } from "../api/rides";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCheck, IconBolt, IconHospital, IconUsers } from "../components/Icons";
+import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarningCard";
+import { IconCheck, IconBolt, IconHospital, IconUsers, IconTrend } from "../components/Icons";
 import { YuModeRideshare } from "../components/BrandIcons";
 import { AmenityIcon } from "../components/amenityIcons";
+import { priceLabel, rubLabel } from "../utils/format";
 
 type Amenity =
   | "baggage"
@@ -28,11 +30,36 @@ type Amenity =
 type Recur = "none" | "daily" | "weekdays" | "weekly";
 
 export default function CreateRideScreen() {
-  const { appText } = useLang();
+  const { appText, lang } = useLang();
+  const ru = lang !== "ba";
   const navigate = useNavigate();
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  // Погода по названиям городов: человек печатает «Баймак → Сибай», геокодит сервер.
+  const weather = useRouteWeather({ fromCity: from.trim(), toCity: to.trim() });
+
+  // Ориентир цены по маршруту (GET /rides/price_hint). Ждём паузу в наборе: город печатают
+  // буквами, иначе на «Сибай» ушло бы пять запросов, четыре из них по несуществующим городам.
+  const [hint, setHint] = useState<PriceHint | null>(null);
+  useEffect(() => {
+    const f = from.trim();
+    const t = to.trim();
+    if (!f || !t) {
+      setHint(null);
+      return;
+    }
+    const ac = new AbortController();
+    const timer = window.setTimeout(() => {
+      fetchPriceHint(f, t, ac.signal)
+        .then(setHint)
+        .catch(() => setHint(null)); // 404 / нет сети → просто не показываем
+    }, 700);
+    return () => {
+      window.clearTimeout(timer);
+      ac.abort();
+    };
+  }, [from, to]);
   const [when, setWhen] = useState(""); // datetime-local
   const [seats, setSeats] = useState(3);
   const [price, setPrice] = useState("");
@@ -85,7 +112,7 @@ export default function CreateRideScreen() {
     { key: "baggage", label: appText("Багаж", "Багаж") },
     { key: "child_seat", label: appText("Детское кресло", "Бала урыны") },
     { key: "air_conditioner", label: appText("Кондиционер", "Кондиционер") },
-    { key: "pets_allowed", label: appText("Можно с питомцем", "Хайуан менән") },
+    { key: "pets_allowed", label: appText("Можно ехать с питомцем", "Хайуан менән") },
     { key: "non_smoking", label: appText("Без курения", "Тартмайынса") },
     { key: "quiet", label: appText("Тихая поездка", "Тыныс сәфәр") },
     { key: "women_only", label: appText("Только женщины", "Тик ҡатын-ҡыҙ") },
@@ -213,6 +240,9 @@ export default function CreateRideScreen() {
           />
         </label>
 
+        {/* ❄️ Погода на маршруте — пусто, когда сказать нечего */}
+        <WeatherWarningCard weather={weather} />
+
         <label className="field">
           <span className="field__label">{appText("Когда выезжаешь", "Ҡасан сығаһың")}</span>
           <input
@@ -256,6 +286,46 @@ export default function CreateRideScreen() {
             />
           </label>
         </div>
+
+        {/* Ориентир цены: сколько в среднем берут по этому маршруту и сколько уйдёт бензина.
+            Подсказка, а не правило — цену решает водитель. */}
+        {hint && (hint.avg > 0 || hint.fuel_estimate_kop != null) && (
+          <div className="act-card act-card--mint" style={{ marginTop: 0 }}>
+            <div className="act-card__title">
+              <IconTrend size={18} /> {appText("Сколько обычно берут", "Ғәҙәттә күпме алалар")}
+            </div>
+            <div className="info-list" style={{ marginTop: 8 }}>
+              {hint.avg > 0 && (
+                <div className="info-row">
+                  <span className="info-row__k">
+                    {appText("Средняя цена по маршруту", "Маршрут буйынса урта хаҡ")}
+                  </span>
+                  <span className="info-row__v">{priceLabel(hint.avg, ru)}</span>
+                </div>
+              )}
+              {hint.distance_km != null && (
+                <div className="info-row">
+                  <span className="info-row__k">{appText("Расстояние", "Ара")}</span>
+                  <span className="info-row__v">
+                    {Math.round(hint.distance_km)} {appText("км", "км")}
+                  </span>
+                </div>
+              )}
+              {hint.fuel_estimate_kop != null && (
+                <div className="info-row">
+                  <span className="info-row__k">{appText("Бензин на дорогу", "Юлға бензин")}</span>
+                  <span className="info-row__v">{rubLabel(hint.fuel_estimate_kop)}</span>
+                </div>
+              )}
+            </div>
+            <p className="act-card__text" style={{ margin: "8px 0 0" }}>
+              {appText(
+                "Это ориентир по прошлым поездкам — цену решаешь ты.",
+                "Был үткән сәфәрҙәр буйынса ориентир — хаҡты үҙең хәл итәһең."
+              )}
+            </p>
+          </div>
+        )}
 
         <span className="field__label" style={{ marginTop: 4 }}>
           {appText("Тип поездки", "Сәфәр төрө")}

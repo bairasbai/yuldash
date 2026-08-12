@@ -43,6 +43,10 @@ export interface InstantOrder {
   category: TaxiCategory | string;
   price_estimate: number;
   price_final: number | null;
+  /** Сколько пассажир реально платит, копейки (цена минус промокод). Точка правды для истории. */
+  passenger_price_kop: number;
+  promo_discount_kop: number;
+  created_at: string | null;
   surge_k: number;
   distance_km: number;
   eta_min: number;
@@ -87,15 +91,29 @@ export interface EstimateInput {
 /** Ответ оценки (instant_service.estimate). */
 export interface EstimateResult {
   price: number;
+  /** Цена без наценок — «база». По ней видно, что именно добавила наценка. */
+  base_price: number;
   distance_km: number;
   eta_min: number;
+  pickup_eta_min?: number;
   zone: string;
   category: TaxiCategory | string;
   tariff_id: number;
   surge_k: number;
   surge_note: { ru: string; ba: string } | null;
+  /** Ночь, погода, подача — из чего складывается итоговый коэффициент. */
+  night?: boolean;
+  night_k?: number;
+  night_note?: { ru: string; ba: string } | null;
+  pickup_k?: number;
+  weather_k?: number;
+  weather_code?: string;
+  /** Итоговый множитель (спрос × ночь × погода × подача) — его и показываем человеку. */
+  dynamic_k?: number;
+  /** Потолок наценки: выше него цена не поднимется ни при каком спросе. */
+  pricing_cap_k?: number;
   /** Цены обоих классов одним запросом — пассажир выбирает с открытыми глазами. */
-  options: { category: TaxiCategory | string; price: number }[];
+  options: { category: TaxiCategory | string; price: number; base_price?: number }[];
 }
 
 // ------------------------------- Доступность (гейт города) -------------------------------
@@ -248,6 +266,13 @@ export interface TaxiApplication {
   comment: string; // причина отказа
   created_at: string;
   reviewed_at: string | null;
+  // --- сроки документов (_doc_dates на сервере; клиент даты сам не считает) ---
+  osago_until: string | null;
+  permit_until: string | null;
+  inspection_until: string | null;
+  docs_expired: boolean; // хоть один срок вышел → допуск снят
+  docs_missing: string[]; // какие сроки ещё не заполнены
+  docs_days_left: number | null; // до ближайшего истечения; отрицательное = просрочен
 }
 
 /** Тело POST /taxi/apply (TaxiApplyIn). */
@@ -306,4 +331,138 @@ export interface DemandMap {
 export function fetchDemand(city?: string, signal?: AbortSignal): Promise<DemandMap> {
   const q = city ? `?city=${encodeURIComponent(city)}` : "";
   return apiGet<DemandMap>(`/instant/demand${q}`, { signal });
+}
+
+// --------------------- «В твоём классе никого нет» — альтернативы ---------------------
+/**
+ * Что предложить, если в выбранном классе машин нет. Молчаливой подмены класса у нас нет:
+ * решение всегда за пассажиром, он видит цену ДО согласия и заплатит ровно её.
+ * Пустой список = предлагать нечего, честно ждём дальше.
+ */
+export interface FallbackOption {
+  category: string; // standard | comfort | business | minivan
+  price: number; // ₽ — цена в этом классе
+  price_diff: number; // на сколько дороже/дешевле текущего
+}
+
+export interface AlternativesOut {
+  after_sec: number; // через сколько секунд поиска показывать предложение
+  options: FallbackOption[];
+}
+
+export function fetchAlternatives(
+  orderId: number,
+  signal?: AbortSignal
+): Promise<AlternativesOut> {
+  return apiGet<AlternativesOut>(`/instant/orders/${orderId}/alternatives`, { signal });
+}
+
+/** Пассажир согласился искать и в соседнем классе — цена пересчитывается вниз и фиксируется. */
+export function addAlternative(orderId: number, category: string): Promise<InstantOrder> {
+  return apiPost<InstantOrder>(`/instant/orders/${orderId}/alternatives`, { category });
+}
+
+// --------------------- Смена водителя (лимит часов + дашборд) ---------------------
+/**
+ * GET /instant/workday — сколько водитель уже на линии, сколько осталось до перерыва,
+ * плюс дашборд за сегодня. Лимит смены — не бюрократия: уставший водитель за рулём
+ * опаснее пустого заказа.
+ */
+export interface Workday {
+  day: string; // YYYY-MM-DD (местный)
+  seconds_online: number;
+  limit_sec: number;
+  remaining_sec: number;
+  limit_hours: number;
+  blocked: boolean; // лимит исчерпан → нужен отдых
+  unlock_at: string | null;
+  return_ride_used: boolean; // «один попутчик домой» уже использован
+  // --- дашборд за сегодня (debt.driver_dashboard) ---
+  earnings_today: number; // ₽
+  gross_today_kop: number;
+  fee_today_kop: number;
+  net_today_kop: number;
+  orders_today: number;
+  fee_percent: number;
+  tenure_days: number;
+}
+
+export function fetchWorkday(signal?: AbortSignal): Promise<Workday> {
+  return apiGet<Workday>("/instant/workday", { signal });
+}
+
+// ------------------------------- Чек за такси -------------------------------
+/** GET /instant/orders/{id}/receipt. Телефонов в чеке нет — только факт поездки. */
+export interface TaxiReceipt {
+  order_id: number;
+  role: "driver" | "passenger";
+  from_text: string;
+  to_text: string;
+  done_at: string;
+  distance_km: number | null;
+  amount: number; // ₽, реально заплаченное (цена минус промокод)
+  amount_kop: number;
+  price_kop: number; // цена до скидки
+  promo_discount_kop: number;
+  waiting_fee_kop: number;
+  payment_method: string;
+  paid: boolean;
+  driver_name: string;
+  driver_verified: boolean;
+}
+
+/** 409 = поездка ещё не завершена, 403 = чужой заказ, 404 = нет заказа/эндпоинта. */
+export function fetchTaxiReceipt(orderId: number, signal?: AbortSignal): Promise<TaxiReceipt> {
+  return apiGet<TaxiReceipt>(`/instant/orders/${orderId}/receipt`, { signal });
+}
+
+/** Водитель подтверждает, что получил наличные (пассажир мог уйти, не отметив оплату). */
+export function markCashReceived(
+  orderId: number
+): Promise<{ status: string; method?: string; amount_kop?: number }> {
+  return apiPost(`/instant/orders/${orderId}/cash-received`);
+}
+
+/** «Забыл вещь в машине» — открывает чат заказа на запись ещё на 48 часов (обе стороны). */
+export function reportLostItem(orderId: number): Promise<{ ok?: boolean; until?: string }> {
+  return apiPost(`/instant/orders/${orderId}/lost-item`);
+}
+
+// ------------------------- Предрейсовая готовность (580-ФЗ) -------------------------
+/** GET /taxi/pretrip — подтвердил ли водитель готовность на сегодня. */
+export interface PretripState {
+  required: boolean; // выключено на сервере → экран честно говорит «не обязательно»
+  confirmed: boolean;
+  day: string; // YYYY-MM-DD (локальный день)
+  confirmed_at: string | null;
+  note: string;
+}
+
+export function fetchPretrip(signal?: AbortSignal): Promise<PretripState> {
+  return apiGet<PretripState>("/taxi/pretrip", { signal });
+}
+
+/** Все три пункта обязательны — «частично готов» это не готов (правило сервера). */
+export function confirmPretrip(body: {
+  health_ok: boolean;
+  car_ok: boolean;
+  no_alcohol: boolean;
+  note?: string;
+}): Promise<PretripState> {
+  return apiPost<PretripState>("/taxi/pretrip", body);
+}
+
+// ------------------------- Сроки документов (без пере-подачи) -------------------------
+/** Тело POST /taxi/documents (TaxiDocsIn) — частичное обновление, пустые поля не трогаем. */
+export interface TaxiDocsInput {
+  osago_until?: string | null; // YYYY-MM-DD
+  permit_until?: string | null;
+  inspection_until?: string | null;
+  osago_url?: string;
+  permit_photo_url?: string;
+}
+
+/** Продлил ОСАГО — сказал системе, не сбрасывая статус заявки в «на проверке». */
+export function updateTaxiDocuments(body: TaxiDocsInput): Promise<TaxiApplication> {
+  return apiPost<TaxiApplication>("/taxi/documents", body);
 }

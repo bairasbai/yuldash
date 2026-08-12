@@ -22,6 +22,9 @@ import {
   IconWork,
   IconGift,
   IconBox,
+  IconWarn,
+  IconShield,
+  IconCheck,
 } from "../components/Icons";
 
 interface AdminLink {
@@ -38,6 +41,49 @@ export default function AdminCabinetScreen() {
 
   // Волна 8А — ядро модерации (реализовано).
   const ready: AdminLink[] = [
+    {
+      // Первым в списке намеренно: сигнал о помощи не должен ждать своей очереди.
+      key: "sos",
+      to: "/admin/sos",
+      icon: <IconWarn size={22} />,
+      title: appText("Сигналы SOS", "SOS сигналдары"),
+      sub: appText("Кто просит помощи прямо сейчас", "Кем хәҙер ярҙам һорай"),
+    },
+    {
+      key: "incidents",
+      to: "/admin/incidents",
+      icon: <IconShield size={22} />,
+      title: appText("Разбор споров", "Бәхәстәрҙе ҡарау"),
+      sub: appText("Обе версии, решение с объяснением", "Ике версия, аңлатмалы ҡарар"),
+    },
+    {
+      key: "moderation",
+      to: "/admin/moderation",
+      icon: <IconCheck size={22} />,
+      title: appText("Очередь модерации", "Модерация сираты"),
+      sub: appText("Бизнесы и купоны без решения", "Ҡарарһыҙ бизнестар һәм купондар"),
+    },
+    {
+      key: "text-flags",
+      to: "/admin/text-flags",
+      icon: <IconFlag size={22} />,
+      title: appText("Помеченные тексты", "Билдәләнгән текстар"),
+      sub: appText("Фишинг, увод контакта, грубость", "Фишинг, контакт алыу, тупаҫлыҡ"),
+    },
+    {
+      key: "pretrip",
+      to: "/admin/pretrip",
+      icon: <IconCheck size={22} />,
+      title: appText("Готовность к работе", "Эшкә әҙерлек"),
+      sub: appText("Журнал предрейсовых отметок (580-ФЗ)", "Рейс алды билдәләр журналы"),
+    },
+    {
+      key: "debts",
+      to: "/admin/debts",
+      icon: <IconWallet size={22} />,
+      title: appText("Долги по комиссии", "Комиссия бурыстары"),
+      sub: appText("Подтвердить, отклонить или списать", "Раҫлау, кире ҡағыу йәки алып ташлау"),
+    },
     {
       key: "request",
       to: "/admin/request",
@@ -79,7 +125,7 @@ export default function AdminCabinetScreen() {
       to: "/admin/reviews",
       icon: <IconStar size={22} />,
       title: appText("Отзывы", "Фекерҙәр"),
-      sub: appText("Модерация текстов отзывов", "Фекер текстарын тикшереү"),
+      sub: appText("Модерация отзывов", "Фекер текстарын тикшереү"),
     },
     {
       key: "ads",

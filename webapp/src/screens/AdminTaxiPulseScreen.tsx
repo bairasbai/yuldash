@@ -102,7 +102,7 @@ export default function AdminTaxiPulseScreen() {
               {pulse.by_city.map((c) => (
                 <div key={c.city} className="admin-card" style={{ padding: 14 }}>
                   <div className="admin-card__head" style={{ marginBottom: 0 }}>
-                    <div className="admin-card__title" style={{ fontSize: 15 }}>{c.city}</div>
+                    <div className="admin-card__title" style={{ fontSize: "var(--font-body)" }}>{c.city}</div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <span className="badge badge--mint">{appText("на линии", "линияла")}: {c.online}</span>
                       <span className="badge badge--gold">{appText("заказы", "заказ")}: {c.active}</span>

@@ -32,3 +32,30 @@ export interface MyStats {
 export function fetchMyStats(signal?: AbortSignal): Promise<MyStats> {
   return apiGet<MyStats>("/me/stats", { signal });
 }
+
+// ------------------------------- Достижения (тёплые бейджи) -------------------------------
+/**
+ * GET /me/achievements — бейджи из реальных данных: поездки, помощь посылкам, стаж, проверка.
+ * На распределение заказов НЕ влияют: это украшение и повод вернуться, а не рейтинг.
+ * Для неполученных сервер отдаёт прогресс (value/goal) — человек видит, сколько осталось.
+ */
+export interface Achievement {
+  code: string;
+  ru: string;
+  ba: string;
+  goal: number;
+  value: number;
+  earned: boolean;
+}
+
+export interface MyAchievements {
+  trips: number;
+  parcels_helped: number;
+  days_with_yuldash: number;
+  earned_count: number;
+  achievements: Achievement[];
+}
+
+export function fetchAchievements(signal?: AbortSignal): Promise<MyAchievements> {
+  return apiGet<MyAchievements>("/me/achievements", { signal });
+}

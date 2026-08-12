@@ -21,6 +21,7 @@ import {
   IconBell,
   IconWallet,
   IconReceipt,
+  IconCar,
 } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
@@ -91,7 +92,7 @@ export default function PassengerCabinetScreen() {
     {
       key: "repeat",
       icon: <IconRoute size={22} />,
-      title: appText("Повтор маршрута", "Маршрутты ҡабатлау"),
+      title: appText("Повторить маршрут", "Маршрутты ҡабатлау"),
       onClick: () => navigate("/repeat"),
     },
     {
@@ -113,6 +114,13 @@ export default function PassengerCabinetScreen() {
       onClick: () => {
         if (latestDone) navigate(`/receipt/${latestDone.id}`);
       },
+    },
+    {
+      // Чек за такси раньше терялся: он открывался только сразу после поездки.
+      key: "mytaxi",
+      icon: <IconCar size={22} />,
+      title: appText("Поездки на такси", "Такси сәфәрҙәре"),
+      onClick: () => navigate("/my-taxi"),
     },
     {
       key: "wallet",

@@ -51,6 +51,22 @@ export function rubLabel(kop: number): string {
   return `${Math.round((kop || 0) / 100).toLocaleString("ru-RU")} ₽`;
 }
 
+/**
+ * Копейки → «188,50 ₽» / «1 200 ₽» — копейки показываем, только если они есть.
+ *
+ * Округлять нельзя там, где человек сверяет сумму с чеком: цена такси считается по тарифу
+ * и коэффициенту спроса, круглой почти не бывает. «188 ₽» в списке против «188,50 ₽» в чеке —
+ * первый же повод усомниться в приложении (урок Android, разбор 2026-08-03).
+ */
+export function kopExactLabel(kop: number): string {
+  const value = (kop || 0) / 100;
+  const hasCents = Math.round(kop || 0) % 100 !== 0;
+  return `${value.toLocaleString("ru-RU", {
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: 2,
+  })} ₽`;
+}
+
 /** Название способа оплаты (пара ru/ba). */
 export function payMethodLabel(m: PayMethod | string, ru = true): string {
   switch (m) {

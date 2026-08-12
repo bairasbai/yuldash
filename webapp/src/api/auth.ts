@@ -1,11 +1,14 @@
 // ================================================================
 //  Авторизация Юлдаша (зеркало backend/app/routers/auth.py).
 //  Основной путь — вход через Telegram-бота (код в чате).
-//  SMS-вход отключён (нет юрлица) — см. LoginScreen (спокойная заглушка).
+//  SMS-вход ЗАМОРОЖЕН за флагом VITE_SMS_LOGIN_ENABLED — ровно как в
+//  приложении (BuildConfig.SMS_LOGIN_ENABLED): форма и запросы готовы,
+//  включается одной переменной, когда появится юрлицо для sms.ru.
 // ================================================================
 import {
   apiGet,
   apiPost,
+  apiUpload,
   getRefreshToken,
   setRefreshToken,
   setToken,
@@ -24,6 +27,8 @@ export interface Me {
   referral_credits?: number;
   referred_by?: number | null;
   city?: string; // родной город (свободная строка из справочника Settlement)
+  /** "" | female | male. Нужен для поездок «только женщины» — сервер сверяет обе стороны. */
+  gender?: string;
   rating: number | null;
   rating_count: number;
   created_at?: string;
@@ -64,6 +69,32 @@ export function tgVerify(
   );
 }
 
+// ---------------------------- Вход по SMS (за флагом) ----------------------------
+/** Включён ли SMS-вход в этой сборке. Пока юрлица нет — выключен, как в приложении. */
+export const SMS_LOGIN_ENABLED =
+  String(import.meta.env.VITE_SMS_LOGIN_ENABLED ?? "").trim() === "1";
+
+/**
+ * POST /auth/request-code {phone} — сервер шлёт код в SMS.
+ * 429 = слишком часто (не больше трёх кодов в минуту на номер).
+ */
+export function requestSmsCode(phone: string): Promise<{ sent: boolean; dev_code?: string }> {
+  return apiPost<{ sent: boolean; dev_code?: string }>(
+    "/auth/request-code",
+    { phone },
+    { auth: false }
+  );
+}
+
+/** POST /auth/verify {phone, code, name} → пара токенов + профиль. 400 = код неверный/истёк. */
+export function verifySmsCode(
+  phone: string,
+  code: string,
+  name = ""
+): Promise<TokenPair> {
+  return apiPost<TokenPair>("/auth/verify", { phone, code, name }, { auth: false });
+}
+
 /** Обновить пару токенов по refresh (ротация: старый гасится). */
 export async function refreshSession(): Promise<boolean> {
   const rt = getRefreshToken();
@@ -80,6 +111,37 @@ export async function refreshSession(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ---------------------------- Редактирование профиля ----------------------------
+/**
+ * Тело POST /me/update. Все поля необязательные — шлём только изменённое.
+ * Телефон здесь не меняется никогда: он привязан к входу.
+ *
+ * `gender` нужен не «для статистики»: отметку «только женщины» сервер проверяет
+ * у ОБЕИХ сторон поездки. Не указан пол — женщина не сможет ни забронировать такую
+ * поездку, ни осмысленно её опубликовать. Пустая строка = «не указывать» (снять).
+ *
+ * `language` сервер запоминает, чтобы слать пуши на языке человека.
+ * `city` — свободная строка из справочника; пустая сбрасывает город.
+ */
+export interface MeUpdateInput {
+  name?: string;
+  avatar_url?: string;
+  city?: string;
+  language?: "ru" | "ba";
+  gender?: "" | "female" | "male";
+}
+
+export function updateMe(body: MeUpdateInput): Promise<Me> {
+  return apiPost<Me>("/me/update", body);
+}
+
+/** Загрузка фото профиля (POST /upload/photo, multipart `file`) → публичный URL. */
+export function uploadProfilePhoto(file: File, signal?: AbortSignal): Promise<{ url: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiUpload<{ url: string }>("/upload/photo", form, { signal });
 }
 
 /** POST /auth/logout — гасит сессию на сервере (best-effort). */

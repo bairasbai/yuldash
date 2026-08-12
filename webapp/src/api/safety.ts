@@ -153,3 +153,39 @@ export function winterCheck(bookingId: number): Promise<WinterCheckResult> {
 export function winterCheckOk(bookingId: number): Promise<{ ok: boolean }> {
   return apiPost<{ ok: boolean }>(`/bookings/${bookingId}/winter-check/ok`);
 }
+
+// ------------------------------- Мои ограничения (право объяснения) -------------------------------
+/**
+ * GET /me/restrictions — что именно ограничено, почему и до когда. Автора жалобы НЕ
+ * раскрываем. Смысл: человек не должен догадываться, почему у него «вдруг не работает».
+ * Пустой список = ограничений нет.
+ */
+export interface Restriction {
+  kind: string; // taxi_pause | ...
+  reason: string;
+  category: string | null;
+  category_ru?: string;
+  category_ba?: string;
+  until: string | null; // null = до решения человека
+  title_ru: string;
+  title_ba: string;
+  note_ru: string;
+  note_ba: string;
+}
+
+export function fetchMyRestrictions(
+  signal?: AbortSignal
+): Promise<{ items?: Restriction[]; restrictions?: Restriction[] }> {
+  return apiGet("/me/restrictions", { signal });
+}
+
+/** GET /safety/policy — пороги «Справедливости» приходят с сервера, клиент их не хардкодит. */
+export interface SafetyPolicy {
+  strikes_to_limit: number;
+  strikes_to_suspend: number;
+  strike_decay_days: number;
+}
+
+export function fetchSafetyPolicy(signal?: AbortSignal): Promise<SafetyPolicy> {
+  return apiGet<SafetyPolicy>("/safety/policy", { signal });
+}

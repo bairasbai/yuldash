@@ -34,7 +34,8 @@ import {
   CarryParcelCard,
   CodeDialog,
 } from "../components/parcelUi";
-import { IconBox, IconCheck, IconCopy, IconGift, IconRoute, IconShield, IconStar } from "../components/Icons";
+import ParcelProblemActions from "../components/ParcelProblemActions";
+import { IconBox, IconCheck, IconChat, IconCopy, IconGift, IconRoute, IconShield, IconStar } from "../components/Icons";
 
 type Tab = "send" | "mine" | "carry";
 
@@ -87,7 +88,22 @@ function SendTab({ onSent }: { onSent: () => void }) {
   const [created, setCreated] = useState<Parcel | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const canSubmit = fromCity.trim() && toCity.trim() && receiver.trim() && rules && !busy;
+  // «Что и за сколько везём» — без этого курьер видел маршрут и размер, а решить,
+  // браться или нет, было не по чему. Блок сворачиваемый: обязательного тут ничего нет.
+  const [more, setMore] = useState(false);
+  const [fromAddr, setFromAddr] = useState("");
+  const [toAddr, setToAddr] = useState("");
+  const [price, setPrice] = useState("");
+  const [value, setValue] = useState("");
+  const [weight, setWeight] = useState("");
+  const [fragile, setFragile] = useState(false);
+  const [deliverBy, setDeliverBy] = useState("");
+
+  const weightNum = Number(weight.replace(",", "."));
+  const weightOk = !weight.trim() || (Number.isFinite(weightNum) && weightNum <= 100);
+
+  const canSubmit =
+    fromCity.trim() && toCity.trim() && receiver.trim() && rules && weightOk && !busy;
 
   async function submit() {
     if (!canSubmit) return;
@@ -102,6 +118,14 @@ function SendTab({ onSent }: { onSent: () => void }) {
         receiver_name: receiver.trim(),
         receiver_phone: phone.trim(),
         rules_accepted: rules,
+        // Деньги — в копейках: сервер везде считает целыми, чтобы не терять на округлении.
+        price_kop: price.trim() ? Math.max(0, Math.round(Number(price) * 100)) : 0,
+        declared_value_kop: value.trim() ? Math.max(0, Math.round(Number(value) * 100)) : 0,
+        from_address: fromAddr.trim(),
+        to_address: toAddr.trim(),
+        weight_kg: weight.trim() ? Math.max(0, weightNum) : 0,
+        fragile,
+        deliver_by: deliverBy || null,
       });
       setCreated(p);
     } catch (e) {
@@ -199,7 +223,7 @@ function SendTab({ onSent }: { onSent: () => void }) {
           className="field__area"
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
-          placeholder={appText("Например: документы, лекарства, гостинцы", "Мәҫәлән: документтар, дарыу, күстәнәс")}
+          placeholder={appText("Например: документы, книга, гостинец", "Мәҫәлән: документтар, дарыу, күстәнәс")}
           rows={2}
         />
       </label>
@@ -214,6 +238,138 @@ function SendTab({ onSent }: { onSent: () => void }) {
           <input className="field__input" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="+7 900 000-00-00" />
         </label>
       </div>
+
+      {/* Цена доставки — не в «дополнительно»: без неё курьеру нечем решить, браться или нет */}
+      <label className="field" style={{ marginTop: 12 }}>
+        <span className="field__label">{appText("Сколько платишь за доставку, ₽", "Илтеү өсөн күпме түләйһең, ₽")}</span>
+        <input
+          className="field__input"
+          type="number"
+          inputMode="numeric"
+          min={0}
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          placeholder={appText("0 — по-соседски, бесплатно", "0 — күршеләрсә, бушлай")}
+        />
+        <span className="field__hint">
+          {appText(
+            "Курьер видит сумму до того, как возьмёт посылку. Деньги отдаёшь напрямую ему.",
+            "Курьер аҫылманы алғанға тиклем сумманы күрә. Аҡсаны тура уға бирәһең."
+          )}
+        </span>
+      </label>
+
+      {/* Остальное — по желанию, но каждое поле снимает по одному спору потом */}
+      <button
+        type="button"
+        className="more-toggle"
+        onClick={() => setMore((v) => !v)}
+        aria-expanded={more}
+      >
+        {appText("Дополнительно", "Өҫтәмә")}
+        <span className="more-toggle__chev">{more ? "▴" : "▾"}</span>
+      </button>
+
+      {more && (
+        <div className="more-body">
+          <div className="field-row">
+            <label className="field" style={{ flex: 1 }}>
+              <span className="field__label">{appText("Откуда забрать", "Ҡайҙан алырға")}</span>
+              <input
+                className="field__input"
+                value={fromAddr}
+                onChange={(e) => setFromAddr(e.target.value)}
+                maxLength={200}
+                placeholder={appText("Дом, квартира или ориентир", "Йорт, фатир йәки билдә")}
+              />
+            </label>
+            <label className="field" style={{ flex: 1 }}>
+              <span className="field__label">{appText("Куда привезти", "Ҡайҙа килтерергә")}</span>
+              <input
+                className="field__input"
+                value={toAddr}
+                onChange={(e) => setToAddr(e.target.value)}
+                maxLength={200}
+                placeholder={appText("«У мечети», «синие ворота»", "«Мәсет янында», «зәңгәр ҡапҡа»")}
+              />
+            </label>
+          </div>
+
+          <div className="field-row" style={{ marginTop: 12 }}>
+            <label className="field" style={{ flex: 1 }}>
+              <span className="field__label">{appText("Вес, кг", "Ауырлыҡ, кг")}</span>
+              <input
+                className="field__input"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={100}
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                placeholder={appText("Примерно", "Яҡынса")}
+              />
+              {!weightOk && (
+                <span className="field__hint" style={{ color: "var(--danger)" }}>
+                  {appText(
+                    "Вес больше 100 кг — это уже грузоперевозка",
+                    "Ауырлыҡ 100 кг-дан артыҡ — был инде йөк ташыу"
+                  )}
+                </span>
+              )}
+            </label>
+            <label className="field" style={{ flex: 1 }}>
+              <span className="field__label">{appText("Ценность, ₽", "Хаҡы, ₽")}</span>
+              <input
+                className="field__input"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder={appText("Необязательно", "Мотлаҡ түгел")}
+              />
+              <span className="field__hint">
+                {appText(
+                  "Ориентир, если что-то случится в дороге.",
+                  "Юлда берәй хәл булһа — ориентир."
+                )}
+              </span>
+            </label>
+          </div>
+
+          <label className="field" style={{ marginTop: 12 }}>
+            <span className="field__label">{appText("Нужно доставить не позже", "Ошо көндән һуң түгел")}</span>
+            <input
+              className="field__input"
+              type="date"
+              value={deliverBy}
+              onChange={(e) => setDeliverBy(e.target.value)}
+            />
+            <span className="field__hint">
+              {appText("Пусто — не срочно, когда получится.", "Буш — ашығыс түгел, ҡасан килеп сыға.")}
+            </span>
+          </label>
+
+          <label className="list-row list-row--check" style={{ marginTop: 12 }}>
+            <div className="list-row__main">
+              <div className="list-row__title">{appText("Хрупкое", "Ватыла торған")}</div>
+              <div className="list-row__sub">
+                {appText(
+                  "Курьер повезёт аккуратнее и не поставит сверху тяжёлое.",
+                  "Курьер һаҡсылыраҡ алып барыр, өҫтөнә ауырҙы ҡуймаҫ."
+                )}
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              className="checkbox"
+              checked={fragile}
+              onChange={() => setFragile((v) => !v)}
+              aria-label={appText("Хрупкое", "Ватыла торған")}
+            />
+          </label>
+        </div>
+      )}
 
       {/* Правила — обязательный чекбокс */}
       <label className="list-row list-row--check" style={{ marginTop: 14 }}>
@@ -243,6 +399,7 @@ type Boot = "loading" | "error" | "ready";
 
 function MineTab() {
   const { appText } = useLang();
+  const navigate = useNavigate();
   const [boot, setBoot] = useState<Boot>("loading");
   const [items, setItems] = useState<Parcel[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -327,6 +484,14 @@ function MineTab() {
                 {p.courier.phone && (
                   <a className="btn-soft" href={`tel:${p.courier.phone}`}>{appText("Позвонить", "Шылтыратыу")}</a>
                 )}
+                {/* Чат: где оставить, кому отдать, когда будут дома — письменно, а не в звонке. */}
+                <button
+                  type="button"
+                  className="btn-soft"
+                  onClick={() => navigate(`/parcel-chat/${p.id}`)}
+                >
+                  <IconChat size={18} /> {appText("Чат", "Чат")}
+                </button>
               </div>
             )}
             {active && (
@@ -477,7 +642,7 @@ function CarryingList() {
       setCodeErr(
         e instanceof ApiError && e.message
           ? e.message
-          : appText("Неверный код. Проверь и попробуй снова.", "Код дөрөҫ түгел. Тикшереп ҡабат ҡара.")
+          : appText("Неверный код. Проверь и введи снова.", "Код дөрөҫ түгел. Тикшереп ҡабат ҡара.")
       );
     } finally {
       setCodeBusy(false);
@@ -490,7 +655,7 @@ function CarryingList() {
     return (
       <div className="state" style={{ paddingTop: 28 }}>
         <div className="state__icon"><IconCheck size={34} /></div>
-        <h2>{appText("Ты ничего не везёшь", "Һин бер нәмә лә йөрөтмәйһең")}</h2>
+        <h2>{appText("Ты пока ничего не везёшь", "Һин бер нәмә лә йөрөтмәйһең")}</h2>
         <p>{appText("Возьми заявку во вкладке «Доступные» — она появится здесь.", "«Асыҡ» бүлегендә заявка ал — ул бында күренер.")}</p>
       </div>
     );
@@ -499,13 +664,15 @@ function CarryingList() {
   return (
     <div style={{ marginTop: 4 }}>
       {items.map((p) => (
-        <CarryParcelCard
-          key={p.id}
-          p={p}
-          busy={busyId === p.id}
-          onDepart={() => onDepart(p.id)}
-          onDeliver={() => { setCodeErr(null); setCodeFor(p); }}
-        />
+        <div key={p.id}>
+          <CarryParcelCard
+            p={p}
+            busy={busyId === p.id}
+            onDepart={() => onDepart(p.id)}
+            onDeliver={() => { setCodeErr(null); setCodeFor(p); }}
+          />
+          <ParcelProblemActions parcel={p} role="courier" onChanged={() => load()} />
+        </div>
       ))}
       {codeFor && (
         <CodeDialog busy={codeBusy} error={codeErr} onSubmit={onDeliver} onClose={() => setCodeFor(null)} />

@@ -8,6 +8,8 @@ import {
   type ReactNode,
 } from "react";
 import { dict, type DictKey, type Lang, type Pair } from "./dict";
+import { getToken } from "../api/client";
+import { updateMe } from "../api/auth";
 
 const STORAGE_KEY = "yuldash.lang";
 
@@ -36,6 +38,14 @@ export function LangProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, lang);
     document.documentElement.lang = lang === "ba" ? "ba" : "ru";
+    // Язык нужен и серверу: пуши приходят двуязычные, и он выбирает нужный по User.language.
+    // Без этого человек переключал сайт на башкирский, а уведомления продолжали идти по-русски.
+    // Гость — не в счёт: без токена запрос вернёт 401, поэтому молча пропускаем.
+    if (getToken()) {
+      updateMe({ language: lang }).catch(() => {
+        /* сеть/старый сервер — не критично, локальный язык уже переключён */
+      });
+    }
   }, [lang]);
 
   const setLang = useCallback((l: Lang) => setLangState(l), []);

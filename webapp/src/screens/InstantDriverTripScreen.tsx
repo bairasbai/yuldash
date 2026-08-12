@@ -30,15 +30,19 @@ import {
   doneOrder,
   cancelInstantOrder,
   fetchDemand,
+  fetchPretrip,
+  fetchWorkday,
   type InstantOrder,
   type DemandZone,
+  type PretripState,
+  type Workday,
 } from "../api/instant";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
-import { IconCar, IconStar, IconPhone, IconChat, IconCheck, IconWarn, IconProfile } from "../components/Icons";
+import { IconCar, IconStar, IconPhone, IconChat, IconCheck, IconWarn, IconProfile, IconShield, IconClock } from "../components/Icons";
 import { YuMoon } from "../components/BrandIcons";
-import { priceLabel } from "../utils/format";
+import { priceLabel, formatWhen } from "../utils/format";
 
 type Boot = "loading" | "error" | "need-approval" | "ready";
 const PRESENCE_MS = 15000;
@@ -93,6 +97,10 @@ export default function InstantDriverTripScreen() {
   const [boot, setBoot] = useState<Boot>("loading");
   const [driver, setDriver] = useState<DriverStatus | null>(null);
   const [onlineBusy, setOnlineBusy] = useState(false);
+  // Предрейсовая готовность на сегодня (580-ФЗ). null = сервер о ней не знает → блок скрыт.
+  const [pretrip, setPretrip] = useState<PretripState | null>(null);
+  // Смена: сколько на линии и сколько осталось до обязательного отдыха. null = сервер не знает.
+  const [workday, setWorkday] = useState<Workday | null>(null);
 
   const [offer, setOffer] = useState<InstantOrder | null>(null);
   const [active, setActive] = useState<InstantOrder | null>(null);
@@ -135,6 +143,19 @@ export default function InstantDriverTripScreen() {
     load(ac.signal);
     return () => ac.abort();
   }, [load]);
+
+  // Готовность на сегодня — отдельным запросом: её отсутствие не должно ломать экран.
+  useEffect(() => {
+    if (boot !== "ready") return;
+    const ac = new AbortController();
+    fetchPretrip(ac.signal)
+      .then(setPretrip)
+      .catch(() => setPretrip(null)); // 404/403 → блок скрыт
+    fetchWorkday(ac.signal)
+      .then(setWorkday)
+      .catch(() => setWorkday(null));
+    return () => ac.abort();
+  }, [boot]);
 
   const online = !!driver?.online;
 
@@ -263,7 +284,11 @@ export default function InstantDriverTripScreen() {
       const fn = next === "arrived" ? arrivedOrder : next === "onboard" ? onboardOrder : doneOrder;
       const o = await fn(active.id);
       setActive(o);
-      if (o.status === "done") localStorage.removeItem(ACTIVE_KEY);
+      if (o.status === "done") {
+        localStorage.removeItem(ACTIVE_KEY);
+        // Сразу на чек: там водитель отмечает «наличные получил», если пассажир ушёл.
+        navigate(`/taxi-receipt/${o.id}`);
+      }
     } catch {
       /* тихо — повторит по поллингу */
     }
@@ -319,7 +344,7 @@ export default function InstantDriverTripScreen() {
             )}
           </p>
           <button type="button" className="btn-primary" onClick={() => navigate("/taxi-onboarding")}>
-            {appText("Стать таксистом", "Таксист булыу")}
+            {appText("Стать таксистом Юлдаша", "Таксист булыу")}
           </button>
         </div>
       </>
@@ -347,11 +372,69 @@ export default function InstantDriverTripScreen() {
         onBack={() => navigate(-1)}
       />
 
+      {/* Готовность на сегодня. Показываем ДО тумблера: это про «можно ли вообще ехать». */}
+      {pretrip && !pretrip.confirmed && (
+        <div className={"act-card " + (pretrip.required ? "act-card--warn" : "act-card--mint")}>
+          <div className="act-card__title">
+            <IconShield size={18} /> {appText("Готовность к работе", "Эшкә әҙерлек")}
+          </div>
+          <p className="act-card__text">
+            {pretrip.required
+              ? appText(
+                  "Отметь готовность на сегодня — самочувствие, машина, без алкоголя.",
+                  "Бөгөнгә әҙерлекте билдәлә — үҙ хәлең, машина, эсемлекһеҙ."
+                )
+              : appText(
+                  "Можешь отметить готовность на сегодня — это остаётся твоим следом.",
+                  "Бөгөнгә әҙерлекте билдәләй алаһың — был һинең эҙең булып ҡала."
+                )}
+          </p>
+          <button
+            type="button"
+            className={pretrip.required ? "btn-primary" : "btn-soft"}
+            style={{ width: "100%" }}
+            onClick={() => navigate("/pretrip")}
+          >
+            {appText("Отметить готовность", "Әҙерлекте билдәләү")}
+          </button>
+        </div>
+      )}
+
+      {/* Смена: устал — это не «мягкая рекомендация», а причина не выезжать */}
+      {workday && (workday.blocked || workday.remaining_sec < 3600) && (
+        <div className={"act-card " + (workday.blocked ? "act-card--warn" : "act-card--mint")}>
+          <div className="act-card__title">
+            <IconClock size={18} />{" "}
+            {workday.blocked
+              ? appText("Смена закончилась", "Смена бөттө")
+              : appText("Смена скоро закончится", "Смена тиҙҙән бөтә")}
+          </div>
+          <p className="act-card__text" style={{ marginBottom: 0 }}>
+            {workday.blocked
+              ? appText(
+                  `Отдохни — за рулём ${workday.limit_hours} ч подряд достаточно.`,
+                  `Ял ит — рулдә ${workday.limit_hours} сәғәт етә.`
+                )
+              : appText(
+                  `Осталось ${Math.max(1, Math.round(workday.remaining_sec / 60))} мин до перерыва.`,
+                  `Тәнәфескә ${Math.max(1, Math.round(workday.remaining_sec / 60))} минут ҡалды.`
+                )}
+            {workday.blocked && workday.unlock_at && (
+              <>
+                <br />
+                {appText("Снова на линию: ", "Яңынан линияға: ")}
+                {formatWhen(workday.unlock_at, ru)}
+              </>
+            )}
+          </p>
+        </div>
+      )}
+
       <button
         type="button"
         className={"onb__simple" + (online ? " is-active" : "")}
         onClick={toggleOnline}
-        disabled={onlineBusy}
+        disabled={onlineBusy || Boolean(workday?.blocked)}
       >
         <span className={"status-dot" + (online ? " status-dot--on" : "")} aria-hidden />
         <span className="onb__simple-text">

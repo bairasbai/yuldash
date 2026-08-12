@@ -794,6 +794,43 @@ export default function PartnerCabinetScreen() {
                     </div>
                   </div>
 
+                  {/* Почему купон не виден людям. Без этого владелец думает, что сломался
+                      сайт, и создаёт копию за копией — а модерация заворачивает их снова. */}
+                  {(c.review === "held" || c.review === "blocked" || (c.reports_count ?? 0) > 0) && (
+                    <div className="act-card act-card--warn" style={{ marginTop: 10 }}>
+                      <div className="act-card__title">
+                        <IconWarn size={18} />
+                        {c.review === "blocked"
+                          ? appText("Купон снят администратором", "Купонды администратор алды")
+                          : c.review === "held"
+                            ? appText("Текст не прошёл проверку", "Текст тикшереүҙе үтмәне")
+                            : appText("На купон жалуются", "Купонға зарланалар")}
+                      </div>
+                      <p className="act-card__text" style={{ marginBottom: 0 }}>
+                        {c.review_note
+                          ? c.review_note
+                          : c.review === "blocked"
+                            ? appText(
+                                "Поправь текст и сохрани — он снова уйдёт на проверку.",
+                                "Текстты төҙәт тә һаҡла — ул яңынан тикшереүгә китә."
+                              )
+                            : appText(
+                                "Убери телефон, ссылку или резкие слова — и сохрани.",
+                                "Телефонды, һылтанманы йәки ҡаты һүҙҙәрҙе алып ташла ла һаҡла."
+                              )}
+                        {(c.reports_count ?? 0) > 0 && (
+                          <>
+                            <br />
+                            {appText(
+                              `Жалоб от людей: ${c.reports_count}`,
+                              `Кешеләрҙән зарланыу: ${c.reports_count}`
+                            )}
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="biz-item__actions">
                     <button type="button" className="btn-soft" onClick={() => startEditCoupon(c)}>
                       {appText("Редактировать", "Төҙәтеү")}

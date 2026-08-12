@@ -149,7 +149,7 @@ export default function AdminResponsesScreen() {
                   <div className="list-row__title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     {it.driver_name}
                     {it.driver_rating != null && (
-                      <span className="profile-card__rating" style={{ fontSize: 13 }}>
+                      <span className="profile-card__rating" style={{ fontSize: "var(--font-caption)" }}>
                         <IconStar size={13} /> {it.driver_rating.toFixed(1)}
                       </span>
                     )}

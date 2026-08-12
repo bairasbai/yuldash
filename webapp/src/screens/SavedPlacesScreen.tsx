@@ -135,7 +135,7 @@ export default function SavedPlacesScreen() {
     <>
       <SubHeader
         title={appText("Мои адреса", "Адрестарым")}
-        subtitle={appText("Дом, работа и любимые точки", "Өй, эш һәм яҡын нөктәләр")}
+        subtitle={appText("Дом, работа и любимые места", "Өй, эш һәм яҡын нөктәләр")}
         onBack={() => navigate(-1)}
       />
 

@@ -8,7 +8,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { fetchAdminParcels, type ParcelsStatement } from "../api/admin";
+import { fetchAdminParcels, releaseParcelCourier, type ParcelsStatement } from "../api/admin";
+import { ApiError } from "../api/client";
 import type { Parcel } from "../api/parcels";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList, ErrorState } from "../components/States";
@@ -123,7 +124,7 @@ export default function AdminParcelsScreen() {
       {state === "ready" && shown.length > 0 && (
         <div className="admin-cards">
           {shown.map((p) => (
-            <ParcelAdminCard key={p.id} parcel={p} ru={ru} />
+            <ParcelAdminCard key={p.id} parcel={p} ru={ru} onReleased={() => load()} />
           ))}
         </div>
       )}
@@ -137,9 +138,41 @@ const DTYPE_LABEL: Record<string, [string, string]> = {
   buy_bring: ["Купи и привези", "Һатып ал да килтер"],
 };
 
-function ParcelAdminCard({ parcel: p, ru }: { parcel: Parcel; ru: boolean }) {
+function ParcelAdminCard({
+  parcel: p,
+  ru,
+  onReleased,
+}: {
+  parcel: Parcel;
+  ru: boolean;
+  onReleased: () => void;
+}) {
   const { appText } = useLang();
   const dtype = DTYPE_LABEL[p.delivery_type] ?? DTYPE_LABEL.poputka;
+  const [release, setRelease] = useState<number | null>(null);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+
+  async function doRelease(id: number) {
+    if (busy) return;
+    setBusy(true);
+    setNote("");
+    try {
+      await releaseParcelCourier(id, reason.trim());
+      setRelease(null);
+      setReason("");
+      onReleased();
+    } catch (e) {
+      setNote(
+        e instanceof ApiError && e.message
+          ? e.message
+          : appText("Не получилось снять курьера.", "Курьерҙы алып булманы.")
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="admin-card">
@@ -180,6 +213,61 @@ function ParcelAdminCard({ parcel: p, ru }: { parcel: Parcel; ru: boolean }) {
       {p.created_at && (
         <div className="admin-card__sub">{formatRelative(p.created_at, ru)}</div>
       )}
+
+      {/* Курьер пропал и не отвечает — снимаем, посылка вернётся в общий список.
+          Без этой кнопки заявка висела «в работе» у человека, который её не повезёт. */}
+      {p.courier_id && !["delivered", "canceled", "returned"].includes(String(p.status)) && (
+        release === p.id ? (
+          <>
+            <label className="field" style={{ marginTop: 10 }}>
+              <span className="field__label">
+                {appText("Почему снимаем (увидят обе стороны)", "Ниңә алабыҙ (ике яҡ та күрәсәк)")}
+              </span>
+              <input
+                className="field__input"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                maxLength={200}
+                placeholder={appText("«Не выходит на связь второй день»", "«Икенсе көн бәйләнешкә сыҡмай»")}
+              />
+            </label>
+            <div className="act-card__actions" style={{ marginTop: 10 }}>
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={() => doRelease(p.id)}
+                disabled={busy || !reason.trim()}
+              >
+                {busy ? appText("Снимаем…", "Алабыҙ…") : appText("Снять курьера", "Курьерҙы алыу")}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  setRelease(null);
+                  setReason("");
+                }}
+              >
+                {appText("Отмена", "Кире алыу")}
+              </button>
+            </div>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="btn-soft"
+            style={{ width: "100%", marginTop: 10 }}
+            onClick={() => {
+              setRelease(p.id);
+              setReason("");
+            }}
+          >
+            {appText("Снять курьера с доставки", "Курьерҙы илтеүҙән алыу")}
+          </button>
+        )
+      )}
+
+      {note && <p className="demand__quiet">{note}</p>}
     </div>
   );
 }

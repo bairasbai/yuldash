@@ -19,6 +19,8 @@ import {
 } from "../api/chat";
 import { fetchInstantOrder, isUnlocked, type InstantOrder } from "../api/instant";
 import { SubHeader } from "./ConsentsScreen";
+import { ChatPhotoButton, ChatMessageBody } from "../components/ChatPhoto";
+import { ChatVoiceButton, VoiceBubble } from "../components/ChatVoice";
 import { IconArrow } from "../components/Icons";
 import { YuChat } from "../components/BrandIcons";
 import QuickReplies from "../components/QuickReplies";
@@ -119,6 +121,16 @@ export default function InstantChatScreen() {
     }
   }
 
+  /** Голос уходит по REST: сокет передаёт только текст, а ссылку надо положить в поле. */
+  async function sendVoice(voiceUrl: string) {
+    try {
+      const m = await sendOrderMessageRest(id, "", voiceUrl);
+      upsert(m);
+    } catch {
+      /* не отправилось — человек запишет заново, чат не ломаем */
+    }
+  }
+
   async function send() {
     const t = text.trim();
     if (!t) return;
@@ -160,7 +172,7 @@ export default function InstantChatScreen() {
               return (
                 <div key={m.id} className={"bubble" + (mine ? " bubble--mine" : "")}>
                   {m.from_admin && <span className="bubble__admin">{appText("Поддержка", "Ярҙам")}</span>}
-                  {m.text}
+                  {m.voice_url ? <VoiceBubble url={m.voice_url} /> : <ChatMessageBody text={m.text} />}
                 </div>
               );
             })}
@@ -168,7 +180,7 @@ export default function InstantChatScreen() {
           </div>
           {readOnly ? (
             <div className="chat__readonly">
-              {appText("Поездка завершена — чат только для чтения.", "Сәфәр тамамланды — чат тик уҡыу өсөн.")}
+              {appText("Поездка завершена — чат доступен только для чтения.", "Сәфәр тамамланды — чат тик уҡыу өсөн.")}
             </div>
           ) : (
             <>
@@ -184,7 +196,9 @@ export default function InstantChatScreen() {
                 placeholder={appText("Сообщение…", "Хат…")}
                 aria-label={appText("Сообщение", "Хат")}
               />
-              <button type="button" onClick={send} aria-label={appText("Отправить", "Ебәрергә")}>
+              <ChatPhotoButton onReady={(t) => void sendText(t)} />
+                <ChatVoiceButton onSend={(u) => void sendVoice(u)} />
+          <button type="button" onClick={send} aria-label={appText("Отправить", "Ебәрергә")}>
                 <IconArrow size={20} />
               </button>
               </div>

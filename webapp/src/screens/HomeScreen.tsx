@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import ScreenHeader from "../components/ScreenHeader";
+import { fetchSeasonalEvents, type SeasonalEvent } from "../api/seasonal";
 import RideCard from "../components/RideCard";
 import RideSheet from "../components/RideSheet";
 import YandexMap, { type MapMarker, type GeoPoint } from "../components/YandexMap";
@@ -22,11 +23,14 @@ import { YuModeTaxi } from "../components/BrandIcons";
 type Status = "loading" | "error" | "ready";
 
 export default function HomeScreen() {
-  const { appText } = useLang();
+  const { appText, lang } = useLang();
+  const ru = lang !== "ba";
   const navigate = useNavigate();
   const { isAuthed } = useAuth();
 
   const [status, setStatus] = useState<Status>("loading");
+  // Ближайшее сезонное событие (публичная ручка). null = ничего не идёт или ручки нет.
+  const [season, setSeason] = useState<SeasonalEvent | null>(null);
   const [rides, setRides] = useState<Ride[]>([]);
   const [reqs, setReqs] = useState<NearRequest[]>([]);
   const [me, setMe] = useState<GeoPoint | null>(null);
@@ -65,6 +69,17 @@ export default function HomeScreen() {
     },
     [isAuthed]
   );
+
+  useEffect(() => {
+    const ac = new AbortController();
+    fetchSeasonalEvents(21, ac.signal)
+      .then((r) => {
+        const active = r.items.find((e) => e.active) ?? r.items[0] ?? null;
+        setSeason(active);
+      })
+      .catch(() => setSeason(null)); // 404 / нет сети → баннера просто нет
+    return () => ac.abort();
+  }, []);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -139,7 +154,7 @@ export default function HomeScreen() {
     {
       key: "invite",
       icon: <IconGift size={22} />,
-      title: appText("Позови своих", "Үҙеңдекеләрҙе саҡыр"),
+      title: appText("Позови своего", "Үҙеңдекеләрҙе саҡыр"),
       onClick: () => navigate("/invites"),
     },
   ];
@@ -150,6 +165,19 @@ export default function HomeScreen() {
         title={appText("Карта", "Карта")}
         subtitle={appText("Попутки между своими рядом", "Яҡында үҙебеҙ араһында юлдаштар")}
       />
+
+      {/* Сезон: сабантуй, курбан, начало учёбы — когда все едут в одну сторону.
+          Ничего не навязываем: подсказка «сегодня будет много попутчиков». */}
+      {season && (
+        <div className="act-card act-card--mint">
+          <div className="act-card__title">
+            <span aria-hidden>{season.emoji}</span> {ru ? season.name_ru : season.name_ba}
+          </div>
+          <p className="act-card__text" style={{ marginBottom: 0 }}>
+            {ru ? season.note_ru : season.note_ba}
+          </p>
+        </div>
+      )}
 
       <div className="home-map">
         <YandexMap markers={markers} me={me} height={280} />

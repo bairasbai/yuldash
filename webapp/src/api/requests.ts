@@ -3,7 +3,7 @@
 //  Пассажир создаёт заявку «ищу попутку», водители откликаются,
 //  пассажир принимает отклик → создаётся бронь (booking_id).
 // ================================================================
-import { apiGet, apiPost } from "./client";
+import { apiDelete, apiGet, apiPost } from "./client";
 import type { Ride, RideCategory } from "./rides";
 
 /** Тело создания заявки. Совпадает 1:1 с RequestIn (только нужные поля). */
@@ -69,16 +69,44 @@ export interface RequestFeedItem {
   prefs: string[]; // women|child|pets|wheelchair|baggage|nosmoke|ac
 }
 
-/** Отклик водителя на мою заявку (GET /requests/{id}/responses). */
+/** Отклик водителя на мою заявку (GET /requests/{id}/responses).
+ *  Поля торга аддитивны: сервер считает, чей сейчас ход, — клиент только рисует. */
 export interface ResponseItem {
   id: number;
   driver_id: number;
   driver_name: string;
   driver_avatar: string;
   driver_rating?: number | null;
-  price: number;
+  price: number; // первая цена водителя (историческая)
   comment: string;
   status: string; // offered | accepted | declined
+  // --- торг ---
+  current_price: number; // что сейчас на столе — по ней и создастся поездка
+  last_offer_by: string; // driver | passenger — чей ход был последним
+  bargain_rounds: number;
+  can_counter: boolean; // смотрящий может предложить свою цену
+  can_accept: boolean; // смотрящий может принять цену на столе
+  bargain_history: string; // «d:500,p:400,d:450»
+}
+
+/** Один ход торга, разобранный из bargain_history. */
+export interface BargainStep {
+  by: "driver" | "passenger";
+  price: number;
+}
+
+/** «d:500,p:400» → [{by:'driver',price:500},{by:'passenger',price:400}]. Мусор пропускаем. */
+export function parseBargainHistory(raw: string): BargainStep[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((part) => {
+      const [who, value] = part.split(":");
+      const price = Number(value);
+      if (!Number.isFinite(price)) return null;
+      return { by: who === "p" ? "passenger" : "driver", price } as BargainStep;
+    })
+    .filter((s): s is BargainStep => s !== null);
 }
 
 export function createRequest(body: RequestInput): Promise<RideRequestRow> {
@@ -118,6 +146,30 @@ export function fetchRequestResponses(
 /** Принять отклик → создаётся бронь. Возвращает booking_id. */
 export function acceptResponse(responseId: number): Promise<{ booking_id: number }> {
   return apiPost<{ booking_id: number }>(`/responses/${responseId}/accept`);
+}
+
+/** Мои отклики (водитель): GET /responses/mine — где я предложил цену и где ждут мой ход. */
+export function fetchMyResponses(signal?: AbortSignal): Promise<ResponseItem[]> {
+  return apiGet<ResponseItem[]>("/responses/mine", { signal });
+}
+
+/** Встречная цена. Ходят по очереди; 409 = не твой ход / торг закрыт / лимит ходов. */
+export function counterOffer(
+  responseId: number,
+  price: number,
+  comment = ""
+): Promise<ResponseItem> {
+  return apiPost<ResponseItem>(`/responses/${responseId}/counter`, { price, comment });
+}
+
+/** Отказаться от торга (обе стороны). */
+export function declineResponse(responseId: number): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(`/responses/${responseId}/decline`);
+}
+
+/** Водитель убирает свой отклик совсем. */
+export function withdrawResponse(responseId: number): Promise<{ ok: boolean }> {
+  return apiDelete<{ ok: boolean }>(`/responses/${responseId}`);
 }
 
 /** Подходящие поездки под мою заявку (GET /match/rides?request_id=).

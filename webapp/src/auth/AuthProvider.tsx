@@ -20,6 +20,7 @@ import {
   refreshSession,
   type Me,
 } from "../api/auth";
+import { disableWebPush } from "../push/webPush";
 
 type Status = "loading" | "authed" | "guest";
 
@@ -101,6 +102,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Пуши гасим ДО выхода: серверу нужен ещё живой токен, чтобы отвязать подписку.
+    // Иначе на общем телефоне следующий вошедший получал бы чужие уведомления.
+    try {
+      await disableWebPush();
+    } catch {
+      /* не критично — выход важнее */
+    }
     try {
       await logoutServer();
     } catch {

@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { fetchMyStats, type MyStats } from "../api/stats";
+import { fetchMyStats, fetchAchievements, type MyStats, type MyAchievements } from "../api/stats";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconShare, IconCheck, IconHeart } from "../components/Icons";
@@ -21,6 +21,8 @@ export default function MyStatsScreen() {
   const [status, setStatus] = useState<Status>("loading");
   const [stats, setStats] = useState<MyStats | null>(null);
   const [shared, setShared] = useState(false);
+  // Тёплые бейджи. На заказы не влияют — украшение и повод вернуться. null = ручки нет.
+  const [badges, setBadges] = useState<MyAchievements | null>(null);
 
   const load = useCallback((signal?: AbortSignal) => {
     setStatus("loading");
@@ -41,6 +43,15 @@ export default function MyStatsScreen() {
     load(ac.signal);
     return () => ac.abort();
   }, [load]);
+
+  // Достижения — отдельным запросом: их отсутствие не должно ломать статистику.
+  useEffect(() => {
+    const ac = new AbortController();
+    fetchAchievements(ac.signal)
+      .then(setBadges)
+      .catch(() => setBadges(null)); // 404 до деплоя → блок скрыт
+    return () => ac.abort();
+  }, []);
 
   async function share() {
     if (!stats) return;
@@ -84,7 +95,7 @@ export default function MyStatsScreen() {
         <>
           {/* Звание + прогресс (переиспользуем стиль trust-hero) */}
           <div className="trust-hero">
-            <div className="trust-hero__badge" style={{ fontSize: 28 }}>
+            <div className="trust-hero__badge" style={{ fontSize: "var(--font-title)" }}>
               <IconHeart size={34} />
             </div>
             <div className="trust-hero__level">
@@ -137,6 +148,57 @@ export default function MyStatsScreen() {
             </p>
           )}
 
+          {/* Достижения: полученные — и сколько осталось до следующих */}
+          {badges && badges.achievements.length > 0 && (
+            <>
+              <h2 className="section-title">
+                {appText("Достижения", "Ҡаҙаныштар")}
+                {badges.earned_count > 0 && (
+                  <span className="badge badge--mint" style={{ marginLeft: 8 }}>
+                    {appText(`${badges.earned_count} получено`, `${badges.earned_count} алынған`)}
+                  </span>
+                )}
+              </h2>
+              <div className="list">
+                {badges.achievements.map((b) => (
+                  <div key={b.code} className="list-row">
+                    <span className="list-row__icon">
+                      {b.earned ? <IconCheck size={20} /> : <IconHeart size={20} />}
+                    </span>
+                    <div className="list-row__main">
+                      <div className="list-row__title">{appText(b.ru, b.ba)}</div>
+                      <div className="list-row__sub">
+                        {b.earned
+                          ? appText("Получено", "Алынған")
+                          : appText(
+                              `${Math.min(b.value, b.goal)} из ${b.goal}`,
+                              `${b.goal}-нән ${Math.min(b.value, b.goal)}`
+                            )}
+                      </div>
+                      {!b.earned && (
+                        <div className="trust-progress" style={{ marginTop: 6 }}>
+                          <div
+                            className="earn-bar__fill"
+                            style={{
+                              width: `${Math.max(4, Math.min(100, Math.round((b.value / Math.max(1, b.goal)) * 100)))}%`,
+                              height: 6,
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="demand__quiet">
+                {appText(
+                  "Значки — просто приятно. На заказы и цену они не влияют.",
+                  "Билдәләр — күңелле генә. Заказға һәм хаҡҡа тәьҫир итмәй."
+                )}
+              </p>
+            </>
+          )}
+
           <button type="button" className="btn-primary submit-btn" onClick={share} style={{ marginTop: 18 }}>
             {shared ? (
               <>
@@ -151,7 +213,7 @@ export default function MyStatsScreen() {
 
           <p className="receipt__foot">
             {appText(
-              "Экономия и CO₂ — примерная оценка относительно поездки на такси.",
+              "Экономия и CO₂ — примерная оценка в сравнении с поездкой на такси.",
               "Янға ҡалыу һәм CO₂ — таксиға ҡарата яҡынса иҫәп."
             )}
           </p>

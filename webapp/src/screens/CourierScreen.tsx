@@ -37,7 +37,8 @@ import { rubLabel, formatWhen } from "../utils/format";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList, ErrorState } from "../components/States";
 import { AvailableParcelCard, CarryParcelCard, CodeDialog } from "../components/parcelUi";
-import { IconStar, IconCheck, IconCopy, IconBox } from "../components/Icons";
+import ParcelProblemActions from "../components/ParcelProblemActions";
+import { IconStar, IconCheck, IconCopy, IconBox, IconTrend } from "../components/Icons";
 import { YuCourierWalk } from "../components/BrandIcons";
 
 type Boot = "loading" | "error" | "soon" | "need-approval" | "ready";
@@ -58,6 +59,9 @@ export default function CourierScreen() {
   const [tab, setTab] = useState<Tab>("available");
   const [zone, setZone] = useState<CourierZone>("city");
   const [onlineBusy, setOnlineBusy] = useState(false);
+  // Город работы: по нему сервер отбирает заказы. Без него курьеру сыпалось всё подряд.
+  const [workCity, setWorkCity] = useState("");
+  const [cityDirty, setCityDirty] = useState(false);
 
   const load = useCallback((signal?: AbortSignal) => {
     setBoot("loading");
@@ -65,6 +69,7 @@ export default function CourierScreen() {
       .then((data) => {
         setMe(data);
         if (data.profile?.zone) setZone(data.profile.zone as CourierZone);
+        if (data.profile?.work_city) setWorkCity(data.profile.work_city);
         setBoot("ready");
       })
       .catch((e) => {
@@ -88,7 +93,9 @@ export default function CourierScreen() {
     if (onlineBusy || !me) return;
     setOnlineBusy(true);
     try {
-      const prof = online ? await courierOffline() : await courierOnline({ zone });
+      const prof = online
+        ? await courierOffline()
+        : await courierOnline({ zone, work_city: workCity.trim() });
       setMe({ ...me, profile: prof });
     } catch (e) {
       // 403 = мягкая пауза по качеству → перечитаем кабинет (покажет плашку).
@@ -103,7 +110,7 @@ export default function CourierScreen() {
     setZone(z);
     if (online && me) {
       try {
-        const prof = await courierOnline({ zone: z });
+        const prof = await courierOnline({ zone: z, work_city: workCity.trim() });
         setMe({ ...me, profile: prof });
       } catch {
         /* оставим локальную зону — список всё равно пере-запросится */
@@ -201,6 +208,52 @@ export default function CourierScreen() {
         <span className={"switch" + (online ? " on" : "")} />
       </button>
 
+      {/* Город работы: сервер по нему отбирает заказы, поэтому спрашиваем до выхода на линию */}
+      <label className="field" style={{ marginTop: 14 }}>
+        <span className="field__label">{appText("Город работы", "Эш ҡалаһы")}</span>
+        <input
+          className="field__input"
+          value={workCity}
+          onChange={(e) => {
+            setWorkCity(e.target.value);
+            setCityDirty(true);
+          }}
+          maxLength={80}
+          placeholder={appText("Например: Баймак", "Мәҫәлән: Баймаҡ")}
+        />
+        {cityDirty && (
+          <span className="field__hint">
+            {online
+              ? appText(
+                  "Подтверди новый город — до этого заказы остаются по прежнему.",
+                  "Яңы ҡаланы раҫла — шунға тиклем заказдар элеккесә ҡала."
+                )
+              : appText(
+                  "Город применится, когда выйдешь на линию.",
+                  "Ҡала линияға сыҡҡас ҡулланыла."
+                )}
+          </span>
+        )}
+      </label>
+      {cityDirty && online && (
+        <button
+          type="button"
+          className="btn-soft"
+          style={{ width: "100%", marginTop: 8 }}
+          onClick={async () => {
+            try {
+              const prof = await courierOnline({ zone, work_city: workCity.trim() });
+              if (me) setMe({ ...me, profile: prof });
+              setCityDirty(false);
+            } catch {
+              /* не применилось — прежний город остаётся, экран не ломаем */
+            }
+          }}
+        >
+          {appText("Сохранить город", "Ҡаланы һаҡларға")}
+        </button>
+      )}
+
       {/* Зона работы */}
       <span className="field__label" style={{ marginTop: 14, display: "block" }}>
         {appText("Зона работы", "Эш зонаһы")}
@@ -228,7 +281,20 @@ export default function CourierScreen() {
 
       {tab === "available" && <AvailableOrders zone={zone} />}
       {tab === "carry" && <CarryOrders />}
-      {tab === "cabinet" && me && <Cabinet me={me} onReload={() => load()} />}
+      {tab === "cabinet" && me && (
+        <>
+          <Cabinet me={me} onReload={() => load()} />
+          {/* Заработок отдельно от комиссии: иначе работа выглядит одним сплошным долгом. */}
+          <button
+            type="button"
+            className="btn-soft"
+            style={{ width: "100%", marginTop: 12 }}
+            onClick={() => navigate("/courier-earnings")}
+          >
+            <IconTrend size={18} /> {appText("Мой заработок", "Минең табыш")}
+          </button>
+        </>
+      )}
     </>
   );
 }
@@ -365,7 +431,7 @@ function CarryOrders() {
       setCodeErr(
         e instanceof ApiError && e.message
           ? e.message
-          : appText("Неверный код. Проверь и попробуй снова.", "Код дөрөҫ түгел. Тикшереп ҡабат ҡара.")
+          : appText("Неверный код. Проверь и введи снова.", "Код дөрөҫ түгел. Тикшереп ҡабат ҡара.")
       );
     } finally {
       setCodeBusy(false);
@@ -380,7 +446,7 @@ function CarryOrders() {
         <div className="state__icon">
           <YuCourierWalk size={36} />
         </div>
-        <h2>{appText("Ты ничего не везёшь", "Һин бер нәмә лә йөрөтмәйһең")}</h2>
+        <h2>{appText("Ты пока ничего не везёшь", "Һин бер нәмә лә йөрөтмәйһең")}</h2>
         <p>{appText("Возьми заказ во вкладке «Заказы» — он появится здесь.", "«Заказдар» бүлегендә заказ ал — ул бында күренер.")}</p>
       </div>
     );
@@ -388,14 +454,17 @@ function CarryOrders() {
   return (
     <div style={{ marginTop: 4 }}>
       {items.map((p) => (
-        <CarryParcelCard
-          key={p.id}
-          p={p}
-          busy={busyId === p.id}
-          onDepart={() => onDepart(p.id)}
-          onDeliver={() => { setCodeErr(null); setCodeFor(p); }}
-          onGoodsCost={(kop) => onGoods(p.id, kop)}
-        />
+        <div key={p.id}>
+          <CarryParcelCard
+            p={p}
+            busy={busyId === p.id}
+            onDepart={() => onDepart(p.id)}
+            onDeliver={() => { setCodeErr(null); setCodeFor(p); }}
+            onGoodsCost={(kop) => onGoods(p.id, kop)}
+          />
+          {/* Не вручилось: попытка, возврат, спор — вместо «бросить заявку висеть» */}
+          <ParcelProblemActions parcel={p} role="courier" onChanged={() => load()} />
+        </div>
       ))}
       {codeFor && (
         <CodeDialog busy={codeBusy} error={codeErr} onSubmit={onDeliver} onClose={() => setCodeFor(null)} />

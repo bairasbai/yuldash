@@ -44,6 +44,78 @@
 **Карта не сходится с прод-адресом.** `webapp/` в проде ещё не выкачен — код в репозитории есть,
 выкатка отдельным решением Александра.
 
+### PWA догнала приложение 1 в 1 (2026-08-12, ветка `claude/pwa-ios-app-40fd47`)
+
+Сравнили `enum Screen` в `android/…/MainActivity.kt` (87 экранов) с маршрутами
+`webapp/src/App.tsx` и закрыли все расхождения. Добавлено 16 экранов + торг о цене,
+погода на маршруте и живая вкладка «Чат» (была заглушка `StubScreen`, файл удалён).
+
+**Новые экраны PWA и их роуты** (все — `webapp/src/screens/`):
+
+| Экран | Роут | Пара в Android |
+|---|---|---|
+| `TaxiReceiptScreen` | `/taxi-receipt/:orderId` | `TaxiReceipt` |
+| `MyTaxiTripsScreen` | `/my-taxi` | `MyTaxiTrips` |
+| `DriverTaxiRidesScreen` | `/taxi-rides` | `DriverTaxiRides` |
+| `TaxiDocumentsScreen` | `/taxi-docs` | `TaxiDocuments` |
+| `PretripCheckScreen` | `/pretrip` | `PretripCheck` |
+| `CourierEarningsScreen` | `/courier-earnings` | `CourierEarnings` |
+| `DriverResponsesScreen` | `/my-responses` | `DriverResponses` |
+| `FairnessCenterScreen` | `/fairness` | `FairnessCenter` |
+| `IncidentDetailScreen` | `/incidents/:id` | `IncidentDetail` |
+| `ParcelChatScreen` | `/parcel-chat/:parcelId` | `ParcelChat` |
+| `ChatInboxScreen` | `/chat` (вкладка) | вкладка «Чат» |
+| `SafetyScreen` | `/safety` | `Safety` |
+| `AdminSosScreen` | `/admin/sos` | `AdminSos` |
+| `AdminIncidentsScreen` | `/admin/incidents` | `AdminIncidents` |
+| `AdminTextFlagsScreen` | `/admin/text-flags` | `AdminTextFlags` |
+| `AdminModerationScreen` | `/admin/moderation` | `AdminModeration` |
+
+**Два экрана Android пары в PWA не получили — намеренно:**
+- `AdminRatings` — модерация текстовых отзывов уже жила в `AdminReviewsScreen`; туда
+  добавлены недостающие части (имя того, о ком отзыв, и «Снять с рейтинга»).
+- `ForceUpdate` — в вебе принудительное обновление делает service worker
+  (`vite-plugin-pwa`, режим `autoUpdate`), отдельный экран не нужен.
+
+**Новые модули API:** `webapp/src/api/incidents.ts` (споры и «моё положение»),
+`webapp/src/api/weather.ts` (погода на маршруте). Расширены `instant.ts` (чек такси,
+предрейс, сроки документов), `driver.ts` (`/driver/taxi-rides`), `courier.ts`
+(`/courier/earnings`), `requests.ts` (торг: counter/decline/withdraw + `parseBargainHistory`),
+`chat.ts` (чат посылки + WS), `admin.ts` (SOS, споры, помеченные тексты, очередь модерации,
+щит рейтинга).
+
+**Новые общие компоненты:** `components/WeatherWarningCard.tsx` (карточка + хук
+`useRouteWeather`) и `components/BargainTrail.tsx` (дорожка ходов торга, одинаковая
+у пассажира и водителя).
+
+**Новые CSS-примитивы** в `webapp/src/ui.css` (секции «Волна Е1» и «Волна Е2»):
+`act-card`, `money-row`, `money-total`, `doc-term`, `bargain*`, `weather-warn`, `inbox-row` —
+всё на существующих токенах, без своих чисел цвета и радиуса.
+
+### Волна Е4: сверка по обращениям к серверу, а не по экранам (2026-08-12)
+
+Экраны совпали ещё в Е1–Е3, но начинка — нет. Метод: выписать из
+`android/…/data/ApiClient.kt` все 276 путей и сверить с `webapp/src/api/*.ts`.
+Нашлось 19 расхождений + замороженный SMS-вход; закрыто всё, повторная сверка чистая.
+
+**Новые модули API вебa:** `api/seasonal.ts`. Расширены `family.ts` (share/shares/revoke/
+trip-status для брони и такси + track-link посылки), `driver.ts` (driver-status, complete,
+price_hint), `instant.ts` (alternatives, workday), `parcels.ts` (attempt-failed, return-start/
+done, dispute), `stats.ts` (achievements), `safety.ts` (restrictions, policy), `chat.ts`
+(upload/chat-photo + префикс `[img]`), `push.ts` (unregister), `auth.ts` (request-code/verify
+за флагом `VITE_SMS_LOGIN_ENABLED`), `admin.ts` (debts, release-courier, pretrip-журнал).
+
+**Новые общие компоненты:** `ShareTripCard.tsx` (поделиться поездкой + статусы близким),
+`ParcelProblemActions.tsx` (не вручилось: попытка / возврат / спор), `ChatPhoto.tsx`
+(кнопка фото + рендер картинки в пузыре).
+
+**Новые экраны админа:** `AdminDebtsScreen` (`/admin/debts`), `AdminPretripScreen`
+(`/admin/pretrip`).
+
+**Важное про совместимость:** фото в чате помечается префиксом `[img]` — как в приложении
+(`ApiClient.IMG_PREFIX`). Отдельное поле под картинку в сообщении не заводили: старый
+Android перестал бы понимать такие сообщения.
+
 ## ⭐ Быстрые метки к оценке (2026-08-06, релизная ветка)
 
 После поездки под звёздами появился ряд меток в один тап: «Вежливый», «Приехал вовремя»,

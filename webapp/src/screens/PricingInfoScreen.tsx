@@ -101,7 +101,7 @@ export default function PricingInfoScreen() {
           <span className="pay-way__emoji"><IconPhone size={22} /></span>
           <div>
             <div className="pay-way__title">
-              {appText("Оплата — напрямую, по СБП", "Түләү — туранан, СБП аша")}
+              {appText("Оплата — пока напрямую по СБП", "Түләү — туранан, СБП аша")}
             </div>
             <div className="pay-way__badge">
               <span className="badge badge--gold">{appText("Пока так", "Хәҙергә шулай")}</span>

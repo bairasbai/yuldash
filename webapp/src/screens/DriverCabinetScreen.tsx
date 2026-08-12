@@ -19,6 +19,7 @@ import {
   fetchMySchedules,
   createSchedule,
   deleteSchedule,
+  completeRide,
   type DriverStatus,
   type DriverSchedule,
 } from "../api/driver";
@@ -41,6 +42,8 @@ import {
   IconClock,
   IconWarn,
   IconIdCard,
+  IconReceipt,
+  IconShield,
 } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
@@ -104,6 +107,28 @@ export default function DriverCabinetScreen() {
   const [driver, setDriver] = useState<DriverStatus | null>(null);
   const [rides, setRides] = useState<Ride[]>([]);
   const [schedules, setSchedules] = useState<DriverSchedule[]>([]);
+  const [finishing, setFinishing] = useState<number | null>(null);
+  const [finishNote, setFinishNote] = useState("");
+
+  /** Завершить рейс целиком (POST /rides/{id}/complete) — закрывает все брони разом. */
+  async function finishRide(rideId: number) {
+    if (finishing) return;
+    setFinishing(rideId);
+    setFinishNote("");
+    try {
+      await completeRide(rideId);
+      setRides((prev) => prev.map((x) => (x.id === rideId ? { ...x, status: "done" } : x)));
+    } catch (e) {
+      setFinishNote(
+        e instanceof ApiError && e.message
+          ? e.message
+          : appText("Не получилось завершить. Проверь сеть.", "Тамамлап булманы. Селтәрҙе тикшер.")
+      );
+    } finally {
+      setFinishing(null);
+    }
+  }
+
   const [onlineBusy, setOnlineBusy] = useState(false);
 
   const load = useCallback((signal?: AbortSignal) => {
@@ -231,7 +256,23 @@ export default function DriverCabinetScreen() {
             </button>
             <button type="button" className="cabinet-tile" onClick={() => navigate("/taxi-onboarding")}>
               <span className="cabinet-tile__icon"><IconRides size={22} /></span>
-              <span className="cabinet-tile__title">{appText("Стать таксистом", "Таксист булыу")}</span>
+              <span className="cabinet-tile__title">{appText("Стать таксистом Юлдаша", "Таксист булыу")}</span>
+            </button>
+            <button type="button" className="cabinet-tile" onClick={() => navigate("/my-responses")}>
+              <span className="cabinet-tile__icon"><IconRequest size={22} /></span>
+              <span className="cabinet-tile__title">{appText("Мои отклики", "Яуаптарым")}</span>
+            </button>
+            <button type="button" className="cabinet-tile" onClick={() => navigate("/taxi-rides")}>
+              <span className="cabinet-tile__icon"><IconReceipt size={22} /></span>
+              <span className="cabinet-tile__title">{appText("Мои поездки такси", "Такси сәфәрҙәрем")}</span>
+            </button>
+            <button type="button" className="cabinet-tile" onClick={() => navigate("/taxi-docs")}>
+              <span className="cabinet-tile__icon"><IconIdCard size={22} /></span>
+              <span className="cabinet-tile__title">{appText("Документы и сроки", "Документтар һәм ваҡыттар")}</span>
+            </button>
+            <button type="button" className="cabinet-tile" onClick={() => navigate("/pretrip")}>
+              <span className="cabinet-tile__icon"><IconShield size={22} /></span>
+              <span className="cabinet-tile__title">{appText("Готовность к работе", "Эшкә әҙерлек")}</span>
             </button>
           </div>
 
@@ -242,7 +283,9 @@ export default function DriverCabinetScreen() {
             wd={ru ? WD_RU : WD_BA}
           />
 
-          {/* Мои поездки / Архив */}
+{finishNote && <p className="taxi-note">{finishNote}</p>}
+
+                    {/* Мои поездки / Архив */}
           <h2 className="section-title">{appText("Мои поездки", "Сәфәрҙәрем")}</h2>
           {rides.length === 0 ? (
             <div className="state" style={{ paddingTop: 12 }}>
@@ -281,6 +324,20 @@ export default function DriverCabinetScreen() {
                       </div>
                     </div>
                     <StatusPill status={pill as never} />
+                    {/* Завершить рейс целиком: пассажиры часто забывают нажать «Завершить»,
+                        и тогда места висят занятыми, а поездка — в активных. */}
+                    {st !== "done" && st !== "cancelled" && (
+                      <button
+                        type="button"
+                        className="btn-soft btn-soft--sm"
+                        onClick={() => finishRide(r.id)}
+                        disabled={finishing === r.id}
+                      >
+                        {finishing === r.id
+                          ? appText("Завершаем…", "Тамамлайбыҙ…")
+                          : appText("Завершить", "Тамамлау")}
+                      </button>
+                    )}
                   </div>
                 );
               })}

@@ -9,6 +9,9 @@ import {
   tgVerify,
   telegramChatUrl,
   telegramStartUrl,
+  requestSmsCode,
+  verifySmsCode,
+  SMS_LOGIN_ENABLED,
 } from "../api/auth";
 import BrandMark from "../components/BrandMark";
 import { IconChevron, IconTelegram } from "../components/Icons";
@@ -36,8 +39,61 @@ export default function LoginScreen() {
   const [needPhone, setNeedPhone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [smsOpen, setSmsOpen] = useState(false);
+  // SMS-форма (заморожена флагом VITE_SMS_LOGIN_ENABLED — как в приложении).
+  const [phone, setPhone] = useState("");
+  const [smsStep, setSmsStep] = useState<"phone" | "code">("phone");
+  const [smsCode, setSmsCode] = useState("");
+  const [smsName, setSmsName] = useState("");
+  const [smsBusy, setSmsBusy] = useState(false);
+  const [smsError, setSmsError] = useState<string | null>(null);
 
   const botMissing = TELEGRAM_BOT.length === 0;
+
+  /** Шаг 1: просим сервер отправить код в SMS. */
+  async function smsRequest() {
+    const p = phone.trim();
+    if (smsBusy || p.length < 6) return;
+    setSmsBusy(true);
+    setSmsError(null);
+    track("login_start", { method: "sms" });
+    try {
+      await requestSmsCode(p);
+      setSmsStep("code");
+      setSmsCode("");
+    } catch (e) {
+      setSmsError(
+        e instanceof ApiError && e.status === 429
+          ? appText("Слишком часто. Подожди минуту.", "Артыҡ йыш. Бер минут көт.")
+          : e instanceof ApiError && e.message
+            ? e.message
+            : appText("Не получилось отправить код.", "Код ебәреп булманы.")
+      );
+    } finally {
+      setSmsBusy(false);
+    }
+  }
+
+  /** Шаг 2: проверяем код и входим. */
+  async function smsVerify() {
+    const p = phone.trim();
+    const c = smsCode.trim();
+    if (smsBusy || c.length < 4) return;
+    setSmsBusy(true);
+    setSmsError(null);
+    try {
+      const res = await verifySmsCode(p, c, smsName.trim());
+      login(res.access_token, res.refresh_token, res.user);
+      navigate(from, { replace: true });
+    } catch (e) {
+      setSmsError(
+        e instanceof ApiError && e.message
+          ? e.message
+          : appText("Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
+      );
+    } finally {
+      setSmsBusy(false);
+    }
+  }
 
   function openTelegram(url: string) {
     window.open(url, "_blank", "noopener,noreferrer");
@@ -174,14 +230,81 @@ export default function LoginScreen() {
           <button type="button" className="auth__sms-toggle" onClick={() => setSmsOpen((v) => !v)}>
             {appText("Вход по SMS", "SMS аша инеү")}
           </button>
-          {smsOpen && (
-            <div className="auth__note">
-              {appText(
-                "Вход по SMS пока недоступен. Мы включим его позже — сейчас входим через Telegram.",
-                "SMS аша инеү әлегә юҡ. Һуңынан ҡабатыр — хәҙергә Telegram аша инәбеҙ."
-              )}
-            </div>
-          )}
+          {smsOpen &&
+            (SMS_LOGIN_ENABLED ? (
+              <div className="auth__code">
+                {smsStep === "phone" ? (
+                  <>
+                    <input
+                      className="field__input"
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder={appText("+7 999 000-00-00", "+7 999 000-00-00")}
+                      aria-label={appText("Номер телефона", "Телефон номеры")}
+                    />
+                    {smsError && <div className="auth__error">{smsError}</div>}
+                    <button
+                      type="button"
+                      className="btn-primary submit-btn"
+                      onClick={smsRequest}
+                      disabled={smsBusy || phone.trim().length < 6}
+                    >
+                      {smsBusy
+                        ? appText("Отправляем…", "Ебәрәбеҙ…")
+                        : appText("Получить код", "Код алыу")}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      className="field__input"
+                      inputMode="numeric"
+                      value={smsCode}
+                      onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, ""))}
+                      placeholder={appText("Код из SMS", "SMS коды")}
+                      aria-label={appText("Код из SMS", "SMS коды")}
+                    />
+                    <input
+                      className="field__input"
+                      style={{ marginTop: 8 }}
+                      value={smsName}
+                      onChange={(e) => setSmsName(e.target.value)}
+                      placeholder={appText("Как тебя зовут", "Исемең")}
+                      aria-label={appText("Имя", "Исем")}
+                    />
+                    {smsError && <div className="auth__error">{smsError}</div>}
+                    <button
+                      type="button"
+                      className="btn-primary submit-btn"
+                      onClick={smsVerify}
+                      disabled={smsBusy || smsCode.trim().length < 4}
+                    >
+                      {smsBusy ? appText("Входим…", "Инәбеҙ…") : appText("Войти", "Инеү")}
+                    </button>
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => {
+                        setSmsStep("phone");
+                        setSmsError(null);
+                      }}
+                    >
+                      {appText("Изменить номер", "Номерҙы үҙгәртеү")}
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="auth__note">
+                {appText(
+                  "Вход по SMS пока недоступен. Мы включим его позже — сейчас входим через Telegram.",
+                  "SMS аша инеү әлегә юҡ. Һуңынан ҡабатыр — хәҙергә Telegram аша инәбеҙ."
+                )}
+              </div>
+            ))}
 
           <p className="auth__legal">
             {appText(

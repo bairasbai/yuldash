@@ -158,7 +158,7 @@ export default function ScheduledOrdersScreen() {
           {rows.length === 0 && dueNow.length === 0 ? (
             <div className="state" style={{ paddingTop: 40 }}>
               <div className="state__icon"><IconClockCal size={34} /></div>
-              <h2>{appText("Пока нет предзаказов", "Әле алдан заказдар юҡ")}</h2>
+              <h2>{appText("Пока предзаказов нет", "Әле алдан заказдар юҡ")}</h2>
               <p>
                 {appText(
                   "Закажи такси заранее — на время. Мы напомним и найдём машину к нужному часу.",

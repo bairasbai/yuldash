@@ -27,15 +27,20 @@ import {
   fetchNearbyDrivers,
   ACTIVE_PASSENGER_STATUSES,
   isUnlocked,
+  fetchAlternatives,
+  addAlternative,
   type InstantOrder,
   type EstimateResult,
   type TaxiCategory,
   type NearbyDriver,
+  type FallbackOption,
 } from "../api/instant";
 import { fetchSavedPlaces, fetchRecentPlaces } from "../api/places";
 import { geocode } from "../api/discovery";
 import { track } from "../analytics";
 import { SubHeader } from "./ConsentsScreen";
+import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarningCard";
+import ShareTripCard from "../components/ShareTripCard";
 import { LoadingList } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
 import {
@@ -49,9 +54,26 @@ import {
   IconClock,
   IconCheck,
   IconBolt,
+  IconReceipt,
 } from "../components/Icons";
 import { YuMoon, YuQuiet } from "../components/BrandIcons";
 import { priceLabel } from "../utils/format";
+
+/** Класс машины человеческой строкой (подписи живут в клиенте, коды — на сервере). */
+function categoryLabel(cat: string, appText: (ru: string, ba: string) => string): string {
+  switch (cat) {
+    case "standard":
+      return appText("Эконом", "Эконом");
+    case "comfort":
+      return appText("Комфорт", "Комфорт");
+    case "business":
+      return appText("Бизнес", "Бизнес");
+    case "minivan":
+      return appText("Минивэн", "Минивэн");
+    default:
+      return cat;
+  }
+}
 
 type Point = { lat: number; lng: number; text: string };
 type View = "boot" | "gate" | "compose" | "tracking";
@@ -163,7 +185,7 @@ export default function InstantOrderScreen() {
         <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
           <div className="state__icon"><IconCar size={34} /></div>
-          <h2>{appText("Такси скоро в вашем городе", "Такси тиҙҙән ҡалағыҙҙа")}</h2>
+          <h2>{appText("Такси скоро в твоём городе 🚕", "Такси тиҙҙән ҡалаңда 🚕")}</h2>
           <p>
             {gateMsg
               ? (ru ? gateMsg.ru : gateMsg.ba)
@@ -286,6 +308,15 @@ function ComposeView({
     };
   }, [from?.lat, from?.lng, to?.lat, to?.lng, category]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ❄️ Погода на маршруте заказа — по координатам точек (сервер округляет их до ~5 км).
+  const weather = useRouteWeather({
+    fromLat: from?.lat ?? null,
+    fromLng: from?.lng ?? null,
+    toLat: to?.lat ?? null,
+    toLng: to?.lng ?? null,
+    at: when === "later" && schedAt ? new Date(schedAt).toISOString() : undefined,
+  });
+
   function priceFor(cat: TaxiCategory): number | null {
     const opt = estimate?.options?.find((o) => o.category === cat);
     return opt ? opt.price : cat === category ? estimate?.price ?? null : null;
@@ -353,6 +384,9 @@ function ComposeView({
           height={200}
         />
       </div>
+
+      {/* ❄️ Погода на маршруте — до заказа, а не когда машина уже едет */}
+      <WeatherWarningCard weather={weather} />
 
       {/* Точки маршрута */}
       <div className="taxi-route">
@@ -422,6 +456,62 @@ function ComposeView({
         <div className="taxi-surge">
           <IconBolt size={14} /> {ru ? estimate.surge_note.ru : estimate.surge_note.ba}
         </div>
+      )}
+
+      {/* Из чего сложилась цена. Показываем ДО вызова машины: «Юлдаш накрутил» — самое
+          частое подозрение к такси, и отвечать на него надо заранее, а не после поездки. */}
+      {to && estimate && (
+        <details className="price-why">
+          <summary>{appText("Цена рассчитана программой", "Хаҡты программа иҫәпләй")}</summary>
+          <div className="info-list">
+            {estimate.base_price > 0 && (
+              <div className="info-row">
+                <span className="info-row__k">{appText("База", "Нигеҙ")}</span>
+                <span className="info-row__v">{priceLabel(estimate.base_price, ru)}</span>
+              </div>
+            )}
+            <div className="info-row">
+              <span className="info-row__k">{appText("Расстояние", "Ара")}</span>
+              <span className="info-row__v">
+                {estimate.distance_km.toFixed(1)} {appText("км", "км")}
+              </span>
+            </div>
+            <div className="info-row">
+              <span className="info-row__k">{appText("В пути", "Юлда")}</span>
+              <span className="info-row__v">
+                {Math.round(estimate.eta_min)} {appText("мин", "мин")}
+              </span>
+            </div>
+            <div className="info-row">
+              <span className="info-row__k">{appText("Наценка", "Өҫтәмә")}</span>
+              <span className="info-row__v">
+                {estimate.dynamic_k && estimate.dynamic_k > 1.01
+                  ? `×${estimate.dynamic_k.toFixed(2)}`
+                  : appText("Наценки сейчас нет", "Хәҙер өҫтәмә юҡ")}
+              </span>
+            </div>
+            {estimate.night_note && (
+              <div className="info-row">
+                <span className="info-row__k">{appText("Ночь", "Төн")}</span>
+                <span className="info-row__v">
+                  {ru ? estimate.night_note.ru : estimate.night_note.ba}
+                </span>
+              </div>
+            )}
+            {estimate.pricing_cap_k && (
+              <div className="info-row">
+                <span className="info-row__k">{appText("Потолок наценки", "Өҫтәмә түшәме")}</span>
+                <span className="info-row__v">×{estimate.pricing_cap_k.toFixed(1)}</span>
+              </div>
+            )}
+          </div>
+          <p className="act-card__text" style={{ margin: "10px 0 0" }}>
+            {appText(
+              "Цену считаем мы — по расстоянию, времени и спросу. Вручную её никто не накручивает.",
+              "Хаҡты беҙ иҫәпләйбеҙ — ара, ваҡыт һәм һорау буйынса. Уны ҡулдан бер кем дә арттырмай."
+            )}
+          </p>
+        </details>
       )}
 
       {/* Сейчас / На время */}
@@ -647,6 +737,9 @@ function TrackingView({
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [rated, setRated] = useState(false);
+  // «В твоём классе никого нет» — что предложить взамен. null = предлагать нечего.
+  const [alts, setAlts] = useState<FallbackOption[] | null>(null);
+  const [altBusy, setAltBusy] = useState(false);
 
   const s = order.status;
   const searching = s === "searching" || s === "offered" || s === "created";
@@ -656,6 +749,48 @@ function TrackingView({
   const fromPt: GeoPoint | null =
     order.from_lat != null ? { lat: order.from_lat, lng: order.from_lng ?? 0 } : from;
   const toPt: GeoPoint | null = order.to_lat != null ? { lat: order.to_lat, lng: order.to_lng ?? 0 } : null;
+
+  // Пока ищем — спрашиваем сервер, есть ли что предложить в соседнем класcе.
+  // Сервер сам решает, когда пора (after_sec); молчаливой подмены класса нет.
+  useEffect(() => {
+    if (!searching) {
+      setAlts(null);
+      return;
+    }
+    const ac = new AbortController();
+    let alive = true;
+    let timer = 0;
+    const ask = () => {
+      fetchAlternatives(order.id, ac.signal)
+        .then((r) => {
+          if (!alive) return;
+          setAlts(r.options.length ? r.options : null);
+          if (!r.options.length) timer = window.setTimeout(ask, 15000);
+        })
+        .catch(() => {
+          if (alive) setAlts(null); // 404 до деплоя / нет сети → блок скрыт
+        });
+    };
+    ask();
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+      ac.abort();
+    };
+  }, [searching, order.id]);
+
+  async function pickAlternative(category: string) {
+    if (altBusy) return;
+    setAltBusy(true);
+    try {
+      await addAlternative(order.id, category);
+      setAlts(null); // согласились — дальше ищем шире, цена уже пересчитана
+    } catch {
+      /* заказ уже не в поиске — экран обновится поллингом */
+    } finally {
+      setAltBusy(false);
+    }
+  }
 
   async function cancel() {
     if (busy) return;
@@ -687,7 +822,7 @@ function TrackingView({
           <div className="taxi-search__pulse" aria-hidden>
             <IconCar size={40} />
           </div>
-          <h2>{appText("Ищем машину рядом", "Яҡында машина эҙләйбеҙ")}</h2>
+          <h2>{appText("Ищем машину рядом…", "Яҡында машина эҙләйбеҙ…")}</h2>
           <p>
             {appText(
               "Подбираем ближайшего водителя. Обычно это меньше минуты.",
@@ -699,6 +834,41 @@ function TrackingView({
             <b>{priceLabel(order.price_estimate, ru)}</b>
           </div>
         </div>
+
+        {/* Никого в выбранном классе — предлагаем соседний. Решает пассажир, цену видит заранее. */}
+        {alts && alts.length > 0 && (
+          <div className="act-card act-card--warn">
+            <div className="act-card__title">
+              <IconCar size={18} /> {appText("В твоём классе пока никого", "Һайлаған класта әлегә бер кем юҡ")}
+            </div>
+            <p className="act-card__text">
+              {appText(
+                "Можем поискать шире. Цену увидишь до согласия — заплатишь ровно её.",
+                "Киңерәк эҙләй алабыҙ. Хаҡты алдан күрәһең — шуны ғына түләйһең."
+              )}
+            </p>
+            {alts.map((o) => (
+              <button
+                key={o.category}
+                type="button"
+                className="btn-soft"
+                style={{ width: "100%", marginBottom: 8 }}
+                onClick={() => pickAlternative(o.category)}
+                disabled={altBusy}
+              >
+                {categoryLabel(o.category, appText)} · {priceLabel(o.price, ru)}
+                {o.price_diff !== 0 && (
+                  <span className="money-row__op">
+                    {" "}
+                    {o.price_diff > 0
+                      ? appText(`(+${o.price_diff} ₽)`, `(+${o.price_diff} һ)`)
+                      : appText(`(${o.price_diff} ₽)`, `(${o.price_diff} һ)`)}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
         <button type="button" className="btn-ghost" style={{ marginTop: 8 }} onClick={cancel} disabled={busy}>
           {appText("Отменить поиск", "Эҙләүҙе туҡтатыу")}
         </button>
@@ -788,7 +958,16 @@ function TrackingView({
             {appText("Спасибо за оценку! 🌿", "Баһаң өсөн рәхмәт! 🌿")}
           </div>
         )}
-        <button type="button" className="btn-primary" style={{ marginTop: 14 }} onClick={onNewOrder}>
+        {/* Чек — сразу и потом: он остаётся в «Мои поездки на такси», а не теряется. */}
+        <button
+          type="button"
+          className="btn-soft"
+          style={{ width: "100%", marginTop: 14 }}
+          onClick={() => navigate(`/taxi-receipt/${order.id}`)}
+        >
+          <IconReceipt size={18} /> {appText("Чек за поездку", "Сәфәр чегы")}
+        </button>
+        <button type="button" className="btn-primary" style={{ marginTop: 10 }} onClick={onNewOrder}>
           {appText("Новый заказ", "Яңы заказ")}
         </button>
       </>
@@ -883,6 +1062,9 @@ function TrackingView({
           </div>
         )}
       </div>
+
+      {/* Поделиться поездкой с близким: живая карта у него в браузере, без приложения */}
+      {enRoute && <ShareTripCard orderId={order.id} />}
 
       {enRoute && (
         <button type="button" className="btn-ghost" style={{ marginTop: 12 }} onClick={cancel} disabled={busy}>

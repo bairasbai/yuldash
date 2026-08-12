@@ -140,3 +140,27 @@ export interface CommissionPayment {
 export function payCourierCommission(): Promise<CommissionPayment> {
   return apiPost<CommissionPayment>("/courier/pay-commission", undefined);
 }
+
+// ------------------------------- Заработок курьера -------------------------------
+/** День в разрезе заработка (суммы — в КОПЕЙКАХ, в отличие от водительского /driver/earnings). */
+export interface CourierEarningsDay {
+  date: string; // YYYY-MM-DD
+  net_kop: number;
+  deliveries: number;
+}
+
+/** GET /courier/earnings?period=week|month|all — «чистыми» = цена минус комиссия. */
+export interface CourierEarnings {
+  period: string;
+  net_kop: number;
+  commission_kop: number;
+  deliveries: number;
+  by_day: CourierEarningsDay[];
+}
+
+export function fetchCourierEarnings(
+  period: "week" | "month" | "all" = "week",
+  signal?: AbortSignal
+): Promise<CourierEarnings> {
+  return apiGet<CourierEarnings>(`/courier/earnings?period=${period}`, { signal });
+}

@@ -9,7 +9,10 @@
   --canon-green-glow: #7fe3ab; /* CanonGreen (dark) */
   --canon-gold: #f5b301; /* CanonGold light (dark override ниже) */
   --canon-gold-soft: #ffe3a1; /* CanonYellow light */
-  --canon-star: #e7a921; /* CanonStar (обе темы) */
+  /* CanonStar адаптивный: яркое золото на белой карточке давало контраст 2.08 — ниже порога
+     3:1 для значащей графики. А в выборе оценки звёзды И ЕСТЬ информация, а не украшение.
+     Светлая — глубокая охра (3.43), тёмная — прежнее золото (7.68). */
+  --canon-star: #be7d00; /* CanonStar light */
   --gold-ink: #0b3d20; /* CanonGoldInk (текст на золоте) */
   --taxi-ink: #3a2a00; /* CanonTaxiInk (текст на жёлтом такси) */
 
@@ -47,8 +50,72 @@
   --header-top: #0b6b3a; /* CanonGreenInk */
   --header-bottom: #073f25; /* CanonGreenInkDark */
 
-  --radius-card: 28px;
-  --radius-item: 22px;
+  /* Цвета, которых в вебе не было — но в приложении они есть и решают конкретные проблемы. */
+  --courier: #1b5e9e; /* CanonCourier — синий третий режим (зелёный и жёлтый заняты) */
+  --courier-bg: #e4f0fa; /* CanonCourierBg */
+  --yellow: #ffe3a1; /* CanonYellow */
+  /* Текст НА подложке такси. Это не то же, что --taxi-ink: подложка в тёмной теме
+     тёмно-коричневая, и тёмный ink давал на ней контраст 1.05 — госномер машины в бейдже
+     не был виден вообще, а бейдж нужен ровно для того, чтобы сверить номер. */
+  --taxi-text: #3a2a00; /* CanonTaxiText light */
+  --on-accent: #ffffff; /* CanonOnAccent — текст на фиксированно-тёмных подложках */
+  --scrim: rgba(0, 0, 0, 0.9); /* CanonScrim — затемнение под фото */
+  --glass-dark: rgba(0, 0, 0, 0.4); /* CanonGlassDark — кнопка поверх фото */
+  --glass-on-photo: rgba(255, 255, 255, 0.4); /* CanonGlassOnPhoto */
+
+  /* ---- Лестница скруглений (CanonCardShape/Item/Field/Tiny) ----
+     Четыре ступени: чем крупнее элемент, тем мягче угол. Замер в Android показал 18 разных
+     радиусов по экранам — глаз читает такой разнобой как несобранность, даже не назвав причину. */
+  --radius-card: 28px; /* крупная карточка, шторка */
+  --radius-item: 22px; /* элемент списка, кнопка во всю ширину */
+  --radius-field: 14px; /* поле ввода, чип, плашка */
+  --radius-tiny: 8px; /* бейдж, счётчик, мелкая метка */
+  --radius-pill: 999px; /* пилюля (CircleShape) */
+
+  /* ---- Отступы, сетка 4pt (CanonSpace) ---- */
+  --space-xs: 4px; /* иконка ↔ подпись */
+  --space-sm: 8px; /* строки внутри блока */
+  --space-md: 12px; /* внутренние поля карточки */
+  --space-lg: 16px; /* поля экрана, зазор между карточками */
+  --space-xl: 24px; /* между смысловыми блоками */
+  --space-xxl: 32px; /* отбивка крупного заголовка */
+  --space-huge: 48px; /* воздух в пустых состояниях */
+
+  /* ---- Глубина (CanonDepth). Тень вместо рамки: рамка читается дёшево, мягкая тень — дорого.
+     Три уровня, больше не нужно: лист лежит на карточке, карточка на фоне. ---- */
+  --depth-flat: none;
+  --depth-card: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px -20px rgba(0, 0, 0, 0.45);
+  --depth-raised: 0 4px 10px -4px rgba(0, 0, 0, 0.18), 0 14px 32px -24px rgba(0, 0, 0, 0.5);
+  --depth-sheet: 0 12px 28px -10px rgba(0, 0, 0, 0.28), 0 32px 60px -40px rgba(0, 0, 0, 0.6);
+
+  /* ---- Движение (CanonMotion). Три длительности на всё приложение: короче 150мс глаз
+     не замечает, длиннее 350мс раздражает. ---- */
+  --motion-quick: 180ms; /* нажатие, смена иконки, чип */
+  --motion-normal: 260ms; /* появление карточки, переход вкладки */
+  --motion-slow: 320ms; /* шторка снизу, крупный экран */
+
+  /* ---- Типографика (CanonDisplay…CanonButton). Восемь ступеней вместо «каждый экран свой
+     кегль». Основной текст обычного веса — жирность редкий инструмент, а не норма. ---- */
+  --font-display: 34px;
+  --line-display: 40px;
+  --font-title: 24px;
+  --line-title: 30px;
+  --font-heading: 19px;
+  --line-heading: 25px;
+  --font-body: 16px;
+  --line-body: 23px;
+  --font-caption: 14px;
+  --line-caption: 20px;
+  --font-micro: 12px;
+  --line-micro: 17px;
+  --line-button: 20px;
+  --weight-display: 700;
+  --weight-title: 700;
+  --weight-heading: 600;
+  --weight-body: 400;
+  --weight-body-strong: 600;
+  --weight-micro: 500;
+  --weight-button: 600;
 
   color-scheme: light dark;
 }
@@ -61,6 +128,11 @@
    даже под тёмной системой. Точка правды переключения — src/theme.ts. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
+    --canon-star: #e7a921; /* CanonStar dark — прежнее яркое золото (контраст 7.68) */
+    --courier: #6fb4f0; /* CanonCourier dark */
+    --courier-bg: #12283a;
+    --yellow: #4a3a14; /* CanonYellow dark */
+    --taxi-text: #ffe3a1; /* CanonTaxiText dark — светлый текст на тёмно-коричневой подложке */
     --canon-gold: #e8c36b; /* CanonGold dark */
     --bg: #0f1613; /* CanonBg dark */
     --surface: #192420;
@@ -92,6 +164,11 @@
 }
 
 :root[data-theme="dark"] {
+  --canon-star: #e7a921; /* CanonStar dark — прежнее яркое золото (контраст 7.68) */
+  --courier: #6fb4f0; /* CanonCourier dark */
+  --courier-bg: #12283a;
+  --yellow: #4a3a14; /* CanonYellow dark */
+  --taxi-text: #ffe3a1; /* CanonTaxiText dark — светлый текст на тёмно-коричневой подложке */
   --canon-gold: #e8c36b; /* CanonGold dark */
   --bg: #0f1613; /* CanonBg dark */
   --surface: #192420;

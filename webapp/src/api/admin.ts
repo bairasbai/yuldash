@@ -209,6 +209,9 @@ export interface PendingRating {
   id: number;
   author: string; // кто оставил (видит только админ)
   ratee_id: number; // кому адресован
+  // Имя того, О КОМ отзыв: без него админ модерировал вслепую — видел текст,
+  // но не знал, чей это профиль и кому прилетит публикация. Телефонов тут нет.
+  ratee: string;
   stars: number;
   text: string;
   created_at: string;
@@ -578,4 +581,238 @@ export function approveCourierApp(id: number): Promise<{ id: number; status: str
 /** POST /admin/courier-applications/{id}/reject — отклонить заявку с причиной. */
 export function rejectCourierApp(id: number, reason: string): Promise<{ id: number; status: string }> {
   return apiPost(`/admin/courier-applications/${id}/reject`, { reason });
+}
+
+// ----------------------------- 17. Помеченные тексты (модерация видима) -----------------------------
+/** GET /admin/text-flags — что и у кого система пометила: фишинг, увод контакта, мат. */
+export interface AdminTextFlag {
+  id: number;
+  user_id: number;
+  user_name: string;
+  user_phone: string; // админу нужен контакт, чтобы связаться
+  kind: string; // warn (фишинг) | contact (увод) | abuse (мат)
+  place: string; // машинный код места
+  place_label: string; // то же по-человечески
+  ref_id: number | null; // id записи — по нему открывается сам объект
+  created_at: string;
+  user_flags_total: number; // разовое ≠ система: сколько всего пометок у человека
+}
+
+export function fetchTextFlags(
+  kind?: string,
+  signal?: AbortSignal
+): Promise<AdminTextFlag[]> {
+  const q = kind ? `?kind=${encodeURIComponent(kind)}` : "";
+  return apiGet<AdminTextFlag[]>(`/admin/text-flags${q}`, { signal });
+}
+
+// ----------------------------- 18. Одна очередь модерации (бизнесы + купоны) -----------------------------
+/** Купон в очереди: текст целиком + чем помечен + сколько жалоб. */
+export interface AdminCoupon {
+  id: number;
+  partner_id: number;
+  partner_name: string;
+  city: string;
+  title: string;
+  description: string;
+  discount_text: string;
+  route_hint: string[];
+  status: string;
+  review: string; // held (задержан автопроверкой) | pending | approved | blocked
+  review_flag: string;
+  review_note: string;
+  reports_count: number;
+  visible: boolean;
+  created_at: string | null;
+}
+
+export interface ModerationQueue {
+  partners: AdminPartner[];
+  coupons: AdminCoupon[];
+  total: number;
+}
+
+/** GET /admin/moderation — «что я ещё не смотрел»: held → с жалобами → просто новые. */
+export function fetchModerationQueue(
+  limit = 100,
+  signal?: AbortSignal
+): Promise<ModerationQueue> {
+  return apiGet<ModerationQueue>(`/admin/moderation?limit=${limit}`, { signal });
+}
+
+/** «Посмотрел, всё в порядке» — купон уходит из очереди и виден людям. */
+export function approveCoupon(id: number): Promise<AdminCoupon> {
+  return apiPost<AdminCoupon>(`/admin/coupons/${id}/approve`);
+}
+
+/** Заблокировать купон с причиной (её увидит владелец бизнеса). */
+export function blockCoupon(id: number, reason: string): Promise<AdminCoupon> {
+  return apiPost<AdminCoupon>(`/admin/coupons/${id}/block`, { reason });
+}
+
+// ----------------------------- 19. Лента SOS -----------------------------
+/** Сигнал SOS. Телефон здесь есть намеренно: админ должен позвонить человеку. */
+export interface AdminSosEvent {
+  id: number;
+  status: string; // open | handled
+  category: string;
+  note: string;
+  created_at: string;
+  handled_at: string | null;
+  handled_note: string;
+  user_id: number;
+  user_name: string;
+  user_phone: string;
+  booking_id: number | null;
+  order_id: number | null;
+  route: string;
+}
+
+export function fetchSosEvents(
+  status: "open" | "handled" | "all" = "open",
+  signal?: AbortSignal
+): Promise<AdminSosEvent[]> {
+  return apiGet<AdminSosEvent[]>(`/admin/sos?status=${status}`, { signal });
+}
+
+/** «Принял» — сигнал взят в работу: кто, когда, что сделал. */
+export function handleSos(id: number, note = ""): Promise<{ ok: boolean; status: string }> {
+  return apiPost(`/admin/sos/${id}/handle`, { note });
+}
+
+// ----------------------------- 20. Разбор споров -----------------------------
+/** Спор глазами админа: обе версии, телефоны сторон (чтобы позвонить), фото. */
+export interface AdminIncident {
+  id: number;
+  booking_id: number | null;
+  type: string;
+  severe: boolean;
+  status: string;
+  reporter_role: string;
+  reporter_id: number | null; // null = сторона удалила аккаунт, спор обезличен
+  reporter_name: string;
+  reporter_phone: string;
+  respondent_id: number | null;
+  respondent_name: string;
+  respondent_phone: string;
+  description: string;
+  respondent_statement: string;
+  responded_at: string | null;
+  resolution: string;
+  fault: string;
+  resolution_note: string;
+  compensation_kop: number;
+  appeal_text: string;
+  appeal_status: string;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+  evidence_urls: string[];
+  respondent_evidence_urls: string[];
+  booking_route: string | null;
+}
+
+export function fetchAdminIncidents(
+  status = "open",
+  signal?: AbortSignal
+): Promise<AdminIncident[]> {
+  return apiGet<AdminIncident[]>(`/admin/incidents?status=${encodeURIComponent(status)}`, {
+    signal,
+  });
+}
+
+/** Решение по спору. Причину пишем всегда: «наказали и не объяснили» — так нельзя. */
+export function resolveIncident(
+  id: number,
+  body: {
+    resolution: string; // dismissed | warning | strike | suspend | ban | mutual_resolved
+    fault?: string; // none | reporter | respondent | both | unclear
+    note?: string;
+    compensation_kop?: number;
+    strike?: boolean;
+    suspend_days?: number | null;
+    exclude_rating?: boolean;
+    shield?: boolean;
+  }
+): Promise<AdminIncident> {
+  return apiPost<AdminIncident>(`/admin/incidents/${id}/resolve`, body);
+}
+
+// ----------------------------- 21. «Щит рейтинга» -----------------------------
+/** Одна месть-оценка не должна рушить рейтинг честного человека. */
+export function excludeRating(
+  id: number,
+  excluded: boolean
+): Promise<{ ok?: boolean; rating?: number; count?: number }> {
+  return apiPost(`/admin/ratings/${id}/exclude`, { excluded });
+}
+
+// ----------------------------- 22. Долги по комиссии -----------------------------
+/**
+ * Долг водителя, сгруппированный по человеку: он заявил, что оплатил, — админ подтверждает.
+ * `debt_id` — представитель батча: подтверждение/отказ применяется ко всей группе.
+ */
+export interface AdminDebt {
+  debt_id: number;
+  driver_id: number;
+  driver_name: string;
+  driver_phone: string; // админу нужен контакт, чтобы уточнить платёж
+  amount_kop: number;
+  amount: number; // ₽
+  weeks: string[];
+  declared_at: string | null;
+}
+
+export function fetchAdminDebts(signal?: AbortSignal): Promise<AdminDebt[]> {
+  return apiGet<AdminDebt[]>("/admin/debts", { signal });
+}
+
+/** Деньги пришли — долг закрыт. */
+export function confirmDebt(debtId: number): Promise<{ ok: boolean; status: string }> {
+  return apiPost(`/admin/debts/${debtId}/confirm`);
+}
+
+/** Денег нет — возвращаем долг в «не оплачен». */
+export function rejectDebt(debtId: number): Promise<{ ok: boolean }> {
+  return apiPost(`/admin/debts/${debtId}/reject`);
+}
+
+/**
+ * Списать долг по-человечески: пассажир не заплатил, поездка сорвалась, спорная ситуация.
+ * Раньше выбора не было — водитель оставался должен комиссию за поездку, где ему не заплатили.
+ */
+export function forgiveDebt(debtId: number, reason: string): Promise<{ ok: boolean }> {
+  return apiPost(`/admin/debts/${debtId}/forgive`, { reason });
+}
+
+// ----------------------------- 23. Снять курьера с доставки -----------------------------
+/** Курьер пропал или не может довезти → посылка возвращается в общий список. */
+export function releaseParcelCourier(
+  parcelId: number,
+  reason: string
+): Promise<{ ok?: boolean; status?: string }> {
+  return apiPost(`/admin/parcels/${parcelId}/release-courier`, { reason });
+}
+
+// ----------------------------- 24. Журнал предрейсовых подтверждений -----------------------------
+/**
+ * Кто заявил готовность к работе в этот день (580-ФЗ). При разборе ДТП или проверки видно,
+ * что человек подтвердил. Координат пассажиров тут нет — только факт и заметка.
+ */
+export interface PretripJournalItem {
+  driver_id: number;
+  name: string;
+  phone: string;
+  confirmed_at: string;
+  note: string;
+}
+
+export function fetchPretripJournal(
+  day?: string,
+  signal?: AbortSignal
+): Promise<{ day: string; items: PretripJournalItem[] }> {
+  const q = day ? `?day=${encodeURIComponent(day)}` : "";
+  return apiGet<{ day: string; items: PretripJournalItem[] }>(`/admin/taxi/pretrip${q}`, {
+    signal,
+  });
 }

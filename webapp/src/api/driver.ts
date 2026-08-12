@@ -76,6 +76,54 @@ export function fetchDriverRides(
   return apiGet<Ride[]>(`/driver/rides${q}`, { signal });
 }
 
+/**
+ * Водитель двигает статус брони: «выехал» → «подъезжаю» → «завершил».
+ *
+ * Закрывает тревогу ожидания: пассажир видит, что за ним уже едут, а не гадает.
+ * «done» водитель тоже может нажать сам — раньше закрыть бронь мог ТОЛЬКО пассажир,
+ * и забытая им кнопка держала места поездки занятыми.
+ *
+ * 409 = поездка ещё не началась (завершить можно после времени выезда).
+ */
+export type DriverPhase = "departed" | "arriving" | "done";
+
+export function setDriverStatus(
+  bookingId: number,
+  status: DriverPhase
+): Promise<{ ok?: boolean; status?: string }> {
+  return apiPost(`/bookings/${bookingId}/driver-status`, { status });
+}
+
+/** Завершить весь рейс (все брони разом) — POST /rides/{id}/complete. */
+export function completeRide(rideId: number): Promise<Ride> {
+  return apiPost<Ride>(`/rides/${rideId}/complete`);
+}
+
+// ----------------------------- Подсказка цены -----------------------------
+/**
+ * GET /rides/price_hint?from_city=&to_city= — ориентир, а не правило.
+ * `avg` — средняя цена прошлых поездок по маршруту, `fuel_estimate_kop` — честная
+ * оценка бензина на весь путь. `distance_km`/`fuel_estimate_kop` = null, если координаты
+ * городов неизвестны (без краша — просто не показываем).
+ */
+export interface PriceHint {
+  avg: number; // ₽
+  count: number; // сколько прошлых поездок в основе
+  distance_km: number | null;
+  fuel_estimate_kop: number | null;
+}
+
+export function fetchPriceHint(
+  fromCity: string,
+  toCity: string,
+  signal?: AbortSignal
+): Promise<PriceHint> {
+  const p = new URLSearchParams();
+  if (fromCity.trim()) p.set("from_city", fromCity.trim());
+  if (toCity.trim()) p.set("to_city", toCity.trim());
+  return apiGet<PriceHint>(`/rides/price_hint?${p.toString()}`, { signal });
+}
+
 // ----------------------------- Публичный профиль -----------------------------
 export interface PublicReview {
   author: string;
@@ -162,6 +210,39 @@ export function fetchDriverEarnings(
   signal?: AbortSignal
 ): Promise<DriverEarnings> {
   return apiGet<DriverEarnings>(`/driver/earnings?period=${period}`, { signal });
+}
+
+// ----------------------------- Мои поездки такси (расшифровка денег) -----------------------------
+/** Одна завершённая такси-поездка: цена → комиссия → чистыми (debt.py::driver_rides).
+ *  Закрывает вопрос «Юлдаш говорит 4200, я насчитал 4600 — где мои 400?». */
+export interface DriverTaxiRide {
+  order_id: number;
+  done_at: string | null;
+  from: string;
+  to: string;
+  price: number; // ₽ — как видел пассажир
+  promo_discount_kop: number; // скидку пассажиру оплатила платформа
+  promo_comp_kop: number; // её доплата в кошелёк водителя
+  fee_kop: number; // комиссия платформы
+  net_kop: number; // «чистыми» водителю
+  paid: boolean;
+  payment_method: string;
+  fee_status: string; // unpaid | pending | paid | none
+}
+
+/** GET /driver/taxi-rides — только СВОИ поездки (по токену). */
+export interface DriverTaxiRides {
+  rides: DriverTaxiRide[];
+  total_price: number; // ₽
+  total_fee_kop: number;
+  total_net_kop: number;
+}
+
+export function fetchDriverTaxiRides(
+  limit = 100,
+  signal?: AbortSignal
+): Promise<DriverTaxiRides> {
+  return apiGet<DriverTaxiRides>(`/driver/taxi-rides?limit=${limit}`, { signal });
 }
 
 // ----------------------------- Проверка водителя (документы) -----------------------------

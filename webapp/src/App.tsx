@@ -1,12 +1,10 @@
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
-import { useLang } from "./i18n/lang";
 import BottomNav from "./components/BottomNav";
 import InstallPrompt from "./components/InstallPrompt";
 import OfflineBanner from "./components/OfflineBanner";
 import RequireAuth from "./components/RequireAuth";
 import RequireAdmin from "./components/RequireAdmin";
 import RidesScreen from "./screens/RidesScreen";
-import StubScreen from "./screens/StubScreen";
 import SplashScreen from "./screens/SplashScreen";
 import IntroScreen from "./screens/IntroScreen";
 import OnboardingScreen from "./screens/OnboardingScreen";
@@ -41,6 +39,19 @@ import InstantDriverTripScreen from "./screens/InstantDriverTripScreen";
 import InstantChatScreen from "./screens/InstantChatScreen";
 import ScheduledOrdersScreen from "./screens/ScheduledOrdersScreen";
 import TaxiOnboardingScreen from "./screens/TaxiOnboardingScreen";
+import TaxiReceiptScreen from "./screens/TaxiReceiptScreen";
+import MyTaxiTripsScreen from "./screens/MyTaxiTripsScreen";
+import DriverTaxiRidesScreen from "./screens/DriverTaxiRidesScreen";
+import TaxiDocumentsScreen from "./screens/TaxiDocumentsScreen";
+import PretripCheckScreen from "./screens/PretripCheckScreen";
+import DriverResponsesScreen from "./screens/DriverResponsesScreen";
+import CourierEarningsScreen from "./screens/CourierEarningsScreen";
+import SafetyScreen from "./screens/SafetyScreen";
+import EditProfileScreen from "./screens/EditProfileScreen";
+import FairnessCenterScreen from "./screens/FairnessCenterScreen";
+import IncidentDetailScreen from "./screens/IncidentDetailScreen";
+import ParcelChatScreen from "./screens/ParcelChatScreen";
+import ChatInboxScreen from "./screens/ChatInboxScreen";
 import CourierOnboardingScreen from "./screens/CourierOnboardingScreen";
 import CourierScreen from "./screens/CourierScreen";
 import ParcelsScreen from "./screens/ParcelsScreen";
@@ -84,6 +95,12 @@ import AdminPartnersScreen from "./screens/AdminPartnersScreen";
 import AdminPromoScreen from "./screens/AdminPromoScreen";
 import AdminParcelsScreen from "./screens/AdminParcelsScreen";
 import AdminCourierScreen from "./screens/AdminCourierScreen";
+import AdminSosScreen from "./screens/AdminSosScreen";
+import AdminIncidentsScreen from "./screens/AdminIncidentsScreen";
+import AdminTextFlagsScreen from "./screens/AdminTextFlagsScreen";
+import AdminModerationScreen from "./screens/AdminModerationScreen";
+import AdminDebtsScreen from "./screens/AdminDebtsScreen";
+import AdminPretripScreen from "./screens/AdminPretripScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -100,7 +117,6 @@ function Shell() {
 }
 
 export default function App() {
-  const { t } = useLang();
   return (
     <Routes>
       {/* Полноэкранные экраны входа/старта — без нижней навигации */}
@@ -114,7 +130,7 @@ export default function App() {
         <Route path="/rides" element={<RidesScreen />} />
         {/* Home-витрина (карта) — публична, гость тоже видит */}
         <Route path="/map" element={<HomeScreen />} />
-        <Route path="/chat" element={<StubScreen title={t("navChat")} />} />
+        <Route path="/chat" element={<ChatInboxScreen />} />
         <Route path="/profile" element={<ProfileScreen />} />
         {/* Согласия — локальные (152-ФЗ), доступны и гостю */}
         <Route path="/consents" element={<ConsentsScreen />} />
@@ -415,6 +431,106 @@ export default function App() {
           }
         />
 
+        {/* --- Волна Е1: чеки, история, деньги и документы такси --- */}
+        <Route
+          path="/taxi-receipt/:orderId"
+          element={
+            <RequireAuth>
+              <TaxiReceiptScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/my-taxi"
+          element={
+            <RequireAuth>
+              <MyTaxiTripsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/taxi-rides"
+          element={
+            <RequireAuth>
+              <DriverTaxiRidesScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/taxi-docs"
+          element={
+            <RequireAuth>
+              <TaxiDocumentsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/pretrip"
+          element={
+            <RequireAuth>
+              <PretripCheckScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/my-responses"
+          element={
+            <RequireAuth>
+              <DriverResponsesScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/courier-earnings"
+          element={
+            <RequireAuth>
+              <CourierEarningsScreen />
+            </RequireAuth>
+          }
+        />
+
+        {/* --- Волна Е2: доверие, споры, чат посылки --- */}
+        <Route
+          path="/profile/edit"
+          element={
+            <RequireAuth>
+              <EditProfileScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/safety"
+          element={
+            <RequireAuth>
+              <SafetyScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/fairness"
+          element={
+            <RequireAuth>
+              <FairnessCenterScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/incidents/:id"
+          element={
+            <RequireAuth>
+              <IncidentDetailScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/parcel-chat/:parcelId"
+          element={
+            <RequireAuth>
+              <ParcelChatScreen />
+            </RequireAuth>
+          }
+        />
+
         {/* --- Волна 5: курьер и посылки --- */}
         <Route
           path="/parcels"
@@ -626,6 +742,56 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminCourierScreen />
+            </RequireAdmin>
+          }
+        />
+
+        {/* --- Волна Е3: SOS, споры, помеченные тексты, очередь модерации --- */}
+        <Route
+          path="/admin/sos"
+          element={
+            <RequireAdmin>
+              <AdminSosScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/incidents"
+          element={
+            <RequireAdmin>
+              <AdminIncidentsScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/text-flags"
+          element={
+            <RequireAdmin>
+              <AdminTextFlagsScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/pretrip"
+          element={
+            <RequireAdmin>
+              <AdminPretripScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/debts"
+          element={
+            <RequireAdmin>
+              <AdminDebtsScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/moderation"
+          element={
+            <RequireAdmin>
+              <AdminModerationScreen />
             </RequireAdmin>
           }
         />

@@ -144,7 +144,7 @@ export default function VerifyDriverScreen() {
   function uploadErr(e: unknown): string {
     return e instanceof ApiError && e.message
       ? e.message
-      : appText("Не удалось загрузить фото. Попробуй снова.", "Фотоны йөкләргә булманы. Ҡабат ҡара."); // DRAFT
+      : appText("Не удалось загрузить фото, попробуй ещё раз", "Фотоны йөкләргә булманы. Ҡабат ҡара."); // DRAFT
   }
 
   const canSubmit = !!licenseUrl && !!carPhotoUrl && !busy;

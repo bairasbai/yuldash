@@ -401,7 +401,7 @@ function Cities() {
           {cities.map((c) => (
             <div key={c.id} className="admin-card" style={{ padding: 14 }}>
               <div className="admin-card__head" style={{ marginBottom: 0 }}>
-                <div className="admin-card__title" style={{ fontSize: 15 }}>
+                <div className="admin-card__title" style={{ fontSize: "var(--font-body)" }}>
                   {c.city}
                   <span className={`badge ${c.enabled ? "badge--mint" : "badge--muted"}`} style={{ marginLeft: 8 }}>
                     {c.enabled ? appText("вкл", "ҡабыҙылған") : appText("выкл", "һүндерелгән")}

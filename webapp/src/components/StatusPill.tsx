@@ -22,7 +22,7 @@ const CLASS: Record<BookingStatus, string> = {
 
 /** Живая фаза водителя поверх статуса (departed/arriving). */
 const PHASE: Record<Exclude<DriverPhase, "">, [string, string]> = {
-  departed: ["Водитель выехал", "Водитель юлға сыҡты"],
+  departed: ["Водитель выехал к тебе", "Водитель юлға сыҡты"],
   arriving: ["Водитель подъезжает", "Водитель яҡынлаша"],
 };
 

@@ -67,7 +67,7 @@ export default function RideSheet({
         aria-modal="true"
       >
         <div className="sheet__grip" aria-hidden />
-        <div className="ride-card__route" style={{ fontSize: 20 }}>
+        <div className="ride-card__route" style={{ fontSize: "var(--font-heading)" }}>
           <span>{ride.from_city}</span>
           <span className="ride-card__arrow">
             <IconArrow size={20} />
