@@ -15,7 +15,9 @@ def _ad_payload(**overrides):
         "text": "Text",
         "button": "Open",
         "target": "https://example.test",
-        "image_url": "https://example.test/ad.jpg",
+        # Картинка объявления — только с нашего хранилища (волна 39): чужой хост подгружался бы
+        # у каждого зрителя, и его владелец собирал бы IP всех наших людей.
+        "image_url": "/media/ads/test-banner.jpg",
         "erid": "erid-test",
         "plan": "standard",
         "placements": "map,profile",

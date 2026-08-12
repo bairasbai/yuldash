@@ -17,7 +17,7 @@ from ..errors import herr
 from ..middleware import user_over_limit
 from ..models import Ad, AdEvent, Payment, User, UserRole
 from ..security import current_user
-from ..services import notify_admin_telegram, push_notification
+from ..services import guard_own_media_url, notify_admin_telegram, push_notification
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["ads"])
@@ -605,7 +605,7 @@ def admin_create_ad(body: AdIn, user: User = Depends(current_user), session: Ses
         text=body.text.strip(),
         button=body.button.strip(),
         target=body.target.strip(),
-        image_url=body.image_url.strip(),
+        image_url=guard_own_media_url(body.image_url),   # чужой хост = слежка за всеми зрителями
         erid=body.erid.strip(),
         plan=plan,
         placements=body.placements.strip(),
@@ -635,8 +635,10 @@ def admin_update_ad(ad_id: int, body: AdIn, user: User = Depends(current_user), 
     ad = session.get(Ad, ad_id)
     if not ad:
         raise herr(404, "Объявление не найдено", "Иғлан табылманы")
-    for f in ("partner_name", "partner_contact", "title", "text", "button", "target", "image_url", "erid", "placements", "cities"):
+    for f in ("partner_name", "partner_contact", "title", "text", "button", "target", "erid", "placements", "cities"):
         setattr(ad, f, (getattr(body, f) or "").strip())
+    # Картинку — через проверку хоста: она грузится у каждого, кто увидит объявление (волна 39).
+    ad.image_url = guard_own_media_url(body.image_url)
     ad.priority = body.priority
     if body.plan in ("founder", "standard", "premium"):
         ad.plan = body.plan

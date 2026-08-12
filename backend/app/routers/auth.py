@@ -2,7 +2,6 @@
 профиль `/me`, регистрация push-токена."""
 from datetime import timedelta
 from typing import Optional
-from urllib.parse import urlparse
 import hmac
 import uuid
 
@@ -20,7 +19,8 @@ from ..errors import herr
 from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, TgAuth, User, UserRole
 from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
 from ..services import (
-    public_media_url, send_sms, set_driver_docs_verdict, set_user_gender, user_rating,
+    guard_own_media_url, send_sms, set_driver_docs_verdict,
+    set_user_gender, user_rating,
 )
 from ..safety_logic import GENDERS
 from ..trust_service import record_login_consents
@@ -124,22 +124,12 @@ def _safe_display_name(name: str) -> str:
 def _clean_avatar_url(raw: str) -> str:
     """Аватар принимаем ТОЛЬКО ссылкой на наше хранилище (пустая строка = сброс).
 
-    Штатный путь один: приложение грузит фото через `/upload/chat-photo`, тот отдаёт
-    `public_media_url(...)` — всегда наш домен, при любом бэкенде хранилища. Раньше сервер
-    брал любую строку, и это давало тихую слежку: чужой URL подгружался у КАЖДОГО, кто видит
-    карточку, чат или отклик с этим человеком, а хозяин чужого сервера собирал их IP, город
-    и время просмотра (аудит 2026-08-07). Для приложения, чей продукт — доверие, это дыра.
+    Правило одно на весь проект — `services.guard_own_media_url` (волна 39): чужая ссылка,
+    попавшая в карточку или чат, подгружается у КАЖДОГО, кто её видит, и хозяин чужого сервера
+    собирает их IP, город и время просмотра. Раньше та же проверка жила здесь своей копией,
+    а рекламная картинка, где она нужна ровно так же, осталась без неё.
     """
-    u = (raw or "").strip()
-    if not u:
-        return ""
-    ours = urlparse(public_media_url("")).netloc.lower()
-    parsed = urlparse(u)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.netloc.lower() != ours:
-        raise herr(422,
-                   "Фото профиля загружается в приложении — чужая ссылка не подойдёт.",
-                   "Профиль фотоһы ҡушымтала тейәлә — ят һылтанма ярамай.")
-    return u[:500]
+    return guard_own_media_url(raw)
 
 
 def _review_login_active(phone: str) -> bool:

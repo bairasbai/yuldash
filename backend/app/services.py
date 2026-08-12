@@ -20,6 +20,8 @@ from sqlalchemy import case, delete
 from sqlmodel import Session, select
 
 from .config import settings
+from urllib.parse import urlparse
+
 from .errors import herr
 from .db import engine
 from .imagemeta import strip_image_metadata
@@ -50,6 +52,36 @@ os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
 def public_media_url(path: str) -> str:
     return f"{settings.media_base_url.rstrip('/')}/media/{path.lstrip('/')}"
+
+
+def guard_own_media_url(url: str, *, allow_empty: bool = True) -> str:
+    """Ссылка на картинку/медиа принимается ТОЛЬКО на наше хранилище.
+
+    Зачем (правило заведено 2026-08-07 для аватара, распространено 2026-08-12, волна 39).
+    Любая чужая ссылка, попавшая в карточку, объявление или профиль, подгружается у КАЖДОГО,
+    кто это видит. Хозяин чужого сервера при этом собирает IP, город и время просмотра всех
+    наших людей — тихая слежка через обычную картинку. Для приложения, чей продукт — доверие,
+    это дороже, чем кажется.
+
+    Правило было применено к аватару, голосовым в чате, документам и фото-доказательствам,
+    но не к картинке рекламного объявления: её ставит админ, и внешний адрес там принимался
+    как есть. Админ у нас один и свой — но ссылку ему присылает партнёр, и «вставь эту
+    картинку» выглядит совершенно обычной просьбой.
+    """
+    u = (url or "").strip()
+    if not u:
+        if allow_empty:
+            return ""
+        raise herr(422, "Нужна ссылка на файл", "Файлға һылтанма кәрәк")
+    ours = urlparse(public_media_url("")).netloc.lower()
+    parsed = urlparse(u)
+    if parsed.scheme in ("http", "https") and parsed.netloc and parsed.netloc.lower() == ours:
+        return u[:500]
+    if u.startswith("/media/") or u.startswith("/secure/"):
+        return u[:500]          # относительный путь = наша же база
+    raise herr(422,
+               "Картинку нужно загрузить в приложении — чужая ссылка не подойдёт.",
+               "Һүрәтте ҡушымтала йөкләргә кәрәк — ят һылтанма ярамай.")
 
 
 def secure_docs_url(name: str) -> str:
