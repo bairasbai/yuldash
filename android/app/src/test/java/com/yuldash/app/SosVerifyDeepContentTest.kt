@@ -60,6 +60,7 @@ class SosVerifyDeepContentTest {
         description: String = "",
         coordsText: String? = null,
         locating: Boolean = false,
+        locFailed: Boolean = false,
         loggedIn: Boolean = true,
         sent: Boolean = false,
         failed: Boolean = false,
@@ -79,6 +80,7 @@ class SosVerifyDeepContentTest {
                     onDescriptionChange = {},
                     coordsText = coordsText,
                     locating = locating,
+                    locFailed = locFailed,
                     loggedIn = loggedIn,
                     sent = sent,
                     failed = failed,
@@ -97,6 +99,44 @@ class SosVerifyDeepContentTest {
     // Скролл к тексту внутри единственного скроллера (LazyColumn) — для элементов ниже сгиба.
     private fun scrollTo(text: String) {
         composeRule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(text))
+    }
+
+
+    // ---------------- «Продиктуй оператору»: три честных состояния ----------------
+    // Экран ЧП вечно висел на «Обновляю…»: координаты ждали без срока, и если фикса не
+    // приходило (в помещении, холодный GPS), надпись не менялась никогда — а рядом при
+    // этом стояло «геолокация выключена». Человек в беде ждал того, чего не будет.
+
+    @Test
+    fun sos_whileLocating_saysItIsLooking_notThatGeoIsOff() {
+        setSos(coordsText = null, locating = true)
+        scrollTo("Определяем место…")
+        composeRule.onNodeWithText("Определяем место…").assertIsDisplayed()
+    }
+
+    @Test
+    fun sos_whenLocateFailed_tellsToDictateAddress_andOffersRetry() {
+        setSos(coordsText = null, locating = false, locFailed = true)
+        scrollTo("Место определить не удалось. Продиктуй адрес словами — оператору этого хватит.")
+        composeRule.onNodeWithText("Место определить не удалось. Продиктуй адрес словами — оператору этого хватит.").assertIsDisplayed()
+        composeRule.onNodeWithText("Повторить").assertIsDisplayed()
+    }
+
+    @Test
+    fun sos_whenLocateFailed_bashkir_tellsToDictateAddress() {
+        setSos(lang = AppLanguage.Ba, coordsText = null, locating = false, locFailed = true)
+        scrollTo("Урынды билдәләп булманы. Адресты һүҙ менән әйт — операторға шул етә.")
+        composeRule.onNodeWithText("Урынды билдәләп булманы. Адресты һүҙ менән әйт — операторға шул етә.").assertIsDisplayed()
+        composeRule.onNodeWithText("Ҡабатлау").assertIsDisplayed()
+    }
+
+    @Test
+    fun sos_geoOffAndNoAttempt_keepsTheOldHint() {
+        // Ничего не пробовали — старый текст «включи гео» остаётся верным.
+        setSos(coordsText = null, locating = false, locFailed = false)
+        scrollTo("Геолокация выключена — включи, чтобы продиктовать координаты.")
+        composeRule.onNodeWithText("Геолокация выключена — включи, чтобы продиктовать координаты.").assertIsDisplayed()
+        composeRule.onNodeWithText("Включить гео").assertIsDisplayed()
     }
 
     // ---------------- SosContent: заголовок и главная кнопка 112 ----------------
