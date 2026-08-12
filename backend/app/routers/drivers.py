@@ -13,6 +13,7 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
+from ..antifraud import moderate_open_text
 from ..config import settings
 from ..db import get_session
 from ..logs import admin_action
@@ -214,10 +215,17 @@ def _get_or_create_profile(session: Session, user_id: int) -> DriverProfile:
 def set_driver_profile(body: DriverProfileIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель заполняет реальные данные авто (вместо захардкоженных)."""
     dp = _get_or_create_profile(session, user.id)
-    dp.car_make = body.car_make
-    dp.car_model = body.car_model
-    dp.car_color = body.car_color
-    dp.car_plate = body.car_plate
+    # Марку, модель, цвет и номер видит КАЖДЫЙ пассажир в карточке поездки — это такое же
+    # открытое поле, как комментарий, и телефон в нём работал бы как объявление «звони мимо
+    # приложения». Проверка стояла на комментариях и описаниях, а сюда её не донесли (волна 40).
+    moderate_open_text(
+        "\n".join(p for p in (body.car_make, body.car_model, body.car_color, body.car_plate) if p),
+        user.id, place="car_profile", session=session,
+    )
+    dp.car_make = body.car_make.strip()
+    dp.car_model = body.car_model.strip()
+    dp.car_color = body.car_color.strip()
+    dp.car_plate = body.car_plate.strip()
     dp.seats = body.seats
     session.add(dp)
     session.commit()
