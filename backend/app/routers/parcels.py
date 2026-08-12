@@ -30,6 +30,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..logs import admin_action
 from ..errors import herr
 from ..flood import TOO_MANY_CARRYING, TOO_MANY_PARCELS, guard_open_items
 from ..models import ParcelDelivery, User, UserRole
@@ -1326,6 +1327,7 @@ def admin_cancel_parcel(parcel_id: int, body: Optional[ParcelReasonIn] = None,
     _notify_parties(session, parcel, "Доставка отменена", "Доставка кире алынды",
                     (f"Причина: {reason}. " if reason else "") + "Отменено поддержкой Юлдаша.",
                     (f"Сәбәбе: {reason}. " if reason else "") + "Юлдаш ярҙамы кире алды.")
+    admin_action(user.id, "parcel.cancel", parcel_id=parcel_id)
     return {"ok": True, "status": parcel.status, "reason": reason}
 
 
@@ -1369,6 +1371,7 @@ def admin_release_courier(parcel_id: int, body: Optional[ParcelReasonIn] = None,
                           data=_parcel_data(parcel.id))
     except Exception:  # noqa: BLE001
         pass
+    admin_action(user.id, "parcel.release_courier", parcel_id=parcel_id, target_user=prev_courier)
     return {"ok": True, "status": parcel.status, "released_courier_id": prev_courier}
 
 
@@ -1408,6 +1411,7 @@ def admin_close_parcel(parcel_id: int, body: AdminCloseIn,
     _notify_parties(session, parcel, "Доставка закрыта", "Доставка ябылды",
                     (f"Итог: {status}. " if status else "") + (reason or "Решение поддержки Юлдаша."),
                     (f"Һөҙөмтә: {status}. " if status else "") + (reason or "Юлдаш ярҙамы ҡарары."))
+    admin_action(user.id, "parcel.close", parcel_id=parcel_id, status=parcel.status)
     return {"ok": True, "status": parcel.status, "reason": reason}
 
 

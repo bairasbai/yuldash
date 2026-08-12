@@ -27,6 +27,7 @@ from sqlmodel import Session, select
 from ..antifraud import moderate_open_text
 from ..config import settings
 from ..db import get_session
+from ..logs import admin_action
 from ..errors import herr
 from ..models import (CourierApplication, CourierProfile, ParcelDelivery, Payment, Rating,
                       User, UserRole)
@@ -533,6 +534,7 @@ def admin_approve_courier(app_id: int, user: User = Depends(current_user),
         )
     except Exception:
         pass
+    admin_action(user.id, "courier.approve", app_id=app.id, target_user=app.user_id)
     return {"id": app.id, "status": app.status}
 
 
@@ -561,6 +563,7 @@ def admin_reject_courier(app_id: int, body: CourierRejectIn, user: User = Depend
         )
     except Exception:
         pass
+    admin_action(user.id, "courier.reject", app_id=app.id, target_user=app.user_id)
     return {"id": app.id, "status": app.status}
 
 

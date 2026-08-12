@@ -16,6 +16,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..logs import admin_action
 from ..errors import herr
 from ..models import (
     Booking, DriverProfile, InstantOrder, InstantOrderStatus as S, PreTripCheck, TaxiApplication,
@@ -647,6 +648,7 @@ def admin_approve_taxi(app_id: int, body: ApproveIn | None = None,
         "Заявка одобрена — выходи на линию.", "Ғариза хупланды — линияға сыҡ.",
         ref_kind="taxi_apply", ref_id=app.id,
     )
+    admin_action(user.id, "taxi.approve", app_id=app.id, target_user=app.user_id)
     return {"id": app.id, "status": app.status.value}
 
 
@@ -672,6 +674,7 @@ def admin_reject_taxi(app_id: int, body: RejectIn, user: User = Depends(current_
         (app.comment or "Документтарҙы төҙәт тә яңынан ебәр."),
         ref_kind="taxi_apply", ref_id=app.id,
     )
+    admin_action(user.id, "taxi.reject", app_id=app.id, target_user=app.user_id)
     return {"id": app.id, "status": app.status.value}
 
 

@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..logs import admin_action
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, UserRole
 from ..safety_logic import reset_gender_verification
@@ -493,6 +494,8 @@ def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current
     session.add(target)
     session.add(dp)
     session.commit()
+    admin_action(user.id, "driver.moderate", target_user=user_id, approve=bool(body.approve),
+                 gender_verified=dp.gender_verified)
     return {
         "user_id": user_id, "verified": target.verified, "docs_status": dp.docs_status,
         "gender_verified": dp.gender_verified,

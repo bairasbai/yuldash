@@ -18,6 +18,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..logs import admin_action
 from ..errors import herr
 from ..antifraud import moderate_open_text
 from ..models import Booking, Incident, InstantOrder, Ride, User, UserRole
@@ -516,6 +517,9 @@ def resolve_incident(incident_id: int, body: ResolveIn,
         compensation_kop=body.compensation_kop, strike=body.strike, suspend_days=body.suspend_days,
         exclude_rating=body.exclude_rating, shield=body.shield, resolver_id=user.id,
     )
+    # Разбор спора решает, кто прав, и может стоить человеку страйка или паузы — след обязателен.
+    admin_action(user.id, "incident.resolve", incident_id=incident_id, fault=body.fault,
+                 resolution=body.resolution, strike=bool(body.strike))
     # Прозрачность: обе стороны получают решение с человеческим объяснением.
     #
     # Голым пушем это слать нельзя (аудит 2026-08-08, волна 19). Проверено пробой: человека

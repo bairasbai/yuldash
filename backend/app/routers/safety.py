@@ -9,7 +9,7 @@ from typing import List, Literal, Optional
 from ..db import get_session
 from ..errors import herr
 from ..config import settings
-from ..logs import log
+from ..logs import admin_action, log
 from ..middleware import user_over_limit
 from ..models import (
     Block, Booking, BookingStatus, DriverProfile, InstantOrder, Report, Ride, SosEvent,
@@ -234,6 +234,7 @@ def admin_sos_handle(event_id: int, body: SosHandleIn | None = None,
     e.handled_note = ((body.note if body else "") or "").strip()[:500]
     session.add(e)
     session.commit()
+    admin_action(user.id, "sos.handle", event_id=event_id, target_user=e.user_id)
     return {"ok": True, "status": e.status, "handled_at": e.handled_at}
 
 
@@ -541,6 +542,8 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
     # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).
     if r.target_user_id is not None:      # аккаунт обвиняемого удалён — наказывать некого
         quality.apply_ladder_after_resolve(session, r.target_user_id)
+    admin_action(user.id, "report.resolve", report_id=report_id,
+                 target_user=r.target_user_id, category=r.category)
     return _admin_report_out(session, r)
 
 
@@ -562,6 +565,7 @@ def admin_reject_report(report_id: int, body: ResolveIn | None = None,
     session.commit()
     session.refresh(r)
     quality.maybe_release_review_pause(session, r.target_user_id)
+    admin_action(user.id, "report.reject", report_id=report_id, target_user=r.target_user_id)
     return _admin_report_out(session, r)
 
 
@@ -592,6 +596,7 @@ def admin_quality_pause(user_id: int, body: QualityPauseIn,
     prof = quality.pause_taxi(session, user_id, hours=body.hours, reason=quality.PAUSE_REASON_ADMIN)
     if prof is None:
         raise herr(404, "Профиль водителя не найден", "Водитель профиле табылманы")
+    admin_action(user.id, "quality.pause", target_user=user_id, hours=body.hours)
     return {"ok": True, "taxi_paused_until": prof.taxi_paused_until.isoformat(),
             "reason": prof.taxi_pause_reason}
 
@@ -605,6 +610,7 @@ def admin_quality_unpause(user_id: int,
     prof = quality.unpause_taxi(session, user_id)
     if prof is None:
         raise herr(404, "Профиль водителя не найден", "Водитель профиле табылманы")
+    admin_action(user.id, "quality.unpause", target_user=user_id)
     return {"ok": True, "taxi_paused_until": None, "reason": None}
 
 

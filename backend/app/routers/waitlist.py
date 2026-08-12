@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..logs import admin_action
 from ..errors import herr
 from ..models import User, UserRole, WaitlistEntry
 from ..security import current_user
@@ -182,6 +183,7 @@ def admin_waitlist_invite(body: InviteIn, user: User = Depends(current_user),
             session.add(e)
             n += 1
     session.commit()
+    admin_action(user.id, "waitlist.invite", count=n)
     return {"ok": True, "invited": n}
 
 
@@ -201,4 +203,5 @@ def admin_waitlist_delete(entry_id: int, user: User = Depends(current_user),
         return {"ok": True, "deleted": 0}
     session.delete(entry)
     session.commit()
+    admin_action(user.id, "waitlist.delete", entry_id=entry_id)
     return {"ok": True, "deleted": 1}

@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..logs import admin_action
 from ..errors import herr
 from ..middleware import user_over_limit
 from ..models import (
@@ -339,6 +340,7 @@ def admin_reply(ticket_id: int, body: MessageIn, user: User = Depends(current_us
     t.updated_at = now
     session.add(t)
     session.commit()
+    admin_action(user.id, "support.reply", ticket_id=ticket_id, target_user=t.user_id)
     # Уведомление пользователю: одна точка (лента + FCM). Ошибку глотает сама push_notification.
     preview = (msg.body or "")[:120]
     push_notification(
@@ -363,4 +365,5 @@ def admin_close(ticket_id: int, user: User = Depends(current_user),
         t.updated_at = utcnow()
         session.add(t)
         session.commit()
+        admin_action(user.id, "support.close", ticket_id=ticket_id, target_user=t.user_id)
     return admin_get_ticket(ticket_id, user, session)
