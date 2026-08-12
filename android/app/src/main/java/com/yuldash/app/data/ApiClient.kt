@@ -415,10 +415,12 @@ object ApiClient {
         //  • push_token — чтобы не зарегистрировать устройство прошлого владельца заново;
         //  • паспорта поездок — там ИМЯ И ТЕЛЕФОН пассажиров (чужие ПДн на диске, 152-ФЗ);
         //  • очередь исходящих — иначе сообщения прошлого юзера уйдут ОТ НОВОГО аккаунта.
-        prefs?.edit()
-            ?.remove("token")?.remove("refresh_token")?.remove("user_name")?.remove("user_role")
-            ?.remove("push_token")
-            ?.apply()
+        // Список ключей — в одном месте (`SessionKeys`), потому что забытый ключ здесь означает
+        // кусок чужой жизни, оставшийся следующему владельцу телефона. Сторож
+        // `SessionKeysGuardTest` требует решения для каждого нового ключа (волна 31).
+        prefs?.edit()?.apply {
+            SessionKeys.CLEARED_ON_LOGOUT.forEach { remove(it) }
+        }?.apply()
         TripPassStore.clearAll()
         Outbox.clearAll()
     }

@@ -262,6 +262,12 @@
   WEBP EXIF/XMP (с пересчётом RIFF); пиксели не трогаем, битый файл отдаём как есть.
   Тесты: `tests/test_image_metadata_stripped.py` (метки исчезли И картинка цела) +
   сквозное обещание в `tests/test_promises.py`.
+- **Что переживает выход из аккаунта — один список (2026-08-12, волна 31).**
+  `data/SessionKeys.kt`: `CLEARED_ON_LOGOUT` (данные аккаунта, включая `preferred_role`)
+  и `SURVIVES_LOGOUT` (настройки самого телефона — язык, тема, звук, простой режим) с причиной
+  у каждого ключа. `ApiClient.clearLocalSession` ходит по списку; паспорта поездок и очередь
+  исходящих чистятся отдельно (`TripPassStore.clearAll`, `Outbox.clearAll`). Сторож —
+  `SessionKeysGuardTest`: новый ключ на диске без решения = красный тест.
 - **Экраны с чужими документами закрыты от скриншота (2026-08-12, волна 30).** `SecureWindow.kt`:
   композабл ставит `FLAG_SECURE` на входе и снимает на выходе (счётчик вложенности). Висит
   на `AdminDriversScreen`, `AdminCourierScreen`, `AdminTaxiScreen` — там видны права, селфи
