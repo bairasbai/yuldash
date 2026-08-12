@@ -132,8 +132,15 @@ internal fun ClinicRidesScreen(onBack: () -> Unit, onBookRide: (Ride) -> Unit) {
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Поездки к клинике", "Клиникаға сәфәрҙәр"), onBack) },
     ) { padding ->
+        // Поездки к клинике публикуют ВОДИТЕЛИ, и человек здесь ждёт, когда появится подходящая.
+        // Обновляем то, что он сейчас смотрит: список рейсов к выбранной клинике.
+        AppPullRefresh(
+            refreshing = ridesLoading && rides.isNotEmpty(),
+            onRefresh = { ridesReload++ },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            Modifier.padding(padding).padding(horizontal = 16.dp).fillMaxWidth(),
+            Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp),
         ) {
@@ -215,6 +222,7 @@ internal fun ClinicRidesScreen(onBack: () -> Unit, onBookRide: (Ride) -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 }

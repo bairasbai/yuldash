@@ -691,7 +691,14 @@ private fun ConsentRow(
         "privacy" -> appText("Политика конфиденциальности", "Йәшерен сәйәсәт") to appText("Как мы обрабатываем твои данные", "Мәғлүмәтеңде нисек эшкәртәбеҙ")
         else -> appText("Обработка геолокации", "Геолокацияны эшкәртеү") to appText("Только во время активной поездки", "Тик актив сәфәр ваҡытында")
     }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    // Заголовок и подпись занимают ВСЮ ширину, а кнопка стоит под ними отдельной строкой.
+    //
+    // Раньше кнопка «Отметить» стояла справа в том же ряду, и тексту оставалась узкая колонка:
+    // на живом экране «Политика конфиденциальности» рвалась посреди слова — «конфиденциальн /
+    // ости». В коде это не видно никак, поймал только запуск на эмуляторе (2026-08-12) —
+    // ровно тот случай, ради которого в lessons.md записано «смотреть на экран, а не в код».
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
         Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
             Icon(meta.icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp))
         }
@@ -726,15 +733,20 @@ private fun ConsentRow(
                 }
             }
         }
-        Spacer(Modifier.width(8.dp))
+        // Согласие уже дано — вместо кнопки галочка, она узкая и ширины не отнимает.
         if (grantedAt != null) {
+            Spacer(Modifier.width(8.dp))
             Icon(Icons.Default.CheckCircle, contentDescription = appText("Согласие дано", "Ризалыҡ бирелгән"), tint = CanonGreen2, modifier = Modifier.size(26.dp))
-        } else {
+        }
+        }
+        // Кнопка — отдельной строкой во всю ширину. Это ещё и удобнее пальцем: раньше она
+        // жалась к правому краю, теперь по ней трудно промахнуться.
+        if (grantedAt == null) {
+            Spacer(Modifier.height(8.dp))
             AppButton(
                 appText("Отметить", "Билдәләү"),
                 onClick = onGrant,
                 style = AppButtonStyle.Secondary,
-                fillWidth = false,
                 height = 48.dp,
                 loading = saving,
             )

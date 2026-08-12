@@ -1788,6 +1788,17 @@ private fun InstantDestinationPicker(
                     }
                 }
             }
+            // Погода на маршруте — рядом с ценой, до нажатия «Вызвать». В такси человек чаще
+            // всего едет прямо сейчас, и гололёд для него не «планы на завтра», а через минуту.
+            // Координаты уже выбраны на карте — геокодить ничего не нужно.
+            if (toPoint != null) {
+                WeatherWarningCard(
+                    rememberRouteWeather(
+                        fromLat = fromPoint?.latitude, fromLng = fromPoint?.longitude,
+                        toLat = toPoint?.latitude, toLng = toPoint?.longitude,
+                    )
+                )
+            }
             // Выгода по промокоду — сразу под ценой. Это единственное место, где человек видит,
             // что промокод не бумажка, и решает ДО нажатия «Вызвать».
             TaxiPromoSavingsCard(estimate)

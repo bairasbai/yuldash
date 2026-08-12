@@ -1224,6 +1224,21 @@ internal fun ActiveTripScreen(
             if (frostyNight) {
                 item { FrostyNightBanner(modifier = Modifier.appearIn(1)) }
             }
+            // Погода на маршруте — пока поездка не завершена. После неё предупреждать не о чем,
+            // а до выезда это ровно тот момент, когда человек решает, ехать ли сегодня.
+            // Города берём из поездки или из офлайн-паспорта: сервер сам найдёт координаты.
+            if (bookingStatus != "done" && bookingStatus != "cancelled") {
+                val wFrom = ride?.from ?: tripPass?.fromCity
+                val wTo = ride?.to ?: tripPass?.toCity
+                if (!wFrom.isNullOrBlank()) {
+                    item {
+                        WeatherWarningCard(
+                            rememberRouteWeather(fromCity = wFrom, toCity = wTo),
+                            modifier = Modifier.appearIn(1),
+                        )
+                    }
+                }
+            }
             // Live-баннер пассажиру: водитель выехал/подъезжает (опрос статуса раз в ~12с, не только пуш).
             if (role == "passenger" && (driverPhase == "departed" || driverPhase == "arriving")) {
                 item {

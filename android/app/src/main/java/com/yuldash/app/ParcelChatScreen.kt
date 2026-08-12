@@ -45,7 +45,15 @@ import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ChatSocket
 import com.yuldash.app.data.MessageDto
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+/** Статусы, после которых сервер новых сообщений не принимает: чат становится «только чтение». */
+private val PARCEL_CHAT_CLOSED_STATUSES = setOf("delivered", "canceled", "cancelled", "returned")
 
 /**
  * Чат по конкретной посылке.
@@ -75,10 +83,31 @@ internal fun ParcelChatScreen(
     var wsConnected by remember(parcelId) { mutableStateOf(false) }
     var tempSeq by remember(parcelId) { mutableStateOf(-2) }
 
+    // Статус приходит параметром — тем, что был в момент ОТКРЫТИЯ чата. Дальше он живёт своей
+    // жизнью: курьер вручил посылку, отправитель отменил — а экран об этом не знал и продолжал
+    // пускать в поле ввода. Человек писал, сообщение не уходило, и он видел только «не
+    // отправлено», не понимая причины. Мягко переспрашиваем свой список раз в ~20 секунд
+    // (в фоне цикл стоит — правило про невидимый экран, lessons.md).
+    var liveStatus by remember(parcelId) { mutableStateOf(parcelStatus) }
+    val statusOwner = LocalLifecycleOwner.current
+    LaunchedEffect(parcelId, peerIsCourier, statusOwner) {
+        statusOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                delay(20_000)
+                // Отдельной ручки «одна посылка» в API нет, и заводить её ради статуса не стоит:
+                // берём свой же список (сервер и так проверяет, что посылка твоя).
+                val list = if (peerIsCourier) ApiClient.getMyParcels() else ApiClient.getCarryingParcels()
+                list.onSuccess { items ->
+                    items.firstOrNull { it.id == parcelId }?.let { liveStatus = it.status }
+                }
+                if (liveStatus in PARCEL_CHAT_CLOSED_STATUSES) break   // дальше меняться нечему
+            }
+        }
+    }
+
     // Доставка закрыта → сервер новых сообщений не примет. Показываем спокойный баннер и
     // оставляем историю: по ней потом разбирают спор («я же написал, что меня не будет дома»).
-    val readOnly = parcelStatus == "delivered" || parcelStatus == "canceled" ||
-        parcelStatus == "cancelled" || parcelStatus == "returned"
+    val readOnly = liveStatus in PARCEL_CHAT_CLOSED_STATUSES
 
     val sendFailMsg = appText("Сообщение не отправлено. Повтори.", "Хәбәр ебәрелмәне. Ҡабатла.")
     val tooFastMsg = appText("Слишком быстро. Подожди минуту и продолжи.",

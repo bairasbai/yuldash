@@ -51,10 +51,22 @@ val mapkitKey: String = Properties().apply {
 // URL backend API для debug/release. Можно переопределить в local.properties:
 // YULDASH_DEBUG_API_BASE_URL=http://10.0.2.2:8000
 // YULDASH_RELEASE_API_BASE_URL=https://yulbash.ru
-val debugApiBaseUrl: String = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
-}.getProperty("YULDASH_DEBUG_API_BASE_URL", "http://10.0.2.2:8000")
+// Адрес сервера для debug-сборки. Порядок: переменная окружения → local.properties → эмулятор.
+//
+// Переменная окружения добавлена 2026-08-12 ради теста на ДВУХ ТЕЛЕФОНАХ. Дефолт `10.0.2.2` —
+// это «хост» глазами эмулятора, и на настоящем телефоне такого адреса не существует: APK
+// ставится, открывается и молча висит в «нет связи». Чтобы собрать сборку для живых устройств,
+// правку приходилось вносить в local.properties — файл с ключом карты, который не в git и
+// у каждого свой. Теперь достаточно:
+//
+//     YULDASH_DEBUG_API_BASE_URL=https://yulbash.ru gradlew.bat :app:assembleDebug
+//
+// local.properties при этом не трогается, и никто случайно не закоммитит чужой адрес.
+val debugApiBaseUrl: String = System.getenv("YULDASH_DEBUG_API_BASE_URL")
+    ?: Properties().apply {
+        val f = rootProject.file("local.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }.getProperty("YULDASH_DEBUG_API_BASE_URL", "http://10.0.2.2:8000")
 
 val releaseApiBaseUrl: String = Properties().apply {
     val f = rootProject.file("local.properties")
