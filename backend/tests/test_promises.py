@@ -743,3 +743,38 @@ def test_обещание_решение_по_заявке_приходит_на
     n = notes[-1]
     assert n.title_ba and n.title_ba != n.title_ru, "решение по заявке только на одном языке"
     assert "нечитаемое" in (n.body_ru or ""), n.body_ru   # причина, а не общая отписка
+
+
+# ---------------------------------------------------------------------------
+# «Фото не рассказывает, где человек живёт»
+# ---------------------------------------------------------------------------
+def test_обещание_фото_профиля_не_выдаёт_адрес(client, user_factory):
+    """Женщина сфотографировалась дома и поставила снимок в профиль.
+
+    Телефон записал в файл координаты съёмки, а фото профиля видно каждому, кто открыл
+    карточку поездки, и качается по прямой ссылке без токена. Проверено пробой: файл
+    возвращался байт-в-байт вместе с GPS-тегом (аудит 2026-08-08, волна 21).
+    """
+    import base64
+
+    from test_image_metadata_stripped import _jpeg
+
+    exif_sig = bytes.fromhex("457869660000")     # «Exif\0\0» — подпись блока метаданных
+    jpeg_soi = bytes.fromhex("ffd8ff")           # начало JPEG-файла
+
+    me = user_factory("Фото: пассажирка")
+    photo = _jpeg(with_exif=True)
+    assert exif_sig in photo, "проверяем не то — в исходнике нет метаданных"
+
+    up = client.post("/upload/chat-photo", headers=me["auth"],
+                     json={"photo_b64": base64.b64encode(photo).decode(), "ext": "jpg"})
+    assert up.status_code == 200, up.text
+    url = up.json()["url"]
+    assert client.post("/me/update", headers=me["auth"],
+                       json={"avatar_url": url}).status_code == 200
+
+    # Качаем как посторонний: без токена, по публичной ссылке.
+    got = client.get("/media/" + url.split("/media/", 1)[-1])
+    assert got.status_code == 200, got.status_code
+    assert exif_sig not in got.content, "в чужих руках оказались координаты съёмки"
+    assert got.content.startswith(jpeg_soi), "фото сломали чисткой — так тоже нельзя"
