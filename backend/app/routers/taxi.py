@@ -46,9 +46,9 @@ def instant_availability(lat: Optional[float] = None, lng: Optional[float] = Non
     """Доступно ли такси в точке пользователя. Клиент дёргает ДО пикера заказа:
     выключено → экран «Такси скоро в вашем городе» (тёплый текст на двух языках)."""
     if lat is not None and not (-90 <= lat <= 90):
-        raise HTTPException(400, "Некорректная широта")
+        raise herr(400, "Некорректная широта", "Киңлек дөрөҫ түгел")
     if lng is not None and not (-180 <= lng <= 180):
-        raise HTTPException(400, "Некорректная долгота")
+        raise herr(400, "Некорректная долгота", "Оҙонлоҡ дөрөҫ түгел")
     return taxi_mod.availability(session, lat, lng)
 
 
@@ -331,7 +331,7 @@ def my_taxi_application(user: User = Depends(current_user), session: Session = D
     """Моя заявка таксиста (для экрана статуса). Не подавал → 404."""
     app = taxi_mod.my_application(session, user.id)
     if not app:
-        raise HTTPException(404, "Заявка не подана")
+        raise herr(404, "Заявка не подана", "Заявка бирелмәгән")
     return _application_payload(app)
 
 
@@ -350,7 +350,7 @@ def update_taxi_documents(body: TaxiDocsIn, user: User = Depends(current_user),
     """
     app = taxi_mod.my_application(session, user.id)
     if not app:
-        raise HTTPException(404, "Заявка не подана")
+        raise herr(404, "Заявка не подана", "Заявка бирелмәгән")
     _validate_doc_dates(body.osago_until, body.permit_until, body.inspection_until)
     if body.osago_until is not None:
         app.osago_until = body.osago_until
@@ -573,7 +573,7 @@ def admin_taxi_applications(status: str = "pending", user: User = Depends(curren
 def _get_app_or_404(session: Session, app_id: int) -> TaxiApplication:
     app = session.get(TaxiApplication, app_id)
     if not app:
-        raise HTTPException(404, "Заявка не найдена")
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
     return app
 
 
@@ -815,7 +815,7 @@ def admin_delete_taxi_city(city_id: int, user: User = Depends(current_user), ses
     _require_admin(user)
     row = session.get(TaxiCity, city_id)
     if not row:
-        raise HTTPException(404, "Город не найден")
+        raise herr(404, "Город не найден", "Ҡала табылманы")
     session.delete(row)
     session.commit()
     return {"ok": True}

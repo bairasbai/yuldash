@@ -19,6 +19,7 @@ from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
 from ..db import get_session
+from ..errors import herr
 from ..models import AppReview, Rating, User, UserRole
 from ..security import current_user
 
@@ -48,10 +49,10 @@ def create_review(body: AppReviewIn, user: User = Depends(current_user), session
     """Оставить отзыв о приложении. На лендинг попадёт после модерации (published)."""
     text = (body.text or "").strip()
     if len(text) < 10:
-        raise HTTPException(400, "Отзыв слишком короткий")
+        raise herr(400, "Отзыв слишком короткий", "Баһа артыҡ ҡыҫҡа")
     moderate_open_text(text, getattr(user, "id", None), place="review", session=session)   # отзыв публичный — телефон и грубость помечаем
     if len(text) > 600:
-        raise HTTPException(400, "Отзыв слишком длинный")
+        raise herr(400, "Отзыв слишком длинный", "Баһа артыҡ оҙон")
     review = AppReview(
         user_id=user.id,
         name=(user.name or "").strip(),
@@ -112,7 +113,7 @@ def publish_review(review_id: int, body: ReviewPublishIn, user: User = Depends(c
         raise HTTPException(403, "Только для админа")
     review = session.get(AppReview, review_id)
     if not review:
-        raise HTTPException(404, "Отзыв не найден")
+        raise herr(404, "Отзыв не найден", "Баһа табылманы")
     review.published = body.published
     session.add(review)
     session.commit()
@@ -174,7 +175,7 @@ def publish_rating(rating_id: int, body: RatingPublishIn, user: User = Depends(c
         raise HTTPException(403, "Только для админа")
     r = session.get(Rating, rating_id)
     if not r:
-        raise HTTPException(404, "Отзыв не найден")
+        raise herr(404, "Отзыв не найден", "Баһа табылманы")
     if not (r.text or "").strip():
         raise HTTPException(400, "У оценки нет текста для модерации")
     r.text_published = body.published
@@ -203,7 +204,7 @@ def exclude_rating(rating_id: int, body: RatingExcludeIn, user: User = Depends(c
         raise HTTPException(403, "Только для админа")
     r = session.get(Rating, rating_id)
     if not r:
-        raise HTTPException(404, "Оценка не найдена")
+        raise herr(404, "Оценка не найдена", "Баһа табылманы")
     r.excluded = body.excluded
     session.add(r)
     session.flush()

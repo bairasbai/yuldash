@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..models import (
     SupportMessage, SupportSender, SupportTicket, SupportTicketStatus, User, UserRole,
 )
@@ -77,7 +78,7 @@ def _own_ticket(session: Session, ticket_id: int, user_id: int) -> SupportTicket
     """Тикет ТОЛЬКО автора. Чужой/несуществующий → 404 (не раскрываем существование)."""
     t = session.get(SupportTicket, ticket_id)
     if not t or t.user_id != user_id:
-        raise HTTPException(404, "Обращение не найдено")
+        raise herr(404, "Обращение не найдено", "Мөрәжәғәт табылманы")
     return t
 
 
@@ -293,7 +294,7 @@ def admin_get_ticket(ticket_id: int, user: User = Depends(current_user),
     _guard_admin(user)
     t = session.get(SupportTicket, ticket_id)
     if not t:
-        raise HTTPException(404, "Обращение не найдено")
+        raise herr(404, "Обращение не найдено", "Мөрәжәғәт табылманы")
     msgs = session.exec(
         select(SupportMessage).where(SupportMessage.ticket_id == t.id)
         .order_by(SupportMessage.id.asc())
@@ -313,7 +314,7 @@ def admin_reply(ticket_id: int, body: MessageIn, user: User = Depends(current_us
     _guard_admin(user)
     t = session.get(SupportTicket, ticket_id)
     if not t:
-        raise HTTPException(404, "Обращение не найдено")
+        raise herr(404, "Обращение не найдено", "Мөрәжәғәт табылманы")
     now = utcnow()
     msg = SupportMessage(ticket_id=t.id, sender=SupportSender.admin, body=body.body.strip())
     session.add(msg)
@@ -340,7 +341,7 @@ def admin_close(ticket_id: int, user: User = Depends(current_user),
     _guard_admin(user)
     t = session.get(SupportTicket, ticket_id)
     if not t:
-        raise HTTPException(404, "Обращение не найдено")
+        raise herr(404, "Обращение не найдено", "Мөрәжәғәт табылманы")
     if t.status != SupportTicketStatus.closed:
         t.status = SupportTicketStatus.closed
         t.updated_at = utcnow()

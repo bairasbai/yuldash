@@ -18,6 +18,7 @@ from sqlmodel import Session, select
 
 from .. import debt as debt_mod
 from ..db import get_session
+from ..errors import herr
 from ..logs import admin_action
 from ..models import CommissionDebt, DebtStatus, User, UserRole
 from ..security import current_user
@@ -50,7 +51,7 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
     from .payments import _activate_payment, _start_yookassa
 
     if settings.is_prod and settings.payments_provider == "mock":
-        raise HTTPException(503, "Оплата скоро будет доступна")
+        raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
 
     if settings.payments_provider == "yookassa":
         summary = debt_mod.debt_summary(session, user.id)
@@ -137,7 +138,7 @@ def admin_confirm(debt_id: int, user: User = Depends(current_user), session: Ses
     _require_admin(user)
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
-        raise HTTPException(404, "Долг не найден")
+        raise herr(404, "Долг не найден", "Бурыс табылманы")
     driver_id = debt.driver_id
     paid_kop = debt_mod.admin_confirm(session, debt_id)
     admin_action(user.id, "debt.confirm", debt_id=debt_id, driver=driver_id, amount_kop=paid_kop)
@@ -181,7 +182,7 @@ def admin_forgive(debt_id: int, body: ForgiveIn | None = None,
     _require_admin(user)
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
-        raise HTTPException(404, "Долг не найден")
+        raise herr(404, "Долг не найден", "Бурыс табылманы")
     if debt.status == DebtStatus.paid:
         return {"ok": True, "status": "paid", "already": True}
     reason = ((body.reason if body else "") or "").strip()[:300]
@@ -208,7 +209,7 @@ def admin_reject(debt_id: int, user: User = Depends(current_user), session: Sess
     _require_admin(user)
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
-        raise HTTPException(404, "Долг не найден")
+        raise herr(404, "Долг не найден", "Бурыс табылманы")
     driver_id = debt.driver_id
     back_kop = debt_mod.admin_reject(session, debt_id)
     admin_action(user.id, "debt.reject", debt_id=debt_id, driver=driver_id, amount_kop=back_kop)

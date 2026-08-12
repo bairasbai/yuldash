@@ -87,9 +87,9 @@ def _order_for_participant(session: Session, order_id: int, user: User) -> Insta
     """Такси-заказ, если пользователь — его участник (пассажир или назначенный водитель)."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if user.id != order.passenger_id and (order.driver_id is None or user.id != order.driver_id):
-        raise HTTPException(403, "Ты не участник этого заказа")
+        raise herr(403, "Ты не участник этого заказа", "Һин был заказда ҡатнашмайһың")
     return order
 
 
@@ -225,7 +225,7 @@ def admin_sos_handle(event_id: int, body: SosHandleIn | None = None,
         raise HTTPException(403, "Только для админа")
     e = session.get(SosEvent, event_id)
     if not e:
-        raise HTTPException(404, "Событие не найдено")
+        raise herr(404, "Событие не найдено", "Ваҡиға табылманы")
     if e.status == "handled":
         return {"ok": True, "already": True, "status": e.status}
     e.status = "handled"
@@ -310,28 +310,28 @@ def _report_counterparty(session: Session, user: User, body: ReportIn) -> int:
     if body.order_id is not None:
         order = session.get(InstantOrder, body.order_id)
         if not order:
-            raise HTTPException(404, "Заказ не найден")
+            raise herr(404, "Заказ не найден", "Заказ табылманы")
         if user.id == order.passenger_id:
             other = order.driver_id
         elif order.driver_id is not None and user.id == order.driver_id:
             other = order.passenger_id
         else:
-            raise HTTPException(403, "Ты не участник этого заказа")
+            raise herr(403, "Ты не участник этого заказа", "Һин был заказда ҡатнашмайһың")
         if other is None:
-            raise HTTPException(409, "У заказа нет второй стороны")
+            raise herr(409, "У заказа нет второй стороны", "Заказдың икенсе яғы юҡ")
         return other
     if body.booking_id is not None:
         b = session.get(Booking, body.booking_id)
         ride = session.get(Ride, b.ride_id) if b else None
         if not b or not ride:
-            raise HTTPException(404, "Бронь не найдена")
+            raise herr(404, "Бронь не найдена", "Бронь табылманы")
         if user.id == b.passenger_id:
             return ride.driver_id
         if user.id == ride.driver_id:
             return b.passenger_id
-        raise HTTPException(403, "Ты не участник этой поездки")
+        raise herr(403, "Ты не участник этой поездки", "Һин был сәфәрҙә ҡатнашмайһың")
     if body.target_user_id is None:
-        raise HTTPException(400, "Укажи, на кого жалоба, или поездку")
+        raise herr(400, "Укажи, на кого жалоба, или поездку", "Ялыу кемгә икәнен йәки сәфәрҙе күрһәт")
     return body.target_user_id
 
 
@@ -382,9 +382,9 @@ def _guard_unpaid_report(session: Session, user: User, body: ReportIn) -> Option
     if body.order_id is not None:
         order = session.get(InstantOrder, body.order_id)   # существование проверено в _report_counterparty
         if order.driver_id != user.id:
-            raise HTTPException(403, "«Не заплатил» отмечает водитель поездки")
+            raise herr(403, "«Не заплатил» отмечает водитель поездки", "«Түләмәне» тип сәфәр водителе билдәләй")
         if order.status.value != "done":
-            raise HTTPException(409, "Отметить можно только завершённую поездку")
+            raise herr(409, "Отметить можно только завершённую поездку", "Тик тамамланған сәфәрҙе билдәләп була")
         dup = session.exec(select(Report).where(
             Report.order_id == body.order_id, Report.category == "unpaid",
         )).first()
@@ -396,9 +396,9 @@ def _guard_unpaid_report(session: Session, user: User, body: ReportIn) -> Option
         b = session.get(Booking, body.booking_id)
         ride = session.get(Ride, b.ride_id)
         if ride.driver_id != user.id:
-            raise HTTPException(403, "«Не заплатил» отмечает водитель поездки")
+            raise herr(403, "«Не заплатил» отмечает водитель поездки", "«Түләмәне» тип сәфәр водителе билдәләй")
         if (b.status.value if hasattr(b.status, "value") else b.status) != "done":
-            raise HTTPException(409, "Отметить можно только завершённую поездку")
+            raise herr(409, "Отметить можно только завершённую поездку", "Тик тамамланған сәфәрҙе билдәләп була")
         dup = session.exec(select(Report).where(
             Report.booking_id == body.booking_id, Report.category == "unpaid",
         )).first()
@@ -450,11 +450,11 @@ def create_report(body: ReportIn,
     только done, дедуп на заказ/бронь; страйк пассажиру через механику B3/B5)."""
     target_id = _report_counterparty(session, user, body)
     if body.target_user_id is not None and body.target_user_id != target_id:
-        raise HTTPException(400, "Цель жалобы не совпадает со второй стороной поездки")
+        raise herr(400, "Цель жалобы не совпадает со второй стороной поездки", "Ялыу кемгә тигәне сәфәрҙең икенсе яғы менән тап килмәй")
     if target_id == user.id:
-        raise HTTPException(400, "Нельзя пожаловаться на себя")
+        raise herr(400, "Нельзя пожаловаться на себя", "Үҙеңә ялыу яҙып булмай")
     if not session.get(User, target_id):
-        raise HTTPException(404, "Пользователь не найден")
+        raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
     dup = _guard_unpaid_report(session, user, body)
     if dup is None:
         # Общий дедуп: один автор — одна жалоба по одному поводу (см. _dedup_report).
@@ -500,7 +500,7 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
         raise HTTPException(403, "Только для админа")
     r = session.get(Report, report_id)
     if not r:
-        raise HTTPException(404, "Жалоба не найдена")
+        raise herr(404, "Жалоба не найдена", "Ялыу табылманы")
     r.status = "resolved"
     r.resolution = body.resolution or r.resolution
     r.resolved_at = utcnow()
@@ -553,7 +553,7 @@ def admin_reject_report(report_id: int, body: ResolveIn | None = None,
         raise HTTPException(403, "Только для админа")
     r = session.get(Report, report_id)
     if not r:
-        raise HTTPException(404, "Жалоба не найдена")
+        raise herr(404, "Жалоба не найдена", "Ялыу табылманы")
     r.status = "rejected"
     if body is not None and body.resolution:
         r.resolution = body.resolution
@@ -591,7 +591,7 @@ def admin_quality_pause(user_id: int, body: QualityPauseIn,
         raise HTTPException(403, "Только для админа")
     prof = quality.pause_taxi(session, user_id, hours=body.hours, reason=quality.PAUSE_REASON_ADMIN)
     if prof is None:
-        raise HTTPException(404, "Профиль водителя не найден")
+        raise herr(404, "Профиль водителя не найден", "Водитель профиле табылманы")
     return {"ok": True, "taxi_paused_until": prof.taxi_paused_until.isoformat(),
             "reason": prof.taxi_pause_reason}
 
@@ -604,7 +604,7 @@ def admin_quality_unpause(user_id: int,
         raise HTTPException(403, "Только для админа")
     prof = quality.unpause_taxi(session, user_id)
     if prof is None:
-        raise HTTPException(404, "Профиль водителя не найден")
+        raise herr(404, "Профиль водителя не найден", "Водитель профиле табылманы")
     return {"ok": True, "taxi_paused_until": None, "reason": None}
 
 
@@ -622,9 +622,9 @@ class BlockIn(BaseModel):
 @router.post("/blocks", response_model=Block)
 def create_block(body: BlockIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     if body.blocked_user_id == user.id:
-        raise HTTPException(400, "Нельзя заблокировать себя")
+        raise herr(400, "Нельзя заблокировать себя", "Үҙеңде блоклап булмай")
     if not session.get(User, body.blocked_user_id):
-        raise HTTPException(404, "Пользователь не найден")
+        raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
     existing = session.exec(
         select(Block).where(Block.user_id == user.id, Block.blocked_user_id == body.blocked_user_id)
     ).first()

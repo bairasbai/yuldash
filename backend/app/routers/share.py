@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 
 from ..config import settings
 from ..db import get_session
+from ..errors import herr
 from ..livepos import livepos_get
 from ..models import (
     Booking, BookingStatus, InstantOrder, InstantOrderStatus, ParcelDelivery, Ride, RideStatus,
@@ -80,19 +81,19 @@ def _first_name_of(name: str) -> str:
 
 def _resolve_share(session: Session, token: str) -> TripShare:
     if not token or len(token) < 16:   # короткий/пустой токен даже не ищем (анти-перебор)
-        raise HTTPException(404, "Ссылка не найдена")
+        raise herr(404, "Ссылка не найдена", "Һылтанма табылманы")
     share = session.exec(select(TripShare).where(TripShare.token == token)).first()
     if not share:
-        raise HTTPException(404, "Ссылка не найдена")
+        raise herr(404, "Ссылка не найдена", "Һылтанма табылманы")
     if share.expires_at and share.expires_at < utcnow():   # ссылка «сгорела» по TTL — гео не отдаём
-        raise HTTPException(404, "Ссылка не найдена")
+        raise herr(404, "Ссылка не найдена", "Һылтанма табылманы")
     return share
 
 
 def _order_state(session: Session, share: TripShare) -> dict:
     order = session.get(InstantOrder, share.order_id)
     if not order:
-        raise HTTPException(404, "Ссылка не найдена")
+        raise herr(404, "Ссылка не найдена", "Һылтанма табылманы")
     first_name = _first_name(session, order.passenger_id)
     if order.status in (InstantOrderStatus.done, InstantOrderStatus.cancelled, InstantOrderStatus.expired):
         return _finished(first_name)
@@ -109,7 +110,7 @@ def _booking_state(session: Session, share: TripShare) -> dict:
     booking = session.get(Booking, share.booking_id)
     ride = session.get(Ride, booking.ride_id) if booking else None
     if not booking or not ride:
-        raise HTTPException(404, "Ссылка не найдена")
+        raise herr(404, "Ссылка не найдена", "Һылтанма табылманы")
     first_name = _first_name(session, booking.passenger_id)
     if booking.status in (BookingStatus.done, BookingStatus.cancelled):
         return _finished(first_name)
@@ -163,7 +164,7 @@ def _parcel_state(session: Session, share: TripShare) -> dict:
     ссылке не уходит никогда. После вручения адреса тоже нет — там уже нет и маршрута."""
     parcel = session.get(ParcelDelivery, share.parcel_id)
     if not parcel:
-        raise HTTPException(404, "Ссылка не найдена")
+        raise herr(404, "Ссылка не найдена", "Һылтанма табылманы")
     name = _first_name_of(parcel.receiver_name)      # имя получателя (первое слово) или ""
     if parcel.status in ("delivered", "canceled"):
         return _finished(name, kind="parcel", phases=_PARCEL_PHASES)
@@ -184,7 +185,7 @@ def _state(session: Session, share: TripShare) -> dict:
         return _booking_state(session, share)
     if share.parcel_id:
         return _parcel_state(session, share)
-    raise HTTPException(404, "Ссылка не найдена")
+    raise herr(404, "Ссылка не найдена", "Һылтанма табылманы")
 
 
 @router.get("/t/{token}/state.json")
@@ -447,7 +448,7 @@ def ride_preview(ride_id: int, session: Session = Depends(get_session)) -> dict:
     """Публичные данные поездки для веб-превью и deep-link. Без ПДн."""
     ride = session.get(Ride, ride_id)
     if not ride or not _shareable(ride):
-        raise HTTPException(404, "Поездка не найдена")
+        raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     return _preview_dict(ride, session)
 
 
@@ -630,6 +631,6 @@ def ride_share_page(
     """Красивая server-rendered страница поездки с OG-тегами (карточка в мессенджерах)."""
     ride = session.get(Ride, ride_id)
     if not ride or not _shareable(ride):
-        raise HTTPException(404, "Поездка не найдена")
+        raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     lang = "ba" if str(lang).lower().startswith("ba") else "ru"
     return HTMLResponse(_render_html(_preview_dict(ride, session), lang))

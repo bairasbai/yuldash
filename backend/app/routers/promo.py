@@ -302,13 +302,13 @@ def admin_promo_create(body: AdminPromoIn, user: User = Depends(current_user), s
     _require_admin(user)
     code = (body.code or "").strip().upper()
     if not code:
-        raise HTTPException(422, "Нужен код промокода")
+        raise herr(422, "Нужен код промокода", "Промокод кәрәк")
     kind = (body.kind or "welcome").strip()
     if kind not in _PROMO_KINDS:
         raise HTTPException(422, "Недопустимый тип бонуса (welcome|boost|taxi_ride)")
     exists = session.exec(select(PromoCode).where(PromoCode.code == code)).first()
     if exists:
-        raise HTTPException(409, "Такой код уже есть")
+        raise herr(409, "Такой код уже есть", "Ундай код бар инде")
     owner_id = None
     phone = (body.owner_phone or "").strip()
     if phone:
@@ -348,7 +348,7 @@ def admin_promo_status(promo_id: int, body: StatusIn, user: User = Depends(curre
     _require_admin(user)
     promo = session.get(PromoCode, promo_id)
     if not promo:
-        raise HTTPException(404, "Промокод не найден")
+        raise herr(404, "Промокод не найден", "Промокод табылманы")
     promo.active = bool(body.active)
     session.add(promo)
     session.commit()
@@ -362,7 +362,7 @@ def admin_promo_update(promo_id: int, body: AdminPromoEditIn, user: User = Depen
     _require_admin(user)
     promo = session.get(PromoCode, promo_id)
     if not promo:
-        raise HTTPException(404, "Промокод не найден")
+        raise herr(404, "Промокод не найден", "Промокод табылманы")
     if body.title is not None:
         promo.title = body.title.strip()
     if body.description is not None:

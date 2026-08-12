@@ -18,6 +18,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..errors import herr
 from ..antifraud import moderate_open_text
 from ..models import Booking, Incident, InstantOrder, Ride, User, UserRole
 from ..safety_logic import (
@@ -207,30 +208,30 @@ def create_incident(
     parcel_id (доставка). Раньше поддерживалась только попутка, поэтому заведённые типы
     parcel_damage/parcel_lost были недостижимы: код требовал booking_id и отвечал 400 (аудит 2026-07-26)."""
     if respondent_id == reporter.id:
-        raise HTTPException(400, "Нельзя пожаловаться на себя")
+        raise herr(400, "Нельзя пожаловаться на себя", "Үҙеңә ялыу яҙып булмай")
     # Приложить можно только СВОИ фото. Проверка стоит здесь, в общей точке: её зовут и
     # /incidents, и спор по доставке (parcels.py), и будущие авто-детекты — правило одно на всех.
     guard_own_evidence(evidence_urls, reporter.id)
     if type not in INCIDENT_TYPES:
-        raise HTTPException(400, "Неизвестный тип инцидента")
+        raise herr(400, "Неизвестный тип инцидента", "Билдәһеҙ хәл төрө")
     if not session.get(User, respondent_id):
         # Тот же текст, что у прочих 400 ниже: различимая 404 давала бы перебор живых user_id.
-        raise HTTPException(400, "Не удалось создать обращение — проверь данные")
+        raise herr(400, "Не удалось создать обращение — проверь данные", "Мөрәжәғәт булдырып булманы — мәғлүмәтте тикшер")
     if rate_limit and incidents_last_hour(session, reporter.id) >= settings.safety_incidents_per_hour:
-        raise HTTPException(429, "Слишком много обращений за час. Попробуй позже.")
+        raise herr(429, "Слишком много обращений за час. Попробуй позже.", "Бер сәғәттә мөрәжәғәт артыҡ күп. Һуңыраҡ ҡабатла.")
     # Анти-харассмент: обычная жалоба привязывается к ОБЩЕЙ сущности (поездка/заказ/доставка) —
     # иначе можно завалить инцидентами любого, с кем не пересекался. Только SEVERE допускается
     # без привязки (важен сигнал). Участие сторон в заказе/доставке проверяет вызывающий роутер
     # (там уже есть доступ к объекту и его правилам приватности).
     has_context = booking_id is not None or parcel_id is not None or order_id is not None
     if not has_context and type not in SEVERE_TYPES:
-        raise HTTPException(400, "Жалоба привязывается к вашей совместной поездке или доставке")
+        raise herr(400, "Жалоба привязывается к вашей совместной поездке или доставке", "Ялыу бергә барған сәфәргә йәки илтеүгә бәйләнә")
     if booking_id is not None:
         booking, ride = booking_and_ride_for_user(session, booking_id, reporter)  # 403/404 если не участник
         if not reporter_role:
             reporter_role = "driver" if ride.driver_id == reporter.id else "passenger"
         if respondent_id not in (ride.driver_id, booking.passenger_id):
-            raise HTTPException(400, "Обвинённый не участвует в этой поездке")
+            raise herr(400, "Обвинённый не участвует в этой поездке", "Ғәйепләнеүсе был сәфәрҙә ҡатнашмай")
 
     severe = type in SEVERE_TYPES
     inc = Incident(
@@ -292,9 +293,9 @@ def file_incident(body: IncidentIn, background: BackgroundTasks,
         # харассмента — можно было бы «привязаться» к чужой поездке.
         order = session.get(InstantOrder, body.order_id)
         if not order or user.id not in (order.passenger_id, order.driver_id):
-            raise HTTPException(403, "Это не твоя поездка")
+            raise herr(403, "Это не твоя поездка", "Был һинең сәфәрең түгел")
         if body.respondent_id not in (order.passenger_id, order.driver_id):
-            raise HTTPException(400, "Обвинённый не участвует в этой поездке")
+            raise herr(400, "Обвинённый не участвует в этой поездке", "Ғәйепләнеүсе был сәфәрҙә ҡатнашмай")
         reporter_role = "driver" if order.driver_id == user.id else "passenger"
     inc = create_incident(
         session, reporter=user, respondent_id=body.respondent_id, type=body.type,
@@ -319,9 +320,9 @@ def my_incidents(user: User = Depends(current_user), session: Session = Depends(
 def get_incident(incident_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     inc = session.get(Incident, incident_id)
     if not inc:
-        raise HTTPException(404, "Спор не найден")
+        raise herr(404, "Спор не найден", "Бәхәс табылманы")
     if user.id not in (inc.reporter_id, inc.respondent_id) and user.role != UserRole.admin:
-        raise HTTPException(403, "Нет доступа к этому спору")
+        raise herr(403, "Нет доступа к этому спору", "Был бәхәскә инеү юҡ")
     return _incident_out(session, inc, user)
 
 
@@ -330,11 +331,11 @@ def respond_incident(incident_id: int, body: RespondIn,
                      user: User = Depends(current_user), session: Session = Depends(get_session)):
     inc = session.get(Incident, incident_id)
     if not inc:
-        raise HTTPException(404, "Спор не найден")
+        raise herr(404, "Спор не найден", "Бәхәс табылманы")
     if user.id != inc.respondent_id:
-        raise HTTPException(403, "Объясниться может только вторая сторона")
+        raise herr(403, "Объясниться может только вторая сторона", "Аңлатманы тик икенсе яҡ бирә ала")
     if inc.status in ("resolved", "closed"):
-        raise HTTPException(409, "Спор уже закрыт")
+        raise herr(409, "Спор уже закрыт", "Бәхәс ябылған инде")
     inc.respondent_statement = clamp(body.statement, 2000)
     # Две проверки из разных веток, обе обязательны: текст объяснения проходит модерацию
     # (мат и оскорбления в споре), а приложенные фото — проверку владения (чужую улику
@@ -365,16 +366,16 @@ def appeal_incident(incident_id: int, body: AppealIn, background: BackgroundTask
                     user: User = Depends(current_user), session: Session = Depends(get_session)):
     inc = session.get(Incident, incident_id)
     if not inc:
-        raise HTTPException(404, "Спор не найден")
+        raise herr(404, "Спор не найден", "Бәхәс табылманы")
     if user.id not in (inc.reporter_id, inc.respondent_id):
-        raise HTTPException(403, "Обжаловать может только участник спора")
+        raise herr(403, "Обжаловать может только участник спора", "Тик бәхәс ҡатнашыусыһы ялыу бирә ала")
     # Апелляция — только на ВЫНЕСЕННОЕ решение и только один раз. Без гейтов: «обжаловать» можно
     # было открытый/закрытый спор (перетирая статус), а повторные апелляции спамили админ-канал
     # в обход часового лимита подачи и держали спор вечно «активным».
     if inc.status != "resolved":
-        raise HTTPException(409, "Обжаловать можно только решённый спор")
+        raise herr(409, "Обжаловать можно только решённый спор", "Тик хәл ителгән бәхәскә ялыу бирелә")
     if inc.appeal_status:
-        raise HTTPException(409, "Апелляция по этому спору уже подана")
+        raise herr(409, "Апелляция по этому спору уже подана", "Был бәхәс буйынса ялыу бирелгән инде")
     inc.appeal_text = clamp(body.text, 2000)
     inc.appeal_status = "requested"
     inc.status = "appealed"
@@ -394,16 +395,16 @@ def withdraw_incident(incident_id: int, user: User = Depends(current_user), sess
     """«Мы решили миром» — заявитель закрывает спор без последствий (мир по умолчанию)."""
     inc = session.get(Incident, incident_id)
     if not inc:
-        raise HTTPException(404, "Спор не найден")
+        raise herr(404, "Спор не найден", "Бәхәс табылманы")
     if user.id != inc.reporter_id:
-        raise HTTPException(403, "Закрыть спор миром может только заявитель")
+        raise herr(403, "Закрыть спор миром может только заявитель", "Бәхәсте тыныслыҡ менән тик ялыу биреүсе яба ала")
     if inc.status == "closed":
         return _incident_out(session, inc, user)
     # Мир — только ДО вердикта. После решения админа withdraw заявителя перетирал бы вердикт
     # (resolved-неявка выпадала из «Надёжности» и счёта эскалации — давление на заявителя
     # обнуляло наказание, при этом страйк в профиле оставался — рассинхрон).
     if inc.status not in ("open", "awaiting_response", "under_review"):
-        raise HTTPException(409, "Спор уже решён — оспорить можно апелляцией")
+        raise herr(409, "Спор уже решён — оспорить можно апелляцией", "Бәхәс хәл ителгән — ялыу аша ғына ҡаршы сығып була")
     inc.resolution = "mutual_resolved"
     inc.fault = "none"
     inc.status = "closed"
@@ -443,10 +444,10 @@ def secure_evidence(name: str, user: User = Depends(current_user), session: Sess
     Локально отдаём файл; в S3-режиме после проверки доступа редиректим на подписанный URL."""
     safe = os.path.basename(name)   # защита от path traversal
     if user.role != UserRole.admin and not _can_view_evidence(session, user.id, safe):
-        raise HTTPException(403, "Нет доступа к файлу")
+        raise herr(403, "Нет доступа к файлу", "Файлға инеү юҡ")
     storage = get_storage()
     if not storage.exists(f"evidence/{safe}"):
-        raise HTTPException(404, "Файл не найден")
+        raise herr(404, "Файл не найден", "Файл табылманы")
     if storage.is_remote:
         return RedirectResponse(storage.url(f"evidence/{safe}"))
     return FileResponse(os.path.join(EVIDENCE_DIR, safe))
@@ -496,16 +497,16 @@ def resolve_incident(incident_id: int, body: ResolveIn,
     _require_admin(user)
     inc = session.get(Incident, incident_id)
     if not inc:
-        raise HTTPException(404, "Спор не найден")
+        raise herr(404, "Спор не найден", "Бәхәс табылманы")
     # Идемпотентность: уже решённый спор повторно не «дорешать» (двойной тап/ретрай иначе добавил бы страйк дважды).
     if inc.status in ("resolved", "closed"):
-        raise HTTPException(409, "Спор уже решён")
+        raise herr(409, "Спор уже решён", "Бәхәс хәл ителгән инде")
     if body.resolution and body.resolution not in (
         "none", "warning", "strike", "suspend", "ban", "dismissed", "mutual_resolved",
     ):
-        raise HTTPException(422, "Неизвестное решение по спору")
+        raise herr(422, "Неизвестное решение по спору", "Бәхәс буйынса билдәһеҙ ҡарар")
     if body.fault and body.fault not in ("none", "respondent", "reporter", "both", "unclear"):
-        raise HTTPException(422, "Неизвестная сторона вины")
+        raise herr(422, "Неизвестная сторона вины", "Ғәйеп яғы билдәһеҙ")
     # Футган: карательные побочки ложатся ТОЛЬКО на обвинённого. «Виноват заявитель» + strike
     # наказал бы невиновного. Наказание лживого заявителя — встречным спором, где он respondent.
     if body.fault == "reporter" and (body.strike or body.resolution in ("warning", "strike", "suspend", "ban")):
@@ -590,7 +591,7 @@ def user_trust(user_id: int, user: User = Depends(current_user), session: Sessio
     «проверен», с нами с… Без телефона и приватного — только витрина."""
     target = session.get(User, user_id)
     if not target:
-        raise HTTPException(404, "Пользователь не найден")
+        raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
     avg, cnt = user_rating(session, user_id)
     return TrustOut(
         rating=round(avg, 1) if cnt > 0 else 0.0, rating_count=cnt,

@@ -56,16 +56,16 @@ def _ensure_owned_doc_url(url: str, user: User, profile: DriverProfile | None) -
     """
     name = _doc_name_from_url(url)
     if not name:
-        raise HTTPException(400, "Нужен защищённый файл документа")
+        raise herr(400, "Нужен защищённый файл документа", "Документтың һаҡланған файлы кәрәк")
     if not _is_owned_doc_name(name, user.id, profile):
-        raise HTTPException(403, "Можно отправить только свои загруженные документы")
+        raise herr(403, "Можно отправить только свои загруженные документы", "Тик үҙең йөкләгән документтарҙы ебәреп була")
     # Наличие файла спрашиваем У ХРАНИЛИЩА, а не у диска. Загрузка идёт через
     # `get_storage().save(...)`, и при STORAGE_BACKEND=s3 файла на диске нет вовсе — прямая
     # проверка `os.path.isfile` отвечала бы «не найден» на КАЖДУЮ заявку водителя, таксиста и
     # курьера. Сегодня включён локальный диск, поэтому мина не сработала ни разу; сработала бы
     # в день переезда в облако, и выглядело бы это как «проверка документов сломалась».
     if not get_storage().exists(f"docs/{name}"):
-        raise HTTPException(404, "Файл документа не найден")
+        raise herr(404, "Файл документа не найден", "Документ файлы табылманы")
     return url.strip()
 
 
@@ -142,7 +142,7 @@ def set_driver_gender(body: GenderIn, user: User = Depends(current_user), sessio
     """
     g = (body.gender or "").strip().lower()
     if g not in _ALLOWED_GENDERS:
-        raise HTTPException(400, "Недопустимое значение пола")
+        raise herr(400, "Недопустимое значение пола", "Ярамаған енес мәғәнәһе")
     # Прежний пол читаем ДО присвоения: сравнивать потом с `DriverProfile.gender` нельзя —
     # то поле устарело и больше не пишется, оно навсегда осталось бы со старым значением.
     was = (user.gender or "").strip().lower()
@@ -181,10 +181,10 @@ def secure_doc(name: str, user: User = Depends(current_user), session: Session =
     if user.role != UserRole.admin:
         prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
         if not _is_owned_doc_name(safe, user.id, prof):
-            raise HTTPException(403, "Нет доступа к документу")
+            raise herr(403, "Нет доступа к документу", "Документҡа инеү юҡ")
     storage = get_storage()
     if not storage.exists(f"docs/{safe}"):
-        raise HTTPException(404, "Файл не найден")
+        raise herr(404, "Файл не найден", "Файл табылманы")
     if storage.is_remote:
         return RedirectResponse(storage.url(f"docs/{safe}"))
     return FileResponse(os.path.join(DOC_DIR, safe))
@@ -266,7 +266,7 @@ def _run_autocheck(session: Session, dp: DriverProfile) -> None:
 def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель отправляет документы на проверку → 'pending' + авто-проверка (OCR прав)."""
     if not body.license_url or not body.car_photo_url:
-        raise HTTPException(400, "Нужны фото прав и фото автомобиля")
+        raise herr(400, "Нужны фото прав и фото автомобиля", "Права һәм машина фотоһы кәрәк")
     dp = _get_or_create_profile(session, user.id)
     prev_license, prev_car = dp.license_url, dp.car_photo_url
     dp.license_url = _ensure_owned_doc_url(body.license_url, user, dp)
@@ -479,7 +479,7 @@ def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current
         raise HTTPException(403, "Только для админа")
     target = session.get(User, user_id)
     if not target:
-        raise HTTPException(404, "Пользователь не найден")
+        raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
     dp = _get_or_create_profile(session, user_id)
     if body.approve:
         target.verified = True

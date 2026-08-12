@@ -21,6 +21,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..errors import herr
 from ..ledger import PayoutError, driver_balance, ledger_entries, reconcile, request_payout
 from ..models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus,
@@ -43,7 +44,7 @@ class PayIn(BaseModel):
 
 def _guard_method(method: str) -> None:
     if method not in _METHODS:
-        raise HTTPException(400, "Неизвестный способ оплаты")
+        raise herr(400, "Неизвестный способ оплаты", "Билдәһеҙ түләү ысулы")
 
 
 def _cancel_own_pending_cashless(session: Session, user_id: int, *, order_id=None, booking_id=None) -> None:
@@ -73,7 +74,7 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
     # (mock/sbp_manual) вернул бы «succeeded» без денег → начисление фантома. Блокируем 503:
     # клиент по 503 прячет карту (OnlinePayGate), остаётся нал / перевод «на доверии».
     if settings.is_prod and settings.payments_provider != "yookassa":
-        raise HTTPException(503, "Оплата скоро будет доступна")
+        raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
     # Дедуп pending: уже есть висящий платёж на этот заказ/бронь → возвращаем его, НЕ создаём второй
     # (иначе два тапа «Оплатить» / ретрай при задержке вебхука = два реальных списания). Образец — debt.py.
     dq = select(Payment).where(
@@ -116,13 +117,13 @@ def pay_instant_order(order_id: int, body: PayIn, user: User = Depends(current_u
     """Пассажир оплачивает ЗАВЕРШЁННЫЙ быстрый заказ. Только владелец, только статус done."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.passenger_id != user.id:                     # анти-IDOR: чужой заказ не оплатить
-        raise HTTPException(403, "Это не твой заказ")
+        raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
     if order.status != InstantOrderStatus.done:
-        raise HTTPException(409, "Оплатить можно только завершённую поездку")
+        raise herr(409, "Оплатить можно только завершённую поездку", "Тик тамамланған сәфәр өсөн түләп була")
     if order.driver_id is None:
-        raise HTTPException(409, "У заказа нет водителя")
+        raise herr(409, "У заказа нет водителя", "Заказдың водителе юҡ")
     if order.paid:                                        # идемпотентно: повторная оплата не начисляет второй раз
         return {"status": "already_paid", "method": order.payment_method}
     _guard_method(body.method)
@@ -146,17 +147,17 @@ def pay_booking(booking_id: int, body: PayIn, user: User = Depends(current_user)
     """Пассажир оплачивает ЗАВЕРШЁННУЮ бронь плановой поездки. Только владелец, только done."""
     booking = session.get(Booking, booking_id)
     if not booking:
-        raise HTTPException(404, "Бронь не найдена")
+        raise herr(404, "Бронь не найдена", "Бронь табылманы")
     if booking.passenger_id != user.id:                   # анти-IDOR
-        raise HTTPException(403, "Это не твоя бронь")
+        raise herr(403, "Это не твоя бронь", "Был һинең броның түгел")
     if booking.status != BookingStatus.done:
-        raise HTTPException(409, "Оплатить можно только завершённую поездку")
+        raise herr(409, "Оплатить можно только завершённую поездку", "Тик тамамланған сәфәр өсөн түләп була")
     if booking.paid:
         return {"status": "already_paid", "method": booking.payment_method}
     _guard_method(body.method)
     amount_kop = int(booking.price) * 100                 # цена брони в ₽ → копейки
     if amount_kop <= 0:
-        raise HTTPException(409, "У брони нет суммы к оплате")
+        raise herr(409, "У брони нет суммы к оплате", "Брондә түләргә сумма юҡ")
     if body.method == "cash":
         from .. import ledger
         ledger.settle_booking(session, booking.id, "cash", amount_kop)
@@ -201,7 +202,7 @@ def admin_ledger_reconcile(days: int = 1, date_from: str = "", date_to: str = ""
         end = datetime.fromisoformat(date_to) if date_to else utcnow()
         start = datetime.fromisoformat(date_from) if date_from else end - timedelta(days=max(1, min(days, 366)))
     except ValueError:
-        raise HTTPException(400, "Неверный формат даты (нужен ISO 8601)")
+        raise herr(400, "Неверный формат даты (нужен ISO 8601)", "Дата форматы дөрөҫ түгел (ISO 8601 кәрәк)")
     return reconcile(session, start, end)
 
 
@@ -246,7 +247,7 @@ def save_payout_requisite(body: PayoutRequisiteIn, user: User = Depends(current_
     digits = "".join(c for c in body.card_number if c.isdigit())
     last4 = (digits[-4:] if len(digits) >= 4 else "") or "".join(c for c in body.card_last4 if c.isdigit())[-4:]
     if not last4 or (digits and len(digits) < 12):
-        raise HTTPException(400, "Проверь номер карты для вывода")
+        raise herr(400, "Проверь номер карты для вывода", "Сығарыу өсөн карта номерын тикшер")
     dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
     if not dp:
         dp = DriverProfile(user_id=user.id)
@@ -275,7 +276,7 @@ def wallet_payout(body: PayoutIn, user: User = Depends(current_user), session: S
         raise HTTPException(503, _PAYOUT_SOON)
     dp = _payout_profile(session, user.id)
     if not dp or not dp.payout_card_last4:
-        raise HTTPException(400, "Сначала добавь карту для вывода")
+        raise herr(400, "Сначала добавь карту для вывода", "Башта сығарыу өсөн карта өҫтә")
     try:
         res = request_payout(
             session, user.id, int(body.amount_kop),

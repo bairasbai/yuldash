@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..models import User, UserRole, WaitlistEntry
 from ..security import current_user
 from ..timeutil import utcnow
@@ -52,7 +53,7 @@ def join_waitlist(body: WaitlistIn, session: Session = Depends(get_session)):
     если передан, чтобы подача без города не затирала известный). Не дублирует."""
     phone = _normalize_phone(body.phone)
     if not _PHONE_RE.match(phone):
-        raise HTTPException(400, "Неверный номер телефона")
+        raise herr(400, "Неверный номер телефона", "Телефон номеры дөрөҫ түгел")
     city = (body.city or "").strip()[:80]
     entry = session.exec(select(WaitlistEntry).where(WaitlistEntry.phone == phone)).first()
     if entry is None:

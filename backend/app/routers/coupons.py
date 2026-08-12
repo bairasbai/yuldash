@@ -900,7 +900,7 @@ def admin_partner_approve(partner_id: int, user: User = Depends(current_user), s
     _require_admin(user)
     partner = session.get(Partner, partner_id)
     if not partner:
-        raise HTTPException(404, "Бизнес не найден")
+        raise herr(404, "Бизнес не найден", "Бизнес табылманы")
     partner.status = "active"
     partner.reject_reason = ""
     partner.reviewed_at = utcnow()
@@ -917,7 +917,7 @@ def admin_partner_reject(partner_id: int, body: RejectIn, user: User = Depends(c
     _require_admin(user)
     partner = session.get(Partner, partner_id)
     if not partner:
-        raise HTTPException(404, "Бизнес не найден")
+        raise herr(404, "Бизнес не найден", "Бизнес табылманы")
     partner.status = "rejected"
     partner.reject_reason = body.reason.strip()[:500]
     partner.reviewed_at = utcnow()

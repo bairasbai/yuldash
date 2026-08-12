@@ -116,7 +116,7 @@ def delete_saved(place_id: int, user: User = Depends(current_user),
     """Удалить своё сохранённое место. Чужое/несуществующее → 404 (не раскрываем чужое)."""
     place = session.get(SavedPlace, place_id)
     if not place or place.user_id != user.id:   # анти-IDOR: чужое место не трогаем и не подтверждаем
-        raise HTTPException(404, "Место не найдено")
+        raise herr(404, "Место не найдено", "Урын табылманы")
     session.delete(place)
     session.commit()
     return {"ok": True}

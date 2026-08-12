@@ -67,7 +67,7 @@ def add_contact(body: ContactIn, user: User = Depends(current_user), session: Se
     # иначе через сотни «контактов» с чужими номерами можно устроить SMS-бомбинг (SOS/трип-статус шлют всем).
     phone = (body.phone or "").strip()
     if phone and not _PHONE_RE.match(phone.replace(" ", "").replace("-", "")):
-        raise HTTPException(400, "Неверный номер телефона")
+        raise herr(400, "Неверный номер телефона", "Телефон номеры дөрөҫ түгел")
     count = len(session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all())
     if count >= MAX_TRUSTED_CONTACTS:
         raise HTTPException(400, f"Больше {MAX_TRUSTED_CONTACTS} доверенных контактов не добавить")
@@ -92,7 +92,7 @@ def delete_contact(contact_id: int, user: User = Depends(current_user), session:
     возвращался). Сначала гасим шаринги контакта (FK + прекращение SMS-статусов), затем сам контакт."""
     contact = session.get(TrustedContact, contact_id)
     if not contact or contact.user_id != user.id:
-        raise HTTPException(404, "Контакт не найден")
+        raise herr(404, "Контакт не найден", "Контакт табылманы")
     for share in session.exec(select(TripShare).where(TripShare.contact_id == contact_id)).all():
         session.delete(share)
     session.delete(contact)
@@ -108,10 +108,10 @@ class ShareIn(BaseModel):
 def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     booking, _ = booking_and_ride_for_user(session, booking_id, user)
     if booking.passenger_id != user.id:
-        raise HTTPException(403, "Расшарить поездку может только пассажир")
+        raise herr(403, "Расшарить поездку может только пассажир", "Сәфәрҙе тик пассажир уртаҡлаша ала")
     contact = session.get(TrustedContact, body.contact_id)
     if not contact or contact.user_id != user.id:
-        raise HTTPException(404, "Контакт не найден")
+        raise herr(404, "Контакт не найден", "Контакт табылманы")
     # QA-DEDUP-SHARETRIP: повторный share тем же контактом не плодит дубли (иначе дубли SMS-статусов).
     existing = session.exec(
         select(TripShare).where(TripShare.booking_id == booking_id, TripShare.contact_id == body.contact_id)
@@ -162,12 +162,12 @@ def share_instant_trip(order_id: int, body: ShareIn, user: User = Depends(curren
     (сел/доехал/отмена) шлёт сервер сам на переходах заказа (см. instant_service)."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.passenger_id != user.id:
-        raise HTTPException(403, "Расшарить поездку может только пассажир")
+        raise herr(403, "Расшарить поездку может только пассажир", "Сәфәрҙе тик пассажир уртаҡлаша ала")
     contact = session.get(TrustedContact, body.contact_id)
     if not contact or contact.user_id != user.id:
-        raise HTTPException(404, "Контакт не найден")
+        raise herr(404, "Контакт не найден", "Контакт табылманы")
     existing = session.exec(
         select(TripShare).where(TripShare.order_id == order_id, TripShare.contact_id == body.contact_id)
     ).first()
@@ -194,9 +194,9 @@ def list_instant_shares(order_id: int, user: User = Depends(current_user),
     """Мои шаринги этого заказа (пассажиру — показать «уже поделился с …»)."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.passenger_id != user.id:
-        raise HTTPException(403, "Доступно только пассажиру заказа")
+        raise herr(403, "Доступно только пассажиру заказа", "Тик заказ пассажирына мөмкин")
     contact_ids = [c.id for c in session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()]
     if not contact_ids:
         return []
@@ -220,9 +220,9 @@ def parcel_track_link(parcel_id: int, user: User = Depends(current_user),
     посылку не шарим (следить уже не за чем)."""
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel or parcel.sender_id != user.id:
-        raise HTTPException(404, "Посылка не найдена")
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
     if parcel.status in ("delivered", "canceled"):
-        raise HTTPException(409, "Посылка уже завершена")
+        raise herr(409, "Посылка уже завершена", "Бандероль тамамланған инде")
     existing = session.exec(
         select(TripShare).where(TripShare.parcel_id == parcel_id).order_by(TripShare.id.desc())
     ).first()
@@ -245,7 +245,7 @@ def parcel_track_link(parcel_id: int, user: User = Depends(current_user),
         )
     ).all())
     if sent_today >= 20:
-        raise HTTPException(429, "Слишком много трекинг-ссылок за сутки. Попробуй завтра.")
+        raise herr(429, "Слишком много трекинг-ссылок за сутки. Попробуй завтра.", "Бер тәүлеккә күҙәтеү һылтанмалары артыҡ күп. Иртәгә ҡабатла.")
     share = TripShare(parcel_id=parcel_id, token=secrets.token_urlsafe(16),
                       expires_at=utcnow() + _PARCEL_SHARE_TTL)
     session.add(share)
@@ -280,7 +280,7 @@ def parcel_track_link_revoke(parcel_id: int, user: User = Depends(current_user),
     токен «сгорает» (/t/{token} → 404). Только отправитель. Повторный POST выдаст НОВЫЙ токен."""
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel or parcel.sender_id != user.id:
-        raise HTTPException(404, "Посылка не найдена")
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
     rows = session.exec(select(TripShare).where(TripShare.parcel_id == parcel_id)).all()
     for share in rows:
         session.delete(share)
@@ -294,10 +294,10 @@ def _revoke_share(session: Session, share_id: int, user: User, *, booking_id: in
     share = session.get(TripShare, share_id)
     if not share or (booking_id is not None and share.booking_id != booking_id) \
             or (order_id is not None and share.order_id != order_id):
-        raise HTTPException(404, "Шаринг не найден")
+        raise herr(404, "Шаринг не найден", "Уртаҡлашыу табылманы")
     contact = session.get(TrustedContact, share.contact_id)
     if not contact or contact.user_id != user.id:
-        raise HTTPException(403, "Отозвать может только владелец шаринга")
+        raise herr(403, "Отозвать может только владелец шаринга", "Тик уртаҡлашыу эйәһе кире ала")
     session.delete(share)
     session.commit()
     return {"ok": True}
@@ -308,9 +308,9 @@ def revoke_instant_share(order_id: int, share_id: int, user: User = Depends(curr
                          session: Session = Depends(get_session)):
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.passenger_id != user.id:
-        raise HTTPException(403, "Доступно только пассажиру заказа")
+        raise herr(403, "Доступно только пассажиру заказа", "Тик заказ пассажирына мөмкин")
     return _revoke_share(session, share_id, user, order_id=order_id)
 
 
@@ -319,7 +319,7 @@ def revoke_booking_share(booking_id: int, share_id: int, user: User = Depends(cu
                          session: Session = Depends(get_session)):
     booking, _ = booking_and_ride_for_user(session, booking_id, user)
     if booking.passenger_id != user.id:
-        raise HTTPException(403, "Доступно только пассажиру брони")
+        raise herr(403, "Доступно только пассажиру брони", "Тик бронь пассажирына мөмкин")
     return _revoke_share(session, share_id, user, booking_id=booking_id)
 
 
@@ -331,9 +331,9 @@ class TripStatusIn(BaseModel):
 def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     booking, _ = booking_and_ride_for_user(session, booking_id, user)
     if booking.passenger_id != user.id:
-        raise HTTPException(403, "Статус семейного контроля меняет только пассажир")
+        raise herr(403, "Статус семейного контроля меняет только пассажир", "Ғаилә күҙәтеү хәлен тик пассажир үҙгәртә")
     if body.status not in {"sat", "arrived", "done"}:
-        raise HTTPException(400, "Недопустимый статус поездки")
+        raise herr(400, "Недопустимый статус поездки", "Ярамаған сәфәр хәле")
     # «Завершил поездку» → реально закрываем бронь на сервере (раньше статус уходил только близким,
     # а бронь висела активной). Идемпотентно: повторный done/отменённую не трогаем.
     if body.status == "done" and booking.status not in (BookingStatus.done, BookingStatus.cancelled):
@@ -455,10 +455,10 @@ def set_tips_sbp(body: TipsSbpIn, user: User = Depends(current_user), session: S
     поездки и при tips_money_enabled — личное отдаём по согласию (opt-in) и минимально."""
     prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
     if not prof:
-        raise HTTPException(403, "Только для водителя")
+        raise herr(403, "Только для водителя", "Тик водитель өсөн")
     sbp = (body.sbp or "").strip()
     if sbp and not _PHONE_RE.match(sbp.replace(" ", "").replace("-", "")):
-        raise HTTPException(400, "Неверный номер СБП")
+        raise herr(400, "Неверный номер СБП", "СБП номеры дөрөҫ түгел")
     prof.tips_sbp = sbp
     session.add(prof)
     session.commit()
@@ -470,11 +470,11 @@ def _booking_for_passenger_done(session: Session, booking_id: int, user: User) -
     Проверка статуса ПОСЛЕ участника: чужой получает 403, участник недозавершённой — 409."""
     b = session.get(Booking, booking_id)
     if not b:
-        raise HTTPException(404, "Бронь не найдена")
+        raise herr(404, "Бронь не найдена", "Бронь табылманы")
     if b.passenger_id != user.id:
-        raise HTTPException(403, "Доступно только пассажиру поездки")
+        raise herr(403, "Доступно только пассажиру поездки", "Тик сәфәр пассажирына мөмкин")
     if b.status != BookingStatus.done:
-        raise HTTPException(409, "Поблагодарить можно после завершения поездки")
+        raise herr(409, "Поблагодарить можно после завершения поездки", "Рәхмәт әйтеү сәфәр тамамланғандан һуң мөмкин")
     return b
 
 
@@ -499,11 +499,11 @@ def _order_for_passenger_done(session: Session, order_id: int, user: User) -> In
     """Такси-заказ ЭТОГО пассажира, завершённый (для «рәхмәт»). Порядок проверок как у брони."""
     o = session.get(InstantOrder, order_id)
     if not o:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if o.passenger_id != user.id:
-        raise HTTPException(403, "Доступно только пассажиру заказа")
+        raise herr(403, "Доступно только пассажиру заказа", "Тик заказ пассажирына мөмкин")
     if (o.status.value if hasattr(o.status, "value") else o.status) != "done":
-        raise HTTPException(409, "Поблагодарить можно после завершения поездки")
+        raise herr(409, "Поблагодарить можно после завершения поездки", "Рәхмәт әйтеү сәфәр тамамланғандан һуң мөмкин")
     return o
 
 
