@@ -793,9 +793,13 @@ internal fun BoostPlanCard(plan: BoostPlanDto, selected: Boolean, onClick: () ->
  */
 @Composable
 internal fun BoostResultCard(res: BoostResultDto, clipboard: androidx.compose.ui.platform.ClipboardManager) {
+    // Телефон для перевода копируем как чувствительное: без предпросмотра в системной всплывашке
+    // и без запоминания клавиатурой (волна 32). `clipboard` остаётся в сигнатуре — его ждут
+    // существующие вызовы и тесты, но сам буфер трогаем через помощника.
+    val ctxCopy = androidx.compose.ui.platform.LocalContext.current
     BoostResultContent(
         res = res,
-        onCopyPhone = { phone -> clipboard.setText(AnnotatedString(phone)) },
+        onCopyPhone = { phone -> copySensitive(ctxCopy, phone) },
         sberPaySlot = { phone -> SberPayBlock(phone, Modifier.padding(top = 4.dp)) },
     )
 }

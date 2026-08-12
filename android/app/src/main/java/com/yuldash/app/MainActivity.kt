@@ -864,7 +864,7 @@ internal fun SbpTransferSheet(amountKop: Int, onPaid: () -> Unit, onDismiss: () 
             )
             Button(
                 onClick = {
-                    clipboard.setText(AnnotatedString(phone))
+                    copySensitive(context, phone)   // чужой номер: без предпросмотра в системе
                     Toast.makeText(context, copied, Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),

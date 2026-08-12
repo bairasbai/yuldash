@@ -63,7 +63,7 @@ internal fun LiveLinkCard(link: String, modifier: Modifier = Modifier) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 onClick = {
-                    clipboard.setText(AnnotatedString(link))
+                    copySensitive(ctx, link)   // ссылка показывает, где человек едет сейчас
                     Toast.makeText(ctx, copiedMsg, Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.weight(1f).height(48.dp),

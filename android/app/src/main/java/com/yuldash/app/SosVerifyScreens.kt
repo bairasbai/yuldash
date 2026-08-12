@@ -429,7 +429,7 @@ internal fun SosScreen(
         onDial = { dial(it) },
         onLocate = { requestLoc() },
         onCopy = {
-            clipboard.setText(AnnotatedString(dictText()))
+            copySensitive(context, dictText())   // марка, номер машины, место человека
             Toast.makeText(context, tCopied, Toast.LENGTH_SHORT).show()
         },
         onSendSignal = { sendSignal() },

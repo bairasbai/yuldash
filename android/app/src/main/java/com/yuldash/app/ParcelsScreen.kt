@@ -2258,6 +2258,7 @@ private fun ParcelCreatedView(
     onDone: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
+    val ctxParcelCopy = LocalContext.current   // код вручения копируем как чувствительное (волна 32)
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -2291,7 +2292,7 @@ private fun ParcelCreatedView(
                         fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine, textAlign = TextAlign.Center,
                     )
                     if (confirmCode.isNotBlank()) {
-                        Surface(onClick = { clipboard.setText(AnnotatedString(confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+                        Surface(onClick = { copySensitive(ctxParcelCopy, confirmCode) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                             Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(8.dp))
@@ -2506,6 +2507,7 @@ private fun MyParcelsTab(onGoSend: () -> Unit = {}) {
 private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: () -> Unit,
                          onDispute: () -> Unit, onRate: () -> Unit, onReceipt: () -> Unit) {
     val clipboard = LocalClipboardManager.current
+    val ctxParcelCopy = LocalContext.current   // код вручения копируем как чувствительное (волна 32)
     val terminal = isParcelTerminal(p.status)
     val goodsAlreadyBought =
         p.deliveryType == "buy_bring" && (p.settlement?.goodsActualKop ?: 0) > 0
@@ -2655,7 +2657,7 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                                 p.confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
                                 fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine, modifier = Modifier.weight(1f),
                             )
-                            Surface(onClick = { clipboard.setText(AnnotatedString(p.confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+                            Surface(onClick = { copySensitive(ctxParcelCopy, p.confirmCode) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
                             }
                         }
