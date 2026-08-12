@@ -1178,7 +1178,7 @@ private fun EvidenceViewer(photos: List<String>, startAt: Int, onClose: () -> Un
     var at by remember(startAt) { mutableIntStateOf(startAt.coerceIn(0, photos.lastIndex)) }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
-            Modifier.fillMaxSize().background(Color(0xE6000000)).clickable(onClick = onClose),
+            Modifier.fillMaxSize().background(CanonScrim).clickable(onClick = onClose),
             contentAlignment = Alignment.Center,
         ) {
             coil.compose.AsyncImage(
@@ -1191,7 +1191,7 @@ private fun EvidenceViewer(photos: List<String>, startAt: Int, onClose: () -> Un
             // Закрыть — крестом сверху справа, а не только тапом по фону: тап по фону догадаться
             // надо, а крест видно. Тач-цель 48dp, как везде.
             Box(Modifier.fillMaxSize().padding(FairGap), contentAlignment = Alignment.TopEnd) {
-                Surface(color = Color(0x66000000), shape = CircleShape) {
+                Surface(color = CanonGlassDark, shape = CircleShape) {
                     Icon(
                         Icons.Default.Close,
                         contentDescription = appText("Закрыть фото", "Фотоны ябыу"),
@@ -1227,11 +1227,11 @@ private fun EvidenceViewer(photos: List<String>, startAt: Int, onClose: () -> Un
 /** Стрелка листания в просмотре: погашенная — не кликается и видно, что дальше некуда. */
 @Composable
 private fun ViewerArrow(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
-    Surface(color = Color(0x66000000), shape = CircleShape) {
+    Surface(color = CanonGlassDark, shape = CircleShape) {
         Icon(
             icon,
             contentDescription = label,
-            tint = if (enabled) Color.White else Color(0x66FFFFFF),
+            tint = if (enabled) Color.White else CanonGlassOnPhoto,
             modifier = Modifier
                 .size(FairTouch)
                 .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)

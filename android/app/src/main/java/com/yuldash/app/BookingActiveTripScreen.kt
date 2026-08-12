@@ -758,7 +758,7 @@ internal fun BookingRouteMapPreview(   // internal: живой MapKit-ренде
             map.move(camera, Animation(Animation.Type.SMOOTH, 0.25f), null)
         }
         map.mapObjects.addPolyline(Polyline(listOf(fromPoint, toPoint))).apply {
-            setStrokeColor(0xCC0B6B3A.toInt())
+            setStrokeColor(CANON_ROUTE_MAIN_ARGB)
             strokeWidth = 5f
         }
         map.mapObjects.addPlacemark().apply { geometry = fromPoint }

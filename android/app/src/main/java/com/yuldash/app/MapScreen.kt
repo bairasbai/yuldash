@@ -1232,7 +1232,7 @@ private fun drawRoadRoute(
                         added.remove(straightLine)
                         // Объездные/альтернативные маршруты — бледно-серым, ПОД основным (как в навигаторах).
                         routes.drop(1).take(2).forEach { alt ->
-                            runCatching { added += map.mapObjects.addPolyline(alt.geometry).apply { setStrokeColor(0x55757575.toInt()); strokeWidth = 4f } }
+                            runCatching { added += map.mapObjects.addPolyline(alt.geometry).apply { setStrokeColor(CANON_ROUTE_ALT_ARGB); strokeWidth = 4f } }
                         }
                         // Основной (оптимальный по Яндексу — он сам учитывает пробки и закрытия дорог) — зелёным, поверх.
                         added += map.mapObjects.addPolyline(r.geometry).apply {
