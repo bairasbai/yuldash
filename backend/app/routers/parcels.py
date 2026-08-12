@@ -34,7 +34,7 @@ from ..errors import herr
 from ..flood import TOO_MANY_CARRYING, TOO_MANY_PARCELS, guard_open_items
 from ..models import ParcelDelivery, User, UserRole
 from ..safety_logic import (ensure_active,
-                            is_own_media_url)
+                            guard_own_evidence, is_own_media_url)
 from ..security import current_user
 from ..antifraud import moderate_open_text
 from ..services import blocked_user_ids, is_blocked, notify_admin_telegram, push_notification
@@ -504,7 +504,15 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
     # самое просторное поле в приложении. С курьера берётся комиссия, поэтому телефон в описании
     # помечаем так же, как в заказе такси. Проверялись заявка, отклик и отзыв — это поле нет
     # (аудит 2026-08-06). Текст не режем и заявку не роняем: решает человек, метка лишь копится.
-    moderate_open_text(body.description, user.id, place="parcel", session=session)
+    # Вместе с описанием проверяем ИМЯ ПОЛУЧАТЕЛЯ: оно едет в открытом списке заявок
+    # (`_parcel_base`) рядом с описанием, поле свободное на 120 знаков, а проверка стояла
+    # только на описании — «Марат 89871234567» приезжал в ленту без метки (аудит 2026-08-08).
+    # `place`/`session` из второй ветки сохраняем: без них метка не попадает в кабинет админа
+    # («Помеченные тексты») и разбирать её некому.
+    moderate_open_text(
+        "\n".join(p for p in (body.description.strip(), receiver_name) if p),
+        user.id, place="parcel", session=session,
+    )
 
     parcel = ParcelDelivery(
         sender_id=user.id,
@@ -793,6 +801,9 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
     parcel.status = "accepted"
     parcel.accepted_at = utcnow()
     photo = ((body.pickup_photo_url if body else "") or "").strip()
+    # Своё фото, а не чужое: приватный снимок с чужим именем курьер мог бы предъявить админу
+    # в споре как собственное доказательство (аудит 2026-08-08, волна 9).
+    guard_own_evidence([photo] if photo else None, user.id, already=parcel.pickup_photo_url or "")
     if photo and is_own_media_url(photo):
         parcel.pickup_photo_url = photo
     session.add(parcel)
@@ -844,6 +855,8 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
         # слило бы его IP) — то же правило, что у фото вручения. Пустое/чужое молча игнорим,
         # снимок необязателен и не должен ломать сам переход в путь.
         pickup_photo = (body.pickup_photo_url or "").strip()
+        guard_own_evidence([pickup_photo] if pickup_photo else None, user.id,
+                           already=parcel.pickup_photo_url or "")
         if pickup_photo and is_own_media_url(pickup_photo):
             parcel.pickup_photo_url = pickup_photo
     else:  # delivered — нужен верный код вручения
@@ -876,6 +889,8 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
         # В споре «привёз битой» доказательства не оказывалось, хотя курьер был уверен, что снял.
         # Чужой хост не принимаем: открытие такой ссылки оппонентом слило бы его IP.
         delivery_photo = (body.delivery_photo_url or "").strip()
+        guard_own_evidence([delivery_photo] if delivery_photo else None, user.id,
+                           already=parcel.delivery_photo_url or "")
         if delivery_photo and is_own_media_url(delivery_photo):
             parcel.delivery_photo_url = delivery_photo
         # C4: комиссия платформы финализируется ЗДЕСЬ — теперь известен назначенный курьер и его

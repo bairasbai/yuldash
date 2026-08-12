@@ -19,6 +19,7 @@ from app.config import settings
 from app.db import engine
 from app.models import CourierApplication, ParcelDelivery, UserRole
 from app.timeutil import utcnow
+from conftest import upload_doc
 
 
 @pytest.fixture(autouse=True)
@@ -29,9 +30,10 @@ def _courier_on():
     settings.courier_enabled = prev
 
 
-def _apply(client, u, transport="car", selfie="secure/docs/selfie.jpg"):
+def _apply(client, u, transport="car", selfie=None):
     return client.post("/courier/apply", headers=u["auth"],
-                       json={"transport": transport, "selfie_url": selfie})
+                       json={"transport": transport,
+                             "selfie_url": upload_doc(client, u["auth"]) if selfie is None else selfie})
 
 
 def _approve(client, admin, app_id):

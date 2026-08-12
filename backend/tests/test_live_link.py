@@ -6,6 +6,7 @@
 car=null и ничего не падает; отзыв share гасит токен; ленивый токен для строк до миграции.
 """
 import json
+import re
 
 from sqlmodel import Session
 
@@ -22,6 +23,54 @@ def _share(client, pax, order_id, cid):
     r = client.post(f"/instant/orders/{order_id}/share", headers=pax["auth"], json={"contact_id": cid})
     assert r.status_code == 200, r.text
     return r.json()
+
+
+# ---------------------------------------------------------------------------
+# Как проверять «координат в ответе нет»
+#
+# Раньше тут стояло `assert "52.6" not in st.text and "58.3" not in st.text` — поиск подстроки
+# по СЫРОМУ тексту ответа. Это была не проверка, а лотерея: в ответе есть `updated_at`, а
+# `datetime.isoformat()` пишет секунды с долями — «…T10:33:52.612345». Подстрока «52.6»
+# появляется там, когда секунда равна 52, а микросекунды начинаются с 6, то есть РОВНО
+# 1 прогон из 600 (то же для «58.3»). Продукт при этом чист: координат в теле нет вообще.
+#
+# Доказано заморозкой часов на 10:33:52.612345 — старая строка падала, а `body` не содержал
+# ни одной координаты (аудит 2026-08-08). Урок — в docs/lessons.md: прибор, который умеет
+# сказать «утекло» на пустом месте, не измеряет ничего.
+#
+# Правильный прибор смотрит ЗНАЧЕНИЯ, а не текст, и знает, что время — не место.
+# ---------------------------------------------------------------------------
+
+#: Полный набор полей завершённой поездки (см. share._finished). Закрытый список — чтобы
+#: новое поле с гео нельзя было добавить незаметно: тест упадёт на самом факте появления ключа.
+_FINISHED_KEYS = {"kind", "status", "phase_text", "car", "passenger_first_name", "updated_at"}
+
+#: Ключи, где числа с точкой — это НЕ координата (время и версии). Их не смотрим.
+_NOT_A_PLACE = {"updated_at", "created_at", "ts"}
+
+#: Широта/долгота в наших краях: две цифры, точка, ещё минимум три знака (52.5915 / 58.3175).
+_COORD_RE = re.compile(r"\b\d{2}\.\d{3,}")
+
+
+def coord_like_values(body, *, key=None):
+    """Значения ответа, похожие на координату. Пусто → гео не утекло.
+
+    Смотрим и числа (диапазон Башкортостана), и строки. Ключи из `_NOT_A_PLACE` пропускаем:
+    там лежит время, и его дробные секунды не имеют отношения к месту.
+    """
+    if key in _NOT_A_PLACE:
+        return []
+    if isinstance(body, dict):
+        return [x for k, v in body.items() for x in coord_like_values(v, key=k)]
+    if isinstance(body, (list, tuple)):
+        return [x for v in body for x in coord_like_values(v, key=key)]
+    if isinstance(body, bool):
+        return []
+    if isinstance(body, (int, float)):
+        return [(key, body)] if 40.0 <= abs(float(body)) <= 80.0 else []
+    if isinstance(body, str) and _COORD_RE.search(body):
+        return [(key, body)]
+    return []
 
 
 # ============================ Токен + SMS со ссылкой ============================
@@ -163,9 +212,47 @@ def test_finished_hides_coordinates(client, user_factory, fake_redis):
     body = st.json()
     assert body["status"] == "finished" and body["car"] is None
     assert "from" not in body and "to" not in body               # координат нет вообще
-    assert "52.6" not in st.text and "58.3" not in st.text
+    assert set(body) == _FINISHED_KEYS                           # и никаких новых полей с гео
+    assert coord_like_values(body) == []
     assert "завершена" in body["phase_text"]["ru"] and body["phase_text"]["ba"]
     assert client.get(f"/t/{token}").status_code == 200          # страница живёт, покажет «завершена»
+
+
+# ============================ Прибор проверки: не врёт и не слеп ============================
+# Мигающий тест — это почти всегда сломанный прибор, а не сломанный продукт. Прошлый прибор
+# («подстрока 52.6 в тексте ответа») умел кричать «утекло» на пустом месте. Новый обязан
+# уметь ОБА ответа, и это проверяется здесь — иначе через полгода никто не вспомнит, почему
+# проверка написана именно так, и вернёт «проще, через .text».
+
+def test_coord_check_survives_the_timestamp_that_used_to_break_it(client, user_factory, fake_redis, monkeypatch):
+    """Часы на «секунда 52, микросекунды с 6» — ровно тот момент, что ронял старую проверку."""
+    from datetime import datetime
+
+    d, pax, order = _accepted_order(client, user_factory, fake_redis, "TsDrv", "TsPax")
+    oid = order["id"]
+    cid = _contact(client, pax, phone="+79990001099")
+    token = _share(client, pax, oid, cid)["token"]
+    for step in ("arrived", "onboard", "done"):
+        assert client.post(f"/instant/orders/{oid}/{step}", headers=d["auth"]).status_code == 200
+
+    monkeypatch.setattr("app.routers.share.utcnow", lambda: datetime(2026, 8, 8, 10, 33, 52, 612345))
+    st = client.get(f"/t/{token}/state.json")
+    body = st.json()
+
+    assert "52.6" in st.text                      # подстрока в тексте ЕСТЬ — это время, не широта
+    assert body["updated_at"] == "2026-08-08T10:33:52.612345"
+    assert coord_like_values(body) == []          # ...и прибор это понимает
+    assert set(body) == _FINISHED_KEYS
+
+
+def test_coord_check_still_catches_a_real_leak():
+    """И обратная сторона: настоящую координату прибор обязан находить, иначе он бесполезен."""
+    leaked = {"status": "finished", "updated_at": "2026-08-08T10:33:52.612345",
+              "from": {"lat": 52.5915, "lng": 58.3175}}
+    found = coord_like_values(leaked)
+    assert ("lat", 52.5915) in found and ("lng", 58.3175) in found
+    # И строкой тоже — координата умеет приехать в текстовом поле.
+    assert coord_like_values({"note": "я на 52.5915, 58.3175"}) != []
 
 
 # ============================ Отзыв share гасит токен ============================

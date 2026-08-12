@@ -24,7 +24,8 @@ from ..services import (
     notify_map_changed, notify_request_watchers, public_rides_payload, push_notification,
     record_pickup_choice, rides_out, user_rating,
 )
-from ..safety_logic import ensure_active
+from ..safety_logic import (account_paused, ensure_active, MSG_WOMEN_ONLY_RESPOND,
+                            guard_women_only, suspended_user_ids)
 from ..antifraud import moderate_open_text
 from ..timeutil import client_dt_to_utc, utcnow
 from .. import workday as workday_mod
@@ -61,6 +62,15 @@ class RequestIn(BaseModel):
     transcript: Optional[str] = Field(None, max_length=4000)
     pickup_point_id: Optional[int] = None   # F14: выбранная точка сбора (у заявки нет своей pickup-колонки — только пополняем usage справочника)
     assisted: bool = False   # заявка из «помощь»-режима (пожилой/голос/за близкого) — НЕ храним, только уведомляем админа
+
+
+def _visible_request_text(body: "RequestIn") -> str:
+    """Весь свободный текст заявки, который увидит лента водителей — одной строкой для проверки.
+    Комментарий, расшифровка голосовой заявки и имя близкого: три поля, одна модерация."""
+    parts = ((body.comment or "").strip(),
+             (body.transcript or "").strip(),
+             (body.for_relative_name or "").strip())
+    return "\n".join(p for p in parts if p)
 
 
 def live_request_conds():
@@ -119,7 +129,13 @@ def create_request(body: RequestIn, user: User = Depends(current_user), session:
     # на отклике и на заявке от админа, а на самом создании её не было: пока человек не зайдёт
     # и не отредактирует заявку, ни счётчик меток, ни админ-пульс о тексте не узнают
     # (аудит 2026-08-07). Как везде: ПОМЕЧАЕМ, текст не режем и сохранение не рвём.
-    moderate_open_text(body.comment, user.id)
+    #
+    # Проверяем ВСЁ, что увидит лента, а не только комментарий (аудит 2026-08-08). Заявка
+    # уходит водителям целиком (`response_model=RideRequest`), а вместе с комментарием там
+    # едут расшифровка голосовой заявки и имя близкого — оба свободный текст от человека.
+    # Пока смотрели одно поле, обойти проверку можно было, просто продиктовав объявление
+    # голосом: тот же класс, что забытое имя пользователя (2026-08-07) и расшифровка в чате.
+    moderate_open_text(_visible_request_text(body), user.id)
     # Желаемое время → наивный UTC (разбор №2): без этого заявка «на 10:00» жила в ленте
     # до 17:00 по Уфе. Время без пояса от старых версий приложения считаем местным.
     body.desired_at = client_dt_to_utc(body.desired_at)
@@ -440,6 +456,9 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
     # Блокировки текущего водителя — ОДНИМ запросом (анти-N+1 вместо is_blocked в цикле по 200 заявкам).
     blk = session.exec(select(Block).where(or_(Block.user_id == user.id, Block.blocked_user_id == user.id))).all()
     blocked_ids = {(b.blocked_user_id if b.user_id == user.id else b.user_id) for b in blk}
+    # Пассажиры на паузе — тоже ОДНИМ запросом. Принять отклик им закрыто (волна 9), значит
+    # водитель торговался бы впустую: заявка живая на вид, а сделку по ней уже не закрыть.
+    paused_ids = suspended_user_ids(session)
     is_insider = trust_level(session, user) >= INSIDER_LEVEL   # заявки «только для своих» видит лишь L3
     # Свои активные поездки — один запрос на всю ленту (не в цикле по 200 заявкам).
     my_rides = session.exec(
@@ -447,7 +466,7 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
     ).all()
     out: list = []
     for r in reqs:
-        if r.passenger_id in blocked_ids:
+        if r.passenger_id in blocked_ids or r.passenger_id in paused_ids:
             continue
         if getattr(r, "only_trusted", False) and not is_insider:
             continue
@@ -489,6 +508,16 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
         raise herr(400, "Нельзя откликнуться на свою заявку", "Үҙ заявкаңа яуап биреп булмай")
     if is_blocked(session, user.id, req.passenger_id):
         raise herr(403, "Недоступно", "Мөмкин түгел")
+    # Пассажир на паузе — принять отклик он не сможет (волна 9). Из ленты такие заявки убраны,
+    # но прямая ссылка ленту обходит. Про наказание второй стороны не сообщаем.
+    if account_paused(session, req.passenger_id):
+        raise herr(409, "Эта заявка сейчас недоступна. Посмотри другие — рядом есть ещё.",
+                   "Был заявка хәҙер юҡ. Башҡаларын ҡара — яҡында тағы бар.")
+    # Заявка «только женщины» — зеркало правила на поездке: пассажирка просит женщину за рулём,
+    # значит откликнуться может женщина (решение Александра, 2026-08-08). Без этого отметка на
+    # заявке оставалась украшением: чипы её рисовали, а отклик принимал кого угодно.
+    if getattr(req, "women_only", False):
+        guard_women_only(user, msg=MSG_WOMEN_ONLY_RESPOND)
     # Пауза «Справедливости» (§2): отклик — это предложение человеку сесть в машину. Раньше
     # проверка стояла только на создании заявки, и отстранённый разбором жалобы водитель
     # спокойно откликался на чужие (аудит 2026-08-06).
@@ -833,6 +862,31 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     if last == role:
         raise herr(409, "Сейчас ход другой стороны — свою же цену принять нельзя",
                    "Хәҙер икенсе яҡтың сираты — үҙ хаҡыңды ҡабул итеп булмай")
+    # ⬇️ Пауза «Справедливости» (§2) на ОБЕИХ сторонах. Торг — это две двери, а гейт стоял
+    # только на одной: отклик и встречная цена отстранённому закрыты, а «принять» — нет.
+    # Значит висящий отклик доводился до конца, и отстранённый водитель снова садился за руль
+    # с пассажиром (проверено запросом: 200 и booking_id, аудит 2026-08-08, волна 9).
+    #
+    # Проверяем именно ОБОИХ, а не только нажимающего: иначе отстранённому достаточно
+    # дождаться, пока «принять» нажмёт вторая сторона, — и поездка всё равно состоится.
+    if user.role != UserRole.admin:
+        ensure_active(session, user.id)          # моё действие — про мой аккаунт, свой текст
+    other_id = resp.driver_id if role == "passenger" else req.passenger_id
+    # Блокировка — инструмент защиты от преследования, и у неё была та же вторая дверь, что у
+    # паузы: ОТКЛИК заблокированному закрыт (403 выше), а ПРИНЯТЬ цену он мог. Достаточно было
+    # откликнуться до блокировки и дождаться своего хода — и человек, которого заблокировали,
+    # оказывался за рулём у того, кто от него закрылся (проверено запросом: 200 и booking_id,
+    # аудит 2026-08-08, волна 10). Текст намеренно глухой: он не сообщает о факте блокировки.
+    if other_id and other_id != user.id and is_blocked(session, user.id, other_id):
+        raise herr(403, "Недоступно", "Мөмкин түгел")
+    if other_id and other_id != user.id and account_paused(session, other_id):
+        # Второй стороне НЕ говорим, что человека наказали (чужая история разбора), и не
+        # обвиняем её саму: текст про невозможность сделки, а не про чей-то аккаунт.
+        if role == "passenger":
+            raise herr(409, "Этот водитель сейчас не выходит в рейс. Заявка активна — дождись другого отклика.",
+                       "Был водитель хәҙер юлға сыҡмай. Заявка актив — башҡа яуапты көт.")
+        raise herr(409, "Пассажир сейчас не может оформить поездку. Попробуй другую заявку.",
+                   "Пассажир хәҙер сәфәр аса алмай. Башҡа заявканы ҡарап ҡара.")
     booking = accept_request_response(session, resp)
     return {"booking_id": booking.id}
 

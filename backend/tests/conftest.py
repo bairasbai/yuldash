@@ -1,5 +1,6 @@
 """Тестовое окружение: изолированная SQLite (НЕ трогает прод), env=dev."""
 import atexit
+import base64
 import os
 import pathlib
 import tempfile
@@ -81,13 +82,17 @@ _uid_counter = {"n": 0}   # глобальный — уникальные юзе
 
 @pytest.fixture
 def user_factory(client):
-    def make(name="User", role=UserRole.passenger, taxi_approved: bool | None = None):
+    def make(name="User", role=UserRole.passenger, taxi_approved: bool | None = None,
+             gender: str = ""):
         """taxi_approved: None → водителю авто-одобряем заявку таксиста (существующие тесты
         такси-стека написаны про работающих таксистов); False → без заявки (для тестов гейта)."""
         _uid_counter["n"] += 1
         i = _uid_counter["n"]
         with Session(engine) as s:
-            u = User(phone=f"tg-test-{i}", name=name, telegram_id=f"test{i}", verified=True, role=role)
+            # gender: "" | female | male. Нужен тестам про «только женщины» — правило
+            # проверяется у ОБЕИХ сторон (аудит 2026-08-08).
+            u = User(phone=f"tg-test-{i}", name=name, telegram_id=f"test{i}", verified=True,
+                     role=role, gender=gender)
             s.add(u)
             s.commit()
             s.refresh(u)
@@ -104,3 +109,29 @@ def user_factory(client):
             return {"id": u.id, "token": tok, "auth": {"Authorization": f"Bearer {tok}"}}
 
     return make
+
+
+# --- Настоящий загруженный документ (селфи курьера, фото прав и т.п.) ---
+# Сервер принимает в заявку ТОЛЬКО ссылку на файл, который этот же человек загрузил через
+# /upload/photo (`_ensure_owned_doc_url`). Раньше тесты слали выдуманную строку
+# "secure/docs/s.jpg", и это скрывало настоящую дыру: селфи курьера принималось каким угодно
+# адресом, а модерация грузила его с токеном админа в заголовке (аудит 2026-08-08).
+# Хелпер загружает крошечный JPEG и возвращает честный URL — тесты идут тем же путём, что люди.
+def upload_doc(client, auth) -> str:
+    """Загрузить минимальный JPEG как приватный документ → его /secure/docs URL."""
+    b64 = base64.b64encode(b"\xff\xd8\xfftest-jpeg").decode()
+    r = client.post("/upload/photo", headers=auth, json={"photo_b64": b64, "ext": "jpg"})
+    assert r.status_code == 200, r.text
+    return r.json()["url"]
+
+# --- Настоящее загруженное фото-доказательство (спор, фото «взял/отдал целой») ---
+# Сервер принимает ТОЛЬКО снимок, который загрузил сам этот человек: имя файла начинается
+# с его id (`guard_own_evidence`). Выдуманная строка вида "secure/evidence/pickup.jpg"
+# скрывала настоящую дыру — чужое фото с лицами и травмами читалось посторонним
+# (аудит 2026-08-08, волна 9). Хелпер ведёт тест тем же путём, что человека.
+def upload_evidence(client, auth) -> str:
+    """Загрузить минимальный JPEG как фото-доказательство → его /secure/evidence URL."""
+    b64 = base64.b64encode(bytes([0xFF, 0xD8, 0xFF]) + b"test-evidence").decode()
+    r = client.post("/upload/evidence", headers=auth, json={"photo_b64": b64, "ext": "jpg"})
+    assert r.status_code == 200, r.text
+    return r.json()["url"]

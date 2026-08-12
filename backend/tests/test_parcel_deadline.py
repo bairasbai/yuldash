@@ -27,6 +27,7 @@ from app.models import ParcelDelivery, UserRole
 from app.workday import local_day
 
 from test_parcels import _create_parcel
+from conftest import upload_doc
 
 _MAX_DAYS = 30           # окно выбора срока (parcels._DELIVER_BY_MAX_DAYS)
 
@@ -227,7 +228,7 @@ def _make_courier(client, user_factory, name="СрокКурьерПроф"):
     admin = user_factory(name="СрокАдминК", role=UserRole.admin)
     c = user_factory(name=name)
     aid = client.post("/courier/apply", headers=c["auth"],
-                      json={"transport": "car", "selfie_url": "secure/docs/selfie.jpg"}).json()["id"]
+                      json={"transport": "car", "selfie_url": upload_doc(client, c["auth"])}).json()["id"]
     assert client.post(f"/admin/courier-applications/{aid}/approve",
                        headers=admin["auth"]).status_code == 200
     assert client.post("/courier/online", headers=c["auth"],

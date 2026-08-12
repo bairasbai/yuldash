@@ -137,7 +137,10 @@ def geocode(q: str = "", user: User = Depends(current_user)):
     Отдаём упрощённый список адресов для подсказок «Откуда/Куда». Требуем авторизацию —
     иначе аноним уникальными запросами жжёт бесплатную квоту Яндекса (~1000/день) и подсказки лягут."""
     key = settings.yandex_geocoder_key
-    query = (q or "").strip()
+    # Обрезаем запрос: настоящий адрес не длиннее пары строк, а необрезанный уезжал целиком
+    # в КЛЮЧ кеша Redis. Двадцать промахов в минуту по мегабайтной строке — это сотни мегабайт
+    # в Redis за сутки на одном аккаунте, и всё это с суточным TTL (аудит 2026-08-08).
+    query = (q or "").strip()[:200]
     if not key or len(query) < 2:
         return {"items": []}
     # Кеш адресов в Redis на сутки. Адреса стабильны, а все ищут одни города
@@ -212,6 +215,9 @@ async def upload_evidence(request: Request, user: User = Depends(current_user), 
     URL из ответа прикладывается к POST /incidents (evidence_urls) или /respond."""
     enforce_upload_quota(session, user.id)
     data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
-    name = f"{uuid.uuid4().hex}.{ext}"
+    # Имя НАЧИНАЕТСЯ с id загрузившего — по нему сервер потом отличает «моё фото» от чужого.
+    # Без этого чужое имя можно было вписать в свой спор и скачать фото с лицами и травмами
+    # (аудит 2026-08-08, волна 9). Тот же приём, что у документов водителя.
+    name = f"{user.id}_{uuid.uuid4().hex}.{ext}"
     await run_in_threadpool(get_storage().save, f"evidence/{name}", data)
     return {"url": secure_evidence_url(name)}

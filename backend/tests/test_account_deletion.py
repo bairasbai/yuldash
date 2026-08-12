@@ -23,6 +23,30 @@ from app.models import SQLModel, User, UserRole
 from app.timeutil import utcnow
 
 
+def _user_ref_columns() -> list:
+    """Все (таблица, колонка) с внешним ключом на `user.id` — по метаданным, а не по списку."""
+    out = []
+    for table in SQLModel.metadata.sorted_tables:
+        for col in table.columns:
+            for fk in col.foreign_keys:
+                if fk.column.table.name == "user" and fk.column.name == "id":
+                    out.append((table.name, col.name))
+    return out
+
+
+def _tables_holding(uid: int) -> set:
+    """Таблицы, где СЕЙЧАС есть хоть одна строка с этим uid."""
+    hit = set()
+    with Session(engine) as s:
+        for tname, cname in _user_ref_columns():
+            n = s.execute(
+                satext(f'SELECT COUNT(*) FROM "{tname}" WHERE "{cname}" = :u'), {"u": uid},
+            ).scalar()
+            if n:
+                hit.add(tname)
+    return hit
+
+
 def _residual_user_refs(uid: int) -> list:
     """Все (таблица.колонка) с FK на user.id, где ещё остались строки с uid."""
     hits = []
@@ -143,6 +167,64 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         s.commit()
         ticket_id = ticket.id
 
+        # --- ОСТАЛЬНЫЕ таблицы со ссылкой на пользователя (аудит 2026-08-08) ---
+        # Раньше их тут не было, и проверка «не осталось следов» по ним ничего не значила.
+        # Список держит самопроверка ниже: забудешь новую таблицу — тест покраснеет.
+        s.add(M.RefreshToken(user_id=uid, token_hash="hash-of-refresh",
+                             expires_at=utcnow() + timedelta(days=30)))
+        s.add(M.DeviceToken(user_id=uid, token=f"fcm-{uid}"))
+        s.add(M.DriverProfile(user_id=uid, car_make="Lada", car_number="А001АА102"))
+        s.add(M.SavedPlace(user_id=uid, label="Дом", address="Уфа, Ленина 1"))
+        s.add(M.RecentPlace(user_id=uid, address="Уфа, вокзал"))
+        s.add(M.Consent(user_id=uid, kind="privacy"))
+        s.add(M.UploadEvent(user_id=uid))
+        s.add(M.Trust(user_id=uid, level=1, invited_by=oid))
+        s.add(M.InviteCode(code=f"INV{uid}", owner_id=uid, uses_left=3))
+        s.add(M.Block(user_id=uid, blocked_user_id=oid))
+        s.add(M.AppReview(user_id=uid, name="ToDelete", city="Уфа", stars=5, text="Отлично"))
+        s.add(M.SosEvent(user_id=uid, category="danger", note="Помогите"))
+        s.add(M.Payment(user_id=uid, purpose="boost", tier="basic", method="sbp", amount_kop=10000))
+        s.add(M.Ad(owner_id=uid, created_by=uid, partner_name="Biz", partner_contact="@biz",
+                   title="Реклама", text="Текст", button="Открыть", target="https://x.ru",
+                   image_url="", erid="erid-1", placements="profile", cities="Уфа"))
+        # Жалоба на купон: таблица появилась 2026-08-08 вместе с модерацией витрины —
+        # и в удаление аккаунта её тогда не добавили (ровно эту дыру ловит самопроверка).
+        s.add(M.CouponReport(coupon_id=coupon.id, user_id=uid, reason="Скидки нет"))
+        # Жалоба на человека: и моя (reporter_id), и на меня (target_user_id).
+        s.add(M.Report(reporter_id=uid, target_user_id=oid, reason="Не приехал"))
+        s.add(M.Report(reporter_id=oid, target_user_id=uid, reason="Нахамил"))
+        # Я как пассажир в ЧУЖОЙ поездке: своя бронь + заявка + отклик на чужую заявку.
+        other_ride = M.Ride(driver_id=oid, from_city="C", to_city="D", depart_at=utcnow())
+        s.add(other_ride); s.commit(); s.refresh(other_ride)
+        s.add(M.Booking(ride_id=other_ride.id, passenger_id=uid, seats=1, price=100))
+        my_req = M.RideRequest(passenger_id=uid, from_city="A", to_city="B", seats=1)
+        other_req = M.RideRequest(passenger_id=oid, from_city="A", to_city="B", seats=1)
+        s.add(my_req); s.add(other_req); s.commit(); s.refresh(other_req)
+        s.add(M.RequestResponse(request_id=other_req.id, driver_id=uid, price=300, comment=""))
+        # Кого-то пригласил я (self-FK `user.referred_by`) — эта ссылка тоже должна отвязаться,
+        # иначе у приглашённого останется указатель на несуществующего человека.
+        invited = s.get(User, oid)
+        invited.referred_by = uid
+        s.add(invited)
+        s.commit()
+
+        user = s.get(User, uid)
+
+    # ⬇️ САМОПРОВЕРКА ПРИБОРА (аудит 2026-08-08). Главная проверка ниже ищет ОСТАТКИ строк.
+    # Если таблицу забыли заселить, остатков в ней не будет никогда — и «зелено» будет значить
+    # «мы туда не смотрели», а не «удаление работает». Ровно так проскочила `couponreport`:
+    # таблица появилась в тот же день, в удаление её не добавили, и тест этого не заметил.
+    # Поэтому сначала требуем ПОКРЫТИЕ: каждая таблица со ссылкой на пользователя должна быть
+    # заселена этим тестом. Появилась новая — здесь и станет красным, до всякой дыры.
+    seeded = _tables_holding(uid)
+    all_tables = {t for t, _ in _user_ref_columns()}
+    not_seeded = sorted(all_tables - seeded)
+    assert not_seeded == [], (
+        "тест не заселил таблицы со ссылкой на пользователя — по ним проверка удаления НИЧЕГО "
+        f"не доказывает: {not_seeded}. Заведи строку выше и убедись, что удаление её сносит."
+    )
+
+    with Session(engine) as s:
         user = s.get(User, uid)
         delete_user_account(s, user)
 

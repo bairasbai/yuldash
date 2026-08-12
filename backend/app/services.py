@@ -21,6 +21,7 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .db import engine
+from .imagemeta import strip_image_metadata
 from .logs import log
 from .models import (
     Block, Booking, BookingStatus, DeviceToken, DriverProfile, Notification, PickupPoint, Rating, Ride,
@@ -98,6 +99,14 @@ def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sn
         ext = detected
     if ext not in allowed_ext:
         raise HTTPException(400, f"Недопустимый тип файла: .{ext}")
+    if sniff_image:
+        # Срезаем EXIF/GPS и прочие метаданные — ЗДЕСЬ, в единственной точке, через которую
+        # проходят обе дороги (multipart и base64) и все загрузки: аватар, чат, документы,
+        # доказательства, фото посылки. Иначе координаты съёмки уезжали вместе с фото:
+        # снимок из дома в профиле скачивался по прямой ссылке кем угодно (аудит 2026-08-08,
+        # волна 21). Наш Android пережимает фото и метаданные теряет сам, но веб-версия шлёт
+        # файл как есть, а к API можно прийти и напрямую — правило должно жить на сервере.
+        data = strip_image_metadata(data, ext)
     return data, ext
 
 
@@ -769,9 +778,15 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
         driver_online=(prof.online if prof else False),
         driver_trips=trips,
         driver_since=since,
-        # Только ПОДТВЕРЖДЁННЫЙ модератором пол. Самодекларация в витрину не попадает —
-        # иначе бейдж «женщина за рулём» ставит себе кто угодно (см. models.DriverProfile).
-        driver_is_woman=(bool(prof.gender == "female" and prof.gender_verified) if prof else False),
+        # Пол берём у ЧЕЛОВЕКА (`User.gender`) — он переехал туда, потому что нужен и
+        # пассажирке для фильтра «только женщины». Но в ВИТРИНУ он попадает лишь после
+        # подтверждения модератором по фото прав: самодекларации мало, иначе бейдж «женщина
+        # за рулём» ставит себе кто угодно. Оба условия — из разных веток, при слиянии
+        # 2026-08-12 сведены вместе, потерять любое нельзя.
+        driver_is_woman=(
+            drv is not None and (drv.gender or "") == "female"
+            and bool(prof is not None and prof.gender_verified)
+        ),
     )
 
 

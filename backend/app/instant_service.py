@@ -13,6 +13,7 @@
 (reconcile при чтении заказа/поллинге оффера). Для честного фонового таймаута — arq-воркер
 на том же Redis (см. docs) — не обязателен для работы, вынесен как следующий шаг.
 """
+import re
 from datetime import timedelta
 from enum import Enum
 from typing import Optional
@@ -1009,11 +1010,15 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
             continue          # машина не того класса — или водитель этот класс не берёт
         if not cc.covers_options(getattr(p, "car_options", ""), getattr(order, "options", "")):
             continue          # нет детского кресла/места под коляску — заказ не предлагаем
-        if getattr(order, "women_only", False) and not ((p.gender or "") == "female" and p.gender_verified):
-            # Выбор «только женщина за рулём» — жёсткий, подмены быть не может. Поэтому и пол
-            # нужен ПОДТВЕРЖДЁННЫЙ модератором: до 2026-08-07 водитель ставил его себе сам, и
-            # мужчина мог получать женские заказы, просто отметив галочку. Ночной заказ женщины
-            # в райцентре — последнее место, где можно верить на слово.
+        # Выбор «только женщина за рулём» — жёсткий, подмены быть не может. Здесь сошлись две
+        # ветки, и обе половины нужны: пол читаем у ЧЕЛОВЕКА (`u.gender`), потому что он
+        # переехал на User и старое поле профиля больше не пишется; но требуем ещё и
+        # ПОДТВЕРЖДЕНИЕ модератором по фото прав — до 2026-08-07 водитель ставил пол себе сам,
+        # и мужчина получал женские заказы, просто отметив галочку. Ночной заказ женщины
+        # в райцентре — последнее место, где можно верить на слово.
+        if getattr(order, "women_only", False) and not (
+            (u.gender or "") == "female" and getattr(p, "gender_verified", False)
+        ):
             continue
         if driver_pause_until(session, did) is not None:
             continue          # бросал принятые заказы — пауза офферов (разбор №2)
@@ -1127,6 +1132,35 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     подошло. Идемпотентно: не-scheduled заказ возвращаем как есть."""
     if order.status != S.scheduled:
         return order
+    # ⬇️ Пауза «Справедливости» (§2) на ПАССАЖИРЕ. Гейт стоит на создании предзаказа, но между
+    # созданием и временем поездки человека могли отстранить разбором — и предзаказ всё равно
+    # ехал: активацию зовут ТРИ пути (кнопка клиента, ленивый GET /instant/scheduled и фоновый
+    # воркер), поэтому проверка на ручке была бы бесполезна. Ставим её здесь, в одной точке.
+    #
+    # Отменяем, а не подвешиваем: предзаказ «на время» без машины к сроку — это человек, который
+    # ждёт зря. Отмена системная, штрафа пассажиру не даёт (reason не «поздняя отмена»).
+    from .safety_logic import account_paused   # локальный импорт: safety_logic тянет services
+    if account_paused(session, order.passenger_id):
+        # Актор — пассажирская сторона (это его заказ, водителя ещё нет), reason честно говорит
+        # причину. Штрафа тут не возникает по построению: он считается только при поздней отмене
+        # уже назначенного водителя, а у предзаказа его нет. `Actor.system` не подходит: системный
+        # актор ходит по таблице переходов водителя, где статуса `scheduled` нет вовсе.
+        cancelled = cancel_order(session, order.id, Actor.passenger, order.passenger_id,
+                                 "passenger_suspended")
+        # Молча отменить нельзя: человек ждёт машину к назначенному часу. Говорим и причину,
+        # и куда идти (в Центре справедливости — срок и суть разбора).
+        from .services import push_notification
+        push_notification(
+            session, order.passenger_id, "taxi",
+            "Предзаказ отменён", "Алдан заказ кире алынды",
+            "Аккаунт на паузе до разбора — машину вызвать не получится. Причина и срок в Центре справедливости.",
+            "Иҫәп тикшереүгә тиклем паузада — машина саҡырып булмай. Сәбәбе һәм ваҡыты Ғәҙеллек үҙәгендә.",
+            # `instant`, а не `order`: по этому виду приложение умеет открывать такси-заказ.
+            # Выдуманный вид сделал бы уведомление немым по тапу (поймал
+            # tests/test_notifications_lead_somewhere.py).
+            ref_kind="instant", ref_id=order.id,
+        )
+        return cancelled
     est = estimate(session, (order.from_lat, order.from_lng),
                    (order.to_lat, order.to_lng), order.category or "standard")
     session.execute(
@@ -1438,6 +1472,26 @@ def is_order_participant(order: InstantOrder, viewer_id: int) -> bool:
     return viewer_id in (order.passenger_id, order.driver_id, order.current_offer_driver_id)
 
 
+_HOUSE_TAIL = re.compile(r"[\s,]+(?:д\.?\s*)?\d+[а-яА-Яa-zA-Z]?(?:\s*(?:к|корп|стр)\.?\s*\d+[а-яА-Яa-zA-Z]?)?\s*$")
+
+
+def street_only(text: str) -> str:
+    """Адрес без номера дома: «Уфа, ул. Пушкина, 12к2» → «Уфа, ул. Пушкина».
+
+    Нужен ровно там же, где округляются координаты назначения: прятать точку на карте и тут же
+    писать номер дома текстом — значит не прятать ничего. Улица и город остаются: водителю их
+    хватает, чтобы решить, брать ли заказ.
+
+    Если номера дома в строке нет — возвращаем как есть. Если после отрезания ничего не
+    осталось (адрес был из одного числа) — тоже отдаём исходное: пустое «куда» хуже точного.
+    """
+    t = (text or "").strip()
+    if not t:
+        return t
+    cut = _HOUSE_TAIL.sub("", t).strip(" ,")
+    return cut if cut else t
+
+
 def order_payload(session: Session, order: InstantOrder, viewer: User, *,
                   actor_authorized: bool = False) -> dict:
     """Витрина заказа. Приватность: телефоны и контакты сторон — ТОЛЬКО после accept.
@@ -1471,12 +1525,22 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
             if order.driver_id else None)
     passenger = session.get(User, order.passenger_id)
     car = f"{prof.car_make} {prof.car_model}".strip() if prof else ""
-    # Приватность: точку ПОДАЧИ пассажира водителю до accept отдаём округлённой (~1 км) — как телефоны.
-    # До принятия хватает приблизительной точки для оценки расстояния/ETA; точную открываем после accept
-    # (unlocked). Пассажир свою точку видит точно; направление (to_) не прячем.
-    blur_from = role == "driver" and not unlocked
-    from_lat = round(order.from_lat, 2) if (blur_from and order.from_lat is not None) else order.from_lat
-    from_lng = round(order.from_lng, 2) if (blur_from and order.from_lng is not None) else order.from_lng
+    # Приватность: до accept водителю обе точки — округлённые (~1 км), как телефоны.
+    #
+    # Точку ПОДАЧИ прятали и раньше. Точку НАЗНАЧЕНИЯ — нет, и это была несогласованность:
+    # адрес, куда человек едет, чаще всего его дом, и для женщины, возвращающейся ночью, он
+    # важнее места посадки. Предложение можно отклонить бесплатно и получить следующее —
+    # значит адреса можно было «собирать», отказываясь (аудит 2026-08-08, волна 10; решение
+    # Александра — округлять и назначение).
+    #
+    # Водитель ничего не теряет: расстояние, время и цену считает сервер и кладёт в этот же
+    # ответ (distance_km / eta_min / price_estimate), а район назначения из округлённой точки
+    # виден. Точные координаты открываются вместе с телефоном — после accept (unlocked).
+    blur = role == "driver" and not unlocked
+    def _blur(v):
+        return round(v, 2) if (blur and v is not None) else v
+    from_lat, from_lng = _blur(order.from_lat), _blur(order.from_lng)
+    to_lat, to_lng = _blur(order.to_lat), _blur(order.to_lng)
 
     # Водителю — серверный upfront net, тем же Decimal-расчётом, что фактический долг.
     # Пассажиру комиссию водителя не раскрываем: его источник правды — итоговая цена поездки.
@@ -1498,8 +1562,12 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         "status": order.status.value,
         "role": role,
         "from_lat": from_lat, "from_lng": from_lng,
-        "to_lat": order.to_lat, "to_lng": order.to_lng,
-        "from_text": order.from_text, "to_text": order.to_text,
+        "to_lat": to_lat, "to_lng": to_lng,
+        "from_text": order.from_text,
+        # Номер дома назначения — вместе с координатами: округлить точку и тут же написать
+        # «Пушкина, 12» значит не спрятать ничего. Точку ПОДАЧИ намеренно не трогаем: там
+        # адрес, подъезд и комментарий отдаются заранее, чтобы водитель нашёл человека.
+        "to_text": street_only(order.to_text) if blur else order.to_text,
         "category": order.category,
         # «Только женщина за рулём»: экран должен объяснить, ПОЧЕМУ машину не нашли,
         # иначе человек решит, что приложение сломалось, а не что выбор сузил круг.

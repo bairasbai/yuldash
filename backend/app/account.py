@@ -33,7 +33,7 @@ from sqlmodel import Session, select
 from .errors import herr
 from .models import (
     Ad, AdEvent, AppReview, Block, Booking, BookingStatus, CommissionDebt, Consent, Coupon, OfferDecline,
-    CouponRedemption, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
+    CouponRedemption, CouponReport, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
     DriverProfile, DriverSchedule, Incident, InstantOrder, InstantOrderStatus, InviteCode,
     LedgerEntry, Message,
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
@@ -206,6 +206,22 @@ def delete_user_account(session: Session, user: User) -> None:
         media_urls += [ta.selfie_url, ta.permit_photo_url, ta.osago_url, ta.criminal_record_url]
     media_urls += list(session.exec(select(Message.voice_url).where(Message.sender_id == uid)).all())
     media_urls += list(session.exec(select(RideRequest.voice_url).where(RideRequest.passenger_id == uid)).all())
+    # Фото границ ответственности по МОИМ посылкам («взял целой» / «отдал целой»). Сама
+    # посылка удаляется на 3.12, а снимки лежат в приватной области — без этой строки они
+    # оставались бы на диске навсегда, хотя запись о них исчезла (аудит 2026-08-08, волна 11:
+    # проверено — файл переживал удаление аккаунта). Та же мина, что чинили для документов
+    # таксиста, только в новых полях.
+    #
+    # Только там, где отправитель Я: эти посылки и удаляются. Снимки, которые я делал КУРЬЕРОМ
+    # на чужих посылках, остаются — это доказательства второй стороны в возможном споре,
+    # тот же принцип, что с чужими фото в спорах ниже.
+    for a, b in session.exec(
+        select(ParcelDelivery.pickup_photo_url, ParcelDelivery.delivery_photo_url)
+        .where(ParcelDelivery.sender_id == uid)
+    ).all():
+        media_urls += [u for u in (a, b) if u]
+    # Картинки моих рекламных объявлений — сами объявления удаляются на 3.19.
+    media_urls += [u for u in session.exec(select(Ad.image_url).where(Ad.owner_id == uid)).all() if u]
     # Фото-доказательства МОИХ споров (лица/номера/травмы — чувствительное): мои как заявителя
     # и мои как обвинённого. Чужие фото в тех же спорах не трогаем (не наши данные).
     for csv_ in session.exec(select(Incident.evidence_urls).where(Incident.reporter_id == uid)).all():
@@ -428,7 +444,15 @@ def delete_user_account(session: Session, user: User) -> None:
     session.execute(update(ParcelDelivery).where(ParcelDelivery.courier_id == uid)
                     .values(courier_id=None))
     session.execute(delete(ParcelDelivery).where(ParcelDelivery.sender_id == uid))
-    # 3.13 Бизнес «Скидки по пути»: погашения → купоны → сам партнёр.
+    # 3.13 Бизнес «Скидки по пути»: жалобы → погашения → купоны → сам партнёр.
+    # Порядок важен: жалоба держит FK на купон, и без её удаления снос купонов падает
+    # с нарушением внешнего ключа — то есть человек НЕ МОГ БЫ удалить аккаунт вовсе
+    # (на Postgres это 500 на /me/delete). Таблица появилась 2026-08-08 вместе с
+    # модерацией витрины, и в каскад её тогда не внесли (аудит того же дня).
+    kr = [CouponReport.user_id == uid]
+    if partner_coupon_ids:
+        kr.append(CouponReport.coupon_id.in_(partner_coupon_ids))
+    dele(CouponReport, *kr)
     cr = [CouponRedemption.user_id == uid]
     if partner_coupon_ids:
         cr.append(CouponRedemption.coupon_id.in_(partner_coupon_ids))
@@ -504,3 +528,26 @@ def delete_user_account(session: Session, user: User) -> None:
     # 4) Best-effort стираем медиа-файлы (после успешного удаления строк).
     for url in media_urls:
         _safe_unlink_media(url)
+
+    # 4b) И ВСЕ файлы, которые загрузил этот человек, — даже те, ссылки на которые нигде нет.
+    # Список выше собран по БД: он находит снимки, на которые где-то сохранена ссылка
+    # (документы, споры, доставки). А файл, который человек загрузил и передумал прикладывать,
+    # не значится нигде — и переживал удаление аккаунта, уходя лишь ночной чисткой через месяц
+    # (аудит 2026-08-08, волна 15: нашёл сводный тест обещаний). Имя файла даёт сервер и
+    # начинает его с id владельца, поэтому найти их можно по одному префиксу.
+    try:
+        storage = get_storage()
+        for key in list(storage.iter_owned(["docs", "evidence", "chat", "voice"], uid)):
+            storage.delete(key)
+    except Exception:  # noqa: BLE001 — уборка не вправе отменить уже выполненное удаление
+        pass
+
+    # 5) И следы в Redis. У базы и диска есть каскад, а третье хранилище про удаление аккаунта
+    # не знало вовсе: точка водителя лежит в GEO-множестве БЕЗ срока жизни, то есть последнее
+    # местоположение удалённого человека осталось бы там навсегда (аудит 2026-08-08, волна 12).
+    # Остальные ключи (heartbeat, livepos, кэши) живут по TTL и уходят сами.
+    try:
+        from .instant_service import presence_offline
+        presence_offline(uid)
+    except Exception:  # noqa: BLE001 — Redis недоступен: аккаунт уже удалён, это не повод падать
+        pass

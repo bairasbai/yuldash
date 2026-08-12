@@ -21,7 +21,7 @@ from ..db import get_session
 from ..logs import admin_action
 from ..models import CommissionDebt, DebtStatus, User, UserRole
 from ..security import current_user
-from ..services import notify_admin_telegram, send_push
+from ..services import notify_admin_telegram, push_notification
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["debt"])
@@ -142,8 +142,16 @@ def admin_confirm(debt_id: int, user: User = Depends(current_user), session: Ses
     paid_kop = debt_mod.admin_confirm(session, debt_id)
     admin_action(user.id, "debt.confirm", debt_id=debt_id, driver=driver_id, amount_kop=paid_kop)
     if paid_kop:
-        send_push(session, driver_id, "Долг подтверждён",
-                  "Оплата долга по комиссии принята. Можно возить такси 🚕")
+        # Запись, а не голый пуш: это снятие блокировки — человек должен узнать о нём даже
+        # если пуш не дошёл, иначе будет думать, что всё ещё не может работать
+        # (аудит 2026-08-08, волна 20).
+        push_notification(
+            session, driver_id, "money",
+            "Долг подтверждён", "Бурыс раҫланды",
+            "Оплата долга по комиссии принята. Можно возить такси 🚕",
+            "Комиссия бурысы түләүе ҡабул ителде. Такси йөрөтөргә була 🚕",
+            ref_kind="debt", ref_id=debt_id,
+        )
     return {"ok": True, "status": "paid", "paid_kop": paid_kop or 0}
 
 
@@ -184,9 +192,13 @@ def admin_forgive(debt_id: int, body: ForgiveIn | None = None,
     session.commit()
     admin_action(user.id, "debt.forgive", debt_id=debt_id, driver=debt.driver_id,
                  amount_kop=debt.amount_kop)
-    send_push(session, debt.driver_id, "Долг списан",
-              (f"Комиссия списана: {reason}" if reason else "Комиссия по этой поездке списана.")
-              + " · Комиссия алынды.")
+    push_notification(
+        session, debt.driver_id, "money",
+        "Долг списан", "Бурыс алып ташланды",
+        (f"Комиссия списана: {reason}" if reason else "Комиссия по этой поездке списана."),
+        (f"Комиссия алып ташланды: {reason}" if reason else "Был сәфәр өсөн комиссия алып ташланды."),
+        ref_kind="debt", ref_id=debt_id,
+    )
     return {"ok": True, "status": "paid", "forgiven_kop": debt.amount_kop, "reason": reason}
 
 
@@ -201,6 +213,15 @@ def admin_reject(debt_id: int, user: User = Depends(current_user), session: Sess
     back_kop = debt_mod.admin_reject(session, debt_id)
     admin_action(user.id, "debt.reject", debt_id=debt_id, driver=driver_id, amount_kop=back_kop)
     if back_kop:
-        send_push(session, driver_id, "Оплата не найдена",
-                  "Мы не увидели перевод долга. Проверь и попробуй ещё раз.")
+        # Самое важное из трёх: долг вернулся в неоплаченные, такси снова закрыто. Проверено
+        # пробой — записей у водителя было НОЛЬ, он узнавал об этом, упершись в блокировку.
+        push_notification(
+            session, driver_id, "money",
+            "Оплата не найдена", "Түләү табылманы",
+            "Мы не увидели перевод долга. Долг снова числится неоплаченным — "
+            "проверь платёж и заяви оплату ещё раз.",
+            "Беҙ бурыс күсереүен күрмәнек. Бурыс тағы түләнмәгән булып тора — "
+            "түләүҙе тикшер һәм яңынан белдер.",
+            ref_kind="debt", ref_id=debt_id,
+        )
     return {"ok": True, "status": "unpaid", "unpaid_kop": back_kop or 0}

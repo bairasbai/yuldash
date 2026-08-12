@@ -2,6 +2,7 @@
 отправка на проверку, статус проверки, выдача защищённых документов, модерация админом."""
 import json
 import os
+from urllib.parse import urlparse
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -14,6 +15,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, UserRole
 from ..security import current_user
 from ..services import DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url, user_rating
@@ -46,14 +48,49 @@ def _is_owned_doc_name(name: str, user_id: int, profile: DriverProfile | None) -
 
 
 def _ensure_owned_doc_url(url: str, user: User, profile: DriverProfile | None) -> str:
+    """Ссылка на документ → она же, если это СВОЙ загруженный файл. Иначе 400/403/404.
+
+    Одна дверь для всех документов: права и фото авто водителя, разрешение/ОСАГО/селфи/справка
+    таксиста, селфи курьера. Без неё в заявку въезжает чужой адрес, а модерация грузит его
+    с токеном админа в заголовке (аудит 2026-08-08).
+    """
     name = _doc_name_from_url(url)
     if not name:
         raise HTTPException(400, "Нужен защищённый файл документа")
     if not _is_owned_doc_name(name, user.id, profile):
         raise HTTPException(403, "Можно отправить только свои загруженные документы")
-    if not os.path.isfile(os.path.join(DOC_DIR, name)):
+    # Наличие файла спрашиваем У ХРАНИЛИЩА, а не у диска. Загрузка идёт через
+    # `get_storage().save(...)`, и при STORAGE_BACKEND=s3 файла на диске нет вовсе — прямая
+    # проверка `os.path.isfile` отвечала бы «не найден» на КАЖДУЮ заявку водителя, таксиста и
+    # курьера. Сегодня включён локальный диск, поэтому мина не сработала ни разу; сработала бы
+    # в день переезда в облако, и выглядело бы это как «проверка документов сломалась».
+    if not get_storage().exists(f"docs/{name}"):
         raise HTTPException(404, "Файл документа не найден")
     return url.strip()
+
+
+def drop_replaced_doc(old_url: str, new_url: str) -> None:
+    """Старый документ заменили новым — стираем прежний файл.
+
+    Документы лежат в приватной области `docs/`, и ретеншен её НЕ трогает намеренно: пока
+    человек работает, 580-ФЗ требует хранить действующие документы. Но ПРЕЖНЯЯ версия —
+    просроченные права, старое ОСАГО, устаревшее селфи — цели больше не служит и оставалась
+    на диске навсегда (аудит 2026-08-08, волна 11). Ст. 5 п. 7 152-ФЗ: хранить ровно столько,
+    сколько нужно.
+
+    Зовётся ПОСЛЕ commit: пока строка не сохранена, файл ещё нужен. Ничего не делает, если
+    ссылка не изменилась (обычный случай — человек прислал ту же) или старой не было.
+    """
+    old, new = (old_url or "").strip(), (new_url or "").strip()
+    if not old or old == new:
+        return
+    name = os.path.basename(urlparse(old).path)
+    if not name or name in (".", ".."):
+        return
+    try:
+        get_storage().delete(f"docs/{name}")
+    except Exception:  # noqa: BLE001 — уборка мусора не вправе ронять сохранение документов
+        pass
 
 
 class OnlineIn(BaseModel):
@@ -70,6 +107,14 @@ def driver_online(body: OnlineIn, user: User = Depends(current_user), session: S
     session.add(dp)
     session.commit()
     session.refresh(dp)
+    if not body.online:
+        # Снял тумблер — убираем координаты из Redis. Функция `presence_offline` была написана
+        # ровно для этого, но её не звал НИКТО: точка водителя оставалась в GEO-множестве
+        # навсегда (у GEO нет срока жизни, в отличие от heartbeat). Матчер её игнорировал, так
+        # что поломки не было видно, — а последнее местоположение человека лежало вечно
+        # (аудит 2026-08-08, волна 12).
+        from ..instant_service import presence_offline
+        presence_offline(user.id)
     return dp
 
 
@@ -84,23 +129,31 @@ class GenderIn(BaseModel):
 
 @router.post("/driver/gender", response_model=DriverProfile)
 def set_driver_gender(body: GenderIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """F9 «Женщинам — водитель-женщина»: водитель по желанию (opt-in) указывает пол.
-    Публично раскрывается только полезный сигнал «женщина за рулём» (female);
-    male/пусто наружу не выпячиваются (см. schemas.RideOut.driver_is_woman).
+    """F9 «Женщинам — водитель-женщина»: пол по желанию (opt-in).
 
-    Это ЗАЯВКА, а не подтверждение: бейдж и фильтр включает модератор
-    (`/admin/drivers/{id}/moderate`, поле gender_verified), сверив с фото прав. Иначе любой
-    может назваться женщиной и попасть в выдачу «женщина за рулём» — жалоба, которая копится
-    у Uber. Смена пола сбрасывает подтверждение: новое заявление — новый просмотр.
+    Пишем в `User.gender` — пол переехал на человека (аудит 2026-08-08), потому что нужен и
+    пассажиру: отметка «только женщины» на попутке проверяется у обеих сторон. Ручку оставляем
+    как есть: установленные приложения зовут именно её. Тот же смысл есть в `POST /me/update`.
+
+    Это по-прежнему ЗАЯВКА, а не подтверждение: публичный бейдж «женщина за рулём» и фильтр
+    включает модератор (`/admin/drivers/{id}/moderate`, поле `DriverProfile.gender_verified`),
+    сверив с фото прав. Иначе любой назовётся женщиной и попадёт в выдачу — жалоба, которая
+    копится у Uber. Смена пола сбрасывает подтверждение: новое заявление — новый просмотр.
     """
     g = (body.gender or "").strip().lower()
     if g not in _ALLOWED_GENDERS:
         raise HTTPException(400, "Недопустимое значение пола")
+    # Прежний пол читаем ДО присвоения: сравнивать потом с `DriverProfile.gender` нельзя —
+    # то поле устарело и больше не пишется, оно навсегда осталось бы со старым значением.
+    was = (user.gender or "").strip().lower()
+    user.gender = g
+    session.add(user)
     dp = _get_or_create_profile(session, user.id)
-    if dp.gender != g:
-        dp.gender_verified = False       # заявили другое — прежнее подтверждение недействительно
-    dp.gender = g
-    session.add(dp)
+    # Само значение живёт на User; в профиле водителя остаётся только ПОДТВЕРЖДЕНИЕ.
+    # Заявили другой пол → прежнее подтверждение недействительно, нужен новый просмотр прав.
+    if was != g and dp.gender_verified:
+        dp.gender_verified = False
+        session.add(dp)
     session.commit()
     session.refresh(dp)
     return dp
@@ -215,6 +268,7 @@ def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user
     if not body.license_url or not body.car_photo_url:
         raise HTTPException(400, "Нужны фото прав и фото автомобиля")
     dp = _get_or_create_profile(session, user.id)
+    prev_license, prev_car = dp.license_url, dp.car_photo_url
     dp.license_url = _ensure_owned_doc_url(body.license_url, user, dp)
     dp.car_photo_url = _ensure_owned_doc_url(body.car_photo_url, user, dp)
     dp.docs_status = "pending"
@@ -223,6 +277,9 @@ def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user
     session.add(dp)
     session.commit()
     session.refresh(dp)
+    # Прежние фото прав и авто больше не нужны — стираем, чтобы не копить чужие ПДн навсегда.
+    drop_replaced_doc(prev_license, dp.license_url)
+    drop_replaced_doc(prev_car, dp.car_photo_url)
     if dp.docs_status == "pending":
         car = " ".join(x for x in [dp.car_make, dp.car_model, dp.car_color, dp.car_plate] if x).strip() or "авто не указано"
         details = f"OCR: {dp.autocheck_result or 'нет'} · score {dp.autocheck_score:.2f}"
@@ -258,7 +315,7 @@ def driver_status(user: User = Depends(current_user), session: Session = Depends
         "license_url": dp.license_url if dp else "",
         "car_photo_url": dp.car_photo_url if dp else "",
         "online": dp.online if dp else False,
-        "gender": dp.gender if dp else "",   # виден только самому водителю (свой профиль)
+        "gender": user.gender or "",   # виден только самому себе; источник — User.gender
         "autocheck_result": dp.autocheck_result if dp else "",
         "autocheck_score": dp.autocheck_score if dp else 0.0,
         "autocheck_data": dp.autocheck_data if dp else "",
@@ -296,7 +353,7 @@ def driver_public(driver_id: int, limit: int = 5, session: Session = Depends(get
     limit = max(1, min(20, limit))
     u = session.get(User, driver_id)
     if not u:
-        raise HTTPException(404, "Пользователь не найден")
+        raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
     dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver_id)).first()
 
     # СОСТОЯВШИЕСЯ поездки как водитель: бронь закрыта И поездка уже выехала.
@@ -306,6 +363,18 @@ def driver_public(driver_id: int, limit: int = 5, session: Session = Depends(get
     # рисовал «5 поездок, рейтинг 5.0» тому, кто не проехал ни метра. То же правило —
     # в `services.driver_trips_agg` (лента) и `safety_logic.completed_trips_for` (доверие).
     ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == driver_id)).all())
+    # Это витрина ВОДИТЕЛЯ, и открыта она без входа. Раньше id в адресе не проверялся ничем:
+    # подставив номер обычного пассажира, посторонний получал его имя, фото, дату регистрации,
+    # рейтинг и тексты отзывов о нём — и мог перебрать так всю базу по возрастанию id
+    # (аудит 2026-08-08). Для приложения «между своими» это ровно то, от чего мы прячем
+    # закрытые поездки и точные координаты заявок.
+    #
+    # Водителем считаем по трём признакам, любого достаточно: роль, кабинет водителя или хоть
+    # одна опубликованная поездка. Роль здесь не «слово пользователя о себе» — подделать её
+    # можно только СЕБЕ, а закрываем мы перебор ЧУЖИХ профилей. Никто из трёх — 404 тем же
+    # текстом, существование аккаунта не раскрываем.
+    if u.role != UserRole.driver and dp is None and not ride_ids:
+        raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
     trips_done = 0
     if ride_ids:
         trips_done = len(session.exec(

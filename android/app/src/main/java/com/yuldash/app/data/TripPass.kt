@@ -169,7 +169,8 @@ data class OutboxAction(
  * Хранение — на диске (переживает перезапуск). Compose-наблюдаемый счётчик [version] для UI.
  */
 object Outbox {
-    private const val PREF = "yuldash_outbox"
+    private const val PREF_SECURE = "yuldash_outbox_secure"
+    private const val PREF = "yuldash_outbox"      // старое открытое хранилище (разовая миграция)
     private const val KEY = "queue"
     @Volatile private var prefs: SharedPreferences? = null
     private val flushMutex = Mutex()
@@ -178,8 +179,40 @@ object Outbox {
     /** Меняется при любом изменении очереди → Compose перечитывает [count]. */
     val version = mutableStateOf(0)
 
+    /**
+     * Очередь шифруем — тем же способом, что паспорт поездки этажом выше.
+     *
+     * В очереди лежит ТЕКСТ сообщений: пассажирка написала «стою у второго подъезда, дочка со мной»,
+     * связь пропала — и фраза осталась на диске телефона открытым текстом. Паспорт поездки рядом
+     * шифруется именно потому, что там телефон водителя; переписка ничем не менее личная, а
+     * хранилась иначе (аудит 2026-08-08). Хранилище приложения и так закрыто системой, а бэкап
+     * выключен (`allowBackup=false`) — это вторая стена на случай потерянного или рутованного
+     * телефона.
+     *
+     * Keystore недоступен (бывает на «кривых» прошивках) → работаем как раньше: потерять
+     * неотправленное сообщение хуже, чем сохранить его в открытом виде.
+     */
     fun init(context: Context) {
-        prefs = context.applicationContext.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val app = context.applicationContext
+        val secure = runCatching {
+            val masterKey = MasterKey.Builder(app)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            EncryptedSharedPreferences.create(
+                app,
+                PREF_SECURE,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        }.getOrNull()
+        val plain = app.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        // Разовый перенос: то, что уже лежит открытым текстом, переезжает в шифрованное.
+        if (secure != null && plain.contains(KEY)) {
+            secure.edit().putString(KEY, plain.getString(KEY, null)).apply()
+            plain.edit().remove(KEY).apply()
+        }
+        prefs = secure ?: plain
     }
 
     private fun sp(context: Context): SharedPreferences {

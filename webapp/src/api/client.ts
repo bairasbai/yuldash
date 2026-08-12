@@ -11,6 +11,30 @@ export const API_BASE = (
 const TOKEN_KEY = "yuldash.token";
 const REFRESH_KEY = "yuldash.refresh";
 
+/**
+ * Ссылка ведёт на НАШ сервер?
+ *
+ * Нужна везде, где к запросу подставляется токен входа. Адреса приватных файлов (селфи курьера,
+ * документы водителя и таксиста, фото-доказательства спора) приходят с сервера, а туда их кладёт
+ * сам проверяемый человек — это его заявка. Пропусти сервер хоть одно поле без проверки, и в
+ * очереди модерации окажется ссылка на чужой сервер; браузер честно отправит туда заголовок
+ * `Authorization: Bearer <токен админа>` (CORS этому не мешает — чужой сервер сам разрешает
+ * себе такой запрос), и админка окажется в чужих руках. Так и было с селфи курьера
+ * (аудит 2026-08-08): серверную проверку починили, но токен не должен уходить на чужой домен
+ * даже при дыре на сервере.
+ */
+export function isOwnApiUrl(url: string): boolean {
+  const raw = (url ?? "").trim();
+  if (!raw) return false;
+  if (raw.startsWith("//")) return false; // «//хост/путь» — абсолютный адрес чужого хоста
+  if (raw.startsWith("/")) return true; // путь на нашей же базе
+  try {
+    return new URL(raw).origin === new URL(API_BASE, location.href).origin;
+  } catch {
+    return false;
+  }
+}
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }

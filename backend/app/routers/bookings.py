@@ -12,7 +12,8 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Rating, Ride, RideStatus, User
-from ..safety_logic import CANCEL_REASONS, ensure_active
+from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused, ensure_active,
+                            guard_women_only)
 from ..security import current_user, gen_otp
 from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
@@ -125,6 +126,13 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         raise herr(400, "Нельзя бронировать собственную поездку", "Үҙ сәфәреңде бронларға ярамай")
     if is_blocked(session, user.id, ride.driver_id):
         raise herr(403, "Бронь недоступна", "Бронь мөмкин түгел")
+    # Водитель на паузе за нарушения — бронь бессмысленна: подтвердить её ему закрыто (волна 9),
+    # и человек просто ждал бы ответа, которого не будет. Из ленты такие поездки убраны, но
+    # прямая ссылка (старый пуш, открытый экран, «поделился в чате») ленту обходит.
+    # Пассажиру НЕ сообщаем, что водителя наказали, — это чужая история разбора.
+    if account_paused(session, ride.driver_id):
+        raise herr(409, "Этот водитель сейчас не выходит в рейс. Посмотри другие поездки — рядом есть ещё.",
+                   "Был водитель хәҙер юлға сыҡмай. Башҡа сәфәрҙәрҙе ҡара — яҡында тағы бар.")
     # «Только для своих» (L3) закрывает поездку ЦЕЛИКОМ, а не только ленту. Фильтр стоял на всех
     # выдачах и на отклике по заявке (requests.py: «прямой id не обходит фильтр»), а бронь его не
     # знала: лента прячет, GET /rides/{id} даёт 404 — и тут же POST /bookings проходит с 200.
@@ -132,6 +140,12 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     # а id взять есть откуда: они последовательные, плюс пуш «карауль маршрут» (аудит 2026-08-07).
     if getattr(ride, "only_trusted", False) and trust_level(session, user) < INSIDER_LEVEL:
         raise herr(403, "Поездка только для своих", "Сәфәр тик үҙ кешеләр өсөн")
+    # «Только женщины» — теперь правило, а не пожелание (решение Александра, 2026-08-08).
+    # Стоит РЯДОМ с «только для своих» намеренно: обе отметки закрывают поездку целиком, и
+    # обе должны стоять на самой броне, а не на выдаче. Лента может спрятать, но id
+    # последовательные — фильтр в списке ничего не гарантирует.
+    if getattr(ride, "women_only", False):
+        guard_women_only(user, msg=MSG_WOMEN_ONLY_RIDE)
     # Защита от дубля: один пассажир не бронирует одну поездку повторно (двойной тап / повторный заход).
     # Идемпотентно — возвращаем существующую активную бронь, мест не списываем заново.
     existing = session.exec(
@@ -185,17 +199,26 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     session.refresh(booking)
     notify_map_changed()   # места убыли → если 0, поездка уходит с карты live
     # Уведомление + push водителю о новой брони.
+    #
+    # У поездки «только женщины» напоминаем водителю, что решение за ним. Сервер эту отметку
+    # проверить НЕ МОЖЕТ: пола пассажира у нас нет вообще — ни поля, ни вопроса при регистрации
+    # (аудит 2026-08-08). Значит настоящий гейт здесь один — подтверждение брони водителем,
+    # и он должен знать, что именно подтверждает. Строчка в пуше стоит дёшево, а женщина,
+    # выбравшая такую поездку, рассчитывает именно на эту проверку.
     pax_name = user.name or "Пассажир"
     route = f"{ride.from_city} → {ride.to_city}"
-    # Про подростка говорим прямо в пуше: решение «беру или нет» водитель должен принимать
-    # заранее, а не обнаруживать ребёнка у машины, когда отказать уже некрасиво.
+    # Обе пометки нужны, и обе — про одно: решение «беру или нет» водитель принимает ЗАРАНЕЕ,
+    # а не у машины, когда отказать уже некрасиво. Подросток — из волны про несовершеннолетних,
+    # «только женщины» — из аудита безопасности; при слиянии веток 2026-08-12 сведены вместе.
     minor_ru = " · младше 18, со взрослым на связи" if booking.minor_passenger else ""
     minor_ba = " · 18-ҙән кесе, оло кеше бәйләнештә" if booking.minor_passenger else ""
+    women_hint_ru = " · поездка «только женщины» — подтверди, если подходит" if ride.women_only else ""
+    women_hint_ba = " · «тик ҡатын-ҡыҙ» сәфәре — тура килһә, раҫла" if ride.women_only else ""
     push_notification(
         session, ride.driver_id, "booking",
         "Новая бронь", "Яңы бронь",
-        f"{pax_name}: {route}, мест {body.seats}{minor_ru}",
-        f"{pax_name}: {route}, {body.seats} урын{minor_ba}",
+        f"{pax_name}: {route}, мест {body.seats}{minor_ru}{women_hint_ru}",
+        f"{pax_name}: {route}, {body.seats} урын{minor_ba}{women_hint_ba}",
         ref_kind="booking", ref_id=booking.id,
     )
     return booking
@@ -486,6 +509,18 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     # Подтверждать можно ТОЛЬКО ожидающую бронь: нельзя откатить onboard→confirmed или воскресить cancelled/done.
     if booking.status != BookingStatus.pending:
         raise herr(400, "Эту бронь уже нельзя подтвердить", "Был бронде инде раҫлап булмай")
+    # ⬇️ Пауза «Справедливости» (§2). Подтверждение — это ВСТУПЛЕНИЕ в сделку, а не «начатая
+    # поездка»: публикация была до паузы, а обязательство везти человека возникает вот здесь.
+    # Гейт стоял на публикации и на брони, а на подтверждении — нет, и отстранённый водитель
+    # спокойно доводил дело до рейса (проверено запросом: 200, аудит 2026-08-08, волна 9).
+    # Отмена брони отстранённому ОСТАЁТСЯ открытой — иначе пассажир висит в ожидании.
+    ensure_active(session, user.id)
+    # Та же вторая дверь для блокировки: бронировать заблокированного нельзя (см. create_booking),
+    # а ПОДТВЕРДИТЬ бронь, поставленную до блокировки, было можно — и водитель ехал к человеку,
+    # который от него закрылся (аудит 2026-08-08, волна 10). Текст глухой — про факт блокировки
+    # второй стороне не сообщаем.
+    if is_blocked(session, user.id, booking.passenger_id):
+        raise herr(403, "Недоступно", "Мөмкин түгел")
     booking.status = BookingStatus.confirmed
     session.add(booking)
     session.commit()

@@ -282,6 +282,10 @@ internal fun NotificationsScreen(
     onOpenParcels: () -> Unit = {},
     onOpenInstantOrder: () -> Unit = {},
     onOpenRide: (Int) -> Unit = {},
+    onOpenIncident: (Int) -> Unit = {},
+    onOpenDriverCabinet: () -> Unit = {},
+    onOpenTaxiApply: () -> Unit = {},
+    onOpenCourierApply: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var selected by remember { mutableStateOf("all") }
@@ -337,6 +341,14 @@ internal fun NotificationsScreen(
             "parcel" -> onOpenParcels()          // «Посылки»: там карточка с ходом доставки
             "instant" -> onOpenInstantOrder()    // экран такси-заказа (сам подхватывает активный)
             "ride" -> onOpenRide(ref)            // моя поездка (событие по опубликованному рейсу)
+            // «Открыт разбор» / «Решение по спору» — самое тяжёлое, что бывает с аккаунтом:
+            // человеку надо видеть, за что именно и на какой срок (аудит 2026-08-08, волна 19).
+            "incident" -> onOpenIncident(ref)
+            // Деньги и допуск к работе (аудит 2026-08-08, волна 20): долг, списание комиссии,
+            // пауза такси — всё это видно в кабинете водителя; статус заявки — на её экране.
+            "debt" -> onOpenDriverCabinet()
+            "taxi_apply" -> onOpenTaxiApply()
+            "courier_apply" -> onOpenCourierApply()
         }
     }
 
@@ -1255,7 +1267,7 @@ private fun DocImage(url: String, token: String) {
         return
     }
     coil.compose.AsyncImage(
-        model = coil.request.ImageRequest.Builder(ctx).data(url).addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+        model = authedImageRequest(ctx, url, token),
         contentDescription = null,
         modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(14.dp)),
         contentScale = ContentScale.Crop,
@@ -1564,7 +1576,10 @@ internal fun AdminReportsContent(
 
 /** Кабинет админа — единый центр: заявки помощи, отклики, реклама. Виден только админу. */
 @Composable
-internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onTaxi: () -> Unit = {}, onWaitlist: () -> Unit = {}, onTaxiPulse: () -> Unit = {}, onPartners: () -> Unit = {}, onPromoAdmin: () -> Unit = {}, onParcelsAdmin: () -> Unit = {}, onCourierAdmin: () -> Unit = {}, onIncomeCalc: () -> Unit = {}, onSosFeed: () -> Unit = {}, onIncidents: () -> Unit = {}, onRatings: () -> Unit = {}, onTextFlags: () -> Unit = {}) {
+// Обе ветки добавляли сюда свой раздел админки: `onTextFlags` — «Помеченные тексты»
+// (волна модерации), `onModeration` — очередь модерации витрин (аудит безопасности).
+// При слиянии 2026-08-12 нужны оба, потерять любой = потерять целый экран кабинета.
+internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onTaxi: () -> Unit = {}, onWaitlist: () -> Unit = {}, onTaxiPulse: () -> Unit = {}, onPartners: () -> Unit = {}, onModeration: () -> Unit = {}, onPromoAdmin: () -> Unit = {}, onParcelsAdmin: () -> Unit = {}, onCourierAdmin: () -> Unit = {}, onIncomeCalc: () -> Unit = {}, onSosFeed: () -> Unit = {}, onIncidents: () -> Unit = {}, onRatings: () -> Unit = {}, onTextFlags: () -> Unit = {}) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Кабинет админа", "Админ кабинеты"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Единый центр управления Юлдашем. Виден только администратору.", "Юлдашты идара итеү үҙәге. Тик админға күренә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
@@ -1591,6 +1606,7 @@ internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, 
                     SettingsNavRow(Icons.Default.Star, appText("Отзывы на модерации", "Модерациялағы фекерҙәр"), appText("Одобрить текст к показу в профиле", "Текстты профилдә күрһәтергә раҫлау"), onClick = onRatings)
                     SettingsNavRow(Icons.Default.Shield, appText("Разбор споров", "Бәхәстәрҙе ҡарау"), appText("Обе версии рядом, телефоны сторон, решение с объяснением", "Ике версия ҡатар, телефондар, аңлатмалы ҡарар"), onClick = onIncidents)
                     SettingsNavRow(Icons.Default.Sos, appText("Сигналы SOS", "SOS сигналдары"), appText("Кто позвал на помощь: позвонить и отметить «принял»", "Кем ярҙам һораған: шылтыратып «ҡабул иттем» тип билдәләү"), onClick = onSosFeed)
+                    SettingsNavRow(Icons.Default.Storefront, appText("Модерация витрины", "Витрина модерацияһы"), appText("Что я ещё не смотрел: бизнесы и купоны", "Ҡарамағаным: бизнестар һәм купондар"), onClick = onModeration)
                     SettingsNavRow(Icons.Default.Storefront, appText("Бизнесы-партнёры", "Партнёр-бизнестар"), appText("Модерация: одобрить купонных партнёров", "Модерация: купон партнёрҙарын раҫлау"), onClick = onPartners)
                     SettingsNavRow(Icons.Default.Loyalty, appText("Промокоды и кампании", "Промокодтар һәм акциялар"), appText("Коды для блогеров и акций, статистика", "Блогерҙар һәм акциялар өсөн кодтар, статистика"), onClick = onPromoAdmin)
                     SettingsNavRow(Icons.Default.LocalShipping, appText("Посылки", "Бандеролдәр"), appText("Доставки и собранный сбор", "Илтеүҙәр һәм йыйылған сбор"), onClick = onParcelsAdmin)

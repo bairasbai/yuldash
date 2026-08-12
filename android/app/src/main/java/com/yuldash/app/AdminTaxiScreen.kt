@@ -484,7 +484,7 @@ private fun TaxiStatusBadge(status: String) {
 private fun TaxiDocImage(url: String, token: String) {
     val ctx = LocalContext.current
     coil.compose.AsyncImage(
-        model = coil.request.ImageRequest.Builder(ctx).data(url).addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+        model = authedImageRequest(ctx, url, token),
         contentDescription = null,
         modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(14.dp)),
         contentScale = ContentScale.Crop,

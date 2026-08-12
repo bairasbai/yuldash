@@ -485,6 +485,19 @@ object ApiClient {
         call("POST", "/me/update", JSONObject().put("city", city.trim()), auth = true).onSuccess { invalidate("me") }.map { }
 
     /**
+     * Пол: "" (не указан) | "female" | "male". Нужен ровно для одного — чтобы отметка
+     * «Только женщины» была настоящей: сервер пускает в такую поездку только женщин
+     * (и за руль, и в салон). Без этого поля обещание проверить нечем (аудит 2026-08-08).
+     * Наружу пол не отдаётся никому: другие видят лишь бейдж «женщина за рулём».
+     */
+    suspend fun updateGender(gender: String): Result<Unit> {
+        val g = gender.trim().lowercase()
+        if (g != "" && g != "female" && g != "male") return Result.success(Unit)
+        return call("POST", "/me/update", JSONObject().put("gender", g), auth = true)
+            .onSuccess { invalidate("me") }.map { }
+    }
+
+    /**
      * Язык интерфейса на сервер («ru» | «ba») — чтобы ПУШИ приходили на языке человека.
      * Сервер это поле давно принимает и умеет выбирать RU/BA, но клиент его никогда не слал:
      * башкироязычный пользователь получал русские уведомления (аудит 2026-07-26).
@@ -3113,6 +3126,8 @@ object ApiClient {
         redeemedCount = o.optInt("redeemed_count"), activations = o.optInt("activations"),
         premium = o.optBoolean("premium"), status = o.optString("status", "draft"),
         createdAt = o.optString("created_at"),
+        review = o.optString("review", "approved"), reviewNote = o.optString("review_note"),
+        reportsCount = o.optInt("reports_count"),
     )
 
     /** Витрина купонов (публичная). Опц. фильтр по городу и по маршруту (from-to или город). */
@@ -3298,6 +3313,55 @@ object ApiClient {
     /** Админ: отклонить бизнес-партнёра с причиной. */
     suspend fun rejectPartner(id: Int, reason: String): Result<Unit> =
         call("POST", "/admin/partners/$id/reject", JSONObject().put("reason", reason), auth = true).map { }
+
+    /** Админ: одна очередь «что я ещё не смотрел» — бизнесы и купоны вместе. */
+    suspend fun getModerationQueue(): Result<ModerationQueueDto> =
+        call("GET", "/admin/moderation", null, auth = true).map { o ->
+            val pArr = o.optJSONArray("partners") ?: JSONArray()
+            val cArr = o.optJSONArray("coupons") ?: JSONArray()
+            ModerationQueueDto(
+                partners = (0 until pArr.length()).map { i ->
+                    val p = pArr.getJSONObject(i)
+                    AdminPartnerDto(
+                        id = p.optInt("id"), ownerId = p.optInt("owner_id"), name = p.optString("name"),
+                        category = p.optString("category"), city = p.optString("city"),
+                        address = p.optString("address"), phone = p.optString("phone"),
+                        description = p.optString("description"), status = p.optString("status", "pending"),
+                        rejectReason = p.optString("reject_reason"),
+                        subscriptionPlan = p.optString("subscription_plan"),
+                        subscriptionUntil = nStr(p, "subscription_until"),
+                        subscriptionActive = p.optBoolean("subscription_active"),
+                        createdAt = p.optString("created_at"), reviewedAt = nStr(p, "reviewed_at"),
+                    )
+                },
+                coupons = (0 until cArr.length()).map { i ->
+                    val c = cArr.getJSONObject(i)
+                    AdminCouponDto(
+                        id = c.optInt("id"), partnerId = c.optInt("partner_id"),
+                        partnerName = c.optString("partner_name"), city = c.optString("city"),
+                        title = c.optString("title"), description = c.optString("description"),
+                        discountText = c.optString("discount_text"), status = c.optString("status"),
+                        review = c.optString("review", "pending"), reviewFlag = c.optString("review_flag"),
+                        reviewNote = c.optString("review_note"), reportsCount = c.optInt("reports_count"),
+                        visible = c.optBoolean("visible"), createdAt = c.optString("created_at"),
+                    )
+                },
+                total = o.optInt("total"),
+            )
+        }
+
+    /** Админ: «посмотрел, всё в порядке» — купон уходит из очереди. */
+    suspend fun approveCoupon(id: Int): Result<Unit> =
+        call("POST", "/admin/coupons/$id/approve", null, auth = true).map { }
+
+    /** Админ: снять купон с витрины с причиной (её увидит партнёр). */
+    suspend fun blockCoupon(id: Int, reason: String): Result<Unit> =
+        call("POST", "/admin/coupons/$id/block", JSONObject().put("reason", reason), auth = true).map { }
+
+    /** Пожаловаться на купон: ставит его в очередь к админу, но НЕ снимает с витрины. */
+    suspend fun reportCoupon(id: Int, reason: String): Result<Boolean> =
+        call("POST", "/coupons/$id/report", JSONObject().put("reason", reason), auth = true)
+            .map { it.optBoolean("already", false) }
 
     // ═══════════ M2: Промокоды и кампании ═══════════
 
@@ -5870,6 +5934,10 @@ data class PartnerCouponDto(
     val city: String, val routeHint: List<String>, val validFrom: String?, val validUntil: String?,
     val limitTotal: Int, val limitPerUser: Int, val redeemedCount: Int, val activations: Int,
     val premium: Boolean, val status: String, val createdAt: String,
+    // Состояние ПРОВЕРКИ, отдельно от status («чего хочет партнёр»). Без него человек видит
+    // «Активен» и не понимает, почему купона нет в витрине: held — задержан автопроверкой,
+    // pending — ждёт админа (но виден), blocked — снят админом (причина в reviewNote).
+    val review: String = "approved", val reviewNote: String = "", val reportsCount: Int = 0,
 )
 
 /** Статистика купона партнёра. */
@@ -5887,6 +5955,27 @@ data class AdminPartnerDto(
     val address: String, val phone: String, val description: String, val status: String,
     val rejectReason: String, val subscriptionPlan: String, val subscriptionUntil: String?,
     val subscriptionActive: Boolean, val createdAt: String, val reviewedAt: String?,
+)
+
+/**
+ * Купон в очереди модерации.
+ *
+ * `review` — что решила ПРОВЕРКА, отдельно от `status` («чего хочет партнёр»):
+ * held — задержан автопроверкой, людям не виден; pending — виден, но админ ещё не смотрел;
+ * approved — проверен; blocked — снят админом. `visible` сервер считает сам.
+ */
+data class AdminCouponDto(
+    val id: Int, val partnerId: Int, val partnerName: String, val city: String,
+    val title: String, val description: String, val discountText: String,
+    val status: String, val review: String, val reviewFlag: String, val reviewNote: String,
+    val reportsCount: Int, val visible: Boolean, val createdAt: String,
+)
+
+/** Очередь модерации витрины: бизнесы без решения + купоны без решения. */
+data class ModerationQueueDto(
+    val partners: List<AdminPartnerDto>,
+    val coupons: List<AdminCouponDto>,
+    val total: Int,
 )
 
 // ═══════════ M2: Промокоды и кампании ═══════════

@@ -74,14 +74,20 @@ def test_health_not_hard_limited(client, rl_settings):
 
 
 def test_webhook_not_hard_limited(client, rl_settings):
-    """Вебхук Telegram начинается с /auth, но освобождён от строгого лимита —
-    иначе активного бота резало бы 429. Проверяем: 429 не прилетает."""
+    """Вебхук Telegram освобождён от лимита — иначе активного бота резало бы 429.
+
+    Адрес вебхука — «/telegram/webhook» (routers/auth.py). Раньше и код, и этот тест ходили
+    на «/auth/telegram/webhook», которого в приложении нет: тест проверял исключение на
+    несуществующем маршруте и потому был зелёным, пока настоящий вебхук считался обычным
+    трафиком (аудит 2026-08-08). Отсюда первая проверка: маршрут вообще существует.
+    """
     rl_settings.rate_limit_enabled = True
     rl_settings.rate_limit_per_min = 1
     rl_settings.rate_limit_auth_per_min = 1
     ip = {"X-Real-IP": "203.0.113.14"}
 
-    codes = [client.post("/auth/telegram/webhook", json={}, headers=ip).status_code for _ in range(10)]
+    codes = [client.post("/telegram/webhook", json={}, headers=ip).status_code for _ in range(10)]
+    assert 404 not in codes, codes      # проверяем НАСТОЯЩИЙ маршрут, а не опечатку
     assert 429 not in codes, codes
 
 

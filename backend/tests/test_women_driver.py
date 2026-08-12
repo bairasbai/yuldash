@@ -13,6 +13,9 @@
    Теперь витрина верит только паре «заявлено + подтверждено модератором по фото прав».
    Подробнее — models.DriverProfile.gender_verified и test_car_and_gender_proof.py.
 """
+from datetime import timedelta
+
+from app.timeutil import utcnow
 from app.models import UserRole
 
 
@@ -84,12 +87,42 @@ def test_unconfirmed_female_is_not_in_women_filter(client, user_factory):
     assert next(r for r in rows if r["id"] == ride["id"])["driver_is_woman"] is False
 
 
-def test_women_only_still_matches_flag_ride(client, user_factory):
-    """Обычная (не женщина) поездка с флагом women_only тоже остаётся в фильтре — регресс."""
-    drv = user_factory("FlagDrv", role=UserRole.driver)
+def test_women_only_flag_ride_stays_in_the_filter(client, user_factory):
+    """Поездка с флагом women_only остаётся в фильтре — регресс.
+
+    Раньше тест ставил флаг водителю БЕЗ пола: тогда отметка была пожеланием и её мог
+    поставить кто угодно. С 2026-08-08 «только женщины» — правило, и ставит его женщина
+    за рулём (см. `test_women_only_flag_requires_a_female_driver`), поэтому и здесь
+    водитель — женщина.
+    """
+    drv = user_factory("FlagDrv", role=UserRole.driver, gender="female")
     ride = _publish(client, drv, frm="ФлагГрад", women_only=True)
     wonly = client.get("/rides", params={"from_city": "ФлагГрад", "women_only": True}).json()
     assert any(r["id"] == ride["id"] for r in wonly)
+
+
+def test_women_only_flag_requires_a_female_driver(client, user_factory):
+    """Мужчина за рулём не может пометить поездку «только женщины».
+
+    Иначе отметка — приманка: женщина садится в машину, думая, что проверено.
+    Не указавшему пол отвечаем не отказом, а просьбой заполнить профиль.
+    """
+    male = user_factory("FlagMale", role=UserRole.driver, gender="male")
+    r = client.post("/rides", headers=male["auth"], json={
+        "from_city": "ФлагГрад2", "to_city": "Сибай",
+        "depart_at": (utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat(),
+        "seats_total": 3, "price": 300, "women_only": True,
+    })
+    assert r.status_code == 403, r.text
+
+    unknown = user_factory("FlagNoGender", role=UserRole.driver)
+    r2 = client.post("/rides", headers=unknown["auth"], json={
+        "from_city": "ФлагГрад3", "to_city": "Сибай",
+        "depart_at": (utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat(),
+        "seats_total": 3, "price": 300, "women_only": True,
+    })
+    assert r2.status_code == 403
+    assert "профил" in r2.json()["detail"]["ru"].lower()   # просим заполнить, а не отказываем молча
 
 
 # 3. Приватность: мужской пол не выпячиваем --------------------------------

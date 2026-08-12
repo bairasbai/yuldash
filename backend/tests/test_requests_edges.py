@@ -66,7 +66,7 @@ def test_admin_request_for_phone_creates_request_for_target_user(client, user_fa
 
 def test_request_response_acceptance_flow(client, user_factory):
     passenger = user_factory("RequestPassenger")
-    driver = user_factory("RequestDriver", role=UserRole.driver)
+    driver = user_factory("RequestDriver", role=UserRole.driver, gender="female")
     outsider = user_factory("RequestOutsider")
     request = _create_request(client, passenger)
 
@@ -119,7 +119,7 @@ def test_request_response_acceptance_flow(client, user_factory):
 
 def test_blocked_request_is_hidden_and_cannot_be_responded_to(client, user_factory):
     passenger = user_factory("BlockedRequestPassenger")
-    driver = user_factory("BlockedRequestDriver", role=UserRole.driver)
+    driver = user_factory("BlockedRequestDriver", role=UserRole.driver, gender="female")
     request = _create_request(client, passenger, from_city="BlockA", to_city="BlockB")
 
     with Session(engine) as session:
@@ -134,7 +134,7 @@ def test_blocked_request_is_hidden_and_cannot_be_responded_to(client, user_facto
 
 def test_requests_near_filters_paginates_and_keeps_phone_private(client, user_factory):
     passenger = user_factory("NearRequestPassenger")
-    viewer = user_factory("NearRequestViewer", role=UserRole.driver)
+    viewer = user_factory("NearRequestViewer", role=UserRole.driver, gender="female")
     first = _create_request(client, passenger, from_city="Уфа", to_city="Сибай", comment="first")
     _create_request(client, passenger, from_city="Уфа", to_city="Сибай", comment="second")
 
@@ -173,7 +173,7 @@ def test_admin_telegram_callback_accepts_request_response(client, user_factory, 
     """Кнопка ✅ Принять под откликом в Telegram = приём отклика: Ride+Booking, заявка matched.
     Только от admin_telegram_chat_id; чужой id ничего не меняет."""
     passenger = user_factory("TgRespPassenger")
-    driver = user_factory("TgRespDriver", role=UserRole.driver)
+    driver = user_factory("TgRespDriver", role=UserRole.driver, gender="female")
     request = _create_request(client, passenger)
     response_id = client.post(
         f"/requests/{request['id']}/respond", headers=driver["auth"], json={"price": 300, "comment": "еду"},
@@ -208,7 +208,7 @@ def test_admin_telegram_callback_accepts_request_response(client, user_factory, 
 def test_admin_telegram_callback_declines_request_response(client, user_factory, monkeypatch):
     """Кнопка ❌ Отклонить → отклик declined, заявка остаётся active (можно принять другого)."""
     passenger = user_factory("TgDeclinePassenger")
-    driver = user_factory("TgDeclineDriver", role=UserRole.driver)
+    driver = user_factory("TgDeclineDriver", role=UserRole.driver, gender="female")
     request = _create_request(client, passenger)
     response_id = client.post(
         f"/requests/{request['id']}/respond", headers=driver["auth"], json={"price": 200},
@@ -253,8 +253,8 @@ def test_automatch_picks_best_response_for_no_app_passenger(client, user_factory
     """«Помощь»-заявка (пассажир без приложения): авто-подбор сам принимает ЛУЧШИЙ отклик
     (выше рейтинг водителя), без админа. Проигравший отклик остаётся offered."""
     passenger = user_factory("AutoPax")   # user_factory не создаёт DeviceToken → «без приложения»
-    driver_hi = user_factory("AutoDriverHi", role=UserRole.driver)
-    driver_lo = user_factory("AutoDriverLo", role=UserRole.driver)
+    driver_hi = user_factory("AutoDriverHi", role=UserRole.driver, gender="female")
+    driver_lo = user_factory("AutoDriverLo", role=UserRole.driver, gender="female")
     _seed_rating(driver_hi["id"], 5)
     _seed_rating(driver_lo["id"], 3)
     request = _create_request(client, passenger)
@@ -278,7 +278,7 @@ def test_automatch_skips_passenger_with_app(client, user_factory, monkeypatch):
     """У пассажира есть приложение (DeviceToken) → он выбирает сам, авто-подбор НЕ вмешивается."""
     passenger = user_factory("AppPax")
     _add_device(passenger["id"])
-    driver = user_factory("AppDriver", role=UserRole.driver)
+    driver = user_factory("AppDriver", role=UserRole.driver, gender="female")
     request = _create_request(client, passenger)
     resp_id = _respond(client, request["id"], driver, 250)
 
@@ -294,7 +294,7 @@ def test_automatch_skips_passenger_with_app(client, user_factory, monkeypatch):
 def test_automatch_respects_grace_and_disabled(client, user_factory, monkeypatch):
     """Свежий отклик в пределах паузы не берём; при выключенном флаге — вообще ничего."""
     passenger = user_factory("GracePax")
-    driver = user_factory("GraceDriver", role=UserRole.driver)
+    driver = user_factory("GraceDriver", role=UserRole.driver, gender="female")
     request = _create_request(client, passenger)
     _respond(client, request["id"], driver, 400)
 

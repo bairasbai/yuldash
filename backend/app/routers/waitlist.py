@@ -182,3 +182,22 @@ def admin_waitlist_invite(body: InviteIn, user: User = Depends(current_user),
             n += 1
     session.commit()
     return {"ok": True, "invited": n}
+
+
+@router.delete("/admin/waitlist/{entry_id}")
+def admin_waitlist_delete(entry_id: int, user: User = Depends(current_user),
+                          session: Session = Depends(get_session)):
+    """Убрать номер из листа ожидания по просьбе человека (152-ФЗ, ст. 14 «право на удаление»).
+
+    Ручки не было вообще: номер, оставленный на сайте, удалить было нечем — только руками
+    в базе (аудит 2026-08-08). Аккаунта у этого человека нет, значит `/me/delete` ему не
+    поможет; просьба приходит письмом или в бота, и у Александра должна быть кнопка.
+    Идемпотентно: нет строки — считаем, что уже удалили.
+    """
+    _require_admin(user)
+    entry = session.get(WaitlistEntry, entry_id)
+    if entry is None:
+        return {"ok": True, "deleted": 0}
+    session.delete(entry)
+    session.commit()
+    return {"ok": True, "deleted": 1}

@@ -59,6 +59,15 @@ class SentryScrubTest {
     }
 
     @Test
+    fun `ссылка на живую поездку вычищается`() {
+        // Токен в пути /t/{token} — ключ к живым координатам поездки, его показывают близкому.
+        // Правило зеркалит серверное (observability.py), аудит 2026-08-08.
+        val out = scrubPersonal("share https://yulbash.ru/t/Aa1Bb2Cc3Dd4Ee5Ff6Gg7 упал")
+        assertFalse(out.contains("Aa1Bb2Cc3Dd4Ee5Ff6Gg7"))
+        assertTrue(out.contains("/t/***"))
+    }
+
+    @Test
     fun `пустая строка не роняет`() {
         assertEquals("", scrubPersonal(""))
     }
