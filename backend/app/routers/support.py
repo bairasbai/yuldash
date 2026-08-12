@@ -17,6 +17,7 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..errors import herr
+from ..middleware import user_over_limit
 from ..models import (
     SupportMessage, SupportSender, SupportTicket, SupportTicketStatus, User, UserRole,
 )
@@ -131,11 +132,26 @@ def _notify_admin_new_ticket(ticket: SupportTicket, user: User, text: str, new: 
         pass
 
 
+# Сколько НОВЫХ обращений один человек может открыть за час. Каждое падает Александру
+# в Telegram и разбирается руками, а времени у него 5–10 минут в день: обращение — самое
+# дешёвое действие для человека и самое дорогое для нас. Пробой волны 28: 50 обращений
+# подряд, ни одного отказа, 50 сообщений в Telegram.
+#
+# Пять — с запасом на живую жизнь: человек пишет про поездку, потом вспоминает про оплату,
+# потом про водителя. Упереться можно только специально. Ответы ВНУТРИ тикета не ограничиваем:
+# они админа не дёргают, а обрывать разговор на полуслове — хуже спама.
+MAX_TICKETS_PER_HOUR = 5
+
+
 # ------------------------------ пользователь ------------------------------
 @router.post("/support/tickets", response_model=TicketThreadOut)
 def create_ticket(body: CreateTicketIn, user: User = Depends(current_user),
                   session: Session = Depends(get_session)):
     """Создать обращение с первым сообщением. subject опционален (клиент может не спрашивать)."""
+    if user_over_limit("support_ticket", user.id, MAX_TICKETS_PER_HOUR, window_sec=3600):
+        # Не «ошибка», а честная просьба: уже открытые обращения никуда не делись, ответим там.
+        raise herr(429, "Слишком много обращений подряд. Ответим на уже открытые — напиши в них.",
+                   "Артыҡ күп мөрәжәғәт. Асыҡ мөрәжәғәттәргә яуап бирәбеҙ — шунда яҙ.")
     ticket = SupportTicket(user_id=user.id, subject=body.subject.strip()[:200],
                            status=SupportTicketStatus.open)
     session.add(ticket)
