@@ -27,8 +27,8 @@ from .db import engine
 from .imagemeta import strip_image_metadata
 from .logs import log
 from .models import (
-    Block, Booking, BookingStatus, DeviceToken, DriverProfile, Notification, PickupPoint, Rating, Ride,
-    RideCategory, RideRequest, RouteWatch, UploadEvent, User, UserRole,
+    Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, Notification, PickupPoint,
+    Rating, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent, User, UserRole,
 )
 from .schemas import RideOut
 from .timeutil import utcnow
@@ -689,6 +689,48 @@ def send_text(phone: str, text: str) -> None:
             log.info(f"[SMS-MOCK] {mp}: (тело скрыто в проде)")
         else:
             log.info(f"[SMS-MOCK] {mp}: {text}")
+
+
+# Сколько SMS близким человек может отправить за счёт платформы за сутки. Число взято тем же,
+# что уже действовало для трекинг-ссылок посылок, — там потолок додумали, а у «поделиться
+# поездкой» забыли (аудит 2026-08-12, волна 48). Двадцать — это заведомо больше, чем нужно
+# честному человеку: у него от силы двое-трое близких и одна поездка за раз.
+FAMILY_SMS_PER_DAY = 20
+
+
+def family_sms_sent_today(session: Session, user_id: int) -> int:
+    """Сколько SMS близким этот человек уже отправил за последние сутки."""
+    edge = utcnow() - timedelta(days=1)
+    return len(session.exec(
+        select(FamilySmsLog.id).where(FamilySmsLog.user_id == user_id, FamilySmsLog.created_at > edge)
+    ).all())
+
+
+def may_send_family_sms(session: Session, user_id: int, kind: str) -> bool:
+    """Можно ли отправить ещё одну SMS близкому за счёт платформы. True — можно (расход уже
+    записан), False — потолок исчерпан.
+
+    ОДНО правило на все входы: попутка, такси, посылка. Номер близкого никем не подтверждён —
+    человек вводит его сам, и сервис честно шлёт туда сообщение со своим именем. Значит это
+    одновременно расход платформы и канал, которым можно достать чужого человека. Пока потолок
+    жил только в трекинге посылок, достаточно было перейти в соседний раздел (аудит 2026-08-12,
+    волна 48).
+
+    Расход пишем ДО отправки: сбой шлюза не должен превращаться в бесплатную попытку, иначе
+    потолок обходится подбором момента, когда провайдер отвечает ошибкой.
+
+    Не бросает исключение: одни вызывающие обязаны сказать человеку «слишком много» (там, где
+    он нажал кнопку сам), другие — промолчать (статусы поездки идут автоматом, и красная ошибка
+    посреди дороги никому не поможет). Решение — за вызывающим.
+
+    Экстренную помощь сюда НЕ заводим: у SOS свой троттл, и он намеренно щедрее — жизнь дороже
+    денег на сообщения."""
+    if family_sms_sent_today(session, user_id) >= FAMILY_SMS_PER_DAY:
+        log.info(f"[SMS] потолок «близким» на сегодня исчерпан у user={user_id} ({kind})")
+        return False
+    session.add(FamilySmsLog(user_id=user_id, kind=kind))
+    session.commit()
+    return True
 
 
 def send_sms(phone: str, code: str) -> None:

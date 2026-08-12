@@ -34,7 +34,7 @@ from .errors import herr
 from .models import (
     Ad, AdEvent, AppReview, Block, Booking, BookingStatus, CommissionDebt, Consent, Coupon, OfferDecline,
     CouponRedemption, CouponReport, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
-    DriverProfile, DriverSchedule, Incident, InstantOrder, InstantOrderStatus, InviteCode,
+    DriverProfile, DriverSchedule, FamilySmsLog, Incident, InstantOrder, InstantOrderStatus, InviteCode,
     LedgerEntry, Message,
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
     Rating, RecentPlace, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
@@ -502,6 +502,10 @@ def delete_user_account(session: Session, user: User) -> None:
         session.execute(delete(Ad).where(Ad.id.in_(ad_ids)))
     session.execute(update(Ad).where(Ad.created_by == uid).values(created_by=None))
     # 3.19 Контакты, блокировки.
+    # Журнал SMS близким (счётчик суточного потолка). Уходит вместе с аккаунтом: номеров
+    # получателей там нет, а «кто и сколько отправлял» — след поведения конкретного человека.
+    # Потолок от этого не дырявится: новый аккаунт — это и новый телефон при регистрации.
+    session.execute(delete(FamilySmsLog).where(FamilySmsLog.user_id == uid))
     session.execute(delete(TrustedContact).where(TrustedContact.user_id == uid))
     dele(Block, Block.user_id == uid, Block.blocked_user_id == uid)
     # 3.20 Токены/коды/сессии/загрузки/отзывы/профиль водителя/лист ожидания.

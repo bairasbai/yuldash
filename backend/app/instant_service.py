@@ -34,7 +34,8 @@ from .models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus as S, OfferDecline,
     Tariff, TripShare, TrustedContact, User,
 )
-from .services import blocked_user_ids, haversine_km, push_bilingual, send_push, send_text, user_rating
+from .services import (blocked_user_ids, haversine_km, may_send_family_sms, push_bilingual, send_push,
+                       send_text, user_rating)
 from .timeutil import utcnow
 
 PRESENCE_KEY = "presence"                    # Redis GEO-множество координат водителей «на линии»
@@ -1367,7 +1368,10 @@ def _notify_order_shares(session: Session, order: InstantOrder, share_status: st
         session.add(share)
         contact = session.get(TrustedContact, share.contact_id)
         if contact and contact.phone:
-            send_text(contact.phone, f"Юлдаш: {who} {text}.")
+            # Общий суточный потолок SMS близким (волна 48). Тихо: статус едет автоматом
+            # по ходу заказа, ошибку тут показывать некому и незачем.
+            if may_send_family_sms(session, order.passenger_id, "status"):
+                send_text(contact.phone, f"Юлдаш: {who} {text}.")
     session.commit()
 
 

@@ -18,7 +18,8 @@ from ..models import (
 )
 from ..safety_logic import clean_tags
 from ..security import current_user
-from ..services import booking_and_ride_for_user, push_bilingual, send_text, user_rating
+from ..services import (booking_and_ride_for_user, may_send_family_sms, push_bilingual, send_text,
+                        user_rating)
 from ..timeutil import utcnow
 # Планку «завершить можно только начавшуюся поездку» держим одну на оба пути к переходу
 # (водительский в bookings.py и пассажирский здесь) — иначе они разъедутся при первой же правке.
@@ -128,7 +129,11 @@ def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user
     # Близкий сразу получает live-ссылку (B7c): живая карта поездки в браузере, без приложения.
     if contact.phone:
         who = user.name or user.phone
+        if not may_send_family_sms(session, user.id, "share_ride"):
+            raise herr(429, "Слишком много сообщений близким за сутки. Попробуй завтра.",
+                       "Бер тәүлеккә яҡындарға хәбәр артыҡ күп. Иртәгә ҡабатла.")
         send_text(contact.phone, f"Юлдаш: {who} едет с попутчиком. Следи за поездкой: {_live_link(share.token)}")
+        session.refresh(share)   # учёт SMS коммитил сессию — освежаем перед ответом
     return share
 
 
@@ -185,7 +190,11 @@ def share_instant_trip(order_id: int, body: ShareIn, user: User = Depends(curren
     if contact.phone:
         who = user.name or user.phone
         route = f"{order.from_text or 'точка А'} → {order.to_text or 'точка Б'}"
+        if not may_send_family_sms(session, user.id, "share_taxi"):
+            raise herr(429, "Слишком много сообщений близким за сутки. Попробуй завтра.",
+                       "Бер тәүлеккә яҡындарға хәбәр артыҡ күп. Иртәгә ҡабатла.")
         send_text(contact.phone, f"Юлдаш: {who} едет на такси ({route}). Следи за поездкой: {_live_link(share.token)}")
+        session.refresh(share)   # учёт SMS коммитил сессию — освежаем перед ответом
     return share
 
 
@@ -237,16 +246,10 @@ def parcel_track_link(parcel_id: int, user: User = Depends(current_user),
             session.add(existing)
             session.commit()
         return {"token": token, "url": _live_link(token), "sms_sent": False}
-    # Анти-SMS-бомбинг: receiver_phone не верифицирован, SMS уходит за счёт платформы —
-    # держим суточный потолок ссылок-с-SMS на отправителя (как кеп у SOS/контактов).
-    day_ago = utcnow() - timedelta(days=1)
-    sent_today = len(session.exec(
-        select(TripShare.id).join(ParcelDelivery, TripShare.parcel_id == ParcelDelivery.id).where(
-            ParcelDelivery.sender_id == user.id, TripShare.created_at > day_ago,
-        )
-    ).all())
-    if sent_today >= 20:
-        raise herr(429, "Слишком много трекинг-ссылок за сутки. Попробуй завтра.", "Бер тәүлеккә күҙәтеү һылтанмалары артыҡ күп. Иртәгә ҡабатла.")
+    # Анти-SMS-бомбинг: receiver_phone не верифицирован, SMS уходит за счёт платформы. Потолок
+    # был свой и считался по строкам шаринга — он работал, но только здесь, и только пока строки
+    # живы. Теперь счёт общий на все входы и ведётся у отправителя (`send_family_sms`): иначе
+    # достаточно было перейти из посылок в «поделиться поездкой» (аудит 2026-08-12, волна 48).
     share = TripShare(parcel_id=parcel_id, token=secrets.token_urlsafe(16),
                       expires_at=utcnow() + _PARCEL_SHARE_TTL)
     session.add(share)
@@ -265,9 +268,10 @@ def parcel_track_link(parcel_id: int, user: User = Depends(current_user),
             # Смысл кода при этом не теряется — он подтверждает, что курьер отдал ТОМУ человеку.
             code = (parcel.confirm_code or "").strip()
             code_part = f" Код для курьера: {code}." if code else ""
-            send_text(phone, f"Юлдаш: {who} отправил тебе посылку ({route}).{code_part} "
-                             f"Следи за доставкой: {_live_link(share.token)}")
-            sms_sent = True
+            if may_send_family_sms(session, user.id, "parcel"):
+                send_text(phone, f"Юлдаш: {who} отправил тебе посылку ({route}).{code_part} "
+                                 f"Следи за доставкой: {_live_link(share.token)}")
+                sms_sent = True
         except Exception:   # SMS-шлюз мигнул — ссылку всё равно вернём отправителю (отдаст сам)
             pass
     return {"token": share.token, "url": _live_link(share.token), "sms_sent": sms_sent}
@@ -373,7 +377,14 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
     for cid in changed_ids:
         c = session.get(TrustedContact, cid)
         if c and c.phone:
-            send_text(c.phone, f"Юлдаш: {who} {status_text}.")
+            # Тихо: статус едет автоматом по ходу поездки, и красная ошибка «слишком много
+            # сообщений» посреди дороги человеку не поможет. Потолок всё равно общий.
+            if may_send_family_sms(session, user.id, "status"):
+                send_text(c.phone, f"Юлдаш: {who} {status_text}.")
+    # Учёт SMS коммитит сессию — после него объекты «обнуляются». Перечитываем ПЕРЕД ответом,
+    # иначе клиент получил бы пустые поля вместо статусов (поймал tests/test_flows.py).
+    for share in shares:
+        session.refresh(share)
     return shares
 
 

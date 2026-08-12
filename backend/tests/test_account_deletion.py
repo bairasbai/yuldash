@@ -194,6 +194,9 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # из ветки аудита безопасности. Врозь они друг о друге не знали, и при слиянии веток
         # 2026-08-12 самопроверка сразу показала непокрытую таблицу.
         s.add(M.TextFlag(user_id=uid, kind="contact", place="review", ref_id=1))
+        # Журнал SMS близким (счётчик суточного потолка, волна 48): номера получателя там нет,
+        # но «кто и сколько отправлял» — след поведения конкретного человека, уходит с аккаунтом.
+        s.add(M.FamilySmsLog(user_id=uid, kind="share_ride"))
         # Жалоба на человека: и моя (reporter_id), и на меня (target_user_id).
         s.add(M.Report(reporter_id=uid, target_user_id=oid, reason="Не приехал"))
         s.add(M.Report(reporter_id=oid, target_user_id=uid, reason="Нахамил"))
