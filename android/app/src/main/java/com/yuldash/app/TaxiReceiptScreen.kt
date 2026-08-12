@@ -136,7 +136,7 @@ private fun TaxiReceiptCard(r: InstantReceiptDto) {
         appendLine(orderLabel)
         appendLine(route)
         appendLine(formatDepart(r.doneAt))
-        appendLine("$shAmount: ${fmtRub(r.amount)} ₽ · $payLabel")
+        appendLine("$shAmount: ${kopToRub(r.amountKop)} · $payLabel")
         if (r.driverName.isNotBlank()) appendLine("$shDriver: ${r.driverName}")
     }
 
@@ -194,7 +194,8 @@ private fun TaxiReceiptCard(r: InstantReceiptDto) {
                     }
                 }
                 Text(
-                    "${fmtRub(r.amount)} ₽",
+                    // Главная цифра чека — с копейками: по ней сверяют, сколько отдали.
+                    kopToRub(r.amountKop),
                     color = CanonText,
                     fontSize = MoneyType.Hero,
                     lineHeight = MoneyType.HeroLine,

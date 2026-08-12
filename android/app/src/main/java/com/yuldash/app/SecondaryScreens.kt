@@ -1690,7 +1690,9 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(appText("Долг за такси", "Такси бурысы"), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text("${g.amount} ₽", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                                // С копейками: админ сверяет эту сумму с переводом от водителя,
+                                // а у того в приложении стоит точная — расходиться они не должны.
+                                Text(kopToRub(g.amountKop), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                             }
                             Text((g.driverName.ifBlank { noName }) + (if (g.driverPhone.isNotBlank()) " · ${g.driverPhone}" else ""), color = CanonMuted, fontSize = 14.sp)
                             if (g.weeks.isNotEmpty()) Text(appText("Недели: ", "Аҙналар: ") + g.weeks.joinToString(", "), color = CanonMuted, fontSize = 12.sp)

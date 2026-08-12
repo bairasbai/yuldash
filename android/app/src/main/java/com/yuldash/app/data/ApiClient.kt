@@ -2217,6 +2217,9 @@ object ApiClient {
                     debtId = o.optInt("debt_id"), driverId = o.optInt("driver_id"),
                     driverName = o.optString("driver_name"), driverPhone = o.optString("driver_phone"),
                     amount = o.optInt("amount"),
+                    // Точная сумма долга: админ сверяет её с переводом от водителя, а тот
+                    // переводит копейки. Округлённое `amount` давало расхождение при сверке.
+                    amountKop = o.optInt("amount_kop", o.optInt("amount") * 100),
                     weeks = (0 until wk.length()).map { j -> wk.optString(j) },
                 )
             }
@@ -4079,6 +4082,10 @@ object ApiClient {
                 doneAt = o.optString("done_at"),
                 distanceKm = o.optDouble("distance_km", 0.0),
                 amount = o.optInt("amount"),
+                // Точная сумма с копейками. Сервер отдаёт её давно, но чек читал только
+                // округлённое `amount` и показывал 188,50 ₽ как «188 ₽». Фолбэк на старое
+                // поле — на случай сервера, который ещё не отдаёт amount_kop.
+                amountKop = o.optInt("amount_kop", o.optInt("amount") * 100),
                 waitingFeeKop = o.optInt("waiting_fee_kop"),
                 paymentMethod = o.optString("payment_method"),
                 paid = o.optBoolean("paid"),
@@ -5528,7 +5535,8 @@ data class DriverDebtDto(
 /** Долг водителя в админ-очереди подтверждения (сгруппирован по водителю). */
 data class AdminDebtDto(
     val debtId: Int, val driverId: Int, val driverName: String, val driverPhone: String,
-    val amount: Int, val weeks: List<String>,
+    /** amount — рубли (совместимость), amountKop — точная сумма, её и показываем админу. */
+    val amount: Int, val amountKop: Int, val weeks: List<String>,
 )
 /** Баланс кошелька водителя (GET /wallet/balance). rub = kop // 100 (считает сервер). */
 data class WalletBalanceDto(val balanceKop: Int, val balanceRub: Int)
@@ -5602,7 +5610,8 @@ data class InstantWaitDto(val waitUntil: String, val waitMinutes: Int, val order
 data class InstantReceiptDto(
     val orderId: Int, val role: String,
     val fromText: String, val toText: String, val doneAt: String,
-    val distanceKm: Double, val amount: Int, val waitingFeeKop: Int,
+    /** amount — рубли (для старых экранов), amountKop — точная сумма: её и показываем в чеке. */
+    val distanceKm: Double, val amount: Int, val amountKop: Int, val waitingFeeKop: Int,
     val paymentMethod: String, val paid: Boolean,
     val driverName: String, val driverVerified: Boolean,
 )
