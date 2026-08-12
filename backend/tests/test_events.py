@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 
 from app.db import engine
 from app.models import AnalyticsEvent, UserRole
-from app.routers.events import sanitize_props
+from app.routers.events import _MAX_STR, sanitize_props
 
 
 def _last_event(event_name: str) -> AnalyticsEvent:
@@ -62,7 +62,9 @@ def test_sanitize_truncates_long_string_and_drops_nested():
         "event": "x", "long": "a" * 500, "nested": {"secret": 1}, "list": [1, 2, 3],
         "flag": False, "n": 7,
     })
-    assert len(props["long"]) == 128          # строка обрезана до 128
+    # С волны 45 порог короче (64): аналитика — это ярлыки экранов, а не свободный текст,
+    # и длинная строка почти всегда означает, что в телеметрию заехало чужое.
+    assert len(props["long"]) == _MAX_STR
     assert "nested" not in props and "list" not in props  # вложенное отброшено
     assert props["flag"] is False and props["n"] == 7
 

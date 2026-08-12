@@ -20,6 +20,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..observability import scrub_text
 from ..models import AnalyticsEvent, User, UserRole
 from ..security import current_user
 from ..timeutil import utcnow
@@ -29,7 +30,10 @@ router = APIRouter(tags=["events"])
 # Максимальные длины (сервер не верит клиенту).
 _MAX_EVENT = 64
 _MAX_CLIENT_ID = 64
-_MAX_STR = 128            # значение-строку в props режем до 128 символов
+# Значение-строку режем коротко: аналитика — это ярлыки экранов и шагов воронки
+# («map», «order_created», «ru»), а не свободный текст. Длинная строка почти всегда означает,
+# что в телеметрию заехало чужое: адрес, поиск, комментарий (волна 45).
+_MAX_STR = 64
 _MAX_PROPS = 24          # не больше 24 ключей props (защита от раздувания строки)
 
 # Денилист: если ключ props СОДЕРЖИТ любой из фрагментов (регистронезависимо) —
@@ -58,7 +62,14 @@ def _clean_value(v):
     if isinstance(v, (int, float)):
         return v
     if isinstance(v, str):
-        return v[:_MAX_STR]
+        # Денилист выше смотрит на ИМЯ ключа — и этого мало: телефон, адрес или почта
+        # приезжают в ЗНАЧЕНИИ под невинным именем. Проба волны 45 показала, что в базу
+        # дословно легло `{"screen": "заказ для +7 999 123-45-67", "note": "дом: Баймак,
+        # ул. Ленина 1, кв. 5"}` — при том что модель обещает «БЕЗ ЛИЧНОСТИ».
+        #
+        # Маскируем тем же скрабом, что чистит логи и Sentry (`observability.scrub_text`):
+        # правило про личное в тексте должно быть одно на весь проект.
+        return scrub_text(v[:_MAX_STR])
     return None                       # None/dict/list/прочее — не пишем
 
 

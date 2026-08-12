@@ -262,6 +262,11 @@
   WEBP EXIF/XMP (с пересчётом RIFF); пиксели не трогаем, битый файл отдаём как есть.
   Тесты: `tests/test_image_metadata_stripped.py` (метки исчезли И картинка цела) +
   сквозное обещание в `tests/test_promises.py`.
+- **В аналитику не попадает личное (2026-08-12, волна 45).** `events.sanitize_props` вырезает
+  опасные КЛЮЧИ (денилист) и чистит ЗНАЧЕНИЯ общим скрабом `observability.scrub_text`
+  (телефон, почта, токен, координаты); строки режутся до 64 символов. Почта добавлена в скраб
+  тогда же — раньше её не маскировали нигде, включая логи. Тесты —
+  `tests/test_analytics_has_no_person_in_it.py`.
 - **Разбор токена — одной точкой (2026-08-12, волна 42).** `security._decode` требует `exp`
   и `sub` (`python-jose`: `require_exp`, `require_sub`); через неё ходят `current_user`,
   `current_user_optional`, `authenticate_ws` и `verify_token`. Токен без срока жизни раньше
