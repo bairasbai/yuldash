@@ -194,3 +194,32 @@ def test_status_toggle_disables_apply(client, user_factory):
     user = user_factory(name="Юзер")
     r = client.post("/promo/apply", headers=user["auth"], json={"code": "off1"})
     assert r.status_code == 404       # выключенный код не раскрываем
+
+
+def test_ферма_на_удалении_аккаунта_видна_в_статистике(client, user_factory):
+    """Аккаунт удалили и завели заново на тот же номер — скидку выдадут снова.
+
+    Обещание «один промокод на всю жизнь аккаунта» держится буквально: у АККАУНТА. Аккаунт
+    одноразовый, а номер телефона — нет, и бюджет кампании тает по-настоящему (скидку на такси
+    оплачивает Юлдаш). Пробой волны 25: один номер получил скидку 5 раз подряд.
+
+    Закрыть это без нового следа от удалённого человека нельзя (решение Александра — tasks.md),
+    поэтому здесь мы держим хотя бы ПРИБОР: разрыв «выдано» и «применивших осталось» показывает
+    ферму. Раньше статистика показывала ноль применивших и выглядела спокойной.
+    """
+    admin = user_factory(name="Админ статистики", role=UserRole.admin)
+    r = client.post("/admin/promo", headers=admin["auth"], json={
+        "code": "FARM100", "title": "Тест фермы", "kind": "welcome", "limit_total": 100,
+    })
+    assert r.status_code == 200, r.text
+
+    for _ in range(3):
+        u = user_factory(name="Одноразовый")
+        assert client.post("/promo/apply", headers=u["auth"],
+                           json={"code": "FARM100"}).status_code == 200
+        assert client.post("/me/delete", headers=u["auth"]).status_code == 200
+
+    st = client.get("/promo/FARM100/stats", headers=admin["auth"]).json()
+    assert st["issued"] == 3, st          # бюджет кампании потрачен три раза
+    assert st["applied"] == 0, st         # а спросить уже не с кого
+    assert st["vanished"] == 3, st        # ровно это и есть след фермы

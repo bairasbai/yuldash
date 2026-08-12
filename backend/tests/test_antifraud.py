@@ -690,6 +690,46 @@ def test_referral_bonus_fires_from_done_endpoint(client, user_factory, fake_redi
     assert _credits(referrer["id"]) == 1
 
 
+def test_referral_farm_cannot_mint_endless_free_boosts(client, user_factory):
+    """Ферма «новый номер → ввёл код → +1 бонус» упирается в ПОЖИЗНЕННЫЙ потолок.
+
+    Бонус = бесплатное поднятие поездки, то есть деньги. Потолок 20 считал ОСТАТОК на руках:
+    потратил бонусы — и набирай заново, сколько хватит виртуальных номеров. Проба волны 25
+    показала 40 бонусов с 50 аккаунтов и ни одного отказа.
+
+    Приглашения при этом засчитываются ВСЕГДА: человек привёл друга, статистика это видит,
+    даже когда платить бонусами мы больше не готовы.
+    """
+    ref = user_factory("Фермер", role=UserRole.driver)
+    code = client.get("/referral/me", headers=ref["auth"]).json()["code"]
+
+    def invite(n: int) -> None:
+        for _ in range(n):
+            inv = user_factory("Приглашённый")
+            r = client.post("/referral/redeem", headers=inv["auth"], json={"code": code})
+            assert r.status_code == 200, r.text
+            assert r.json()["credits"] == 1        # сам приглашённый свой бонус получает
+
+    invite(20)
+    assert _credits(ref["id"]) == 20
+
+    rid = client.post("/rides", headers=ref["auth"], json={
+        "from_city": "ФермаГрад", "to_city": "Сибай", "depart_at": "2030-01-01T10:00:00",
+        "seats_total": 3, "price": 300,
+    }).json()["id"]
+    for _ in range(20):                            # тратим всё, освобождая «потолок остатка»
+        assert client.post("/boost/free", headers=ref["auth"],
+                           json={"ride_id": rid}).status_code == 200
+    assert _credits(ref["id"]) == 0
+
+    invite(5)                                      # вторая волна фермы
+    assert _credits(ref["id"]) == 0, "потолок оказался не пожизненным — ферма снова печатает бонусы"
+
+    me = client.get("/referral/me", headers=ref["auth"]).json()
+    assert me["invited"] == 25                     # привёл 25 — учтено честно
+    assert me["credits"] == 0                      # но бесконечно платить не будем
+
+
 def test_presence_teleport_not_published(client, user_factory, fake_redis):
     """Presence: телепорт-точка не публикуется (водитель в GEO не «прыгает»), ok=False,
     честный heartbeat в той же точке дальше работает; пульс админа видит подозрительных."""

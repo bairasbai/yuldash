@@ -250,12 +250,19 @@ def promo_stats(code: str, user: User = Depends(current_user), session: Session 
     if not promo or (not is_admin and promo.owner_id != user.id):
         raise herr(404, "Промокод не найден", "Промокод табылманы")
     applied, active = _promo_counts(session, promo)
+    issued = int(promo.redeemed_count or 0)
     return {
         "code": promo.code,
         "title": promo.title,
         "campaign": promo.campaign,
+        # issued — сколько раз код ВЫДАН (и списан с бюджета кампании), applied — сколько
+        # применивших ещё существует. Числа расходятся, когда аккаунт удалили: строка о выдаче
+        # уходит вместе с ним, а бюджет уже потрачен. Большой разрыв = чью-то ферму видно
+        # невооружённым глазом (аудит 2026-08-12, волна 25).
+        "issued": issued,
         "applied": applied,
         "active": active,
+        "vanished": max(issued - applied, 0),
     }
 
 
@@ -284,6 +291,9 @@ def _promo_admin(promo: PromoCode, session: Session) -> dict:
         "redeemed_count": promo.redeemed_count,
         "applied": applied,
         "active": active,
+        # Сколько применивших исчезло вместе с аккаунтами: бюджет кампании потрачен,
+        # а спросить уже не с кого. Признак накрутки «удалил аккаунт — взял скидку заново».
+        "vanished": max(int(promo.redeemed_count or 0) - applied, 0),
         "valid_from": promo.valid_from.isoformat() if promo.valid_from else None,
         "valid_until": promo.valid_until.isoformat() if promo.valid_until else None,
         "active_flag": promo.active,

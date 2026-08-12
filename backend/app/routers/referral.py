@@ -15,9 +15,17 @@ from ..timeutil import utcnow
 
 router = APIRouter(tags=["referral"])
 
-# Потолок реферальных бонусов на пользователя (анти-накрутка: два аккаунта взаимно редимят
-# через новые регистрации → иначе бесконечные бесплатные поднятия). Хватает на реальную виральность.
+# Потолок ОСТАТКА бонусов на руках. Держит кошелёк в разумных рамках, но накрутку сам по себе
+# НЕ закрывает: потратил бонусы — потолок освободился (проба волны 25: 50 приглашённых = 40 бонусов).
 MAX_REFERRAL_CREDITS = 20
+
+# Пожизненный потолок: сколько бонусов человек может получить КАК ПРИГЛАСИВШИЙ за всё время
+# (аудит 2026-08-12, волна 25). Именно он закрывает ферму «новый номер → ввёл код → +1 бонус»:
+# бонус = бесплатное поднятие поездки, то есть деньги, а цена одного фейк-аккаунта — цена
+# виртуального номера. Считается у пригласившего, поэтому не обнуляется ни тратой бонусов,
+# ни удалением приглашённых аккаунтов. Двадцать бесплатных поднятий — это уже очень много
+# для честной виральности «позови соседа».
+MAX_REFERRAL_BONUS_LIFETIME = 20
 
 # --- B8-4: водительский бонус пригласившему — только за НАСТОЯЩЕГО водителя ---
 # Анти-накрутка фейк-поездками (пара аккаунтов гоняет done туда-сюда): бонус выдаётся,
@@ -29,6 +37,28 @@ DRIVER_BONUS_MIN_PASSENGERS = 3
 DRIVER_BONUS_MONTHLY_CAP = 5        # ≤5 водительских бонусов на пригласившего в календарный месяц
 LIVE_TRIP_MIN_KM = 1.0
 LIVE_TRIP_MIN_MINUTES = 5
+
+
+def grant_referral_credit(session: Session, referrer: User) -> bool:
+    """Начислить пригласившему ОДИН бонус. Единственная точка начисления — обе двери зовут её.
+
+    Два разных потолка, и они правда разные:
+      * `MAX_REFERRAL_CREDITS` — сколько бонусов лежит на руках. Полный кошелёк не значит
+        «хватит приглашать»: слот не сгорает, потратил — начислим следующий;
+      * `MAX_REFERRAL_BONUS_LIFETIME` — сколько бонусов человек получил за всю жизнь. Вот он
+        и закрывает ферму: 21-й приглашённый аккаунт бонуса пригласившему уже не приносит.
+
+    Возвращает True, если бонус реально начислен (вызывающий решает, писать ли запись/пуш).
+    Сессию НЕ коммитим — это делает вызывающий вместе со своими изменениями.
+    """
+    if int(referrer.referral_bonus_lifetime or 0) >= MAX_REFERRAL_BONUS_LIFETIME:
+        return False
+    if referrer.referral_credits >= MAX_REFERRAL_CREDITS:
+        return False          # кошелёк полон: пожизненный слот не тратим впустую
+    referrer.referral_credits += 1
+    referrer.referral_bonus_lifetime = int(referrer.referral_bonus_lifetime or 0) + 1
+    session.add(referrer)
+    return True
 
 
 def _live_driver_trips(session: Session, driver_id: int) -> tuple[int, set]:
@@ -90,8 +120,8 @@ def reward_driver_referral(session: Session, driver_id: int | None) -> bool:
     live, passengers = _live_driver_trips(session, driver_id)
     if live < DRIVER_BONUS_MIN_TRIPS or len(passengers) < DRIVER_BONUS_MIN_PASSENGERS:
         return False
-    referrer.referral_credits = min(referrer.referral_credits + 1, MAX_REFERRAL_CREDITS)
-    session.add(referrer)
+    if not grant_referral_credit(session, referrer):
+        return False          # пожизненный потолок выбран или кошелёк полон — молча не начисляем
     session.add(ReferralBonus(referrer_id=referrer.id, invited_user_id=driver_id, kind="driver"))
     session.commit()
     from ..services import push_notification   # локальный импорт: тесты патчат services
@@ -156,8 +186,10 @@ def referral_redeem(body: RedeemIn, user: User = Depends(current_user), session:
     # (анти-накрутка взаимными редимами через новые аккаунты).
     user.referred_by = referrer.id
     user.referral_credits = min(user.referral_credits + 1, MAX_REFERRAL_CREDITS)
-    referrer.referral_credits = min(referrer.referral_credits + 1, MAX_REFERRAL_CREDITS)
+    # Пригласившему — через общую точку с пожизненным потолком. Приглашение при этом
+    # засчитывается ВСЕГДА (`referred_by` выше): человек привёл друга, и статистика это видит,
+    # даже если бонусов ему больше не положено.
+    grant_referral_credit(session, referrer)
     session.add(user)
-    session.add(referrer)
     session.commit()
     return {"ok": True, "credits": user.referral_credits}
