@@ -173,7 +173,7 @@ class SosVerifyDeep2ContentTest {
         setLang(AppLanguage.Ba) {
             UploadTile(title = "Машина фотоһы", done = false, loading = false) {}
         }
-        composeRule.onNodeWithText("Фото һайлау өсөн баҫығыҙ").assertIsDisplayed()
+        composeRule.onNodeWithText("Фото һайлау өсөн баҫ").assertIsDisplayed()
     }
 
     @Test

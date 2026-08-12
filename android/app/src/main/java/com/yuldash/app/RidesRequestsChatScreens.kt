@@ -376,7 +376,7 @@ internal fun RidesScreen(
                 visibleBookings.isEmpty() -> item {
                     EmptyStateCard(
                         title = appText("Поездок пока нет", "Әлегә сәфәрҙәр юҡ"),
-                        text = appText("Создай заявку или опубликуй маршрут водителя.", "Заявка булдырығыҙ йәки водитель маршрутын баҫтырығыҙ."),
+                        text = appText("Создай заявку или опубликуй маршрут водителя.", "Заявка булдыр йәки водитель маршрутын баҫтыр."),
                         icon = Icons.Default.Route,
                         action = appText("Создать заявку", "Заявка булдырыу"),
                         onAction = onCreateRequest
@@ -1702,7 +1702,7 @@ internal fun ChatScreen(
         item {
             Text(appText("Чат", "Чат"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             Text(
-                appText("Общайтесь по активным поездкам и заявкам", "Актив сәфәрҙәр һәм заявкалар буйынса аралашығыҙ"),
+                appText("Общайтесь по активным поездкам и заявкам", "Актив сәфәрҙәр һәм заявкалар буйынса аралаш"),
                 color = CanonMuted,
                 fontSize = 14.sp,
                 lineHeight = 20.sp
@@ -2837,7 +2837,7 @@ internal fun VoiceMessageCard(message: LocalVoiceMessage) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(appText("Голосовое от ${message.author}", "Тауыш хәбәр: ${message.author}"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 if (message.audioPath != null) {
-                    Text(appText("${message.durationSec} сек · нажми ▶", "${message.durationSec} сек · ▶ баҫығыҙ"), color = CanonMuted, fontSize = 14.sp)
+                    Text(appText("${message.durationSec} сек · нажми ▶", "${message.durationSec} сек · ▶ баҫ"), color = CanonMuted, fontSize = 14.sp)
                 } else {
                     Text(message.transcript, color = CanonText, fontSize = 14.sp, lineHeight = 20.sp)
                     Text(appText("Расшифровка для водителя", "Водитель өсөн текст"), color = CanonMuted, fontSize = 12.sp)

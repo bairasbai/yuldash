@@ -923,7 +923,7 @@ internal fun VerifyDriverContent(
                 when {
                     verified -> StatusBanner(Icons.Default.Verified, appText("Профиль подтверждён", "Профиль раҫланды"), appText("Тебе доверяют — значок «Проверен» виден пассажирам.", "Һеҙгә ышаналар — «Тикшерелгән» билдәһе күренә."), CanonMint, CanonGreen2)
                     docsStatus == "pending" -> StatusBanner(Icons.Default.Schedule, appText("На проверке", "Тикшереүҙә"), appText("Обычно занимает немного времени. Сообщим о результате.", "Ғәҙәттә әҙ ваҡыт ала. Һөҙөмтә тураһында хәбәр итәбеҙ."), CanonMint, CanonGreen2)
-                    docsStatus == "rejected" -> StatusBanner(Icons.Default.Shield, appText("Отклонено", "Кире ҡағылды"), appText("Проверь фото и отправь снова.", "Фотоларҙы тикшереп, ҡабат ебәрегеҙ."), CanonDangerBg, CanonRed)
+                    docsStatus == "rejected" -> StatusBanner(Icons.Default.Shield, appText("Отклонено", "Кире ҡағылды"), appText("Проверь фото и отправь снова.", "Фотоларҙы тикшереп, ҡабат ебәр."), CanonDangerBg, CanonRed)
                     else -> StatusBanner(Icons.Default.Shield, appText("Проверка не пройдена", "Тикшереү үтелмәгән"), appText("Заполни данные авто и загрузи фото.", "Машина мәғлүмәтен тултырып, фото йөкләгеҙ."), CanonMint, CanonGreen2)
                 }
             }
@@ -1094,7 +1094,7 @@ internal fun UploadTile(title: String, done: Boolean, loading: Boolean, onClick:
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(
-                    if (loading) appText("Загрузка…", "Йөкләнә…") else if (done) appText("Загружено", "Йөкләнде") else appText("Нажми, чтобы выбрать фото", "Фото һайлау өсөн баҫығыҙ"),
+                    if (loading) appText("Загрузка…", "Йөкләнә…") else if (done) appText("Загружено", "Йөкләнде") else appText("Нажми, чтобы выбрать фото", "Фото һайлау өсөн баҫ"),
                     color = if (done) CanonGreen2 else CanonMuted, fontSize = 14.sp
                 )
             }

@@ -101,7 +101,7 @@ class LoginDeepContentTest {
     fun header_bashkir_showsTitleAndSubtitle() {
         form(tgMode = false, language = AppLanguage.Ba)
         composeRule.onNodeWithText("Юлдашҡа инеү").assertIsDisplayed()
-        composeRule.onNodeWithText("Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡулланығыҙ").assertIsDisplayed()
+        composeRule.onNodeWithText("Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡуллан").assertIsDisplayed()
     }
 
     // ─────────────────── Шаг ввода кода: поля имени и кода (плейсхолдеры, оба языка) ───────────────────

@@ -501,7 +501,7 @@ internal fun CreateRideFormContent(
     ) {
         item {
             Text(appText("Маршрут для своих", "Үҙ кешеләрең өсөн маршрут"), fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text(appText("Укажи путь, места и цену. Контакты откроются после подтверждения.", "Юлды, урындарҙы һәм хаҡты күрһәтегеҙ. Контакттар раҫланғандан һуң асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(appText("Укажи путь, места и цену. Контакты откроются после подтверждения.", "Юлды, урындарҙы һәм хаҡты күрһәт. Контакттар раҫланғандан һуң асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         // Чипы популярных направлений (слот): тап заполняет «откуда/куда». Пустой список — ничего не рисует.
         routeChips?.let { chips -> item { chips() } }
@@ -665,7 +665,7 @@ internal fun CreateRideFormContent(
             OutlinedTextField(
                 value = comment,
                 onValueChange = onCommentChange,
-                label = { Text(if (isCargo) appText("Что везёте", "Нимә алып бараһығыҙ") else appText("Комментарий", "Аңлатма")) },
+                label = { Text(if (isCargo) appText("Что везёшь", "Нимә алып бараһың") else appText("Комментарий", "Аңлатма")) },
                 placeholder = { Text(if (isCargo) appText("Напр.: диван и 2 коробки, хрупкое", "Мәҫәлән: диван һәм 2 ҡумта, һынғыс") else appText("Например: могу взять посылку, заеду через Темясово", "Мәҫәлән: посылка ала алам, Темясово аша инәм")) },
                 minLines = 3,
                 modifier = Modifier.fillMaxWidth(),

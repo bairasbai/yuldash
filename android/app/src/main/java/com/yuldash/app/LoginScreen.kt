@@ -375,7 +375,7 @@ private fun LoginFormCard(
     val context = LocalContext.current
 
     // Строки ошибок считаем здесь (в @Composable-контексте с currentLanguage) — колбэки получают готовый текст.
-    val errEnterTgCode = appTextFor(currentLanguage, "Введите код из Telegram", "Telegram кодын индерегеҙ")
+    val errEnterTgCode = appTextFor(currentLanguage, "Введи код из Telegram", "Telegram кодын индер")
     val errBadTgCode = appTextFor(currentLanguage, "Неверный код. Проверь и введи снова.", "Код дөрөҫ түгел. Тикшереп, ҡабат индер.")
     val errExpiredCode = appTextFor(currentLanguage, "Код истёк. Получи новый — открой Telegram ещё раз.", "Код ваҡыты бөттө. Яңыһын ал — Telegram'ды тағы ас.")
     val errTooManyCode = appTextFor(currentLanguage, "Слишком много попыток. Получи новый код.", "Бик күп омтылыш. Яңы код ал.")
@@ -387,9 +387,9 @@ private fun LoginFormCard(
     // а не «не удалось» — человеку в селе полезнее подсказка «проверь интернет», чем код ошибки.
     val errTgStart = appTextFor(currentLanguage, "Не получилось связаться с сервером. Проверь интернет и повтори.", "Сервер менән бәйләнеш булманы. Интернетты тикшер ҙә ҡабатла.")
     val tgSoon = appTextFor(currentLanguage, "Вход через Telegram скоро", "Telegram аша инеү тиҙҙән")
-    val errEnterPhone = appTextFor(currentLanguage, "Введите номер телефона", "Телефон номерын индерегеҙ")
+    val errEnterPhone = appTextFor(currentLanguage, "Введи номер телефона", "Телефон номерын индер")
     val errSendFail = appTextFor(currentLanguage, "Не получилось отправить код. Проверь интернет и повтори.", "Код ебәреп булманы. Интернетты тикшер ҙә ҡабатла.")
-    val errEnterCode = appTextFor(currentLanguage, "Введите код из SMS", "SMS кодын индерегеҙ")
+    val errEnterCode = appTextFor(currentLanguage, "Введи код из SMS", "SMS кодын индер")
     val errBadCode = appTextFor(currentLanguage, "Неверный код", "Код дөрөҫ түгел")
 
     fun openTelegram(url: String) {
@@ -564,7 +564,7 @@ internal fun LoginFormContent(
                 text = appTextFor(
                     currentLanguage,
                     "Используйте Telegram для быстрого и безопасного входа",
-                    "Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡулланығыҙ"
+                    "Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡуллан"
                 ),
                 color = CanonMuted,
                 fontSize = LoginBody,

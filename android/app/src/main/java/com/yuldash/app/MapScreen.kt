@@ -583,7 +583,7 @@ internal fun MapScreen(
                             )
                             "filtered" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text(
-                                    appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн алығыҙ."),
+                                    appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал."),
                                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
                                 )
                                 if (prefFilter.isNotEmpty()) {

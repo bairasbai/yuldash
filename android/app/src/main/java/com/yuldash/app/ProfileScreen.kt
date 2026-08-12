@@ -374,7 +374,7 @@ internal fun ProfileScreen(
     val editCtx = LocalContext.current
     val editScope = rememberCoroutineScope()
     val avatarSavedMsg = appText("Фото обновлено", "Фото яңыртылды")
-    val saveErrMsg = appText("Не удалось сохранить. Проверь сеть.", "Һаҡлап булманы. Селтәрҙе тикшерегеҙ.")
+    val saveErrMsg = appText("Не удалось сохранить. Проверь сеть.", "Һаҡлап булманы. Селтәрҙе тикшер.")
     // Реферал «позови своего»: код, бонусы, ввод кода друга.
     var referral by remember { mutableStateOf<com.yuldash.app.data.ReferralDto?>(null) }
     var referralReload by remember { mutableStateOf(0) }
@@ -534,7 +534,7 @@ internal fun ProfileScreen(
             onDismissRequest = { if (!deletingAccount) showDeleteAccount = false },
             containerColor = CanonSurface,
             icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = CanonRed) },
-            title = { Text(appText("Удалить аккаунт?", "Иҫәпте бөтөрәһегеҙме?"), color = CanonText, fontWeight = FontWeight.Bold) },
+            title = { Text(appText("Удалить аккаунт?", "Иҫәпте бөтөрәһеңме?"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
                     appText(
@@ -1363,8 +1363,8 @@ internal fun DriverCabinetScreen(
     val editPriceDownMsg = appText("Поездку уже забронировали — цену можно только снизить.", "Сәфәр брондалған — хаҡты кәметергә генә була.")
     val editNotActiveMsg = appText("Менять можно только активную поездку.", "Тик актив сәфәрҙе генә үҙгәртеп була.")
     val editNetMsg = appText("Не получилось изменить. Проверь интернет и повтори.", "Үҙгәртеп булманы. Интернетты тикшереп ҡабатла.")
-    val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
-    val onlineLoginMsg = appText("Войди, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
+    val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшер.")
+    val onlineLoginMsg = appText("Войди, чтобы выйти на линию", "Линияға сығыр өсөн ин")
     // D1/D2: выход «на линии» требует геолокации (без неё водитель невидим) и включённого такси в городе.
     val geoOnlineMsg = appText("Включи геолокацию — без неё заказы не придут и тебя не видно на карте.",
         "Геолокацияны ҡабыҙ — унһыҙ заказ килмәй, һине картала ла күренмәйһең.")
@@ -1412,7 +1412,7 @@ internal fun DriverCabinetScreen(
             Toast.makeText(ctx, if (coarseOnly) geoCoarseMsg else geoOnlineMsg, Toast.LENGTH_LONG).show()
         },
     )
-    val womanLoginMsg = appText("Войди, чтобы изменить профиль", "Профильде үҙгәртер өсөн инегеҙ")
+    val womanLoginMsg = appText("Войди, чтобы изменить профиль", "Профильде үҙгәртер өсөн ин")
     Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = CanonBg,
@@ -2430,7 +2430,7 @@ internal fun DriverCabinetContent(
     ) {
         item {
             Text(appText("Маршруты и проверка", "Маршруттар һәм тикшереү"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
-            Text(appText("Публикуй поездки, проходи проверку и поднимай маршрут выше.", "Сәфәр баҫтырығыҙ, тикшереү үтегеҙ һәм маршрутты өҫкә күтәрегеҙ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+            Text(appText("Публикуй поездки, проходи проверку и поднимай маршрут выше.", "Сәфәр баҫтыр, тикшереү үт һәм маршрутты өҫкә күтәр."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
         // Долг по комиссии за такси (Модель А «на доверии»): баннер только если есть что платить/подтверждать.
         if (debt != null && (debt.unpaidKop > 0 || debt.pendingKop > 0)) {
@@ -2522,7 +2522,7 @@ internal fun DriverCabinetContent(
             item {
                 EmptyStateCard(
                     title = appText("Твоих маршрутов пока нет", "Һинең маршруттар әлегә юҡ"),
-                    text = appText("Опубликуй поездку, чтобы пассажиры могли откликнуться.", "Пассажирҙар яуап бирһен өсөн сәфәр баҫтырығыҙ."),
+                    text = appText("Опубликуй поездку, чтобы пассажиры могли откликнуться.", "Пассажирҙар яуап бирһен өсөн сәфәр баҫтыр."),
                     icon = Icons.Default.DirectionsCar,
                     action = appText("Опубликовать маршрут", "Маршрут баҫтырыу"),
                     onAction = onCreateRide
