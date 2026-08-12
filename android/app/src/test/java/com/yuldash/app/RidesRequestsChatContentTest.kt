@@ -101,7 +101,7 @@ class RidesRequestsChatContentTest {
                 ChatEmptyState()
             }
         }
-        composeRule.onNodeWithText("Здесь будут ваши чаты").assertIsDisplayed()
+        composeRule.onNodeWithText("Здесь будут твои чаты").assertIsDisplayed()
     }
 
     @Test
@@ -111,7 +111,7 @@ class RidesRequestsChatContentTest {
                 ChatEmptyState()
             }
         }
-        composeRule.onNodeWithText("Бында чаттарығыҙ булыр").assertIsDisplayed()
+        composeRule.onNodeWithText("Бында чаттарың булыр").assertIsDisplayed()
     }
 
     // --- ChatCard: строка диалога. Берёт готовые String; avatarUrl="" → рисует инициал (без сети). ---

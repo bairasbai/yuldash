@@ -2,11 +2,12 @@
 Виральность в тесной общине: пригласил соседа → оба получают бонус."""
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..models import (
     Booking, BookingStatus, InstantOrder, InstantOrderStatus, ReferralBonus, Ride, User,
 )
@@ -175,13 +176,13 @@ def referral_redeem(body: RedeemIn, user: User = Depends(current_user), session:
     # → двойной бонус себе + кредит двум реферерам (read-modify-write без лока).
     user = session.exec(select(User).where(User.id == user.id).with_for_update()).one()
     if user.referred_by is not None:
-        raise HTTPException(400, "Код уже введён")
+        raise herr(400, "Код уже введён", "Код индерелгән инде")
     code = body.code.strip().upper()
     if not code:
-        raise HTTPException(400, "Нужен код")
+        raise herr(400, "Нужен код", "Код кәрәк")
     referrer = session.exec(select(User).where(User.referral_code == code).with_for_update()).first()
     if not referrer or referrer.id == user.id:
-        raise HTTPException(400, "Код не найден")
+        raise herr(400, "Код не найден", "Код табылманы")
     # Награда обоим: по 1 бонусу (бесплатное поднятие поездки), но с потолком на пользователя
     # (анти-накрутка взаимными редимами через новые аккаунты).
     user.referred_by = referrer.id

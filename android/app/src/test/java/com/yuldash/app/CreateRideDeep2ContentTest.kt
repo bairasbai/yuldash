@@ -28,7 +28,7 @@ import org.robolectric.annotation.GraphicsMode
  *
  *  - Блок «посылка/груз» (isCargo): поля получателя «Кому передать (имя)» и «Габарит / вес»
  *    показываются ТОЛЬКО для parcel/cargo и скрыты для regular (обе локали);
- *  - Комментарий меняет лейбл/плейсхолдер под груз («Что везёте») vs обычный («Комментарий»);
+ *  - Комментарий меняет лейбл/плейсхолдер под груз («Что везёшь») vs обычный («Комментарий»);
  *  - Карточка «Условия поездки» (PrefToggleRow ×6): заголовок, все 6 подписей, тумблеры Switch
  *    и их колбэки (women/child/pets/baggage/AC/smoking) — «тумблер обязан что-то делать»;
  *  - Блок pickup: поле «Где встречаемся» + кнопка карты в двух состояниях (не отмечено / отмечено);
@@ -164,19 +164,19 @@ class CreateRideDeep2ContentTest {
     fun commentLabel_regular_isComment_ru() {
         composeRule.setContent { Content(language = AppLanguage.Ru, typeKey = "regular") }
         composeRule.onNodeWithText("Комментарий").assertIsDisplayed()
-        composeRule.onNodeWithText("Что везёте").assertDoesNotExist()
+        composeRule.onNodeWithText("Что везёшь").assertDoesNotExist()
     }
 
     @Test
     fun commentLabel_cargo_isWhatYouCarry_ru() {
         composeRule.setContent { Content(language = AppLanguage.Ru, typeKey = "cargo") }
-        composeRule.onNodeWithText("Что везёте").assertIsDisplayed()
+        composeRule.onNodeWithText("Что везёшь").assertIsDisplayed()
     }
 
     @Test
     fun commentLabel_cargo_isWhatYouCarry_ba() {
         composeRule.setContent { Content(language = AppLanguage.Ba, typeKey = "parcel") }
-        composeRule.onNodeWithText("Нимә алып бараһығыҙ").assertIsDisplayed()
+        composeRule.onNodeWithText("Нимә алып бараһың").assertIsDisplayed()
     }
 
     // ─────────── Карточка «Условия поездки»: заголовок + 6 подписей (два языка) ───────────

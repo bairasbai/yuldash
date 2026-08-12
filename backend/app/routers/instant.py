@@ -22,6 +22,7 @@ from ..security import current_user
 from ..timeutil import utcnow
 from ..services import user_rating
 from .referral import reward_driver_referral
+from .. import car_class
 from .. import debt as debt_mod
 from .. import geo as geo_mod
 from .. import instant_service as isv
@@ -81,8 +82,13 @@ class EstimateIn(BaseModel):
     to_lng: float = Field(..., ge=-180, le=180)
     from_text: str = Field("", max_length=200)
     to_text: str = Field("", max_length=200)
-    # Классы (§6): standard = Эконом, comfort = Комфорт (авто новее/чище, тариф дороже).
-    category: Literal["standard", "comfort"] = "standard"
+    # Классы: standard = Эконом, comfort = Комфорт, business = Бизнес, minivan = Минивэн
+    # (docs/taxi-classes-2026-08.md). Класс машины считается классификатором, а не заявляется.
+    category: Literal["standard", "comfort", "business", "minivan"] = "standard"
+    # Опции салона (детское кресло по группе, бустер, коляска, собака-проводник, животное,
+    # большой багаж). Это НЕ класс: одна машина не может стоять в двух классах, а кресло
+    # возить может любая. Фильтр жёсткий — машине без кресла такой заказ не предлагаем.
+    options: list[str] = Field(default_factory=list)
     # ВНИМАНИЕ: поля цены здесь НЕТ намеренно — сервер считает сам, клиенту не верим.
 
 
@@ -339,6 +345,7 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
         to_lat=body.to_lat, to_lng=body.to_lng,
         from_text=body.from_text, to_text=body.to_text,
         category=body.category,
+        options=car_class.dump_options(body.options),
         price_estimate=est["price"], distance_km=est["distance_km"],
         eta_min=est["eta_min"], tariff_id=est["tariff_id"],
         surge_k=est["surge_k"],
@@ -405,6 +412,7 @@ def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
         to_lat=body.to_lat, to_lng=body.to_lng,
         from_text=body.from_text, to_text=body.to_text,
         category=body.category,
+        options=car_class.dump_options(body.options),
         price_estimate=est["price"], distance_km=est["distance_km"],
         eta_min=est["eta_min"], tariff_id=est["tariff_id"], surge_k=est["surge_k"],
         # Как найти пассажира + «еду не сам» — водителю в оффер (см. OrderIn).
@@ -526,6 +534,40 @@ def get_order(order_id: int, user: User = Depends(current_user), session: Sessio
     order = _order_for_view(session, order_id, user)
     order = isv.reconcile_offer(session, order)
     return isv.order_payload(session, order, user)
+
+
+class AlternativeIn(BaseModel):
+    category: Literal["standard", "comfort", "business", "minivan"]
+
+
+@router.get("/instant/orders/{order_id}/alternatives")
+def alternatives(order_id: int, user: User = Depends(current_user),
+                 session: Session = Depends(get_session)):
+    """Что предложить, если в выбранном классе никого нет (docs/taxi-classes-2026-08.md §5).
+
+    Клиент дёргает через `after_sec` секунд поиска и показывает список с ценами. Решение —
+    за пассажиром: молчаливой подмены класса у нас нет. Пустой список = предлагать нечего,
+    честно ждём дальше."""
+    order = _order_for_view(session, order_id, user)
+    if order.passenger_id != user.id:
+        raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
+    return {
+        "after_sec": app_settings.class_fallback_after_sec,
+        "options": isv.fallback_options(session, order),
+    }
+
+
+@router.post("/instant/orders/{order_id}/alternatives")
+def add_alternative(order_id: int, body: AlternativeIn, user: User = Depends(current_user),
+                    session: Session = Depends(get_session)):
+    """Пассажир согласился искать и в соседнем классе. Цена сразу пересчитывается вниз и
+    фиксируется — он видел её на экране до нажатия и заплатит ровно её."""
+    order = _order_for_view(session, order_id, user)
+    if order.passenger_id != user.id:
+        raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
+    if order.status not in (S.created, S.searching, S.offered):
+        raise herr(409, "Заказ уже не в поиске", "Заказ инде эҙләүҙә түгел")
+    return isv.add_fallback_category(session, order, body.category)
 
 
 # --------- переходы водителя (accept/decline/arrived/onboard/done) ---------

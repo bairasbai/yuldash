@@ -113,7 +113,7 @@ class ProfileDeep4ContentTest {
         driverContent(driverRides = emptyList(), ratingText = "—")
         composeRule.onNodeWithText("Маршруты и проверка").assertIsDisplayed()
         // Заглушка «маршрутов нет» + кнопка публикации.
-        composeRule.onNodeWithText("Ваших маршрутов пока нет").assertIsDisplayed()
+        composeRule.onNodeWithText("Твоих маршрутов пока нет").assertIsDisplayed()
         composeRule.onNodeWithText("Опубликовать маршрут").assertIsDisplayed()
         // Метрики: заголовки видны, счётчики 0 (нет маршрутов).
         composeRule.onNodeWithText("Мои маршруты").assertIsDisplayed()
@@ -124,7 +124,7 @@ class ProfileDeep4ContentTest {
     fun driver_empty_bashkir_showsBashkirEmptyState() {
         driverContent(driverRides = emptyList(), language = AppLanguage.Ba)
         composeRule.onNodeWithText("Маршруттар һәм тикшереү").assertIsDisplayed()
-        composeRule.onNodeWithText("Һеҙҙең маршруттар әлегә юҡ").assertIsDisplayed()
+        composeRule.onNodeWithText("Һинең маршруттар әлегә юҡ").assertIsDisplayed()
         composeRule.onNodeWithText("Маршрут баҫтырыу").assertIsDisplayed()
     }
 
@@ -142,7 +142,7 @@ class ProfileDeep4ContentTest {
     fun driver_onlineSwitch_showsTitleAndSubtitle() {
         driverContent(online = false)
         composeRule.onNodeWithText("Я на линии").assertIsDisplayed()
-        composeRule.onNodeWithText("Пассажиры видят, что вы готовы везти сейчас").assertIsDisplayed()
+        composeRule.onNodeWithText("Пассажиры видят, что ты сейчас на линии").assertIsDisplayed()
     }
 
     @Test
@@ -175,7 +175,7 @@ class ProfileDeep4ContentTest {
     fun driver_withRides_showsTripCardNotEmptyState() {
         driverContent(driverRides = listOf(ride()), ratingText = "4.9")
         // Есть маршрут → карточка поездки, а заглушки «нет маршрутов» быть не должно.
-        composeRule.onNodeWithText("Ваших маршрутов пока нет").assertDoesNotExist()
+        composeRule.onNodeWithText("Твоих маршрутов пока нет").assertDoesNotExist()
         composeRule.onNodeWithText("Сибай → Уфа").assertIsDisplayed()
         composeRule.onNodeWithText("Опубликована").assertIsDisplayed()
         composeRule.onNodeWithText("4.9").assertIsDisplayed()
@@ -238,8 +238,8 @@ class ProfileDeep4ContentTest {
         )
         composeRule.onNodeWithContentDescription("4 звезды").performClick()
         composeRule.onNodeWithText("Отправить оценку").performClick()
-        composeRule.onNodeWithText("Выберите оценку").assertIsDisplayed()
-        composeRule.onNodeWithText("Вы поставили 4 звезды").assertDoesNotExist()
+        composeRule.onNodeWithText("Выбери оценку").assertIsDisplayed()
+        composeRule.onNodeWithText("Твоя оценка: 4 звезды").assertDoesNotExist()
     }
 
     // --- Нижние строки водителя: «Заявки пассажиров» → колбэк onRequestsFeed. ---

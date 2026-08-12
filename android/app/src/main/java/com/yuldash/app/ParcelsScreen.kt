@@ -1140,7 +1140,7 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
             ) { t ->
                 when (t) {
                     0 -> SendParcelTab(onSent = { tab = 1 })
-                    else -> MyParcelsTab()
+                    else -> MyParcelsTab(onGoSend = { tab = 0 })
                 }
             }
         }
@@ -2326,7 +2326,7 @@ private fun ParcelCreatedView(
 // ─────────────────────────── Вкладка «Мои посылки» ───────────────────────────
 
 @Composable
-private fun MyParcelsTab() {
+private fun MyParcelsTab(onGoSend: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var list by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
@@ -2402,8 +2402,13 @@ private fun MyParcelsTab() {
                 list.isEmpty() -> item {
                     AppEmptyState(
                         title = appText("Пока нет посылок", "Әлегә бандеролдәр юҡ"),
-                        text = appText("Отправь первую на вкладке «Отправить» — код появится здесь.", "«Ебәреү» бүлегендә беренсеһен ебәр — код бында күренер."),
+                        text = appText("Отправь первую — код появится здесь.",
+                                       "Беренсеһен ебәр — код бында күренер."),
                         icon = Icons.Default.Inventory2,
+                        // Раньше текст звал на вкладку «Отправить», а перейти туда было нечем:
+                        // подсказка называла действие, но не давала его сделать.
+                        actionLabel = appText("Отправить посылку", "Бандероль ебәреү"),
+                        onAction = onGoSend,
                     )
                 }
                 else -> items(list.size, key = { "myp-" + list[it].id }) { i ->
@@ -2440,12 +2445,14 @@ private fun MyParcelsTab() {
                     if (courierAlreadyAssigned) {
                         // Сумму называем ДО решения. Раньше писали «сумма появится в карточке» —
                         // человек соглашался на деньги, не зная, на какие.
-                        val rub = target.cancelFeePreviewKop / 100
-                        if (rub > 0) appText(
-                            "Курьер уже принял заказ. Отмена сейчас — компенсация курьеру $rub ₽ " +
+                        // С копейками: компенсацию человек отдаёт курьеру из рук в руки,
+                        // и «100 ₽» вместо 100,80 ₽ — это спор у подъезда на ровном месте.
+                        val feeText = kopToRub(target.cancelFeePreviewKop)
+                        if (target.cancelFeePreviewKop > 0) appText(
+                            "Курьер уже принял заказ. Отмена сейчас — компенсация курьеру $feeText " +
                                 "за потраченное время и дорогу. Расчёт напрямую с курьером.",
                             "Курьер заказды алған инде. Хәҙер кире алһаң — курьерға ваҡыт һәм юл " +
-                                "өсөн $rub һум компенсация. Иҫәпләшеү курьер менән туранан-тура.",
+                                "өсөн $feeText компенсация. Иҫәпләшеү курьер менән туранан-тура.",
                         ) else appText(
                             "Курьер уже принял заказ. После отмены сервис зафиксирует компенсацию за потраченное время и дорогу; сумма появится в карточке, расчёт — напрямую.",
                             "Курьер заказды алған инде. Кире алғандан һуң сервис ваҡыт һәм юл өсөн компенсацияны теркәр; сумма карточкала күренер, иҫәпләшеү — туранан-тура.",

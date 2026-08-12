@@ -57,16 +57,16 @@ def _ensure_owned_doc_url(url: str, user: User, profile: DriverProfile | None) -
     """
     name = _doc_name_from_url(url)
     if not name:
-        raise HTTPException(400, "Нужен защищённый файл документа")
+        raise herr(400, "Нужен защищённый файл документа", "Документтың һаҡланған файлы кәрәк")
     if not _is_owned_doc_name(name, user.id, profile):
-        raise HTTPException(403, "Можно отправить только свои загруженные документы")
+        raise herr(403, "Можно отправить только свои загруженные документы", "Тик үҙең йөкләгән документтарҙы ебәреп була")
     # Наличие файла спрашиваем У ХРАНИЛИЩА, а не у диска. Загрузка идёт через
     # `get_storage().save(...)`, и при STORAGE_BACKEND=s3 файла на диске нет вовсе — прямая
     # проверка `os.path.isfile` отвечала бы «не найден» на КАЖДУЮ заявку водителя, таксиста и
     # курьера. Сегодня включён локальный диск, поэтому мина не сработала ни разу; сработала бы
     # в день переезда в облако, и выглядело бы это как «проверка документов сломалась».
     if not get_storage().exists(f"docs/{name}"):
-        raise HTTPException(404, "Файл документа не найден")
+        raise herr(404, "Файл документа не найден", "Документ файлы табылманы")
     return url.strip()
 
 
@@ -136,17 +136,17 @@ def set_driver_gender(body: GenderIn, user: User = Depends(current_user), sessio
 
     Пишем в `User.gender` — пол переехал на человека (аудит 2026-08-08), потому что он нужен
     и пассажиру: отметка «только женщины» на попутке проверяется у обеих сторон. Ручку
-    оставляем как есть: установленные приложения зовут именно её. Тот же смысл есть
-    и в `POST /me/update` (поле gender), где пол задаёт любой человек, а не только водитель.
+    оставляем как есть: установленные приложения зовут именно её.
 
-    Это ЗАЯВКА, а не подтверждение: бейдж и фильтр включает модератор
-    (`/admin/drivers/{id}/moderate`, поле gender_verified), сверив с фото прав. Иначе любой
-    может назваться женщиной и попасть в выдачу «женщина за рулём». Смена заявления сбрасывает
-    подтверждение — новое заявление, новый просмотр (тот же сброс в `/me/update`: дверей две).
+    Это ЗАЯВКА, а не подтверждение: публичный бейдж и фильтр включает модератор
+    (`/admin/drivers/{id}/moderate`, поле `DriverProfile.gender_verified`), сверив с фото прав.
+    Иначе любой назовётся женщиной и попадёт в выдачу — жалоба, которая копится у Uber.
+    Смена заявления сбрасывает подтверждение, и сброс живёт ОДНОЙ точкой
+    (`safety_logic.reset_gender_verification`): дверей к полу две, вторая — `POST /me/update`.
     """
     g = (body.gender or "").strip().lower()
     if g not in _ALLOWED_GENDERS:
-        raise HTTPException(400, "Недопустимое значение пола")
+        raise herr(400, "Недопустимое значение пола", "Ярамаған енес мәғәнәһе")
     reset_gender_verification(session, user, g)   # смена заявления → подтверждение недействительно
     user.gender = g
     session.add(user)
@@ -178,10 +178,10 @@ def secure_doc(name: str, user: User = Depends(current_user), session: Session =
     if user.role != UserRole.admin:
         prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
         if not _is_owned_doc_name(safe, user.id, prof):
-            raise HTTPException(403, "Нет доступа к документу")
+            raise herr(403, "Нет доступа к документу", "Документҡа инеү юҡ")
     storage = get_storage()
     if not storage.exists(f"docs/{safe}"):
-        raise HTTPException(404, "Файл не найден")
+        raise herr(404, "Файл не найден", "Файл табылманы")
     if storage.is_remote:
         return RedirectResponse(storage.url(f"docs/{safe}"))
     return FileResponse(os.path.join(DOC_DIR, safe))
@@ -263,7 +263,7 @@ def _run_autocheck(session: Session, dp: DriverProfile) -> None:
 def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель отправляет документы на проверку → 'pending' + авто-проверка (OCR прав)."""
     if not body.license_url or not body.car_photo_url:
-        raise HTTPException(400, "Нужны фото прав и фото автомобиля")
+        raise herr(400, "Нужны фото прав и фото автомобиля", "Права һәм машина фотоһы кәрәк")
     dp = _get_or_create_profile(session, user.id)
     prev_license, prev_car = dp.license_url, dp.car_photo_url
     dp.license_url = _ensure_owned_doc_url(body.license_url, user, dp)
@@ -450,7 +450,9 @@ def pending_drivers(user: User = Depends(current_user), session: Session = Depen
             license_url=p.license_url, car_photo_url=p.car_photo_url,
             autocheck_result=p.autocheck_result, autocheck_score=p.autocheck_score,
             autocheck_data=p.autocheck_data,
-            # Заявление читаем у человека: `DriverProfile.gender` устарел и больше не пишется.
+            # Заявленный пол берём у ЧЕЛОВЕКА: он переехал на User (аудит 2026-08-08), а в
+            # профиле водителя осталось только подтверждение. Читали бы старое поле — модератор
+            # видел бы пустую строку и не понимал, что вообще подтверждает.
             gender_claimed=((u.gender or "") if u else ""), gender_verified=p.gender_verified,
         ))
     return out
@@ -474,7 +476,7 @@ def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current
         raise HTTPException(403, "Только для админа")
     target = session.get(User, user_id)
     if not target:
-        raise HTTPException(404, "Пользователь не найден")
+        raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
     dp = _get_or_create_profile(session, user_id)
     if body.approve:
         target.verified = True
@@ -485,7 +487,8 @@ def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current
         dp.gender_verified = False       # отклонили документы — подтверждать по ним нечего
     if body.gender_verified is not None:
         # Подтверждать нечего, если водитель ничего не заявил: пустой пол нигде не показывается.
-        # Заявление — у человека (`User.gender`), поле профиля устарело (аудит 2026-08-08).
+        # Заявление читаем с `User.gender` — в профиле водителя это поле устарело и не пишется,
+        # по нему условие всегда было бы ложным и подтверждение не включалось бы никогда.
         dp.gender_verified = bool(body.gender_verified) and (target.gender or "") in ("female", "male")
     session.add(target)
     session.add(dp)

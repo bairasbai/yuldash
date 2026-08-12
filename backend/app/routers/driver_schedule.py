@@ -11,12 +11,13 @@
 """
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
 from ..db import get_session
+from ..errors import herr
 from ..models import DriverSchedule, User
 from ..security import current_user
 
@@ -32,18 +33,18 @@ def _normalize_weekdays(raw: str) -> str:
     Принимает "5", "1,3,5", " 1 , 5 ". Отвергает пусто/мусор/вне диапазона → 400.
     """
     if raw is None:
-        raise HTTPException(400, "Укажи хотя бы один день недели")
+        raise herr(400, "Укажи хотя бы один день недели", "Кәм тигәндә бер аҙна көнөн күрһәт")
     parts = [p.strip() for p in str(raw).split(",") if p.strip()]
     if not parts:
-        raise HTTPException(400, "Укажи хотя бы один день недели")
+        raise herr(400, "Укажи хотя бы один день недели", "Кәм тигәндә бер аҙна көнөн күрһәт")
     days: set[int] = set()
     for p in parts:
         try:
             d = int(p)
         except ValueError:
-            raise HTTPException(400, "День недели должен быть числом 1–7 (Пн–Вс)")
+            raise herr(400, "День недели должен быть числом 1–7 (Пн–Вс)", "Аҙна көнө 1–7 һаны булырға тейеш (Дш–Йш)")
         if d < _WEEKDAY_MIN or d > _WEEKDAY_MAX:
-            raise HTTPException(400, "День недели вне диапазона 1–7 (Пн–Вс)")
+            raise herr(400, "День недели вне диапазона 1–7 (Пн–Вс)", "Аҙна көнө 1–7 сигенән тыш (Дш–Йш)")
         days.add(d)
     return ",".join(str(d) for d in sorted(days))
 
@@ -52,13 +53,13 @@ def _normalize_time(raw: str) -> str:
     """Время выезда "HH:MM" (24ч). Отвергает мусор/вне 00:00–23:59 → 400."""
     value = (raw or "").strip()
     if not value:
-        raise HTTPException(400, "Укажи время выезда (например 08:00)")
+        raise herr(400, "Укажи время выезда (например 08:00)", "Сығыу ваҡытын күрһәт (мәҫәлән 08:00)")
     parts = value.split(":")
     if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
-        raise HTTPException(400, "Время в формате ЧЧ:ММ, например 08:00")
+        raise herr(400, "Время в формате ЧЧ:ММ, например 08:00", "Ваҡыт СС:ММ рәүешендә, мәҫәлән 08:00")
     hh, mm = int(parts[0]), int(parts[1])
     if hh < 0 or hh > 23 or mm < 0 or mm > 59:
-        raise HTTPException(400, "Время в формате ЧЧ:ММ, например 08:00")
+        raise herr(400, "Время в формате ЧЧ:ММ, например 08:00", "Ваҡыт СС:ММ рәүешендә, мәҫәлән 08:00")
     return f"{hh:02d}:{mm:02d}"
 
 
@@ -86,9 +87,9 @@ def create_schedule(body: ScheduleIn, user: User = Depends(current_user), sessio
     from_city = body.from_city.strip()
     to_city = body.to_city.strip()
     if not from_city or not to_city:
-        raise HTTPException(400, "Укажи откуда и куда")
+        raise herr(400, "Укажи откуда и куда", "Ҡайҙан һәм ҡайҙа икәнен күрһәт")
     if from_city.lower() == to_city.lower():
-        raise HTTPException(400, "Города отправления и назначения совпадают")
+        raise herr(400, "Города отправления и назначения совпадают", "Сығыу һәм барыу ҡалалары бер үк")
     weekdays = _normalize_weekdays(body.weekdays)
     tm = _normalize_time(body.time)
     # Комментарий к расписанию отдаётся БЕЗ входа (`GET /drivers/{id}/schedule`) — то есть это
@@ -152,9 +153,9 @@ def delete_schedule(schedule_id: int, user: User = Depends(current_user), sessio
     """Удалить своё расписание. Чужое — 403 (нельзя редактировать/удалять)."""
     sched: Optional[DriverSchedule] = session.get(DriverSchedule, schedule_id)
     if not sched:
-        raise HTTPException(404, "Расписание не найдено")
+        raise herr(404, "Расписание не найдено", "Билдәләмә табылманы")
     if sched.driver_id != user.id:
-        raise HTTPException(403, "Можно удалять только свои расписания")
+        raise herr(403, "Можно удалять только свои расписания", "Тик үҙ билдәләмәләреңде бетереп була")
     session.delete(sched)
     session.commit()
     return {"ok": True, "id": schedule_id}

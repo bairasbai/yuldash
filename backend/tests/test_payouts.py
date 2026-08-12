@@ -153,7 +153,10 @@ def test_payout_requires_requisite(client, user_factory, payouts_on):
     _seed_balance(drv["id"], 50000)
     r = client.post("/wallet/payout", headers=drv["auth"], json={"amount_kop": 20000})
     assert r.status_code == 400
-    assert "карт" in r.json()["detail"].lower()
+    # detail стал двуязычным словарём {ru, ba} (сплошной перевод ошибок 2026-08-12):
+    # раньше это была строка. Проверяем русскую половину — смысл теста не изменился.
+    detail = r.json()["detail"]
+    assert "карт" in (detail["ru"] if isinstance(detail, dict) else detail).lower()
 
 
 def test_admin_payouts_admin_only(client, user_factory):

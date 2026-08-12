@@ -101,23 +101,23 @@ class LoginDeepContentTest {
     fun header_bashkir_showsTitleAndSubtitle() {
         form(tgMode = false, language = AppLanguage.Ba)
         composeRule.onNodeWithText("Юлдашҡа инеү").assertIsDisplayed()
-        composeRule.onNodeWithText("Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡулланығыҙ").assertIsDisplayed()
+        composeRule.onNodeWithText("Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡуллан").assertIsDisplayed()
     }
 
     // ─────────────────── Шаг ввода кода: поля имени и кода (плейсхолдеры, оба языка) ───────────────────
 
     @Test
     fun codeStep_russian_showsNameAndCodePlaceholders() {
-        // tgMode=true — видны поля «Ваше имя (необязательно)» и «Код из Telegram» (вверху формы → видны).
+        // tgMode=true — видны поля «Твоё имя (необязательно)» и «Код из Telegram» (вверху формы → видны).
         form(tgMode = true, language = AppLanguage.Ru)
-        composeRule.onNodeWithText("Ваше имя (необязательно)").assertIsDisplayed()
+        composeRule.onNodeWithText("Твоё имя (необязательно)").assertIsDisplayed()
         composeRule.onNodeWithText("Код из Telegram").assertIsDisplayed()
     }
 
     @Test
     fun codeStep_bashkir_showsCodePlaceholder() {
         form(tgMode = true, language = AppLanguage.Ba)
-        composeRule.onNodeWithText("Исемегеҙ (мотлаҡ түгел)").assertIsDisplayed()
+        composeRule.onNodeWithText("Исемең (мотлаҡ түгел)").assertIsDisplayed()
         composeRule.onNodeWithText("Telegram коды").assertIsDisplayed()
     }
 

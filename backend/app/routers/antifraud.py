@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..logs import admin_action
 from ..models import DeviceBan, User, UserRole
 from ..security import current_user
@@ -61,7 +62,7 @@ def admin_ban_device(body: DeviceBanIn, user: User = Depends(current_user),
     if not device_id and body.user_id is not None:
         target = session.get(User, body.user_id)
         if not target:
-            raise HTTPException(404, "Пользователь не найден")
+            raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
         device_id = af.normalize_device_id(target.last_device_id)
         if not device_id:
             raise HTTPException(409, "У пользователя нет зафиксированного устройства")
@@ -84,7 +85,7 @@ def admin_unban_device(device_id: str, user: User = Depends(current_user),
     """Снять бан устройства (разобрались — человек невиновен)."""
     _require_admin(user)
     if not af.unban_device(session, device_id):
-        raise HTTPException(404, "Бан не найден")
+        raise herr(404, "Бан не найден", "Бан табылманы")
     admin_action(user.id, "device.unban")   # сам device_id не пишем: это идентификатор телефона
     return {"ok": True}
 

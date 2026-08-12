@@ -11,11 +11,12 @@
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..models import RouteWatch, User
 from ..security import current_user
 from ..timeutil import utcnow
@@ -57,7 +58,7 @@ def create_route_watch(
     а не плодим строки: продлеваем срок и сбрасываем анти-спам, чтобы юзер снова получал пуши."""
     frm, to = body.from_city.strip(), body.to_city.strip()
     if not frm or not to:
-        raise HTTPException(400, "Укажи города маршрута")
+        raise herr(400, "Укажи города маршрута", "Маршрут ҡалаларын күрһәт")
     now = utcnow()
     expires = now + timedelta(days=WATCH_TTL_DAYS)
 
@@ -79,7 +80,7 @@ def create_route_watch(
             return w
 
     if len(existing) >= MAX_WATCHES_PER_USER:
-        raise HTTPException(400, "Слишком много подписок — удали ненужные")
+        raise herr(400, "Слишком много подписок — удали ненужные", "Яҙылыуҙар артыҡ күп — кәрәкмәгәнен бетер")
 
     watch = RouteWatch(
         user_id=user.id,
@@ -118,7 +119,7 @@ def delete_route_watch(
     """Удалить свою подписку. Чужую — 404 (не раскрываем существование)."""
     watch = session.get(RouteWatch, watch_id)
     if not watch or watch.user_id != user.id:
-        raise HTTPException(404, "Подписка не найдена")
+        raise herr(404, "Подписка не найдена", "Яҙылыу табылманы")
     session.delete(watch)
     session.commit()
     return {"ok": True}

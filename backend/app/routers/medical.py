@@ -10,10 +10,11 @@
 """
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..models import MedicalPartner, Ride, RideStatus, User
 from ..security import current_user
 from ..services import public_rides_payload, rides_out
@@ -43,7 +44,7 @@ def list_medical_partners(
 def get_medical_partner(partner_id: int, session: Session = Depends(get_session)):
     partner = session.get(MedicalPartner, partner_id)
     if not partner or not partner.active:
-        raise HTTPException(404, "Клиника не найдена")
+        raise herr(404, "Клиника не найдена", "Клиника табылманы")
     return partner
 
 
@@ -55,7 +56,7 @@ def rides_to_partner(partner_id: int, user: User = Depends(current_user), sessio
     Данные поездок и так урезаны (без телефона/точной точки сбора) — приватность как в ленте."""
     partner = session.get(MedicalPartner, partner_id)
     if not partner or not partner.active:
-        raise HTTPException(404, "Клиника не найдена")
+        raise herr(404, "Клиника не найдена", "Клиника табылманы")
     q = select(Ride).where(
         Ride.partner_id == partner_id,
         Ride.status == RideStatus.active,

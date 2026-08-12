@@ -1508,7 +1508,7 @@ private fun CourierCarryingTab(
                     DeliveryHint(
                         appText(
                             "Заказ не закроется, посылка останется у тебя. Отправителю уйдёт сообщение — он свяжется с получателем, и вы попробуете ещё раз.",
-                            "Заказ ябылмай, бандероль һиндә ҡала. Ебәреүсегә хәбәр китә — ул алыусы менән һөйләшер, һеҙ тағы бер тапҡыр ҡабатларһығыҙ.",
+                            "Заказ ябылмай, бандероль һиндә ҡала. Ебәреүсегә хәбәр китә — ул алыусы менән һөйләшер, һин тағы бер тапҡыр ҡабатларһың.",
                         ),
                     )
                     OutlinedTextField(
@@ -2361,7 +2361,7 @@ private fun CourierCabinetTab(
     // Реквизиты СБП после оформления оплаты (переиспользуем общий лист донат/буста).
     payResult?.let { pr ->
         SbpTransferSheet(
-            amountRub = pr.amountKop / 100,
+            amountKop = pr.amountKop,
             onPaid = { payResult = null; onReloadMe() },
             onDismiss = { payResult = null },
             payeePhone = pr.payeePhone,

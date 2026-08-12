@@ -30,6 +30,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -42,6 +44,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,6 +59,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
@@ -75,6 +80,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -104,6 +110,11 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -113,15 +124,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.map.CameraPosition
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
+import com.yuldash.app.data.Analytics
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.GeocoderClient
+import com.yuldash.app.data.InstantAlternativeDto
 import com.yuldash.app.data.InstantEstimateDto
 import com.yuldash.app.data.InstantOrderDto
 import kotlinx.coroutines.async
@@ -374,7 +390,9 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
 private fun TaxiPromoSavingsCard(estimate: InstantEstimateDto?) {
     val est = estimate ?: return
     if (!est.hasPromoDiscount) return
-    val savedRub = est.promoDiscountKop / 100
+    // Скидка бывает процентной, поэтому копейки у неё обычное дело. Рядом стоит цена
+    // в формате с копейками — «−37 ₽» против «188,50 ₽» читалось бы как разные деньги.
+    val savedText = formatTaxiKop(est.promoDiscountKop)
     var shown by remember(est.promoCode, est.promoDiscountKop) { mutableStateOf(false) }
     LaunchedEffect(est.promoCode, est.promoDiscountKop) { shown = true }
     AnimatedVisibility(
@@ -402,7 +420,7 @@ private fun TaxiPromoSavingsCard(estimate: InstantEstimateDto?) {
                     // Сама выгода одним числом. «Было → стало» повторять не нужно: обе цены
                     // стоят на 40dp выше, в блоке цены, — дважды одни и те же цифры только шумят.
                     Text(
-                        "−$savedRub ₽",
+                        "−$savedText",
                         color = CanonGreen2, fontSize = TxTitle, lineHeight = LhTitle, fontWeight = FontWeight.Bold,
                     )
                 }
@@ -437,7 +455,7 @@ private fun taxiPromoHonestText(): String = appText(
 @Composable
 private fun TaxiPromoPayRow(order: InstantOrderDto, forDriver: Boolean, modifier: Modifier = Modifier) {
     if (!order.hasPromoDiscount) return
-    val savedRub = order.promoDiscountKop / 100
+    val savedText = formatTaxiKop(order.promoDiscountKop)
     Surface(color = CanonMint, shape = CanonItemShape, modifier = modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -462,11 +480,11 @@ private fun TaxiPromoPayRow(order: InstantOrderDto, forDriver: Boolean, modifier
             }
             Text(
                 if (forDriver) appText(
-                    "Промокод −$savedRub ₽ оплачивает Юлдаш: разницу берём из своей комиссии, не хватит — доплатим тебе в кошелёк. Ты получаешь столько же, как без промокода.",
-                    "Промокод −$savedRub ₽ хаҡын Юлдаш түләй: айырманы үҙ комиссиябыҙҙан алабыҙ, етмәһә — кеҫәңә өҫтәйбеҙ. Һин промокодһыҙҙағы кеүек үк алаһың.",
+                    "Промокод −$savedText оплачивает Юлдаш: разницу берём из своей комиссии, не хватит — доплатим тебе в кошелёк. Ты получаешь столько же, как без промокода.",
+                    "Промокод −$savedText хаҡын Юлдаш түләй: айырманы үҙ комиссиябыҙҙан алабыҙ, етмәһә — кеҫәңә өҫтәйбеҙ. Һин промокодһыҙҙағы кеүек үк алаһың.",
                 ) else appText(
-                    "Скидка по промокоду −$savedRub ₽. Её оплачивает Юлдаш — водитель получит своё полностью, спорить не о чем.",
-                    "Промокод буйынса ташлама −$savedRub ₽. Уны Юлдаш түләй — водитель үҙенекен тулыһынса ала, бәхәсләшер нәмә юҡ.",
+                    "Скидка по промокоду −$savedText. Её оплачивает Юлдаш — водитель получит своё полностью, спорить не о чем.",
+                    "Промокод буйынса ташлама −$savedText. Уны Юлдаш түләй — водитель үҙенекен тулыһынса ала, бәхәсләшер нәмә юҡ.",
                 ),
                 color = CanonGreen2, fontSize = TxCaption, lineHeight = LhCaption,
             )
@@ -474,14 +492,24 @@ private fun TaxiPromoPayRow(order: InstantOrderDto, forDriver: Boolean, modifier
     }
 }
 
-/** Тикающее «сейчас» (раз в секунду) для живых таймеров ожидания. */
+/**
+ * Тикающее «сейчас» (раз в секунду) для живых таймеров ожидания.
+ *
+ * В фоне тикание останавливается: пересчитывать секунды для экрана, которого не видно, —
+ * зря разбуженный процессор раз в секунду на всё время ожидания машины. При возврате время
+ * берётся заново из системных часов, поэтому таймер сразу показывает правильное значение,
+ * а не досчитывает пропущенное.
+ */
 @Composable
 private fun rememberNowMs(): State<Long> {
     val state = remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            state.value = System.currentTimeMillis()
-            delay(1_000)
+    val owner = LocalLifecycleOwner.current
+    LaunchedEffect(owner) {
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                state.value = System.currentTimeMillis()
+                delay(1_000)
+            }
         }
     }
     return state
@@ -808,16 +836,26 @@ internal fun InstantOrderScreen(
     }
 
     // Поллинг статуса активного заказа (пока заказ есть и не терминальный или стоит в очереди ожидания).
+    //
+    // В фоне цикл СТОИТ (repeatOnLifecycle RESUMED). Раз в 3 секунды — самый частый опрос в
+    // приложении, и свёрнутое ожидание машины (а сворачивают его всегда: человек листает другое,
+    // пока едет такси) означало двести запросов за десять минут в никуда. О смене статуса на
+    // погашенном экране сообщает пуш, экрану обновляться незачем — его не видно.
+    //
+    // Запрос идёт ПЕРЕД паузой: вернулся на экран — данные свежие сразу, а не через три секунды.
     val activeId = order?.takeIf { !it.isTerminal || it.isWaitingQueue }?.id
-    LaunchedEffect(activeId) {
+    val pollLifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(activeId, pollLifecycleOwner) {
         val id = activeId ?: return@LaunchedEffect
-        while (isActive) {
-            delay(3_000)
-            ApiClient.getInstantOrder(id)
-                .onSuccess { order = it; pollOffline = false }
-                .onFailure { pollOffline = true }   // связь потеряна — не глотаем, показываем баннер
-            val o = order
-            if (o != null && o.isTerminal && !o.isWaitingQueue) break
+        pollLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                ApiClient.getInstantOrder(id)
+                    .onSuccess { order = it; pollOffline = false }
+                    .onFailure { pollOffline = true }   // связь потеряна — не глотаем, показываем баннер
+                val o = order
+                if (o != null && o.isTerminal && !o.isWaitingQueue) break
+                delay(3_000)
+            }
         }
     }
 
@@ -939,12 +977,15 @@ internal fun InstantOrderScreen(
                             else appText("Заказ отменён", "Заказ ҡабул ителмәне"),
                             // Честные тексты про штраф/страйки (Модель А: фиксируем, деньги не списываем).
                             subtitle = when {
+                                // Сумму называем с копейками (formatTaxiKop): её человек переводит
+                                // водителю из рук в руки, и «49 ₽» вместо 49,50 ₽ — это недоплата,
+                                // которую потом разбирают двое незнакомых людей у обочины.
                                 o.noShow -> appText(
-                                    "Водитель ждал ${o.waitFreeMin}+ минут, но не дождался. Подача — ${o.cancelFeeKop / 100} ₽, переведи водителю. Частые такие отмены ставят такси на паузу.",
-                                    "Водитель ${o.waitFreeMin}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${o.cancelFeeKop / 100} ₽, водителгә күсер. Йыш улай булһа — такси паузаға китә.")
+                                    "Водитель ждал ${o.waitFreeMin}+ минут, но не дождался. Подача — ${formatTaxiKop(o.cancelFeeKop)}, переведи водителю. Частые такие отмены ставят такси на паузу.",
+                                    "Водитель ${o.waitFreeMin}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${formatTaxiKop(o.cancelFeeKop)}, водителгә күсер. Йыш улай булһа — такси паузаға китә.")
                                 o.cancelFeeKop > 0 && o.cancelBy == "passenger" -> appText(
-                                    "Отмена была платной: ${o.cancelFeeKop / 100} ₽ (подача) — переведи водителю. Частые платные отмены ставят такси на паузу.",
-                                    "Кире алыу түләүле булды: ${o.cancelFeeKop / 100} ₽ (килеү хаҡы) — водителгә күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.")
+                                    "Отмена была платной: ${formatTaxiKop(o.cancelFeeKop)} (подача) — переведи водителю. Частые платные отмены ставят такси на паузу.",
+                                    "Кире алыу түләүле булды: ${formatTaxiKop(o.cancelFeeKop)} (килеү хаҡы) — водителгә күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.")
                                 o.cancelBy == "driver" -> appText("Водитель отменил. Попробуй заказать снова.", "Водитель баш тартты. Ҡабат заказ ит.")
                                 else -> appText("Ты отменил заказ — бесплатно.", "Һин заказды кире алдың — бушлай.")
                             },
@@ -979,7 +1020,7 @@ internal fun InstantOrderScreen(
                                     // 503 (провайдер выключен) → карточка тихо исчезает на сессию (OnlinePayGate).
                                     // Платим ровно ту сумму, что человек и должен: со скидкой, а не полную.
                                     PayOnlineCard(
-                                        amountRub = (o.passengerPayKop / 100).takeIf { it > 0 },
+                                        amountKop = o.passengerPayKop.takeIf { it > 0 },
                                         pay = { m -> ApiClient.payInstantOrder(o.id, m) },
                                     )
                                     InstantRateAndReport(o, isDriver = false)   // §9: оценить/пожаловаться
@@ -1117,11 +1158,22 @@ private fun carsWordRu(n: Int): String {
  *
  * @param loaded пришёл ли успешный ответ. Пока нет — молчим: «рядом никого» без ответа сервера
  *               было бы выдумкой.
+ * @param routeSet назвал ли человек, куда едет.
+ *
+ * Плохую новость («рядом машин нет») показываем ТОЛЬКО когда маршрут уже задан, то есть
+ * человек в процессе заказа и новость ему полезна. До этого она встречала его первой строкой
+ * на экране — сообщением о проблеме, которой ещё нет, и отбивала желание пробовать.
+ * Хорошую новость («3 машины рядом») показываем всегда — она, наоборот, придаёт уверенности.
  */
 @Composable
-private fun InstantNearbyBadge(count: Int, loaded: Boolean, modifier: Modifier = Modifier) {
+private fun InstantNearbyBadge(
+    count: Int,
+    loaded: Boolean,
+    routeSet: Boolean,
+    modifier: Modifier = Modifier,
+) {
     AnimatedVisibility(
-        visible = loaded,
+        visible = loaded && (count > 0 || routeSet),
         enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(),
         exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(),
         modifier = modifier,
@@ -1271,7 +1323,17 @@ private fun InstantDestinationPicker(
     var estimateTick by remember { mutableIntStateOf(0) }
     var creating by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
-    var category by rememberSaveable { mutableStateOf("standard") }   // §6: standard = Эконом, comfort = Комфорт
+    var category by rememberSaveable { mutableStateOf("standard") }   // standard | comfort | business | minivan
+    // Класс, который человек хотел, но в его городе ещё не набралось водителей. Держим, чтобы
+    // показать тёплое «записали» — и чтобы посчитать спрос до того, как искать машины.
+    var classWanted by rememberSaveable { mutableStateOf<String?>(null) }
+    // Что нужно в салоне: кресло по возрасту, бустер, коляска, собака-проводник, животное, багаж.
+    // Храним CSV-строкой: Set в Bundle не кладётся, а строка переживает поворот экрана
+    // и возврат с карты без единой строчки лишнего кода.
+    var orderOptionsCsv by rememberSaveable { mutableStateOf("") }
+    val orderOptions = remember(orderOptionsCsv) {
+        orderOptionsCsv.split(",").filter { it.isNotBlank() }.toSet()
+    }
     var pickOnMap by rememberSaveable { mutableStateOf(false) }   // оверлей выбора точки Б на карте
     var pickFromOnMap by rememberSaveable { mutableStateOf(false) }
 
@@ -1404,6 +1466,7 @@ private fun InstantDestinationPicker(
                     InstantNearbyBadge(
                         count = nearbyDrivers.size,
                         loaded = nearbyLoaded,
+                        routeSet = toPoint != null,
                         modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                     )
                 }
@@ -1487,6 +1550,20 @@ private fun InstantDestinationPicker(
                     onValueChange = { query = it; if (it.isBlank()) { toPoint = null; estimate = null } },
                     label = { Text(appText("Куда", "Ҡайҙа")) },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = CanonMuted) },
+                    // Карта живёт прямо в поле: одно место для «куда», два способа его задать.
+                    trailingIcon = {
+                        IconButton(
+                            onClick = { pickOnMap = true },
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Map,
+                                contentDescription = appText("Выбрать точку на карте", "Картала нөктә һайлау"),
+                                tint = CanonGreen2,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -1500,19 +1577,6 @@ private fun InstantDestinationPicker(
                     },
                     onRetry = { searchTick++ },
                 )
-                OutlinedButton(
-                    onClick = { pickOnMap = true },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    shape = InstantControlShape,
-                ) {
-                    Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        appText("Выбрать точку на карте", "Картала нөктә һайлау"),
-                        fontSize = TxBody, lineHeight = LhBody,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-                    )
-                }
             }
         }
 
@@ -1528,27 +1592,80 @@ private fun InstantDestinationPicker(
             )
         }
 
-        // Класс машины (§6): Эконом / Комфорт — обе цены сразу, выбранная уходит в заказ.
+        // Класс машины: Эконом / Комфорт / Бизнес / Минивэн — все цены сразу, выбранная уходит
+        // в заказ. Класс, в котором в этом городе ещё не набралось водителей, приходит с
+        // open=false: показываем «скоро» вместо кнопки, за которой пусто. Ткнуть в пустоту и
+        // не дождаться — верный способ потерять человека навсегда.
         if (toPoint != null) {
-            val opts = estimate?.options.orEmpty().associate { it.category to it.price }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                InstantClassCard(
-                    title = appText("Эконом", "Эконом"),
-                    subtitle = appText("обычная машина", "ғәҙәти машина"),
-                    price = opts["standard"],
-                    selected = category == "standard",
-                    onClick = { category = "standard" },
-                    modifier = Modifier.weight(1f),
-                )
-                InstantClassCard(
-                    title = appText("Комфорт", "Комфорт"),
-                    subtitle = appText("новее и просторнее", "яңыраҡ һәм иркенерәк"),
-                    price = opts["comfort"],
-                    selected = category == "comfort",
-                    onClick = { category = "comfort" },
-                    modifier = Modifier.weight(1f),
-                )
+            val opts = estimate?.options.orEmpty().associateBy { it.category }
+            LazyRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                contentPadding = PaddingValues(horizontal = 2.dp),
+            ) {
+                items(InstantClasses, key = { it.category }) { cls ->
+                    val opt = opts[cls.category]
+                    val isOpen = opt?.open ?: true
+                    InstantClassCard(
+                        title = appText(cls.titleRu, cls.titleBa),
+                        subtitle = if (isOpen) appText(cls.subtitleRu, cls.subtitleBa)
+                        else appText("скоро", "тиҙҙән"),
+                        price = opt?.price,
+                        selected = isOpen && category == cls.category,
+                        enabled = isOpen,
+                        onClick = {
+                            if (isOpen) {
+                                category = cls.category
+                            } else {
+                                // Нажатие на закрытый класс — это заявка спроса. Считаем её:
+                                // так видно, сколько людей ждут Бизнес в Уфе, ещё до того,
+                                // как мы начнём искать под него водителей.
+                                Analytics.log("class_wanted_${cls.category}")
+                                classWanted = cls.category
+                            }
+                        },
+                        modifier = Modifier.width(156.dp),
+                    )
+                }
             }
+        }
+
+        // Подтверждение по «скоро»-классу: тёплым текстом, без формы и обещаний срока.
+        AnimatedVisibility(
+            visible = classWanted != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
+                Row(
+                    Modifier.fillMaxWidth().padding(CanonSpace.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("🔔", fontSize = TxTitle, lineHeight = LhTitle)
+                    Spacer(Modifier.width(CanonSpace.sm))
+                    Text(
+                        appText(
+                            "Записали. Напишем, как только этот класс появится рядом.",
+                            "Яҙып ҡуйҙыҡ. Был класс яҡында барлыҡҡа килгәс, хәбәр итәбеҙ.",
+                        ),
+                        color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+
+        // Что нужно в салоне: детское кресло по возрасту, коляска, животное, багаж.
+        // Это НЕ класс — галочка поверх любого класса: машина не может стоять в двух классах,
+        // а кресло возить может любая. Фильтр на сервере жёсткий: без кресла заказ не придёт.
+        if (toPoint != null) {
+            InstantOptionsBlock(
+                selected = orderOptions,
+                onToggle = { code ->
+                    val next = if (code in orderOptions) orderOptions - code else orderOptions + code
+                    orderOptionsCsv = next.joinToString(",")
+                },
+            )
         }
 
         // Сурж — честно и ДО заказа: почему дороже и на сколько (потолок ×1.5 на сервере).
@@ -1748,6 +1865,7 @@ private fun InstantDestinationPicker(
                             forName = if (forOther) forName else "",
                             forPhone = if (forOther) forPhone else "",
                             womenOnly = womenOnly,
+                            options = orderOptions.toList(),
                         )
                             .onSuccess {
                                 // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
@@ -2105,7 +2223,22 @@ private fun fullWhen(ms: Long): String {
     )
 }
 
-// ------------------------------ Карточка класса (Эконом/Комфорт) ------------------------------
+// ------------------------------ Классы машин ------------------------------
+/** Класс в витрине пассажира. Порядок = порядок на экране: от дешёвого к дорогому,
+ *  Минивэн последним — он не «дороже», а «вместительнее», и нужен реже остальных. */
+internal data class InstantClassInfo(
+    val category: String,
+    val titleRu: String, val titleBa: String,
+    val subtitleRu: String, val subtitleBa: String,
+)
+
+internal val InstantClasses = listOf(
+    InstantClassInfo("standard", "Эконом", "Эконом", "обычная машина", "ғәҙәти машина"),
+    InstantClassInfo("comfort", "Комфорт", "Комфорт", "новее и с кондиционером", "яңыраҡ, кондиционерлы"),
+    InstantClassInfo("business", "Бизнес", "Бизнес", "седан премиум-класса", "премиум класслы седан"),
+    InstantClassInfo("minivan", "Минивэн", "Минивэн", "6–8 мест", "6–8 урын"),
+)
+
 @Composable
 private fun InstantClassCard(
     title: String,
@@ -2114,18 +2247,129 @@ private fun InstantClassCard(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     // Сохраняем общий Mobility-компонент с radio-семантикой и добавляем
     // мягкий тактильный масштаб из входящей ветки.
     val scale by animateFloatAsState(if (selected) 1f else 0.98f, tween(CanonMotion.QUICK), label = "clsScale")
+    // Закрытый класс не прячем и не блокируем: приглушаем и оставляем нажимаемым. Нажатие —
+    // это заявка «хочу», по ней мы и поймём, где заводить водителей следующими.
+    val alpha by animateFloatAsState(if (enabled) 1f else 0.55f, tween(CanonMotion.QUICK), label = "clsAlpha")
     TaxiServiceClassTile(
         title = title,
         subtitle = subtitle,
         price = price,
         selected = selected,
         onClick = onClick,
-        modifier = modifier.graphicsLayer { scaleX = scale; scaleY = scale },
+        modifier = modifier.graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha },
     )
+}
+
+// ------------------------------ Опции салона ------------------------------
+/** Опция — не класс. Одна машина не может стоять в двух классах, а детское кресло возить
+ *  может любая: поэтому кресла, коляска и животные живут галочками поверх любого класса.
+ *  Коды совпадают с backend/app/car_class.py. */
+internal data class InstantOptionInfo(
+    val code: String,
+    val labelRu: String, val labelBa: String,
+    val emoji: String,
+)
+
+internal val InstantOptions = listOf(
+    InstantOptionInfo("seat_0_1", "Люлька 0–1", "Бәпес арбаһы 0–1", "👶"),
+    InstantOptionInfo("seat_1_4", "Кресло 1–4", "Ултырғыс 1–4", "🧒"),
+    InstantOptionInfo("seat_4_7", "Кресло 4–7", "Ултырғыс 4–7", "🧒"),
+    InstantOptionInfo("booster", "Бустер 7–12", "Бустер 7–12", "💺"),
+    InstantOptionInfo("stroller", "Коляска", "Балалар арбаһы", "🍼"),
+    InstantOptionInfo("wheelchair", "Инвалидная коляска", "Инвалид коляскаһы", "♿"),
+    InstantOptionInfo("guide_dog", "Собака-проводник", "Юл күрһәтеүсе эт", "🦮"),
+    InstantOptionInfo("pets", "С животным", "Хайуан менән", "🐾"),
+    InstantOptionInfo("big_luggage", "Большой багаж", "Ҙур багаж", "🧳"),
+)
+
+@Composable
+private fun InstantOptionsBlock(selected: Set<String>, onToggle: (String) -> Unit) {
+    // Свёрнут по умолчанию: девяти заказам из десяти ничего этого не нужно, и держать девять
+    // галочек на главном пути — значит мешать всем ради немногих. Но открыть — один тап.
+    var open by rememberSaveable { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+        Surface(
+            onClick = { open = !open },
+            shape = CanonItemShape,
+            color = if (selected.isEmpty()) CanonSurface else CanonTaxiBg,
+            border = BorderStroke(1.dp, if (selected.isEmpty()) CanonBorder else CanonTaxi),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("🧸", fontSize = TxBody, lineHeight = LhBody)
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text(
+                    if (selected.isEmpty()) appText("Нужно кресло, коляска, животное?",
+                        "Ултырғыс, арба, хайуан кәрәкме?")
+                    else appText("Выбрано: ${selected.size}", "Һайланды: ${selected.size}"),
+                    color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                    fontWeight = if (selected.isEmpty()) FontWeight.Normal else FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                val turn by animateFloatAsState(if (open) 180f else 0f, tween(CanonMotion.QUICK), label = "optTurn")
+                Icon(
+                    Icons.Default.ExpandMore,
+                    contentDescription = if (open) appText("Свернуть", "Йыйырға")
+                    else appText("Развернуть", "Асырға"),
+                    tint = CanonMuted,
+                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn },
+                )
+            }
+        }
+        AnimatedVisibility(
+            visible = open,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            ) {
+                InstantOptions.forEach { opt ->
+                    val on = opt.code in selected
+                    val optState = if (on) appText("Выбрано", "Һайланған")
+                    else appText("Не выбрано", "Һайланмаған")
+                    val bg by animateColorAsState(
+                        if (on) CanonTaxiBg else CanonSurface, tween(CanonMotion.QUICK), label = "optBg")
+                    val border by animateColorAsState(
+                        if (on) CanonTaxi else CanonBorder, tween(CanonMotion.QUICK), label = "optBorder")
+                    Surface(
+                        onClick = { onToggle(opt.code) },
+                        shape = CanonTinyShape,
+                        color = bg,
+                        border = BorderStroke(if (on) 2.dp else 1.dp, border),
+                        modifier = Modifier.heightIn(min = 48.dp).semantics {
+                            role = Role.Checkbox
+                            this.selected = on
+                            stateDescription = optState
+                        },
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(opt.emoji, fontSize = TxBody, lineHeight = LhBody)
+                            Spacer(Modifier.width(CanonSpace.xs))
+                            Text(
+                                appText(opt.labelRu, opt.labelBa),
+                                color = CanonText, fontSize = TxCaption, lineHeight = LhCaption,
+                                fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ------------------------------ Таймер ожидания (обе стороны) ------------------------------
@@ -2281,6 +2525,12 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
+        // «В Комфорте сейчас никого» — предложение поискать в соседнем классе.
+        // Появляется не сразу: первые секунды честнее отдать тому классу, что человек выбрал.
+        // Молча класс НЕ подменяем никогда: «заказал Комфорт — приехал Логан» это главная
+        // претензия к агрегаторам, и решать тут должен пассажир, а не мы за него.
+        InstantAlternativesBlock(order = order, watchedSec = watchedSec)
+
         Spacer(Modifier.height(24.dp))
         MobilityProgressRail(
             labels = listOf(
@@ -2302,6 +2552,114 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
                 appText("Отменить заказ", "Заказды кире алыу"),
                 color = CanonRed, fontSize = TxBody, lineHeight = LhBody,
             )
+        }
+    }
+}
+
+// ------------------------------ Соседний класс, когда своих машин нет ------------------------------
+/**
+ * Через `after_sec` секунд поиска показываем классы, в которых машины есть, — с ценой.
+ * Решает пассажир: одна кнопка расширяет поиск, ничего не подменяя за спиной.
+ *
+ * Цена, названная на этой карточке, и есть та, что он заплатит: сервер фиксирует её в момент
+ * согласия. Никаких «а потом оказалось дороже».
+ */
+@Composable
+private fun InstantAlternativesBlock(order: InstantOrderDto, watchedSec: Long) {
+    var options by remember(order.id) { mutableStateOf<List<InstantAlternativeDto>>(emptyList()) }
+    var afterSec by remember(order.id) { mutableIntStateOf(20) }
+    var added by remember(order.id) { mutableStateOf<String?>(null) }
+    var busy by remember(order.id) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // Тянем список один раз — когда ожидание перевалило за порог. Раньше незачем, а дёргать
+    // сервер каждую секунду ради «а вдруг появилось» — только жечь батарею и трафик в селе.
+    val ready = watchedSec >= afterSec
+    LaunchedEffect(order.id, ready) {
+        if (ready && options.isEmpty() && added == null) {
+            ApiClient.getInstantAlternatives(order.id).onSuccess { (sec, list) ->
+                afterSec = sec
+                options = list
+            }
+        }
+    }
+
+    AnimatedVisibility(
+        visible = ready && (options.isNotEmpty() || added != null),
+        enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(),
+        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(),
+    ) {
+        Surface(
+            shape = CanonCardShape,
+            color = CanonTaxiBg,
+            border = BorderStroke(1.dp, CanonTaxi),
+            modifier = Modifier.fillMaxWidth().padding(top = CanonSpace.lg),
+        ) {
+            Column(
+                Modifier.padding(CanonSpace.md),
+                verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            ) {
+                val addedTitle = added?.let { cat ->
+                    InstantClasses.firstOrNull { it.category == cat }
+                        ?.let { appText(it.titleRu, it.titleBa) }
+                }
+                if (addedTitle != null) {
+                    Text(
+                        appText("Ищем и в классе «$addedTitle» — цена уже пересчитана",
+                            "«$addedTitle» класында ла эҙләйбеҙ — хаҡ иҫәпләнде"),
+                        color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                        fontWeight = FontWeight.Bold,
+                    )
+                } else {
+                    val mine = InstantClasses.firstOrNull { it.category == order.category }
+                    val mineTitle = mine?.let { appText(it.titleRu, it.titleBa) }
+                        ?: appText("этом классе", "был класта")
+                    Text(
+                        appText("В классе «$mineTitle» рядом сейчас никого",
+                            "«$mineTitle» класында яҡында әлегә бер кем юҡ"),
+                        color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    options.forEach { alt ->
+                        val info = InstantClasses.firstOrNull { it.category == alt.category }
+                        val title = info?.let { appText(it.titleRu, it.titleBa) } ?: alt.category
+                        val cheaper = alt.priceDiff < 0
+                        Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+                            Text(
+                                if (cheaper)
+                                    appText("Рядом есть «$title» — ${alt.price} ₽, это дешевле",
+                                        "Яҡында «$title» бар — ${alt.price} һум, был арзаныраҡ")
+                                else
+                                    appText("Рядом есть «$title» — ${alt.price} ₽",
+                                        "Яҡында «$title» бар — ${alt.price} һум"),
+                                color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                            )
+                            Button(
+                                onClick = {
+                                    if (!busy) {
+                                        busy = true
+                                        scope.launch {
+                                            ApiClient.addInstantAlternative(order.id, alt.category)
+                                                .onSuccess { added = alt.category; options = emptyList() }
+                                            busy = false
+                                        }
+                                    }
+                                },
+                                enabled = !busy,
+                                shape = InstantControlShape,
+                                colors = ButtonDefaults.buttonColors(containerColor = CanonTaxi),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            ) {
+                                Text(
+                                    appText("Искать и в классе «$title»", "«$title» класында ла эҙләргә"),
+                                    color = CanonBg, fontSize = TxBody, lineHeight = LhBody,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -2331,7 +2689,8 @@ internal fun InstantDriverEnRouteCard(
     }
     var confirmPaidCancel by remember { mutableStateOf(false) }
     var showShare by remember(order.id) { mutableStateOf(false) }   // «Поделиться поездкой» (B7b-2)
-    val cancelFeeRub = order.cancelFeeNowKop / 100
+    // Цена отмены — с копейками: её называют на кнопке и в подтверждении, а платят наличными.
+    val cancelFeeText = formatTaxiKop(order.cancelFeeNowKop)
     // Live-трек машины (B7a-3): пока заказ активен — держим WS такси-заказа и двигаем маркер.
     // Колбэк приходит с потока OkHttp — snapshot-state потокобезопасен. Ушли с экрана → close.
     var carPoint by remember(order.id) { mutableStateOf<Point?>(null) }
@@ -2518,7 +2877,7 @@ internal fun InstantDriverEnRouteCard(
                     ) {
                         Text(
                             if (order.cancelFeeNowKop > 0)
-                                appText("Отменить · $cancelFeeRub ₽", "Кире алыу · $cancelFeeRub ₽")
+                                appText("Отменить · $cancelFeeText", "Кире алыу · $cancelFeeText")
                             else appText("Отменить заказ", "Заказды кире алыу"),
                             color = CanonRed, fontSize = TxBody, lineHeight = LhBody,
                         )
@@ -2538,8 +2897,8 @@ internal fun InstantDriverEnRouteCard(
             text = {
                 Text(
                     appText(
-                        "Водитель уже приехал и ждёт. Отмена — $cancelFeeRub ₽ (подача), переведи водителю напрямую. Частые платные отмены ставят такси на паузу.",
-                        "Водитель килде инде һәм көтә. Кире алыу — $cancelFeeRub ₽ (килеү хаҡы), водителгә туранан күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.",
+                        "Водитель уже приехал и ждёт. Отмена — $cancelFeeText (подача), переведи водителю напрямую. Частые платные отмены ставят такси на паузу.",
+                        "Водитель килде инде һәм көтә. Кире алыу — $cancelFeeText (килеү хаҡы), водителгә туранан күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.",
                     ),
                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
@@ -2642,7 +3001,7 @@ private fun InstantCancelReasonDialog(
     // успевает нажать дважды, пока окно закрывается. Второй тап должен уйти в никуда.
     var picked by remember { mutableStateOf<String?>(null) }
     val reasons = instantCancelReasons()
-    val feeRub = feeKop / 100
+    val feeText = formatTaxiKop(feeKop)
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = CanonSurface,
@@ -2666,8 +3025,8 @@ private fun InstantCancelReasonDialog(
                     Surface(color = CanonWarnBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
                         Text(
                             appText(
-                                "Отмена сейчас платная: $feeRub ₽ за подачу — переведи водителю.",
-                                "Хәҙер кире алыу түләүле: килеү өсөн $feeRub ₽ — водителгә күсер.",
+                                "Отмена сейчас платная: $feeText за подачу — переведи водителю.",
+                                "Хәҙер кире алыу түләүле: килеү өсөн $feeText — водителгә күсер.",
                             ),
                             color = CanonWarn, fontSize = TxCaption, lineHeight = LhCaption,
                             fontWeight = FontWeight.Bold,
@@ -3924,8 +4283,8 @@ internal fun InstantOfferOverlay(
                             if (order.hasPromoDiscount) {
                                 Text(
                                     appText(
-                                        "На руки от пассажира: ${formatTaxiKop(order.passengerPayKop)} — у него промокод −${order.promoDiscountKop / 100} ₽, разницу платит Юлдаш. Твой доход прежний.",
-                                        "Пассажирҙан ҡулға: ${formatTaxiKop(order.passengerPayKop)} — унда промокод −${order.promoDiscountKop / 100} ₽, айырманы Юлдаш түләй. Һинең килемең үҙгәрмәй.",
+                                        "На руки от пассажира: ${formatTaxiKop(order.passengerPayKop)} — у него промокод −${formatTaxiKop(order.promoDiscountKop)}, разницу платит Юлдаш. Твой доход прежний.",
+                                        "Пассажирҙан ҡулға: ${formatTaxiKop(order.passengerPayKop)} — унда промокод −${formatTaxiKop(order.promoDiscountKop)}, айырманы Юлдаш түләй. Һинең килемең үҙгәрмәй.",
                                     ),
                                     color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold,
                                 )
@@ -4133,12 +4492,14 @@ internal fun InstantDriverTripScreen(
                     title = if (current.noShow) appText("Пассажир не вышел", "Пассажир сыҡманы")
                     else appText("Заказ отменён", "Заказ кире алынды"),
                     subtitle = when {
+                        // Водитель видит ту же сумму, что и пассажир на своём экране: расходиться
+                        // на копейки нельзя — по ней они и рассчитываются между собой.
                         current.noShow -> appText(
-                            "Заказ закрыт. Пассажиру зафиксирована плата за подачу — ${current.cancelFeeKop / 100} ₽.",
-                            "Заказ ябылды. Пассажирға килеү хаҡы яҙылды — ${current.cancelFeeKop / 100} ₽.")
+                            "Заказ закрыт. Пассажиру зафиксирована плата за подачу — ${formatTaxiKop(current.cancelFeeKop)}.",
+                            "Заказ ябылды. Пассажирға килеү хаҡы яҙылды — ${formatTaxiKop(current.cancelFeeKop)}.")
                         current.cancelBy == "passenger" && current.cancelFeeKop > 0 -> appText(
-                            "Пассажир отменил поздно — ему зафиксирована подача ${current.cancelFeeKop / 100} ₽.",
-                            "Пассажир һуң кире алды — уға килеү хаҡы яҙылды: ${current.cancelFeeKop / 100} ₽.")
+                            "Пассажир отменил поздно — ему зафиксирована подача ${formatTaxiKop(current.cancelFeeKop)}.",
+                            "Пассажир һуң кире алды — уға килеү хаҡы яҙылды: ${formatTaxiKop(current.cancelFeeKop)}.")
                         current.cancelBy == "passenger" -> appText("Пассажир отменил заказ.", "Пассажир заказды кире алды.")
                         else -> appText("Заказ отменён.", "Заказ кире алынды.")
                     },
@@ -4229,15 +4590,17 @@ internal fun InstantDriverTripScreen(
                                     }
                                 }
                             }
-                            val waitRub = current.waitingFeeKop / 100
+                            // Ожидание тарифицируется поминутно — копейки тут обычное дело,
+                            // а сумма стоит рядом с ценой поездки, где формат уже с копейками.
+                            val waitKop = current.waitingFeeKop
                             // Сумма «на руки» — та же, что видит пассажир. Если у него сработал
                             // промокод, он отдаст меньше полной цены, и водитель обязан узнать об
                             // этом ЗДЕСЬ, а не у машины (объяснение — в карточке ниже).
                             val payToDriver = formatTaxiKop(current.passengerPayKop)
                             Text(
                                 appText(
-                                    "Пассажир платит: $payToDriver" + (if (waitRub > 0) " + $waitRub ₽ ожидание" else "") + " · наличными/переводом",
-                                    "Пассажир түләй: $payToDriver" + (if (waitRub > 0) " + $waitRub ₽ көтөү" else "") + " · аҡсалата/күсереп",
+                                    "Пассажир платит: $payToDriver" + (if (waitKop > 0) " + ${formatTaxiKop(waitKop)} ожидание" else "") + " · наличными/переводом",
+                                    "Пассажир түләй: $payToDriver" + (if (waitKop > 0) " + ${formatTaxiKop(waitKop)} көтөү" else "") + " · аҡсалата/күсереп",
                                 ),
                                 color = CanonMuted, fontSize = 14.sp,
                             )

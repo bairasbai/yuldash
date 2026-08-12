@@ -4,11 +4,12 @@
 Ни один эндпоинт не отдаёт чужой уровень/коды/согласия (защита от IDOR)."""
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..models import InviteCode, Trust, User
 from ..security import current_user, gen_referral_code
 from ..timeutil import utcnow
@@ -45,10 +46,10 @@ def create_invite(user: User = Depends(current_user), session: Session = Depends
     """Создать пригласительный код в круг «своих». Может только проверенный участник (L2+).
     Запас кодов на пользователя ограничен (анти-абьюз)."""
     if trust_level(session, user) < MIN_INVITER_LEVEL:
-        raise HTTPException(403, "Приглашать в круг своих может только проверенный участник")
+        raise herr(403, "Приглашать в круг своих может только проверенный участник", "Ышаныс түңәрәгенә тик тикшерелгән ҡатнашыусы саҡыра ала")
     mine = session.exec(select(InviteCode).where(InviteCode.owner_id == user.id)).all()
     if len(mine) >= MAX_INVITES_PER_USER:
-        raise HTTPException(400, "Закончились приглашения")
+        raise herr(400, "Закончились приглашения", "Саҡырыуҙар бөттө")
     # Уникальный код (не путается с реферальным — своя таблица, свой namespace).
     code = ""
     for _ in range(10):
@@ -57,7 +58,7 @@ def create_invite(user: User = Depends(current_user), session: Session = Depends
             code = cand
             break
     if not code:
-        raise HTTPException(500, "Не удалось создать код, попробуй ещё раз")
+        raise herr(500, "Не удалось создать код, попробуй ещё раз", "Код булдырып булманы, тағы ҡабатла")
     inv = InviteCode(code=code, owner_id=user.id, uses_left=INVITE_CODE_USES)
     session.add(inv)
     session.commit()
@@ -84,25 +85,25 @@ def redeem_invite(body: RedeemIn, user: User = Depends(current_user), session: S
     Анти-абьюз: нельзя редимить свой код, код не бесконечен, повторно «своим» не станешь."""
     code = (body.code or "").strip().upper()
     if not code:
-        raise HTTPException(400, "Нужен код")
+        raise herr(400, "Нужен код", "Код кәрәк")
     # Блокируем строку кода: два параллельных redeem одного кода не спишут use дважды (TOCTOU).
     inv = session.exec(
         select(InviteCode).where(InviteCode.code == code).with_for_update()
     ).first()
     if not inv:
-        raise HTTPException(404, "Код не найден")
+        raise herr(404, "Код не найден", "Код табылманы")
     if inv.owner_id == user.id:
-        raise HTTPException(400, "Нельзя активировать собственный код")
+        raise herr(400, "Нельзя активировать собственный код", "Үҙ кодыңды активлаштырып булмай")
     if inv.uses_left <= 0:
-        raise HTTPException(400, "Код уже использован")
+        raise herr(400, "Код уже использован", "Код ҡулланылған инде")
     # V11: пригласивший мог быть разжалован (verified снят админом) ПОСЛЕ выпуска кода. Тогда код
     # больше не вводит в круг своих — иначе бывший проверенный продолжает плодить L3 в обход модерации.
     owner = session.get(User, inv.owner_id)
     if owner is None or trust_level(session, owner) < MIN_INVITER_LEVEL:
-        raise HTTPException(400, "Код больше не действителен")
+        raise herr(400, "Код больше не действителен", "Код инде ғәмәлдә түгел")
     row = session.exec(select(Trust).where(Trust.user_id == user.id)).first()
     if row and row.level >= INSIDER_LEVEL:
-        raise HTTPException(400, "Ты уже в кругу своих")
+        raise herr(400, "Ты уже в кругу своих", "Һин инде үҙебеҙҙекеләр араһында")
     inv.uses_left -= 1
     if row:
         row.level = INSIDER_LEVEL
@@ -138,6 +139,6 @@ def grant_consent(body: ConsentIn, user: User = Depends(current_user), session: 
     """Зафиксировать согласие с таймстампом (152-ФЗ). Идемпотентно: время первого согласия не меняем."""
     kind = (body.kind or "").strip().lower()
     if kind not in CONSENT_KINDS:
-        raise HTTPException(400, "Неизвестный вид согласия")
+        raise herr(400, "Неизвестный вид согласия", "Билдәһеҙ ризалыҡ төрө")
     c = record_consent(session, user.id, kind)
     return ConsentOut(kind=c.kind, granted_at=c.granted_at.isoformat())

@@ -37,6 +37,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.TaxiPulseDto
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -48,13 +51,18 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
     var reloadTick by remember { mutableStateOf(0) }
 
     // Первая загрузка + автообновление ~30с (панель «живая», админ не жмёт руками).
-    LaunchedEffect(reloadTick) {
-        while (isActive) {
-            ApiClient.getTaxiPulse()
-                .onSuccess { pulse = it; error = false }
-                .onFailure { if (pulse == null) error = true }   // при живых данных сбой сети не пугает
-            loading = false
-            delay(30_000)
+    // В фоне цикл стоит (repeatOnLifecycle RESUMED), как остальные опросы приложения:
+    // свёрнутая панель обновляла сводку, которую никто не смотрит.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(reloadTick, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                ApiClient.getTaxiPulse()
+                    .onSuccess { pulse = it; error = false }
+                    .onFailure { if (pulse == null) error = true }   // при живых данных сбой сети не пугает
+                loading = false
+                delay(30_000)
+            }
         }
     }
 

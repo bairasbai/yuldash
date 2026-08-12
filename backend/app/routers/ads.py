@@ -13,6 +13,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..middleware import user_over_limit
 from ..models import Ad, AdEvent, Payment, User, UserRole
 from ..security import current_user
@@ -149,7 +150,7 @@ def ad_event(ad_id: int, body: AdEventIn, user: User = Depends(current_user), se
     Отказ считать — не ошибка: реклама не должна ломать экран, поэтому 200 и counted=false."""
     ad = session.get(Ad, ad_id)
     if not ad:
-        raise HTTPException(404, "Объявление не найдено")
+        raise herr(404, "Объявление не найдено", "Иғлан табылманы")
     now = utcnow()
     if ad.status in AD_EDITABLE_STATUSES or (ad.ends_at is not None and ad.ends_at <= now):
         return {"ok": True, "counted": False}
@@ -290,7 +291,7 @@ def ad_mine_stats_one(ad_id: int, user: User = Depends(current_user), session: S
     """Статистика одного объявления. Только владелец — чужое отдаёт 404 (не раскрываем существование, IDOR-защита)."""
     ad = session.get(Ad, ad_id)
     if not ad or ad.owner_id != user.id:
-        raise HTTPException(404, "Объявление не найдено")
+        raise herr(404, "Объявление не найдено", "Иғлан табылманы")
     ev = _events_by_ad(session, [ad.id])[ad.id]
     return _ad_stat_payload(ad, ev["impressions"], ev["clicks"], utcnow())
 
@@ -340,10 +341,10 @@ def ad_create(body: AdCreateIn, user: User = Depends(current_user), session: Ses
     """Партнёр создаёт своё объявление (черновик). Анти-спам: лимит на владельца."""
     count = session.exec(select(func.count()).select_from(Ad).where(Ad.owner_id == user.id)).one()
     if count >= MAX_ADS_PER_OWNER:
-        raise HTTPException(429, "Слишком много объявлений — удали лишние")
+        raise herr(429, "Слишком много объявлений — удали лишние", "Иғландар артыҡ күп — артығын бетер")
     title = body.title.strip()
     if not title:
-        raise HTTPException(422, "Заголовок обязателен")
+        raise herr(422, "Заголовок обязателен", "Башлыҡ мотлаҡ")
     ad = Ad(
         owner_id=user.id, created_by=user.id, status="draft",
         title=title, text=body.text.strip(), button=body.button.strip(),
@@ -364,9 +365,9 @@ def _own_editable_ad(ad_id: int, user: User, session: Session) -> Ad:
     404 (а не 403) на чужое — чтобы не раскрывать существование чужих объявлений."""
     ad = session.get(Ad, ad_id)
     if not ad or ad.owner_id != user.id:
-        raise HTTPException(404, "Объявление не найдено")
+        raise herr(404, "Объявление не найдено", "Иғлан табылманы")
     if ad.status not in AD_EDITABLE_STATUSES:
-        raise HTTPException(409, "Редактировать можно только черновик или отклонённое")
+        raise herr(409, "Редактировать можно только черновик или отклонённое", "Тик ҡараламаны йәки кире ҡағылғанды үҙгәртеп була")
     return ad
 
 
@@ -392,7 +393,7 @@ def ad_submit(ad_id: int, user: User = Depends(current_user), session: Session =
     """Отправить своё объявление на модерацию (draft/rejected → pending_review)."""
     ad = _own_editable_ad(ad_id, user, session)
     if not ad.title.strip() or ad.package not in AD_PACKAGES:
-        raise HTTPException(422, "Заполни заголовок и выбери тариф")
+        raise herr(422, "Заполни заголовок и выбери тариф", "Башлыҡты тултыр һәм тариф һайла")
     ad.status = "pending_review"
     ad.reject_reason = ""
     ad.submitted_at = utcnow()
@@ -425,13 +426,13 @@ def ad_pay(ad_id: int, user: User = Depends(current_user), session: Session = De
     Доступно после одобрения модерацией. В эфир объявление пойдёт, когда админ подтвердит оплату."""
     ad = session.get(Ad, ad_id)
     if not ad or ad.owner_id != user.id:
-        raise HTTPException(404, "Объявление не найдено")
+        raise herr(404, "Объявление не найдено", "Иғлан табылманы")
     if ad.status != "active":
-        raise HTTPException(409, "Оплата доступна после одобрения модерацией")
+        raise herr(409, "Оплата доступна после одобрения модерацией", "Түләү модерация раҫлағандан һуң мөмкин")
     if ad.budget_kop <= 0:
-        raise HTTPException(422, "У объявления не выбран тариф")
+        raise herr(422, "У объявления не выбран тариф", "Иғландың тарифы һайланмаған")
     if _is_paid(session, ad.id):
-        raise HTTPException(409, "Уже оплачено")
+        raise herr(409, "Уже оплачено", "Түләнгән инде")
     # Идемпотентность: повторное нажатие «Оплатить» не плодит заявки — возвращаем существующую pending.
     existing = session.exec(
         select(Payment).where(Payment.purpose == "ad", Payment.ad_id == ad.id, Payment.status == "pending")
@@ -557,7 +558,7 @@ def admin_approve_ad(ad_id: int, body: AdApproveIn, user: User = Depends(current
     _require_admin(user)
     ad = session.get(Ad, ad_id)
     if not ad:
-        raise HTTPException(404, "Объявление не найдено")
+        raise herr(404, "Объявление не найдено", "Иғлан табылманы")
     ad.status = "active"
     ad.reject_reason = ""
     ad.reviewed_at = utcnow()
@@ -579,7 +580,7 @@ def admin_reject_ad(ad_id: int, body: AdRejectIn, user: User = Depends(current_u
     _require_admin(user)
     ad = session.get(Ad, ad_id)
     if not ad:
-        raise HTTPException(404, "Объявление не найдено")
+        raise herr(404, "Объявление не найдено", "Иғлан табылманы")
     ad.status = "rejected"
     ad.reject_reason = body.reason.strip()[:500]
     ad.reviewed_at = utcnow()
@@ -633,7 +634,7 @@ def admin_update_ad(ad_id: int, body: AdIn, user: User = Depends(current_user), 
     _require_admin(user)
     ad = session.get(Ad, ad_id)
     if not ad:
-        raise HTTPException(404, "Объявление не найдено")
+        raise herr(404, "Объявление не найдено", "Иғлан табылманы")
     for f in ("partner_name", "partner_contact", "title", "text", "button", "target", "image_url", "erid", "placements", "cities"):
         setattr(ad, f, (getattr(body, f) or "").strip())
     ad.priority = body.priority
@@ -654,10 +655,10 @@ def admin_set_status(ad_id: int, body: AdStatusIn, user: User = Depends(current_
     """Опубликовать / поставить на паузу / архивировать."""
     _require_admin(user)
     if body.status not in ("draft", "active", "paused", "expired", "archived"):
-        raise HTTPException(400, "Недопустимый статус")
+        raise herr(400, "Недопустимый статус", "Ярамаған статус")
     ad = session.get(Ad, ad_id)
     if not ad:
-        raise HTTPException(404, "Объявление не найдено")
+        raise herr(404, "Объявление не найдено", "Иғлан табылманы")
     # При публикации founder — снова проверяем лимит (если был архивный)
     if body.status == "active" and ad.plan == "founder" and ad.status == "archived" and _founder_slots_used(session) >= FOUNDER_LIMIT:
         raise HTTPException(400, f"Слоты основателей заняты ({FOUNDER_LIMIT}/{FOUNDER_LIMIT})")
@@ -674,7 +675,7 @@ def admin_delete_ad(ad_id: int, user: User = Depends(current_user), session: Ses
     _require_admin(user)
     ad = session.get(Ad, ad_id)
     if not ad:
-        raise HTTPException(404, "Объявление не найдено")
+        raise herr(404, "Объявление не найдено", "Иғлан табылманы")
     ad.status = "archived"
     session.add(ad)
     session.commit()

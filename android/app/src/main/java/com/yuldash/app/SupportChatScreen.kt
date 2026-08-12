@@ -66,6 +66,9 @@ import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.SupportListDto
 import com.yuldash.app.data.SupportTicketRowDto
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -349,10 +352,15 @@ internal fun SupportTicketScreen(ticketId: Int, onBack: () -> Unit) {
         loading = false
     }
     // Мягкий поллинг ответов поддержки, пока экран открыт (без WS).
-    LaunchedEffect(ticketId) {
-        while (isActive) {
-            delay(8_000)
-            ApiClient.getSupportTicket(ticketId).onSuccess { applyThread(it.messages, it.status, it.subject) }
+    // В фоне цикл стоит (repeatOnLifecycle RESUMED): свёрнутая переписка спрашивала сервер
+    // каждые восемь секунд, хотя новый ответ всё равно приходит пушем.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(ticketId, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                delay(8_000)
+                ApiClient.getSupportTicket(ticketId).onSuccess { applyThread(it.messages, it.status, it.subject) }
+            }
         }
     }
 

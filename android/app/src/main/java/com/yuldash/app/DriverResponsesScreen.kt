@@ -95,6 +95,13 @@ internal fun DriverResponsesScreen(onBack: () -> Unit, onOpenTrip: (Int) -> Unit
     }
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Мои отклики", "Минең яуаптарым"), onBack) }) { padding ->
+        // Торг ведут двое: пассажир отвечает на твою цену, пока ты смотришь этот экран.
+        // Без жеста единственным способом увидеть ответ было выйти и зайти заново.
+        AppPullRefresh(
+            refreshing = loading && rows.isNotEmpty(),
+            onRefresh = { tick++ },
+            modifier = Modifier.padding(padding),
+        ) {
         DriverResponsesContent(
             loading = loading,
             error = error,
@@ -120,8 +127,8 @@ internal fun DriverResponsesScreen(onBack: () -> Unit, onOpenTrip: (Int) -> Unit
                     busy = false; tick++
                 }
             },
-            modifier = Modifier.padding(padding),
         )
+        }
     }
 
     counterFor?.let { target ->

@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
+from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..models import (
@@ -24,6 +25,8 @@ from ..security import current_user
 from ..services import push_notification
 from ..timeutil import utcnow
 from .. import antifraud as af_mod
+from .. import car_class as cc
+from .. import class_rollout
 from .. import geo as geo_mod
 from .. import instant_service as isv
 from .. import pretrip as pretrip_mod
@@ -43,9 +46,9 @@ def instant_availability(lat: Optional[float] = None, lng: Optional[float] = Non
     """Доступно ли такси в точке пользователя. Клиент дёргает ДО пикера заказа:
     выключено → экран «Такси скоро в вашем городе» (тёплый текст на двух языках)."""
     if lat is not None and not (-90 <= lat <= 90):
-        raise HTTPException(400, "Некорректная широта")
+        raise herr(400, "Некорректная широта", "Киңлек дөрөҫ түгел")
     if lng is not None and not (-180 <= lng <= 180):
-        raise HTTPException(400, "Некорректная долгота")
+        raise herr(400, "Некорректная долгота", "Оҙонлоҡ дөрөҫ түгел")
     return taxi_mod.availability(session, lat, lng)
 
 
@@ -70,8 +73,26 @@ class TaxiApplyIn(BaseModel):
     osago_until: Optional[date] = None          # до какого числа действует ОСАГО
     permit_until: Optional[date] = None         # срок разрешения на такси
     inspection_until: Optional[date] = None     # диагностическая карта (техосмотр)
-    # Класс машины (§6): водитель ЗАЯВЛЯЕТ в онбординге, админ подтверждает/меняет при approve.
+    # ОСГОП — страхование ответственности перевозчика. Обязателен для всех с 01.09.2024,
+    # включая самозанятых; стоит 1 300–5 400 ₽/год. Поля опциональные, как и остальные сроки:
+    # напоминания шлёт doc_check.py, модератор видит пропуск в очереди заявок.
+    osgop_url: str = Field("", max_length=500)
+    osgop_until: Optional[date] = None
+    # ⚠️ УСТАРЕЛО с 2026-08-08: класс больше НЕ заявляется водителем, а считается по
+    # характеристикам машины (app/car_class.py). Поле оставлено, чтобы старые клиенты не
+    # получали 422; его значение игнорируется.
     car_class: Literal["economy", "comfort"] = "economy"
+    # Характеристики машины для классификатора. Год — из СТС: без него доступен только Эконом.
+    car_year: Optional[int] = Field(None, ge=1950, le=2100)
+    seats: Optional[int] = Field(None, ge=1, le=20)   # пассажирских мест; >8 — уже автобус
+    car_color: str = Field("", max_length=40)
+    car_ac: bool = False                              # рабочий кондиционер
+    car_sedan: bool = False                           # кузов седан (нужно Бизнесу)
+    car_leather: bool = False                         # кожа или комбинированный салон (Бизнес)
+    # Опции салона и классы, которые водитель хочет брать (коды из app/car_class.py).
+    # Пустой список классов = берёт все доступные ему.
+    car_options: list[str] = Field(default_factory=list)
+    car_classes_enabled: list[str] = Field(default_factory=list)
 
 
 class TaxiDocsIn(BaseModel):
@@ -88,15 +109,50 @@ class TaxiDocsIn(BaseModel):
     permit_photo_url: Optional[str] = Field(None, max_length=500)
 
 
-def _set_car_class(session: Session, user_id: int, car_class: Optional[str]) -> None:
-    """Класс машины живёт на DriverProfile (matcher читает оттуда). Профиля нет → создаём
+def recalc_classes(dp: DriverProfile) -> None:
+    """Пересчитать доступные классы по характеристикам машины.
+
+    Класс НЕ выбирает водитель — иначе любой поставит себе «Бизнес», и пассажир получит
+    Гранту вместо Мерседеса. `car_class` остаётся как «основной» (высший доступный) для
+    витрины; подбор смотрит на available ∩ enabled.
+    """
+    spec = cc.CarSpec(
+        year=dp.car_year, seats=dp.seats or 0, has_ac=bool(dp.car_ac),
+        clean_salon=bool(dp.car_clean), body_ok=bool(dp.car_body_ok),
+        is_sedan=bool(dp.car_sedan), leather=bool(dp.car_leather),
+        color=dp.car_color, premium=bool(dp.car_premium_verified),
+    )
+    avail = cc.available_classes(
+        spec, utcnow().year,
+        comfort_max_age=settings.car_comfort_max_age,
+        business_max_age=settings.car_business_max_age,
+        minivan_max_age=settings.car_minivan_max_age,
+        minivan_min_seats=settings.car_minivan_min_seats,
+    )
+    dp.car_classes_available = cc.dump_classes(avail)
+    # Основной класс — высший доступный (порядок CLASSES: economy → comfort → business →
+    # minivan). Минивэн стоит последним намеренно: для витрины «6 мест» важнее, чем «Комфорт».
+    dp.car_class = avail[-1] if avail else cc.ECONOMY
+
+
+def _apply_car(session: Session, user_id: int, body: "TaxiApplyIn") -> None:
+    """Характеристики машины → профиль водителя + пересчёт классов. Профиля нет → создаём
     выключенный (online=False): заявку таксиста подают и до первого выхода на линию."""
-    if car_class not in ("economy", "comfort"):
-        return
     dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user_id)).first()
     if dp is None:
         dp = DriverProfile(user_id=user_id, online=False)
-    dp.car_class = car_class
+    if body.car_year is not None:
+        dp.car_year = int(body.car_year)
+    if body.seats is not None:
+        dp.seats = int(body.seats)
+    if body.car_color:
+        dp.car_color = body.car_color.strip()[:40]
+    dp.car_ac = bool(body.car_ac)
+    dp.car_sedan = bool(body.car_sedan)
+    dp.car_leather = bool(body.car_leather)
+    dp.car_options = cc.dump_options(body.car_options)
+    dp.car_classes_enabled = cc.dump_classes(body.car_classes_enabled)
+    recalc_classes(dp)
     session.add(dp)
 
 
@@ -137,6 +193,23 @@ def _validate_apply(body: TaxiApplyIn) -> None:
     # Сроки документов: если указаны — только в будущем. Просроченный документ в момент подачи
     # это не «почти готов», это отказ; лучше сказать сразу, чем одобрить и снять допуск назавтра.
     _validate_doc_dates(body.osago_until, body.permit_until, body.inspection_until)
+    if body.osgop_until is not None and body.osgop_until <= utcnow().date():
+        raise herr(400, "Срок ОСГОП уже истёк", "ОСГОП ваҡыты үткән инде")
+    # Мест больше восьми — это уже не легковое такси, а автобус: водителю нужна категория D,
+    # а службе заказа лицензия на перевозки. Пропустить такого — подставить обоих.
+    if body.seats is not None and int(body.seats) > cc.MAX_PASSENGER_SEATS:
+        raise herr(400, f"В такси не больше {cc.MAX_PASSENGER_SEATS} пассажирских мест — "
+                        "с большим числом нужна лицензия на автобусные перевозки",
+                   f"Таксиҙа {cc.MAX_PASSENGER_SEATS} пассажир урынынан күп булмаҫҡа тейеш")
+    # Цвет кузова: в Башкирии такси — только чёрное, белое или жёлтое (закон РБ № 77-з
+    # ст. 15.2). Это самый жёсткий фильтр для сельского водителя, поэтому говорим о нём
+    # ЧЕСТНО И СРАЗУ, а не после заполнения всей анкеты. Не распознали цвет — пропускаем,
+    # решит модератор по фото: отказывать из-за «мокрого асфальта» в поле нельзя.
+    if body.car_color and cc.color_allowed(body.car_color) is False:
+        raise herr(400, "В Башкирии такси может быть только чёрным, белым или жёлтым. "
+                        "Попутка работает с любым цветом — там это не требуется.",
+                   "Башҡортостанда такси ҡара, аҡ йәки һары ғына була ала. "
+                   "Юлдаш (попутка) теләһә ниндәй төҫ менән эшләй.")
 
 
 def _validate_doc_dates(osago: Optional[date], permit: Optional[date], inspection: Optional[date]) -> None:
@@ -232,6 +305,9 @@ def taxi_apply(body: TaxiApplyIn, user: User = Depends(current_user), session: S
     app.osago_until = body.osago_until
     app.permit_until = body.permit_until
     app.inspection_until = body.inspection_until
+    app.osgop_until = body.osgop_until
+    if body.osgop_url.strip():
+        app.osgop_url = _ensure_owned_doc_url(body.osgop_url, user, None)
     app.docs_expired = False        # свежая заявка с проверенными датами — допуск не снят
     app.docs_warned_at = None
     app.status = TaxiApplicationStatus.pending
@@ -239,7 +315,7 @@ def taxi_apply(body: TaxiApplyIn, user: User = Depends(current_user), session: S
     app.reviewed_at = None
     app.created_at = utcnow()
     session.add(app)
-    _set_car_class(session, user.id, body.car_class)   # заявленный класс — на профиль водителя
+    _apply_car(session, user.id, body)     # характеристики машины → профиль + пересчёт классов
     session.commit()
     session.refresh(app)
     # Прежние версии документов (просроченное ОСАГО, старое разрешение, устаревшее селфи)
@@ -255,7 +331,7 @@ def my_taxi_application(user: User = Depends(current_user), session: Session = D
     """Моя заявка таксиста (для экрана статуса). Не подавал → 404."""
     app = taxi_mod.my_application(session, user.id)
     if not app:
-        raise HTTPException(404, "Заявка не подана")
+        raise herr(404, "Заявка не подана", "Заявка бирелмәгән")
     return _application_payload(app)
 
 
@@ -274,7 +350,7 @@ def update_taxi_documents(body: TaxiDocsIn, user: User = Depends(current_user),
     """
     app = taxi_mod.my_application(session, user.id)
     if not app:
-        raise HTTPException(404, "Заявка не подана")
+        raise herr(404, "Заявка не подана", "Заявка бирелмәгән")
     _validate_doc_dates(body.osago_until, body.permit_until, body.inspection_until)
     if body.osago_until is not None:
         app.osago_until = body.osago_until
@@ -296,6 +372,101 @@ def update_taxi_documents(body: TaxiDocsIn, user: User = Depends(current_user),
     session.commit()
     session.refresh(app)
     return _application_payload(app)
+
+
+# ------------------------------ классы и опции водителя ------------------------------
+class DriverClassesIn(BaseModel):
+    """Что водитель берёт и что у него есть в салоне. Характеристики машины сюда НЕ входят:
+    их меняет модератор, иначе классификатор обходится одной правкой поля."""
+    car_classes_enabled: Optional[list[str]] = None
+    car_options: Optional[list[str]] = None
+
+
+def _classes_payload(session: Session, dp: Optional[DriverProfile]) -> dict:
+    """Витрина классов для экрана водителя.
+
+    Показываем три вещи сразу: что машине доступно, чего не хватает до остальных классов
+    (кодами — подписи живут в клиенте на двух языках) и сколько водителей уже набралось
+    в его районе. Последнее — не статистика ради статистики: видя «не хватает одного»,
+    человек сам зовёт знакомого, и класс открывается им обоим.
+    """
+    if dp is None:
+        dp = DriverProfile(user_id=0, online=False)
+    spec = cc.CarSpec(
+        year=dp.car_year, seats=dp.seats or 0, has_ac=bool(dp.car_ac),
+        clean_salon=bool(dp.car_clean), body_ok=bool(dp.car_body_ok),
+        is_sedan=bool(dp.car_sedan), leather=bool(dp.car_leather),
+        color=dp.car_color, premium=bool(dp.car_premium_verified),
+    )
+    year_now = utcnow().year
+    avail = cc.available_or_legacy(dp.car_classes_available, dp.car_class)
+    enabled = cc.effective_classes(avail, dp.car_classes_enabled)
+    place = class_rollout.place_of_driver(session, dp) if dp.user_id else ""
+    prog = {p["car_class"]: p for p in class_rollout.progress(session, place)}
+    classes = []
+    for c in cc.CLASSES:
+        missing = cc.missing_for(
+            c, spec, year_now,
+            comfort_max_age=settings.car_comfort_max_age,
+            business_max_age=settings.car_business_max_age,
+            minivan_max_age=settings.car_minivan_max_age,
+            minivan_min_seats=settings.car_minivan_min_seats,
+        )
+        p = prog.get(c, {})
+        classes.append({
+            "car_class": c,
+            "category": cc.class_to_category(c),
+            "available": c in avail,
+            "enabled": c in enabled,
+            "missing": missing,
+            "drivers_have": p.get("have", 0),
+            "drivers_need": p.get("need", 0),
+            "open": p.get("open", True),
+            "first": p.get("first", False),
+        })
+    return {
+        "place": place,
+        "classes": classes,
+        "options": cc.parse_options(dp.car_options),
+        "all_options": list(cc.OPTIONS),
+        "car": {
+            "year": dp.car_year, "seats": dp.seats, "color": dp.car_color,
+            "ac": bool(dp.car_ac), "sedan": bool(dp.car_sedan),
+            "leather": bool(dp.car_leather), "premium": bool(dp.car_premium_verified),
+            "clean": bool(dp.car_clean), "body_ok": bool(dp.car_body_ok),
+            "color_ok": cc.color_allowed(dp.car_color),
+        },
+    }
+
+
+@router.get("/taxi/classes")
+def my_classes(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Мои классы, чего не хватает до остальных и сколько нас набралось в районе."""
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
+    if dp is not None:
+        dp.user_id = user.id
+    return _classes_payload(session, dp)
+
+
+@router.post("/taxi/classes")
+def set_my_classes(body: DriverClassesIn, user: User = Depends(current_user),
+                   session: Session = Depends(get_session)):
+    """Включить/выключить классы и отметить опции салона.
+
+    Без пере-подачи заявки: возить кресло человек начинает в среду, а не в день модерации.
+    Включить можно только то, что машине доступно, — фильтрует `effective_classes`.
+    """
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
+    if dp is None:
+        dp = DriverProfile(user_id=user.id, online=False)
+    if body.car_classes_enabled is not None:
+        dp.car_classes_enabled = cc.dump_classes(body.car_classes_enabled)
+    if body.car_options is not None:
+        dp.car_options = cc.dump_options(body.car_options)
+    session.add(dp)
+    session.commit()
+    session.refresh(dp)
+    return _classes_payload(session, dp)
 
 
 # ------------------------------ предрейсовое подтверждение (580-ФЗ) ------------------------------
@@ -402,13 +573,56 @@ def admin_taxi_applications(status: str = "pending", user: User = Depends(curren
 def _get_app_or_404(session: Session, app_id: int) -> TaxiApplication:
     app = session.get(TaxiApplication, app_id)
     if not app:
-        raise HTTPException(404, "Заявка не найдена")
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
     return app
 
 
 class ApproveIn(BaseModel):
-    # Админ может подтвердить/поправить класс машины при одобрении (None = не менять).
-    car_class: Optional[Literal["economy", "comfort"]] = None
+    """Что модератор решает при одобрении.
+
+    Класс он больше не «назначает» вслепую — он подтверждает ФАКТЫ по фото и видеозвонку
+    (премиум-салон, чистота, целость кузова), а класс из них пересчитывается. Прямое
+    указание car_class оставлено как ручное решение: у модератора должно быть последнее
+    слово, когда классификатор ошибся.
+    """
+    car_class: Optional[Literal["economy", "comfort", "business", "minivan"]] = None
+    # Проверки по фото/видео. None = не трогать то, что есть.
+    car_premium_verified: Optional[bool] = None   # очный допуск в Бизнес (видеозвонок + осмотр)
+    car_clean: Optional[bool] = None              # салон без чехлов, целый, без запаха
+    car_body_ok: Optional[bool] = None            # кузов без вмятин, ржавчины, «разных» деталей
+    car_year: Optional[int] = Field(None, ge=1950, le=2100)
+    seats: Optional[int] = Field(None, ge=1, le=20)
+    car_ac: Optional[bool] = None
+    car_sedan: Optional[bool] = None
+    car_leather: Optional[bool] = None
+
+
+def _admin_apply_car(session: Session, user_id: int, body: ApproveIn) -> None:
+    """Решение модератора → профиль водителя.
+
+    Порядок важен: сначала правим факты и пересчитываем классификатором, и только потом
+    применяем ручное указание класса — иначе пересчёт затёр бы решение человека.
+    """
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user_id)).first()
+    if dp is None:
+        dp = DriverProfile(user_id=user_id, online=False)
+    for field in ("car_premium_verified", "car_clean", "car_body_ok",
+                  "car_ac", "car_sedan", "car_leather"):
+        val = getattr(body, field)
+        if val is not None:
+            setattr(dp, field, bool(val))
+    if body.car_year is not None:
+        dp.car_year = int(body.car_year)
+    if body.seats is not None:
+        dp.seats = int(body.seats)
+    recalc_classes(dp)
+    if body.car_class is not None:
+        # Ручное решение модератора перекрывает классификатор. Эконом остаётся всегда:
+        # человек прошёл модерацию и должен иметь возможность работать хоть в базовом классе.
+        dp.car_class = body.car_class
+        keep = {cc.ECONOMY, body.car_class}
+        dp.car_classes_available = cc.dump_classes(keep)
+    session.add(dp)
 
 
 @router.post("/admin/taxi-applications/{app_id}/approve")
@@ -422,8 +636,8 @@ def admin_approve_taxi(app_id: int, body: ApproveIn | None = None,
     app.comment = None
     app.reviewed_at = utcnow()
     session.add(app)
-    if body is not None and body.car_class is not None:
-        _set_car_class(session, app.user_id, body.car_class)
+    if body is not None:
+        _admin_apply_car(session, app.user_id, body)
     session.commit()
     # Допуск к заработку человек ждёт днями — такое нельзя слать так, что оно может не дойти
     # (аудит 2026-08-08, волна 20). Запись остаётся, тап ведёт на экран заявки.
@@ -601,7 +815,7 @@ def admin_delete_taxi_city(city_id: int, user: User = Depends(current_user), ses
     _require_admin(user)
     row = session.get(TaxiCity, city_id)
     if not row:
-        raise HTTPException(404, "Город не найден")
+        raise herr(404, "Город не найден", "Ҡала табылманы")
     session.delete(row)
     session.commit()
     return {"ok": True}

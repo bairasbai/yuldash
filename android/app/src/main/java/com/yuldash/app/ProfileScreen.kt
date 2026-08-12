@@ -248,6 +248,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Circle
 import com.yandex.mapkit.geometry.Point
@@ -379,14 +380,14 @@ internal fun ProfileScreen(
     val editCtx = LocalContext.current
     val editScope = rememberCoroutineScope()
     val avatarSavedMsg = appText("Фото обновлено", "Фото яңыртылды")
-    val saveErrMsg = appText("Не удалось сохранить. Проверь сеть.", "Һаҡлап булманы. Селтәрҙе тикшерегеҙ.")
+    val saveErrMsg = appText("Не удалось сохранить. Проверь сеть.", "Һаҡлап булманы. Селтәрҙе тикшер.")
     // Реферал «позови своего»: код, бонусы, ввод кода друга.
     var referral by remember { mutableStateOf<com.yuldash.app.data.ReferralDto?>(null) }
     var referralReload by remember { mutableStateOf(0) }
     LaunchedEffect(referralReload) { ApiClient.getReferral().onSuccess { referral = it } }
     var showRedeem by remember { mutableStateOf(false) }
     var redeemCode by remember { mutableStateOf("") }
-    val redeemOkMsg = appText("Бонус начислен — вам и другу", "Бонус яҙылды — һеҙгә һәм дуҫҡа")
+    val redeemOkMsg = appText("Бонус начислен — тебе и другу", "Бонус яҙылды — һиңә һәм дуҫҡа")
     val redeemErrMsg = appText("Код не подошёл", "Код тура килмәне")
     if (showRedeem) {
         AlertDialog(
@@ -442,8 +443,8 @@ internal fun ProfileScreen(
         AlertDialog(
             onDismissRequest = { showEditName = false },
             containerColor = CanonSurface,
-            title = { Text(appText("Ваше имя", "Исемегеҙ"), color = CanonText, fontWeight = FontWeight.Bold) },
-            text = { OutlinedTextField(nameDraft, { nameDraft = it.take(120) }, singleLine = true, modifier = Modifier.fillMaxWidth(), placeholder = { Text(appText("Как вас зовут?", "Исемегеҙ нисек?")) }, shape = RoundedCornerShape(14.dp)) },
+            title = { Text(appText("Твоё имя", "Исемең"), color = CanonText, fontWeight = FontWeight.Bold) },
+            text = { OutlinedTextField(nameDraft, { nameDraft = it.take(120) }, singleLine = true, modifier = Modifier.fillMaxWidth(), placeholder = { Text(appText("Как тебя зовут?", "Исемең нисек?")) }, shape = RoundedCornerShape(14.dp)) },
             confirmButton = {
                 TextButton(onClick = {
                     val n = nameDraft.trim()
@@ -599,7 +600,7 @@ internal fun ProfileScreen(
             onDismissRequest = { if (!deletingAccount) showDeleteAccount = false },
             containerColor = CanonSurface,
             icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = CanonRed) },
-            title = { Text(appText("Удалить аккаунт?", "Иҫәпте бөтөрәһегеҙме?"), color = CanonText, fontWeight = FontWeight.Bold) },
+            title = { Text(appText("Удалить аккаунт?", "Иҫәпте бөтөрәһеңме?"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
                     appText(
@@ -689,8 +690,23 @@ internal fun ProfileScreen(
                                 }
                                 // Фото уходит на сервер — честно показываем это на самом аватаре.
                                 AvatarUploadOverlay(uploading = avatarUploading)
-                                // BA-draft
-                                Icon(Icons.Default.Edit, contentDescription = appText("Изменить фото", "Фотоны үҙгәртеү"), tint = Color.White, modifier = Modifier.size(15.dp).align(Alignment.BottomEnd))
+                                // Значок в кружке: без подложки иконка наезжала на соседнюю
+                                // колонку с ролью и читалась как символ посреди текста.
+                                Surface(
+                                    shape = CircleShape,
+                                    color = CanonGreen2,
+                                    border = BorderStroke(1.5.dp, Color.White),
+                                    modifier = Modifier.size(24.dp).align(Alignment.BottomEnd),
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.PhotoCamera,
+                                            contentDescription = appText("Изменить фото", "Фотоны үҙгәртеү"),
+                                            tint = Color.White,
+                                            modifier = Modifier.size(13.dp),
+                                        )
+                                    }
+                                }
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -734,8 +750,6 @@ internal fun ProfileScreen(
                                         fontSize = 14.sp,
                                         fontWeight = if (city.isBlank()) FontWeight.Normal else FontWeight.SemiBold,
                                     )
-                                    Spacer(Modifier.width(4.dp))
-                                    Icon(Icons.Default.Edit, contentDescription = appText("Изменить город", "Ҡаланы үҙгәртеү"), tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(13.dp))
                                 }
                                 Text(appText("Телефон скрыт до подтверждения поездки", "Телефон сәфәр раҫланғанға тиклем йәшерелгән"), color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp, lineHeight = 20.sp)
                             }
@@ -761,7 +775,7 @@ internal fun ProfileScreen(
                                     Spacer(Modifier.width(8.dp))
                                     Text(appText("Позови своего", "Үҙеңдекен саҡыр"), color = CanonGreen, fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.weight(1f))
                                 }
-                                Text(appText("Пригласил соседа → вы оба получаете бонус (бесплатное поднятие поездки).", "Күршеңде саҡырҙың → икәүегеҙ ҙә бонус (сәфәрҙе бушлай күтәреү) аласаҡ."), color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp)
+                                Text(appText("Пригласил соседа → бонус обоим: бесплатное поднятие поездки.", "Күршеңде саҡырҙың → икәүегеҙ ҙә бонус (сәфәрҙе бушлай күтәреү) аласаҡ."), color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp)
                                 // Три равные колонки вместо жёсткого spacedBy(20): длинные
                                 // башкирские подписи больше не выталкивают код за край карточки.
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -794,13 +808,21 @@ internal fun ProfileScreen(
                 ProfileSectionLabel(appText("Личный кабинет", "Шәхси кабинет"))
             }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Мой Юлдаш", "Минең Юлдаш"), appText("Твои километры, поездки и звание", "Километрҙарың, сәфәрҙәрең һәм исемең"), Icons.Default.Insights, onMyStats) } }
+            item {
+                ProfileSectionLabel(appText("Сервисы", "Хеҙмәттәр"))
+            }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Скидки по пути", "Юл буйынса ташламалар"), appText("Скидки от местных заведений по маршруту", "Маршрут буйынса ерле урындарҙан ташлама"), Icons.Default.LocalOffer, onCoupons) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Промокод", "Промокод"), appText("Ввести код друга или акции", "Дуҫ йәки акция кодын индереү"), Icons.Default.Redeem, onPromo) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Посылки", "Бандеролдәр"), appText("Отправить с попутчиком или подвезти", "Юлдаш менән ебәреү йәки илтеү"), R.drawable.yu_mode_parcel, onParcels) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Режим курьера", "Курьер режимы"), appText("Возить заказы или стать курьером", "Заказ илтеү йәки курьер булыу"), R.drawable.yu_mode_courier, onCourier) } }
+            item {
+                ProfileSectionLabel(appText("Мои кабинеты", "Минең кабинеттар"))
+            }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Кабинет пассажира", "Пассажир кабинеты"), appText("Мои брони, заявки и безопасность", "Брондәр, заявкалар һәм хәүефһеҙлек"), Icons.Default.EventSeat, onPassengerCabinet) } }
             item { Box(Modifier.appearIn(2)) { ProfileActionCard(appText("Кабинет водителя", "Водитель кабинеты"), appText("Маршруты, проверка и поднятие", "Маршруттар, тикшереү һәм күтәреү"), Icons.Default.DirectionsCar, onDriverCabinet) } }
-            item { Box(Modifier.appearIn(3)) { ProfileActionCard(appText("Язык", "Тел"), if (isBashkir) "Башҡортса / Русский" else "Русский / Башҡортса", Icons.Default.Language, onToggleLanguage) } }
+            item {
+                ProfileSectionLabel(appText("Доверие и безопасность", "Ышаныс һәм хәүефһеҙлек"))
+            }
             item { Box(Modifier.appearIn(4)) { ProfileActionCard(appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото авто", "Права, машина, авто фотоһы"), Icons.Default.Verified, onVerifyDriver) } }
             item { Box(Modifier.appearIn(5)) { ProfileActionCard(appText("Доверие", "Ышаныс"), appText("Твой уровень и круг «своих»", "Кимәлең һәм «үҙебеҙҙекеләр» түңәрәге"), Icons.Default.Handshake, onTrust) } }
             item { Box(Modifier.appearIn(6)) { ProfileActionCard(appText("Безопасность", "Хәүефһеҙлек"), appText("SOS, скрытый телефон, подтверждённые участники", "SOS, йәшерен телефон, раҫланған ҡатнашыусылар"), R.drawable.yu_safe_trip, onSafety) } }
@@ -829,11 +851,12 @@ internal fun ProfileScreen(
             }
             item { Box(Modifier.appearIn(8)) { SeniorAccessCard(onSimpleMode = onSimpleMode) } }
             item { Box(Modifier.appearIn(9)) { ProfileActionCard(appText("Доверенные контакты", "Ышаныслы контакттар"), appText("Кому отправлять статус поездки", "Сәфәр статусын кемгә ебәрергә"), Icons.Default.Person, onTrustedContacts) } }
-            item { Box(Modifier.appearIn(10)) { ProfileActionCard(appText("Попросить звонок", "Шылтыратыу һорау"), appText("Помощь без чата и сложных форм", "Чатһыҙ һәм ҡатмарлы формаларһыҙ ярҙам"), R.drawable.yu_support, onCallbackHelp) } }
+            item { Box(Modifier.appearIn(10)) { ProfileActionCard(appText("Попросить звонок", "Шылтыратыу һорау"), appText("Помощь без чата и сложных форм", "Чатһыҙ һәм ҡатмарлы формаларһыҙ ярҙам"), Icons.Default.HeadsetMic, onCallbackHelp) } }
             item {
                 ProfileSectionLabel(appText("Настройки и помощь", "Көйләүҙәр һәм ярҙам"))
             }
-            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Настройки", "Көйләүҙәр"), appText("Уведомления, карта, предпочтения", "Хәбәрҙәр, карта, өҫтөнлөктәр"), Icons.Default.Settings, onSettings) } }
+            item { Box(Modifier.appearIn(3)) { ProfileActionCard(appText("Язык", "Тел"), if (isBashkir) "Башҡортса / Русский" else "Русский / Башҡортса", Icons.Default.Language, onToggleLanguage) } }
+            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Уведомления и карта", "Хәбәрҙәр һәм карта"), appText("Что присылать и как показывать карту", "Нимә ебәрергә һәм картаны нисек күрһәтергә"), Icons.Default.Settings, onSettings) } }
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Конфиденциальность", "Хосусилыҡ"), appText("Геолокация и разрешения", "Геолокация һәм рөхсәттәр"), Icons.Default.Shield, onPrivacy) } }
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Согласия и данные", "Ризалыҡтар һәм мәғлүмәт"), appText("Оферта, политика, геолокация", "Оферта, сәйәсәт, геолокация"), Icons.Default.Description, onConsents) } }
             item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Помощь", "Ярҙам"), appText("Ответы на частые вопросы", "Йыш һорауҙарға яуаптар"), R.drawable.yu_support, onHelp) } }
@@ -1191,7 +1214,7 @@ internal fun PassengerCabinetContent(
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         item {
-            Text(appText("Ваши поездки и заявки", "Һеҙҙең сәфәрҙәр һәм заявкалар"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
+            Text(appText("Твои поездки и заявки", "Һинең сәфәрҙәр һәм заявкалар"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             Text(appText("Быстрый доступ к бронированиям, заявкам и защите поездки.", "Брондәргә, заявкаларға һәм хәүефһеҙлеккә тиҙ инеү."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
         // §9 Качество: активные ограничения (пауза такси-заказов) + «написать в поддержку».
@@ -1369,6 +1392,10 @@ internal fun DriverCabinetScreen(
     var isWomanDriver by remember { mutableStateOf(false) }   // F9: opt-in «я — женщина за рулём»
     var bookingsReload by remember { mutableStateOf(0) }   // F2: bump после подтверждения/отклонения брони
     var ridesReload by remember { mutableStateOf(0) }   // F1: bump после отмены/завершения → список свежий
+    // Обновление жестом. Кабинет — рабочее место водителя: тут ждут новую бронь, снятие долга,
+    // ответ по заявке. Всё это меняет ДРУГАЯ сторона, а экран грузился один раз за вход —
+    // единственным способом увидеть свежее было выйти и зайти обратно.
+    var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(bookingsReload, ridesReload) {
         if (ApiClient.isLoggedIn()) ApiClient.getMyRestrictions().onSuccess { restrictions = it }
         ApiClient.getDriverRides()
@@ -1389,6 +1416,7 @@ internal fun DriverCabinetScreen(
             }
         reloadDebt()
         loadArchive()
+        refreshing = false
     }
     // Прогресс смены живёт, пока водитель «на линии»: presence капает время на сервере —
     // мягко переопрашиваем сводку раз в минуту (вне линии хватает разовой загрузки выше).
@@ -1417,8 +1445,8 @@ internal fun DriverCabinetScreen(
     val editPriceDownMsg = appText("Поездку уже забронировали — цену можно только снизить.", "Сәфәр брондалған — хаҡты кәметергә генә була.")
     val editNotActiveMsg = appText("Менять можно только активную поездку.", "Тик актив сәфәрҙе генә үҙгәртеп була.")
     val editNetMsg = appText("Не получилось изменить. Проверь интернет и повтори.", "Үҙгәртеп булманы. Интернетты тикшереп ҡабатла.")
-    val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
-    val onlineLoginMsg = appText("Войдите, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
+    val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшер.")
+    val onlineLoginMsg = appText("Войди, чтобы выйти на линию", "Линияға сығыр өсөн ин")
     // D1/D2: выход «на линии» требует геолокации (без неё водитель невидим) и включённого такси в городе.
     val geoOnlineMsg = appText("Включи геолокацию — без неё заказы не придут и тебя не видно на карте.",
         "Геолокацияны ҡабыҙ — унһыҙ заказ килмәй, һине картала ла күренмәйһең.")
@@ -1466,12 +1494,17 @@ internal fun DriverCabinetScreen(
             Toast.makeText(ctx, if (coarseOnly) geoCoarseMsg else geoOnlineMsg, Toast.LENGTH_LONG).show()
         },
     )
-    val womanLoginMsg = appText("Войдите, чтобы изменить профиль", "Профильде үҙгәртер өсөн инегеҙ")
+    val womanLoginMsg = appText("Войди, чтобы изменить профиль", "Профильде үҙгәртер өсөн ин")
     Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет водителя", "Водитель кабинеты"), onBack) }
     ) { padding ->
+        AppPullRefresh(
+            refreshing = refreshing,
+            onRefresh = { refreshing = true; bookingsReload++ },
+            modifier = Modifier.padding(padding),
+        ) {
         DriverCabinetContent(
             online = online,
             isWomanDriver = isWomanDriver,
@@ -1628,7 +1661,6 @@ internal fun DriverCabinetScreen(
                         }
                 }
             },
-            modifier = Modifier.padding(padding),
             taxiApplication = taxiApp,
             taxiAppLoaded = taxiAppLoaded,
             onTaxiOnboarding = onTaxiOnboarding,
@@ -1647,6 +1679,7 @@ internal fun DriverCabinetScreen(
             onTaxiDocs = onTaxiDocs,
             onPretrip = onPretrip,
         )
+        }
     }
     // Шторка выбора зоны работы (география, волна 2): открывается с чипа или при выходе на линию без зоны.
     if (showZoneSheet) {
@@ -1915,14 +1948,18 @@ private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclare
                 Text(title, color = accent, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             // Сумма к оплате (или сумма в ожидании подтверждения).
+            // Показываем КОПЕЙКИ: долг — это 8% от поездок, круглым он почти не бывает.
+            // Через `unpaidRub` (целочисленное kop/100) долг 150,50 ₽ выглядел как «150 ₽»:
+            // водитель переводил ровно столько, оставался должен полтинник и не понимал,
+            // почему такси не разблокировали.
             if (debt.unpaidKop > 0) {
                 Text(
-                    appText("К оплате: ", "Түләргә: ") + "${debt.unpaidRub} ₽",
+                    appText("К оплате: ", "Түләргә: ") + kopToRub(debt.unpaidKop),
                     color = CanonText, fontWeight = FontWeight.Bold, fontSize = 24.sp
                 )
             } else if (onlyPending) {
                 Text(
-                    appText("В обработке: ", "Эшкәртеүҙә: ") + "${debt.pendingRub} ₽",
+                    appText("В обработке: ", "Эшкәртеүҙә: ") + kopToRub(debt.pendingKop),
                     color = CanonText, fontWeight = FontWeight.Bold, fontSize = 24.sp
                 )
             }
@@ -2267,15 +2304,20 @@ internal fun DriverDemandSection(online: Boolean) {
 
     // Вне линии сервер не дёргаем (экономим квоту) — показываем спокойное «Пока тихо».
     // На линии: разовая загрузка + мягкий авто-refresh раз в минуту, пока секция в композиции.
-    LaunchedEffect(online, reload) {
+    // В фоне цикл стоит (repeatOnLifecycle RESUMED): свёрнутый кабинет обновлял карту спроса,
+    // которую никто не видит. Вернулся на экран — запрос идёт сразу, до паузы.
+    val demandLifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(online, reload, demandLifecycleOwner) {
         if (!online) { zones = emptyList(); loading = false; loadError = false; return@LaunchedEffect }
         loading = zones.isEmpty()
-        while (true) {
-            ApiClient.getInstantDemand()
-                .onSuccess { zones = it.zones; loadError = false }
-                .onFailure { if (zones.isEmpty()) loadError = true }
-            loading = false
-            delay(60_000)
+        demandLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                ApiClient.getInstantDemand()
+                    .onSuccess { zones = it.zones; loadError = false }
+                    .onFailure { if (zones.isEmpty()) loadError = true }
+                loading = false
+                delay(60_000)
+            }
         }
     }
 
@@ -2470,7 +2512,7 @@ internal fun DriverCabinetContent(
     ) {
         item {
             Text(appText("Маршруты и проверка", "Маршруттар һәм тикшереү"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
-            Text(appText("Публикуйте поездки, проходите проверку и поднимайте маршрут выше.", "Сәфәр баҫтырығыҙ, тикшереү үтегеҙ һәм маршрутты өҫкә күтәрегеҙ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+            Text(appText("Публикуй поездки, проходи проверку и поднимай маршрут выше.", "Сәфәр баҫтыр, тикшереү үт һәм маршрутты өҫкә күтәр."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
         // Долг по комиссии за такси (Модель А «на доверии»): баннер только если есть что платить/подтверждать.
         if (debt != null && (debt.unpaidKop > 0 || debt.pendingKop > 0)) {
@@ -2489,7 +2531,7 @@ internal fun DriverCabinetContent(
                         SettingSwitchRow(
                             Icons.Default.DirectionsCar,
                             appText("Я на линии", "Мин эштә"),
-                            appText("Пассажиры видят, что вы готовы везти сейчас", "Пассажирҙар хәҙер әҙер икәнегеҙҙе күрә"),
+                            appText("Пассажиры видят, что ты сейчас на линии", "Пассажирҙар һинең линияла икәнеңде күрә"),
                             online,
                             onToggleOnline,
                         )
@@ -2561,8 +2603,8 @@ internal fun DriverCabinetContent(
         } else if (driverRides.isEmpty()) {
             item {
                 EmptyStateCard(
-                    title = appText("Ваших маршрутов пока нет", "Һеҙҙең маршруттар әлегә юҡ"),
-                    text = appText("Опубликуйте поездку, чтобы пассажиры могли откликнуться.", "Пассажирҙар яуап бирһен өсөн сәфәр баҫтырығыҙ."),
+                    title = appText("Твоих маршрутов пока нет", "Һинең маршруттар әлегә юҡ"),
+                    text = appText("Опубликуй поездку, чтобы пассажиры могли откликнуться.", "Пассажирҙар яуап бирһен өсөн сәфәр баҫтыр."),
                     icon = Icons.Default.DirectionsCar,
                     action = appText("Опубликовать маршрут", "Маршрут баҫтырыу"),
                     onAction = onCreateRide
@@ -2743,9 +2785,9 @@ internal fun DriverCabinetContent(
                         // Подпись под звёздами = состояние словами. Незрячим она же читает оценку.
                         Text(
                             when {
-                                !editing -> appText("Вы поставили ${starsText(stars)}", "Һеҙ ${starsText(stars)} ҡуйҙығыҙ")
-                                stars == 0 -> appText("Выберите оценку", "Баһа һайлағыҙ")
-                                else -> appText("Выбрано ${starsText(stars)} — подтвердите", "${starsText(stars)} һайланды — раҫлағыҙ")
+                                !editing -> appText("Твоя оценка: ${starsText(stars)}", "Һинең баһаң: ${starsText(stars)}")
+                                stars == 0 -> appText("Выбери оценку", "Баһа һайлағыҙ")
+                                else -> appText("Выбрано ${starsText(stars)} — подтверди", "${starsText(stars)} һайланды — раҫлағыҙ")
                             },
                             color = CanonMuted, fontSize = 12.sp,
                         )
@@ -3312,7 +3354,7 @@ internal fun AdsCabinetScreen(
     // Лист СБП для оплаты своего размещения (переиспользуем общий SbpTransferSheet с QR).
     payingAd?.let { ad ->
         SbpTransferSheet(
-            amountRub = ad.budgetKop / 100,
+            amountKop = ad.budgetKop,
             onPaid = { payingAd = null; reloadKey++ },
             onDismiss = { payingAd = null },
         )
@@ -3423,8 +3465,8 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
             }
             if (ad.pkgTitle.isNotBlank()) {
                 Text(
-                    appText("Тариф: ${ad.pkgTitle} · ${ad.budgetKop / 100} ₽ / ${ad.periodDays} дн",
-                            "Тариф: ${ad.pkgTitle} · ${ad.budgetKop / 100} ₽ / ${ad.periodDays} көн"),
+                    appText("Тариф: ${ad.pkgTitle} · ${kopToRub(ad.budgetKop)} / ${ad.periodDays} дн",
+                            "Тариф: ${ad.pkgTitle} · ${kopToRub(ad.budgetKop)} / ${ad.periodDays} көн"),
                     color = CanonMuted, fontSize = 12.sp
                 )
             }
@@ -3452,7 +3494,7 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
                 ) {
                     Icon(Icons.Default.Payments, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(appText("Оплатить размещение · ${ad.budgetKop / 100} ₽", "Урынлаштырыуҙы түләү · ${ad.budgetKop / 100} ₽"), fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(appText("Оплатить размещение · ${kopToRub(ad.budgetKop)}", "Урынлаштырыуҙы түләү · ${kopToRub(ad.budgetKop)}"), fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
             if (ad.status == "active" && ad.paid) {
@@ -3474,7 +3516,7 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
                 ) {
                     Icon(Icons.Default.Autorenew, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(appText("Продлить размещение · ${ad.budgetKop / 100} ₽", "Урынлаштырыуҙы оҙайтыу · ${ad.budgetKop / 100} ₽"), fontWeight = FontWeight.Bold, color = CanonGreen2)
+                    Text(appText("Продлить размещение · ${kopToRub(ad.budgetKop)}", "Урынлаштырыуҙы оҙайтыу · ${kopToRub(ad.budgetKop)}"), fontWeight = FontWeight.Bold, color = CanonGreen2)
                 }
             }
             if (ad.status == "draft" || ad.status == "rejected") {
@@ -3555,7 +3597,7 @@ internal fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCre
                         Text(appText(p.title, p.titleBa.ifBlank { p.title }), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         Text(appText("${p.periodDays} дней показов", "${p.periodDays} көн күрһәтеү"), color = CanonMuted, fontSize = 12.sp)
                     }
-                    Text("${p.amountKop / 100} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(kopToRub(p.amountKop), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
         }
@@ -3660,7 +3702,7 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(appText(p.title, p.titleBa.ifBlank { p.title }), modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("${p.amountKop / 100} ₽ / ${p.periodDays}${appText(" дн", " көн")}", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("${kopToRub(p.amountKop)} / ${p.periodDays}${appText(" дн", " көн")}", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
             }

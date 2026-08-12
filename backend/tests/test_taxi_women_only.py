@@ -28,7 +28,9 @@ def _driver(user_factory, gender: str, name="WomenOnlyDrv", *, gender_verified: 
         p = s.exec(select(DriverProfile).where(DriverProfile.user_id == d["id"])).first()
         if p is None:
             p = DriverProfile(user_id=d["id"])
-        p.gender_verified = gender_verified   # подтверждение живёт у водителя, заявление — ниже
+        # Пол на профиле больше не пишем (уехал на User), а вот ПОДТВЕРЖДЕНИЕ модератором
+        # осталось здесь — и подбор женских заказов по-прежнему его требует.
+        p.gender_verified = gender_verified
         p.online = True
         s.add(p)
         # Кандидатов фильтруем по verified — иначе отсеются раньше нашей проверки.

@@ -131,7 +131,7 @@ class RidesFeedContentTest {
                 RequestsFeedContent(loading = false, error = false, feed = listOf(request(responded = true)), onRetry = {}, onRespond = {})
             }
         }
-        composeRule.onNodeWithText("Вы откликнулись").assertIsDisplayed()
+        composeRule.onNodeWithText("Отклик отправлен").assertIsDisplayed()
         composeRule.onNodeWithText("Предложить поездку").assertDoesNotExist()
     }
 }

@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..errors import herr
 from ..logs import admin_action, log
 from ..models import Ad, Payment, Ride, RideStatus, User, UserRole
 from ..payments import BOOST_PLANS, create_payment, fetch_payment
@@ -111,7 +112,7 @@ def _start_yookassa(session: Session, payment: Payment, description: str, phone:
     except Exception:  # noqa: BLE001 — сеть/ЮKassa недоступна: чистим orphan, отдаём мягкую 503
         session.delete(payment)
         session.commit()
-        raise HTTPException(503, "Оплата временно недоступна. Попробуй ещё раз.")
+        raise herr(503, "Оплата временно недоступна. Попробуй ещё раз.", "Түләү ваҡытлыса эшләмәй. Тағы ҡабатла.")
 
 
 def _activate_payment(session: Session, payment: Payment) -> None:
@@ -249,12 +250,12 @@ def boost_free(body: BoostFreeIn, user: User = Depends(current_user), session: S
     """Поднять СВОЮ поездку бесплатно за реферальный бонус (1 бонус = 24ч поднятия)."""
     ride = session.get(Ride, body.ride_id)
     if not ride or ride.driver_id != user.id:
-        raise HTTPException(403, "Это не ваша поездка")
+        raise herr(403, "Это не ваша поездка", "Был һинең сәфәрең түгел")
     # Списание бонуса под row-lock (как book()): два параллельных free-boost не потратят
     # один и тот же бонус дважды (иначе гонка read-modify-write → 2 бесплатных подъёма, кредиты в минус).
     locked = session.exec(select(User).where(User.id == user.id).with_for_update()).one()
     if locked.referral_credits < 1:
-        raise HTTPException(400, "Нет бонусов")
+        raise herr(400, "Нет бонусов", "Бонус юҡ")
     locked.referral_credits -= 1
     ride.boosted_until = utcnow() + timedelta(hours=24)
     ride.boost_tier = "free"
@@ -275,17 +276,17 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
     yookassa → возвращаем confirmation_url (оплата → вебхук активирует)."""
     plan = BOOST_PLANS.get(body.tier)
     if not plan:
-        raise HTTPException(400, "Неизвестный тариф")
+        raise herr(400, "Неизвестный тариф", "Билдәһеҙ тариф")
     ride = session.get(Ride, body.ride_id)
     if not ride:
-        raise HTTPException(404, "Поездка не найдена")
+        raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     if ride.driver_id != user.id:
-        raise HTTPException(403, "Поднять можно только свою поездку")
+        raise herr(403, "Поднять можно только свою поездку", "Тик үҙ сәфәреңде күтәреп була")
     if ride.status != RideStatus.active:
-        raise HTTPException(400, "Поездка неактивна")
+        raise herr(400, "Поездка неактивна", "Сәфәр актив түгел")
     # В проде mock = «оплата» без денег → не выдаём бесплатный boost.
     if settings.is_prod and settings.payments_provider == "mock":
-        raise HTTPException(503, "Оплата скоро будет доступна")
+        raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
 
     title, amount_kop, _hours = plan
     # Двойной тап / повтор после обрыва сети не должен плодить счета. Раньше каждый вызов
@@ -350,9 +351,9 @@ def donate_create(body: DonateIn, user: User = Depends(current_user), session: S
     Подтверждённые донаты идут в счётчик (/admin/payments/summary)."""
     amount = body.amount
     if amount < 10 or amount > 100000:
-        raise HTTPException(400, "Сумма доната — от 10 до 100000 ₽")
+        raise herr(400, "Сумма доната — от 10 до 100000 ₽", "Ярҙам суммаһы — 10-дан 100000 ₽-ға тиклем")
     if settings.is_prod and settings.payments_provider == "mock":
-        raise HTTPException(503, "Оплата скоро будет доступна")
+        raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
 
     payment = Payment(user_id=user.id, purpose="donate", amount_kop=amount * 100)
     session.add(payment)
@@ -399,7 +400,7 @@ def support_donate(body: SupportDonateIn, user: User = Depends(current_user), se
     if amount_kop < SUPPORT_MIN_KOP or amount_kop > SUPPORT_MAX_KOP:
         raise HTTPException(400, f"Сумма поддержки — от {SUPPORT_MIN_KOP // 100} до {SUPPORT_MAX_KOP // 100} ₽")
     if settings.is_prod and settings.payments_provider == "mock":
-        raise HTTPException(503, "Оплата скоро будет доступна")
+        raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
 
     payment = Payment(user_id=user.id, purpose="support", amount_kop=amount_kop)
     session.add(payment)
@@ -433,7 +434,7 @@ def payment_status(payment_id: int, user: User = Depends(current_user), session:
     Владелец — только сам плательщик (чужой платёж → 404, не раскрываем существование)."""
     payment = session.get(Payment, payment_id)
     if not payment or payment.user_id != user.id:
-        raise HTTPException(404, "Платёж не найден")
+        raise herr(404, "Платёж не найден", "Түләү табылманы")
     # Дверей к «деньги пришли» две: вебхук и вот эта перепроверка. Отменённый платёж раньше
     # сюда не заходил вовсе — то есть если вебхук не дошёл (а он может), поздняя оплата
     # оставалась незамеченной и по второму пути тоже (аудит 2026-08-12, волна 26).
@@ -499,13 +500,13 @@ def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), s
     _require_admin(user)
     payment = session.get(Payment, payment_id)
     if not payment:
-        raise HTTPException(404, "Платёж не найден")
+        raise herr(404, "Платёж не найден", "Түләү табылманы")
     if payment.status == "succeeded":
         return {"payment_id": payment.id, "status": "succeeded"}
     # Карточный платёж (создан у провайдера) вручную не подтверждаем — его подтверждает вебхук
     # после реального списания. Ручной confirm здесь = начисление без денег (фантом в ledger).
     if payment.provider_id:
-        raise HTTPException(409, "Платёж у провайдера — подтвердится автоматически после оплаты")
+        raise herr(409, "Платёж у провайдера — подтвердится автоматически после оплаты", "Түләү провайдерҙа — түләгәс үҙе раҫлана")
     _activate_payment(session, payment)
     admin_action(user.id, "payment.confirm", payment_id=payment.id, user=payment.user_id,
                  amount_kop=getattr(payment, "amount_kop", None))
@@ -518,7 +519,7 @@ def admin_reject_payment(payment_id: int, user: User = Depends(current_user), se
     _require_admin(user)
     payment = session.get(Payment, payment_id)
     if not payment:
-        raise HTTPException(404, "Платёж не найден")
+        raise herr(404, "Платёж не найден", "Түләү табылманы")
     if payment.status == "pending":
         payment.status = "canceled"
         session.add(payment)

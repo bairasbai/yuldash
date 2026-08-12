@@ -580,8 +580,13 @@ def test_matcher_standard_order_to_any_class(client, user_factory, fake_redis):
     assert order["status"] == "offered"
 
 
-def test_apply_sets_declared_car_class(client, user_factory):
-    """Онбординг таксиста: заявленный класс попадает на DriverProfile; админ меняет при approve."""
+def test_apply_computes_car_class(client, user_factory):
+    """Класс машины СЧИТАЕТСЯ по характеристикам, а не заявляется водителем.
+
+    До 2026-08-08 водитель писал в заявке «у меня Комфорт» — и получал Комфорт. Любой мог
+    поставить себе класс повыше, а пассажир получал Гранту по цене Комфорта. Теперь
+    `car_class` из запроса игнорируется: без года выпуска и кондиционера машина остаётся
+    Экономом, что бы водитель ни заявил."""
     d = user_factory("ApplyCls", role=UserRole.driver, taxi_approved=False)
     assert client.post("/driver/online", headers=d["auth"], json={"online": True}).status_code == 200
     r = client.post("/taxi/apply", headers=d["auth"], json={
@@ -591,13 +596,40 @@ def test_apply_sets_declared_car_class(client, user_factory):
     assert r.status_code == 200, r.text
     with Session(engine) as s:
         p = s.exec(select(DriverProfile).where(DriverProfile.user_id == d["id"])).first()
+        assert p.car_class == "economy"          # заявку «Комфорт» классификатор не подтвердил
+        assert p.car_classes_available == "economy"
+    # Те же документы, но машина реально подходит: свежая, с кондиционером → Комфорт доступен.
+    r2 = client.post("/taxi/apply", headers=d["auth"], json={
+        "inn": "123456789012", "permit_number": "Т-0777",
+        "birth_date": "1990-01-01", "license_since_year": 2010,
+        "car_year": utcnow().year - 3, "car_ac": True, "seats": 4,
+    })
+    assert r2.status_code == 200, r2.text
+    with Session(engine) as s:
+        p = s.exec(select(DriverProfile).where(DriverProfile.user_id == d["id"])).first()
         assert p.car_class == "comfort"
-    # Админ при approve финально подтверждает класс (тут — понижает до economy).
+        assert "comfort" in p.car_classes_available
+    # Последнее слово — за модератором: он видел фото и вручную оставил Эконом.
     admin = user_factory("ClsAdmin", role=UserRole.admin)
-    app_id = r.json()["id"]
+    app_id = r2.json()["id"]
     ok = client.post(f"/admin/taxi-applications/{app_id}/approve", headers=admin["auth"],
                      json={"car_class": "economy"})
     assert ok.status_code == 200 and ok.json()["status"] == "approved"
     with Session(engine) as s:
         p = s.exec(select(DriverProfile).where(DriverProfile.user_id == d["id"])).first()
         assert p.car_class == "economy"
+
+
+def test_apply_rejects_bus_and_wrong_color(client, user_factory):
+    """Два стоп-фактора допуска: девять мест — это автобус, а в РБ такси только чёрное,
+    белое или жёлтое. Оба ловим на подаче, а не после модерации."""
+    d = user_factory("ApplyStop", role=UserRole.driver, taxi_approved=False)
+    base = {"inn": "123456789012", "permit_number": "Т-0778",
+            "birth_date": "1990-01-01", "license_since_year": 2010}
+    bus = client.post("/taxi/apply", headers=d["auth"], json={**base, "seats": 13})
+    assert bus.status_code == 400 and "мест" in bus.json()["detail"]["ru"]
+    color = client.post("/taxi/apply", headers=d["auth"], json={**base, "car_color": "серебристый"})
+    assert color.status_code == 400 and "жёлт" in color.json()["detail"]["ru"]
+    # Нераспознанный цвет НЕ отклоняем — решает модератор по фото.
+    ok = client.post("/taxi/apply", headers=d["auth"], json={**base, "car_color": "мокрый асфальт"})
+    assert ok.status_code == 200, ok.text

@@ -122,7 +122,7 @@ class ProfileDeep3ContentTest {
     fun header_russian_showsTitleAndSubtitle() {
         content()
         composeRule.onNodeWithText("Маршруты и проверка").assertIsDisplayed()
-        composeRule.onNodeWithText("Публикуйте поездки, проходите проверку и поднимайте маршрут выше.").assertIsDisplayed()
+        composeRule.onNodeWithText("Публикуй поездки, проходи проверку и поднимай маршрут выше.").assertIsDisplayed()
     }
 
     @Test
@@ -138,7 +138,7 @@ class ProfileDeep3ContentTest {
     fun onlineSwitch_showsRowRussian() {
         content(online = false)
         composeRule.onNodeWithText("Я на линии").assertIsDisplayed()
-        composeRule.onNodeWithText("Пассажиры видят, что вы готовы везти сейчас").assertIsDisplayed()
+        composeRule.onNodeWithText("Пассажиры видят, что ты сейчас на линии").assertIsDisplayed()
     }
 
     @Test
@@ -182,8 +182,8 @@ class ProfileDeep3ContentTest {
     @Test
     fun empty_noRides_showsEmptyStateWithPublishAction() {
         content(driverRides = emptyList())
-        scrollTo("Ваших маршрутов пока нет")
-        composeRule.onNodeWithText("Ваших маршрутов пока нет").assertIsDisplayed()
+        scrollTo("Твоих маршрутов пока нет")
+        composeRule.onNodeWithText("Твоих маршрутов пока нет").assertIsDisplayed()
         scrollTo("Опубликовать маршрут")
         composeRule.onNodeWithText("Опубликовать маршрут").assertIsDisplayed()
     }
@@ -191,8 +191,8 @@ class ProfileDeep3ContentTest {
     @Test
     fun empty_bashkir_showsBashkirEmptyState() {
         content(driverRides = emptyList(), language = AppLanguage.Ba)
-        scrollTo("Һеҙҙең маршруттар әлегә юҡ")
-        composeRule.onNodeWithText("Һеҙҙең маршруттар әлегә юҡ").assertIsDisplayed()
+        scrollTo("Һинең маршруттар әлегә юҡ")
+        composeRule.onNodeWithText("Һинең маршруттар әлегә юҡ").assertIsDisplayed()
     }
 
     @Test
@@ -263,8 +263,8 @@ class ProfileDeep3ContentTest {
         // Подпись под звёздами лежит ниже края экрана: узел в дереве есть, но не показан,
         // поэтому assertIsDisplayed падал. Доскроллить до самой подписи, а не до заголовка.
         composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
-            .performScrollToNode(hasText("Выбрано 4 звезды — подтвердите"))
-        composeRule.onNodeWithText("Выбрано 4 звезды — подтвердите").assertIsDisplayed()
+            .performScrollToNode(hasText("Выбрано 4 звезды — подтверди"))
+        composeRule.onNodeWithText("Выбрано 4 звезды — подтверди").assertIsDisplayed()
     }
 
     @Test
@@ -304,8 +304,8 @@ class ProfileDeep3ContentTest {
         // После перезагрузки экрана оценка не исчезает: сервер помнит её (my_stars).
         content(driverBookings = listOf(booking(myStars = 4)))
         composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
-            .performScrollToNode(hasText("Вы поставили 4 звезды"))
-        composeRule.onNodeWithText("Вы поставили 4 звезды").assertIsDisplayed()
+            .performScrollToNode(hasText("Твоя оценка: 4 звезды"))
+        composeRule.onNodeWithText("Твоя оценка: 4 звезды").assertIsDisplayed()
         composeRule.onNodeWithText("Отправить оценку").assertDoesNotExist()
         composeRule.onNodeWithText("Изменить").assertIsDisplayed()
     }
