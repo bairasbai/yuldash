@@ -6,6 +6,8 @@ package com.yuldash.app
 // крупный КОД для показа в заведении. Скидку даёт заведение (честный дисклеймер). Всё двуязычно,
 // все состояния (загрузка/пусто/ошибка), цвета только Canon*, анимации плавные.
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Storefront
@@ -208,6 +211,9 @@ private fun NearbyCouponsTab(onOpen: (CouponDto) -> Unit) {
             .distinct()
     }
 
+    // Обновление жестом: витрина живая — партнёр может выложить скидку, пока человек смотрит
+    // экран. Без жеста единственным способом обновиться был выход с экрана и заход заново.
+    AppPullRefresh(refreshing = loading && coupons.isNotEmpty(), onRefresh = { reload() }) {
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -247,6 +253,7 @@ private fun NearbyCouponsTab(onOpen: (CouponDto) -> Unit) {
                 Box(Modifier.appearIn(i.coerceAtMost(6))) { CouponCard(coupons[i]) { onOpen(coupons[i]) } }
             }
         }
+    }
     }
 }
 
@@ -344,6 +351,9 @@ private fun MyCouponsTab() {
     }
     LaunchedEffect(Unit) { reload() }
 
+    // Тот же жест, что и на витрине. Здесь он важнее: человек показал код в заведении и хочет
+    // убедиться, что купон погашен — статус меняет сотрудник, а не приложение.
+    AppPullRefresh(refreshing = loading && list.isNotEmpty(), onRefresh = { reload() }) {
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -366,6 +376,7 @@ private fun MyCouponsTab() {
                 Box(Modifier.appearIn(i.coerceAtMost(6))) { MyCouponCard(list[i]) }
             }
         }
+    }
     }
 }
 
@@ -475,6 +486,38 @@ private fun CouponDetailView(couponId: Int, preview: CouponDto, onBack: () -> Un
                                     Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(8.dp))
                                     Text(appText("Действует до $until", "$until тиклем ғәмәлдә"), color = CanonText, fontSize = 14.sp)
+                                }
+                            }
+                            // Телефон заведения. Карточка и раньше ОТКРЫВАЛАСЬ по его наличию,
+                            // но самого номера в ней не было: у партнёра без адреса человек видел
+                            // пустой блок и не мог ни доехать, ни позвонить. Тап — сразу набор
+                            // с подставленным номером, вручную переписывать одиннадцать цифр не нужно.
+                            if (coupon.partner.phone.isNotBlank()) {
+                                Surface(
+                                    onClick = {
+                                        runCatching {
+                                            ctx.startActivity(
+                                                Intent(Intent.ACTION_DIAL, Uri.parse("tel:${coupon.partner.phone}"))
+                                            )
+                                        }
+                                    },
+                                    color = CanonSurface,
+                                    shape = CanonItemShape,
+                                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize(),
+                                ) {
+                                    Row(
+                                        Modifier.padding(vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Phone,
+                                            contentDescription = appText("Позвонить в заведение", "Урынға шылтыратыу"),
+                                            tint = CanonGreen2,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(coupon.partner.phone, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    }
                                 }
                             }
                             if (coupon.remaining != null) {

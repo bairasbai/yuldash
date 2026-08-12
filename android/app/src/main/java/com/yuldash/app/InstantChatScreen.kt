@@ -39,6 +39,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ChatSocket
 import com.yuldash.app.data.MessageDto
@@ -80,11 +83,17 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
         historyLoading = false
     }
     // Заказ мог завершиться, пока чат открыт → мягкий опрос статуса раз в ~15с (баннер read-only).
-    LaunchedEffect(orderId) {
-        while (isActive) {
-            delay(15_000)
-            ApiClient.getInstantOrder(orderId).onSuccess { role = it.role; orderStatus = it.status }
-            if (orderStatus == "done" || orderStatus == "cancelled") break
+    // В фоне цикл стоит (repeatOnLifecycle RESUMED), как остальные опросы приложения: свёрнутый
+    // чат дёргал сервер каждые 15 секунд и жёг батарею, хотя показывать результат было некому.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(orderId, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                delay(15_000)
+                ApiClient.getInstantOrder(orderId).onSuccess { role = it.role; orderStatus = it.status }
+                // expired — тоже конечный статус (чат уже read-only): дальше опрашивать нечего.
+                if (orderStatus == "done" || orderStatus == "cancelled" || orderStatus == "expired") break
+            }
         }
     }
 

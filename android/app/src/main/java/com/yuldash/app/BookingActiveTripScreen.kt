@@ -964,8 +964,9 @@ internal fun ActiveTripScreen(
     val context = LocalContext.current
     var messages by remember(bookingId) { mutableStateOf<List<MessageDto>>(emptyList()) }
     val voiceScope = rememberCoroutineScope()
-    val statusErrMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшерегеҙ.")
-    val shareErrMsg = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшерегеҙ.")
+    // Русский тут на «ты», башкирский был на «вы» (тикшерегеҙ) — тон обязан совпадать в обоих языках.
+    val statusErrMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшер.")
+    val shareErrMsg = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер.")
     val driverNotifiedMsg = appText("Пассажир уведомлён", "Пассажир хәбәрҙар ителде")
     val chatSendFailMsg = appText("Не отправилось. Повтори.", "Ебәрелмәне. Ҡабатла.")
     val chatActionFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
@@ -2120,7 +2121,9 @@ internal fun BoardingCodeCard(
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(appText("Код посадки", "Ултырыу коды"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(appText("Назови водителю — он сверит. Это та самая машина.", "Водителгә әйтегеҙ — ул тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                    // «он сверит» → «сверят»: за рулём бывают женщины, род тут не нужен.
+                    // Башкирский был на «вы» (әйтегеҙ) — приложение везде обращается на «ты».
+                    Text(appText("Назови водителю — сверят. Это та самая машина.", "Водителгә әйт — тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                 }
                 Spacer(Modifier.width(8.dp))
                 Text(code, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 34.sp, letterSpacing = 4.sp)
@@ -2138,7 +2141,7 @@ internal fun BoardingCodeCard(
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            appText("Сверь машину перед посадкой", "Ултырыр алдынан машинаны тикшерегеҙ"),
+                            appText("Сверь машину перед посадкой", "Ултырыр алдынан машинаны тикшер"),
                             color = CanonMuted, fontSize = 12.sp,
                         )
                         if (car.isNotBlank()) {

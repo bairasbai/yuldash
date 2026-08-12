@@ -1309,6 +1309,10 @@ internal fun DriverCabinetScreen(
     var isWomanDriver by remember { mutableStateOf(false) }   // F9: opt-in «я — женщина за рулём»
     var bookingsReload by remember { mutableStateOf(0) }   // F2: bump после подтверждения/отклонения брони
     var ridesReload by remember { mutableStateOf(0) }   // F1: bump после отмены/завершения → список свежий
+    // Обновление жестом. Кабинет — рабочее место водителя: тут ждут новую бронь, снятие долга,
+    // ответ по заявке. Всё это меняет ДРУГАЯ сторона, а экран грузился один раз за вход —
+    // единственным способом увидеть свежее было выйти и зайти обратно.
+    var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(bookingsReload, ridesReload) {
         if (ApiClient.isLoggedIn()) ApiClient.getMyRestrictions().onSuccess { restrictions = it }
         ApiClient.getDriverRides()
@@ -1329,6 +1333,7 @@ internal fun DriverCabinetScreen(
             }
         reloadDebt()
         loadArchive()
+        refreshing = false
     }
     // Прогресс смены живёт, пока водитель «на линии»: presence капает время на сервере —
     // мягко переопрашиваем сводку раз в минуту (вне линии хватает разовой загрузки выше).
@@ -1412,6 +1417,11 @@ internal fun DriverCabinetScreen(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет водителя", "Водитель кабинеты"), onBack) }
     ) { padding ->
+        AppPullRefresh(
+            refreshing = refreshing,
+            onRefresh = { refreshing = true; bookingsReload++ },
+            modifier = Modifier.padding(padding),
+        ) {
         DriverCabinetContent(
             online = online,
             isWomanDriver = isWomanDriver,
@@ -1568,7 +1578,6 @@ internal fun DriverCabinetScreen(
                         }
                 }
             },
-            modifier = Modifier.padding(padding),
             taxiApplication = taxiApp,
             taxiAppLoaded = taxiAppLoaded,
             onTaxiOnboarding = onTaxiOnboarding,
@@ -1587,6 +1596,7 @@ internal fun DriverCabinetScreen(
             onTaxiDocs = onTaxiDocs,
             onPretrip = onPretrip,
         )
+        }
     }
     // Шторка выбора зоны работы (география, волна 2): открывается с чипа или при выходе на линию без зоны.
     if (showZoneSheet) {

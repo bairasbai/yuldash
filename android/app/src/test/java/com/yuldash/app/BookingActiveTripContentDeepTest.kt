@@ -177,7 +177,7 @@ class BookingActiveTripContentDeepTest {
                 BoardingCodeCard(code = "7421", car = "аҡ Lada Vesta", plate = "А123ВС102")
             }
         }
-        composeRule.onNodeWithText("Ултырыр алдынан машинаны тикшерегеҙ").assertIsDisplayed()
+        composeRule.onNodeWithText("Ултырыр алдынан машинаны тикшер").assertIsDisplayed()
     }
 
     // --- BoardingCodeCard: плашка кода посадки ---
@@ -190,7 +190,7 @@ class BookingActiveTripContentDeepTest {
             }
         }
         composeRule.onNodeWithText("Код посадки").assertIsDisplayed()
-        composeRule.onNodeWithText("Назови водителю — он сверит. Это та самая машина.").assertIsDisplayed()
+        composeRule.onNodeWithText("Назови водителю — сверят. Это та самая машина.").assertIsDisplayed()
         composeRule.onNodeWithText("7421").assertIsDisplayed()
     }
 
