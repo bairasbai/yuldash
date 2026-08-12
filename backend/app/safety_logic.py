@@ -8,7 +8,6 @@ import os
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -260,7 +259,9 @@ def ensure_active(session: Session, user_id: int) -> None:
     Намеренно НЕ закрываем: SOS и завершение уже начатой поездки (пауза не должна отбирать
     экстренную помощь и бросать пассажира на полдороге)."""
     if account_paused(session, user_id):
-        raise HTTPException(403, "Аккаунт на паузе до разбора. Загляни в Центр справедливости — там причина и срок.")
+        raise herr(403,
+               "Аккаунт на паузе до разбора. Загляни в Центр справедливости — там причина и срок.",
+               "Аккаунт тикшереүгә тиклем паузала. Ғәҙеллек үҙәгенә ин — сәбәбе һәм ваҡыты шунда.")
 
 
 def active_incidents_count(session: Session, user_id: int) -> int:

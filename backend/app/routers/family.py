@@ -70,7 +70,8 @@ def add_contact(body: ContactIn, user: User = Depends(current_user), session: Se
         raise herr(400, "Неверный номер телефона", "Телефон номеры дөрөҫ түгел")
     count = len(session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all())
     if count >= MAX_TRUSTED_CONTACTS:
-        raise HTTPException(400, f"Больше {MAX_TRUSTED_CONTACTS} доверенных контактов не добавить")
+        raise herr(400, f"Больше {MAX_TRUSTED_CONTACTS} доверенных близких не добавить",
+                   f"{MAX_TRUSTED_CONTACTS} яҡын кешенән артыҡ өҫтәп булмай")
     data = body.model_dump()
     data["phone"] = phone
     contact = TrustedContact(user_id=user.id, **data)

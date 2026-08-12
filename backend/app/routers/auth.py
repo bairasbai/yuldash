@@ -611,7 +611,8 @@ class RefreshIn(BaseModel):
 def refresh(body: RefreshIn, session: Session = Depends(get_session)):
     """Обновить пару токенов по refresh-токену (ротация: старый refresh гасится)."""
     if not body.refresh_token.strip():
-        raise HTTPException(400, "Нужен refresh_token")
+        raise herr(400, "Не получилось продлить вход. Войди заново.",
+                   "Инеүҙе оҙайтып булманы. Яңынан ин.")
     return rotate_refresh(session, body.refresh_token.strip())
 
 

@@ -411,7 +411,9 @@ def support_donate(body: SupportDonateIn, user: User = Depends(current_user), se
     по тому же provider_id → no-op (payment уже succeeded), задвоения нет."""
     amount_kop = body.amount_kop
     if amount_kop < SUPPORT_MIN_KOP or amount_kop > SUPPORT_MAX_KOP:
-        raise HTTPException(400, f"Сумма поддержки — от {SUPPORT_MIN_KOP // 100} до {SUPPORT_MAX_KOP // 100} ₽")
+        raise herr(400,
+                   f"Сумма поддержки — от {SUPPORT_MIN_KOP // 100} до {SUPPORT_MAX_KOP // 100} ₽",
+                   f"Ярҙам суммаһы — {SUPPORT_MIN_KOP // 100} һумдан {SUPPORT_MAX_KOP // 100} һумға тиклем")
     if settings.is_prod and settings.payments_provider == "mock":
         raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
 

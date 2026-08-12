@@ -474,7 +474,11 @@ def test_trusted_contact_validation_and_cap(client, user_factory):
     over = client.post("/trusted-contacts", headers=pax["auth"],
                        json={"name": "Лишний", "phone": "+79990009999"})
     assert over.status_code == 400
-    assert "довер" in over.json()["detail"].lower()
+    # С волны 38 ошибка двуязычная: detail = {"ru": ..., "ba": ...}. Смысл проверки прежний —
+    # человеку объяснили, что упёрся в число доверенных близких.
+    detail = over.json()["detail"]
+    assert "близ" in detail["ru"].lower(), detail
+    assert detail["ba"] and detail["ba"] != detail["ru"], detail
 
 
 def test_trip_status_bad_value(client, user_factory):

@@ -181,9 +181,11 @@ def _order_for_chat(session: Session, order_id: int, user_id: int, write: bool) 
             return order
     if order.status not in allowed:
         # До accept — чата ещё нет; после done/отмены запись закрыта (история читается).
-        raise HTTPException(409, "Поездка завершена — чат только для чтения"
-                            if write and order.status in ORDER_CHAT_READABLE
-                            else "Чат доступен после принятия заказа")
+        if write and order.status in ORDER_CHAT_READABLE:
+            raise herr(409, "Поездка завершена — чат только для чтения",
+                       "Сәфәр тамамланды — яҙышыу тик уҡыу өсөн")
+        raise herr(409, "Чат доступен после принятия заказа",
+                   "Заказ ҡабул ителгәс яҙышыу асыла")
     return order
 
 

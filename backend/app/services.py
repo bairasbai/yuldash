@@ -20,6 +20,7 @@ from sqlalchemy import case, delete
 from sqlmodel import Session, select
 
 from .config import settings
+from .errors import herr
 from .db import engine
 from .imagemeta import strip_image_metadata
 from .logs import log
@@ -87,18 +88,19 @@ def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sn
     + (для фото) magic-bytes. Используется и base64-, и multipart-путём."""
     ext = "".join(c for c in (ext or "").lower() if c.isalnum())
     if not data:
-        raise HTTPException(400, f"Пустой файл: {kind}")
+        raise herr(400, f"Файл пустой: {kind}", f"Файл буш: {kind}")
     if len(data) > settings.max_upload_bytes:
-        raise HTTPException(413, f"Файл слишком большой: максимум {settings.max_upload_mb} МБ")
+        raise herr(413, f"Файл слишком большой: максимум {settings.max_upload_mb} МБ",
+                   f"Файл артыҡ ҙур: күп тигәндә {settings.max_upload_mb} МБ")
     if sniff_image:
         # Тип берём из СОДЕРЖИМОГО, а не из заявленного клиентом ext (клиент всегда шлёт «jpg»,
         # а телефон отдаёт png/webp/heic → фото раньше отвергалось и «не сохранялось»).
         detected = _detect_image_ext(data)
         if detected is None:
-            raise HTTPException(400, f"Файл не похож на изображение: {kind}")
+            raise herr(400, f"Это не похоже на фото: {kind}", f"Был һүрәткә оҡшамаған: {kind}")
         ext = detected
     if ext not in allowed_ext:
-        raise HTTPException(400, f"Недопустимый тип файла: .{ext}")
+        raise herr(400, f"Такой тип файла не подходит: .{ext}", f"Был төр файл ярамай: .{ext}")
     if sniff_image:
         # Срезаем EXIF/GPS и прочие метаданные — ЗДЕСЬ, в единственной точке, через которую
         # проходят обе дороги (multipart и base64) и все загрузки: аватар, чат, документы,
@@ -120,7 +122,7 @@ def decode_upload_b64(raw: str, allowed_ext: set[str], default_ext: str, kind: s
     try:
         data = base64.b64decode(raw, validate=True)
     except Exception:
-        raise HTTPException(400, f"Некорректный файл: {kind}")
+        raise herr(400, f"Файл не читается: {kind}", f"Файлды уҡып булмай: {kind}")
     return _validate_upload(data, allowed_ext, ext, kind, sniff_image)
 
 
@@ -134,7 +136,7 @@ async def read_upload(request, allowed_ext: set[str], default_ext: str, kind: st
         form = await request.form()
         up = form.get("file")
         if up is None or not hasattr(up, "read"):
-            raise HTTPException(400, f"Нет файла в запросе: {kind}")
+            raise herr(400, f"Файл не приложен: {kind}", f"Файл ҡушылмаған: {kind}")
         data = await up.read()
         ext = (str(form.get("ext") or "")
                or os.path.splitext(getattr(up, "filename", "") or "")[1].lstrip(".")
@@ -144,7 +146,7 @@ async def read_upload(request, allowed_ext: set[str], default_ext: str, kind: st
     try:
         body = await request.json()
     except Exception:
-        raise HTTPException(400, f"Некорректный запрос: {kind}")
+        raise herr(400, f"Запрос не понят: {kind}", f"Һорау аңлашылманы: {kind}")
     raw = body.get("photo_b64") or body.get("audio_b64") or ""
     ext = body.get("ext") or default_ext
     return decode_upload_b64(raw, allowed_ext, ext, kind, sniff_image)
@@ -158,7 +160,8 @@ def enforce_upload_quota(session: Session, user_id: int) -> None:
         select(UploadEvent.id).where(UploadEvent.user_id == user_id, UploadEvent.created_at > edge)
     ).all()
     if len(recent) >= settings.max_uploads_per_day:
-        raise HTTPException(429, "Слишком много загрузок за сутки. Попробуй позже.")
+        raise herr(429, "Слишком много загрузок за сутки. Попробуй позже.",
+                   "Бер тәүлектә артыҡ күп йөкләү. Һуңыраҡ ҡабатла.")
     session.add(UploadEvent(user_id=user_id))
     session.commit()
 
@@ -168,12 +171,12 @@ def booking_and_ride_for_user(session: Session, booking_id: int, user: User) -> 
     """Вернуть бронь и поездку, если пользователь — пассажир или водитель этой брони."""
     booking = session.get(Booking, booking_id)
     if not booking:
-        raise HTTPException(404, "Бронь не найдена")
+        raise herr(404, "Бронь не найдена", "Урын һаҡлау табылманы")
     ride = session.get(Ride, booking.ride_id)
     if not ride:
-        raise HTTPException(404, "Поездка не найдена")
+        raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     if booking.passenger_id != user.id and ride.driver_id != user.id:
-        raise HTTPException(403, "Нет доступа к этой брони")
+        raise herr(403, "Нет доступа к этой брони", "Был урын һаҡлауға инеү юҡ")
     return booking, ride
 
 

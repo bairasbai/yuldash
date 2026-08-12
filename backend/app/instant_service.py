@@ -672,11 +672,15 @@ def _guard_no_show(order: InstantOrder, now) -> None:
     """No-show отмечается только когда водитель на месте («Я на месте») и честно отждал
     бесплатное окно + запас — защита пассажира от поспешной кнопки."""
     if order.status != S.arriving or order.waiting_started_at is None:
-        raise HTTPException(409, "«Пассажир не вышел» доступно после кнопки «Я на месте»")
+        raise herr(409, "«Пассажир не вышел» доступно после кнопки «Я на месте»",
+                   "«Юлаусы сыҡманы» — «Мин урында» төймәһенән һуң мөмкин")
     allowed_at = no_show_available_at(order)
     if allowed_at is not None and now < allowed_at:
-        raise HTTPException(409, "Подожди ещё немного: бесплатное ожидание "
-                                 f"{settings.wait_free_minutes} мин + {settings.no_show_extra_minutes} мин сверху")
+        raise herr(409,
+                   f"Подожди ещё немного: бесплатное ожидание {settings.wait_free_minutes} мин "
+                   f"+ {settings.no_show_extra_minutes} мин сверху",
+                   f"Бер аҙ көт: түләүһеҙ көтөү {settings.wait_free_minutes} мин "
+                   f"+ өҫтәмә {settings.no_show_extra_minutes} мин")
 
 
 def order_strike_times(session: Session, passenger_id: int, since) -> list:
@@ -759,9 +763,9 @@ def strike_pause_message() -> str:
 def _guard_owns(order: InstantOrder, actor: Actor, user_id: int) -> None:
     """Владелец действия: водитель — назначенный на заказ, пассажир — создатель."""
     if actor == Actor.driver and order.driver_id != user_id:
-        raise HTTPException(403, "Ты не водитель этого заказа")
+        raise herr(403, "Ты не водитель этого заказа", "Һин был заказдың водителе түгел")
     if actor == Actor.passenger and order.passenger_id != user_id:
-        raise HTTPException(403, "Это не твой заказ")
+        raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
 
 
 def _guard_actor(order: InstantOrder, actor: Actor, user_id: int, target: S) -> None:
@@ -769,9 +773,9 @@ def _guard_actor(order: InstantOrder, actor: Actor, user_id: int, target: S) -> 
         if target == S.accepted:
             # Принять может ТОЛЬКО тот водитель, кому сейчас отправлен оффер, и пока он не истёк.
             if order.current_offer_driver_id != user_id:
-                raise HTTPException(403, "Оффер отправлен другому водителю")
+                raise herr(403, "Заказ предложен другому водителю", "Заказ башҡа водителгә тәҡдим ителгән")
             if order.offer_expires_at and order.offer_expires_at < utcnow():
-                raise HTTPException(409, "Оффер истёк")
+                raise herr(409, "Время на ответ истекло", "Яуап биреү ваҡыты үтте")
         else:
             _guard_owns(order, actor, user_id)
 
@@ -789,7 +793,7 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
         select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
     ).first()
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
 
     # Двойной тап (не гонка accept): уже в целевом статусе — вернуть как есть.
     if idempotent and order.status == target:
@@ -798,7 +802,7 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
 
     source = order.status
     if ALLOWED.get((source, actor)) != target:
-        raise HTTPException(409, f"Нельзя перейти {source.value}→{target.value}")
+        raise herr(409, "Этот шаг сейчас недоступен", "Был аҙым хәҙер мөмкин түгел")
     _guard_actor(order, actor, user_id, target)
 
     now = utcnow()
@@ -823,7 +827,7 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
     )
     session.commit()
     if result.rowcount == 0:
-        raise HTTPException(409, "Заказ уже изменился")
+        raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
     if target == S.accepted:
         _cleanup_tried(order_id)
     fresh = session.get(InstantOrder, order_id)
@@ -844,7 +848,7 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
         select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
     ).first()
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     _guard_owns(order, actor, user_id)
     # Очередь «подожду машину» держит заказ в `expired` с проставленным `wait_until`: статус
     # терминальный только на словах — фоновый воркер каждые пару минут перезапускает по нему
@@ -859,7 +863,7 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
         return order   # уже терминальный — idempotent
     allowed = PASSENGER_CANCELLABLE if actor == Actor.passenger else DRIVER_CANCELLABLE
     if order.status not in allowed and not in_wait_queue:
-        raise HTTPException(409, f"Сейчас отменить нельзя ({order.status.value})")
+        raise herr(409, "Сейчас отменить нельзя", "Хәҙер кире алып булмай")
     now = utcnow()
     # wait_until снимаем при ЛЮБОЙ отмене: отменённый заказ не может оставаться в очереди.
     values = dict(status=S.cancelled, cancelled_at=now, cancel_by=actor.value,
@@ -884,7 +888,7 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     )
     session.commit()
     if result.rowcount == 0:
-        raise HTTPException(409, "Заказ уже изменился")
+        raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
     _cleanup_tried(order_id)
     fresh = session.get(InstantOrder, order_id)
     # Поездки не было → скидка по промокоду возвращается пассажиру. Один код даётся на всю жизнь
@@ -1244,7 +1248,7 @@ def decline_offer(session: Session, order_id: int, driver_id: int, reason: str =
     """Водитель отклонил оффер → следующий кандидат. Идемпотентно."""
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise HTTPException(404, "Заказ не найден")
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.status != S.offered or order.current_offer_driver_id != driver_id:
         # оффер уже не актуален (принят/протух/отдан другому) — не ошибка
         return order
