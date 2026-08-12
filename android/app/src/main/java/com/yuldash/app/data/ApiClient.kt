@@ -1498,6 +1498,7 @@ object ApiClient {
                 carPhotoUrl = o.optString("car_photo_url"),
                 online = o.optBoolean("online"),
                 gender = o.optString("gender"),
+                genderVerified = o.optBoolean("gender_verified"),
                 autocheckResult = o.optString("autocheck_result"),
                 autocheckData = o.optString("autocheck_data"),
             )
@@ -5335,6 +5336,9 @@ data class DriverStatusDto(
     val carPhotoUrl: String,
     val online: Boolean = false,
     val gender: String = "",             // "" не указан / female / male — виден только самому водителю (opt-in)
+    // Подтвердил ли модератор пол по фото прав. Пол сам по себе НИЧЕГО не включает:
+    // публичный бейдж «женщина за рулём» и женские заказы даёт только подтверждение.
+    val genderVerified: Boolean = false,
     val autocheckResult: String = "",   // "" / pass / needs_human / reject / error
     val autocheckData: String = "",      // JSON: распознанные поля + коды причин
 )

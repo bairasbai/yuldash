@@ -540,10 +540,13 @@ internal fun ProfileScreen(
             title = { Text(appText("Пол", "Енес"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // «Больше нигде не показывается» было неправдой для женщины-водителя:
+                    // тот же пол включает в кабинете водителя бейдж «женщина за рулём»,
+                    // и после проверки прав его видят пассажирки. Говорим как есть.
                     Text(
                         appText(
-                            "Нужен только для поездок с отметкой «Только женщины» — чтобы это обещание было настоящим. Больше нигде не показывается.",
-                            "Тик «Тик ҡатын-ҡыҙҙар» билдәһе ҡуйылған сәфәрҙәр өсөн кәрәк — был вәғәҙә ысын булһын өсөн. Башҡа бер ҡайҙа ла күрһәтелмәй.",
+                            "Нужен только для поездок с отметкой «Только женщины» — чтобы это обещание было настоящим. Кроме тебя его не видит никто. Одно исключение: если ты водитель, в кабинете водителя из него получается бейдж «женщина за рулём» — но лишь после того, как модератор сверит права.",
+                            "Тик «Тик ҡатын-ҡыҙҙар» билдәһе ҡуйылған сәфәрҙәр өсөн кәрәк — был вәғәҙә ысын булһын өсөн. Һинән башҡа уны бер кем дә күрмәй. Бер генә осраҡ: һин водитель булһаң, водитель кабинетында унан «рулдә ҡатын-ҡыҙ» билдәһе яһала — тик модератор права тикшергәндән һуң ғына.",
                         ),
                         color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                     )
@@ -1390,6 +1393,10 @@ internal fun DriverCabinetScreen(
         }
     }
     var isWomanDriver by remember { mutableStateOf(false) }   // F9: opt-in «я — женщина за рулём»
+    var womanVerified by remember { mutableStateOf(false) }   // пол сверен модератором → бейдж уже работает
+    // Выключение тумблера стирает пол целиком (сервер знает одно поле `User.gender`), а значит
+    // забирает и женские поездки у неё же как у пассажирки. Молча так делать нельзя — спрашиваем.
+    var confirmWomanOff by remember { mutableStateOf(false) }
     var bookingsReload by remember { mutableStateOf(0) }   // F2: bump после подтверждения/отклонения брони
     var ridesReload by remember { mutableStateOf(0) }   // F1: bump после отмены/завершения → список свежий
     // Обновление жестом. Кабинет — рабочее место водителя: тут ждут новую бронь, снятие долга,
@@ -1405,7 +1412,10 @@ internal fun DriverCabinetScreen(
         ridesLoading = false
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
-        ApiClient.getDriverStatus().onSuccess { online = it.online; onlineLoaded = true; isWomanDriver = it.gender == "female" }
+        ApiClient.getDriverStatus().onSuccess {
+            online = it.online; onlineLoaded = true
+            isWomanDriver = it.gender == "female"; womanVerified = it.genderVerified
+        }
         ApiClient.getInstantZone().onSuccess { zone = it }
         ApiClient.getMyTaxiApplication()
             .onSuccess { taxiApp = it; taxiAppLoaded = true }
@@ -1495,6 +1505,21 @@ internal fun DriverCabinetScreen(
         },
     )
     val womanLoginMsg = appText("Войди, чтобы изменить профиль", "Профильде үҙгәртер өсөн ин")
+    // Само сохранение пола. Вынесено, потому что зовётся из двух мест: тумблер «включить»
+    // и подтверждение «выключить» (выключение стирает пол и у пассажирки — спрашиваем).
+    val applyWomanDriver: (Boolean) -> Unit = { v ->
+        val prev = isWomanDriver
+        isWomanDriver = v
+        // Смена заявления обнуляет подтверждение на сервере — показываем это сразу,
+        // иначе экран ещё секунду обещает бейдж, которого уже нет.
+        womanVerified = false
+        rateScope.launch {
+            ApiClient.setDriverGender(if (v) "female" else "").onFailure {
+                isWomanDriver = prev
+                Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = CanonBg,
@@ -1537,19 +1562,16 @@ internal fun DriverCabinetScreen(
                         .onFailure { Toast.makeText(ctx, debtPaidErrMsg, Toast.LENGTH_SHORT).show() }
                 }
             },
+            womanVerified = womanVerified,
             onToggleWoman = onToggleWoman@{ v ->
                 if (!ApiClient.isLoggedIn()) {
                     Toast.makeText(ctx, womanLoginMsg, Toast.LENGTH_SHORT).show()
                     return@onToggleWoman
                 }
-                val prev = isWomanDriver
-                isWomanDriver = v
-                rateScope.launch {
-                    ApiClient.setDriverGender(if (v) "female" else "").onFailure {
-                        isWomanDriver = prev
-                        Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
-                    }
-                }
+                // Выключение — не просто «спрятать бейдж»: сервер стирает пол целиком, и она
+                // же теряет доступ к попуткам «только для женщин» как пассажирка. Спрашиваем.
+                if (!v) { confirmWomanOff = true; return@onToggleWoman }
+                applyWomanDriver(true)
             },
             onToggleOnline = onToggleOnline@{ v ->
                 // Демо/без входа → не дёргаем API (там 401 → ложная «проверь сеть»), даём понятное «войдите».
@@ -1702,6 +1724,35 @@ internal fun DriverCabinetScreen(
         if (!onlineLoaded) return@LaunchedEffect
         if (online && taxiAllowed && ApiClient.isLoggedIn()) TaxiLineService.start(ctx, appLang)
         else TaxiLineService.stop(ctx)
+    }
+    // Выключение «женщина за рулём» = стереть пол везде. Пользовательница нажимала тумблер
+    // в кабинете водителя и не могла знать, что теряет женские поездки как пассажирка.
+    if (confirmWomanOff) {
+        AlertDialog(
+            onDismissRequest = { confirmWomanOff = false },
+            containerColor = CanonSurface,
+            shape = CanonCardShape,
+            title = { Text(appText("Убрать отметку?", "Билдәне алырғамы?"), fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    appText(
+                        "Пол сотрётся полностью: пропадёт бейдж «женщина за рулём» и заказы такси только к женщине, а поездки с отметкой «только для женщин» станут недоступны и тебе как пассажирке.",
+                        "Енес бөтөнләй бөтөрөлә: «рулдә ҡатын-ҡыҙ» билдәһе һәм тик ҡатын-ҡыҙ водителгә такси заказдары юғала, ә «тик ҡатын-ҡыҙҙар өсөн» билдәле сәфәрҙәр һиңә пассажир булараҡ та ябыла.",
+                    ),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmWomanOff = false; applyWomanDriver(false) }) {
+                    Text(appText("Убрать", "Алырға"), color = CanonRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmWomanOff = false }) {
+                    Text(appText("Оставить", "Ҡалдырырға"), color = CanonGreen2)
+                }
+            },
+        )
     }
     }
 }
@@ -2440,6 +2491,7 @@ internal fun DriverCabinetContent(
     // иначе после сбоя сети на экране остаётся оценка, которой на сервере нет.
     onRate: (Int, Int, (Boolean) -> Unit) -> Unit,
     isWomanDriver: Boolean = false,                       // F9: opt-in «женщина за рулём»
+    womanVerified: Boolean = false,                       // пол сверен модератором → бейдж и женские заказы уже работают
     onToggleWoman: (Boolean) -> Unit = {},
     onCreateRide: () -> Unit,
     onVerifyDriver: () -> Unit,
@@ -2569,12 +2621,25 @@ internal fun DriverCabinetContent(
                 SettingSwitchRow(
                     Icons.Default.Woman,
                     appText("Я — женщина за рулём", "Мин — рулдә ҡатын-ҡыҙ"),
-                    // Тумблер теперь делает две вещи, и водитель должен знать про обе: с 2026-08-06
+                    // Тумблер делает две вещи, и водитель должен знать про обе: с 2026-08-06
                     // он ещё и открывает такси-заказы с просьбой «только женщина за рулём».
-                    appText(
-                        "По желанию: пассажирки увидят бейдж и смогут заказать такси только к женщине за рулём",
-                        "Теләк буйынса: пассажир ҡатын-ҡыҙҙар билдәне күрер һәм тик ҡатын-ҡыҙ водителгә такси заказлай алыр",
-                    ),
+                    // Но обе включает не он, а модератор, сверив права. Экран обещал их сразу
+                    // после нажатия — женщина ждала женские заказы, которых не будет, пока
+                    // документы не проверены (живая проверка 2026-08-12).
+                    when {
+                        isWomanDriver && womanVerified -> appText(
+                            "Подтверждено: пассажирки видят бейдж и могут заказать такси только к женщине за рулём",
+                            "Раҫланған: пассажир ҡатын-ҡыҙҙар билдәне күрә һәм тик ҡатын-ҡыҙ водителгә такси заказлай ала",
+                        )
+                        isWomanDriver -> appText(
+                            "Бейдж и женские заказы появятся, когда модератор сверит права. Пока их не видит никто.",
+                            "Билдә һәм ҡатын-ҡыҙ заказдары модератор права тикшергәс күренәсәк. Хәҙергә уларҙы бер кем дә күрмәй.",
+                        )
+                        else -> appText(
+                            "По желанию: после проверки прав пассажирки увидят бейдж и смогут заказать такси только к женщине за рулём",
+                            "Теләк буйынса: права тикшерелгәс, пассажир ҡатын-ҡыҙҙар билдәне күрер һәм тик ҡатын-ҡыҙ водителгә такси заказлай алыр",
+                        )
+                    },
                     isWomanDriver,
                     onToggleWoman,
                 )

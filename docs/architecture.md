@@ -556,6 +556,18 @@
   переключатель в карточке модерации (`SecondaryScreens.kt::AdminDriversContent`, `onApprove`
   теперь принимает `(dto, Boolean?)`). Тесты — `backend/tests/test_car_and_gender_proof.py` (10),
   плюс переписаны `test_women_driver.py` и `test_taxi_women_only.py`.
+  **2026-08-12 — обе записи сведены в одну дверь каждая (иначе правила молча не работали):**
+  пол пишет только `services.py::set_user_gender` (зовут `/driver/gender` и `/me/update` —
+  второй писал поле напрямую и НЕ гасил подтверждение: подтверждённый мужчина менял пол
+  в профиле и забирал бейдж); вердикт по документам ставит только
+  `services.py::set_driver_docs_verdict` (зовут админка, телеграм-бот и авто-проверка OCR —
+  две последние не гасили подтверждение при отказе). Плюс новые права (`submit_driver_verify`,
+  сменился `license_url`) гасят подтверждение: прежнее фото удаляется, сверять не с чем.
+  `GET /driver/status` отдаёт владельцу `gender_verified` → тумблер в кабинете водителя
+  (`ProfileScreen.kt::DriverCabinetContent`) говорит правду в трёх состояниях, а выключение
+  спрашивает подтверждение (стирается пол целиком, включая женские поездки как пассажирке).
+  Сторожа класса — `test_gender_writes_go_through_one_door`,
+  `test_docs_verdicts_go_through_one_door` (читают исходники `backend/app`).
 
 ## 🛰 Честное «подъезжаю» + фильтр «Тихая поездка» (2026-08-07, разбор конкурентов по Reddit)
 
