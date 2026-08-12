@@ -91,11 +91,30 @@ def revoke_all_refresh(session: Session, user_id: int) -> None:
     session.commit()
 
 
+# Требования к КАЖДОМУ входящему токену. Одна точка на все четыре двери: REST (`current_user`,
+# `current_user_optional`), вебсокеты (`authenticate_ws`) и служебная `verify_token`.
+#
+# `require: exp` — не формальность. Токен без срока жизни сервер принимал как ВЕЧНЫЙ (проба
+# волны 42): подделать такой нельзя, секрет у нас, но обещание «токен протухнет» переставало
+# действовать для любого токена, который однажды утёк — из бэкапа, из лога, со скриншота
+# поддержки. Просроченный `exp` библиотека проверяет сама, отсутствующий раньше не проверял
+# никто.
+# Имена опций — от `python-jose` (не PyJWT): там это `require_exp`, а `require: [...]`
+# библиотека молча игнорирует. Первая версия правки именно так и не сработала, и поймала это
+# та же проба, а не тесты: правка выглядела рабочей.
+_JWT_OPTIONS = {"require_exp": True, "require_sub": True}
+
+
+def _decode(token: str) -> dict:
+    """Разобрать и проверить токен по общим правилам. Бросает `JWTError` на любом изъяне."""
+    return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"], options=_JWT_OPTIONS)
+
+
 def verify_token(token: str) -> int:
     """Декодирует JWT, возвращает user_id. Бросает исключение при невалидном токене.
     ВНИМАНИЕ: не проверяет ревокацию/существование юзера — для авторизации соединений
     используй `authenticate_ws` (ниже)."""
-    payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    payload = _decode(token)
     return int(payload["sub"])
 
 
@@ -104,7 +123,7 @@ def authenticate_ws(token: str, session: Session) -> User:
     В отличие от `verify_token`, ПРОВЕРЯЕТ существование юзера и ревокацию сессии
     (`tokens_valid_from`/logout) — той же логикой, что REST `current_user`. Иначе токен,
     отозванный через logout, продолжал бы открывать чат до самого истечения JWT."""
-    payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    payload = _decode(token)
     user = session.get(User, int(payload["sub"]))
     if not user or _token_revoked(payload, user):
         raise JWTError("token revoked or user missing")
@@ -143,7 +162,7 @@ def current_user(
     session: Session = Depends(get_session),
 ) -> User:
     try:
-        payload = jwt.decode(cred.credentials, settings.jwt_secret, algorithms=["HS256"])
+        payload = _decode(cred.credentials)
         user_id = int(payload["sub"])
     except (JWTError, KeyError, ValueError):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный токен")
@@ -167,7 +186,7 @@ def current_user_optional(
     if cred is None:
         return None
     try:
-        payload = jwt.decode(cred.credentials, settings.jwt_secret, algorithms=["HS256"])
+        payload = _decode(cred.credentials)
         user_id = int(payload["sub"])
     except (JWTError, KeyError, ValueError):
         return None
