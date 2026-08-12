@@ -240,6 +240,140 @@
 **Backend «Справедливость» (дополняет анонимные жалобы `Report`, НЕ заменяет):**
 - **Модели** (`backend/app/models.py`): `Incident` (двусторонний спор: `reporter`/`respondent`/`type`/`status` open→awaiting_response→under_review→resolved/appealed/closed, `resolution`/`fault`/`appeal_status`), `SafetyProfile` (1:1 с User: `strikes`/`warnings`/`standing` good→warned→limited→suspended, `suspended_until`). `Rating.excluded` (щит рейтинга), `Booking.cancelled_by` (Надёжность).
 - **`backend/app/safety_logic.py`** — ядро: `INCIDENT_TYPES`/`SEVERE_TYPES`, лестница §2 (`recompute_standing`/`refresh_standing`/`_escalation_days`/`apply_incident_resolution` — лок при мутации страйков), `reliability_for` (Надёжность 0..100, неявка ТОЛЬКО по resolved-инциденту — защита оболганного), `_exclude_linked_ratings` (снять оценку-месть). Гейт паузы: `ensure_active` (бросает 403) + `account_paused` (не бросает — для лент, где отказ показывают молча). **Гейт стоит поштучно на каждой ручке**, полноту сторожит `tests/test_suspension_reaches_everywhere.py`: попутка, заявка + отклик + торг, такси (общий `_guard_taxi_driver` → линия/оффер/приём) + предзаказ, доставка + приём, жалобы. Намеренно открыты SOS и завершение начатой поездки.
+- **Ночная чистка пишет ОБЕИМ сторонам (2026-08-08, волна 19).** `cleanup.py`: у каждого
+  закрытия два списка получателей — `booking_closed` (пассажиру погашенной брони),
+  `order_pax` / `order_done_pax` (пассажиру такси), `response` (водителю протухшего отклика),
+  `parcel_returning` (отправителю, чью вещь курьер увёз и не вернул — отдельный текст, не
+  «никто не взял»). Гасимой броне ставятся `cancelled_at` + `cancel_reason="ride_closed"`,
+  а `cancelled_by` НЕТ: протухание не должно бить по «Надёжности».
+  Таблица `_NOTIFY_LINK` полная (`KeyError` на новом виде) и сверяется с приложением сторожем
+  `tests/test_notifications_lead_somewhere.py`. Сценарии — `tests/test_promises.py`.
+- **Связка «поездка ↔ клиника» скрыта от анонимов (2026-08-08, волна 22).**
+  `rides._hide_health_hint` затирает `partner_id` и `category=hospital` для тех, кто без
+  входа; применяется во ВСЕХ выходах поездок — лента (обе ветки: кеш и свежая), `/rides/near`
+  (обязательно там, где собирается ответ: выше в руках ORM-объекты и правка теряется),
+  карточка `/rides/{id}`. Фильтр `?category=hospital` анониму не применяется вовсе.
+  Тесты — `tests/test_health_hint_stays_private.py` (все двери + контроль, что вошедший
+  видит всё).
+- **Метаданные фото срезаются на сервере (2026-08-08, волна 21).** `app/imagemeta.py`
+  (`strip_image_metadata`) вызывается из `services._validate_upload` — единственной точки, через
+  которую идут обе дороги загрузки (multipart и base64) и все виды фото: аватар, чат, документы,
+  доказательства, посылки. Режем JPEG APP1..APP15 + COM, PNG eXIf/tEXt/zTXt/iTXt/tIME,
+  WEBP EXIF/XMP (с пересчётом RIFF); пиксели не трогаем, битый файл отдаём как есть.
+  Тесты: `tests/test_image_metadata_stripped.py` (метки исчезли И картинка цела) +
+  сквозное обещание в `tests/test_promises.py`.
+- **Деньги бизнеса — тоже запись (2026-08-12, волна 24).** Через `push_notification` пошли:
+  решение по бизнесу и по купону (`routers/coupons.py`, 6 мест), решение по рекламе
+  (`routers/ads.py::notify_ad_decision` — ОДНА точка на два входа: админка и кнопка
+  в Telegram из `routers/auth.py`), бонус за друга (`routers/referral.py`), забытая вещь
+  (`routers/instant.py`). Новые виды ссылок: `partner` → «Мой бизнес» (`Screen.PartnerCabinet`),
+  `ad` → кабинет объявлений (`Screen.AdsCabinet`); ветки — в `SecondaryScreens.kt::openDeepLink`,
+  колбэки проброшены из `YuldashApp.kt`. Бонус за друга намеренно без ссылки (счётчик в профиле,
+  а не отдельный экран). Тесты — `tests/test_money_decisions_leave_a_trace.py` (5 сценариев,
+  каждый проверяет ещё и что языки разделены, а не склеены через « · »).
+- **Деньги и допуск к работе — тоже запись (2026-08-08, волна 20).** Через
+  `push_notification` (запись + два раздельных языка + переход) идут: долг подтверждён /
+  списан / оплата не найдена (`routers/debt.py`), списание комиссии по жалобе
+  (`routers/safety.py`), пауза такси и поступившая жалоба (`quality.py`), пауза курьера
+  и решение по заявке курьера (`routers/courier.py`), решение по заявке таксиста
+  (`routers/taxi.py`). Голым `send_push` остаётся только сиюминутное (статусы такси, смена,
+  советы о рейтинге). Новые виды ссылок: `debt` → кабинет водителя, `taxi_apply` /
+  `courier_apply` → экраны заявок (ветки в `SecondaryScreens.kt`).
+- **Наказание — запись, а не пуш (2026-08-08, волна 19).** `routers/incidents.py`: открытие
+  разбора, решение по спору и пауза идут через `push_notification` (запись в Центре
+  уведомлений + два языка + `ref_kind="incident"` → карточка разбора). Отстранённому уходит
+  отдельное письмо с датой окончания и подсказкой про апелляцию. В приложении ветка
+  `"incident" -> onOpenIncident(ref)` (`SecondaryScreens.kt`, проброшена в `YuldashApp.kt`).
+- **Завершение рейса не гасит брони молча (2026-08-08, волна 18).** `rides.complete_ride`:
+  неподтверждённые брони получают `cancelled_at` + `cancel_reason="driver_no_response"`,
+  пассажиру уходит `push_notification` («Бронь не подтвердили» / «Бронь раҫланманы»).
+  `cancelled_by = driver` ставится ТОЛЬКО если бронь висела ≥ `_CONFIRM_GRACE` (30 мин) до
+  выезда — иначе водитель физически не мог её увидеть. Сценарии — `tests/test_promises.py`.
+- **Отмена поездки записывается на водителя (2026-08-08, волна 17).** `rides.cancel_ride`
+  проставляет на каждой гасимой броне `cancelled_at` / `cancelled_by = driver` /
+  `cancel_reason = "not_going"` — без этого `reliability_for` не видела сорванных рейсов
+  (считает поздние отмены по `cancelled_by`). Ранняя отмена безвредна: решает `is_late_cancel`.
+  Сценарии — `tests/test_promises.py` (видит срывы / ранняя отмена безвредна).
+- **Щит рейтинга симметричен (2026-08-08, волна 16).** `safety_logic._exclude_linked_ratings`
+  снимает оценки по спорной броне в ОБЕ стороны (`rater_id`/`ratee_id` ∈ пара заявитель↔обвинённый),
+  а не только оценку заявителя. Срабатывает по флагу `shield`/`exclude_rating` в решении админа.
+  Сценарий — `tests/test_promises.py::test_обещание_щит_снимает_месть_за_жалобу`.
+- **Удаление аккаунта стирает и «ничьи» файлы (2026-08-08, волна 15).**
+  `Storage.iter_owned(areas, user_id)` (диск и S3) перечисляет файлы по префиксу имени
+  `{user_id}_`; `account.delete_user_account` проходит по `docs/evidence/chat/voice` и удаляет
+  всё загруженное человеком — включая снимки, ссылок на которые нет нигде в БД.
+  Сквозные проверки обещаний — `tests/test_promises.py` (7 сценариев).
+- **Лог сервера чистится от ПДн (2026-08-08, волна 14).** `observability.scrub_exc(exc)` —
+  текст исключения со стеком через тот же скруб, что и Sentry; зовётся из
+  `middleware.unhandled_exception_handler`. `exc_info` не используем: он печатает исходный
+  текст мимо очистки. Тесты — `test_audit_20260808.py` раздел 19.
+- **Чат-уведомления приватны (2026-08-08, волна 14).** `FcmService.showNotification`: для канала
+  `CHANNEL_CHAT` ставится `VISIBILITY_PRIVATE` + `setPublicVersion` («Юлдаш · Новое сообщение» /
+  «Яңы хәбәр»). Остальные типы не трогаем — они полезны с локскрина. Гарантию даст только
+  тумблер в приложении (предложение в `docs/tasks.md`).
+- **Redis тоже чистится (2026-08-08, волна 12).** `presence_offline(driver_id)` (была мёртвой)
+  зовётся из `POST /driver/online {online:false}` и из `account.delete_user_account`;
+  `cleanup._clean_stale_presence()` в ночной чистке убирает из GEO точки без свежего
+  `presence:hb:*`. Помни: у элемента GEO-множества TTL НЕТ — только у обычных ключей.
+  Тесты — `test_audit_20260808.py` раздел 17.
+- **Журнал помеченных текстов уходит с аккаунтом (2026-08-12, волна 23).** `account.py`:
+  `delete(TextFlag)` рядом с уведомлениями. Таблица завелась вместе с очередью модерации,
+  в удаление её не добавили — запись «этот человек писал телефон в открытом поле» жила
+  в админке после стирания аккаунта. Нашла самопроверка теста удаления (она требует, чтобы
+  КАЖДАЯ таблица со ссылкой на пользователя была заселена) — второй случай за неделю
+  после `couponreport`.
+- **Файлы удаляются вместе с записью (2026-08-08, волна 11).** `account.py`: в `media_urls`
+  добавлены `ParcelDelivery.pickup_photo_url/delivery_photo_url` (только своих посылок) и
+  `Ad.image_url`. `cleanup._clean_media` ходит и по приватной `evidence/`, удаляя ТОЛЬКО
+  осиротевшие файлы — живые ссылки собирает `_referenced_media_keys` из четырёх полей
+  (спор ×2, доставка ×2); полноту списка сторожит `test_cleanup.py::test_every_evidence_field_is_known_to_the_cleaner`.
+  `LocalStorage.iter_old` выбирает базовый каталог как `_path` (раньше жёсткий MEDIA_DIR —
+  приватные области не обходились вовсе). `drivers.drop_replaced_doc(old, new)` стирает
+  прежнюю версию документа после commit; зовётся из `/driver/verify` и `/taxi/apply`.
+- **Фото-доказательства принадлежат загрузившему (2026-08-08, волна 9).** `/upload/evidence`
+  даёт имя `{user_id}_{uuid}.{ext}`, и `safety_logic.guard_own_evidence(urls, user_id, already=…)`
+  бросает 403, если в записи есть ПРИВАТНЫЙ снимок другого человека. Стоит на четырёх дверях:
+  `create_incident` (общая точка — её зовут и `/incidents`, и спор по доставке), `/incidents/{id}/respond`,
+  `/parcels/{id}/accept` и `/parcels/{id}/status` (фото «взял/отдал целой»). Публичные `/media/...`
+  не проверяются (открыты по построению). Читать приложенное по-прежнему могут стороны спора и
+  админ (`_can_view_evidence`). Тесты — `test_audit_20260808.py` раздел 13.
+- **Пауза убирает из ВЫДАЧИ, а не только из действий (2026-08-08, по просьбе Александра).**
+  `safety_logic.suspended_user_ids(session)` — один select «кто сейчас на паузе» (условие
+  `suspended_until > now`, ленивый пересчёт не нужен). Применяется: `rides.py::_hide_suspended`
+  в четырёх точках выдачи (кеш, свежая лента, поиск с пагинацией, `GET /rides/{id}`) и в ленте
+  заявок `requests.py`. Своя поездка/заявка автору видна всегда. Прямую ссылку закрывают гейты:
+  `account_paused(ride.driver_id)` в `POST /bookings` (409) и `account_paused(req.passenger_id)`
+  в `/requests/{id}/respond` (409) — текст нейтральный, о наказании второй стороне не сообщаем.
+- **Такси: до accept водителю округлены ОБЕ точки (2026-08-08, решение Александра).**
+  `instant_service.order_payload`: `blur = role=="driver" and not unlocked` → `round(…, 2)` для
+  from/to и `street_only(order.to_text)` (регулярка `_HOUSE_TAIL` срезает номер дома, «8 Марта»
+  не ломает). Пассажир свой адрес видит целиком; после accept водителю открывается точный —
+  в том же ответе на принятие, доп. запрос клиенту не нужен. Тесты — `test_audit_20260808.py`
+  раздел 15, `test_release_hardening.py::test_driver_offer_pickup_blurred_before_accept`.
+- **Блокировка тоже закрывает ВТОРОЙ шаг (2026-08-08, волна 10).** `is_blocked` добавлен в
+  `/responses/{id}/accept` и `/bookings/{id}/confirm` — рядом с гейтами паузы, теми же строками.
+  Отказ глухой («Недоступно»), чтобы не выдавать факт блокировки. Тесты — `test_audit_20260808.py`
+  раздел 14.
+- **Пауза «Справедливости» закрывает и ВТОРОЙ шаг сделки (2026-08-08, волна 9).** Добавлено:
+  `ensure_active` + `account_paused(другая сторона)` в `/responses/{id}/accept` (проверяются ОБЕ
+  стороны), `ensure_active` в `/bookings/{id}/confirm` (отмена брони намеренно остаётся открытой),
+  и проверка внутри `instant_service.activate_scheduled` — там, а не на ручке, потому что
+  активацию зовут три пути (клиент, ленивый `GET /instant/scheduled`, `taxi_worker`); предзаказ
+  отстранённого отменяется с уведомлением (`ref_kind="instant"`). Полноту сторожит
+  `tests/test_suspension_reaches_everywhere.py` (13 тестов).
+- **«Только женщины» — правило сервера (2026-08-08).** Пол человека живёт на **`User.gender`**
+  (`""` | `female` | `male`); `DriverProfile.gender` остался в базе, но НЕ читается (миграция
+  `ag_user_gender` перенесла значения). Единственная проверка — `safety_logic.guard_women_only(user, msg=…)`
+  (+ `gender_of`/`is_female`, константы `GENDERS`): `female` → пропуск, `""` → 403 «укажи пол
+  в профиле» (`MSG_GENDER_UNKNOWN`), `male` → 403 текстом двери. Три двери зовут её:
+  бронь (`bookings.py`, `MSG_WOMEN_ONLY_RIDE`), публикация поездки (`rides.py`,
+  `MSG_WOMEN_ONLY_DRIVER`), отклик на заявку (`requests.py`, `MSG_WOMEN_ONLY_RESPOND`).
+  Правка поездки отметку не принимает (`RideEditIn` без `women_only`). Пишут пол
+  `/me/update` (`gender`) и старый `/driver/gender`; фильтр ленты и `driver_is_woman`
+  читают `User`. Наружу пол не отдаётся — только бейдж «женщина за рулём»
+  (тест `test_gender_never_leaks_to_other_people`). Клиент: строка «Пол» в профиле
+  (`ProfileScreen.kt`, диалог с тремя вариантами) + `ApiClient.updateGender`.
+  Тесты — `tests/test_audit_20260808.py` (раздел 12), `test_women_driver.py`.
 - **`backend/app/routers/incidents.py`** — `POST /incidents` (подать, гейт `ensure_active`), `/incidents/{id}/respond` (объясниться), `/appeal`, `/withdraw` (мир), `/incidents/mine`, `GET /admin/incidents`, `POST /admin/incidents/{id}/resolve` (лестница), `GET /me/standing`, `GET /users/{id}/trust` (витрина: рейтинг+поездки+Надёжность), `GET /safety/policy`. Приватность: телефон 2-й стороны — только админу; SEVERE → сразу Telegram.
 - **`backend/app/collusion.py` + `routers/sybil.py`** — детект накрутки доверия сговором (взаимный реферал / взаимные 5★ / много броней между собой), `GET /admin/sybil/suspects` (read-only админ-сигнал, без авто-наказаний).
 - **`backend/app/routers/reviews.py`** — `POST /admin/ratings/{id}/exclude` (снять оценку из среднего). Фильтр `excluded=False` — в ОБОИХ путях агрегата (`services.user_rating` + `drivers_bundle`).
@@ -326,6 +460,15 @@
   показывает блок «Сверьте машину перед посадкой» рядом с кодом посадки; в `TripPassCard` номер
   отдельной строкой. Источник на экране активной поездки — **офлайн-паспорт**, не сеть.
 - **Пол водителя: `DriverProfile.gender_verified`** (миграция `af_gender_verified`). Заявляет
+  человек (`User.gender`), включает модератор. **Слияние веток (2026-08-12, волна 23) свело
+  два правила в одну точку:** `safety_logic.is_verified_female_driver(user, profile)` —
+  «женщина за рулём» = заявлено `female` у ЧЕЛОВЕКА И подтверждено модератором у ВОДИТЕЛЯ;
+  оттуда читают бейдж, SQL-фильтр ленты и подбор такси. Второе —
+  `safety_logic.reset_gender_verification(session, user, new_gender)`: смена заявления снимает
+  подтверждение, и зовут её **обе** двери к полу — `/driver/gender` и `/me/update` (раньше
+  вторая двери сброса не делала: «подтверждён как мужчина, заявлен как женщина» проходил
+  в фильтр «только женщины»). Тест — `test_women_driver.py::test_verification_does_not_survive_a_gender_switch`.
+  Старая схема ниже (что чем было раньше):
   водитель (`POST /driver/gender`, смена пола сбрасывает подтверждение), включает модератор
   (`POST /admin/drivers/{id}/moderate`, поле `gender_verified`; `None` = не трогать, отклонение
   документов снимает). `GET /admin/drivers/pending` отдаёт `gender_claimed` + `gender_verified`.

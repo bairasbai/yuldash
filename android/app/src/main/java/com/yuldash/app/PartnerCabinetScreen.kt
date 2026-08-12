@@ -467,12 +467,32 @@ private fun PartnerCouponRow(c: PartnerCouponDto, busy: Boolean, onEdit: () -> U
                     }
                     Spacer(Modifier.width(4.dp))
                 }
-                CouponAdminStatusChip(c.status)
+                CouponAdminStatusChip(c.status, c.review)
             }
             Text(
                 appText("Активаций: ${c.activations}  ·  погашено: ${c.redeemedCount}", "Активлаштырыу: ${c.activations}  ·  һүндерелгән: ${c.redeemedCount}"),
                 color = CanonMuted, fontSize = 12.sp,
             )
+            // Почему купона нет в витрине — словами, а не кодом состояния. Молча спрятанный
+            // купон человек воспринимает как поломку приложения и идёт жаловаться.
+            when {
+                c.review == "held" -> Text(
+                    appText("Текст не прошёл проверку: убери телефон, ссылку или резкие слова — и сохрани.",
+                            "Текст тикшереүҙе үтмәне: телефонды, һылтанманы йәки ҡаты һүҙҙәрҙе алып ташла ла һаҡла."),
+                    color = CanonRed, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+                c.review == "blocked" -> Text(
+                    c.reviewNote.ifBlank {
+                        appText("Купон снят администратором. Поправь текст и сохрани — он снова уйдёт на проверку.",
+                                "Купонды администратор алды. Тексты төҙәт тә һаҡла — ул тағы тикшереүгә китә.")
+                    },
+                    color = CanonRed, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+                c.reportsCount > 0 -> Text(
+                    appText("Жалоб от людей: ${c.reportsCount}", "Кешеләрҙән зар: ${c.reportsCount}"),
+                    color = CanonWarn, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onEdit, enabled = !busy, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp)) {
                     Text(appText("Править", "Төҙәтеү"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -492,8 +512,25 @@ private fun PartnerCouponRow(c: PartnerCouponDto, busy: Boolean, onEdit: () -> U
     }
 }
 
+/**
+ * Чип состояния купона. Показывает ПРОВЕРКУ вперёд статуса.
+ *
+ * Иначе человек видит «Активен» и не понимает, почему купона нет в витрине: он включил его,
+ * а текст задержала проверка или админ снял карточку. Статус — «чего хочет партнёр»,
+ * проверка — «можно ли показывать»; людям важнее второе.
+ */
 @Composable
-private fun CouponAdminStatusChip(status: String) {
+private fun CouponAdminStatusChip(status: String, review: String = "approved") {
+    when (review) {
+        "held" -> {
+            StatusChip(CanonDangerBg, CanonRed, appText("На проверке текста", "Текст тикшереүҙә"))
+            return
+        }
+        "blocked" -> {
+            StatusChip(CanonDangerBg, CanonRed, appText("Снят администратором", "Администратор алған"))
+            return
+        }
+    }
     val (bg, fg, ru, ba) = when (status) {
         "active" -> CStatus(CanonMint, CanonGreen2, "Активен", "Актив")
         "paused" -> CStatus(CanonWarnBg, CanonWarn, "Пауза", "Пауза")
@@ -502,6 +539,14 @@ private fun CouponAdminStatusChip(status: String) {
     }
     Surface(color = bg, shape = RoundedCornerShape(8.dp)) {
         Text(appText(ru, ba), color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+    }
+}
+
+@Composable
+private fun StatusChip(bg: androidx.compose.ui.graphics.Color, fg: androidx.compose.ui.graphics.Color, label: String) {
+    Surface(color = bg, shape = RoundedCornerShape(8.dp)) {
+        Text(label, color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
     }
 }
 

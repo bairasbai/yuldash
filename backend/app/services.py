@@ -21,6 +21,7 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .db import engine
+from .imagemeta import strip_image_metadata
 from .logs import log
 from .models import (
     Block, Booking, BookingStatus, DeviceToken, DriverProfile, Notification, PickupPoint, Rating, Ride,
@@ -98,6 +99,14 @@ def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sn
         ext = detected
     if ext not in allowed_ext:
         raise HTTPException(400, f"Недопустимый тип файла: .{ext}")
+    if sniff_image:
+        # Срезаем EXIF/GPS и прочие метаданные — ЗДЕСЬ, в единственной точке, через которую
+        # проходят обе дороги (multipart и base64) и все загрузки: аватар, чат, документы,
+        # доказательства, фото посылки. Иначе координаты съёмки уезжали вместе с фото:
+        # снимок из дома в профиле скачивался по прямой ссылке кем угодно (аудит 2026-08-08,
+        # волна 21). Наш Android пережимает фото и метаданные теряет сам, но веб-версия шлёт
+        # файл как есть, а к API можно прийти и напрямую — правило должно жить на сервере.
+        data = strip_image_metadata(data, ext)
     return data, ext
 
 
@@ -748,6 +757,12 @@ def drivers_bundle(session: Session, driver_ids: set) -> tuple[dict, dict, dict,
     return users, profiles, rating_agg, trips_agg
 
 
+def _is_verified_female_driver(drv, prof) -> bool:
+    """Обёртка над правилом из `safety_logic` — импорт локальный, там цикл (он тянет services)."""
+    from .safety_logic import is_verified_female_driver
+    return bool(drv is not None and prof is not None and is_verified_female_driver(drv, prof))
+
+
 def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, trips_agg: dict | None = None) -> RideOut:
     """RideOut из предзагруженных батчей (без запросов в БД)."""
     drv = users.get(ride.driver_id)
@@ -769,9 +784,12 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
         driver_online=(prof.online if prof else False),
         driver_trips=trips,
         driver_since=since,
-        # Только ПОДТВЕРЖДЁННЫЙ модератором пол. Самодекларация в витрину не попадает —
-        # иначе бейдж «женщина за рулём» ставит себе кто угодно (см. models.DriverProfile).
-        driver_is_woman=(bool(prof.gender == "female" and prof.gender_verified) if prof else False),
+        # Заявление берём у ЧЕЛОВЕКА (пол переехал на User, аудит 2026-08-08), подтверждение —
+        # у профиля водителя: бейдж «женщина за рулём» ставит модератор, а не сам водитель.
+        # Правило целиком — `safety_logic.is_verified_female_driver` (импорт локальный:
+        # safety_logic тянет services). Наружу отдаём только полезный сигнал — male
+        # и «не указан» тут неразличимы.
+        driver_is_woman=_is_verified_female_driver(drv, prof),
     )
 
 

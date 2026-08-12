@@ -10,12 +10,14 @@ from ..db import get_session
 from ..errors import herr
 from ..config import settings
 from ..logs import log
+from ..middleware import user_over_limit
 from ..models import (
     Block, Booking, BookingStatus, DriverProfile, InstantOrder, Report, Ride, SosEvent,
     TripShare, TrustedContact, User, UserRole,
 )
 from ..security import current_user
-from ..services import booking_and_ride_for_user, notify_admin_telegram, send_push, send_text
+from ..services import (booking_and_ride_for_user, notify_admin_telegram,
+                        push_notification, send_push, send_text)
 from ..timeutil import utcnow
 from .. import quality
 
@@ -258,6 +260,15 @@ ReportCategory = Literal[
 ]
 
 
+# Потолок НОВЫХ жалоб на человека в час. Дедуп (`_dedup_report`) держит «один автор — одна
+# жалоба по одному поводу», но повод включает ЦЕЛЬ: меняя target_user_id, один вошедший
+# создаёт сколько угодно разных жалоб, а тяжёлая категория на каждой дёргает Telegram
+# Александра (`quality.escalate_severe`). Ровно та причина, по которой /callback и /donate
+# живут в строгом бюджете лимитера, — а /reports в него не попал (аудит 2026-08-08).
+# Живой человек жалуется по итогу поездки, то есть единицы раз в день.
+MAX_REPORTS_PER_HOUR = 10
+
+
 class ReportIn(BaseModel):
     # target_user_id опционален при привязке к поездке (вторая сторона вычисляется сервером).
     target_user_id: Optional[int] = None
@@ -451,6 +462,11 @@ def create_report(body: ReportIn,
     if dup is not None:   # повторный тап идемпотентен: возвращаем уже созданную жалобу
         return ReportCreatedOut(id=dup.id, category=dup.category,
                                 status=dup.status, created_at=dup.created_at)
+    # Потолок считаем ЗДЕСЬ, а не в начале: повторный тап по той же жалобе выше вернулся
+    # идемпотентно и бюджет не потратил. Ограничиваем только создание НОВОЙ жалобы.
+    if user_over_limit("report_create", user.id, MAX_REPORTS_PER_HOUR, window_sec=3600):
+        raise herr(429, "Слишком много жалоб подряд. Подожди немного.",
+                   "Артыҡ күп зар. Бер аҙ көт.")
     report = Report(
         reporter_id=user.id, target_user_id=target_id, reason=body.reason,
         category=body.category, order_id=body.order_id, booking_id=body.booking_id,
@@ -511,9 +527,15 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
                 session.commit()
                 order = session.get(InstantOrder, r.order_id)
                 if order and order.driver_id:
-                    send_push(session, order.driver_id, "Комиссия за поездку списана",
-                              "Жалоба «пассажир не заплатил» подтверждена — комиссию за эту "
-                              "поездку с тебя сняли. · Комиссия алынды.")
+                    push_notification(
+                        session, order.driver_id, "money",
+                        "Комиссия за поездку списана", "Сәфәр комиссияһы алып ташланды",
+                        "Жалоба «пассажир не заплатил» подтверждена — комиссию за эту "
+                        "поездку с тебя сняли.",
+                        "«Пассажир түләмәне» ялыуы раҫланды — был сәфәр өсөн комиссия "
+                        "һинән алып ташланды.",
+                        ref_kind="debt", ref_id=order.driver_id,
+                    )
         except Exception as e:  # noqa: BLE001 — разбор жалобы важнее, чем побочка со списанием
             log.warning(f"[DEBT] списание долга по заказу {r.order_id}: {type(e).__name__}: {e}")
     # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).

@@ -22,6 +22,10 @@ from ..timeutil import utcnow
 
 router = APIRouter(tags=["payments"])
 
+# Сколько минут неоплаченный счёт на поднятие считается «тем же самым». Окно короткое: человек
+# либо платит по QR сразу, либо передумал. Дольше держать нельзя — цена тарифа может смениться.
+BOOST_PENDING_REUSE_MIN = 30
+
 
 @router.get("/boost/plans")
 def boost_plans():
@@ -217,14 +221,33 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
         raise HTTPException(503, "Оплата скоро будет доступна")
 
     title, amount_kop, _hours = plan
-    payment = Payment(user_id=user.id, purpose="boost", ride_id=ride.id, tier=body.tier, amount_kop=amount_kop)
-    session.add(payment)
-    session.commit()
-    session.refresh(payment)
+    # Двойной тап / повтор после обрыва сети не должен плодить счета. Раньше каждый вызов
+    # создавал НОВЫЙ платёж: человек видел три разных QR на одну поездку и мог заплатить
+    # дважды (буст-то один), а админу прилетало три уведомления «поступил платёж»
+    # (аудит 2026-08-08, волна 13 — проверено: 3 тапа = 3 счёта и 3 пинга).
+    #
+    # Возвращаем тот же неоплаченный счёт, если он свежий и ровно за это: та же поездка,
+    # тот же тариф. Другой тариф — осознанный выбор человека, ему нужен новый счёт.
+    fresh_since = utcnow() - timedelta(minutes=BOOST_PENDING_REUSE_MIN)
+    payment = session.exec(
+        select(Payment).where(
+            Payment.user_id == user.id, Payment.purpose == "boost",
+            Payment.ride_id == ride.id, Payment.tier == body.tier,
+            Payment.status == "pending", Payment.created_at >= fresh_since,
+        ).order_by(Payment.id.desc())
+    ).first()
+    reused = payment is not None
+    if payment is None:
+        payment = Payment(user_id=user.id, purpose="boost", ride_id=ride.id, tier=body.tier,
+                          amount_kop=amount_kop)
+        session.add(payment)
+        session.commit()
+        session.refresh(payment)
 
     # СБП-перевод по номеру: платёж висит pending, активирует админ после получения денег.
     if settings.payments_provider == "sbp_manual":
-        _notify_new_payment(session, payment)
+        if not reused:      # админа зовём один раз на счёт, а не на каждый тап
+            _notify_new_payment(session, payment)
         return {
             "status": "pending", "method": "sbp_manual", "payment_id": payment.id,
             "amount": amount_kop // 100,
@@ -232,6 +255,12 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
         }
 
     # mock/yookassa. user.phone реальный (current_user не пускает плейсхолдер) → на него ЮKassa шлёт чек.
+    if reused and payment.provider_id:
+        # Счёт у провайдера уже заведён — второй раз не создаём, отдаём ту же ссылку на оплату.
+        existing = fetch_payment(payment.provider_id)
+        if existing and existing.get("confirmation_url"):
+            return {"status": "pending", "method": "yookassa", "payment_id": payment.id,
+                    "confirmation_url": existing["confirmation_url"]}
     res = _start_yookassa(session, payment, f"Юлдаш · {title}", user.phone)
     payment.provider_id = res["provider_id"]
     session.add(payment)

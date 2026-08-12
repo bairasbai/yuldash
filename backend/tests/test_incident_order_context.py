@@ -19,7 +19,10 @@ from app.timeutil import utcnow
 
 @pytest.fixture(autouse=True)
 def _quiet(monkeypatch):
-    monkeypatch.setattr("app.routers.incidents.send_push", lambda *a, **k: None)
+    # Глушим у ИСТОЧНИКА: разбор шлёт всё через push_notification (наказание обязано
+    # оставаться записью в Центре уведомлений — аудит 2026-08-08, волна 19),
+    # а тот внутри зовёт services.send_push.
+    monkeypatch.setattr("app.services.send_push", lambda *a, **k: None)
     monkeypatch.setattr("app.routers.incidents.notify_admin_telegram", lambda *a, **k: None)
 
 

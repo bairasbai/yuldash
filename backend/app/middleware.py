@@ -49,16 +49,29 @@ _ESTIMATE_PREFIXES = (
     "/api/v1/instant/estimate", "/api/v1/courier/estimate",
 )
 
+# Приём телеметрии — единственная ручка, которая ПИШЕТ строку в базу вообще без входа.
+# Общего бюджета (300/мин) тут мало: это 430 тысяч строк в сутки с одного адреса, и на нашем
+# маленьком сервере такой «аналитикой» забивают диск за неделю (аудит 2026-08-08). Настоящий
+# клиент шлёт единицы событий на действие человека, поэтому свой бюджет ничего не ломает,
+# а бессмысленный поток обрубает.
+_EVENTS_PREFIXES = ("/events", "/api/v1/events")
+
 # Освобождены от ЖЁСТКОГО лимита: пробы мониторинга (их долбит uptime-чек и деплой-гейт)
 # и вебхуки внешних сервисов (Telegram/ЮKassa) — у них своя защита (секрет/подпись), а объём
-# легитимного трафика может кратно превышать пользовательский. Важно: /auth/telegram/webhook
-# начинается с "/auth" → без этого списка попал бы в строгий бюджет и Telegram-бота при
-# активности резало бы 429. Проверяется ПЕРЕД _STRICT_PREFIXES. Совпадение и с /api/v1.
+# легитимного трафика может кратно превышать пользовательский. Проверяется ПЕРЕД
+# _STRICT_PREFIXES. Совпадение и с /api/v1.
+#
+# Путь вебхука Telegram — именно "/telegram/webhook" (см. routers/auth.py). Здесь три месяца
+# стояло "/auth/telegram/webhook": такого маршрута в приложении нет, поэтому исключение не
+# срабатывало ни разу, и апдейты бота считались как обычный трафик пользователя. Пока бот тихий,
+# это незаметно; в час пик (или когда кто-то насыпет боту сообщений с одного адреса) Telegram
+# начал бы получать 429 и ретраить — вход через бота встал бы у всех, а причина выглядела бы
+# как «Telegram сломался» (аудит 2026-08-08).
 _EXEMPT_PREFIXES = (
     "/health", "/version",
-    "/auth/telegram/webhook", "/payments/yookassa/webhook",
+    "/telegram/webhook", "/payments/yookassa/webhook",
     "/api/v1/health", "/api/v1/version",
-    "/api/v1/auth/telegram/webhook", "/api/v1/payments/yookassa/webhook",
+    "/api/v1/telegram/webhook", "/api/v1/payments/yookassa/webhook",
 )
 
 
@@ -93,6 +106,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._hits_strict: dict[str, deque] = defaultdict(deque)
         self._hits_sos: dict[str, deque] = defaultdict(deque)
         self._hits_estimate: dict[str, deque] = defaultdict(deque)
+        self._hits_events: dict[str, deque] = defaultdict(deque)
         self._redis = None
         self._redis_tried = False
 
@@ -141,6 +155,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         strict = path.startswith(_STRICT_PREFIXES)
         sos = path.startswith(_SOS_PREFIXES)
         estimate = path.startswith(_ESTIMATE_PREFIXES)
+        events = path.startswith(_EVENTS_PREFIXES)
         client = self._get_redis()
         over, retry_after = False, 0
         if client is not None:
@@ -153,6 +168,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 if not over and estimate:
                     over, retry_after = await self._over_redis(client, f"rl:e:{ip}",
                                                                settings.rate_limit_estimate_per_min)
+                if not over and events:
+                    over, retry_after = await self._over_redis(client, f"rl:ev:{ip}",
+                                                               settings.rate_limit_events_per_min)
                 if not over:
                     over, retry_after = await self._over_redis(client, f"rl:g:{ip}", settings.rate_limit_per_min)
             except Exception as e:  # noqa: BLE001 — Redis недоступен → in-memory
@@ -169,6 +187,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if not over and estimate:
                 over, retry_after = self._over_mem(self._hits_estimate, ip,
                                                    settings.rate_limit_estimate_per_min, now)
+            if not over and events:
+                over, retry_after = self._over_mem(self._hits_events, ip,
+                                                   settings.rate_limit_events_per_min, now)
             if not over:
                 over, retry_after = self._over_mem(self._hits, ip, settings.rate_limit_per_min, now)
         if over:
@@ -244,7 +265,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     path = request.url.path
     if path.startswith("/t/") or path.startswith("/api/v1/t/"):
         path = path[: path.index("/t/") + 3] + "***"   # токен live-ссылки — секрет (B7c)
-    log.error(f"[ERR] {request.method} {path}: {type(exc).__name__}: {exc}", exc_info=exc)
+    # Текст ошибки и стек — через скруб: в `IntegrityError` SQLAlchemy кладёт параметры
+    # запроса, то есть телефон и имя человека. `exc_info` не используем намеренно — он
+    # печатает исходный текст мимо очистки (аудит 2026-08-08, волна 14).
+    from .observability import scrub_exc
+    log.error("[ERR] %s %s: %s\n%s", request.method, path, type(exc).__name__, scrub_exc(exc))
     # Обработчик bare Exception мог бы «съесть» авто-захват Sentry — шлём явно.
     from .observability import capture
     capture(exc)

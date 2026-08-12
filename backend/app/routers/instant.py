@@ -848,11 +848,19 @@ def lost_item(order_id: int, user: User = Depends(current_user),
     other_id = order.driver_id if user.id == order.passenger_id else order.passenger_id
     if other_id:
         try:
-            from ..services import send_push
-            send_push(session, other_id, "Забытая вещь · Онотолған әйбер",
-                      "Вторая сторона ищет вещь из этой поездки — чат снова открыт на 48 часов."
-                      " · Сәфәрҙән әйбер эҙләйҙәр — чат 48 сәғәткә асыҡ.",
-                      {"type": "chat", "id": order.id})
+            from ..services import push_notification
+            # Запись, а не голый пуш: человек ищет свою вещь и вернётся к этому сообщению
+            # позже — пуш к тому времени уже смахнули (аудит 2026-08-12, волна 24).
+            push_notification(
+                session, other_id, "instant",
+                "Забытая вещь", "Онотолған әйбер",
+                "Вторая сторона ищет вещь из этой поездки — чат снова открыт на 48 часов.",
+                "Сәфәрҙән әйбер эҙләйҙәр — чат 48 сәғәткә асыҡ.",
+                ref_kind="instant", ref_id=order.id,
+                # «order_chat», а не «chat»: id — заказ такси. Под «chat» приложение
+                # открывает бронь попутки с этим номером (аудит 2026-08-08).
+                data={"type": "order_chat", "id": order.id},
+            )
         except Exception:  # noqa: BLE001 — пуш вторичен
             pass
     return {"ok": True, "chat_open_until": order.lost_item_until.isoformat()}

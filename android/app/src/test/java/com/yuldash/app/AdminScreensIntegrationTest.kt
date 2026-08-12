@@ -1,7 +1,7 @@
 package com.yuldash.app
 
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -108,6 +108,19 @@ class AdminScreensIntegrationTest {
     // Полный разбор костыля (три его дефекта + доказательство, что он прятал причину) —
     // в docs/lessons.md, раздел «Костыль-повтор уничтожил диагностику». Обратно не вешать.
 
+    // ⬇️ КОРЕНЬ МИГАНИЯ НАЗВАН И УБРАН (2026-08-08). Обрати внимание на `.v2` в импорте.
+    // Старое правило крутило эффекты экрана на `UnconfinedTestDispatcher`: он НЕ переотправляет
+    // продолжение, и после `withContext(IO)` внутри ApiClient корутина экрана возобновлялась
+    // прямо на сетевом потоке. Стейт (`list`, `loading = false`) писался оттуда — композиция
+    // узнавала об этом не сразу, а «когда-нибудь»: 40 мс на здоровом прогоне, 13 секунд на
+    // медленном, больше 20 секунд на падающем. Порога нет, разница зелёного и красного была
+    // количественной — отсюда «падает случайный тест» и «поодиночке проходит».
+    //
+    // `v2` использует `StandardTestDispatcher`: продолжение всегда идёт через планировщик теста
+    // и возвращается на главный поток — как в настоящем приложении, где эффекты живут на
+    // `AndroidUiDispatcher.Main`. Об этом дословно писал компилятор в каждой сборке
+    // (предупреждение об устаревании старого правила), и девять разборов читали мимо.
+    //
     /**
      * ⚠️ Аргумент здесь — ПОЧИНКА МИГАНИЯ (2026-08-08), а не украшение. Не убирать.
      *
@@ -130,9 +143,9 @@ class AdminScreensIntegrationTest {
      * немедленного исполнения на чужом потоке. Документация правила прямо обещает, что
      * контекст `LaunchedEffect` и `rememberCoroutineScope` берётся отсюда.
      *
-     * Почему не переехали на `junit4.v2.createComposeRule`, как советует предупреждение
-     * компилятора: на Android v2 поднимает `ComponentActivity`, а это заметная перемена
-     * поведения под Robolectric ради того же самого диспетчера. Взяли минимальное.
+     * На `junit4.v2.createComposeRule` в итоге переехали (см. импорт выше) — именно его
+     * советовал компилятор в каждой сборке. Аргумент оставлен намеренно: он делает выбор
+     * диспетчера явным для читателя, а не спрятанным в умолчании правила.
      */
     @get:Rule(order = 1)
     val composeRule = createComposeRule(StandardTestDispatcher())

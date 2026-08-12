@@ -19,13 +19,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy import update as sa_update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from ..antifraud import moderate_open_text
 from ..db import get_session
 from ..errors import herr
-from ..models import Coupon, CouponRedemption, Partner, Payment, User, UserRole
+from ..middleware import user_over_limit
+from ..models import Coupon, CouponReport, CouponRedemption, Partner, Payment, User, UserRole
 from ..security import current_user
-from ..services import notify_admin_telegram, send_push
+from ..services import notify_admin_telegram, push_notification
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["coupons"])
@@ -45,6 +48,12 @@ PARTNER_REDEMPTION_FEE_KOP = 1000
 
 # Анти-спам: не даём одному бизнесу плодить бесконечно купонов.
 MAX_COUPONS_PER_PARTNER = 50
+
+# Анти-спам жалобами: первая жалоба на купон дёргает Telegram админа. Без потолка один человек,
+# пройдясь по витрине, шлёт Александру столько сообщений, сколько там купонов (аудит 2026-08-08 —
+# ровно та причина, по которой /callback и /donate живут в строгом бюджете лимитера). Живой
+# человек жалуется на один-два купона за раз, упереться можно только специально.
+MAX_COUPON_REPORTS_PER_HOUR = 10
 
 # Алфавит кода погашения — без похожих символов (0/O, 1/I), чтобы диктовать/вводить без ошибок.
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -96,6 +105,57 @@ def _csv(s: str) -> List[str]:
     return [x.strip() for x in (s or "").split(",") if x.strip()]
 
 
+def moderate_and_clamp_reason(reason: Optional[str], user_id: int) -> str:
+    """Текст жалобы: обрезать и проверить. Его читает админ, но правило одно на все поля."""
+    text = (reason or "").strip()[:500]
+    if text:
+        moderate_open_text(text, user_id)
+    return text
+
+
+def _moderate_storefront(user_id: int, *parts: str) -> str:
+    """Проверить текст, который попадёт в ПУБЛИЧНУЮ витрину купонов. Возвращает метку ('' — чисто).
+
+    Витрина `/coupons` открыта без входа, а модерации у неё не было вовсе (аудит 2026-08-08).
+    Метка (`contact`/`abuse`/`warn`) копится в админ-пульсе, как везде, и дополнительно
+    решает судьбу купона: помеченный в витрину не выпускаем (см. `_apply_review`).
+    """
+    text = "\n".join(p.strip() for p in parts if p and p.strip())
+    return moderate_open_text(text, user_id) if text else ""
+
+
+# Поля витрины бизнеса, которые ЧИТАЕТ человек. Их правка после одобрения возвращает карточку
+# на модерацию (решение Александра, 2026-08-08). Категория, город и координаты сюда не входят
+# намеренно: бизнес, передвинувший пин на карте или сменивший категорию, не должен пропадать
+# из витрины до следующего захода админа — переписать этим текст объявления нельзя.
+_PARTNER_TEXT_FIELDS = ("name", "description", "address", "phone")
+
+
+def _partner_text(partner: Partner) -> tuple:
+    return tuple((getattr(partner, f, "") or "").strip() for f in _PARTNER_TEXT_FIELDS)
+
+
+def _requeue_partner_after_edit(session: Session, partner: Partner, before: tuple) -> bool:
+    """Одобренный бизнес переписал видимый текст → карточка снова на модерации.
+
+    Зачем строго. Одобрение админом закрывало только ПЕРВЫЙ показ: карточку, одобренную
+    чистой, владелец потом переписывал во что угодно, и она уходила в витрину сразу — это
+    классическая подмена после проверки (аудит 2026-08-08). Теперь как у рекламы: правка
+    текста снимает карточку с витрины до нового одобрения.
+
+    Цена решения принята сознательно: бизнес, поправивший телефон, пропадает из витрины до
+    захода админа. Поэтому и re-moderation только на ТЕКСТ (см. `_PARTNER_TEXT_FIELDS`) и
+    только при реальном изменении — повторное сохранение той же формы карточку не роняет.
+    """
+    if partner.status != "active" or _partner_text(partner) == before:
+        return False
+    partner.status = "pending"
+    partner.reviewed_at = None
+    partner.reject_reason = ""
+    session.add(partner)
+    return True
+
+
 def _gen_code(session: Session) -> str:
     """Уникальный короткий код погашения (проверка коллизии по БД)."""
     for _ in range(20):
@@ -136,6 +196,11 @@ def _coupon_visible(coupon: Coupon, partner: Optional[Partner], now: datetime) -
     if partner is None or partner.status != "active" or not _sub_active(partner, now):
         return False
     if coupon.status != "active":
+        return False
+    # Состояние проверки: `held` (автопроверка пометила) и `blocked` (админ снял) в витрину
+    # не пускаем. `pending` пускаем намеренно — чистый текст публикуется сразу, человек
+    # смотрит его потом (иначе один админ становится узким местом всей витрины).
+    if getattr(coupon, "review", "approved") not in COUPON_REVIEW_VISIBLE:
         return False
     if not _in_window(coupon, now):
         return False
@@ -404,6 +469,7 @@ def partner_register(body: PartnerIn, user: User = Depends(current_user), sessio
     city = body.city.strip()
     if not city:
         raise herr(422, "Укажи город бизнеса", "Бизнес ҡалаһын күрһәт")
+    _moderate_storefront(user.id, name, body.description, body.address)
     partner = Partner(
         owner_id=user.id, name=name, category=(body.category.strip() or "other"), city=city,
         address=body.address.strip(), phone=body.phone.strip(), description=body.description.strip(),
@@ -531,6 +597,10 @@ def _coupon_mine(coupon: Coupon, session: Session) -> dict:
         "activations": int(active),        # reserved + redeemed
         "premium": coupon.premium,
         "status": coupon.status,
+        # Состояние проверки — партнёр должен понимать, почему купон не виден людям.
+        "review": getattr(coupon, "review", "approved"),
+        "review_note": getattr(coupon, "review_note", "") or "",
+        "reports_count": int(getattr(coupon, "reports_count", 0) or 0),
         "created_at": coupon.created_at.isoformat() if coupon.created_at else None,
     }
 
@@ -576,10 +646,54 @@ def partner_coupon_create(body: CouponIn, user: User = Depends(current_user), se
         premium=bool(body.premium) and _partner_has_premium(partner),   # premium-метка только на premium-подписке
         status="draft",
     )
+    # Состояние проверки считаем по УЖЕ СОБРАННОМУ купону (а не по присланным полям):
+    # в витрину уедет карточка целиком. Купон рождается черновиком, поэтому в витрину он
+    # сейчас всё равно не попадёт — но метка и очередь заводятся сразу.
+    _apply_review(coupon, user.id)
     session.add(coupon)
     session.commit()
     session.refresh(coupon)
     return _coupon_mine(coupon, session)
+
+
+def _coupon_flag(coupon: Coupon, user_id: int) -> str:
+    """Метка модерации по тексту купона, который увидит витрина ('' — чисто)."""
+    return _moderate_storefront(user_id, coupon.title, coupon.description,
+                                coupon.route_hint, coupon.discount_text)
+
+
+# Состояния проверки, при которых купон ВИДЕН в витрине (см. Coupon.review в models.py).
+# `pending` виден намеренно: чистый текст публикуется сразу, человек смотрит его потом —
+# иначе один Александр с пятью минутами в день становится узким местом всей витрины.
+COUPON_REVIEW_VISIBLE = ("pending", "approved")
+
+
+def _apply_review(coupon: Coupon, user_id: int) -> str:
+    """Пересчитать состояние проверки по текущему тексту купона. Возвращает метку ('' — чисто).
+
+    Правило одно на все двери (создание, правка, жалоба): помечено → `held` (в витрину не
+    выпускаем, ждём человека); чисто → `pending` (публикуем сразу, но кладём в очередь).
+    Снятое админом (`blocked`) правка не воскрешает молча — оно тоже уходит в очередь,
+    решает снова человек.
+    """
+    kind = _coupon_flag(coupon, user_id)
+    coupon.review_flag = kind
+    coupon.review = "held" if kind else "pending"
+    coupon.reviewed_at = None          # решение админа устарело: текст уже другой
+    return kind
+
+
+def _tell_admin_coupon_held(coupon: Coupon, kind: str) -> None:
+    try:  # best-effort: правку/смену статуса не роняем из-за Telegram
+        notify_admin_telegram(
+            f"🚫 Купон задержан проверкой текста\n"
+            f"ID: {coupon.id}\n"
+            f"Заголовок: «{coupon.title}»\n"
+            f"Метка: {kind}\n"
+            f"В витрину не выпущен. Разбор: Кабинет админа → Модерация"
+        )
+    except Exception:
+        pass
 
 
 def _own_coupon(coupon_id: int, user: User, session: Session) -> Coupon:
@@ -594,7 +708,13 @@ def _own_coupon(coupon_id: int, user: User, session: Session) -> Coupon:
 
 @router.post("/partner/coupons/{coupon_id}")
 def partner_coupon_update(coupon_id: int, body: CouponIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Правка своего купона. Чужой → 404."""
+    """Правка своего купона. Чужой → 404.
+
+    Купоны бизнес публикует сам (их до 50 на бизнес — ставить каждый в очередь к админу
+    значило бы утопить его в работе). Поэтому строгость здесь другая, чем у карточки
+    бизнеса: помеченный проверкой текст в витрину не выпускаем — купон уходит в черновик,
+    а админ получает сигнал. Чистый текст публикуется сразу, как и раньше.
+    """
     coupon = _own_coupon(coupon_id, user, session)
     partner = session.get(Partner, coupon.partner_id)
     if body.title.strip():
@@ -609,19 +729,50 @@ def partner_coupon_update(coupon_id: int, body: CouponIn, user: User = Depends(c
     coupon.limit_total = max(0, body.limit_total)
     coupon.limit_per_user = max(1, body.limit_per_user)
     coupon.premium = bool(body.premium) and _partner_has_premium(partner)
+    # Проверяем УЖЕ СОБРАННЫЙ купон (а не присланные поля): правка может подменить одно поле,
+    # а «в витрину» уедет вся карточка целиком.
+    kind = _apply_review(coupon, user.id)
     session.add(coupon)
     session.commit()
     session.refresh(coupon)
+    if kind:
+        _tell_admin_coupon_held(coupon, kind)
+        push_notification(
+            session, user.id, "coupon",
+            "Купон снят с витрины", "Купон витринанан алынды",
+            f"«{coupon.title}»: текст не прошёл проверку и в витрину не попал. "
+            "Убери телефон или ссылку и сохрани снова.",
+            f"«{coupon.title}»: текст тикшереүҙе үтмәне, витринаға эләкмәне. "
+            "Телефонды йәки һылтанманы алып ташла ла яңынан һаҡла.",
+            ref_kind="partner", ref_id=coupon.partner_id,
+        )
     return _coupon_mine(coupon, session)
 
 
 @router.post("/partner/coupons/{coupon_id}/status")
 def partner_coupon_status(coupon_id: int, body: CouponStatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Сменить статус купона (draft↔active↔paused↔archived)."""
+    """Сменить статус купона (draft↔active↔paused↔archived).
+
+    Включить в витрину можно только купон с чистым текстом: иначе достаточно было сохранить
+    карточку черновиком и нажать «включить» — правка проверяется, а включение нет.
+    """
     coupon = _own_coupon(coupon_id, user, session)
     new_status = (body.status or "").strip()
     if new_status not in ("draft", "active", "paused", "archived"):
         raise herr(422, "Недопустимый статус", "Ярамаған статус")
+    if new_status == "active":
+        # Смотрим СОСТОЯНИЕ проверки, а не пересчитываем текст заново. Пересчёт здесь был бы
+        # дырой: текст с прошлой правки не менялся, значит чистый купон, снятый админом
+        # вручную, тем же пересчётом молча воскресал бы обратно в витрину.
+        if coupon.review == "blocked":
+            raise herr(409,
+                       "Купон снят администратором — поправь текст и сохрани, он снова уйдёт на проверку.",
+                       "Купонды администратор алды — тексты төҙәт тә һаҡла, ул тағы тикшереүгә китә.")
+        if coupon.review == "held":
+            _tell_admin_coupon_held(coupon, coupon.review_flag or "flagged")
+            raise herr(422,
+                       "Текст купона не прошёл проверку — убери телефон, ссылку или резкие слова.",
+                       "Купон тексты тикшереүҙе үтмәне — телефонды, һылтанманы йәки ҡаты һүҙҙәрҙе алып ташла.")
     coupon.status = new_status
     session.add(coupon)
     session.commit()
@@ -654,8 +805,14 @@ def partner_coupon_stats(coupon_id: int, user: User = Depends(current_user), ses
 # FastAPI не сужает int-path на уровне роутинга, иначе «coupons»/«subscribe» ловились бы сюда → 422.
 @router.post("/partner/{partner_id}")
 def partner_update(partner_id: int, body: PartnerIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Правка своего бизнеса (name/category/address/phone/description/lat/lng). Чужой → 404."""
+    """Правка своего бизнеса (name/category/address/phone/description/lat/lng). Чужой → 404.
+
+    Правка ВИДИМОГО ТЕКСТА у одобренного бизнеса возвращает карточку на модерацию —
+    см. `_requeue_partner_after_edit`. Категория, город и координаты карточку не роняют.
+    """
     partner = _own_partner(partner_id, user, session)
+    _moderate_storefront(user.id, body.name, body.description, body.address)
+    before = _partner_text(partner)
     if body.name.strip():
         partner.name = body.name.strip()
     if body.category.strip():
@@ -669,9 +826,32 @@ def partner_update(partner_id: int, body: PartnerIn, user: User = Depends(curren
         partner.lat = body.lat
     if body.lng is not None:
         partner.lng = body.lng
+    requeued = _requeue_partner_after_edit(session, partner, before)
     session.add(partner)
     session.commit()
     session.refresh(partner)
+    if requeued:
+        # Человеку — честно и сразу: почему его купоны исчезли из витрины.
+        push_notification(
+            session, partner.owner_id, "coupon",
+            "Карточка снова на проверке", "Карточка яңынан тикшереүҙә",
+            f"«{partner.name}»: текст изменён, поэтому купоны скрыты из витрины до проверки. "
+            "Обычно это недолго.",
+            f"«{partner.name}»: текст үҙгәртелде, шуға купондар тикшергәнгә тиклем витринанан "
+            "йәшерелде. Ғәҙәттә был оҙаҡҡа бармай.",
+            ref_kind="partner", ref_id=partner.id,
+        )
+        try:  # админу — best-effort, правку не роняем
+            notify_admin_telegram(
+                f"✏️ Бизнес изменил карточку — нужна проверка\n"
+                f"ID: {partner.id}\n"
+                f"Название: «{partner.name}»\n"
+                f"Город: {partner.city}\n"
+                f"Телефон: {partner.phone or '—'}\n"
+                f"Купоны скрыты из витрины. Разбор: Кабинет админа → Бизнесы"
+            )
+        except Exception:
+            pass
     return _partner_mine(partner)
 
 
@@ -737,7 +917,13 @@ def admin_partner_approve(partner_id: int, user: User = Depends(current_user), s
     session.add(partner)
     session.commit()
     session.refresh(partner)
-    send_push(session, partner.owner_id, "Бизнес одобрен", f"«{partner.name}» прошёл проверку. Осталось выбрать тариф и разместить купоны.")
+    push_notification(
+        session, partner.owner_id, "coupon",
+        "Бизнес одобрен", "Бизнес раҫланды",
+        f"«{partner.name}» прошёл проверку. Осталось выбрать тариф и разместить купоны.",
+        f"«{partner.name}» тикшереүҙе үтте. Хәҙер тарифты һайлап, купондарҙы ҡуйырға ҡала.",
+        ref_kind="partner", ref_id=partner.id,
+    )
     return _partner_admin(partner)
 
 
@@ -754,5 +940,186 @@ def admin_partner_reject(partner_id: int, body: RejectIn, user: User = Depends(c
     session.add(partner)
     session.commit()
     session.refresh(partner)
-    send_push(session, partner.owner_id, "Бизнес отклонён", (partner.reject_reason or "Проверь данные и отправь снова")[:120])
+    push_notification(
+        session, partner.owner_id, "coupon",
+        "Бизнес отклонён", "Бизнес кире ҡағылды",
+        (partner.reject_reason or "Проверь данные и отправь снова")[:120],
+        (partner.reject_reason or "Мәғлүмәттәрҙе тикшереп, яңынан ебәр")[:120],
+        ref_kind="partner", ref_id=partner.id,
+    )
     return _partner_admin(partner)
+
+
+# ---------- Админ: единая очередь модерации витрины ----------
+# Зачем одна очередь, а не два экрана. У Александра 5–10 минут в день. Пока «непросмотренное»
+# лежало в двух местах (бизнесы — в своём списке, купоны — нигде), купон с чистым текстом
+# не видел НИКТО и НИКОГДА: автопроверка ищет телефоны, ссылки и ругань по шаблонам и
+# спокойно пропускает «скидка 90% при предоплате на карту» (аудит 2026-08-08).
+#
+# Порядок в очереди — по срочности, а не по дате: сверху то, что кого-то БЛОКИРУЕТ
+# (бизнес ждёт первого одобрения, купон задержан автопроверкой), ниже — «посмотреть потом».
+
+class CouponBlockIn(BaseModel):
+    reason: str = Field("", max_length=500)
+
+
+class CouponReportIn(BaseModel):
+    reason: str = Field("", max_length=500)
+
+
+def _coupon_admin(coupon: Coupon, partner: Optional[Partner]) -> dict:
+    """Карточка купона для очереди модерации: текст целиком + чем помечен + жалобы."""
+    return {
+        "id": coupon.id,
+        "partner_id": coupon.partner_id,
+        "partner_name": (partner.name if partner else ""),
+        "city": coupon.city,
+        "title": coupon.title,
+        "description": coupon.description,
+        "discount_text": coupon.discount_text,
+        "route_hint": _csv(coupon.route_hint),
+        "status": coupon.status,
+        "review": coupon.review,
+        "review_flag": coupon.review_flag or "",
+        "review_note": coupon.review_note or "",
+        "reports_count": int(coupon.reports_count or 0),
+        "visible": coupon.status == "active" and coupon.review in COUPON_REVIEW_VISIBLE,
+        "created_at": coupon.created_at.isoformat() if coupon.created_at else None,
+    }
+
+
+@router.get("/admin/moderation")
+def admin_moderation_queue(limit: int = 100, user: User = Depends(current_user),
+                           session: Session = Depends(get_session)):
+    """Одна очередь «что я ещё не смотрел»: бизнесы на модерации + купоны без решения.
+
+    Купоны с меткой автопроверки (`held`) идут первыми: они не видны людям и ждут человека.
+    Дальше — те, у кого есть жалобы. Потом просто непросмотренные (`pending`), которые уже
+    висят в витрине. Возвращаем и общий счётчик — приложение рисует его на кнопке.
+    """
+    _require_admin(user)
+    limit = max(1, min(limit, 300))
+
+    partners = session.exec(
+        select(Partner).where(Partner.status == "pending")
+        .order_by(Partner.id.asc()).limit(limit)
+    ).all()
+
+    coupons = session.exec(
+        select(Coupon).where(Coupon.review.in_(("held", "pending")))
+        .order_by(Coupon.id.asc()).limit(limit)
+    ).all()
+    pmap = {p.id: p for p in session.exec(
+        select(Partner).where(Partner.id.in_({c.partner_id for c in coupons}))
+    ).all()} if coupons else {}
+    # Срочность: задержанные автопроверкой → с жалобами → остальные непросмотренные.
+    def _urgency(c: Coupon) -> tuple:
+        return (0 if c.review == "held" else (1 if (c.reports_count or 0) > 0 else 2), c.id or 0)
+    coupons = sorted(coupons, key=_urgency)
+
+    return {
+        "partners": [_partner_admin(p) for p in partners],
+        "coupons": [_coupon_admin(c, pmap.get(c.partner_id)) for c in coupons],
+        "total": len(partners) + len(coupons),
+    }
+
+
+@router.post("/admin/coupons/{coupon_id}/approve")
+def admin_coupon_approve(coupon_id: int, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)):
+    """«Посмотрел, всё в порядке» — купон уходит из очереди и виден людям."""
+    _require_admin(user)
+    coupon = session.get(Coupon, coupon_id)
+    if not coupon:
+        raise herr(404, "Купон не найден", "Купон табылманы")
+    was_held = coupon.review == "held"
+    coupon.review = "approved"
+    coupon.review_note = ""
+    coupon.reviewed_at = utcnow()
+    session.add(coupon)
+    session.commit()
+    session.refresh(coupon)
+    if was_held:   # человек ждал решения — скажем, что можно работать
+        partner = session.get(Partner, coupon.partner_id)
+        if partner:
+            push_notification(
+                session, partner.owner_id, "coupon",
+                "Купон одобрен", "Купон раҫланды",
+                f"«{coupon.title}» проверен и виден в витрине.",
+                f"«{coupon.title}» тикшерелде һәм витринала күренә.",
+                ref_kind="partner", ref_id=partner.id,
+            )
+    return _coupon_admin(coupon, session.get(Partner, coupon.partner_id))
+
+
+@router.post("/admin/coupons/{coupon_id}/block")
+def admin_coupon_block(coupon_id: int, body: CouponBlockIn, user: User = Depends(current_user),
+                       session: Session = Depends(get_session)):
+    """Снять купон с витрины с причиной. Партнёр видит причину и может поправить текст."""
+    _require_admin(user)
+    coupon = session.get(Coupon, coupon_id)
+    if not coupon:
+        raise herr(404, "Купон не найден", "Купон табылманы")
+    coupon.review = "blocked"
+    coupon.review_note = (body.reason or "").strip()[:500]
+    coupon.reviewed_at = utcnow()
+    session.add(coupon)
+    session.commit()
+    session.refresh(coupon)
+    partner = session.get(Partner, coupon.partner_id)
+    if partner:
+        push_notification(
+            session, partner.owner_id, "coupon",
+            "Купон снят с витрины", "Купон витринанан алынды",
+            (coupon.review_note or "Поправь текст и сохрани — он снова уйдёт на проверку")[:120],
+            (coupon.review_note or "Текстты төҙәтеп һаҡла — ул яңынан тикшереүгә китә")[:120],
+            ref_kind="partner", ref_id=partner.id,
+        )
+    return _coupon_admin(coupon, partner)
+
+
+# ---------- Жалоба пользователя на купон ----------
+
+@router.post("/coupons/{coupon_id}/report")
+def report_coupon(coupon_id: int, body: CouponReportIn, user: User = Depends(current_user),
+                  session: Session = Depends(get_session)):
+    """«Обещали не то» — жалоба ставит купон перед глазами админа.
+
+    Жалоба НЕ снимает купон с витрины: иначе конкурент выключал бы чужую скидку одной
+    кнопкой. Она только возвращает купон в очередь (`approved` → `pending`) и увеличивает
+    счётчик, по которому очередь сортируется. Уже задержанный (`held`) или снятый (`blocked`)
+    состояние не меняет — там и так решает человек.
+
+    Один человек — одна жалоба на купон (UNIQUE в БД): повторными нажатиями очередь не засыпать.
+    """
+    if user_over_limit("coupon_report", user.id, MAX_COUPON_REPORTS_PER_HOUR, window_sec=3600):
+        raise herr(429, "Слишком много жалоб подряд. Подожди немного.",
+                   "Артыҡ күп зар. Бер аҙ көт.")
+    coupon = session.get(Coupon, coupon_id)
+    if not coupon:
+        raise herr(404, "Купон не найден", "Купон табылманы")
+    reason = moderate_and_clamp_reason(body.reason, user.id)
+    session.add(CouponReport(coupon_id=coupon.id, user_id=user.id, reason=reason))
+    try:
+        session.commit()
+    except IntegrityError:      # уже жаловался — идемпотентно, второй раз счётчик не растёт
+        session.rollback()
+        return {"ok": True, "already": True}
+    coupon.reports_count = int(coupon.reports_count or 0) + 1
+    if coupon.review == "approved":
+        coupon.review = "pending"       # снова в очередь: человек сказал, что тут что-то не так
+        coupon.reviewed_at = None
+    session.add(coupon)
+    session.commit()
+    if coupon.reports_count == 1:       # первый сигнал — зовём админа, дальше не спамим
+        try:
+            notify_admin_telegram(
+                f"⚠️ Жалоба на купон\n"
+                f"ID: {coupon.id}\n"
+                f"Заголовок: «{coupon.title}»\n"
+                f"Причина: {reason or '—'}\n"
+                f"Купон в очереди. Разбор: Кабинет админа → Модерация"
+            )
+        except Exception:
+            pass
+    return {"ok": True, "already": False}

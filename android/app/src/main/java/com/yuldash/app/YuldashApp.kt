@@ -1162,6 +1162,17 @@ internal fun YuldashApp() {
                 // «Появилась поездка» / «Поездка завершена, оцени» → карточка поездки
                 // (тем же путём, что ссылка yulbash.ru/r/{id}).
                 onOpenRide = { rid -> DeepLink.pendingRideId.value = rid },
+                // «Открыт разбор» / «Решение по спору» → карточка разбора: там причина и срок.
+                onOpenIncident = { id -> incidentId = id; screen = Screen.IncidentDetail },
+                // Долг, списанная комиссия, пауза такси → кабинет водителя: там это всё видно.
+                onOpenDriverCabinet = { screen = Screen.DriverCabinet },
+                // Решение по заявке → её экран со статусом проверки.
+                onOpenTaxiApply = { screen = Screen.TaxiOnboarding },
+                onOpenCourierApply = { screen = Screen.CourierOnboarding },
+                // Решение по бизнесу или купону → «Мой бизнес»; по рекламе → мои объявления.
+                // За то и другое человек заплатил, поэтому сообщение обязано вести к делу.
+                onOpenPartnerCabinet = { screen = Screen.PartnerCabinet },
+                onOpenAdsCabinet = { screen = Screen.AdsCabinet },
             )
             Screen.RouteWatches -> RouteWatchesScreen(
                 onBack = { goBack() },
@@ -1216,6 +1227,7 @@ internal fun YuldashApp() {
                 onWaitlist = { screen = Screen.AdminWaitlist },
                 onTaxiPulse = { screen = Screen.AdminTaxiPulse },
                 onPartners = { screen = Screen.AdminPartners },
+                onModeration = { screen = Screen.AdminModeration },
                 onPromoAdmin = { screen = Screen.AdminPromo },
                 onParcelsAdmin = { screen = Screen.AdminParcels },
                 onCourierAdmin = { screen = Screen.AdminCourier },
@@ -1469,6 +1481,10 @@ internal fun YuldashApp() {
             Screen.Coupons -> CouponsScreen(onBack = { goBack() })
             Screen.PartnerCabinet -> PartnerCabinetScreen(onBack = { goBack() })
             Screen.AdminPartners -> AdminPartnersScreen(onBack = { goBack() })
+            Screen.AdminModeration -> AdminModerationScreen(
+                onBack = { goBack() },
+                onOpenPartners = { screen = Screen.AdminPartners },
+            )
             Screen.PromoCode -> PromoCodeScreen(onBack = { goBack() })
             Screen.AdminPromo -> AdminPromoScreen(onBack = { goBack() })
             Screen.Parcels -> ParcelsScreen(onBack = { goBack() })

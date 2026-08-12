@@ -255,7 +255,8 @@ def test_admin_telegram_callback_moderates_ad(monkeypatch, client):
     monkeypatch.setattr(settings, "telegram_webhook_secret", "secret")
     monkeypatch.setattr(settings, "admin_telegram_chat_id", "5141534025")
     monkeypatch.setattr("app.routers.auth._telegram_api", lambda method, payload: None)
-    monkeypatch.setattr("app.routers.auth.send_push", lambda session, user_id, title, body: None)
+    # Пуш больше не глушим: решение по рекламе теперь ОСТАВЛЯЕТ ЗАПИСЬ в Центре уведомлений
+    # (аудит 2026-08-12, волна 24), и это как раз то, что стоит проверить, — см. конец теста.
     with Session(engine) as session:
         owner = User(phone="+79990006060", name="Partner", verified=True)
         session.add(owner)
@@ -311,6 +312,13 @@ def test_admin_telegram_callback_moderates_ad(monkeypatch, client):
         assert ad.status == "active"
         assert ad.reject_reason == ""
         assert ad.reviewed_at is not None
+        # Решение из Telegram — такое же событие для человека, как решение из админки:
+        # запись в Центре уведомлений, оба языка, ссылка в кабинет объявлений.
+        from app.models import Notification
+        notes = session.exec(select(Notification).where(Notification.user_id == ad.owner_id)).all()
+        mine = [n for n in notes if n.ref_kind == "ad" and n.ref_id == ad_id]
+        assert mine, "решение по рекламе пришло только пушем — следа в приложении нет"
+        assert mine[0].title_ru and mine[0].title_ba and mine[0].title_ru != mine[0].title_ba
 
 
 def test_admin_telegram_callback_confirms_and_rejects_payment(monkeypatch, client):

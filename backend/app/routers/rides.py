@@ -16,15 +16,22 @@ from ..errors import herr
 from ..flood import TOO_MANY_RIDES, guard_open_items
 from ..geo import bare_name
 from ..logs import log
-from ..models import Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory, RideStatus, User, UserRole
+from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
+                      RideStatus, User, UserRole)
 from .. import workday as workday_mod
-from ..safety_logic import ensure_active
+from ..safety_logic import (MSG_WOMEN_ONLY_DRIVER, ensure_active, guard_women_only,
+                            suspended_user_ids)
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
 from ..timeutil import client_dt_to_utc, utcnow
 # Планка «завершить можно только начавшуюся поездку» — одна на все три двери
 # к этому переходу (bookings.py, family.py и эта ручка).
 from .bookings import DONE_EARLY_GRACE
+
+# Сколько времени до выезда бронь должна провисеть, чтобы «не подтвердил» считалось виной
+# водителя. Бронь за пять минут до отправления он мог физически не увидеть; полчаса и больше —
+# уже его ответственность: пуш о новой брони приходит сразу (волна 18).
+_CONFIRM_GRACE = timedelta(minutes=30)
 from ..workday import local_now
 from ..trust_service import INSIDER_LEVEL, trust_level
 from ..services import (
@@ -67,6 +74,62 @@ def _hide_blocked(items, user, session):
     if not blocked:
         return items
     return [r for r in items if (r["driver_id"] if isinstance(r, dict) else r.driver_id) not in blocked]
+
+
+def _hide_suspended(items, user, session):
+    """Прячем поездки водителей, которые сейчас на паузе за нарушения.
+
+    Не про безопасность — про честность выдачи. Везти такой водитель уже не может: подтвердить
+    бронь и принять цену ему закрыто (аудит 2026-08-08, волна 9). Но поездка продолжала висеть
+    в ленте, пассажир её бронировал и ждал подтверждения, которого не будет. Время человека
+    тратилось зря, а водитель выглядел как «не отвечает».
+
+    СВОЮ поездку водитель видит всегда — иначе он решит, что объявление пропало, и опубликует
+    заново. Тот же приём, что в `_hide_trusted_only`.
+
+    Цена запроса: ОДИН select на всю страницу (приостановленных единицы), а не проверка на
+    каждого водителя — это горячая ручка, N запросов тут недопустимы. Пустой набор → выходим
+    сразу, обычный случай не платит ничего.
+    """
+    ids = suspended_user_ids(session)
+    if not ids:
+        return items
+    uid = user.id if user is not None else None
+    def _drv(r):
+        return r["driver_id"] if isinstance(r, dict) else r.driver_id
+    return [r for r in items if _drv(r) not in ids or _drv(r) == uid]
+
+
+def _hide_health_hint(items, user):
+    """Анониму не показываем, что поездка едет в конкретную клинику.
+
+    «Кто и когда едет в такую-то больницу» — вывод о здоровье, а не просто маршрут. Ручка
+    `/medical-partners/{id}/rides` это уже понимает и требует входа. Но та же связка спокойно
+    уезжала во вторую дверь: `GET /rides` без токена отдавал `partner_id` и `category=hospital`
+    вместе с именем водителя и временем выезда (аудит 2026-08-08, волна 22). Барьер входа
+    отсекает поисковики и массовый сбор — ровно то, ради чего он поставлен в medical.py.
+
+    Саму поездку не прячем: человеку без входа она видна как обычная «Баймак → Уфа»,
+    и по ссылке карточка открывается. Убираем только связку с клиникой. Свою поездку
+    водитель видит целиком — как и в соседних фильтрах.
+    """
+    if user is not None:
+        return items
+    def _f(r, key):
+        return r[key] if isinstance(r, dict) else getattr(r, key, None)
+    out = []
+    for r in items:
+        hospital = _f(r, "category") in (RideCategory.hospital, "hospital")
+        if not hospital and not _f(r, "partner_id"):
+            out.append(r)
+            continue
+        patch = {"partner_id": None, "category": RideCategory.regular}
+        if isinstance(r, dict):
+            r = {**r, **{"partner_id": None, "category": RideCategory.regular.value}}
+        else:
+            r = r.model_copy(update=patch)
+        out.append(r)
+    return out
 
 
 def _hide_trusted_only(items, user, session):
@@ -118,6 +181,12 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     guard_open_items(session, Ride.id, Ride.driver_id == user.id, Ride.status == RideStatus.active,
                      limit=settings.flood_active_rides_max,
                      ru=TOO_MANY_RIDES[0], ba=TOO_MANY_RIDES[1])
+    # «Только женщины» ставит поездке женщина за рулём. Иначе отметка превращается в приманку:
+    # мужчина за рулём зовёт в машину только женщин, и та едет, думая, что проверено
+    # (решение Александра, 2026-08-08). Пол — по желанию, поэтому «не указан» получает не
+    # отказ, а просьбу заполнить профиль (см. guard_women_only).
+    if getattr(body, "women_only", False):
+        guard_women_only(user, msg=MSG_WOMEN_ONLY_DRIVER)
     # Санити-границы (анти-мусор в ленте): мест 1..8, цена 0..100000 ₽. Клампим, а не падаем.
     body.seats_total = max(1, min(8, body.seats_total))
     body.price = max(0, min(100_000, body.price))
@@ -318,7 +387,8 @@ def search_rides(
         cached = cache_get_json("rides:active:v2")
         if cached is not None:
             out = _hide_blocked(public_rides_payload(cached), user, session)
-            return _hide_trusted_only(out, user, session)
+            out = _hide_suspended(out, user, session)
+            return _hide_health_hint(_hide_trusted_only(out, user, session), user)
 
     # Не показываем УЖЕ УЕХАВШИЕ поездки (аудит 2026-07-04: у поездки не было отсева по времени →
     # вчерашние висели в ленте). Грейс 2ч: поездка «только что уехала»/бронируют впритык — ещё видна.
@@ -337,22 +407,32 @@ def search_rides(
     if to_city:
         q = q.where(Ride.to_city.contains(bare_name(to_city)))
     if category:
-        q = q.where(Ride.category == category)
+        # Анониму фильтр «в больницу» не даём: затирать связку в ответе бесполезно, если
+        # выборку можно получить самим запросом — человек и так знает, что просил (волна 22).
+        if not (category == RideCategory.hospital and user is None):
+            q = q.where(Ride.category == category)
     if pets_allowed:
         q = q.where(Ride.pets_allowed == True)  # noqa: E712
     if child_seat:
         q = q.where(Ride.child_seat == True)  # noqa: E712
     if women_only:
         # F9: фильтр «только женщины» показывает и поездки с флагом women_only,
-        # И поездки, где сама водитель — женщина (opt-in gender=female). OUTER JOIN,
-        # чтобы поездки без профиля водителя не выпадали из общей проверки.
-        #
-        # gender_verified обязателен (2026-08-07). Без него любой мужчина ставил себе
-        # «женщина» и попадал в эту выдачу — а её открывают именно те, кому небезопасно
-        # ехать с незнакомым мужчиной. Лучше пустой список, чем непроверенный водитель.
-        q = q.outerjoin(DriverProfile, DriverProfile.user_id == Ride.driver_id).where(
-            (Ride.women_only == True)  # noqa: E712
-            | ((DriverProfile.gender == "female") & (DriverProfile.gender_verified == True))  # noqa: E712
+        # И поездки, где сама водитель — женщина. Две части, обе обязательны (то же правило
+        # словами — `safety_logic.is_verified_female_driver`):
+        #   заявление  — у ЧЕЛОВЕКА (`User.gender`): пол переехал на него (аудит 2026-08-08),
+        #                он нужен и пассажиру, у водителя без профиля он всё равно есть;
+        #   подтверждение — у ВОДИТЕЛЯ (`DriverProfile.gender_verified`): модератор сверил
+        #                с фото прав. Без него любой мужчина ставил себе «женщина» и попадал
+        #                в эту выдачу — а её открывают именно те, кому небезопасно ехать
+        #                с незнакомым мужчиной. Лучше пустой список, чем непроверенный водитель.
+        # OUTER JOIN — чтобы поездки без профиля/пола не выпадали из общей проверки.
+        q = (
+            q.outerjoin(User, User.id == Ride.driver_id)
+            .outerjoin(DriverProfile, DriverProfile.user_id == Ride.driver_id)
+            .where(
+                (Ride.women_only == True)  # noqa: E712
+                | ((User.gender == "female") & (DriverProfile.gender_verified == True))  # noqa: E712
+            )
         )
     if baggage:
         q = q.where(Ride.baggage == True)  # noqa: E712
@@ -369,7 +449,8 @@ def search_rides(
     if no_filter:
         cache_set_json("rides:active:v2", [r.model_dump(mode="json") for r in public_out], 20)
     out = _hide_blocked(public_out, user, session)
-    return _hide_trusted_only(out, user, session)
+    out = _hide_suspended(out, user, session)
+    return _hide_health_hint(_hide_trusted_only(out, user, session), user)
 
 
 @lru_cache(maxsize=512)
@@ -551,6 +632,7 @@ def rides_near(
         dist_by_id[r.id] = dist
         kept.append(r)
     kept = _hide_blocked(kept, user, session)   # прячем заблокированных до подсчёта total/пагинации
+    kept = _hide_suspended(kept, user, session)   # и водителей на паузе — бронь им всё равно не подтвердить
     kept = _hide_trusted_only(kept, user, session)   # «только для своих» видит лишь L3
     total = len(kept)
     eff_limit = min(max(1, limit), 200) if limit is not None else DEFAULT_FEED_LIMIT
@@ -566,6 +648,11 @@ def rides_near(
         out = public_ride_payload(ride_out_with(r, users_map, profiles, rating_agg, trips_agg)).model_dump()
         out["distance_km"] = dist_by_id.get(r.id)
         items.append(out)
+    # Связку с клиникой прячем ЗДЕСЬ, а не выше вместе с соседними фильтрами: там в руках
+    # ORM-объекты `Ride`, страница потом перечитывается из базы заново — правка на них
+    # бесследно терялась. Поймано пробой: лента уже молчала, а «рядом» всё ещё отдавало
+    # `partner_id` анониму (аудит 2026-08-08, волна 22).
+    items = _hide_health_hint(items, user)
     return {"count": total, "items": items}   # count = всего (чтобы клиент знал, есть ли «ещё»)
 
 
@@ -624,8 +711,20 @@ def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Sessi
     affected = _live_bookings(session, ride_id)
     ride.status = RideStatus.cancelled
     session.add(ride)
+    now = utcnow()
     for b in affected:
         b.status = BookingStatus.cancelled
+        # КТО отменил — обязательно. Без этой пометки «Надёжность» водителя не знала о его
+        # сорванных рейсах вовсе: формула считает поздние отмены по `cancelled_by`, а здесь
+        # поле оставалось пустым. Проверено запросом: водитель трижды снял поездку за 20 минут
+        # до выезда — Надёжность 100, а пассажирка за одну позднюю отмену получила 0
+        # (аудит 2026-08-08, волна 17). Человек, оставшийся на дороге, страдал дважды.
+        #
+        # Ранняя отмена по-прежнему без последствий: `is_late_cancel` смотрит на срок до выезда,
+        # так что отмена за сутки Надёжность не тронет — наказывается не отказ, а внезапность.
+        b.cancelled_at = now
+        b.cancelled_by = user.id
+        b.cancel_reason = "not_going"
         session.add(b)
     session.commit()                     # атомарно: поездка+брони одной транзакцией
     session.refresh(ride)
@@ -675,17 +774,40 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
     ride.status = RideStatus.done
     session.add(ride)
     done_ids: list[int] = []
+    dropped: list[Booking] = []      # брони, которые водитель так и не подтвердил
+    now = utcnow()
     for b in affected:
-        b.status = BookingStatus.done if b.status != BookingStatus.pending else BookingStatus.cancelled
-        session.add(b)
-        if b.status == BookingStatus.done:
+        if b.status == BookingStatus.pending:
+            # Человек забронировал, ждал ответа — а рейс уехал без него. Раньше такая бронь
+            # гасилась МОЛЧА: ни причины, ни времени, ни уведомления. Пассажир продолжал ждать
+            # подтверждения, которого уже не будет (аудит 2026-08-08, волна 18).
+            b.status = BookingStatus.cancelled
+            b.cancelled_at = now
+            b.cancel_reason = "driver_no_response"
+            # Авторство ставим, только если у водителя реально было время заметить бронь.
+            # Бронь за пять минут до выезда — не его вина; бронь, висевшая полчаса и дольше,
+            # уже его ответственность, и Надёжность обязана это видеть (см. reliability_for).
+            if b.created_at and ride.depart_at and b.created_at <= ride.depart_at - _CONFIRM_GRACE:
+                b.cancelled_by = ride.driver_id
+            dropped.append(b)
+        else:
+            b.status = BookingStatus.done
             done_ids.append(b.passenger_id)
+        session.add(b)
     session.commit()
     session.refresh(ride)
     notify_map_changed()
     # Как и отмена (см. cancel_ride): запись в Центре уведомлений + два языка. Здесь это ещё
     # и приглашение оценить поездку — без следа оно живёт ровно до пропущенного пуша.
     route = f"{ride.from_city} → {ride.to_city}"
+    for b in dropped:
+        push_notification(
+            session, b.passenger_id, "booking",
+            "Бронь не подтвердили", "Бронь раҫланманы",
+            f"{route}: рейс уехал, а бронь так и осталась без ответа. Посмотри другие поездки рядом.",
+            f"{route}: рейс китте, ә бронь яуапһыҙ ҡалды. Яҡындағы башҡа сәфәрҙәрҙе ҡара.",
+            ref_kind="booking", ref_id=b.id,
+        )
     for pid in done_ids:
         push_notification(
             session, pid, "ride",
@@ -706,7 +828,8 @@ def get_ride(ride_id: int, user: Optional[User] = Depends(current_user_optional)
     out = public_ride_payload(ride_out(ride, session))
     # V5: те же фильтры, что в ленте — «только для своих» скрыта от не-L3, поездка в связке
     # блокировки не отдаётся по прямому id (иначе обход only_trusted/blocked + анонимный скрейпинг).
-    visible = _hide_trusted_only(_hide_blocked([out], user, session), user, session)
+    visible = _hide_trusted_only(_hide_suspended(_hide_blocked([out], user, session), user, session), user, session)
+    visible = _hide_health_hint(visible, user)
     if not visible:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")   # не раскрываем существование закрытой поездки
     return visible[0]

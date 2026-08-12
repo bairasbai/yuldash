@@ -343,6 +343,11 @@ internal fun ProfileScreen(
     var avatarUrl by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("") }
     var city by remember { mutableStateOf("") }   // родной город: показываем в шапке, редактируется тапом
+    // Пол ("" | female | male). Спрашиваем только ради отметки «Только женщины»: сервер
+    // пускает в такую поездку одних женщин, и проверять это ему больше нечем. Никому,
+    // кроме самого человека, поле не показывается.
+    var gender by remember { mutableStateOf("") }
+    var showGenderPicker by remember { mutableStateOf(false) }
     var profileConfirmed by remember { mutableStateOf(ApiClient.isLoggedIn()) }
     // Три честных состояния шапки: грузим / пришло / сеть упала. Раньше сбой /me был немым —
     // человек видел кэшированное имя и не понимал, что данные устарели и что делать.
@@ -360,6 +365,7 @@ internal fun ProfileScreen(
                 o.optString("avatar_url").takeIf { it.isNotBlank() }?.let { avatarUrl = it }
                 role = o.optString("role")
                 city = o.optString("city")
+                gender = o.optString("gender")
             }
             // Сбой /me: сеть упала (таймаут/нет связи) — НЕ роняем залогиненного в «демо».
             // Не подтверждён только если реально не вошёл ИЛИ токен отвергнут (401).
@@ -521,6 +527,66 @@ internal fun ProfileScreen(
                 }) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },
             dismissButton = { TextButton(onClick = { showEditCity = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
+    }
+    // Пол: три варианта, включая «не указывать» — поле добровольное. Сохраняем сразу,
+    // при сбое сети возвращаем прежнее значение (иначе человек уверен, что сохранилось).
+    if (showGenderPicker) {
+        val genderSavedMsg = appText("Сохранено", "Һаҡланды")
+        AlertDialog(
+            onDismissRequest = { showGenderPicker = false },
+            containerColor = CanonSurface,
+            title = { Text(appText("Пол", "Енес"), color = CanonText, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        appText(
+                            "Нужен только для поездок с отметкой «Только женщины» — чтобы это обещание было настоящим. Больше нигде не показывается.",
+                            "Тик «Тик ҡатын-ҡыҙҙар» билдәһе ҡуйылған сәфәрҙәр өсөн кәрәк — был вәғәҙә ысын булһын өсөн. Башҡа бер ҡайҙа ла күрһәтелмәй.",
+                        ),
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    listOf(
+                        "female" to appText("Женщина", "Ҡатын-ҡыҙ"),
+                        "male" to appText("Мужчина", "Ир-ат"),
+                        "" to appText("Не указывать", "Күрһәтмәҫкә"),
+                    ).forEach { (value, label) ->
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .bounceClick {
+                                    val prev = gender
+                                    gender = value
+                                    showGenderPicker = false
+                                    editScope.launch {
+                                        ApiClient.updateGender(value)
+                                            .onSuccess { Toast.makeText(editCtx, genderSavedMsg, Toast.LENGTH_SHORT).show() }
+                                            .onFailure {
+                                                gender = prev
+                                                Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show()
+                                            }
+                                    }
+                                }
+                                .heightIn(min = 48.dp)
+                                .padding(horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                if (value == gender) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                                contentDescription = null,
+                                tint = if (value == gender) CanonGreen2 else CanonMuted,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(label, color = CanonText, fontSize = 16.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showGenderPicker = false }) {
+                    Text(appText("Закрыть", "Ябыу"), color = CanonMuted)
+                }
+            },
         )
     }
     // Удаление аккаунта (необратимо): подтверждение + лоадер + ошибка. Стирает данные и на сервере.
@@ -738,6 +804,22 @@ internal fun ProfileScreen(
             item { Box(Modifier.appearIn(4)) { ProfileActionCard(appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото авто", "Права, машина, авто фотоһы"), Icons.Default.Verified, onVerifyDriver) } }
             item { Box(Modifier.appearIn(5)) { ProfileActionCard(appText("Доверие", "Ышаныс"), appText("Твой уровень и круг «своих»", "Кимәлең һәм «үҙебеҙҙекеләр» түңәрәге"), Icons.Default.Handshake, onTrust) } }
             item { Box(Modifier.appearIn(6)) { ProfileActionCard(appText("Безопасность", "Хәүефһеҙлек"), appText("SOS, скрытый телефон, подтверждённые участники", "SOS, йәшерен телефон, раҫланған ҡатнашыусылар"), R.drawable.yu_safe_trip, onSafety) } }
+            // Пол стоит рядом с «Безопасностью» не случайно: он нужен ровно для того, чтобы
+            // отметка «Только женщины» была настоящей, а не пожеланием (аудит 2026-08-08).
+            item {
+                Box(Modifier.appearIn(6)) {
+                    ProfileActionCard(
+                        appText("Пол", "Енес"),
+                        when (gender) {
+                            "female" -> appText("Женщина — доступны поездки «только для женщин»", "Ҡатын-ҡыҙ — «тик ҡатын-ҡыҙҙар» сәфәрҙәре асыҡ")
+                            "male" -> appText("Мужчина", "Ир-ат")
+                            else -> appText("Не указан — нужен для поездок «только для женщин»", "Күрһәтелмәгән — «тик ҡатын-ҡыҙҙар» сәфәрҙәре өсөн кәрәк")
+                        },
+                        Icons.Default.Person,
+                        { showGenderPicker = true },
+                    )
+                }
+            }
             // Разбор споров: обещание «обе стороны слышимы» должно быть достижимо в два тапа,
             // а не жить только на сервере (аудит 2026-07-26).
             item { Box(Modifier.appearIn(7)) { ProfileActionCard(appText("Центр справедливости", "Ғәҙеллек үҙәге"), appText("Спорные ситуации: обе стороны слышимы", "Бәхәсле хәлдәр: ике яҡ та ишетелә"), Icons.Default.Shield, onFairness) } }

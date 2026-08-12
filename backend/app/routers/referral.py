@@ -94,11 +94,16 @@ def reward_driver_referral(session: Session, driver_id: int | None) -> bool:
     session.add(referrer)
     session.add(ReferralBonus(referrer_id=referrer.id, invited_user_id=driver_id, kind="driver"))
     session.commit()
-    from ..services import send_push   # локальный импорт: тесты патчат services
-    send_push(
-        session, referrer.id, "Бонус за друга 🎉",
-        "Твой приглашённый водитель раскатался — держи бесплатное поднятие поездки!"
-        " · Саҡырған водителең ысынлап йөрөй башланы — бушлай күтәреү ал!",
+    from ..services import push_notification   # локальный импорт: тесты патчат services
+    # Бонус = бесплатное поднятие поездки, то есть деньги. Пуш живёт секунды и не доходит
+    # при выключенном телефоне — начисление должно остаться записью, к которой можно
+    # вернуться (аудит 2026-08-12, волна 24). Ссылки нет намеренно: бонус не про один экран,
+    # он лежит в профиле и тратится при поднятии любой поездки.
+    push_notification(
+        session, referrer.id, "referral",
+        "Бонус за друга 🎉", "Дуҫ өсөн бонус 🎉",
+        "Твой приглашённый водитель раскатался — держи бесплатное поднятие поездки!",
+        "Саҡырған водителең ысынлап йөрөй башланы — бушлай күтәреү ал!",
     )
     return True
 

@@ -16,10 +16,40 @@ from ..db import get_session
 from ..middleware import user_over_limit
 from ..models import Ad, AdEvent, Payment, User, UserRole
 from ..security import current_user
-from ..services import notify_admin_telegram, send_push
+from ..services import notify_admin_telegram, push_notification
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["ads"])
+
+
+def notify_ad_decision(session, ad, *, approved: bool) -> None:
+    """Сказать владельцу рекламы, что решили по его объявлению. Одна точка на два входа:
+    решение приходит и из админки, и кнопкой в Telegram (`routers/auth.py`), а раньше в каждом
+    месте стоял свой голый пуш — на одном языке и без следа.
+
+    Почему запись, а не только пуш: человек заплатил за размещение и ждёт ответа. Пуш живёт
+    секунды и не доходит при выключенном телефоне или устаревшем токене — «мне ничего
+    не сказали» здесь означает потраченные деньги (аудит 2026-08-12, волна 24).
+    """
+    if not ad.owner_id:
+        return
+    if approved:
+        push_notification(
+            session, ad.owner_id, "ads",
+            "Реклама одобрена", "Реклама раҫланды",
+            f"«{ad.title}» прошла модерацию. Осталось оплатить размещение.",
+            f"«{ad.title}» тикшереүҙе үтте. Урынлаштырыуҙы түләргә генә ҡала.",
+            ref_kind="ad", ref_id=ad.id,
+        )
+    else:
+        push_notification(
+            session, ad.owner_id, "ads",
+            "Реклама отклонена", "Реклама кире ҡағылды",
+            (ad.reject_reason or "Проверь и отправь снова")[:120],
+            (ad.reject_reason or "Тикшереп, яңынан ебәр")[:120],
+            ref_kind="ad", ref_id=ad.id,
+        )
+
 
 FOUNDER_LIMIT = 10
 PLAN_PRIORITY = {"premium": 30, "standard": 20, "founder": 10}
@@ -539,8 +569,7 @@ def admin_approve_ad(ad_id: int, body: AdApproveIn, user: User = Depends(current
     session.add(ad)
     session.commit()
     session.refresh(ad)
-    if ad.owner_id:
-        send_push(session, ad.owner_id, "Реклама одобрена", f"«{ad.title}» прошла модерацию. Осталось оплатить размещение.")
+    notify_ad_decision(session, ad, approved=True)
     return ad
 
 
@@ -557,8 +586,7 @@ def admin_reject_ad(ad_id: int, body: AdRejectIn, user: User = Depends(current_u
     session.add(ad)
     session.commit()
     session.refresh(ad)
-    if ad.owner_id:
-        send_push(session, ad.owner_id, "Реклама отклонена", (ad.reject_reason or "Проверь и отправь снова")[:120])
+    notify_ad_decision(session, ad, approved=False)
     return ad
 
 

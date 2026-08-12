@@ -44,10 +44,20 @@ def fake_redis():
 
 @pytest.fixture
 def pushes(monkeypatch):
-    """Перехват пушей качества (send_push импортирован в app.quality по имени)."""
+    """Перехват уведомлений качества — обоих видов.
+
+    Совет о рейтинге остаётся голым пушем: не дошёл — не беда, завтра будет новый. А жалоба
+    и пауза такси теперь идут записью в Центр уведомлений: это наказание, человек обязан
+    узнать о нём, даже если пуш не дошёл (аудит 2026-08-08, волна 20). Тестам важно
+    «человеку сказали», поэтому собираем оба канала в один список.
+    """
     sent: list[tuple[int, str]] = []
     monkeypatch.setattr(quality, "send_push",
                         lambda session, uid, title, body, data=None: sent.append((uid, title)))
+    monkeypatch.setattr(
+        quality, "push_notification",
+        lambda session, uid, ntype, title_ru, title_ba, body_ru, body_ba, **kw:
+            sent.append((uid, title_ru)))
     return sent
 
 

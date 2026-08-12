@@ -19,11 +19,16 @@ from ..db import engine, get_session
 from ..errors import herr
 from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, TgAuth, User, UserRole
 from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
-from ..services import public_media_url, send_push, send_sms, user_rating
+from ..services import public_media_url, send_sms, user_rating
+from ..safety_logic import GENDERS, reset_gender_verification
 from ..trust_service import record_login_consents
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["auth"])
+
+# Сколько неудачных попыток кода допускаем НА ОДИН НОМЕР за время жизни кодов (5 минут).
+# Считается по всем живым кодам номера сразу — см. комментарий в `verify`.
+MAX_OTP_ATTEMPTS_PER_PHONE = 15
 
 
 def _maybe_promote_admin(session: Session, user: User) -> None:
@@ -225,10 +230,20 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
         tokens = issue_tokens(session, user.id)
         session.refresh(user)
         return {**tokens, "user": user}
-    otp = session.exec(
-        select(OtpCode).where(OtpCode.phone == body.phone).order_by(OtpCode.id.desc())
-    ).first()
-    if not otp or otp.expires_at < utcnow():
+    live_otps = session.exec(
+        select(OtpCode).where(OtpCode.phone == body.phone, OtpCode.expires_at > utcnow())
+    ).all()
+    # Потолок попыток НА НОМЕР, а не на код. Счётчик `attempts` живёт на строке кода, а сверяется
+    # всегда самый свежий код — значит, запросив новый код, перебирающий обнулял себе счётчик и
+    # получал ещё пять попыток. При лимите «3 кода в минуту» это 15 угадываний в минуту, то есть
+    # промышленный перебор шестизначного кода (аудит 2026-08-08). Теперь неудачи складываются по
+    # всем живым кодам номера. Порог намеренно щедрый: человек ошибается два-три раза, упереться
+    # в него можно только специально.
+    if sum(o.attempts for o in live_otps) >= MAX_OTP_ATTEMPTS_PER_PHONE:
+        raise herr(429, "Слишком много попыток. Подожди немного и запроси новый код.",
+                   "Артыҡ күп талап. Бер аҙ көт тә яңы код һора.")
+    otp = max(live_otps, key=lambda o: o.id) if live_otps else None
+    if not otp:
         raise herr(400, "Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
     if otp.attempts >= 5:                       # защита от перебора 6-значного кода
         raise herr(429, "Слишком много попыток. Запроси новый код.", "Артыҡ күп талап. Яңы код һора.")
@@ -425,6 +440,9 @@ def _handle_admin_callback(callback: dict):
         return {"ok": True}
 
     approve = parts[1] == "ok"
+    # Решение по рекламе приходит и отсюда, и из админки — текст один на оба входа
+    # (локальный импорт: роутеры друг друга на старте не тянут).
+    from .ads import notify_ad_decision
     with Session(engine) as s:
         if parts[0] == "drv":
             target = s.get(User, user_id)
@@ -453,8 +471,7 @@ def _handle_admin_callback(callback: dict):
                     ad.ends_at = utcnow() + timedelta(days=ad.period_days)
                 s.add(ad)
                 s.commit()
-                if ad.owner_id:
-                    send_push(s, ad.owner_id, "Реклама одобрена", f"«{ad.title}» прошла модерацию. Осталось оплатить размещение.")
+                notify_ad_decision(s, ad, approved=True)
                 text = f"Одобрена реклама #{ad.id}: «{ad.title}»"
             else:
                 ad.status = "rejected"
@@ -462,8 +479,7 @@ def _handle_admin_callback(callback: dict):
                 ad.reviewed_at = utcnow()
                 s.add(ad)
                 s.commit()
-                if ad.owner_id:
-                    send_push(s, ad.owner_id, "Реклама отклонена", ad.reject_reason)
+                notify_ad_decision(s, ad, approved=False)
                 text = f"Отклонена реклама #{ad.id}: «{ad.title}»"
         elif parts[0] == "resp":
             resp = s.get(RequestResponse, user_id)   # user_id здесь = id отклика
@@ -624,6 +640,9 @@ class MeUpdateIn(BaseModel):
     avatar_url: Optional[str] = Field(None, max_length=500)
     city: Optional[str] = Field(None, max_length=80)
     language: Optional[str] = Field(None, max_length=2)   # "ru" | "ba" — двуязычные push идут на языке юзера
+    # Пол — по желанию: "" (не указывать/снять) | female | male. Нужен для отметки
+    # «только женщины» на попутке: она проверяется у ОБЕИХ сторон (аудит 2026-08-08).
+    gender: Optional[str] = Field(None, max_length=8)
 
 
 @router.post("/me/update")
@@ -643,11 +662,21 @@ def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Ses
         lang = body.language.strip().lower()
         if lang in ("ru", "ba"):        # только поддерживаемые языки; мусор молча игнорируем
             user.language = lang
+    if body.gender is not None:
+        g = body.gender.strip().lower()
+        # Мусор молча игнорируем, как и с языком: профиль сохранять надо, а не падать.
+        # Пустая строка — законное значение: «не указывать» / снять раньше указанное.
+        if g in GENDERS:
+            # Вторая дверь к полу (первая — `/driver/gender`). Смена заявления снимает
+            # подтверждение модератора, иначе подтверждённая «женщина за рулём» меняла бы пол
+            # тут и увозила бейдж с собой (см. safety_logic.reset_gender_verification).
+            reset_gender_verification(session, user, g)
+            user.gender = g
     session.add(user)
     session.commit()
     session.refresh(user)
     return {"ok": True, "name": user.name, "avatar_url": user.avatar_url, "city": user.city,
-            "language": user.language}
+            "language": user.language, "gender": user.gender or ""}
 
 
 @router.post("/me/delete")

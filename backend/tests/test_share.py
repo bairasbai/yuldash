@@ -18,7 +18,7 @@ def _publish(client, drv, frm="Баймак", to="Сибай", seats=3, price=30
 
 
 def test_preview_shape_public(client, user_factory):
-    drv = user_factory("ShareDrv", role=UserRole.driver)
+    drv = user_factory("ShareDrv", role=UserRole.driver, gender="female")
     ride = _publish(client, drv, frm="Темясово", to="Уфа", price=1400, women_only=True)
     r = client.get(f"/r/{ride['id']}/preview")
     assert r.status_code == 200, r.text

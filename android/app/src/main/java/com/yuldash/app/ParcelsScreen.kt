@@ -551,8 +551,7 @@ internal fun ParcelPhotoStrip(pickupUrl: String, deliveryUrl: String) {
                 else appText("Когда вручил", "Тапшырғанда")
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     coil.compose.AsyncImage(
-                        model = coil.request.ImageRequest.Builder(ctx).data(url)
-                            .addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+                        model = authedImageRequest(ctx, url, token),
                         contentDescription = label,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
@@ -576,8 +575,7 @@ internal fun ParcelPhotoStrip(pickupUrl: String, deliveryUrl: String) {
                 contentAlignment = Alignment.Center,
             ) {
                 coil.compose.AsyncImage(
-                    model = coil.request.ImageRequest.Builder(ctx).data(url)
-                        .addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+                    model = authedImageRequest(ctx, url, token),
                     contentDescription = appText("Фото посылки", "Бандероль фотоһы"),
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxWidth().padding(16.dp),

@@ -103,3 +103,80 @@ def test_cleanup_batched_delete_removes_all(client, monkeypatch):
     with Session(engine) as s:
         left = s.exec(select(OtpCode).where(OtpCode.phone.like("+7000000%"))).all()
     assert left == []                                    # все старые OTP удалены, несмотря на чанки
+
+# ---------------- Приватные доказательства: сирота уходит, улика живёт ----------------
+
+def test_orphan_evidence_photo_is_deleted_but_live_one_stays(client, user_factory):
+    """Фото споров и снимки границ ответственности по доставке лежат в приватной области,
+    и ретеншен не трогал её НИКОГДА.
+
+    Посылка старше 180 дней уходит по сроку, спор разрешается — а снимок с лицом, подъездом
+    и содержимым коробки оставался на диске навсегда (аудит 2026-08-08, волна 11). Это против
+    ст. 5 п. 7 152-ФЗ: хранить ровно столько, сколько нужно для цели.
+
+    Проверяем ОБА конца правила: осиротевший файл удаляется, а тот, на который ещё ссылается
+    живой спор, остаётся — сколько бы ему ни было лет. Иначе чистка съедала бы улики.
+    """
+    import os
+    import time
+
+    from app.models import Incident
+    from app.storage import get_storage
+
+    uid = user_factory(name="Сирота-фото")["id"]
+    other = user_factory(name="Вторая сторона")["id"]
+    storage = get_storage()
+
+    orphan = f"{uid}_orphan_evidence.jpg"
+    live = f"{uid}_live_evidence.jpg"
+    for name in (orphan, live):
+        storage.save(f"evidence/{name}", bytes([0xFF, 0xD8, 0xFF]) + b"test")
+
+    # Живой спор ссылается на второй файл — он должен пережить чистку.
+    with Session(engine) as s:
+        s.add(Incident(reporter_id=uid, respondent_id=other, type="rude",
+                       description="спор идёт", status="under_review",
+                       evidence_urls=f"https://yulbash.ru/secure/evidence/{live}"))
+        s.commit()
+
+    # Состариваем оба файла: чистка смотрит на время изменения.
+    old_ts = time.time() - (cleanup.MEDIA_DAYS + 5) * 86400
+    for name in (orphan, live):
+        path = os.path.join(storage._path(f"evidence/{name}"))   # локальный диск в тестах
+        os.utime(path, (old_ts, old_ts))
+
+    cleanup._clean_media()
+
+    assert not storage.exists(f"evidence/{orphan}"), "осиротевшее фото осталось на диске навсегда"
+    assert storage.exists(f"evidence/{live}"), "чистка съела улику живого спора"
+
+
+def test_every_evidence_field_is_known_to_the_cleaner():
+    """Сторож прибора: чистка удаляет приватные снимки, на которые НЕ осталось ссылок.
+
+    Значит её список «живых ссылок» обязан знать про КАЖДОЕ поле, куда код кладёт
+    /secure/evidence-URL. Заведут пятое поле и забудут внести — чистка сочтёт эти снимки
+    сиротами и удалит улики из живого спора. Цена ошибки здесь выше обычного, поэтому
+    полноту сторожит тест, а не память.
+    """
+    import pathlib as _pl
+    import re
+
+    app_src = chr(10).join(f.read_text(encoding="utf-8") for f in _pl.Path("app").rglob("*.py"))
+    cleaner = _pl.Path("app/cleanup.py").read_text(encoding="utf-8")
+
+    # Поля, куда код реально ПИШЕТ снимок. Документы водителя/таксиста (docs/) исключаем:
+    # их чистит только удаление аккаунта (580-ФЗ требует хранить, пока человек работает).
+    docs_fields = {"license_url", "car_photo_url", "permit_photo_url", "osago_url",
+                   "criminal_record_url", "selfie_url"}
+    written = {
+        fld for _obj, fld in re.findall(r"(\w+)\.(\w*(?:evidence|photo)\w*)\s*=", app_src)
+        if fld not in docs_fields
+    }
+    assert written, "разбор сломался — полей не нашлось вовсе"
+
+    missing = sorted(f for f in written if f not in cleaner)
+    assert not missing, (
+        "чистка не знает про поля со снимками: " + ", ".join(missing) +
+        ". Внеси их в _referenced_media_keys, иначе ретеншен удалит живые доказательства."
+    )
