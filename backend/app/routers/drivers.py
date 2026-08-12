@@ -18,7 +18,10 @@ from ..db import get_session
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, UserRole
 from ..security import current_user
-from ..services import DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url, user_rating
+from ..services import (
+    DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url,
+    set_driver_docs_verdict, set_user_gender, user_rating,
+)
 from ..storage import get_storage
 from ..timeutil import utcnow
 
@@ -143,17 +146,12 @@ def set_driver_gender(body: GenderIn, user: User = Depends(current_user), sessio
     g = (body.gender or "").strip().lower()
     if g not in _ALLOWED_GENDERS:
         raise herr(400, "Недопустимое значение пола", "Ярамаған енес мәғәнәһе")
-    # Прежний пол читаем ДО присвоения: сравнивать потом с `DriverProfile.gender` нельзя —
-    # то поле устарело и больше не пишется, оно навсегда осталось бы со старым значением.
-    was = (user.gender or "").strip().lower()
-    user.gender = g
-    session.add(user)
+    # Профиль водителя создаём ДО записи: в нём живёт ПОДТВЕРЖДЕНИЕ пола, которое
+    # `set_user_gender` гасит при смене заявления.
     dp = _get_or_create_profile(session, user.id)
-    # Само значение живёт на User; в профиле водителя остаётся только ПОДТВЕРЖДЕНИЕ.
-    # Заявили другой пол → прежнее подтверждение недействительно, нужен новый просмотр прав.
-    if was != g and dp.gender_verified:
-        dp.gender_verified = False
-        session.add(dp)
+    # Пол меняем только через общий хелпер — там же сброс подтверждения. Раньше это
+    # правило было переписано здесь, а в `/me/update` его не было (см. services.set_user_gender).
+    set_user_gender(session, user, g)
     session.commit()
     session.refresh(dp)
     return dp
@@ -244,18 +242,16 @@ def _run_autocheck(session: Session, dp: DriverProfile) -> None:
         dp.autocheck_score = float(res["score"])
         dp.autocheck_data = json.dumps(res["data"], ensure_ascii=False)
         dp.autocheck_at = utcnow()
+        # Вердикт ставим общим хелпером: там же гаснет подтверждение пола при отказе
+        # (пол подтверждают по фото прав — см. services.set_driver_docs_verdict).
         if settings.driver_autoreject_enabled and res["result"] == "reject":
-            dp.docs_status = "rejected"
             target = session.get(User, dp.user_id)
             if target:
-                target.verified = False
-                session.add(target)
+                set_driver_docs_verdict(session, target, dp, approved=False)
         elif settings.driver_autoapprove_enabled and res["result"] == "pass":
-            dp.docs_status = "verified"
             target = session.get(User, dp.user_id)
             if target:
-                target.verified = True
-                session.add(target)
+                set_driver_docs_verdict(session, target, dp, approved=True)
         # иначе остаётся 'pending' → решает админ (с готовыми данными из autocheck_data)
     except Exception as e:  # OCR/разбор упали — не наказываем водителя, отдаём человеку
         dp.autocheck_result = "error"
@@ -272,6 +268,11 @@ def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user
     dp.license_url = _ensure_owned_doc_url(body.license_url, user, dp)
     dp.car_photo_url = _ensure_owned_doc_url(body.car_photo_url, user, dp)
     dp.docs_status = "pending"
+    # Пол подтверждали по ФОТО ПРАВ, а прежнее фото ниже стирается насовсем. Прислали другие
+    # права — подтверждение висит на документе, которого больше нет: гасим, модератор сверит
+    # заново. Фото не менялось (переотправили ту же пару) — подтверждение остаётся.
+    if prev_license and dp.license_url != prev_license:
+        dp.gender_verified = False
     dp.verify_submitted_at = utcnow()
     _run_autocheck(session, dp)   # может сменить статус на verified/rejected (если включено)
     session.add(dp)
@@ -316,6 +317,10 @@ def driver_status(user: User = Depends(current_user), session: Session = Depends
         "car_photo_url": dp.car_photo_url if dp else "",
         "online": dp.online if dp else False,
         "gender": user.gender or "",   # виден только самому себе; источник — User.gender
+        # Подтверждён ли пол модератором. Без этого поля кабинет водителя обещал женщине
+        # бейдж и женские заказы сразу после тумблера, хотя и то и другое включает только
+        # проверка прав (см. `set_driver_gender`): она ждала заказы, которых не будет.
+        "gender_verified": bool(dp.gender_verified) if dp else False,
         "autocheck_result": dp.autocheck_result if dp else "",
         "autocheck_score": dp.autocheck_score if dp else 0.0,
         "autocheck_data": dp.autocheck_data if dp else "",
@@ -481,13 +486,9 @@ def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current
     if not target:
         raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
     dp = _get_or_create_profile(session, user_id)
-    if body.approve:
-        target.verified = True
-        dp.docs_status = "verified"
-    else:
-        target.verified = False
-        dp.docs_status = "rejected"
-        dp.gender_verified = False       # отклонили документы — подтверждать по ним нечего
+    # Вердикт по документам — общим хелпером: отказ там же гасит подтверждение пола
+    # (подтверждали его по этим самым правам).
+    set_driver_docs_verdict(session, target, dp, approved=bool(body.approve))
     if body.gender_verified is not None:
         # Подтверждать нечего, если водитель ничего не заявил: пустой пол нигде не показывается.
         # Заявление читаем с `User.gender` — в профиле водителя это поле устарело и не пишется,

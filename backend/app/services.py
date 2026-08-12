@@ -208,6 +208,49 @@ def blocked_user_ids(session: Session, uid: int) -> set[int]:
     return {(r.blocked_user_id if r.user_id == uid else r.user_id) for r in rows}
 
 
+# ----------------------------- Пол (F9, безопасность женщин) -----------------------------
+def set_user_gender(session: Session, user: User, gender: str) -> None:
+    """ЕДИНСТВЕННОЕ место, где меняется пол. Пишет `User.gender` и гасит подтверждение.
+
+    Пол можно поменять из двух мест — тумблер в кабинете водителя (`/driver/gender`) и
+    профиль (`/me/update`). Сбрасывал подтверждение только первый. Дыра: модератор
+    подтверждает пол и мужчине (`gender_verified` разрешён для male), а дальше водитель
+    меняет пол в профиле на «женщина» — подтверждение остаётся, и он получает публичный
+    бейдж «женщина за рулём» и женские заказы. Ровно то, ради чего проверка и вводилась
+    («заказала женщину — приехал мужчина»). Держим правило в одном месте, чтобы пути
+    снова не разъехались; сторожит `test_gender_writes_go_through_one_door`.
+    """
+    g = (gender or "").strip().lower()
+    was = (user.gender or "").strip().lower()
+    user.gender = g
+    session.add(user)
+    if was == g:
+        return
+    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
+    # Новое заявление — новый просмотр прав. Прежнее подтверждение недействительно.
+    if prof is not None and prof.gender_verified:
+        prof.gender_verified = False
+        session.add(prof)
+
+
+def set_driver_docs_verdict(session: Session, user: User, profile: DriverProfile, approved: bool) -> None:
+    """ЕДИНСТВЕННОЕ место, где выносится вердикт по документам водителя.
+
+    Вердикт ставят три двери: кнопка админа (`/admin/drivers/{id}/moderate`), кнопки в
+    телеграм-боте и авто-проверка прав (OCR). Правило «документы отклонили → подтверждение
+    пола сгорает» было написано только в первой: пол подтверждают по фото прав, и если
+    права признали негодными, подтверждать по ним нечего. Через две другие двери водитель
+    с отклонёнными документами сохранял бейдж «женщина за рулём» и женские заказы.
+    Сторож — `test_docs_verdicts_go_through_one_door`.
+    """
+    user.verified = approved
+    profile.docs_status = "verified" if approved else "rejected"
+    if not approved and profile.gender_verified:
+        profile.gender_verified = False
+    session.add(user)
+    session.add(profile)
+
+
 # ----------------------------- Push (FCM) -----------------------------
 _fcm_app = None
 

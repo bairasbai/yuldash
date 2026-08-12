@@ -155,3 +155,163 @@ def test_gender_own_profile_visible_and_validated(client, user_factory):
     assert client.post("/driver/gender", headers=drv["auth"], json={"gender": "other"}).status_code == 400
     # нужен токен
     assert client.post("/driver/gender", json={"gender": "female"}).status_code == 401
+
+
+def test_status_tells_the_driver_whether_gender_is_confirmed(client, user_factory):
+    """Кабинет водителя обязан знать, подтверждён ли пол, — иначе он врёт.
+
+    Экран показывал тумблер «Я — женщина за рулём» с подписью «пассажирки увидят бейдж и
+    смогут заказать такси только к женщине за рулём» сразу после нажатия. На деле и бейдж,
+    и женские заказы включает модератор, сверив права: женщина ждала заказы, которых не
+    будет. Чтобы текст был честным, статус отдаёт `gender_verified` (живая проверка на
+    эмуляторе 2026-08-12).
+    """
+    drv = user_factory("VerifiedFemDrv", role=UserRole.driver)
+    admin = user_factory("VerifiedFemAdmin", role=UserRole.admin)
+
+    # пола нет — подтверждать нечего
+    assert client.get("/driver/status", headers=drv["auth"]).json()["gender_verified"] is False
+
+    # заявила «женщина» — это ещё не подтверждение
+    _set_gender(client, drv, "female")
+    st = client.get("/driver/status", headers=drv["auth"]).json()
+    assert st["gender"] == "female" and st["gender_verified"] is False
+
+    # модератор сверил права — теперь бейдж настоящий, и кабинет об этом узнаёт
+    _confirm_gender(client, admin, drv)
+    assert client.get("/driver/status", headers=drv["auth"]).json()["gender_verified"] is True
+
+    # сняла пол → подтверждение сгорает, и статус говорит об этом сразу
+    _set_gender(client, drv, "")
+    st2 = client.get("/driver/status", headers=drv["auth"]).json()
+    assert st2["gender"] == "" and st2["gender_verified"] is False
+
+
+def test_profile_gender_change_burns_confirmation(client, user_factory):
+    """Дыра: подтверждение пола переживало смену пола через профиль.
+
+    Модератор подтверждает пол и мужчине (это законно — он сверяет права). Дальше водитель
+    менял пол на «женщина» в профиле (`POST /me/update`, а не тумблером `/driver/gender`) —
+    подтверждение оставалось, и он получал публичный бейдж «женщина за рулём» и заказы
+    «только к женщине». То есть проверку, введённую ровно против «заказала женщину —
+    приехал мужчина», можно было обойти в два тапа.
+    """
+    drv = user_factory("SwapDrv", role=UserRole.driver)
+    admin = user_factory("SwapAdmin", role=UserRole.admin)
+    _set_gender(client, drv, "male")
+    _confirm_gender(client, admin, drv)
+
+    # смена пола через профиль — тот же самый пол, другая дверь
+    r = client.post("/me/update", headers=drv["auth"], json={"gender": "female"})
+    assert r.status_code == 200 and r.json()["gender"] == "female"
+
+    st = client.get("/driver/status", headers=drv["auth"]).json()
+    assert st["gender"] == "female"
+    assert st["gender_verified"] is False, "смена пола обязана гасить подтверждение"
+
+    # и наружу бейджа нет: витрина верит только паре «заявлено + подтверждено»
+    ride = _publish(client, drv, frm="ПодменаГрад")
+    rows = client.get("/rides", params={"from_city": "ПодменаГрад"}).json()
+    assert next(r for r in rows if r["id"] == ride["id"])["driver_is_woman"] is False
+    wonly = client.get("/rides", params={"from_city": "ПодменаГрад", "women_only": True}).json()
+    assert all(r["id"] != ride["id"] for r in wonly)
+
+
+def test_gender_writes_go_through_one_door():
+    """Сторож класса ошибки: пол пишется только в `services.set_user_gender`.
+
+    Правило «сменил пол — сгорело подтверждение» уже один раз разъехалось по двум ручкам.
+    Появится третья (регистрация, импорт, админка) — тест упадёт здесь, а не всплывёт
+    жалобой «заказала женщину — приехал мужчина».
+    """
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "app"
+    hits = []
+    for path in root.rglob("*.py"):
+        if path.name == "services.py":
+            continue                      # единственная законная дверь
+        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r"\buser\.gender\s*=(?!=)|\.gender\s*=\s*g\b", line):
+                hits.append(f"{path.name}:{i}: {line.strip()}")
+    assert not hits, "пол пишут мимо set_user_gender:\n" + "\n".join(hits)
+
+
+def _upload_doc(client, drv):
+    """Загрузка фото документа — ссылку выдаёт сервер, чужую он не примет."""
+    import base64
+    r = client.post("/upload/photo", headers=drv["auth"],
+                    json={"photo_b64": base64.b64encode(bytes([0xFF, 0xD8, 0xFF]) + b"fake-jpeg").decode(), "ext": "jpg"})
+    assert r.status_code == 200, r.text
+    return r.json()["url"]
+
+
+def _submit_docs(client, drv, lic=None, car=None):
+    r = client.post("/driver/verify", headers=drv["auth"],
+                    json={"license_url": lic or _upload_doc(client, drv),
+                          "car_photo_url": car or _upload_doc(client, drv)})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_rejected_docs_burn_gender_confirmation(client, user_factory):
+    """Отклонили документы — бейдж «женщина за рулём» обязан погаснуть.
+
+    Пол подтверждают ПО ФОТО ПРАВ. Если права признали негодными, подтверждать по ним нечего.
+    Правило было написано только в кнопке админки; через телеграм-бота и авто-проверку
+    водитель с отклонёнными документами сохранял бейдж и женские заказы.
+    """
+    drv = user_factory("RejectedFemDrv", role=UserRole.driver)
+    admin = user_factory("RejectedFemAdmin", role=UserRole.admin)
+    _set_gender(client, drv, "female")
+    _confirm_gender(client, admin, drv)
+    assert client.get("/driver/status", headers=drv["auth"]).json()["gender_verified"] is True
+
+    r = client.post(f"/admin/drivers/{drv['id']}/moderate", headers=admin["auth"], json={"approve": False})
+    assert r.status_code == 200, r.text
+    st = client.get("/driver/status", headers=drv["auth"]).json()
+    assert st["docs_status"] == "rejected"
+    assert st["gender_verified"] is False, "отклонённые документы обязаны гасить подтверждение пола"
+
+
+def test_new_license_photo_burns_gender_confirmation(client, user_factory):
+    """Прислала ДРУГИЕ права — подтверждение сгорает: старое фото стирается насовсем.
+
+    Иначе подтверждение висит на документе, которого больше нет, и сверить его уже нельзя.
+    Переотправка той же пары фото (человек нажал «отправить» дважды) подтверждение НЕ трогает.
+    """
+    drv = user_factory("NewLicFemDrv", role=UserRole.driver)
+    admin = user_factory("NewLicFemAdmin", role=UserRole.admin)
+    _submit_docs(client, drv)
+    _set_gender(client, drv, "female")
+    _confirm_gender(client, admin, drv)
+
+    # та же пара фото — подтверждение остаётся
+    st = client.get("/driver/status", headers=drv["auth"]).json()
+    _submit_docs(client, drv, lic=st["license_url"], car=st["car_photo_url"])
+    assert client.get("/driver/status", headers=drv["auth"]).json()["gender_verified"] is True
+
+    # другое фото прав — подтверждение гаснет
+    _submit_docs(client, drv, lic=_upload_doc(client, drv), car=st["car_photo_url"])
+    assert client.get("/driver/status", headers=drv["auth"]).json()["gender_verified"] is False
+
+
+def test_docs_verdicts_go_through_one_door():
+    """Сторож класса ошибки: вердикт по документам ставит только `set_driver_docs_verdict`.
+
+    Тот же урок, что и с полом: правило, написанное внутри обработчика, молча не работает
+    в остальных дверях (админка, телеграм-бот, авто-проверка OCR).
+    """
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "app"
+    hits = []
+    for path in root.rglob("*.py"):
+        if path.name == "services.py":
+            continue                      # единственная законная дверь
+        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r"""\.docs_status\s*=\s*["'](verified|rejected)["']|\.verified\s*=(?!=)""", line):
+                hits.append(f"{path.name}:{i}: {line.strip()}")
+    assert not hits, "вердикт по документам ставят мимо set_driver_docs_verdict:\n" + "\n".join(hits)
