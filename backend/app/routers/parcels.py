@@ -32,7 +32,8 @@ from ..config import settings
 from ..db import get_session
 from ..logs import admin_action
 from ..errors import herr
-from ..flood import TOO_MANY_CARRYING, TOO_MANY_PARCELS, guard_open_items
+from ..flood import (TOO_FAST_CREATING, TOO_MANY_CARRYING, TOO_MANY_PARCELS, guard_burst,
+                     guard_open_items)
 from ..models import ParcelDelivery, User, UserRole
 from ..safety_logic import (ensure_active,
                             guard_own_evidence, is_own_media_url)
@@ -444,6 +445,12 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
                      ),
                      limit=settings.flood_active_parcels_max,
                      ru=TOO_MANY_PARCELS[0], ba=TOO_MANY_PARCELS[1])
+    # Потолок на ТЕМП рядом с потолком на «сколько висит»: второй обходится отменой (место
+    # освободилось — создавай заново), а каждая посылка уходит в ленту курьеров и Александру
+    # в Telegram (волна 49). Отменённые из счёта темпа не исчезают.
+    guard_burst(session, ParcelDelivery.id, ParcelDelivery.created_at, ParcelDelivery.sender_id == user.id,
+                per_minute=settings.flood_create_per_minute,
+                ru=TOO_FAST_CREATING[0], ba=TOO_FAST_CREATING[1])
     from_city = body.from_city.strip()
     to_city = body.to_city.strip()
     receiver_name = body.receiver_name.strip()

@@ -29,6 +29,16 @@ from app.timeutil import utcnow
 from test_api import _ride
 
 
+@pytest.fixture(autouse=True)
+def _room_for_the_cap(monkeypatch):
+    """Здесь проверяется потолок «сколько висит ОДНОВРЕМЕННО», и для этого приходится
+    создавать объекты пачкой. Рядом живёт второй потолок — на ТЕМП создания (волна 49),
+    и он бы упёрся первым. Поднимаем его только на время этих проверок: они про другое
+    правило, а темп проверяется в `test_you_cannot_flood_the_admin.py`."""
+    monkeypatch.setattr(settings, "flood_create_per_minute", 10_000, raising=False)
+    yield
+
+
 def _local(delta: timedelta) -> str:
     """Время как его шлёт приложение: местное (Уфа = UTC+5), без пояса."""
     return (utcnow() + timedelta(hours=settings.local_tz_offset_hours) + delta).replace(

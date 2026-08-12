@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
-from ..flood import TOO_MANY_REQUESTS, guard_open_items
+from ..flood import TOO_FAST_CREATING, TOO_MANY_REQUESTS, guard_burst, guard_open_items
 from ..geo import bare_name
 from ..logs import admin_action, log
 from ..models import (
@@ -124,6 +124,13 @@ def create_request(body: RequestIn, user: User = Depends(current_user), session:
                      *live_request_conds(),
                      limit=settings.flood_active_requests_max,
                      ru=TOO_MANY_REQUESTS[0], ba=TOO_MANY_REQUESTS[1])
+    # …и потолок на ТЕМП. Тот, что выше, считает живые заявки — а отмена освобождает место,
+    # и цикл «создал → отменил» шёл бесконечно. Каждая заявка «нужна помощь» уходит Александру
+    # в Telegram: 40 заявок = 40 сообщений, и настоящий срочный вызов тонет среди них
+    # (проверено запросом, аудит 2026-08-12, волна 49). Отменённые из счёта не исчезают.
+    guard_burst(session, RideRequest.id, RideRequest.created_at, RideRequest.passenger_id == user.id,
+                per_minute=settings.flood_create_per_minute,
+                ru=TOO_FAST_CREATING[0], ba=TOO_FAST_CREATING[1])
     # Модерация открытого поля. Комментарий заявки видит вся лента водителей района — это
     # публичное объявление, а не личный чат. Проверка стояла на правке заявки (edit_request),
     # на отклике и на заявке от админа, а на самом создании её не было: пока человек не зайдёт
