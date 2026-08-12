@@ -453,7 +453,10 @@ def pending_drivers(user: User = Depends(current_user), session: Session = Depen
             license_url=p.license_url, car_photo_url=p.car_photo_url,
             autocheck_result=p.autocheck_result, autocheck_score=p.autocheck_score,
             autocheck_data=p.autocheck_data,
-            gender_claimed=p.gender, gender_verified=p.gender_verified,
+            # Заявленный пол берём у ЧЕЛОВЕКА: он переехал на User (аудит 2026-08-08), а в
+            # профиле водителя осталось только подтверждение. Читали бы старое поле — модератор
+            # видел бы пустую строку и не понимал, что вообще подтверждает.
+            gender_claimed=((u.gender or "") if u else ""), gender_verified=p.gender_verified,
         ))
     return out
 
@@ -487,7 +490,9 @@ def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current
         dp.gender_verified = False       # отклонили документы — подтверждать по ним нечего
     if body.gender_verified is not None:
         # Подтверждать нечего, если водитель ничего не заявил: пустой пол нигде не показывается.
-        dp.gender_verified = bool(body.gender_verified) and dp.gender in ("female", "male")
+        # Заявление читаем с `User.gender` — в профиле водителя это поле устарело и не пишется,
+        # по нему условие всегда было бы ложным и подтверждение не включалось бы никогда.
+        dp.gender_verified = bool(body.gender_verified) and (target.gender or "") in ("female", "male")
     session.add(target)
     session.add(dp)
     session.commit()

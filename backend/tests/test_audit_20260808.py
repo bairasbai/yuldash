@@ -447,6 +447,13 @@ def test_only_a_woman_can_respond_to_a_women_only_request(client, user_factory):
 def test_gender_never_leaks_to_other_people(client, user_factory):
     """Пол — личное. Наружу идёт только сигнал «женщина за рулём», сам пол не отдаём никому."""
     drv = user_factory("Водитель-женщина 5", role=UserRole.driver, gender="female")
+    # Бейдж «женщина за рулём» показывается только после сверки с фото прав модератором
+    # (правило от 2026-08-07). Ветка аудита безопасности об этом требовании не знала —
+    # при слиянии 2026-08-12 шаг добавлен, иначе тест проверял бы самодекларацию.
+    admin = user_factory("Админ пола", role=UserRole.admin)
+    mod = client.post(f"/admin/drivers/{drv['id']}/moderate", headers=admin["auth"],
+                      json={"approve": True, "gender_verified": True})
+    assert mod.status_code == 200, mod.text
     rid = _women_ride(client, drv)
     stranger = user_factory("Посторонний", gender="male")
 

@@ -509,10 +509,7 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
     # только на описании — «Марат 89871234567» приезжал в ленту без метки (аудит 2026-08-08).
     # `place`/`session` из второй ветки сохраняем: без них метка не попадает в кабинет админа
     # («Помеченные тексты») и разбирать её некому.
-    moderate_open_text(
-        "\n".join(p for p in (body.description.strip(), receiver_name) if p),
-        user.id, place="parcel", session=session,
-    )
+    moderate_open_text("\n".join(p for p in (body.description.strip(), receiver_name) if p), user.id, place="parcel", session=session)
 
     parcel = ParcelDelivery(
         sender_id=user.id,

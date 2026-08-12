@@ -39,7 +39,7 @@ from .models import (
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
     Rating, RecentPlace, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
     RouteWatch, SafetyProfile, SavedPlace, SosEvent, SupportMessage, SupportTicket,
-    PreTripCheck, TaxiApplication, TaxiWorkDay, TgAuth, Trust, TripShare, TrustedContact,
+    PreTripCheck, TaxiApplication, TaxiWorkDay, TextFlag, TgAuth, Trust, TripShare, TrustedContact,
     UploadEvent, User,
     WaitlistEntry,
 )
@@ -509,6 +509,12 @@ def delete_user_account(session: Session, user: User) -> None:
         session.execute(delete(TgAuth).where(TgAuth.telegram_id == tg))
     session.execute(delete(UploadEvent).where(UploadEvent.user_id == uid))
     session.execute(delete(AppReview).where(AppReview.user_id == uid))
+    # Помеченные модерацией тексты этого человека (журнал для админа). Сам текст там не
+    # хранится — только ссылка на запись, но записи уже удалены выше, и пометка осталась бы
+    # висеть указателем в никуда с именем удалённого пользователя. Найдено при слиянии веток
+    # 2026-08-12: таблица пришла из ветки модерации, а сторож «после удаления не остаётся
+    # следов» — из ветки аудита безопасности, и врозь они друг о друге не знали.
+    session.execute(delete(TextFlag).where(TextFlag.user_id == uid))
     session.execute(delete(DriverProfile).where(DriverProfile.user_id == uid))
     # 3.21 Доверие: мой уровень «свой», мои инвайт-коды, мои согласия (152-ФЗ — стираем всё).
     session.execute(delete(Consent).where(Consent.user_id == uid))

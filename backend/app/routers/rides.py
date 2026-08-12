@@ -16,7 +16,8 @@ from ..errors import herr
 from ..flood import TOO_MANY_RIDES, guard_open_items
 from ..geo import bare_name
 from ..logs import log
-from ..models import Booking, BookingStatus, MedicalPartner, Ride, RideCategory, RideStatus, User, UserRole
+from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
+                      RideStatus, User, UserRole)
 from .. import workday as workday_mod
 from ..safety_logic import (MSG_WOMEN_ONLY_DRIVER, ensure_active, guard_women_only,
                             suspended_user_ids)
