@@ -1865,14 +1865,18 @@ private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclare
                 Text(title, color = accent, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             // Сумма к оплате (или сумма в ожидании подтверждения).
+            // Показываем КОПЕЙКИ: долг — это 8% от поездок, круглым он почти не бывает.
+            // Через `unpaidRub` (целочисленное kop/100) долг 150,50 ₽ выглядел как «150 ₽»:
+            // водитель переводил ровно столько, оставался должен полтинник и не понимал,
+            // почему такси не разблокировали.
             if (debt.unpaidKop > 0) {
                 Text(
-                    appText("К оплате: ", "Түләргә: ") + "${debt.unpaidRub} ₽",
+                    appText("К оплате: ", "Түләргә: ") + kopToRub(debt.unpaidKop),
                     color = CanonText, fontWeight = FontWeight.Bold, fontSize = 24.sp
                 )
             } else if (onlyPending) {
                 Text(
-                    appText("В обработке: ", "Эшкәртеүҙә: ") + "${debt.pendingRub} ₽",
+                    appText("В обработке: ", "Эшкәртеүҙә: ") + kopToRub(debt.pendingKop),
                     color = CanonText, fontWeight = FontWeight.Bold, fontSize = 24.sp
                 )
             }
@@ -3262,7 +3266,7 @@ internal fun AdsCabinetScreen(
     // Лист СБП для оплаты своего размещения (переиспользуем общий SbpTransferSheet с QR).
     payingAd?.let { ad ->
         SbpTransferSheet(
-            amountRub = ad.budgetKop / 100,
+            amountKop = ad.budgetKop,
             onPaid = { payingAd = null; reloadKey++ },
             onDismiss = { payingAd = null },
         )
@@ -3373,8 +3377,8 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
             }
             if (ad.pkgTitle.isNotBlank()) {
                 Text(
-                    appText("Тариф: ${ad.pkgTitle} · ${ad.budgetKop / 100} ₽ / ${ad.periodDays} дн",
-                            "Тариф: ${ad.pkgTitle} · ${ad.budgetKop / 100} ₽ / ${ad.periodDays} көн"),
+                    appText("Тариф: ${ad.pkgTitle} · ${kopToRub(ad.budgetKop)} / ${ad.periodDays} дн",
+                            "Тариф: ${ad.pkgTitle} · ${kopToRub(ad.budgetKop)} / ${ad.periodDays} көн"),
                     color = CanonMuted, fontSize = 12.sp
                 )
             }
@@ -3402,7 +3406,7 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
                 ) {
                     Icon(Icons.Default.Payments, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(appText("Оплатить размещение · ${ad.budgetKop / 100} ₽", "Урынлаштырыуҙы түләү · ${ad.budgetKop / 100} ₽"), fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(appText("Оплатить размещение · ${kopToRub(ad.budgetKop)}", "Урынлаштырыуҙы түләү · ${kopToRub(ad.budgetKop)}"), fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
             if (ad.status == "active" && ad.paid) {
@@ -3424,7 +3428,7 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
                 ) {
                     Icon(Icons.Default.Autorenew, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(appText("Продлить размещение · ${ad.budgetKop / 100} ₽", "Урынлаштырыуҙы оҙайтыу · ${ad.budgetKop / 100} ₽"), fontWeight = FontWeight.Bold, color = CanonGreen2)
+                    Text(appText("Продлить размещение · ${kopToRub(ad.budgetKop)}", "Урынлаштырыуҙы оҙайтыу · ${kopToRub(ad.budgetKop)}"), fontWeight = FontWeight.Bold, color = CanonGreen2)
                 }
             }
             if (ad.status == "draft" || ad.status == "rejected") {
@@ -3505,7 +3509,7 @@ internal fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCre
                         Text(appText(p.title, p.titleBa.ifBlank { p.title }), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         Text(appText("${p.periodDays} дней показов", "${p.periodDays} көн күрһәтеү"), color = CanonMuted, fontSize = 12.sp)
                     }
-                    Text("${p.amountKop / 100} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(kopToRub(p.amountKop), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
         }
@@ -3610,7 +3614,7 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(appText(p.title, p.titleBa.ifBlank { p.title }), modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("${p.amountKop / 100} ₽ / ${p.periodDays}${appText(" дн", " көн")}", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("${kopToRub(p.amountKop)} / ${p.periodDays}${appText(" дн", " көн")}", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
             }

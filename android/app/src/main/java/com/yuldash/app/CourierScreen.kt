@@ -2361,7 +2361,7 @@ private fun CourierCabinetTab(
     // Реквизиты СБП после оформления оплаты (переиспользуем общий лист донат/буста).
     payResult?.let { pr ->
         SbpTransferSheet(
-            amountRub = pr.amountKop / 100,
+            amountKop = pr.amountKop,
             onPaid = { payResult = null; onReloadMe() },
             onDismiss = { payResult = null },
             payeePhone = pr.payeePhone,

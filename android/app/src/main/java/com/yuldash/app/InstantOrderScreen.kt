@@ -387,7 +387,9 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
 private fun TaxiPromoSavingsCard(estimate: InstantEstimateDto?) {
     val est = estimate ?: return
     if (!est.hasPromoDiscount) return
-    val savedRub = est.promoDiscountKop / 100
+    // Скидка бывает процентной, поэтому копейки у неё обычное дело. Рядом стоит цена
+    // в формате с копейками — «−37 ₽» против «188,50 ₽» читалось бы как разные деньги.
+    val savedText = formatTaxiKop(est.promoDiscountKop)
     var shown by remember(est.promoCode, est.promoDiscountKop) { mutableStateOf(false) }
     LaunchedEffect(est.promoCode, est.promoDiscountKop) { shown = true }
     AnimatedVisibility(
@@ -415,7 +417,7 @@ private fun TaxiPromoSavingsCard(estimate: InstantEstimateDto?) {
                     // Сама выгода одним числом. «Было → стало» повторять не нужно: обе цены
                     // стоят на 40dp выше, в блоке цены, — дважды одни и те же цифры только шумят.
                     Text(
-                        "−$savedRub ₽",
+                        "−$savedText",
                         color = CanonGreen2, fontSize = TxTitle, lineHeight = LhTitle, fontWeight = FontWeight.Bold,
                     )
                 }
@@ -450,7 +452,7 @@ private fun taxiPromoHonestText(): String = appText(
 @Composable
 private fun TaxiPromoPayRow(order: InstantOrderDto, forDriver: Boolean, modifier: Modifier = Modifier) {
     if (!order.hasPromoDiscount) return
-    val savedRub = order.promoDiscountKop / 100
+    val savedText = formatTaxiKop(order.promoDiscountKop)
     Surface(color = CanonMint, shape = CanonItemShape, modifier = modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -475,11 +477,11 @@ private fun TaxiPromoPayRow(order: InstantOrderDto, forDriver: Boolean, modifier
             }
             Text(
                 if (forDriver) appText(
-                    "Промокод −$savedRub ₽ оплачивает Юлдаш: разницу берём из своей комиссии, не хватит — доплатим тебе в кошелёк. Ты получаешь столько же, как без промокода.",
-                    "Промокод −$savedRub ₽ хаҡын Юлдаш түләй: айырманы үҙ комиссиябыҙҙан алабыҙ, етмәһә — кеҫәңә өҫтәйбеҙ. Һин промокодһыҙҙағы кеүек үк алаһың.",
+                    "Промокод −$savedText оплачивает Юлдаш: разницу берём из своей комиссии, не хватит — доплатим тебе в кошелёк. Ты получаешь столько же, как без промокода.",
+                    "Промокод −$savedText хаҡын Юлдаш түләй: айырманы үҙ комиссиябыҙҙан алабыҙ, етмәһә — кеҫәңә өҫтәйбеҙ. Һин промокодһыҙҙағы кеүек үк алаһың.",
                 ) else appText(
-                    "Скидка по промокоду −$savedRub ₽. Её оплачивает Юлдаш — водитель получит своё полностью, спорить не о чем.",
-                    "Промокод буйынса ташлама −$savedRub ₽. Уны Юлдаш түләй — водитель үҙенекен тулыһынса ала, бәхәсләшер нәмә юҡ.",
+                    "Скидка по промокоду −$savedText. Её оплачивает Юлдаш — водитель получит своё полностью, спорить не о чем.",
+                    "Промокод буйынса ташлама −$savedText. Уны Юлдаш түләй — водитель үҙенекен тулыһынса ала, бәхәсләшер нәмә юҡ.",
                 ),
                 color = CanonGreen2, fontSize = TxCaption, lineHeight = LhCaption,
             )
@@ -952,12 +954,15 @@ internal fun InstantOrderScreen(
                             else appText("Заказ отменён", "Заказ ҡабул ителмәне"),
                             // Честные тексты про штраф/страйки (Модель А: фиксируем, деньги не списываем).
                             subtitle = when {
+                                // Сумму называем с копейками (formatTaxiKop): её человек переводит
+                                // водителю из рук в руки, и «49 ₽» вместо 49,50 ₽ — это недоплата,
+                                // которую потом разбирают двое незнакомых людей у обочины.
                                 o.noShow -> appText(
-                                    "Водитель ждал ${o.waitFreeMin}+ минут, но не дождался. Подача — ${o.cancelFeeKop / 100} ₽, переведи водителю. Частые такие отмены ставят такси на паузу.",
-                                    "Водитель ${o.waitFreeMin}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${o.cancelFeeKop / 100} ₽, водителгә күсер. Йыш улай булһа — такси паузаға китә.")
+                                    "Водитель ждал ${o.waitFreeMin}+ минут, но не дождался. Подача — ${formatTaxiKop(o.cancelFeeKop)}, переведи водителю. Частые такие отмены ставят такси на паузу.",
+                                    "Водитель ${o.waitFreeMin}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${formatTaxiKop(o.cancelFeeKop)}, водителгә күсер. Йыш улай булһа — такси паузаға китә.")
                                 o.cancelFeeKop > 0 && o.cancelBy == "passenger" -> appText(
-                                    "Отмена была платной: ${o.cancelFeeKop / 100} ₽ (подача) — переведи водителю. Частые платные отмены ставят такси на паузу.",
-                                    "Кире алыу түләүле булды: ${o.cancelFeeKop / 100} ₽ (килеү хаҡы) — водителгә күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.")
+                                    "Отмена была платной: ${formatTaxiKop(o.cancelFeeKop)} (подача) — переведи водителю. Частые платные отмены ставят такси на паузу.",
+                                    "Кире алыу түләүле булды: ${formatTaxiKop(o.cancelFeeKop)} (килеү хаҡы) — водителгә күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.")
                                 o.cancelBy == "driver" -> appText("Водитель отменил. Попробуй заказать снова.", "Водитель баш тартты. Ҡабат заказ ит.")
                                 else -> appText("Ты отменил заказ — бесплатно.", "Һин заказды кире алдың — бушлай.")
                             },
@@ -992,7 +997,7 @@ internal fun InstantOrderScreen(
                                     // 503 (провайдер выключен) → карточка тихо исчезает на сессию (OnlinePayGate).
                                     // Платим ровно ту сумму, что человек и должен: со скидкой, а не полную.
                                     PayOnlineCard(
-                                        amountRub = (o.passengerPayKop / 100).takeIf { it > 0 },
+                                        amountKop = o.passengerPayKop.takeIf { it > 0 },
                                         pay = { m -> ApiClient.payInstantOrder(o.id, m) },
                                     )
                                     InstantRateAndReport(o, isDriver = false)   // §9: оценить/пожаловаться
@@ -2661,7 +2666,8 @@ internal fun InstantDriverEnRouteCard(
     }
     var confirmPaidCancel by remember { mutableStateOf(false) }
     var showShare by remember(order.id) { mutableStateOf(false) }   // «Поделиться поездкой» (B7b-2)
-    val cancelFeeRub = order.cancelFeeNowKop / 100
+    // Цена отмены — с копейками: её называют на кнопке и в подтверждении, а платят наличными.
+    val cancelFeeText = formatTaxiKop(order.cancelFeeNowKop)
     // Live-трек машины (B7a-3): пока заказ активен — держим WS такси-заказа и двигаем маркер.
     // Колбэк приходит с потока OkHttp — snapshot-state потокобезопасен. Ушли с экрана → close.
     var carPoint by remember(order.id) { mutableStateOf<Point?>(null) }
@@ -2848,7 +2854,7 @@ internal fun InstantDriverEnRouteCard(
                     ) {
                         Text(
                             if (order.cancelFeeNowKop > 0)
-                                appText("Отменить · $cancelFeeRub ₽", "Кире алыу · $cancelFeeRub ₽")
+                                appText("Отменить · $cancelFeeText", "Кире алыу · $cancelFeeText")
                             else appText("Отменить заказ", "Заказды кире алыу"),
                             color = CanonRed, fontSize = TxBody, lineHeight = LhBody,
                         )
@@ -2868,8 +2874,8 @@ internal fun InstantDriverEnRouteCard(
             text = {
                 Text(
                     appText(
-                        "Водитель уже приехал и ждёт. Отмена — $cancelFeeRub ₽ (подача), переведи водителю напрямую. Частые платные отмены ставят такси на паузу.",
-                        "Водитель килде инде һәм көтә. Кире алыу — $cancelFeeRub ₽ (килеү хаҡы), водителгә туранан күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.",
+                        "Водитель уже приехал и ждёт. Отмена — $cancelFeeText (подача), переведи водителю напрямую. Частые платные отмены ставят такси на паузу.",
+                        "Водитель килде инде һәм көтә. Кире алыу — $cancelFeeText (килеү хаҡы), водителгә туранан күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.",
                     ),
                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
@@ -2972,7 +2978,7 @@ private fun InstantCancelReasonDialog(
     // успевает нажать дважды, пока окно закрывается. Второй тап должен уйти в никуда.
     var picked by remember { mutableStateOf<String?>(null) }
     val reasons = instantCancelReasons()
-    val feeRub = feeKop / 100
+    val feeText = formatTaxiKop(feeKop)
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = CanonSurface,
@@ -2996,8 +3002,8 @@ private fun InstantCancelReasonDialog(
                     Surface(color = CanonWarnBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
                         Text(
                             appText(
-                                "Отмена сейчас платная: $feeRub ₽ за подачу — переведи водителю.",
-                                "Хәҙер кире алыу түләүле: килеү өсөн $feeRub ₽ — водителгә күсер.",
+                                "Отмена сейчас платная: $feeText за подачу — переведи водителю.",
+                                "Хәҙер кире алыу түләүле: килеү өсөн $feeText — водителгә күсер.",
                             ),
                             color = CanonWarn, fontSize = TxCaption, lineHeight = LhCaption,
                             fontWeight = FontWeight.Bold,
@@ -4254,8 +4260,8 @@ internal fun InstantOfferOverlay(
                             if (order.hasPromoDiscount) {
                                 Text(
                                     appText(
-                                        "На руки от пассажира: ${formatTaxiKop(order.passengerPayKop)} — у него промокод −${order.promoDiscountKop / 100} ₽, разницу платит Юлдаш. Твой доход прежний.",
-                                        "Пассажирҙан ҡулға: ${formatTaxiKop(order.passengerPayKop)} — унда промокод −${order.promoDiscountKop / 100} ₽, айырманы Юлдаш түләй. Һинең килемең үҙгәрмәй.",
+                                        "На руки от пассажира: ${formatTaxiKop(order.passengerPayKop)} — у него промокод −${formatTaxiKop(order.promoDiscountKop)}, разницу платит Юлдаш. Твой доход прежний.",
+                                        "Пассажирҙан ҡулға: ${formatTaxiKop(order.passengerPayKop)} — унда промокод −${formatTaxiKop(order.promoDiscountKop)}, айырманы Юлдаш түләй. Һинең килемең үҙгәрмәй.",
                                     ),
                                     color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold,
                                 )
@@ -4463,12 +4469,14 @@ internal fun InstantDriverTripScreen(
                     title = if (current.noShow) appText("Пассажир не вышел", "Пассажир сыҡманы")
                     else appText("Заказ отменён", "Заказ кире алынды"),
                     subtitle = when {
+                        // Водитель видит ту же сумму, что и пассажир на своём экране: расходиться
+                        // на копейки нельзя — по ней они и рассчитываются между собой.
                         current.noShow -> appText(
-                            "Заказ закрыт. Пассажиру зафиксирована плата за подачу — ${current.cancelFeeKop / 100} ₽.",
-                            "Заказ ябылды. Пассажирға килеү хаҡы яҙылды — ${current.cancelFeeKop / 100} ₽.")
+                            "Заказ закрыт. Пассажиру зафиксирована плата за подачу — ${formatTaxiKop(current.cancelFeeKop)}.",
+                            "Заказ ябылды. Пассажирға килеү хаҡы яҙылды — ${formatTaxiKop(current.cancelFeeKop)}.")
                         current.cancelBy == "passenger" && current.cancelFeeKop > 0 -> appText(
-                            "Пассажир отменил поздно — ему зафиксирована подача ${current.cancelFeeKop / 100} ₽.",
-                            "Пассажир һуң кире алды — уға килеү хаҡы яҙылды: ${current.cancelFeeKop / 100} ₽.")
+                            "Пассажир отменил поздно — ему зафиксирована подача ${formatTaxiKop(current.cancelFeeKop)}.",
+                            "Пассажир һуң кире алды — уға килеү хаҡы яҙылды: ${formatTaxiKop(current.cancelFeeKop)}.")
                         current.cancelBy == "passenger" -> appText("Пассажир отменил заказ.", "Пассажир заказды кире алды.")
                         else -> appText("Заказ отменён.", "Заказ кире алынды.")
                     },
@@ -4559,15 +4567,17 @@ internal fun InstantDriverTripScreen(
                                     }
                                 }
                             }
-                            val waitRub = current.waitingFeeKop / 100
+                            // Ожидание тарифицируется поминутно — копейки тут обычное дело,
+                            // а сумма стоит рядом с ценой поездки, где формат уже с копейками.
+                            val waitKop = current.waitingFeeKop
                             // Сумма «на руки» — та же, что видит пассажир. Если у него сработал
                             // промокод, он отдаст меньше полной цены, и водитель обязан узнать об
                             // этом ЗДЕСЬ, а не у машины (объяснение — в карточке ниже).
                             val payToDriver = formatTaxiKop(current.passengerPayKop)
                             Text(
                                 appText(
-                                    "Пассажир платит: $payToDriver" + (if (waitRub > 0) " + $waitRub ₽ ожидание" else "") + " · наличными/переводом",
-                                    "Пассажир түләй: $payToDriver" + (if (waitRub > 0) " + $waitRub ₽ көтөү" else "") + " · аҡсалата/күсереп",
+                                    "Пассажир платит: $payToDriver" + (if (waitKop > 0) " + ${formatTaxiKop(waitKop)} ожидание" else "") + " · наличными/переводом",
+                                    "Пассажир түләй: $payToDriver" + (if (waitKop > 0) " + ${formatTaxiKop(waitKop)} көтөү" else "") + " · аҡсалата/күсереп",
                                 ),
                                 color = CanonMuted, fontSize = 14.sp,
                             )

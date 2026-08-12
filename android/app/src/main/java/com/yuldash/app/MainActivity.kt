@@ -827,7 +827,11 @@ internal fun Modifier.appearIn(index: Int = 0): Modifier {
 // Перевод по СБП на номер телефона (без мерчанта). Копировать номер + инструкция + «я перевёл».
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () -> Unit, payeePhone: String? = null, payeeBank: String? = null, payeeName: String? = null) {
+internal fun SbpTransferSheet(amountKop: Int, onPaid: () -> Unit, onDismiss: () -> Unit, payeePhone: String? = null, payeeBank: String? = null, payeeName: String? = null) {
+    // Сумма приходит в КОПЕЙКАХ и печатается как есть. Раньше сюда передавали рубли,
+    // посчитанные через `kop / 100`: комиссия курьера 150,50 ₽ превращалась в «150 ₽»,
+    // человек вбивал в банк ровно эту цифру — и оставался должен полтинник, не понимая почему.
+    val amountText = kopToRub(amountKop)
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val copied = appText("Номер скопирован", "Номер күсерелде")
@@ -841,7 +845,7 @@ internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () 
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(appText("Перевод по СБП", "СБП аша күсереү"), fontSize = 24.sp, fontWeight = FontWeight.Bold, color = CanonText)
-            Text("$amountRub ₽", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = CanonGreen2)
+            Text(amountText, fontSize = 34.sp, fontWeight = FontWeight.Bold, color = CanonGreen2)
             Surface(color = CanonMint, shape = CanonItemShape) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(appText("Получатель · СБП", "Алыусы · СБП"), color = CanonMuted, fontSize = 14.sp)
@@ -851,8 +855,9 @@ internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () 
             }
             Text(
                 appText(
-                    "Откройте банк → Переводы → По номеру телефона (СБП) → банк получателя $bank → вставьте номер и сумму $amountRub ₽.",
-                    "Банк ҡушымтаһын асығыҙ → Күсереүҙәр → Телефон номеры буйынса (СБП) → алыусы банкы $bank → номерҙы һәм $amountRub ₽ сумманы ҡуйығыҙ."
+                    // Инструкция была на «вы», хотя всё приложение обращается на «ты» — в обоих языках.
+                    "Открой банк → Переводы → По номеру телефона (СБП) → банк получателя $bank → вставь номер и сумму $amountText.",
+                    "Банк ҡушымтаһын ас → Күсереүҙәр → Телефон номеры буйынса (СБП) → алыусы банкы $bank → номерҙы һәм $amountText сумманы ҡуй."
                 ),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
             )

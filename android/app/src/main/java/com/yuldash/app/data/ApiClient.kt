@@ -5524,10 +5524,7 @@ data class DriverDebtDto(
     val unpaidKop: Int, val pendingKop: Int, val dueAt: String?, val overdue: Boolean,
     val blocked: Boolean, val blockReason: String?, val thresholdKop: Int,
     val sbpPhone: String, val sbpName: String, val weeks: List<DebtWeekDto>,
-) {
-    val unpaidRub: Int get() = unpaidKop / 100
-    val pendingRub: Int get() = pendingKop / 100
-}
+)
 /** Долг водителя в админ-очереди подтверждения (сгруппирован по водителю). */
 data class AdminDebtDto(
     val debtId: Int, val driverId: Int, val driverName: String, val driverPhone: String,

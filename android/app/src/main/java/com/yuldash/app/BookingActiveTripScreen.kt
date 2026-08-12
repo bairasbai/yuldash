@@ -1498,7 +1498,9 @@ internal fun ActiveTripScreen(
             // на всю сессию (OnlinePayGate) — договорённость «на доверии» остаётся как раньше.
             if (bookingStatus == "done" && bookingId != null && role == "passenger") item {
                 PayOnlineCard(
-                    amountRub = payAmount ?: ride?.price?.takeIf { it > 0 },
+                    // Цена попутки задаётся водителем в целых рублях — переводим в копейки
+                    // на границе, потому что карточка оплаты считает деньги в копейках.
+                    amountKop = (payAmount ?: ride?.price?.takeIf { it > 0 })?.times(100),
                     pay = { m -> ApiClient.payBooking(bookingId, m) },
                     modifier = Modifier.appearIn(2),
                 )
