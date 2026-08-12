@@ -961,8 +961,12 @@ class Payment(SQLModel, table=True):
     tier: str = ""                               # quick / day / urgent (boost) | код тарифа PARTNER_PLANS (partner_sub)
     method: str = ""                             # cash | card | sbp | yookassa (способ оплаты поездки)
     amount_kop: int = Field(default=0, sa_type=BigInteger)                          # сумма в копейках
-    status: str = "pending"                      # pending | succeeded | canceled
-    created_at: datetime = Field(default_factory=utcnow, index=True)  # index — для сверки за период
+    status: str = "pending"                      # pending | succeeded | canceled | refund_due
+    created_at: datetime = Field(default_factory=utcnow, index=True)  # когда НАЖАЛИ «оплатить»
+    # Когда платёж РЕАЛЬНО применён (деньги дошли). Разные моменты: человек жмёт «оплатить»
+    # в 23:58, деньги приходят в 00:03. Сверка ledger↔оплаты обязана сравнивать по этому полю,
+    # иначе обычная ночная оплата даёт красный diff два дня подряд (аудит 2026-08-12, волна 27).
+    settled_at: Optional[datetime] = Field(default=None, index=True)
 
 
 class LedgerKind(str, Enum):

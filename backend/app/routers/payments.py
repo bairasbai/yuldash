@@ -115,6 +115,19 @@ def _start_yookassa(session: Session, payment: Payment, description: str, phone:
         raise herr(503, "Оплата временно недоступна. Попробуй ещё раз.", "Түләү ваҡытлыса эшләмәй. Тағы ҡабатла.")
 
 
+def _mark_succeeded(payment: Payment) -> None:
+    """Платёж применён: ставим статус И МОМЕНТ применения.
+
+    `created_at` — когда человек НАЖАЛ «оплатить», а не когда деньги дошли. Сверка
+    (`ledger.reconcile`) сравнивала начисления с оплатами по этой дате, и обычная ночная
+    оплата (нажал в 23:58, деньги пришли в 00:03) давала −1000 ₽ вчера и +1000 ₽ сегодня
+    при полном порядке с деньгами. Прибор, который краснеет сам по себе, перестают читать —
+    и настоящую поломку он уже никому не покажет (аудит 2026-08-12, волна 27).
+    """
+    payment.status = "succeeded"
+    payment.settled_at = utcnow()
+
+
 def _activate_payment(session: Session, payment: Payment) -> None:
     """Применить оплаченный платёж (идемпотентно, только из pending).
 
@@ -140,12 +153,12 @@ def _activate_payment(session: Session, payment: Payment) -> None:
     if payment.purpose == "ride" and payment.order_id is not None:
         from .. import ledger
         ledger.settle_instant_order(session, payment.order_id, payment.method or "yookassa", payment.amount_kop)
-        payment.status = "succeeded"; session.add(payment); session.commit()
+        _mark_succeeded(payment); session.add(payment); session.commit()
         return
     if payment.purpose == "booking" and payment.booking_id is not None:
         from .. import ledger
         ledger.settle_booking(session, payment.booking_id, payment.method or "yookassa", payment.amount_kop)
-        payment.status = "succeeded"; session.add(payment); session.commit()
+        _mark_succeeded(payment); session.add(payment); session.commit()
         return
     if payment.purpose == "courier_commission":
         # Курьер оплатил накопленную комиссию → помечаем paid его доставленные неоплаченные заказы,
@@ -164,7 +177,7 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         for pd in rows:
             pd.commission_paid = True
             session.add(pd)
-        payment.status = "succeeded"; session.add(payment); session.commit()
+        _mark_succeeded(payment); session.add(payment); session.commit()
         return
     if payment.purpose == "taxi_debt":
         # Таксист оплатил недельную комиссию картой → гасим долг (unpaid+pending), но только тот, что
@@ -172,11 +185,11 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         # подтверждения, останется к оплате следующим платежом (иначе гасился бы бесплатно). Идемпотентно.
         from .. import debt as debt_mod
         debt_mod.mark_all_paid(session, payment.user_id, up_to=payment.created_at)
-        payment.status = "succeeded"; session.add(payment); session.commit()
+        _mark_succeeded(payment); session.add(payment); session.commit()
         return
     # --- Аддитивные / прочие эффекты: succeeded ПЕРВЫМ (под тем же row-lock), потом эффект ---
     # donate / support → только отметка succeeded (доход платформы, ledger не трогаем).
-    payment.status = "succeeded"
+    _mark_succeeded(payment)
     session.add(payment)
     if payment.purpose == "boost" and payment.ride_id is not None:
         ride = session.get(Ride, payment.ride_id)

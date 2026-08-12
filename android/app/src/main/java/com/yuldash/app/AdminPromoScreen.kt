@@ -196,8 +196,8 @@ private fun AdminPromoCard(p: AdminPromoDto, busy: Boolean, onToggle: (Boolean) 
             // Лимиты + описание + срок
             Text(
                 appText(
-                    "Лимит: ${p.limitTotal} всего · ${p.limitPerUser} на человека",
-                    "Лимит: ${p.limitTotal} бөтәһе · ${p.limitPerUser} кешегә",
+                    "Лимит: ${p.limitTotal} всего · один раз на человека",
+                    "Лимит: ${p.limitTotal} бөтәһе · бер кешегә бер тапҡыр",
                 ),
                 color = CanonMuted, fontSize = 14.sp,
             )
@@ -238,7 +238,6 @@ private fun PromoCreateForm(onBack: () -> Unit, onCreated: () -> Unit) {
     var perkValue by remember { mutableStateOf("1") }
     var ownerPhone by remember { mutableStateOf("") }
     var limitTotal by remember { mutableStateOf("100") }
-    var limitPerUser by remember { mutableStateOf("1") }
     var validUntil by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
@@ -265,7 +264,7 @@ private fun PromoCreateForm(onBack: () -> Unit, onCreated: () -> Unit) {
                 kind = kind,
                 perkValue = if (isBoost) (perkValue.toIntOrNull() ?: 0) else 0,
                 limitTotal = limitTotal.toIntOrNull() ?: 0,
-                limitPerUser = limitPerUser.toIntOrNull() ?: 1,
+                limitPerUser = 1,        // на человека код всегда один — см. подпись в форме
                 ownerPhone = ownerPhone.trim().ifBlank { null },
                 validUntil = validUntil.trim().ifBlank { null },
             )
@@ -314,14 +313,11 @@ private fun PromoCreateForm(onBack: () -> Unit, onCreated: () -> Unit) {
                 )
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.weight(1f)) {
-                        PromoField(value = limitTotal, onChange = { limitTotal = it.filter { c -> c.isDigit() } }, label = appText("Лимит всего", "Бөтә лимит"), placeholder = "100", number = true)
-                    }
-                    Box(Modifier.weight(1f)) {
-                        PromoField(value = limitPerUser, onChange = { limitPerUser = it.filter { c -> c.isDigit() } }, label = appText("На человека", "Кешегә"), placeholder = "1", number = true)
-                    }
-                }
+                // Поле «на человека» убрано намеренно (аудит 2026-08-12, волна 27): сервер
+                // выдаёт код ОДИН РАЗ НА ЖИЗНЬ аккаунта и другого числа выполнить не может.
+                // Редактируемое поле здесь врало — админ ставил «5», а работала всё равно одна
+                // активация. Вместо настройки — честная подпись.
+                PromoField(value = limitTotal, onChange = { limitTotal = it.filter { c -> c.isDigit() } }, label = appText("Лимит всего", "Бөтә лимит"), placeholder = "100", number = true)
             }
             item {
                 PromoField(

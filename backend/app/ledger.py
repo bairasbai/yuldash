@@ -362,12 +362,19 @@ def reconcile(session: Session, date_from, date_to) -> dict:
             LedgerEntry.kind == LedgerKind.fee, *_in_period(LedgerEntry.created_at)
         )
     ).all()
+    # Период считаем по МОМЕНТУ ПРИМЕНЕНИЯ платежа, а не по моменту нажатия «оплатить»:
+    # начисление в ledger рождается именно тогда, когда деньги дошли. Пока сравнивали
+    # по `created_at`, обычная ночная оплата (нажал в 23:58, деньги в 00:03) давала
+    # −сумму вчера и +сумму сегодня при полном порядке — сверка краснела сама по себе
+    # (аудит 2026-08-12, волна 27). У старых строк `settled_at` пустой → берём `created_at`:
+    # для них поведение прежнее, задним числом историю не переписываем.
+    settled_col = func.coalesce(Payment.settled_at, Payment.created_at)
     pay_rows = session.exec(
         select(Payment.amount_kop).where(
             Payment.purpose.in_(["ride", "booking"]),
             Payment.status == "succeeded",
             Payment.method.in_(list(_CASHLESS)),
-            *_in_period(Payment.created_at),
+            settled_col >= date_from, settled_col <= date_to,
         )
     ).all()
 
