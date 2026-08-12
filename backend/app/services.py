@@ -305,6 +305,31 @@ def send_push(session: Session, user_id: int, title: str, body: str,
         log.warning(f"[FCM] send error: {e}")
 
 
+def push_bilingual(session: Session, user_id: int, title_ru: str, title_ba: str,
+                   body_ru: str, body_ba: str, data: dict | None = None) -> None:
+    """Пуш БЕЗ записи в ленте, но на языке человека. Для мгновенных вещей: «осталось 15 минут
+    смены», «оффер», «водитель у подъезда» — их читают сейчас или не читают вовсе, и место
+    в Центре уведомлений они занимать не должны.
+
+    Зачем отдельный помощник (аудит 2026-08-12, волна 37). Такие пуши писали строкой
+    «Осталось 15 минут · Оҙаҡламай ял»: два языка склеены в один текст. Человек с башкирским
+    интерфейсом получал сначала русский, а свой язык — через точку в середине; для него это
+    выглядит как сообщение с мусором. Правило проекта «любая надпись — два ОТДЕЛЬНЫХ текста»
+    (docs/lessons.md, волна 20) на пуши без записи просто никто не распространил.
+
+    Пустой башкирский → русский: пустоту не шлём никогда.
+    """
+    recipient = session.get(User, user_id)
+    if recipient is not None and recipient.language == "ba" and (title_ba or body_ba):
+        title, body = (title_ba or title_ru), (body_ba or body_ru)
+    else:
+        title, body = title_ru, body_ru
+    if data:
+        send_push(session, user_id, title, body, data)
+    else:
+        send_push(session, user_id, title, body)
+
+
 def push_notification(
     session: Session,
     user_id: int,

@@ -62,10 +62,15 @@ def clock(monkeypatch):
 
 @pytest.fixture
 def pushes(monkeypatch):
-    """Перехват вежливых пушей workday (send_push импортирован в модуль по имени)."""
+    """Перехват вежливых пушей workday.
+
+    С волны 37 они идут через `push_bilingual` (два ОТДЕЛЬНЫХ текста вместо склейки
+    «RU · BA» в одной строке), поэтому и перехватываем его. Собираем русский заголовок —
+    проверки ниже смотрят именно на него."""
     sent: list[tuple[int, str]] = []
-    monkeypatch.setattr(workday, "send_push",
-                        lambda session, uid, title, body, data=None: sent.append((uid, title)))
+    monkeypatch.setattr(workday, "push_bilingual",
+                        lambda session, uid, title_ru, title_ba, body_ru, body_ba, data=None:
+                        sent.append((uid, title_ru)))
     return sent
 
 

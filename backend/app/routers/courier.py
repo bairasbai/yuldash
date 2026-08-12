@@ -35,8 +35,8 @@ from ..safety_logic import ensure_active
 from .drivers import _ensure_owned_doc_url
 from .parcels import _FINAL_STATUSES, live_parcel_conds
 from ..security import current_user
-from ..services import (haversine_km, notify_admin_telegram, push_notification,
-                        send_push, user_rating)
+from ..services import (haversine_km, notify_admin_telegram, push_bilingual, push_notification,
+                        user_rating)
 from ..timeutil import utcnow
 from . import parcels as parcels_mod
 from .. import debt as debt_mod   # переиспользуем _local_day_expr: одна логика «локального дня» на проект
@@ -197,11 +197,12 @@ def _maybe_courier_soft_ladder(session: Session, courier_id: int, avg: float, cn
         session.add(prof)
         session.commit()
         try:
-            send_push(session, courier_id, "Совет от Юлдаша",
-                      "Рейтинг немного просел. Бережная доставка и доброе слово быстро "
-                      "возвращают звёзды 💚"
-                      " · Рейтинг бер аҙ төштө. Иғтибарлы доставка һәм йылы һүҙ "
-                      "йондоҙҙарҙы тиҙ кире ҡайтара 💚")
+            push_bilingual(session, courier_id,
+                           "Совет от Юлдаша", "Юлдаштан кәңәш",
+                           "Рейтинг немного просел. Бережная доставка и доброе слово быстро "
+                           "возвращают звёзды 💚",
+                           "Рейтинг бер аҙ төштө. Иғтибарлы доставка һәм йылы һүҙ "
+                           "йондоҙҙарҙы тиҙ кире ҡайтара 💚")
         except Exception:
             pass
 

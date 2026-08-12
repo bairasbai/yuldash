@@ -29,7 +29,7 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .models import TaxiWorkDay
-from .services import send_push
+from .services import push_bilingual
 from .timeutil import utcnow
 
 
@@ -201,17 +201,19 @@ def _maybe_winter_advice(session: Session, driver_id: int, wd: TaxiWorkDay, now:
     wd.winter_push_sent = True
     session.add(wd)
     session.commit()
-    send_push(session, driver_id, "Береги себя ❄️",
-              "Зимняя ночь — прогрей машину, проверь заряд телефона и одевайся теплее."
-              " · Ҡышҡы төн — машинаңды йылыт, телефондың зарядын тикшер, йылыраҡ кейен.")
+    push_bilingual(session, driver_id,
+                   "Береги себя ❄️", "Үҙеңде һаҡла ❄️",
+                   "Зимняя ночь — прогрей машину, проверь заряд телефона и одевайся теплее.",
+                   "Ҡышҡы төн — машинаңды йылыт, телефондың зарядын тикшер, йылыраҡ кейен.")
 
 
 def _push_limit_reached(session: Session, driver_id: int, wd: TaxiWorkDay, now: datetime) -> None:
     h = settings.taxi_shift_limit_hours
     u = settings.rest_unlock_hour
-    send_push(session, driver_id, "Хорошо поработал 👏",
-              f"{h} часов на линии позади. Отдохни — завтра с {u} утра снова в путь 🌙"
-              f" · {h} сәғәт линияла үтте. Ял ит — иртәгә иртәнге {u}-нан йәнә юлға 🌙")
+    push_bilingual(session, driver_id,
+                   "Хорошо поработал 👏", "Яҡшы эшләнең 👏",
+                   f"{h} часов на линии позади. Отдохни — завтра с {u} утра снова в путь 🌙",
+                   f"{h} сәғәт линияла үтте. Ял ит — иртәгә иртәнге {u}-нан йәнә юлға 🌙")
     _maybe_winter_advice(session, driver_id, wd, now)
 
 
@@ -221,14 +223,16 @@ def _maybe_warn(session: Session, driver_id: int, wd: TaxiWorkDay, remaining_sec
     if remaining_sec <= 15 * 60 and not wd.warned_15:
         wd.warned_15 = True
         wd.warned_60 = True          # часовое уже неактуально — не шлём два подряд
-        send_push(session, driver_id, "Осталось 15 минут смены",
-                  "Скоро отдых — спокойно заверши дела на линии 🌙"
-                  " · Оҙаҡламай ял — линиялағы эштәреңде тыныс ҡына тамамла 🌙")
+        push_bilingual(session, driver_id,
+                       "Осталось 15 минут смены", "Сменаға 15 минут ҡалды",
+                       "Скоро отдых — спокойно заверши дела на линии 🌙",
+                       "Оҙаҡламай ял — линиялағы эштәреңде тыныс ҡына тамамла 🌙")
     elif remaining_sec <= 60 * 60 and not wd.warned_60:
         wd.warned_60 = True
-        send_push(session, driver_id, "Остался час смены",
-                  "Через час — заслуженный отдых. Планируй последние заказы 🌙"
-                  " · Бер сәғәттән — лайыҡлы ял. Һуңғы заказдарҙы планлаштыр 🌙")
+        push_bilingual(session, driver_id,
+                       "Остался час смены", "Сменаға бер сәғәт ҡалды",
+                       "Через час — заслуженный отдых. Планируй последние заказы 🌙",
+                       "Бер сәғәттән — лайыҡлы ял. Һуңғы заказдарҙы планлаштыр 🌙")
 
 
 # ------------------------------ учёт heartbeat ------------------------------

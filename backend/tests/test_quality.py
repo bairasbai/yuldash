@@ -52,7 +52,7 @@ def pushes(monkeypatch):
     «человеку сказали», поэтому собираем оба канала в один список.
     """
     sent: list[tuple[int, str]] = []
-    monkeypatch.setattr(quality, "send_push",
+    monkeypatch.setattr("app.services.send_push",
                         lambda session, uid, title, body, data=None: sent.append((uid, title)))
     monkeypatch.setattr(
         quality, "push_notification",

@@ -27,7 +27,7 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .models import DriverProfile, Report, User
-from .services import push_notification, send_push
+from .services import push_bilingual, push_notification
 from .timeutil import utcnow
 
 # ------------------------------ перечень категорий ------------------------------
@@ -303,11 +303,12 @@ def maybe_low_rating_advice(session: Session, ratee_id: int, avg: float,
     prof.low_rating_advice_at = now
     session.add(prof)
     session.commit()
-    send_push(
-        session, ratee_id, "Совет от Юлдаша",
+    push_bilingual(
+        session, ratee_id,
+        "Совет от Юлдаша", "Юлдаштан кәңәш",
         "Рейтинг немного просел. Чистая машина, спокойная езда и доброе слово быстро "
-        "возвращают звёзды 💚"
-        " · Рейтинг бер аҙ төштө. Таҙа машина, тыныс йөрөү һәм йылы һүҙ "
+        "возвращают звёзды 💚",
+        "Рейтинг бер аҙ төштө. Таҙа машина, тыныс йөрөү һәм йылы һүҙ "
         "йондоҙҙарҙы тиҙ кире ҡайтара 💚",
     )
 

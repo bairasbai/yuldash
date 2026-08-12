@@ -19,15 +19,10 @@ from ..db import engine, get_session
 from ..errors import herr
 from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, TgAuth, User, UserRole
 from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
-<<<<<<< HEAD
-from ..services import public_media_url, send_sms, user_rating
-from ..safety_logic import GENDERS, reset_gender_verification
-=======
 from ..services import (
-    public_media_url, send_push, send_sms, set_driver_docs_verdict, set_user_gender, user_rating,
+    public_media_url, send_sms, set_driver_docs_verdict, set_user_gender, user_rating,
 )
 from ..safety_logic import GENDERS
->>>>>>> main
 from ..trust_service import record_login_consents
 from ..timeutil import utcnow
 
@@ -676,15 +671,7 @@ def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Ses
         # было дырой — подтверждённый мужчина менял пол на «женщина» и забирал бейдж
         # «женщина за рулём» вместе с женскими заказами (см. services.set_user_gender).
         if g in GENDERS:
-<<<<<<< HEAD
-            # Вторая дверь к полу (первая — `/driver/gender`). Смена заявления снимает
-            # подтверждение модератора, иначе подтверждённая «женщина за рулём» меняла бы пол
-            # тут и увозила бейдж с собой (см. safety_logic.reset_gender_verification).
-            reset_gender_verification(session, user, g)
-            user.gender = g
-=======
             set_user_gender(session, user, g)
->>>>>>> main
     session.add(user)
     session.commit()
     session.refresh(user)

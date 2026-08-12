@@ -381,7 +381,7 @@ def _done_order(passenger_id, driver_id):
 
 def test_taxi_thanks_and_tip_info(client, user_factory, monkeypatch):
     """«Рәхмәт» после такси: раньше благодарность была только у попуток."""
-    monkeypatch.setattr("app.routers.family.send_push", lambda *a, **k: None)
+    monkeypatch.setattr("app.services.send_push", lambda *a, **k: None)
     drv = user_factory("TipDrv", role=UserRole.driver)
     pax = user_factory("TipPax")
     other = user_factory("TipOther")

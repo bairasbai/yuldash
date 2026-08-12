@@ -18,7 +18,6 @@ from ..db import get_session
 from ..logs import admin_action
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, UserRole
-from ..safety_logic import reset_gender_verification
 from ..security import current_user
 from ..services import (
     DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url,
@@ -146,24 +145,17 @@ def set_driver_gender(body: GenderIn, user: User = Depends(current_user), sessio
     (`/admin/drivers/{id}/moderate`, поле `DriverProfile.gender_verified`), сверив с фото прав.
     Иначе любой назовётся женщиной и попадёт в выдачу — жалоба, которая копится у Uber.
     Смена заявления сбрасывает подтверждение, и сброс живёт ОДНОЙ точкой
-    (`safety_logic.reset_gender_verification`): дверей к полу две, вторая — `POST /me/update`.
+    (`services.set_user_gender`): дверей к полу две, вторая — `POST /me/update`.
     """
     g = (body.gender or "").strip().lower()
     if g not in _ALLOWED_GENDERS:
         raise herr(400, "Недопустимое значение пола", "Ярамаған енес мәғәнәһе")
-<<<<<<< HEAD
-    reset_gender_verification(session, user, g)   # смена заявления → подтверждение недействительно
-    user.gender = g
-    session.add(user)
-    dp = _get_or_create_profile(session, user.id)
-=======
     # Профиль водителя создаём ДО записи: в нём живёт ПОДТВЕРЖДЕНИЕ пола, которое
     # `set_user_gender` гасит при смене заявления.
     dp = _get_or_create_profile(session, user.id)
     # Пол меняем только через общий хелпер — там же сброс подтверждения. Раньше это
     # правило было переписано здесь, а в `/me/update` его не было (см. services.set_user_gender).
     set_user_gender(session, user, g)
->>>>>>> main
     session.commit()
     session.refresh(dp)
     return dp

@@ -90,8 +90,9 @@ def test_money_null_if_driver_not_opted_in(client, user_factory, monkeypatch):
 # ---------------------------- бесплатное «рәхмәт» ----------------------------
 def test_thanks_pushes_driver_and_dedups(client, user_factory, monkeypatch):
     sent = []
-    monkeypatch.setattr(family_router, "send_push",
-                        lambda session, uid, title, body, *a, **k: sent.append(uid))
+    # С волны 37 «рәхмәт» уходит двумя ОТДЕЛЬНЫМИ текстами (было склеено «RU · BA»).
+    monkeypatch.setattr(family_router, "push_bilingual",
+                        lambda session, uid, *a, **k: sent.append(uid))
     drv = user_factory("ThDrv", role=UserRole.driver)
     pax = user_factory("ThPax")
     bid = _done_booking(pax["id"], drv["id"])

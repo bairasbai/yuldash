@@ -18,7 +18,7 @@ from ..models import (
 )
 from ..safety_logic import clean_tags
 from ..security import current_user
-from ..services import booking_and_ride_for_user, send_push, send_text, user_rating
+from ..services import booking_and_ride_for_user, push_bilingual, send_text, user_rating
 from ..timeutil import utcnow
 # Планку «завершить можно только начавшуюся поездку» держим одну на оба пути к переходу
 # (водительский в bookings.py и пассажирский здесь) — иначе они разъедутся при первой же правке.
@@ -533,8 +533,10 @@ def order_thanks(order_id: int, user: User = Depends(current_user), session: Ses
     session.commit()
     if o.driver_id:
         try:  # без ПДн — просто тёплое спасибо
-            send_push(session, o.driver_id, "Тебе сказали рәхмәт 💚",
-                      "Пассажир поблагодарил за поездку · Юлаусы сәфәр өсөн рәхмәт әйтте 💚")
+            push_bilingual(session, o.driver_id,
+                           "Тебе сказали рәхмәт 💚", "Һиңә рәхмәт әйттеләр 💚",
+                           "Пассажир поблагодарил за поездку.",
+                           "Юлаусы сәфәр өсөн рәхмәт әйтте.")
         except Exception:
             pass
     return {"ok": True, "already": False}
@@ -553,8 +555,10 @@ def booking_thanks(booking_id: int, user: User = Depends(current_user), session:
     ride = session.get(Ride, b.ride_id)
     if ride:
         try:  # без ПДн — просто тёплое спасибо
-            send_push(session, ride.driver_id, "Тебе сказали рәхмәт 💚",
-                      "Пассажир поблагодарил за поездку · Юлаусы сәфәр өсөн рәхмәт әйтте 💚")
+            push_bilingual(session, ride.driver_id,
+                           "Тебе сказали рәхмәт 💚", "Һиңә рәхмәт әйттеләр 💚",
+                           "Пассажир поблагодарил за поездку.",
+                           "Юлаусы сәфәр өсөн рәхмәт әйтте.")
         except Exception:
             pass
     return {"ok": True, "already": False}

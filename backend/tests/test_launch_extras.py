@@ -101,8 +101,12 @@ def test_soft_update_ignores_empty_whats_new(client, monkeypatch):
 
 # ============================ Пуши о ходе такси-заказа (B9b-2) ============================
 def test_status_pushes_on_each_transition(client, user_factory, fake_redis, pushes):
-    """accepted / arriving / onboard / done → пассажиру пуш: двуязычный (RU · BA) +
-    data type=instant_status с order_id — тап по пушу открывает заказ."""
+    """accepted / arriving / onboard / done → пассажиру пуш на ЕГО языке +
+    data type=instant_status с order_id — тап по пушу открывает заказ.
+
+    До волны 37 заголовок был склейкой «RU · BA» в одной строке: башкироязычный человек читал
+    сначала чужой язык, а свой через точку в середине. Теперь текст один, на языке получателя;
+    у пассажира в тестах язык по умолчанию русский, поэтому и ждём русский заголовок."""
     d, pax, order = _offered_order(client, user_factory, fake_redis, "PshDrv", "PshPax")
     oid = order["id"]
     steps = [
@@ -118,7 +122,8 @@ def test_status_pushes_on_each_transition(client, user_factory, fake_redis, push
         assert len(new) == 1, f"{endpoint}: ожидали ровно 1 статус-пуш, got {new}"
         p = new[0]
         assert p["uid"] == pax["id"]                        # получатель — пассажир
-        assert ru in p["title"] and ba in p["title"]        # двуязычный заголовок
+        assert p["title"].startswith(ru), p["title"]        # язык получателя, без склейки
+        assert ba not in p["title"] and "·" not in p["title"]
         assert p["data"]["order_id"] == str(oid)
         assert p["data"]["status"] == status
 
@@ -173,7 +178,11 @@ def test_expired_push_when_nobody_around(client, user_factory, fake_redis, pushe
     assert order["status"] == "expired"
     got = [p for p in _status_pushes(pushes) if p["data"]["status"] == "expired"]
     assert len(got) == 1 and got[0]["uid"] == pax["id"]
-    assert "Рядом никого" in got[0]["title"] and "водитель юҡ" in got[0]["title"]
+    # Раньше в заголовке лежали ОБА языка через « · » — человек с башкирским интерфейсом
+    # читал сначала чужой язык, а свой через точку в середине. С волны 37 текст один,
+    # на языке получателя; у этого пассажира язык по умолчанию русский.
+    assert got[0]["title"] == "Рядом никого", got[0]["title"]
+    assert "·" not in got[0]["title"] and "·" not in got[0]["body"]
 
 
 # ============================ Дневная сводка в Telegram (B9b-3) ============================

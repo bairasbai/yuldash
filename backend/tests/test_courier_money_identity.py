@@ -31,7 +31,7 @@ def _courier_on():
 @pytest.fixture(autouse=True)
 def _quiet(monkeypatch):
     monkeypatch.setattr("app.routers.courier.notify_admin_telegram", lambda *a, **k: None)
-    monkeypatch.setattr("app.routers.courier.send_push", lambda *a, **k: None)
+    monkeypatch.setattr("app.services.send_push", lambda *a, **k: None)
 
 
 def _make_courier(client, user_factory, name="Курьер"):

@@ -570,22 +570,6 @@ def is_verified_female_driver(user, profile) -> bool:
     return gender_of(user) == GENDER_FEMALE and bool(getattr(profile, "gender_verified", False))
 
 
-def reset_gender_verification(session: Session, user, new_gender: str) -> None:
-    """Заявили ДРУГОЙ пол → прежнее подтверждение модератора недействительно.
-
-    Дверей две — `/driver/gender` и `/me/update`, — а заявление и подтверждение живут в разных
-    местах (пол у человека, галочка у водителя). Поэтому сброс здесь, одной точкой: иначе
-    подтверждённая «женщина за рулём» меняла бы пол в профиле и увозила галочку с собой.
-    Пол не поменялся — ничего не трогаем, повторное сохранение бейдж не сбивает.
-    """
-    if gender_of(user) == (new_gender or "").strip().lower():
-        return
-    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
-    if prof is not None and prof.gender_verified:
-        prof.gender_verified = False
-        session.add(prof)
-
-
 def guard_women_only(user, *, msg: tuple[str, str]) -> None:
     """Пустить в «только женщины» или объяснить, почему нет.
 

@@ -39,7 +39,7 @@ from .config import settings
 from .db import engine
 from .logs import log
 from .models import InstantOrder, InstantOrderStatus as S, ParcelDelivery
-from .services import push_notification, send_push
+from .services import push_notification
 from .timeutil import utcnow
 
 # Статусы, из которых заказ уже никуда не уедет сам (терминальные).
@@ -121,10 +121,15 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
             closed.append(fresh.id)
             for uid in {fresh.passenger_id, fresh.driver_id} - {None}:
                 try:
-                    send_push(session, uid, "Заказ закрыт · Заказ ябылды",
-                              "Долго не было связи — заказ закрыли автоматически. "
-                              "Если поездка состоялась, договоритесь напрямую. "
-                              "· Оҙаҡ бәйләнеш булманы — заказ автоматик ябылды.")
+                    push_notification(
+                        session, uid, "taxi",
+                        "Заказ закрыт", "Заказ ябылды",
+                        "Долго не было связи — заказ закрыли автоматически. "
+                        "Если поездка состоялась, договоритесь напрямую.",
+                        "Оҙаҡ бәйләнеш булманы — заказ автоматик ябылды. Сәфәр булған икән, "
+                        "тура килешегеҙ.",
+                        ref_kind="instant", ref_id=fresh.id,
+                    )
                 except Exception:  # noqa: BLE001 — пуш вторичен
                     pass
         except Exception as e:  # noqa: BLE001
@@ -167,8 +172,13 @@ def retry_waiting_orders(session: Session, dry_run: bool = False) -> list:
             retried.append(o.id)
             if fresh is not None and fresh.status == S.offered:
                 try:
-                    send_push(session, fresh.passenger_id, "Водитель нашёлся 🚕 · Водитель табылды",
-                              "Мы нашли машину по твоему заказу. · Заказың буйынса машина таптыҡ.")
+                    push_notification(
+                        session, fresh.passenger_id, "taxi",
+                        "Водитель нашёлся 🚕", "Водитель табылды 🚕",
+                        "Мы нашли машину по твоему заказу.",
+                        "Заказың буйынса машина таптыҡ.",
+                        ref_kind="instant", ref_id=fresh.id,
+                    )
                 except Exception:  # noqa: BLE001
                     pass
         except Exception as e:  # noqa: BLE001
@@ -204,9 +214,15 @@ def finish_expired_waits(session: Session, dry_run: bool = False) -> list:
             session.commit()
             finished.append(fresh.id)
             try:
-                send_push(session, fresh.passenger_id, "Машину не нашли · Машина табылманы",
-                          "Свободных водителей рядом так и не появилось. Попробуй ещё раз "
-                          "или оставь заявку попутчикам. · Тағы ҡабатлап ҡара йәки ғариза ҡалдыр.")
+                push_notification(
+                    session, fresh.passenger_id, "taxi",
+                    "Машину не нашли", "Машина табылманы",
+                    "Свободных водителей рядом так и не появилось. Попробуй ещё раз "
+                    "или оставь заявку попутчикам.",
+                    "Тирә-яҡта буш водителдәр табылманы. Тағы ҡабатлап ҡара йәки "
+                    "юлдаштарға ғариза ҡалдыр.",
+                    ref_kind="instant", ref_id=fresh.id,
+                )
             except Exception:  # noqa: BLE001
                 pass
         except Exception as e:  # noqa: BLE001

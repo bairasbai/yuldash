@@ -34,7 +34,7 @@ from .models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus as S, OfferDecline,
     Tariff, TripShare, TrustedContact, User,
 )
-from .services import blocked_user_ids, haversine_km, send_push, send_text, user_rating
+from .services import blocked_user_ids, haversine_km, push_bilingual, send_push, send_text, user_rating
 from .timeutil import utcnow
 
 PRESENCE_KEY = "presence"                    # Redis GEO-множество координат водителей «на линии»
@@ -1089,11 +1089,11 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
     _cleanup_tried(order.id)
     fresh = session.get(InstantOrder, order.id)
     if notify:
-        send_push(session, fresh.passenger_id,
-                  "Рядом никого · Яҡында водитель юҡ",
-                  "Пока не нашли водителя. Попробуй ещё раз или оставь заявку."
-                  " · Водитель табылманы әле. Тағы ҡабатлап ҡара йәки ғариза ҡалдыр.",
-                  data=_status_data(fresh, "expired"))
+        push_bilingual(session, fresh.passenger_id,
+                       "Рядом никого", "Яҡында водитель юҡ",
+                       "Пока не нашли водителя. Попробуй ещё раз или оставь заявку.",
+                       "Водитель табылманы әле. Тағы ҡабатлап ҡара йәки ғариза ҡалдыр.",
+                       data=_status_data(fresh, "expired"))
     return fresh
 
 
@@ -1355,23 +1355,29 @@ def _status_data(order: InstantOrder, status: str) -> dict:
 
 
 def _notify_transition(session: Session, order: InstantOrder, target: S) -> None:
-    """Пуш пассажиру на каждом переходе заказа (B9b-2): двуязычно (RU · BA, черновики BA →
-    docs/tasks.md) + data-payload type=instant_status. Дедуп не нужен: переходы одноразовые
-    (машина состояний не повторяет target)."""
+    """Пуш пассажиру на каждом переходе заказа (B9b-2) + data-payload type=instant_status.
+    Дедуп не нужен: переходы одноразовые (машина состояний не повторяет target).
+
+    Тексты — ЧЕТЫРЕ отдельных поля, а не «RU · BA» одной строкой (аудит 2026-08-12, волна 37):
+    человек с башкирским интерфейсом получал сначала русский, а свой язык через точку
+    в середине. Записи в Центре уведомлений эти переходы не оставляют намеренно — человек
+    смотрит в экран заказа, и лента засорилась бы каждым шагом."""
+    route = f"{order.from_text or ''} → {order.to_text or ''}".strip(" →")
+    wait = settings.wait_free_minutes
     titles = {
-        S.accepted: ("Водитель найден 🚗 · Водитель табылды 🚗",
-                     "Водитель принял заказ — уже едет к тебе"
-                     " · Водитель заказды ҡабул итте — һиңә килә инде"),
-        S.arriving: ("Машина на месте! · Машина килеп етте!",
-                     f"Водитель ждёт. Бесплатное ожидание — {settings.wait_free_minutes} мин"
-                     f" · Водитель көтә. Түләүһеҙ көтөү — {settings.wait_free_minutes} мин"),
-        S.onboard: ("В пути · Юлда", "Хорошей поездки! · Хәйерле юл!"),
-        S.done: ("Поездка завершена · Сәфәр тамамланды",
-                 f"{order.from_text or ''} → {order.to_text or ''}".strip(" →")),
+        S.accepted: ("Водитель найден 🚗", "Водитель табылды 🚗",
+                     "Водитель принял заказ — уже едет к тебе",
+                     "Водитель заказды ҡабул итте — һиңә килә инде"),
+        S.arriving: ("Машина на месте!", "Машина килеп етте!",
+                     f"Водитель ждёт. Бесплатное ожидание — {wait} мин",
+                     f"Водитель көтә. Түләүһеҙ көтөү — {wait} мин"),
+        S.onboard: ("В пути", "Юлда", "Хорошей поездки!", "Хәйерле юл!"),
+        S.done: ("Поездка завершена", "Сәфәр тамамланды", route, route),
     }
     if target in titles:
-        title, body = titles[target]
-        send_push(session, order.passenger_id, title, body, data=_status_data(order, target.value))
+        title_ru, title_ba, body_ru, body_ba = titles[target]
+        push_bilingual(session, order.passenger_id, title_ru, title_ba, body_ru, body_ba,
+                       data=_status_data(order, target.value))
     # Близким (шаринг B7b-2): сел в машину / доехал.
     if target == S.onboard:
         _notify_order_shares(session, order, "sat")

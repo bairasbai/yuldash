@@ -23,7 +23,7 @@ from app.timeutil import utcnow
 @pytest.fixture(autouse=True)
 def _no_push(monkeypatch):
     """Пуши в тестах глушим: проверяем состояние заказов, а не доставку уведомлений."""
-    monkeypatch.setattr("app.taxi_worker.send_push", lambda *a, **k: None)
+    monkeypatch.setattr("app.services.send_push", lambda *a, **k: None)
 
 
 def _order(passenger_id, **kw):

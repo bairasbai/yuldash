@@ -41,7 +41,7 @@ def fake_redis():
 @pytest.fixture(autouse=True)
 def _quiet(monkeypatch):
     monkeypatch.setattr("app.instant_service.send_push", lambda *a, **k: None)
-    monkeypatch.setattr("app.taxi_worker.send_push", lambda *a, **k: None)
+    monkeypatch.setattr("app.services.send_push", lambda *a, **k: None)
 
 
 def _stuck_created(pax_id: int, age_days: int = 30) -> int:
