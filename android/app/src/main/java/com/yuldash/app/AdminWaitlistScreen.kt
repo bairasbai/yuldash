@@ -76,8 +76,15 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
     LaunchedEffect(roleFilter, invitedFilter) { reload() }
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Лист ожидания", "Көтөү исемлеге"), onBack) }) { padding ->
+        // Обновление жестом: очередь пополняют пользователи, а не админ. Раньше проверить
+        // «не пришло ли новое» можно было только выйдя с экрана и зайдя обратно.
+        AppPullRefresh(
+            refreshing = loading && (data?.items?.isNotEmpty() == true),
+            onRefresh = { reload() },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            Modifier.padding(padding).padding(horizontal = 16.dp),
+            Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp),
         ) {
@@ -213,6 +220,7 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 }

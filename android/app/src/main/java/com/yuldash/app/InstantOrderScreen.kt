@@ -1129,7 +1129,7 @@ private fun InstantRetryCard(onRetry: () -> Unit, onBack: () -> Unit) {
         )
         Spacer(Modifier.height(24.dp))
         Column(Modifier.appearIn(3), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppButton(text = appText("Повторить", "Ҡабатларға"), onClick = onRetry, style = AppButtonStyle.Primary)
+            AppButton(text = appText("Повторить", "Ҡабатлау"), onClick = onRetry, style = AppButtonStyle.Primary)
             AppButton(text = appText("Назад", "Кире"), onClick = onBack, style = AppButtonStyle.Secondary)
         }
     }
@@ -1735,7 +1735,7 @@ private fun InstantDestinationPicker(
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 AppButton(
-                                    text = appText("Повторить", "Ҡабатларға"),
+                                    text = appText("Повторить", "Ҡабатлау"),
                                     onClick = { estimateTick++ },
                                     style = AppButtonStyle.Secondary,
                                     icon = Icons.Default.Search,

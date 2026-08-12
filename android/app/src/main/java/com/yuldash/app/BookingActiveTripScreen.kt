@@ -1684,7 +1684,7 @@ internal fun ActiveTripScreen(
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text(appText("Повторить", "Ҡабатларға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                                Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -2557,7 +2557,7 @@ internal fun MessageBubble(
         }
         if (failed) {
             Text(
-                appText("Не доставлено · Повторить", "Ебәрелмәне · Ҡабатларға"),
+                appText("Не доставлено · Повторить", "Ебәрелмәне · Ҡабатлау"),
                 color = CanonRed,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,

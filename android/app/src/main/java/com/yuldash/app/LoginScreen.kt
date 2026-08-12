@@ -769,13 +769,13 @@ internal fun LoginErrorBanner(
                     text = appTextFor(
                         currentLanguage,
                         "Нет интернета или код ещё не пришёл? Проверь связь и нажми «Повторить».",
-                        "Интернет юҡмы, әллә код килеп еткәне юҡмы? Бәйләнеште тикшер ҙә «Ҡабатларға» баҫ.",
+                        "Интернет юҡмы, әллә код килеп еткәне юҡмы? Бәйләнеште тикшер ҙә «Ҡабатла» баҫ.",
                     ),
                     color = CanonMuted, fontSize = LoginCaption, lineHeight = 20.sp,
                 )
                 if (onRetry != null) {
                     AppButton(
-                        text = appTextFor(currentLanguage, "Повторить", "Ҡабатларға"),
+                        text = appTextFor(currentLanguage, "Повторить", "Ҡабатлау"),
                         onClick = onRetry,
                         style = AppButtonStyle.Secondary,
                         icon = Icons.Default.Refresh,

@@ -3068,7 +3068,7 @@ internal fun DriverScheduleSection() {
                 error -> {
                     Text(appText("Не удалось загрузить маршруты.", "Маршруттарҙы йөкләп булманы."), color = CanonMuted, fontSize = 14.sp)
                     AppButton(
-                        text = appText("Повторить", "Ҡабатларға"),
+                        text = appText("Повторить", "Ҡабатлау"),
                         onClick = { reload++ },
                         style = AppButtonStyle.Secondary,
                         icon = Icons.Default.Refresh,

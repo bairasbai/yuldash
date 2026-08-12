@@ -99,7 +99,7 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
                 Text(error ?: "", color = CanonRed, fontSize = 16.sp)
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = { scope.launch { reload() } }, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg)) {
-                    Text(appText("Повторить", "Ҡабатларға"), fontWeight = FontWeight.Bold)
+                    Text(appText("Повторить", "Ҡабатлау"), fontWeight = FontWeight.Bold)
                 }
             }
             else -> LazyColumn(

@@ -94,8 +94,15 @@ private fun AdminPromoList(onBack: () -> Unit, onCreate: () -> Unit) {
     LaunchedEffect(Unit) { reload() }
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Промокоды и кампании", "Промокодтар һәм акциялар"), onBack) }) { padding ->
+        // Обновление жестом: очередь пополняют пользователи, а не админ. Раньше проверить
+        // «не пришло ли новое» можно было только выйдя с экрана и зайдя обратно.
+        AppPullRefresh(
+            refreshing = loading && list.isNotEmpty(),
+            onRefresh = { reload() },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            Modifier.padding(padding).padding(horizontal = 16.dp),
+            Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
         ) {
@@ -147,6 +154,7 @@ private fun AdminPromoList(onBack: () -> Unit, onCreate: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 }

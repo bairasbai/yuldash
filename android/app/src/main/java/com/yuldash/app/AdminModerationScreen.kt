@@ -80,8 +80,15 @@ internal fun AdminModerationScreen(onBack: () -> Unit, onOpenPartners: () -> Uni
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Модерация", "Тикшереү"), onBack) },
     ) { padding ->
+        // Обновление жестом: очередь пополняют пользователи, а не админ. Раньше проверить
+        // «не пришло ли новое» можно было только выйдя с экрана и зайдя обратно.
+        AppPullRefresh(
+            refreshing = loading && (queue.coupons.isNotEmpty() || queue.partners.isNotEmpty()),
+            onRefresh = { reload() },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            Modifier.padding(padding).padding(horizontal = CanonSpace.lg),
+            Modifier.padding(horizontal = CanonSpace.lg),
             verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
             contentPadding = PaddingValues(vertical = CanonSpace.lg),
         ) {
@@ -142,6 +149,7 @@ internal fun AdminModerationScreen(onBack: () -> Unit, onOpenPartners: () -> Uni
                     }
                 }
             }
+        }
         }
     }
 

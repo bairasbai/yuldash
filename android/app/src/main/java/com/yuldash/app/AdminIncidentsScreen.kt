@@ -140,8 +140,16 @@ internal fun AdminIncidentsScreen(onBack: () -> Unit) {
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Разбор споров", "Бәхәстәрҙе ҡарау"), onBack) },
     ) { padding ->
+        // Обновление жестом. Эти данные меняют ПОЛЬЗОВАТЕЛИ: приходит новая жалоба,
+        // сигнал SOS, заявка таксиста, помеченный текст. Админ сидит на экране и ждёт —
+        // а обновить его было нечем, только выйти и зайти обратно.
+        AppPullRefresh(
+            refreshing = loading && list.isNotEmpty(),
+            onRefresh = { reload++ },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
         ) {
@@ -194,6 +202,7 @@ internal fun AdminIncidentsScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 
