@@ -81,8 +81,15 @@ internal fun AdminPartnersScreen(onBack: () -> Unit) {
     val pendingCount = list.count { it.status == "pending" }
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Бизнесы-партнёры", "Партнёр-бизнестар"), onBack) }) { padding ->
+        // Обновление жестом: очередь пополняют пользователи, а не админ. Раньше проверить
+        // «не пришло ли новое» можно было только выйдя с экрана и зайдя обратно.
+        AppPullRefresh(
+            refreshing = loading && list.isNotEmpty(),
+            onRefresh = { reload() },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            Modifier.padding(padding).padding(horizontal = 16.dp),
+            Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp),
         ) {
@@ -138,6 +145,7 @@ internal fun AdminPartnersScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 

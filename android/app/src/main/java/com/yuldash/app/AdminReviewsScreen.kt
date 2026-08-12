@@ -120,7 +120,7 @@ internal fun AdminReviewsContent(
                 Text(error, color = CanonRed, fontSize = 16.sp)
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = onRetry, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg)) {
-                    Text(appText("Повторить", "Ҡабатларға"), fontWeight = FontWeight.Bold)
+                    Text(appText("Повторить", "Ҡабатлау"), fontWeight = FontWeight.Bold)
                 }
             }
             reviews.isEmpty() -> Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {

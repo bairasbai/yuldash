@@ -1327,7 +1327,7 @@ internal fun TrustedContactsContent(
                     Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(36.dp))
                         Text(loadErrorText, color = CanonText, fontSize = 16.sp, lineHeight = 23.sp, textAlign = TextAlign.Center)
-                        AppButton(appText("Повторить", "Ҡабатларға"), onClick = onRetry, style = AppButtonStyle.Secondary, fillWidth = false)
+                        AppButton(appText("Повторить", "Ҡабатлау"), onClick = onRetry, style = AppButtonStyle.Secondary, fillWidth = false)
                     }
                 }
             }

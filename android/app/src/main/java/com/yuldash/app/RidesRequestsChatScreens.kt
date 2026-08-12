@@ -1505,7 +1505,7 @@ private fun MatchingRidesSection(requestId: Int, onOpenRide: (com.yuldash.app.da
             error -> Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(appText("Не удалось загрузить.", "Йөкләп булманы."), color = CanonMuted, fontSize = 14.sp)
                 Spacer(Modifier.width(8.dp))
-                Text(appText("Повторить", "Ҡабатларға"),
+                Text(appText("Повторить", "Ҡабатлау"),
                     color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold,
                     modifier = Modifier.bounceClick { reload++ })
             }
@@ -2490,7 +2490,7 @@ internal fun ListedError(message: String, onRetry: () -> Unit) {
         Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(message, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 20.sp)
             Button(onClick = onRetry, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
-                Text(appText("Повторить", "Ҡабатларға"), fontWeight = FontWeight.Bold)
+                Text(appText("Повторить", "Ҡабатлау"), fontWeight = FontWeight.Bold)
             }
         }
     }

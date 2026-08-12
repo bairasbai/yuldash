@@ -152,7 +152,7 @@ class BookingActiveTripDeep2ContentTest {
                 MessageBubble(text = "не ушло", voiceUrl = null, mine = true, failed = true)
             }
         }
-        composeRule.onNodeWithText("Ебәрелмәне · Ҡабатларға").assertIsDisplayed()
+        composeRule.onNodeWithText("Ебәрелмәне · Ҡабатлау").assertIsDisplayed()
     }
 
     // --- голосовое: подпись + кнопка воспроизведения (contentDescription) ---

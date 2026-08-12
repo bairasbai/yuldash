@@ -909,7 +909,7 @@ internal fun VerifyDriverContent(
                                 modifier = Modifier.weight(1f),
                             )
                             TextButton(onClick = onRetryStatus) {
-                                Text(appText("Повторить", "Ҡабатларға"), color = CanonGreen2, fontSize = 14.sp)
+                                Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2, fontSize = 14.sp)
                             }
                         }
                     }

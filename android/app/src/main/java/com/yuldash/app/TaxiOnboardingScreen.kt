@@ -995,7 +995,7 @@ private fun TaxiMyClassesCard() {
                         color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
                     )
                     TextButton(onClick = { reloadKey++ }) {
-                        Text(appText("Повторить", "Ҡабатларға"), color = CanonGreen2,
+                        Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2,
                              fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine)
                     }
                 }
