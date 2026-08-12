@@ -997,11 +997,20 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
     Опции: фильтр ЖЁСТКИЙ — заказ с детским креслом машине без кресла не предлагаем вообще."""
     if not ids:
         return []
+    from .safety_logic import suspended_user_ids   # локальный импорт: safety_logic тянет services
+
     wanted_cats = order_categories(order)
     users = {u.id: u for u in session.exec(select(User).where(User.id.in_(ids))).all()}
     profs = {p.user_id: p for p in session.exec(select(DriverProfile).where(DriverProfile.user_id.in_(ids))).all()}
     busy = busy_driver_ids(session, ids)
     blocked = blocked_user_ids(session, order.passenger_id)
+    # Пауза «Справедливости» (§2). Гейт на ручках закрывает ДЕЙСТВИЯ («выйти на линию», «принять
+    # заказ»), но водитель мог быть на линии УЖЕ, когда разбор его отстранил: presence живёт
+    # своим сроком, и матчер продолжал считать его годным (проверено: `eligible` возвращал
+    # отстранённого; аудит 2026-08-12, волна 47). Ценой был не только зря потраченный круг
+    # подбора — в пуше оффера едет АДРЕС ПОДАЧИ пассажира, а отстраняют в том числе за
+    # домогательство. Один запрос на весь круг, как в ленте поездок, а не проверка на каждого.
+    paused = suspended_user_ids(session)
     area_a, area_b = _order_zone_ctx(session, order)
     out = []
     for did in ids:
@@ -1010,7 +1019,7 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
             continue
         if not p.online or not u.verified:
             continue
-        if did in busy or did in blocked or did == order.passenger_id:
+        if did in busy or did in blocked or did == order.passenger_id or did in paused:
             continue
         if not _zone_ok(session, p, area_a, area_b):
             continue
@@ -1101,8 +1110,39 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
     return fresh
 
 
+def cancel_for_suspended_passenger(session: Session, order: InstantOrder) -> InstantOrder | None:
+    """Пассажир на паузе (§2) → заказ не ищет машину. Отменяем и честно говорим почему.
+    Не на паузе → None, вызывающий продолжает обычным путём.
+
+    Одна точка на два входа: активация предзаказа «на время» и любой круг подбора. Гейт на
+    ручке «вызвать машину» закрывает только МОМЕНТ заказа, а между заказом и поездкой человека
+    успевает отстранить разбор — и заказ в очереди «подожду машину» фоновый воркер перезапускал
+    как ни в чём не бывало (проверено: воркер вернул заказ в поиск; аудит 2026-08-12, волна 47).
+
+    Отменяем, а не подвешиваем: заказ без машины — это человек, который ждёт зря. Актор —
+    пассажирская сторона; штрафа тут не возникает по построению (он считается только при поздней
+    отмене уже назначенного водителя)."""
+    from .safety_logic import account_paused   # локальный импорт: safety_logic тянет services
+    if not account_paused(session, order.passenger_id):
+        return None
+    cancelled = cancel_order(session, order.id, Actor.passenger, order.passenger_id,
+                             "passenger_suspended")
+    from .services import push_notification
+    push_notification(
+        session, order.passenger_id, "taxi",
+        "Заказ отменён", "Заказ кире алынды",
+        "Аккаунт на паузе до разбора — машину вызвать не получится. Причина и срок в Центре справедливости.",
+        "Иҫәп тикшереүгә тиклем паузада — машина саҡырып булмай. Сәбәбе һәм ваҡыты Ғәҙеллек үҙәгендә.",
+        ref_kind="instant", ref_id=order.id,
+    )
+    return cancelled
+
+
 def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
+    stopped = cancel_for_suspended_passenger(session, order)
+    if stopped is not None:
+        return stopped
     r = _redis()
     if r is None:
         return _expire_no_drivers(session, order, notify)
@@ -1144,31 +1184,10 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     # созданием и временем поездки человека могли отстранить разбором — и предзаказ всё равно
     # ехал: активацию зовут ТРИ пути (кнопка клиента, ленивый GET /instant/scheduled и фоновый
     # воркер), поэтому проверка на ручке была бы бесполезна. Ставим её здесь, в одной точке.
-    #
-    # Отменяем, а не подвешиваем: предзаказ «на время» без машины к сроку — это человек, который
-    # ждёт зря. Отмена системная, штрафа пассажиру не даёт (reason не «поздняя отмена»).
-    from .safety_logic import account_paused   # локальный импорт: safety_logic тянет services
-    if account_paused(session, order.passenger_id):
-        # Актор — пассажирская сторона (это его заказ, водителя ещё нет), reason честно говорит
-        # причину. Штрафа тут не возникает по построению: он считается только при поздней отмене
-        # уже назначенного водителя, а у предзаказа его нет. `Actor.system` не подходит: системный
-        # актор ходит по таблице переходов водителя, где статуса `scheduled` нет вовсе.
-        cancelled = cancel_order(session, order.id, Actor.passenger, order.passenger_id,
-                                 "passenger_suspended")
-        # Молча отменить нельзя: человек ждёт машину к назначенному часу. Говорим и причину,
-        # и куда идти (в Центре справедливости — срок и суть разбора).
-        from .services import push_notification
-        push_notification(
-            session, order.passenger_id, "taxi",
-            "Предзаказ отменён", "Алдан заказ кире алынды",
-            "Аккаунт на паузе до разбора — машину вызвать не получится. Причина и срок в Центре справедливости.",
-            "Иҫәп тикшереүгә тиклем паузада — машина саҡырып булмай. Сәбәбе һәм ваҡыты Ғәҙеллек үҙәгендә.",
-            # `instant`, а не `order`: по этому виду приложение умеет открывать такси-заказ.
-            # Выдуманный вид сделал бы уведомление немым по тапу (поймал
-            # tests/test_notifications_lead_somewhere.py).
-            ref_kind="instant", ref_id=order.id,
-        )
-        return cancelled
+    # Правило и текст — общие с обычным подбором (`cancel_for_suspended_passenger`).
+    stopped = cancel_for_suspended_passenger(session, order)
+    if stopped is not None:
+        return stopped
     est = estimate(session, (order.from_lat, order.from_lng),
                    (order.to_lat, order.to_lng), order.category or "standard")
     session.execute(
