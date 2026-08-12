@@ -4,7 +4,7 @@
 объявлен в rides ПОСЛЕ статических `/rides/near`,`/rides/price_hint` — порядок
 внутри файла сохранён, поэтому динамический путь не перехватывает их.
 """
-from . import ads, antifraud, auth, bookings, chat, coupons, courier, debt, discovery, driver_schedule, drivers, events, family, health, incidents, instant, location, medical, notifications, parcels, payments, pickup, places, promo, referral, requests, reviews, rides, route_watch, safety, seasonal, settlements, share, stats, support, sybil, taxi, trust, waitlist, wallet
+from . import ads, antifraud, auth, bookings, chat, coupons, courier, debt, discovery, driver_schedule, drivers, events, family, health, incidents, instant, location, medical, notifications, parcels, payments, pickup, places, promo, referral, requests, reviews, rides, route_watch, safety, seasonal, settlements, share, stats, support, sybil, taxi, trust, waitlist, wallet, weather
 
 all_routers = [
     health.router,
@@ -47,5 +47,6 @@ all_routers = [
     places.router,      # сохранённые/недавние адреса — быстрый выбор точки в форме заказа
     support.router,     # поддержка внутри приложения (тикеты) — замена ссылки в Telegram
     events.router,      # анонимная продуктовая аналитика (веб-версия) — POST /events
+    weather.router,     # погода на маршруте: гололёд/метель/туман перед выездом (Open-Meteo, без ключа)
 
 ]
