@@ -99,6 +99,38 @@ def _hide_suspended(items, user, session):
     return [r for r in items if _drv(r) not in ids or _drv(r) == uid]
 
 
+def _hide_health_hint(items, user):
+    """Анониму не показываем, что поездка едет в конкретную клинику.
+
+    «Кто и когда едет в такую-то больницу» — вывод о здоровье, а не просто маршрут. Ручка
+    `/medical-partners/{id}/rides` это уже понимает и требует входа. Но та же связка спокойно
+    уезжала во вторую дверь: `GET /rides` без токена отдавал `partner_id` и `category=hospital`
+    вместе с именем водителя и временем выезда (аудит 2026-08-08, волна 22). Барьер входа
+    отсекает поисковики и массовый сбор — ровно то, ради чего он поставлен в medical.py.
+
+    Саму поездку не прячем: человеку без входа она видна как обычная «Баймак → Уфа»,
+    и по ссылке карточка открывается. Убираем только связку с клиникой. Свою поездку
+    водитель видит целиком — как и в соседних фильтрах.
+    """
+    if user is not None:
+        return items
+    def _f(r, key):
+        return r[key] if isinstance(r, dict) else getattr(r, key, None)
+    out = []
+    for r in items:
+        hospital = _f(r, "category") in (RideCategory.hospital, "hospital")
+        if not hospital and not _f(r, "partner_id"):
+            out.append(r)
+            continue
+        patch = {"partner_id": None, "category": RideCategory.regular}
+        if isinstance(r, dict):
+            r = {**r, **{"partner_id": None, "category": RideCategory.regular.value}}
+        else:
+            r = r.model_copy(update=patch)
+        out.append(r)
+    return out
+
+
 def _hide_trusted_only(items, user, session):
     """Прячем поездки «только для своих» (only_trusted) от всех, кто НЕ L3.
     Аноним и L0–L2 их не видят; свой водитель видит СВОЮ поездку всегда.
@@ -350,7 +382,7 @@ def search_rides(
         if cached is not None:
             out = _hide_blocked(public_rides_payload(cached), user, session)
             out = _hide_suspended(out, user, session)
-            return _hide_trusted_only(out, user, session)
+            return _hide_health_hint(_hide_trusted_only(out, user, session), user)
 
     # Не показываем УЖЕ УЕХАВШИЕ поездки (аудит 2026-07-04: у поездки не было отсева по времени →
     # вчерашние висели в ленте). Грейс 2ч: поездка «только что уехала»/бронируют впритык — ещё видна.
@@ -369,7 +401,10 @@ def search_rides(
     if to_city:
         q = q.where(Ride.to_city.contains(bare_name(to_city)))
     if category:
-        q = q.where(Ride.category == category)
+        # Анониму фильтр «в больницу» не даём: затирать связку в ответе бесполезно, если
+        # выборку можно получить самим запросом — человек и так знает, что просил (волна 22).
+        if not (category == RideCategory.hospital and user is None):
+            q = q.where(Ride.category == category)
     if pets_allowed:
         q = q.where(Ride.pets_allowed == True)  # noqa: E712
     if child_seat:
@@ -398,7 +433,7 @@ def search_rides(
         cache_set_json("rides:active:v2", [r.model_dump(mode="json") for r in public_out], 20)
     out = _hide_blocked(public_out, user, session)
     out = _hide_suspended(out, user, session)
-    return _hide_trusted_only(out, user, session)
+    return _hide_health_hint(_hide_trusted_only(out, user, session), user)
 
 
 @lru_cache(maxsize=512)
@@ -596,6 +631,11 @@ def rides_near(
         out = public_ride_payload(ride_out_with(r, users_map, profiles, rating_agg, trips_agg)).model_dump()
         out["distance_km"] = dist_by_id.get(r.id)
         items.append(out)
+    # Связку с клиникой прячем ЗДЕСЬ, а не выше вместе с соседними фильтрами: там в руках
+    # ORM-объекты `Ride`, страница потом перечитывается из базы заново — правка на них
+    # бесследно терялась. Поймано пробой: лента уже молчала, а «рядом» всё ещё отдавало
+    # `partner_id` анониму (аудит 2026-08-08, волна 22).
+    items = _hide_health_hint(items, user)
     return {"count": total, "items": items}   # count = всего (чтобы клиент знал, есть ли «ещё»)
 
 
@@ -772,6 +812,7 @@ def get_ride(ride_id: int, user: Optional[User] = Depends(current_user_optional)
     # V5: те же фильтры, что в ленте — «только для своих» скрыта от не-L3, поездка в связке
     # блокировки не отдаётся по прямому id (иначе обход only_trusted/blocked + анонимный скрейпинг).
     visible = _hide_trusted_only(_hide_suspended(_hide_blocked([out], user, session), user, session), user, session)
+    visible = _hide_health_hint(visible, user)
     if not visible:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")   # не раскрываем существование закрытой поездки
     return visible[0]
