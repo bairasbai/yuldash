@@ -731,8 +731,16 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
     val tStatusFail = appText("Не удалось загрузить твой статус водителя. Проверь сеть.", "Водитель статусыңды йөкләп булманы. Сетте тикшер.")
 
     // При сетевом сбое честно предупреждаем (не молчим и не показываем пустую форму как
-    // «документы не отправлены», если статус на сервере другой). Повтор — переоткрытием экрана.
-    LaunchedEffect(Unit) {
+    // «документы не отправлены», если статус на сервере другой).
+    //
+    // Раньше единственным сигналом был Toast: он живёт пару секунд и исчезает, а повторить
+    // предлагалось «переоткрытием экрана» — то есть человек должен был сам догадаться выйти
+    // и зайти. Теперь сбой держится на экране строкой с кнопкой «Повторить».
+    var statusFailed by remember { mutableStateOf(false) }
+    var statusLoading by remember { mutableStateOf(true) }
+    var statusRetry by remember { mutableIntStateOf(0) }
+    LaunchedEffect(statusRetry) {
+        statusLoading = true
         ApiClient.getDriverStatus()
             .onSuccess { s ->
                 docsStatus = s.docsStatus
@@ -746,9 +754,16 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
                 if (s.seats > 0) seats = s.seats.toString()
                 if (s.licenseUrl.isNotBlank()) licenseUrl = s.licenseUrl
                 if (s.carPhotoUrl.isNotBlank()) carPhotoUrl = s.carPhotoUrl
+                statusFailed = false
             }
             // 401 (не вошёл) — норм, показываем чистую форму. Иначе сеть упала → предупреждаем.
-            .onFailure { e -> if ((e as? com.yuldash.app.data.ApiException)?.status != 401) Toast.makeText(context, tStatusFail, Toast.LENGTH_LONG).show() }
+            .onFailure { e ->
+                if ((e as? com.yuldash.app.data.ApiException)?.status != 401) {
+                    Toast.makeText(context, tStatusFail, Toast.LENGTH_LONG).show()
+                    statusFailed = true
+                }
+            }
+        statusLoading = false
     }
     val pickLicense = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
@@ -811,6 +826,11 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
         verified = verified,
         submitting = submitting,
         submitError = submitError,
+        statusFailed = statusFailed,
+        onRetryStatus = { statusRetry++ },
+        // Одобряет документы админ, вручную. Человек отправил фото и ждёт — теперь проверить
+        // «не одобрили ли уже» можно жестом, а не выходом с экрана и заходом обратно.
+        refreshing = statusLoading && docsStatus != "none",
         autocheckResult = autocheckResult,
         autocheckData = autocheckData,
         canSubmit = canSubmit,
@@ -840,6 +860,10 @@ internal fun VerifyDriverContent(
     verified: Boolean,
     submitting: Boolean,
     submitError: Boolean,
+    // Дефолты: экран вызывают и из тестов, и из превью — там сбоя статуса нет.
+    statusFailed: Boolean = false,
+    onRetryStatus: () -> Unit = {},
+    refreshing: Boolean = false,
     autocheckResult: String,
     autocheckData: String,
     canSubmit: Boolean,
@@ -852,22 +876,55 @@ internal fun VerifyDriverContent(
         containerColor = CanonBg,
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
     ) { padding ->
+        // Статус проверки меняет админ — человеку остаётся только ждать. Жест сверху вниз
+        // спрашивает сервер заново; тот же путь, что и у кнопки «Повторить» при сбое.
+        AppPullRefresh(
+            refreshing = refreshing,
+            onRefresh = onRetryStatus,
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
             item { Spacer(Modifier.height(8.dp)) }
+            // Статус не загрузился: держим сообщение на экране, а не две секунды в Toast.
+            if (statusFailed) {
+                item {
+                    Surface(
+                        shape = CanonItemShape,
+                        color = CanonDangerBg,
+                        border = BorderStroke(1.dp, CanonRed.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                appText("Не удалось загрузить твой статус. Проверь связь.",
+                                        "Статусыңды йөкләп булманы. Бәйләнеште тикшер."),
+                                color = CanonText, fontSize = 14.sp, lineHeight = 20.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = onRetryStatus) {
+                                Text(appText("Повторить", "Ҡабатларға"), color = CanonGreen2, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                }
+            }
             item {
                 Text(appText("Проверка водителя", "Водителде тикшереү"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
-                Text(appText("Пройдите проверку, чтобы пассажиры вам доверяли", "Пассажирҙар ышанһын өсөн тикшереүҙе үтегеҙ"), color = CanonMuted, fontSize = 16.sp, lineHeight = 23.sp)
+                Text(appText("Пройди проверку — так пассажиры будут доверять", "Пассажирҙар ышанһын өсөн тикшереүҙе үт"), color = CanonMuted, fontSize = 16.sp, lineHeight = 23.sp)
             }
             item {
                 when {
-                    verified -> StatusBanner(Icons.Default.Verified, appText("Профиль подтверждён", "Профиль раҫланды"), appText("Вам доверяют — значок «Проверен» виден пассажирам.", "Һеҙгә ышаналар — «Тикшерелгән» билдәһе күренә."), CanonMint, CanonGreen2)
+                    verified -> StatusBanner(Icons.Default.Verified, appText("Профиль подтверждён", "Профиль раҫланды"), appText("Тебе доверяют — значок «Проверен» виден пассажирам.", "Һеҙгә ышаналар — «Тикшерелгән» билдәһе күренә."), CanonMint, CanonGreen2)
                     docsStatus == "pending" -> StatusBanner(Icons.Default.Schedule, appText("На проверке", "Тикшереүҙә"), appText("Обычно занимает немного времени. Сообщим о результате.", "Ғәҙәттә әҙ ваҡыт ала. Һөҙөмтә тураһында хәбәр итәбеҙ."), CanonMint, CanonGreen2)
-                    docsStatus == "rejected" -> StatusBanner(Icons.Default.Shield, appText("Отклонено", "Кире ҡағылды"), appText("Проверьте фото и отправьте снова.", "Фотоларҙы тикшереп, ҡабат ебәрегеҙ."), CanonDangerBg, CanonRed)
-                    else -> StatusBanner(Icons.Default.Shield, appText("Проверка не пройдена", "Тикшереү үтелмәгән"), appText("Заполните данные авто и загрузите фото.", "Машина мәғлүмәтен тултырып, фото йөкләгеҙ."), CanonMint, CanonGreen2)
+                    docsStatus == "rejected" -> StatusBanner(Icons.Default.Shield, appText("Отклонено", "Кире ҡағылды"), appText("Проверь фото и отправь снова.", "Фотоларҙы тикшереп, ҡабат ебәр."), CanonDangerBg, CanonRed)
+                    else -> StatusBanner(Icons.Default.Shield, appText("Проверка не пройдена", "Тикшереү үтелмәгән"), appText("Заполни данные авто и загрузи фото.", "Машина мәғлүмәтен тултырып, фото йөкләгеҙ."), CanonMint, CanonGreen2)
                 }
             }
             // Причина отказа/правки для ВОДИТЕЛЯ (раньше видел только админ): что не так и что делать.
@@ -910,6 +967,7 @@ internal fun VerifyDriverContent(
             item {
                 Text(appText("Фото нужны только для проверки и не видны другим пользователям.", "Фотолар тик тикшереү өсөн, башҡаларға күренмәй."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
             }
+        }
         }
     }
 }
@@ -1036,7 +1094,7 @@ internal fun UploadTile(title: String, done: Boolean, loading: Boolean, onClick:
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(
-                    if (loading) appText("Загрузка…", "Йөкләнә…") else if (done) appText("Загружено", "Йөкләнде") else appText("Нажмите, чтобы выбрать фото", "Фото һайлау өсөн баҫығыҙ"),
+                    if (loading) appText("Загрузка…", "Йөкләнә…") else if (done) appText("Загружено", "Йөкләнде") else appText("Нажми, чтобы выбрать фото", "Фото һайлау өсөн баҫ"),
                     color = if (done) CanonGreen2 else CanonMuted, fontSize = 14.sp
                 )
             }

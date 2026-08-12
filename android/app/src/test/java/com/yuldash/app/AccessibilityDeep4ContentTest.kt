@@ -100,7 +100,7 @@ class AccessibilityDeep4ContentTest {
         composeRule.setContent { SimpleMode() }
         composeRule.onNodeWithText("Юлдаш без сложностей").assertIsDisplayed()
         composeRule.onNodeWithText("Сказать маршрут").assertIsDisplayed()
-        composeRule.onNodeWithText("Позвоните мне").assertIsDisplayed()
+        composeRule.onNodeWithText("Позвони мне").assertIsDisplayed()
         composeRule.onNodeWithText("SOS").assertIsDisplayed()
         composeRule.onNodeWithText("Частые маршруты").assertIsDisplayed()
     }

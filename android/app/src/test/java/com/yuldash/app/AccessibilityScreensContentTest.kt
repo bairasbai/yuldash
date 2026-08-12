@@ -53,12 +53,12 @@ class AccessibilityScreensContentTest {
     fun seniorBigAction_rendersBashkirTextFromAppTextFor() {
         composeRule.mainClock.autoAdvance = false
         // Двуязычный конвейер отдаёт башкирский → компонент рисует ровно его.
-        val title = appTextFor(AppLanguage.Ba, "Позвоните мне", "Миңә шылтыратығыҙ")
+        val title = appTextFor(AppLanguage.Ba, "Позвони мне", "Миңә шылтырат")
         val subtitle = appTextFor(AppLanguage.Ba, "Помощник сам перезвонит", "Ярдамсы үҙе шылтыратыр")
         composeRule.setContent {
             SeniorBigAction(icon = Icons.Default.HeadsetMic, title = title, subtitle = subtitle, onClick = {})
         }
-        composeRule.onNodeWithText("Миңә шылтыратығыҙ").assertIsDisplayed()
+        composeRule.onNodeWithText("Миңә шылтырат").assertIsDisplayed()
         composeRule.onNodeWithText("Ярдамсы үҙе шылтыратыр").assertIsDisplayed()
     }
 

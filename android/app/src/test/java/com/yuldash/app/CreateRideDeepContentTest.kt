@@ -96,7 +96,7 @@ class CreateRideDeepContentTest {
     @Test
     fun subtitle_isDisplayed_ru() {
         composeRule.setContent { Content(language = AppLanguage.Ru) }
-        composeRule.onNodeWithText("Укажите путь, места и цену. Контакты откроются после подтверждения.").assertIsDisplayed()
+        composeRule.onNodeWithText("Укажи путь, места и цену. Контакты откроются после подтверждения.").assertIsDisplayed()
     }
 
     @Test

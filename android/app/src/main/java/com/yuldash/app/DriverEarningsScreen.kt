@@ -75,8 +75,15 @@ internal fun DriverEarningsScreen(onBack: () -> Unit) {
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Мой заработок", "Минең табыш"), onBack) },
     ) { padding ->
+        // Заработок растёт после каждой поездки — жест сверху вниз даёт свежую сумму,
+        // не заставляя выходить с экрана и заходить обратно.
+        AppPullRefresh(
+            refreshing = loading && data != null,
+            onRefresh = { scope.launch { load(period) } },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
@@ -128,6 +135,7 @@ internal fun DriverEarningsScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 }

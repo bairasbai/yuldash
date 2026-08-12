@@ -291,7 +291,7 @@ internal fun SimpleModeScreen(
                 }
             }
             item { Box(Modifier.appearIn(0)) { SeniorBigAction(Icons.Default.HeadsetMic, appText("Сказать маршрут", "Маршрутты әйтеү"), appText("Голосом создать заявку", "Тауыш менән заявка"), onVoiceRequest) } }
-            item { Box(Modifier.appearIn(1)) { SeniorBigAction(Icons.Default.PhoneLocked, appText("Позвоните мне", "Миңә шылтыратығыҙ"), appText("Помощник сам перезвонит", "Ярдамсы үҙе шылтыратыр"), onCallbackHelp) } }
+            item { Box(Modifier.appearIn(1)) { SeniorBigAction(Icons.Default.PhoneLocked, appText("Позвони мне", "Миңә шылтырат"), appText("Помощник сам перезвонит", "Ярдамсы үҙе шылтыратыр"), onCallbackHelp) } }
             item { Box(Modifier.appearIn(2)) { SeniorBigAction(Icons.Default.Shield, appText("SOS", "SOS"), appText("Экстренная помощь", "Ашығыс ярҙам"), onSos, danger = true) } }
             item { Box(Modifier.appearIn(3)) { SeniorBigAction(Icons.Default.Refresh, appText("Частые маршруты", "Йыш маршруттар"), appText("В больницу, к детям, на рынок", "Больницаға, балаларға, баҙарға"), onRepeatTrip) } }
             item { Box(Modifier.appearIn(4)) { SeniorBigAction(Icons.Default.FormatSize, appText("Крупный шрифт", "Эре шрифт"), fontScaleLabel(FontScalePrefs.option), { showFontDialog = true }) } }
@@ -543,7 +543,7 @@ internal fun VoiceRequestScreen(
     val vrTitle = appText("Голосовая заявка", "Тауыш заявкаһы")
     val vrRoute = appText("Голосом — водитель слушает", "Тауыш менән — водитель тыңлай")
     val vrNow = appText("сейчас", "хәҙер")
-    val vrPrompt = appText("Скажите маршрут", "Маршрутты әйтегеҙ")
+    val vrPrompt = appText("Скажи маршрут", "Маршрутты әйт")
     val vrNoStt = appText("Распознавание недоступно на устройстве", "Таныу ҡорамалда юҡ")
     val vrSendError = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Интернетте тикшереп ҡабатла.")
     val vrUploadError = appText("Не удалось загрузить запись. Проверь сеть и повтори.", "Яҙманы тейәп булманы. Интернетте тикшереп ҡабатла.")
@@ -577,8 +577,8 @@ internal fun VoiceRequestScreen(
         ) {
             item {
                 InfoCard(
-                    title = appText("Нажмите и скажите", "Баҫығыҙ һәм әйтегеҙ"),
-                    text = appText("Скажите голосом: откуда, куда и когда. Водитель послушает — на русском или башкирском.", "Тауыш менән әйтегеҙ: ҡайҙан, ҡайҙа, ҡасан. Водитель тыңлар — урыҫса йәки башҡортса."),
+                    title = appText("Нажми и скажи", "Баҫ һәм әйт"),
+                    text = appText("Скажи голосом: откуда, куда и когда. Водитель послушает — на русском или башкирском.", "Тауыш менән әйт: ҡайҙан, ҡайҙа, ҡасан. Водитель тыңлар — урыҫса йәки башҡортса."),
                     icon = Icons.Default.VolumeUp
                 )
             }
@@ -920,7 +920,7 @@ internal fun CreatePassengerRequestContent(
                     onValueChange = {},
                     readOnly = true,
                     label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
-                    placeholder = { Text(appText("Выберите дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
+                    placeholder = { Text(appText("Выбери дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
                     trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp)
@@ -1501,7 +1501,7 @@ internal fun RepeatTripContent(
                         title = appText("Нужно войти", "Инергә кәрәк"),
                         text = appText(
                             "Войди через Telegram, чтобы Юлдаш мог создать заявку и показать ответы водителей.",
-                            "Юлдаш заявка булдырып, водителдәр яуаптарын күрһәтһен өсөн Telegram аша инегеҙ."
+                            "Юлдаш заявка булдырып, водителдәр яуаптарын күрһәтһен өсөн Telegram аша ин."
                         ),
                         icon = Icons.Default.Person,
                         actionLabel = appText("Войти", "Инеү"),
@@ -1604,7 +1604,7 @@ private fun repeatRouteTitleRu(count: Int): String {
 
 @Composable
 internal fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onRequest: (String) -> Unit) {
-    val defaultReason = appText("Помогите создать заявку", "Заявка булдырырға ярҙам итегеҙ")
+    val defaultReason = appText("Помоги создать заявку", "Заявка булдырырға ярҙам ит")
     var reason by remember { mutableStateOf(defaultReason) }
     val context = LocalContext.current
     val supportPhone = BuildConfig.YULDASH_SUPPORT_PHONE

@@ -21,7 +21,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * «В глубину», раунд 3: продолжение выноса стейта во вторичных экранах.
- * - `BlocklistScreen` → чистый [BlocklistContent] (чёрный список + секция «Ваши попутчики»).
+ * - `BlocklistScreen` → чистый [BlocklistContent] (чёрный список + секция «Твои попутчики»).
  * - `ReportScreen`    → чистый [ReportListContent] (список «на кого пожаловаться»; диалог — в обёртке).
  * - [AutoCheckRow]    — бейдж авто-проверки прав (OCR): вердикты + распознанные данные (стал internal).
  * - [AdminCabinetScreen] — статичный список навигации без сети/стейта → рендер и клики напрямую.
@@ -124,8 +124,8 @@ class SecondaryDeep3ContentTest {
         }
         composeRule.onNodeWithText("Азат").assertIsDisplayed()
         composeRule.onNodeWithText("Разблокировать").assertIsDisplayed()
-        // Секции «Ваши попутчики» нет, когда addable пуст.
-        composeRule.onNodeWithText("Ваши попутчики").assertDoesNotExist()
+        // Секции «Твои попутчики» нет, когда addable пуст.
+        composeRule.onNodeWithText("Твои попутчики").assertDoesNotExist()
     }
 
     @Test
@@ -153,7 +153,7 @@ class SecondaryDeep3ContentTest {
                 )
             }
         }
-        composeRule.onNodeWithText("Ваши попутчики").assertIsDisplayed()
+        composeRule.onNodeWithText("Твои попутчики").assertIsDisplayed()
         composeRule.onNodeWithText("Гульназ").assertIsDisplayed()
         composeRule.onNodeWithText("Заблокировать").assertIsDisplayed()
     }

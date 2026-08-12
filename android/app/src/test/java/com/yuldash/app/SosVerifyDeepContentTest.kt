@@ -438,4 +438,43 @@ class SosVerifyDeepContentTest {
         setVerify(submitError = true)
         composeRule.onNodeWithText("Не отправилось").assertIsDisplayed()
     }
+
+    /**
+     * Статус водителя не загрузился → на экране остаётся строка с объяснением и кнопкой
+     * «Повторить». Раньше единственным сигналом был Toast: он исчезал через пару секунд,
+     * а повторить предлагалось «переоткрытием экрана».
+     */
+    @Test
+    fun verifyDriver_showsRetryWhenStatusFailed() {
+        var retried = false
+        composeRule.setContent {
+            VerifyDriverContent(
+                make = "", onMakeChange = {},
+                model = "", onModelChange = {},
+                carColor = "", onColorChange = {},
+                plate = "", onPlateChange = {},
+                seats = "", onSeatsChange = {},
+                licenseUrl = null,
+                carPhotoUrl = null,
+                uploadingLicense = false,
+                uploadingCar = false,
+                docsStatus = "none",
+                verified = false,
+                submitting = false,
+                submitError = false,
+                statusFailed = true,
+                onRetryStatus = { retried = true },
+                autocheckResult = "",
+                autocheckData = "",
+                canSubmit = false,
+                onPickLicense = {},
+                onPickCar = {},
+                onSubmit = {},
+                onSelectTab = {},
+            )
+        }
+        composeRule.onNodeWithText("Не удалось загрузить твой статус. Проверь связь.").assertExists()
+        composeRule.onNodeWithText("Повторить").performClick()
+        assertTrue(retried)
+    }
 }

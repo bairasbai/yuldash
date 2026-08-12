@@ -267,7 +267,9 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MiniStat(Modifier.weight(1f), fmtInt(s.trips), appTextFor(language, "поездок", "сәфәр"))
-                MiniStat(Modifier.weight(1f), "${fmtInt(s.savedRub)} ₽", appTextFor(language, "сэкономил", "янға ҡалды"))
+                // «сэкономлено», не «сэкономил»: карточкой делятся в мессенджерах, и мужской род
+                // делал женщину в собственной открытке мужчиной. Башкирское «янға ҡалды» безличное.
+                MiniStat(Modifier.weight(1f), "${fmtInt(s.savedRub)} ₽", appTextFor(language, "сэкономлено", "янға ҡалды"))
                 MiniStat(Modifier.weight(1f), fmtKg(s.co2SavedKg), appTextFor(language, "CO₂ меньше", "CO₂ кәм"))
             }
 
@@ -392,7 +394,8 @@ private fun shareCaption(s: MyStatsDto, language: AppLanguage): String {
         "Минең Юлдаш: ${fmtInt(s.trips)} сәфәр, ${fmtKmStat(s.km)} км бергә, ${fmtInt(s.savedRub)} ₽ янға ҡалды. " +
             "Исемем — «$rank». Юлдашҡа ҡушыл: yulbash.ru"
     } else {
-        "Мой Юлдаш: ${fmtInt(s.trips)} ${tripsWord(s.trips)}, ${fmtKmStat(s.km)} км вместе, сэкономил ~${fmtInt(s.savedRub)} ₽. " +
+        // Подпись уходит в чужие чаты от имени человека — род тут угадывать нельзя.
+        "Мой Юлдаш: ${fmtInt(s.trips)} ${tripsWord(s.trips)}, ${fmtKmStat(s.km)} км вместе, сэкономлено ~${fmtInt(s.savedRub)} ₽. " +
             "Звание — «$rank». Присоединяйся: yulbash.ru"
     }
 }
@@ -449,7 +452,7 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     data class Mini(val value: String, val label: String)
     val minis = listOf(
         Mini(fmtInt(s.trips), appTextFor(language, "поездок", "сәфәр")),
-        Mini("${fmtInt(s.savedRub)} ₽", appTextFor(language, "сэкономил", "янға ҡалды")),
+        Mini("${fmtInt(s.savedRub)} ₽", appTextFor(language, "сэкономлено", "янға ҡалды")),
         Mini(fmtKg(s.co2SavedKg), appTextFor(language, "CO₂ меньше", "CO₂ кәм")),
     )
     val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }

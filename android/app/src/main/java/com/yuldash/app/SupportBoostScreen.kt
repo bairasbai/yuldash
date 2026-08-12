@@ -325,7 +325,9 @@ internal fun SupportScreen(onBack: () -> Unit) {
             modifier = Modifier.padding(padding),
         )
         if (showSbp) SbpTransferSheet(
-            donation?.amount ?: effectiveAmount ?: selectedAmount,
+            // Лист перевода принимает копейки; донат человек выбирает в рублях (100/300/500),
+            // и сервер отвечает тоже в рублях — переводим здесь, у самой границы.
+            (donation?.amount ?: effectiveAmount ?: selectedAmount) * 100,
             onPaid = { showSbp = false; completed = true },
             onDismiss = { showSbp = false },
             payeePhone = donation?.payeePhone, payeeBank = donation?.payeeBank, payeeName = donation?.payeeName,

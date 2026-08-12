@@ -484,7 +484,7 @@ internal fun BookingScreen(
                             appText("Место встречи", "Осрашыу урыны"),
                             when {
                                 contactUnlocked && exactPickup.isNotBlank() -> exactPickup
-                                contactUnlocked -> appText("Уточните точку в чате", "Нөктәне чатта асыҡлағыҙ")
+                                contactUnlocked -> appText("Уточни точку в чате", "Нөктәне чатта асыҡлағыҙ")
                                 bookingId != null -> appText("Откроется после подтверждения водителем", "Водитель раҫлағас асыла")
                                 else -> appText("Откроется после подтверждения поездки", "Сәфәр раҫланғас асыла")
                             }
@@ -624,7 +624,7 @@ internal fun BookingScreen(
             }
             item {
                 InfoCard(
-                    title = appText("Мы заботимся о вашей безопасности", "Беҙ һеҙҙең хәүефһеҙлек тураһында ҡайғыртабыҙ"),
+                    title = appText("Мы бережём твою безопасность", "Беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ"),
                     text = appText("Все поездки защищены и отслеживаются службой поддержки Юлдаш.", "Бөтә сәфәрҙәр Юлдаш ярҙам хеҙмәте тарафынан күҙәтелә."),
                     icon = Icons.Default.Shield
                 )
@@ -964,8 +964,9 @@ internal fun ActiveTripScreen(
     val context = LocalContext.current
     var messages by remember(bookingId) { mutableStateOf<List<MessageDto>>(emptyList()) }
     val voiceScope = rememberCoroutineScope()
-    val statusErrMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшерегеҙ.")
-    val shareErrMsg = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшерегеҙ.")
+    // Русский тут на «ты», башкирский был на «вы» (тикшерегеҙ) — тон обязан совпадать в обоих языках.
+    val statusErrMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшер.")
+    val shareErrMsg = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер.")
     val driverNotifiedMsg = appText("Пассажир уведомлён", "Пассажир хәбәрҙар ителде")
     val chatSendFailMsg = appText("Не отправилось. Повтори.", "Ебәрелмәне. Ҡабатла.")
     val chatActionFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
@@ -1328,8 +1329,8 @@ internal fun ActiveTripScreen(
                 val reviewSentMsg = appText("Спасибо! Отзыв на проверке", "Рәхмәт! Фекер тикшереүҙә")
                 val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
                 // Кого оцениваем: пассажир → водителя, водитель → пассажира.
-                val rateTitle = if (isDriver) appText("Оцените попутчика", "Юлдашты баһалағыҙ")
-                                else appText("Оцените водителя", "Водителде баһалағыҙ")
+                val rateTitle = if (isDriver) appText("Оцени попутчика", "Юлдашты баһалағыҙ")
+                                else appText("Оцени водителя", "Водителде баһалағыҙ")
                 Card(modifier = Modifier.appearIn(2), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(rateTitle, fontWeight = FontWeight.Bold)
@@ -1497,7 +1498,9 @@ internal fun ActiveTripScreen(
             // на всю сессию (OnlinePayGate) — договорённость «на доверии» остаётся как раньше.
             if (bookingStatus == "done" && bookingId != null && role == "passenger") item {
                 PayOnlineCard(
-                    amountRub = payAmount ?: ride?.price?.takeIf { it > 0 },
+                    // Цена попутки задаётся водителем в целых рублях — переводим в копейки
+                    // на границе, потому что карточка оплаты считает деньги в копейках.
+                    amountKop = (payAmount ?: ride?.price?.takeIf { it > 0 })?.times(100),
                     pay = { m -> ApiClient.payBooking(bookingId, m) },
                     modifier = Modifier.appearIn(2),
                 )
@@ -1879,7 +1882,7 @@ internal fun ActiveTripScreen(
                 } else {
                 Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
                 if (contacts.isEmpty()) {
-                    Text(appText("Сначала добавьте доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтәгеҙ"), color = CanonMuted)
+                    Text(appText("Сначала добавь доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтәгеҙ"), color = CanonMuted)
                 }
                 contacts.forEach { c ->
                     Row(
@@ -2082,7 +2085,7 @@ internal fun DriverApproachingBanner(
             Spacer(Modifier.width(12.dp))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    if (arriving) appText("Водитель подъезжает", "Водитель яҡынлаша") else appText("Водитель выехал к вам", "Водитель сыҡты"),
+                    if (arriving) appText("Водитель подъезжает", "Водитель яҡынлаша") else appText("Водитель выехал к тебе", "Водитель сыҡты"),
                     color = if (arriving) Color.White else CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp
                 )
                 // Показываем ТОЛЬКО когда проверка реально прошла. Нет подтверждения — молчим,
@@ -2120,7 +2123,9 @@ internal fun BoardingCodeCard(
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(appText("Код посадки", "Ултырыу коды"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(appText("Назовите водителю — он сверит. Это та самая машина.", "Водителгә әйтегеҙ — ул тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                    // «он сверит» → «сверят»: за рулём бывают женщины, род тут не нужен.
+                    // Башкирский был на «вы» (әйтегеҙ) — приложение везде обращается на «ты».
+                    Text(appText("Назови водителю — сверят. Это та самая машина.", "Водителгә әйт — тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                 }
                 Spacer(Modifier.width(8.dp))
                 Text(code, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 34.sp, letterSpacing = 4.sp)
@@ -2138,7 +2143,7 @@ internal fun BoardingCodeCard(
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            appText("Сверьте машину перед посадкой", "Ултырыр алдынан машинаны тикшерегеҙ"),
+                            appText("Сверь машину перед посадкой", "Ултырыр алдынан машинаны тикшер"),
                             color = CanonMuted, fontSize = 12.sp,
                         )
                         if (car.isNotBlank()) {

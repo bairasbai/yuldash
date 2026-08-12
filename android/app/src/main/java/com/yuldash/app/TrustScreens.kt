@@ -6,6 +6,7 @@ package com.yuldash.app
 // Все надписи двуязычны через appText(ru, ba); черновой башкирский → docs/tasks.md.
 
 import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -27,8 +28,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PrivacyTip
@@ -40,6 +43,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
@@ -113,8 +117,15 @@ internal fun TrustScreen(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Доверие", "Ышаныс"), onBack) },
     ) { padding ->
+        // Уровень поднимается после проверки документов — а её делает админ вручную.
+        // Человек отправил и ждёт; жест сверху вниз спрашивает сервер заново.
+        AppPullRefresh(
+            refreshing = loading && data != null,
+            onRefresh = { reload++ },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
         ) {
@@ -169,6 +180,7 @@ internal fun TrustScreen(
                     }
                 }
             }
+        }
         }
     }
 }
@@ -325,6 +337,9 @@ internal fun InvitesScreen(onBack: () -> Unit) {
     var redeemMsg by remember { mutableStateOf<String?>(null) }   // ошибка redeem
     var justJoined by remember { mutableStateOf(false) }          // «Теперь ты свой»
     var creating by remember { mutableStateOf(false) }
+    // Сбой создания кода жил в Toast: две секунды — и человек уже не знает, что случилось,
+    // а перечитать нечего. Ошибку держим на экране рядом с кнопкой, как у активации кода.
+    var createError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(reload) {
         loading = trust == null
@@ -384,6 +399,7 @@ internal fun InvitesScreen(onBack: () -> Unit) {
                                         placeholder = { Text(appText("Например, A1B2C3", "Мәҫәлән, A1B2C3")) },
                                         keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters),
                                         modifier = Modifier.fillMaxWidth(),
+                                        shape = CanonFieldShape,   // поля везде одной формы (шкала радиусов)
                                     )
                                     if (redeemMsg != null) {
                                         Text(redeemMsg!!, color = CanonRed, fontSize = 14.sp)
@@ -467,19 +483,24 @@ internal fun InvitesScreen(onBack: () -> Unit) {
                                 item(key = inv.code) { InviteCodeRow(inv, onShare = { shareCode(inv.code) }) }
                             }
                         }
+                        if (createError != null) {
+                            item { Text(createError ?: "", color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp) }
+                        }
                         item {
                             AppButton(
                                 appText("Создать код", "Код булдырыу"),
                                 onClick = {
                                     creating = true
+                                    createError = null
                                     scope.launch {
                                         ApiClient.createInvite()
                                             .onSuccess { creating = false; reload++ }
                                             .onFailure { e ->
                                                 creating = false
-                                                val msg = (e as? com.yuldash.app.data.ApiException)?.message
-                                                    ?: appTextFor(lang, "Не получилось создать код", "Код булдырып булманы")
-                                                android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show()
+                                                createError = serverSaid(
+                                                    e,
+                                                    appTextFor(lang, "Не получилось создать код. Проверь интернет и повтори.", "Код булдырып булманы. Интернетты тикшереп ҡабатла."),
+                                                )
                                             }
                                     }
                                 },
@@ -552,12 +573,20 @@ private data class ConsentKindMeta(val kind: String, val icon: ImageVector)
 @Composable
 internal fun ConsentsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
     var reload by remember { mutableStateOf(0) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
     var consents by remember { mutableStateOf<List<ConsentDto>>(emptyList()) }
     var loaded by remember { mutableStateOf(false) }
     var savingKind by remember { mutableStateOf<String?>(null) }
+    // Сбой сохранения согласия раньше не показывался вообще: галочка не появлялась, причины не было,
+    // и человек жал «Отметить» по кругу. Согласие — юридический факт (152-ФЗ), молчать тут нельзя.
+    var saveError by remember { mutableStateOf<String?>(null) }
+    val saveErrDefault = appText(
+        "Согласие не сохранилось. Проверь интернет и повтори.",
+        "Ризалыҡ һаҡланманы. Интернетты тикшереп ҡабатла.",
+    )
 
     LaunchedEffect(reload) {
         loading = !loaded
@@ -595,6 +624,9 @@ internal fun ConsentsScreen(onBack: () -> Unit) {
                 loading && !loaded -> item { AppLoading() }
                 error && !loaded -> item { AppErrorState(onRetry = { reload++ }) }
                 else -> {
+                    if (saveError != null) {
+                        item { AppNoticeCard(saveError ?: "", icon = Icons.Default.ErrorOutline) }
+                    }
                     item {
                         SettingsGroup {
                             kinds.forEach { meta ->
@@ -603,12 +635,29 @@ internal fun ConsentsScreen(onBack: () -> Unit) {
                                     meta = meta,
                                     grantedAt = granted?.grantedAt,
                                     saving = savingKind == meta.kind,
+                                    // Оферта и политика живут на сайте — те же адреса, что и на входе.
+                                    // Соглашаться с документом, которого не видел, человек не должен.
+                                    onOpenDoc = consentDocUrl(meta.kind)?.let { url ->
+                                        {
+                                            runCatching {
+                                                ctx.startActivity(
+                                                    Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                                )
+                                            }
+                                            Unit
+                                        }
+                                    },
                                     onGrant = {
                                         savingKind = meta.kind
+                                        saveError = null
                                         scope.launch {
                                             ApiClient.setConsent(meta.kind)
                                                 .onSuccess { savingKind = null; reload++ }
-                                                .onFailure { savingKind = null; reload++ }
+                                                .onFailure { e ->
+                                                    savingKind = null
+                                                    saveError = serverSaid(e, saveErrDefault)
+                                                }
                                         }
                                     },
                                 )
@@ -621,8 +670,22 @@ internal fun ConsentsScreen(onBack: () -> Unit) {
     }
 }
 
+/** Адрес документа для согласия. Совпадает со ссылками на экране входа (LoginScreen).
+ *  У геолокации отдельной страницы нет — там всё сказано подписью в самой строке. */
+private fun consentDocUrl(kind: String): String? = when (kind) {
+    "offer" -> "https://yulbash.ru/terms/"
+    "privacy" -> "https://yulbash.ru/privacy/"
+    else -> null
+}
+
 @Composable
-private fun ConsentRow(meta: ConsentKindMeta, grantedAt: String?, saving: Boolean, onGrant: () -> Unit) {
+private fun ConsentRow(
+    meta: ConsentKindMeta,
+    grantedAt: String?,
+    saving: Boolean,
+    onGrant: () -> Unit,
+    onOpenDoc: (() -> Unit)? = null,
+) {
     val (title, subtitle) = when (meta.kind) {
         "offer" -> appText("Оферта", "Оферта") to appText("Условия использования сервиса", "Хеҙмәттән файҙаланыу шарттары")
         "privacy" -> appText("Политика конфиденциальности", "Йәшерен сәйәсәт") to appText("Как мы обрабатываем твои данные", "Мәғлүмәтеңде нисек эшкәртәбеҙ")
@@ -641,6 +704,26 @@ private fun ConsentRow(meta: ConsentKindMeta, grantedAt: String?, saving: Boolea
                     appText("Согласие дано ", "Ризалыҡ бирелгән ") + prettyDate(grantedAt),
                     color = CanonGreen2, fontSize = 12.sp,
                 )
+            }
+            if (onOpenDoc != null) {
+                Surface(
+                    onClick = onOpenDoc,
+                    color = androidx.compose.ui.graphics.Color.Transparent,
+                    shape = CanonTinyShape,
+                    modifier = Modifier.minimumInteractiveComponentSize(),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null,
+                            tint = CanonGreen2, modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            appText("Читать документ", "Документты уҡыу"),
+                            color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                        )
+                    }
+                }
             }
         }
         Spacer(Modifier.width(8.dp))

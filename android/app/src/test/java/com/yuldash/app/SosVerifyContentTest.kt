@@ -116,7 +116,7 @@ class SosVerifyContentTest {
             }
         }
         composeRule.onNodeWithText("Фото автомобиля").assertIsDisplayed()
-        composeRule.onNodeWithText("Нажмите, чтобы выбрать фото").assertIsDisplayed()
+        composeRule.onNodeWithText("Нажми, чтобы выбрать фото").assertIsDisplayed()
     }
 
     @Test

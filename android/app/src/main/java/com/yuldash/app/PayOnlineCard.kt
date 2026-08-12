@@ -63,9 +63,14 @@ internal object OnlinePayGate {
 
 private enum class PayOnlineStage { Idle, Waiting, Paid }
 
+/**
+ * @param amountKop сумма в КОПЕЙКАХ. Раньше сюда передавали рубли, посчитанные как `kop / 100`:
+ * кнопка обещала «Оплатить 188 ₽», а списывалось 188,50 ₽ — сервер-то знает точную сумму.
+ * Расхождение кнопки с чеком на любые деньги подрывает доверие ко всему платежу.
+ */
 @Composable
 internal fun PayOnlineCard(
-    amountRub: Int?,
+    amountKop: Int?,
     pay: suspend (String) -> Result<PayTripResultDto>,
     modifier: Modifier = Modifier,
 ) {
@@ -152,8 +157,8 @@ internal fun PayOnlineCard(
                                 "Карта йәки СБП — ЮKassa аша хәүефһеҙ.",
                             ),
                         )
-                        if (amountRub != null && amountRub > 0) {
-                            Text("${fmtRub(amountRub)} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                        if (amountKop != null && amountKop > 0) {
+                            Text(kopToRub(amountKop), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 24.sp)
                         }
                         // Выбор способа оплаты — не мелкий фильтр, а решение про деньги:
                         // тач-цель ≥ 48dp (§4.5), иначе палец промахивается и платит «не тем».
@@ -168,8 +173,8 @@ internal fun PayOnlineCard(
                             ) { if (!busy) method = "sbp" }
                         }
                         AppButton(
-                            text = if (amountRub != null && amountRub > 0)
-                                appText("Оплатить ${fmtRub(amountRub)} ₽", "${fmtRub(amountRub)} ₽ түләү")
+                            text = if (amountKop != null && amountKop > 0)
+                                appText("Оплатить ${kopToRub(amountKop)}", "${kopToRub(amountKop)} түләү")
                             else appText("Оплатить", "Түләү"),
                             onClick = { startPay() },
                             icon = Icons.Default.CreditCard,

@@ -119,7 +119,9 @@ private fun TaxiTripHistoryCard(order: InstantOrderDto, onClick: () -> Unit) {
     // Сумма, которую человек РЕАЛЬНО отдал: со скидкой по промокоду, если она была. Полная цена
     // здесь была бы враньём — в истории ищут, сколько потратили, а не прейскурант. Фолбэк на
     // старый сервер уже внутри passengerPayKop, второй раз его городить не нужно.
-    val rub = order.passengerPayKop / 100
+    // Копейки не режем: цена такси считается по тарифу и суржу, круглой почти не бывает.
+    // «188 ₽» в списке против «188,50 ₽» в чеке — первый же повод усомниться в приложении.
+    val payKop = order.passengerPayKop
     AppCard(onClick = if (done) onClick else null) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -146,9 +148,9 @@ private fun TaxiTripHistoryCard(order: InstantOrderDto, onClick: () -> Unit) {
                         color = if (done) CanonMuted else CanonWarn, fontSize = 12.sp,
                     )
                 }
-                if (done && rub > 0) {
+                if (done && payKop > 0) {
                     Text(
-                        "${fmtRub(rub)} ₽",
+                        kopToRub(payKop),
                         color = CanonText, fontSize = 19.sp, fontWeight = FontWeight.Bold,
                     )
                 }

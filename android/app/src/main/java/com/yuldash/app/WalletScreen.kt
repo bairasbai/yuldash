@@ -42,10 +42,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
@@ -55,7 +55,6 @@ import com.yuldash.app.data.WalletBalanceDto
 import com.yuldash.app.data.WalletLedgerEntryDto
 import kotlinx.coroutines.launch
 import java.util.Locale
-import kotlin.math.abs
 
 /**
  * «Кошелёк» — баланс водителя + история операций (ledger).
@@ -81,7 +80,7 @@ internal fun WalletScreen(onBack: () -> Unit) {
         loading = true; error = false
         payoutLoading = true; payoutError = false
         val balRes = ApiClient.getWalletBalance()
-        val ledRes = ApiClient.getWalletLedger(50)
+        val ledRes = ApiClient.getWalletLedger(LEDGER_LIMIT)
         // Баланс — обязателен для «шапки»; если и он, и история упали → это ошибка. Иначе показываем что есть.
         balRes.onSuccess { balance = it }
         ledRes.onSuccess { ledger = it }
@@ -158,10 +157,29 @@ internal fun WalletScreen(onBack: () -> Unit) {
                 }
                 else -> items(ledger, key = { it.id }) { entry -> WalletLedgerRow(entry) }
             }
+
+            // Список упёрся в лимит запроса. Молчать тут нельзя: водитель, у которого операций
+            // больше, видел ровный обрыв на полуслове и считал, что старые начисления пропали.
+            if (ledger.size >= LEDGER_LIMIT) {
+                item {
+                    Text(
+                        appText(
+                            "Показаны последние $LEDGER_LIMIT операций.",
+                            "Һуңғы $LEDGER_LIMIT операция күрһәтелде.",
+                        ),
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
         }
         }
     }
 }
+
+/** Сколько записей истории тянем за раз. Ровно столько же показываем в подписи под списком. */
+private const val LEDGER_LIMIT = 50
 
 /** Крупная карточка баланса. Фиксированный ink-зелёный градиент (белый текст читаем в обеих темах). */
 @Composable
@@ -193,7 +211,10 @@ private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean, payo
                 )
             }
             Text(
-                if (loading && balance == null) "…" else "${fmtRub(balance?.balanceRub ?: 0)} ₽",
+                // Копейки показываем: баланс приходит в копейках, а поле balanceRub — это kop//100
+                // с сервера. По нему 1 250,50 ₽ выглядели как «1 250 ₽», и сумма операций ниже
+                // не сходилась с балансом наверху. Деньги округлять вниз нельзя (MoneyFormatTest).
+                if (loading && balance == null) "…" else kopToRub(balance?.balanceKop ?: 0),
                 color = CanonOnAccent, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold,
             )
             Text(
@@ -219,7 +240,9 @@ private fun WalletLedgerRow(e: WalletLedgerEntryDto) {
     // Направление: приход (amount ≥ 0) — зелёный «получено»; списание/комиссия (< 0) — приглушённый.
     val income = e.amountKop >= 0
     val amountColor = if (income) CanonGreen2 else CanonMutedStrong
-    val sign = if (income) "+" else "−"
+    // kopToRub сам ставит «−» у отрицательных и сохраняет копейки: комиссия 8% от 137 ₽ —
+    // это 10,96 ₽, а не «10 ₽». По округлённым строкам история не сходилась с балансом.
+    val amountText = if (income) "+" + kopToRub(e.amountKop) else kopToRub(e.amountKop)
     val fallbackNote = ledgerKindLabel(e.kind)   // @Composable — считаем до ifBlank (в лямбду звать нельзя)
     val noteText = e.note.ifBlank { fallbackNote }
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
@@ -241,7 +264,7 @@ private fun WalletLedgerRow(e: WalletLedgerEntryDto) {
                 Text(formatDepart(e.createdAt), color = CanonMuted, fontSize = 12.sp)
             }
             Text(
-                "$sign${fmtRub(abs(e.amountKop) / 100)} ₽",
+                amountText,
                 color = amountColor, fontWeight = FontWeight.Bold, fontSize = 16.sp,
             )
         }
@@ -304,7 +327,9 @@ private fun PayoutCard(
 
     val minRub = status.minKop / 100
     val maxRub = status.maxKop / 100
-    val balanceRub = status.balanceKop / 100
+    // Границы вывода сервер держит круглыми, а вот баланс — нет: его показываем с копейками,
+    // иначе «на балансе 10 ₽» под реальными 10,96 ₽ читается как «часть денег пропала».
+    val balanceLabel = kopToRub(status.balanceKop)
     val amountRub = amountText.toIntOrNull() ?: 0
     val amountKop = amountRub * 100
 
@@ -312,7 +337,7 @@ private fun PayoutCard(
         amountText.isBlank() -> null
         amountKop < status.minKop -> appText("Минимум ${fmtRub(minRub)} ₽", "Кәм тигәндә ${fmtRub(minRub)} ₽")
         amountKop > status.maxKop -> appText("Максимум ${fmtRub(maxRub)} ₽ за раз", "Бер юлы иң күбе ${fmtRub(maxRub)} ₽")
-        amountKop > status.balanceKop -> appText("На балансе только ${fmtRub(balanceRub)} ₽", "Баланста ${fmtRub(balanceRub)} ₽ ғына")
+        amountKop > status.balanceKop -> appText("На балансе только $balanceLabel", "Баланста $balanceLabel ғына")
         else -> null
     }
     val canPayout = status.hasRequisite && amountText.isNotBlank() && amountError == null && !busy
@@ -363,8 +388,8 @@ private fun PayoutCard(
                     supportingText = {
                         Text(
                             amountError ?: appText(
-                                "От ${fmtRub(minRub)} до ${fmtRub(maxRub)} ₽ · на балансе ${fmtRub(balanceRub)} ₽",
-                                "${fmtRub(minRub)} — ${fmtRub(maxRub)} ₽ · баланста ${fmtRub(balanceRub)} ₽",
+                                "От ${fmtRub(minRub)} до ${fmtRub(maxRub)} ₽ · на балансе $balanceLabel",
+                                "${fmtRub(minRub)} — ${fmtRub(maxRub)} ₽ · баланста $balanceLabel",
                             ),
                             color = if (amountError != null) CanonRed else CanonMuted, fontSize = 12.sp,
                         )

@@ -72,7 +72,7 @@ class BookingActiveTripContentDeepTest {
                 DriverApproachingBanner(arriving = false)
             }
         }
-        composeRule.onNodeWithText("Водитель выехал к вам").assertIsDisplayed()
+        composeRule.onNodeWithText("Водитель выехал к тебе").assertIsDisplayed()
     }
 
     @Test
@@ -153,7 +153,7 @@ class BookingActiveTripContentDeepTest {
                 BoardingCodeCard(code = "7421", car = "белая Lada Vesta", plate = "А123ВС102")
             }
         }
-        composeRule.onNodeWithText("Сверьте машину перед посадкой").assertIsDisplayed()
+        composeRule.onNodeWithText("Сверь машину перед посадкой").assertIsDisplayed()
         composeRule.onNodeWithText("белая Lada Vesta").assertIsDisplayed()
         composeRule.onNodeWithText("А123ВС102").assertIsDisplayed()
     }
@@ -167,7 +167,7 @@ class BookingActiveTripContentDeepTest {
             }
         }
         composeRule.onNodeWithText("7421").assertIsDisplayed()
-        composeRule.onNodeWithText("Сверьте машину перед посадкой").assertDoesNotExist()
+        composeRule.onNodeWithText("Сверь машину перед посадкой").assertDoesNotExist()
     }
 
     @Test
@@ -177,7 +177,7 @@ class BookingActiveTripContentDeepTest {
                 BoardingCodeCard(code = "7421", car = "аҡ Lada Vesta", plate = "А123ВС102")
             }
         }
-        composeRule.onNodeWithText("Ултырыр алдынан машинаны тикшерегеҙ").assertIsDisplayed()
+        composeRule.onNodeWithText("Ултырыр алдынан машинаны тикшер").assertIsDisplayed()
     }
 
     // --- BoardingCodeCard: плашка кода посадки ---
@@ -190,7 +190,7 @@ class BookingActiveTripContentDeepTest {
             }
         }
         composeRule.onNodeWithText("Код посадки").assertIsDisplayed()
-        composeRule.onNodeWithText("Назовите водителю — он сверит. Это та самая машина.").assertIsDisplayed()
+        composeRule.onNodeWithText("Назови водителю — сверят. Это та самая машина.").assertIsDisplayed()
         composeRule.onNodeWithText("7421").assertIsDisplayed()
     }
 

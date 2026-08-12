@@ -185,8 +185,14 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Документы и сроки", "Документтар һәм ваҡыттар"), onBack) },
     ) { padding ->
+        // Сроки и статус документов подтверждает админ вручную — человек ждёт чужого решения.
+        AppPullRefresh(
+            refreshing = loading && app != null,
+            onRefresh = { reload++ },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = ScreenPad),
+            modifier = Modifier.padding(horizontal = ScreenPad),
             verticalArrangement = Arrangement.spacedBy(GapM),
             contentPadding = PaddingValues(top = GapS, bottom = BottomPad),
         ) {
@@ -264,6 +270,7 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 }

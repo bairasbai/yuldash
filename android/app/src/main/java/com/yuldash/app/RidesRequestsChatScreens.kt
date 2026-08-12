@@ -376,7 +376,7 @@ internal fun RidesScreen(
                 visibleBookings.isEmpty() -> item {
                     EmptyStateCard(
                         title = appText("Поездок пока нет", "Әлегә сәфәрҙәр юҡ"),
-                        text = appText("Создайте заявку или опубликуйте маршрут водителя.", "Заявка булдырығыҙ йәки водитель маршрутын баҫтырығыҙ."),
+                        text = appText("Создай заявку или опубликуй маршрут водителя.", "Заявка булдыр йәки водитель маршрутын баҫтыр."),
                         icon = Icons.Default.Route,
                         action = appText("Создать заявку", "Заявка булдырыу"),
                         onAction = onCreateRequest
@@ -448,7 +448,7 @@ internal fun RidesScreen(
             item {
                 InfoCard(
                     title = appText("Поездки защищены системой Юлдаш", "Сәфәрҙәр Юлдаш системаһы менән һаҡлана"),
-                    text = appText("Мы заботимся о вашей безопасности", "Беҙ һеҙҙең хәүефһеҙлек тураһында ҡайғыртабыҙ"),
+                    text = appText("Мы бережём твою безопасность", "Беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ"),
                     icon = Icons.Default.Shield
                 )
             }
@@ -1295,18 +1295,22 @@ internal fun MyRequestsScreen(
                 // ОДНОЙ связкой по центру свободного места: прижатая к статус-бару плашка
                 // и 1300px пустоты под ней читались как незагрузившийся экран, а разнесённые
                 // по экрану плашка и кнопка — как два несвязанных острова.
+                // Тот же вид, что у пустых «Поездок» на соседней вкладке: круглая иконка,
+                // заголовок, пояснение и кнопка ВНУТРИ карточки. Раньше здесь была плашка
+                // с иконкой сбоку и кнопка отдельно — одно и то же состояние на двух соседних
+                // вкладках выглядело как два разных экрана.
                 Box(
                     Modifier.appearIn(0).fillParentMaxHeight(0.72f).fillMaxWidth(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        InfoCard(
-                            title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
-                            text = appText("Создайте заявку — водители увидят её и откликнутся.", "Заявка булдырығыҙ — водителдәр уны күреп яуап бирер."),
-                            icon = Icons.Default.AddBox
-                        )
-                        CreateRequestButton(onCreateNew)
-                    }
+                    EmptyStateCard(
+                        title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
+                        text = appText("Создай заявку — водители увидят её и откликнутся.",
+                                       "Заявка булдыр — водителдәр уны күреп яуап бирер."),
+                        icon = Icons.Default.AddBox,
+                        action = appText("Создать заявку", "Заявка булдырыу"),
+                        onAction = onCreateNew,
+                    )
                 }
             }
         } else {
@@ -1698,7 +1702,7 @@ internal fun ChatScreen(
         item {
             Text(appText("Чат", "Чат"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             Text(
-                appText("Общайтесь по активным поездкам и заявкам", "Актив сәфәрҙәр һәм заявкалар буйынса аралашығыҙ"),
+                appText("Общайтесь по активным поездкам и заявкам", "Актив сәфәрҙәр һәм заявкалар буйынса аралаш"),
                 color = CanonMuted,
                 fontSize = 14.sp,
                 lineHeight = 20.sp
@@ -1850,7 +1854,7 @@ internal fun ChatScreen(
         item {
             InfoCard(
                 title = appText("Телефон открывается только после подтверждения поездки", "Телефон сәфәр раҫланғандан һуң ғына асыла"),
-                text = appText("Мы заботимся о вашей безопасности", "Һеҙҙең хәүефһеҙлек тураһында ҡайғыртабыҙ"),
+                text = appText("Мы бережём твою безопасность", "Беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ"),
                 icon = Icons.Default.Shield
             )
         }
@@ -2143,7 +2147,7 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
             onDismissRequest = { if (!withdrawing) withdrawTarget = null },
             containerColor = CanonSurface,
             title = { Text(appText("Отозвать отклик?", "Яуапты кире аларғамы?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-            text = { Text(appText("Пассажир больше не увидит ваш отклик на «${t.from} → ${t.to}».", "Пассажир «${t.from} → ${t.to}» яуабығыҙҙы башҡа күрмәйәсәк."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) },
+            text = { Text(appText("Пассажир больше не увидит твой отклик на «${t.from} → ${t.to}».", "Пассажир «${t.from} → ${t.to}» яуабыңды башҡа күрмәйәсәк."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) },
             confirmButton = {
                 TextButton(enabled = !withdrawing, onClick = {
                     val respId = t.myResponseId ?: return@TextButton
@@ -2276,7 +2280,7 @@ internal fun RequestsFeedContent(
                         if (r.responded) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text(appText("Вы откликнулись", "Яуап бирҙегеҙ"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(appText("Отклик отправлен", "Яуап ебәрелде"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Spacer(Modifier.weight(1f))
                             // Отозвать можно, пока пассажир не принял (после accept заявка уходит из ленты; сервер всё равно вернёт 409).
                             if (r.myResponseId != null) TextButton(
@@ -2378,7 +2382,7 @@ internal fun ResponsesContent(
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-        item { Text(appText("Выберите водителя — поездка начнётся, откроется чат. Цена не подходит — предложи свою.", "Водитель һайла — сәфәр башлана, чат асыла. Хаҡ ярамаһа — үҙеңдекен тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
+        item { Text(appText("Выбери водителя — поездка начнётся, откроется чат. Цена не подходит — предложи свою.", "Водитель һайла — сәфәр башлана, чат асыла. Хаҡ ярамаһа — үҙеңдекен тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
         if (loading) {
             item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
         } else if (error) {
@@ -2720,7 +2724,7 @@ internal fun ChatEmptyState() {
                 )
             }
             Text(
-                appText("Здесь будут ваши чаты", "Бында чаттарығыҙ булыр"),
+                appText("Здесь будут твои чаты", "Бында чаттарың булыр"),
                 color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp, textAlign = TextAlign.Center
             )
             Text(
@@ -2833,7 +2837,7 @@ internal fun VoiceMessageCard(message: LocalVoiceMessage) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(appText("Голосовое от ${message.author}", "Тауыш хәбәр: ${message.author}"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 if (message.audioPath != null) {
-                    Text(appText("${message.durationSec} сек · нажмите ▶", "${message.durationSec} сек · ▶ баҫығыҙ"), color = CanonMuted, fontSize = 14.sp)
+                    Text(appText("${message.durationSec} сек · нажми ▶", "${message.durationSec} сек · ▶ баҫ"), color = CanonMuted, fontSize = 14.sp)
                 } else {
                     Text(message.transcript, color = CanonText, fontSize = 14.sp, lineHeight = 20.sp)
                     Text(appText("Расшифровка для водителя", "Водитель өсөн текст"), color = CanonMuted, fontSize = 12.sp)

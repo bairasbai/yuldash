@@ -290,8 +290,16 @@ internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> U
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Центр справедливости", "Ғәҙеллек үҙәге"), onBack) },
     ) { padding ->
+        // Спор двигают ДРУГИЕ: вторая сторона пишет объяснение, человек выносит решение. Экран
+        // же грузился один раз за вход, и проверить «не ответили ли мне» можно было только
+        // выйдя и зайдя заново. Жест сверху вниз — то, что здесь пробуют первым.
+        AppPullRefresh(
+            refreshing = loading && list.isNotEmpty(),
+            onRefresh = { reload++ },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = FairRowPad),
+            modifier = Modifier.padding(horizontal = FairRowPad),
             verticalArrangement = Arrangement.spacedBy(FairGap),
             contentPadding = PaddingValues(top = FairGapTight, bottom = 24.dp),
         ) {
@@ -376,6 +384,7 @@ internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> U
                     }
                 }
             }
+        }
         }
     }
 }
@@ -725,8 +734,14 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Разбор спора", "Бәхәсте ҡарау"), onBack) },
     ) { padding ->
+        // Тот же жест, что и в списке: здесь ждут чужого объяснения и решения человека.
+        AppPullRefresh(
+            refreshing = loading && inc != null,
+            onRefresh = { reload++ },
+            modifier = Modifier.padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = FairRowPad),
+            modifier = Modifier.padding(horizontal = FairRowPad),
             verticalArrangement = Arrangement.spacedBy(FairGap),
             contentPadding = PaddingValues(top = FairGapTight, bottom = 24.dp),
         ) {
@@ -934,6 +949,7 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 
