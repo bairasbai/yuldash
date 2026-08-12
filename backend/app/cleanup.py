@@ -639,11 +639,19 @@ def close_stale_orders(now=None) -> int:
             "UPDATE instantorder SET status = 'done', done_at = COALESCE(done_at, :now) "
             "WHERE status = 'onboard' AND created_at < :cut"
         ), {"cut": cut, "now": now}).rowcount or 0
+        stale_scheduled = [r[0] for r in conn.execute(text(
+            "SELECT id FROM instantorder "
+            "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut"
+        ), {"cut": cut}).all()]
         closed += conn.execute(text(
             "UPDATE instantorder SET status = 'expired' "
             "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut"
         ), {"cut": cut}).rowcount or 0
     _accrue_auto_done([oid for oid, _ in done_victims])
+    # Поездки не было → промокод возвращаем человеку (обещание в шапке `promo_ride`).
+    # Закрытые как «done» сюда НЕ попадают: там поездка состоялась и скидка отработала.
+    from . import promo_ride
+    promo_ride.release_ids([oid for oid, _ in cancel_victims] + stale_scheduled)
     _notify_closed("order", cancel_victims)
     _notify_closed("order_done", done_victims)
     _notify_closed("order_pax", cancel_pax)
