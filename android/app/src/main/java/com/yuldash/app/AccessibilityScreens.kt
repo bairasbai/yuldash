@@ -72,6 +72,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Woman
 import androidx.compose.material.icons.filled.SmokingRooms
 import androidx.compose.material.icons.filled.Luggage
@@ -592,7 +593,7 @@ internal fun VoiceRequestScreen(
                             else -> perm.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().height(78.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 78.dp),
                     shape = RoundedCornerShape(22.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = if (recording) CanonRed else CanonGreen2)
                 ) {
@@ -607,7 +608,7 @@ internal fun VoiceRequestScreen(
             item {
                 OutlinedButton(
                     onClick = { recognizeRu() },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                     shape = RoundedCornerShape(14.dp)
                 ) {
                     Icon(Icons.Default.HeadsetMic, contentDescription = null)
@@ -1267,15 +1268,60 @@ internal fun TrustedContactsScreen(
             dismissButton = { TextButton(onClick = { showAdd = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
     }
+    // Удаление контакта. Спрашиваем подтверждение: близкий перестанет получать статус поездки
+    // и SOS — это ровно то, ради чего его добавляли, и промах пальцем не должен это отнимать.
+    var toDelete by remember { mutableStateOf<TrustedContact?>(null) }
+    // Кого уже убрали на этом экране: сервер отвечает не мгновенно, а список склеен из трёх
+    // источников — без этого набора удалённый контакт мигал бы обратно.
+    val removedPhones = remember { mutableStateListOf<String>() }
+    val deleteFailed = appText("Не получилось убрать. Проверь сеть и повтори.", "Алып булманы. Сетте тикшереп ҡабатла.")
+    val ctx = LocalContext.current
+    val deleteScope = rememberCoroutineScope()
+    toDelete?.let { victim ->
+        AlertDialog(
+            onDismissRequest = { toDelete = null },
+            containerColor = CanonSurface,
+            title = { Text(appText("Убрать ${victim.name}?", "${victim.name} алынһынмы?"), color = CanonText, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    appText(
+                        "Перестанет получать статус твоих поездок и сигнал SOS. Добавить обратно можно в любой момент.",
+                        "Сәфәрҙәрең статусын һәм SOS сигналын алыуҙан туҡтай. Теләһә ҡасан кире өҫтәп була.",
+                    ),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val phone = victim.phone
+                    toDelete = null
+                    removedPhones.add(phone)
+                    locallyAdded.removeAll { it.phone == phone }
+                    deleteScope.launch {
+                        // id > 0 — контакт с сервера. Только что добавленный локально ещё без id:
+                        // его достаточно убрать из списка, на сервере его пока нет.
+                        if (victim.id > 0) {
+                            ApiClient.deleteContact(victim.id).onFailure {
+                                removedPhones.remove(phone)   // не получилось — контакт возвращается на экран
+                                Toast.makeText(ctx, deleteFailed, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }) { Text(appText("Убрать", "Алырға"), color = CanonRed, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { toDelete = null }) { Text(appText("Оставить", "Ҡалдырырға"), color = CanonMuted) } },
+        )
+    }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Доверенные контакты", "Ышаныслы контакттар"), onBack) }) { padding ->
         TrustedContactsContent(
             loading = loading,
             loadError = loadError,
-            contacts = merged,
+            contacts = merged.filterNot { it.phone in removedPhones },
             loadErrorText = loadErr,
             onRetry = { reloadKey++ },
             onAddClick = { showAdd = true },
             modifier = Modifier.padding(padding).fillMaxSize(),
+            onDelete = { toDelete = it },
         )
     }
 }
@@ -1294,6 +1340,7 @@ internal fun TrustedContactsContent(
     onRetry: () -> Unit,
     onAddClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onDelete: (TrustedContact) -> Unit = {},
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -1341,7 +1388,7 @@ internal fun TrustedContactsContent(
                 }
             }
             else -> itemsIndexed(contacts, key = { _, c -> c.phone }) { index, contact ->
-                Box(Modifier.appearIn(index)) { TrustedContactCard(contact) }
+                Box(Modifier.appearIn(index)) { TrustedContactCard(contact, onDelete = { onDelete(contact) }) }
             }
         }
         item {
@@ -1354,9 +1401,9 @@ internal fun TrustedContactsContent(
 }
 
 @Composable
-private fun TrustedContactCard(contact: TrustedContact) {
+private fun TrustedContactCard(contact: TrustedContact, onDelete: () -> Unit = {}) {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = CircleShape) {
                 Text(contact.name.take(1).ifBlank { "?" }, modifier = Modifier.padding(12.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 19.sp)
             }
@@ -1366,6 +1413,17 @@ private fun TrustedContactCard(contact: TrustedContact) {
                 Text("${contact.relationText()} · ${contact.phone}", color = CanonMuted, fontSize = 14.sp)
             }
             Text(if (contact.notifyByDefault) appText("Статус", "Статус") else appText("Только SOS", "Тик SOS"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            // Убрать контакт. Кнопки не было вовсе: человек, которому уходит геопозиция в поездке
+            // и SOS-сигнал ночью, оставался в списке навсегда. Тач-цель 48dp — рядом текст, промах
+            // по такой кнопке стоил бы дорого.
+            IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    Icons.Default.DeleteOutline,
+                    contentDescription = appText("Убрать контакт", "Контактты алыу"),
+                    tint = CanonMuted,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
     }
 }
@@ -1667,7 +1725,7 @@ internal fun CallbackHelpContent(
         item {
             Button(
                 onClick = onPrimaryAction,
-                modifier = Modifier.fillMaxWidth().height(58.dp).testTag("callback_btn"),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp).testTag("callback_btn"),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {

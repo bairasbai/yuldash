@@ -329,11 +329,16 @@ internal fun YuldashApp() {
         languagePersistenceReady = true
     }
     // Сессия протухла на сервере (refresh мёртв) → не оставляем пустые экраны: говорим и уводим на вход.
-    val sessionExpiredMsg = appText("Сессия истекла. Войди снова.", "Сессия тамамланды. Ҡабат кер.")
+    // `rememberUpdatedState`, а не просто val: `LaunchedEffect(Unit)` запускается ОДИН раз и
+    // запоминает то, что было в момент запуска. Язык к этому моменту ещё не восстановлен из
+    // настроек (это делает эффект строкой выше), поэтому у человека с башкирским интерфейсом
+    // сообщение выходило по-русски — проверено на эмуляторе. Теперь эффект читает актуальное
+    // значение и при смене языка тоже.
+    val sessionExpiredMsg = rememberUpdatedState(appText("Сессия истекла. Войди снова.", "Сессия тамамланды. Ҡабат кер."))
     LaunchedEffect(Unit) {
         ApiClient.sessionExpired.collect { expired ->
             if (expired) {
-                Toast.makeText(context, sessionExpiredMsg, Toast.LENGTH_LONG).show()
+                Toast.makeText(context, sessionExpiredMsg.value, Toast.LENGTH_LONG).show()
                 screen = Screen.Login
                 ApiClient.sessionExpired.value = false
             }
@@ -1667,7 +1672,7 @@ internal fun OnboardingContent(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(58.dp),
+                        .heightIn(min = 58.dp),
                     shape = RoundedCornerShape(22.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
