@@ -56,7 +56,7 @@ def rate_reminder_once(session: Session, dry_run: bool = False) -> list[tuple[in
                 if not dry_run:
                     push_notification(
                         session, uid, "ride",
-                        "Оцените поездку", "Сәфәрҙе баһалағыҙ",
+                        "Оцени поездку", "Сәфәрҙе баһала",
                         "Поставь оценку попутчику — это помогает доверию между своими.",
                         "Юлдашыңа баһа ҡуй — был үҙ-ара ышанысҡа ярҙам итә.",
                         ref_kind="booking", ref_id=b.id,

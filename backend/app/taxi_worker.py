@@ -327,9 +327,9 @@ def close_stuck_parcels(session: Session, dry_run: bool = False) -> list:
             else:
                 title = ("Доставка закрыта", "Доставка ябылды")
                 body_sender = (f"{route} · долго не было связи, доставку закрыли автоматически. "
-                               "Свяжитесь напрямую или напишите в поддержку.",
+                               "Свяжись напрямую или напиши в поддержку.",
                                f"{route} · оҙаҡ бәйләнеш булманы, доставка автоматик ябылды. "
-                               "Туранан-тура бәйләнегеҙ йәки ярҙамға яҙығыҙ.")
+                               "Туранан-тура бәйлән йәки ярҙамға яҙ.")
                 body_courier = body_sender
             for uid, body in ((fresh.sender_id, body_sender), (prev_courier, body_courier)):
                 if not uid:

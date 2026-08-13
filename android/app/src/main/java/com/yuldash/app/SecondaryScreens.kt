@@ -1543,10 +1543,10 @@ internal fun AdminReportsContent(
                         if (r.resolution.isNotBlank()) Text(appText("Решение: ", "Ҡарар: ") + r.resolution, color = CanonMuted, fontSize = 14.sp)
                         if (open) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { onResolve(r, false) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                                Button(onClick = { onResolve(r, false) }, modifier = Modifier.weight(1f).heightIn(min = 44.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
                                     Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 }
-                                OutlinedButton(onClick = { onReject(r) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(14.dp)) {
+                                OutlinedButton(onClick = { onReject(r) }, modifier = Modifier.weight(1f).heightIn(min = 44.dp), shape = RoundedCornerShape(14.dp)) {
                                     Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 }
                             }
@@ -1801,7 +1801,7 @@ internal fun AdminRequestScreen(onBack: () -> Unit) {
                         }
                     },
                     enabled = !sending,
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) { Text(appText("Создать заявку", "Заявка булдырыу"), fontWeight = FontWeight.Bold) }
@@ -1820,7 +1820,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     // Отклики, приём которых прямо сейчас в работе — против двойного тапа (см. кнопку ниже).
     val accepting = remember { mutableStateListOf<Int>() }
-    val acceptedMsg = appText("Поездка создана. Перезвоните пассажиру и водителю.", "Сәфәр булдырылды. Пассажирға һәм водителгә шылтырат.")
+    val acceptedMsg = appText("Поездка создана. Перезвони пассажиру и водителю.", "Сәфәр булдырылды. Пассажирға һәм водителгә шылтырат.")
     val noResp = appText("Откликов нет или заявка не найдена", "Яуап юҡ йәки заявка табылманы")
     val acceptErr = appText("Не получилось принять отклик. Проверь сеть и повтори.", "Яуапты алып булманы. Сетте тикшереп ҡабатла.")
     fun load() {
