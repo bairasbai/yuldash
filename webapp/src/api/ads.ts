@@ -1,16 +1,83 @@
 // ================================================================
-//  Реклама — self-serve кабинет партнёра (зеркало backend/app/routers/ads.py).
-//  GET  /ad-packages        — тарифы (город/маршрут/главный), прайс
-//  GET  /ads/mine           — мои объявления (все статусы + оплата)
-//  GET  /ads/mine/stats     — показы/клики/CTR/срок по каждому
-//  GET  /ads/{id}/stats     — статистика одного
-//  POST /ads                — создать (draft)
-//  POST /ads/{id}           — правка (draft/rejected)
-//  POST /ads/{id}/submit    — на модерацию
-//  POST /ads/{id}/pay       — заявка на оплату размещения (СБП «на доверии»)
+//  Реклама — витрина для людей + self-serve кабинет партнёра
+//  (зеркало backend/app/routers/ads.py).
+//
+//  Витрина (то, за что партнёр заплатил):
+//    GET  /ads?city=&placement=  — активные объявления под место показа
+//    POST /ads/{id}/event        — показ/клик (статистика кабинета)
+//
+//  Кабинет:
+//    GET  /ad-packages        — тарифы (город/маршрут/главный), прайс
+//    GET  /ads/mine           — мои объявления (все статусы + оплата)
+//    GET  /ads/mine/stats     — показы/клики/CTR/срок по каждому
+//    GET  /ads/{id}/stats     — статистика одного
+//    POST /ads                — создать (draft)
+//    POST /ads/{id}           — правка (draft/rejected)
+//    POST /ads/{id}/submit    — на модерацию
+//    POST /ads/{id}/pay       — заявка на оплату размещения (СБП «на доверии»)
 //  Появится на проде после мержа release → мягкая деградация.
 // ================================================================
 import { apiGet, apiPost } from "./client";
+
+// ---------- Витрина ----------
+
+/**
+ * Места показа. Строки те же, что кладёт сервер в Ad.placements —
+ * менять нельзя: партнёр платит за конкретное место.
+ */
+export type AdPlacement =
+  | "nearby" // карта, «поездки рядом»
+  | "route" // список поездок по маршруту
+  | "ridesList" // список поездок вообще
+  | "tripDetails" // карточка поездки / активная поездка
+  | "profile" // профиль
+  | "help"; // помощь
+
+/** Объявление, каким его видит человек (_ad_public на сервере). */
+export interface PartnerAd {
+  id: string;
+  partner: string;
+  title: string;
+  text: string;
+  button: string;
+  target: string; // ссылка партнёра; пусто → звоним по contact
+  contact: string; // реальный телефон партнёра ("" — звонить некуда)
+  image: string;
+  erid: string; // маркировка рекламы, показываем всегда (закон о рекламе)
+  plan: string;
+  placements: string[];
+  cities: string[];
+  city: string;
+}
+
+/**
+ * Активная реклама под место показа. Без входа — витрину видят и гости.
+ * Город не задан → сервер отдаёт всё, что не привязано к городу.
+ */
+export function fetchAds(
+  opts?: { city?: string; placement?: AdPlacement; signal?: AbortSignal }
+): Promise<PartnerAd[]> {
+  const p = new URLSearchParams();
+  if (opts?.city) p.set("city", opts.city);
+  if (opts?.placement) p.set("placement", opts.placement);
+  const qs = p.toString();
+  return apiGet<PartnerAd[]>(`/ads${qs ? `?${qs}` : ""}`, {
+    auth: false,
+    signal: opts?.signal,
+  });
+}
+
+/**
+ * Показ или клик по объявлению — это цифры в кабинете партнёра.
+ * Сервер требует входа (иначе статистику накрутит любой) и сам режет
+ * повторы; гостя не считаем вовсе. Любая ошибка тут молчит: реклама
+ * не должна ломать экран человеку.
+ */
+export function sendAdEvent(id: string, type: "impression" | "click"): Promise<void> {
+  return apiPost<{ ok: boolean }>(`/ads/${id}/event`, { type })
+    .then(() => undefined)
+    .catch(() => undefined);
+}
 
 export interface AdPackage {
   code: string;

@@ -53,6 +53,9 @@ export interface PendingDriver {
   autocheck_result: string; // pass / needs_human / reject / error / ""
   autocheck_score: number;
   autocheck_data: string; // JSON: распознанные поля + коды причин
+  /** Что водитель заявил о себе: "female" | "male" | "" — подтверждает модератор по правам. */
+  gender_claimed?: string;
+  gender_verified?: boolean;
 }
 
 /** GET /admin/drivers/pending — водители на проверке (docs_status=pending). */
@@ -60,12 +63,23 @@ export function fetchPendingDrivers(signal?: AbortSignal): Promise<PendingDriver
   return apiGet<PendingDriver[]>("/admin/drivers/pending", { signal });
 }
 
-/** POST /admin/drivers/{id}/moderate — подтвердить (verified) или отклонить. */
+/**
+ * POST /admin/drivers/{id}/moderate — подтвердить (verified) или отклонить.
+ *
+ * Третий параметр — подтверждение пола по фото прав. Оно отдельно от одобрения
+ * документов, потому что решает не то же самое: пока пол не подтверждён живым
+ * человеком, бейдж «женщина за рулём» не показывается и женские заказы такси
+ * такому водителю не приходят. Слова самого водителя тут недостаточно —
+ * иначе фильтр, который женщина включает ради безопасности, ничего не значит.
+ */
 export function moderateDriver(
   userId: number,
-  approve: boolean
-): Promise<{ user_id: number; verified: boolean; docs_status: string }> {
-  return apiPost(`/admin/drivers/${userId}/moderate`, { approve });
+  approve: boolean,
+  genderVerified?: boolean
+): Promise<{ user_id: number; verified: boolean; docs_status: string; gender_verified: boolean }> {
+  const body: { approve: boolean; gender_verified?: boolean } = { approve };
+  if (genderVerified !== undefined) body.gender_verified = genderVerified;
+  return apiPost(`/admin/drivers/${userId}/moderate`, body);
 }
 
 /**
@@ -713,12 +727,12 @@ export interface AdminIncident {
 }
 
 export function fetchAdminIncidents(
-  status = "open",
+  status = "under_review",
   signal?: AbortSignal
 ): Promise<AdminIncident[]> {
-  return apiGet<AdminIncident[]>(`/admin/incidents?status=${encodeURIComponent(status)}`, {
-    signal,
-  });
+  // "all" — без фильтра: сервер отдаёт всё, когда параметр пуст.
+  const q = status && status !== "all" ? `?status=${encodeURIComponent(status)}` : "";
+  return apiGet<AdminIncident[]>(`/admin/incidents${q}`, { signal });
 }
 
 /** Решение по спору. Причину пишем всегда: «наказали и не объяснили» — так нельзя. */
@@ -792,6 +806,30 @@ export function releaseParcelCourier(
   reason: string
 ): Promise<{ ok?: boolean; status?: string }> {
   return apiPost(`/admin/parcels/${parcelId}/release-courier`, { reason });
+}
+
+/**
+ * Принудительно отменить доставку. Причину получают обе стороны — молчаливая
+ * отмена читается как «сервис забрал посылку», а это худшее, что можно сделать
+ * с доверием. Комиссию за неоказанную услугу не берём.
+ */
+export function adminCancelParcel(
+  parcelId: number,
+  reason: string
+): Promise<{ ok: boolean; status: string }> {
+  return apiPost(`/admin/parcels/${parcelId}/cancel`, { reason });
+}
+
+/**
+ * Закрыть доставку по итогам разбора, когда стороны договорились вне приложения.
+ * При «вернулась» и «отменена» комиссия обнуляется: услуга не оказана.
+ */
+export function adminCloseParcel(
+  parcelId: number,
+  status: "delivered" | "returned" | "canceled",
+  reason: string
+): Promise<{ ok: boolean; status: string; reason: string }> {
+  return apiPost(`/admin/parcels/${parcelId}/close`, { status, reason });
 }
 
 // ----------------------------- 24. Журнал предрейсовых подтверждений -----------------------------

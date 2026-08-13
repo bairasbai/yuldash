@@ -16,6 +16,8 @@ import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarnin
 import { IconCheck, IconBolt, IconHospital, IconUsers, IconTrend } from "../components/Icons";
 import { YuModeRideshare } from "../components/BrandIcons";
 import { AmenityIcon } from "../components/amenityIcons";
+import CityField from "../components/CityField";
+import PickupChips from "../components/PickupChips";
 import { priceLabel, rubLabel } from "../utils/format";
 
 type Amenity =
@@ -78,6 +80,9 @@ export default function CreateRideScreen() {
   const [onlyTrusted, setOnlyTrusted] = useState(false);
   const [recurrence, setRecurrence] = useState<Recur>("none");
   const [comment, setComment] = useState("");
+  // Ориентир встречи из справочника города — «у мечети», «автовокзал».
+  const [pickup, setPickup] = useState("");
+  const [pickupPointId, setPickupPointId] = useState<number | null>(null);
 
   const [showMore, setShowMore] = useState(false);
 
@@ -140,6 +145,8 @@ export default function CreateRideScreen() {
       price: price ? Math.max(0, parseInt(price, 10) || 0) : 0,
       category,
       comment: comment.trim(),
+      pickup: pickup.trim() || undefined,
+      pickup_point_id: pickupPointId,
       only_trusted: onlyTrusted,
       recurrence,
       baggage: amen.baggage,
@@ -218,27 +225,24 @@ export default function CreateRideScreen() {
       />
 
       <div className="form">
-        <label className="field">
-          <span className="field__label">{appText("Откуда", "Ҡайҙан")}</span>
-          <input
-            className="field__input"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            placeholder={appText("Город или село", "Ҡала йәки ауыл")}
-            autoComplete="off"
-          />
-        </label>
+        {/* Подсказки из справочника: одно написание на всех. «Темясово»
+            человек напишет пятью способами, и заявка не совпадёт ни с одной поездкой. */}
+        <CityField
+          label={appText("Откуда", "Ҡайҙан")}
+          value={from}
+          onChange={setFrom}
+          placeholder={appText("Город или село", "Ҡала йәки ауыл")}
+        />
 
-        <label className="field">
-          <span className="field__label">{appText("Куда", "Ҡайҙа")}</span>
-          <input
-            className="field__input"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder={appText("Город или село", "Ҡала йәки ауыл")}
-            autoComplete="off"
-          />
-        </label>
+        <CityField
+          label={appText("Куда", "Ҡайҙа")}
+          value={to}
+          onChange={setTo}
+          placeholder={appText("Город или село", "Ҡала йәки ауыл")}
+        />
+
+        {/* Ориентиры этого города: «у мечети», «автовокзал» — вместо тыка в карту */}
+        <PickupChips city={from} value={pickup} onPick={setPickup} onPickPoint={setPickupPointId} />
 
         {/* ❄️ Погода на маршруте — пусто, когда сказать нечего */}
         <WeatherWarningCard weather={weather} />

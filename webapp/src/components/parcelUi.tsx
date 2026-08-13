@@ -11,6 +11,7 @@ import type { Parcel, ParcelSize } from "../api/parcels";
 import { isCarrying } from "../api/parcels";
 import { rubLabel } from "../utils/format";
 import { IconArrow, IconPhone, IconCheck, IconChat } from "./Icons";
+import ParcelPhoto from "./ParcelPhoto";
 
 // ------------------------------- Подписи -------------------------------
 export function sizeLabel(size: ParcelSize | string, ru: boolean): string {
@@ -83,10 +84,15 @@ export function AvailableParcelCard({
   p,
   busy,
   onTake,
+  photo,
+  onPhoto,
 }: {
   p: Parcel;
   busy: boolean;
   onTake: () => void;
+  /** Снимок «взял целой» — необязателен, но в споре его отсутствие говорит само. */
+  photo?: string | null;
+  onPhoto?: (url: string) => void;
 }) {
   const { appText } = useLang();
   return (
@@ -96,6 +102,7 @@ export function AvailableParcelCard({
         <StatusPillParcel status={p.status} />
       </div>
       <ParcelRoute p={p} />
+      {onPhoto && <ParcelPhoto kind="pickup" url={photo ?? null} onReady={onPhoto} />}
       <button type="button" className="btn-primary" style={{ marginTop: 12 }} onClick={onTake} disabled={busy}>
         {busy ? appText("Берём…", "Алабыҙ…") : appText("Взять доставку", "Доставканы алыу")}
       </button>

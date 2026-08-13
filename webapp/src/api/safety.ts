@@ -13,6 +13,13 @@ export interface SosInput {
   booking_id?: number | null;
   order_id?: number | null;
   note?: string;
+  /**
+   * Где человек. Без координат близкие получают «нужна срочная помощь» и не знают,
+   * куда ехать. Необязательны: GPS мог не схватиться — тогда шлём хотя бы сам сигнал,
+   * потому что сигнал без места всё равно лучше, чем ничего.
+   */
+  lat?: number | null;
+  lng?: number | null;
 }
 
 /** Ответ POST /sos (SosEvent). */
@@ -32,6 +39,8 @@ export function sendSos(body: SosInput): Promise<SosEvent> {
     booking_id: body.booking_id ?? null,
     order_id: body.order_id ?? null,
     note: body.note ?? "",
+    lat: body.lat ?? null,
+    lng: body.lng ?? null,
   });
 }
 

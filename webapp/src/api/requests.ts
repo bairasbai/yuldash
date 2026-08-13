@@ -67,6 +67,12 @@ export interface RequestFeedItem {
   responded: boolean;
   my_response_id?: number | null;
   prefs: string[]; // women|child|pets|wheelchair|baggage|nosmoke|ac
+  /**
+   * Насколько заявка уводит водителя с его маршрута, км. 0 — фактически по пути.
+   * null — считать не из чего: нет активных поездок или координат. Тогда молчим,
+   * а не пишем «0 км»: выдуманная цифра хуже её отсутствия.
+   */
+  detour_km?: number | null;
 }
 
 /** Отклик водителя на мою заявку (GET /requests/{id}/responses).

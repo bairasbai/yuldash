@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError, API_BASE } from "../api/client";
+import { ApiError, API_BASE, isOwnApiUrl } from "../api/client";
 import {
   fetchAdminIncidents,
   resolveIncident,
@@ -24,12 +24,49 @@ import { formatRelative } from "../utils/format";
 import { incidentStatusLabel } from "./FairnessCenterScreen";
 
 type State = "loading" | "error" | "ready";
-type Filter = "open" | "resolved" | "all";
+/**
+ * Вкладки те же, что в приложении. «Апелляции» отдельно не для порядка:
+ * человек не согласен с уже принятым решением, и такой спор надо перечитать,
+ * а не искать его среди сотни решённых.
+ */
+type Filter = "under_review" | "awaiting_response" | "appealed" | "resolved" | "all";
 
-const FILTERS: { key: Filter; ru: string; ba: string }[] = [
-  { key: "open", ru: "Открытые", ba: "Асыҡ" },
-  { key: "resolved", ru: "Решённые", ba: "Хәл ителгән" },
-  { key: "all", ru: "Все", ba: "Барыһы" },
+const FILTERS: {
+  key: Filter;
+  ru: string;
+  ba: string;
+  hint_ru: string;
+  hint_ba: string;
+}[] = [
+  {
+    key: "under_review",
+    ru: "Ждут решения",
+    ba: "Ҡарар көтә",
+    hint_ru: "Обе версии есть — решение за тобой.",
+    hint_ba: "Ике яҡтың да һүҙе бар — ҡарар һинеке.",
+  },
+  {
+    key: "awaiting_response",
+    ru: "Ждём ответа",
+    ba: "Яуап көтәбеҙ",
+    hint_ru: "Ждём объяснения второй стороны.",
+    hint_ba: "Икенсе яҡтың аңлатмаһын көтәбеҙ.",
+  },
+  {
+    key: "appealed",
+    ru: "Апелляции",
+    ba: "Ялыуҙар",
+    hint_ru: "Человек не согласен с решением — перечитай.",
+    hint_ba: "Кеше ҡарар менән килешмәй — ҡабат уҡы.",
+  },
+  {
+    key: "resolved",
+    ru: "Архив",
+    ba: "Архив",
+    hint_ru: "Решения, которые уже приняты.",
+    hint_ba: "Ҡабул ителгән ҡарарҙар.",
+  },
+  { key: "all", ru: "Все", ba: "Барыһы", hint_ru: "", hint_ba: "" },
 ];
 
 /** Исходы разбора. Каждый — с человеческой подписью, чтобы не выбирать вслепую. */
@@ -71,8 +108,15 @@ const OUTCOMES: { key: string; ru: string; ba: string; hint_ru: string; hint_ba:
   },
 ];
 
-function evidenceSrc(url: string): string {
-  return url.startsWith("http") ? url : `${API_BASE}${url}`;
+/**
+ * Фото-доказательство → адрес для <img>. Только свой хост: ссылку в спор
+ * кладёт вторая сторона, и подставить туда чужой адрес — способ узнать IP
+ * того, кто откроет карточку. Чужой адрес не показываем вовсе.
+ */
+function evidenceSrc(url: string): string | null {
+  if (!url) return null;
+  if (url.startsWith("/")) return `${API_BASE}${url}`;
+  return isOwnApiUrl(url) ? url : null;
 }
 
 export default function AdminIncidentsScreen() {
@@ -80,7 +124,7 @@ export default function AdminIncidentsScreen() {
   const ru = lang !== "ba";
   const navigate = useNavigate();
 
-  const [filter, setFilter] = useState<Filter>("open");
+  const [filter, setFilter] = useState<Filter>("under_review");
   const [state, setState] = useState<State>("loading");
   const [rows, setRows] = useState<AdminIncident[]>([]);
   const [openFor, setOpenFor] = useState<number | null>(null);
@@ -162,6 +206,16 @@ export default function AdminIncidentsScreen() {
         ))}
       </div>
 
+      {/* Подсказка под вкладкой: что именно тут лежит и что от тебя ждут */}
+      {(() => {
+        const f = FILTERS.find((x) => x.key === filter);
+        return f && f.hint_ru ? (
+          <p className="demand__quiet" style={{ marginTop: 8 }}>
+            {appText(f.hint_ru, f.hint_ba)}
+          </p>
+        ) : null;
+      })()}
+
       {state === "loading" && <LoadingList count={3} />}
       {state === "error" && <ErrorState onRetry={() => load(filter)} />}
 
@@ -173,10 +227,15 @@ export default function AdminIncidentsScreen() {
             </div>
             <h2>{appText("Споров нет", "Бәхәс юҡ")}</h2>
             <p>
-              {appText(
-                "Люди ездят спокойно. Новые разборы появятся здесь сами.",
-                "Кешеләр тыныс йөрөй. Яңы бәхәстәр бында үҙе күренәсәк."
-              )}
+              {filter === "all"
+                ? appText(
+                    "Люди ездят спокойно. Новые разборы появятся здесь сами.",
+                    "Кешеләр тыныс йөрөй. Яңы бәхәстәр бында үҙе күренәсәк."
+                  )
+                : appText(
+                    "Споров в этом состоянии сейчас нет.",
+                    "Был хәлдә бәхәстәр хәҙер юҡ."
+                  )}
             </p>
           </div>
         ) : (
@@ -215,19 +274,19 @@ export default function AdminIncidentsScreen() {
                       <IconPhone size={18} /> {i.reporter_phone}
                     </a>
                   )}
-                  {i.evidence_urls.length > 0 && (
+                  {i.evidence_urls.filter(evidenceSrc).length > 0 && (
                     <div className="doc-photos" style={{ marginTop: 10 }}>
-                      {i.evidence_urls.map((u, n) => (
+                      {i.evidence_urls.filter(evidenceSrc).map((u, n) => (
                         <a
                           key={u}
                           className="doc-photos__item"
-                          href={evidenceSrc(u)}
+                          href={evidenceSrc(u)!}
                           target="_blank"
                           rel="noreferrer"
                         >
                           <img
                             className="doc-photo"
-                            src={evidenceSrc(u)}
+                            src={evidenceSrc(u)!}
                             alt={appText(`Фото ${n + 1}`, `Фото ${n + 1}`)}
                           />
                         </a>
@@ -253,19 +312,19 @@ export default function AdminIncidentsScreen() {
                       <IconPhone size={18} /> {i.respondent_phone}
                     </a>
                   )}
-                  {i.respondent_evidence_urls.length > 0 && (
+                  {i.respondent_evidence_urls.filter(evidenceSrc).length > 0 && (
                     <div className="doc-photos" style={{ marginTop: 10 }}>
-                      {i.respondent_evidence_urls.map((u, n) => (
+                      {i.respondent_evidence_urls.filter(evidenceSrc).map((u, n) => (
                         <a
                           key={u}
                           className="doc-photos__item"
-                          href={evidenceSrc(u)}
+                          href={evidenceSrc(u)!}
                           target="_blank"
                           rel="noreferrer"
                         >
                           <img
                             className="doc-photo"
-                            src={evidenceSrc(u)}
+                            src={evidenceSrc(u)!}
                             alt={appText(`Фото ${n + 1}`, `Фото ${n + 1}`)}
                           />
                         </a>

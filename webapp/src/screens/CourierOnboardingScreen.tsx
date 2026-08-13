@@ -38,6 +38,11 @@ export default function CourierOnboardingScreen() {
   // Форма.
   const [transport, setTransport] = useState<CourierTransport>("car");
   const [selfieUrl, setSelfieUrl] = useState("");
+  // Кто и на чём везёт. Сервер пока принимает мягко, но спрашиваем сразу:
+  // человеку доверяют чужую посылку, а по госномеру его узнают у подъезда.
+  const [fullName, setFullName] = useState("");
+  const [carPlate, setCarPlate] = useState("");
+  const [rulesOk, setRulesOk] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,14 +88,21 @@ export default function CourierOnboardingScreen() {
     }
   }
 
-  const canSubmit = !!selfieUrl && !busy && !uploading;
+  const canSubmit =
+    !!selfieUrl && fullName.trim().split(/\s+/).length >= 2 && rulesOk && !busy && !uploading;
 
   async function submit() {
     if (!canSubmit) return;
     setBusy(true);
     setError(null);
     try {
-      const a = await applyCourier({ transport, selfie_url: selfieUrl });
+      const a = await applyCourier({
+        transport,
+        selfie_url: selfieUrl,
+        full_name: fullName.trim(),
+        car_plate: carPlate.trim().toUpperCase(),
+        rules_accepted: rulesOk,
+      });
       setApp(a);
       setEditing(false);
     } catch (e) {
@@ -229,6 +241,45 @@ export default function CourierOnboardingScreen() {
         </p>
       </div>
 
+      {/* На что человек соглашается. Он берёт в руки чужое — и должен знать
+          границы ДО заявки, а не выяснять их в первом же споре. */}
+      <div className="verify-rules" style={{ marginTop: 12 }}>
+        <div className="verify-rules__head">
+          <IconWarn size={22} />
+          {appText("Что важно знать заранее", "Алдан белергә кәрәк")}
+        </div>
+
+        <div className="courier-rule">
+          <b>{appText("Что нельзя возить", "Нимә йөрөтөргә ярамай")}</b>
+          <p>
+            {appText(
+              "Деньги, документы на предъявителя, лекарства без рецепта, скоропорт, оружие, запрещённое законом.",
+              "Аҡса, күрһәтеүсегә документтар, рецепһыҙ дарыуҙар, тиҙ боҙолған аҙыҡ, ҡорал, закон тыйған нәмәләр."
+            )}
+          </p>
+        </div>
+
+        <div className="courier-rule">
+          <b>{appText("Ответственность на курьере", "Яуаплылыҡ курьерҙа")}</b>
+          <p>
+            {appText(
+              "Ты отвечаешь за сохранность посылки от приёма до вручения по коду. Береги чужое как своё.",
+              "Алғандан алып код буйынса тапшырғанға тиклем бандероль өсөн һин яуаплы. Кеше әйберен үҙеңдеке кеүек һаҡла."
+            )}
+          </p>
+        </div>
+
+        <div className="courier-rule">
+          <b>{appText("«Купи и привези» — до 5000 ₽", "«Һатып ал һәм килтер» — 5000 ₽-ға тиклем")}</b>
+          <p>
+            {appText(
+              "Можешь купить товар за клиента и привезти. Лимит покупки — 5000 ₽, чтобы ты не рисковал крупным.",
+              "Клиент өсөн тауар һатып алып килтерә алаһың. Лимит — 5000 ₽, ҙур аҡса менән тәүәкәлләмәҫкә."
+            )}
+          </p>
+        </div>
+      </div>
+
       {/* Транспорт */}
       <span className="field__label" style={{ marginTop: 14, display: "block" }}>
         {appText("На чём возишь", "Нимәлә йөрөтәһең")}
@@ -285,6 +336,47 @@ export default function CourierOnboardingScreen() {
           </span>
         </span>
       </button>
+
+      {/* Кто везёт. Имя — как в документе на селфи: модератор сверяет одно с другим. */}
+      <label className="field" style={{ marginTop: 14 }}>
+        <span className="field__label">{appText("Фамилия и имя как в документе", "Документтағыса фамилия һәм исем")}</span>
+        <input
+          className="field__input"
+          value={fullName}
+          maxLength={120}
+          onChange={(e) => setFullName(e.target.value)}
+          placeholder={appText("Иванов Ринат", "Иванов Ринат")}
+          autoComplete="name"
+        />
+      </label>
+
+      <label className="field">
+        <span className="field__label">{appText("Госномер машины", "Машинаның дәүләт номеры")}</span>
+        <input
+          className="field__input"
+          value={carPlate}
+          maxLength={16}
+          onChange={(e) => setCarPlate(e.target.value.toUpperCase())}
+          placeholder="А123ВС102"
+          autoComplete="off"
+        />
+        <span className="field__hint">
+          {appText("По нему тебя узнают у подъезда", "Уның буйынса подъезд янында һине таныйҙар")}
+        </span>
+      </label>
+
+      <label className="admin-check">
+        <input type="checkbox" checked={rulesOk} onChange={(e) => setRulesOk(e.target.checked)} />
+        <span>{appText("Согласен с правилами доставки", "Илтеү ҡағиҙәләре менән килешәм")}</span>
+      </label>
+      <p className="courier-rule" style={{ marginTop: 4 }}>
+        <span style={{ display: "block" }}>
+          {appText(
+            "Везу бережно, не вскрываю, запрещённое не беру. Если что-то пошло не так — говорю сразу, а не молчу.",
+            "Һаҡ илтәм, асмайым, тыйылғанды алмайым. Берәй нәмә дөрөҫ булмаһа — шунда уҡ әйтәм, өндәшмәй ҡалмайым."
+          )}
+        </span>
+      </p>
 
       {error && <div className="auth__error">{error}</div>}
 

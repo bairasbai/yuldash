@@ -18,6 +18,14 @@ export interface RideCreateInput {
   category?: RideCategory;
   comment?: string;
   pickup?: string;
+  /**
+   * Ориентир из справочника города («у мечети», «автовокзал»). Сервер сам подставит
+   * по нему название и координаты — тогда пассажир увидит точку на карте, а не
+   * строку текста, и справочник заодно узнает, что этим ориентиром пользуются.
+   */
+  pickup_point_id?: number | null;
+  pickup_lat?: number | null;
+  pickup_lng?: number | null;
   pets_allowed?: boolean;
   child_seat?: boolean;
   women_only?: boolean;
@@ -281,4 +289,48 @@ export function submitDriverVerify(body: {
   car_photo_url: string;
 }): Promise<{ docs_status: string }> {
   return apiPost<{ docs_status: string }>("/driver/verify", body);
+}
+
+// ----------------------------- Долг по комиссии за такси -----------------------------
+/**
+ * Сколько водитель должен сервису за такси (зеркало backend/app/routers/debt.py).
+ *
+ * Комиссию мы не списываем автоматически: раз в неделю водитель переводит её по СБП
+ * и нажимает «Я оплатил», админ подтверждает. Пока долг висит — такси блокируется,
+ * но попутка работает как обычно: плановые поездки к комиссии отношения не имеют.
+ */
+export interface DebtWeek {
+  week: string; // ISO-неделя
+  amount_kop: number;
+  status: string; // unpaid | pending
+}
+
+export interface DriverDebt {
+  unpaid_kop: number;
+  pending_kop: number; // заявлено к оплате, ждёт подтверждения админом
+  due_at: string | null;
+  overdue: boolean;
+  blocked: boolean;
+  block_reason: string | null; // overdue | threshold | null
+  threshold_kop: number;
+  sbp: { phone: string; name: string };
+  weeks: DebtWeek[];
+}
+
+export function fetchDriverDebt(signal?: AbortSignal): Promise<DriverDebt> {
+  return apiGet<DriverDebt>("/driver/debt", { signal });
+}
+
+/** Ответ POST /driver/debt/paid: карта (ЮKassa) или «я перевёл по СБП» (на доверии). */
+export interface DebtPaidResult {
+  ok?: boolean;
+  method?: string; // yookassa | sbp_manual
+  status?: string;
+  amount_kop?: number;
+  confirmation_url?: string;
+}
+
+/** «Я оплатил» — долг уходит на подтверждение админу (или открывается оплата картой). */
+export function declareDebtPaid(): Promise<DebtPaidResult> {
+  return apiPost<DebtPaidResult>("/driver/debt/paid");
 }

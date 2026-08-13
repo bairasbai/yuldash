@@ -24,6 +24,7 @@ import { ChatVoiceButton, VoiceBubble } from "../components/ChatVoice";
 import { IconArrow } from "../components/Icons";
 import { YuChat } from "../components/BrandIcons";
 import QuickReplies from "../components/QuickReplies";
+import { ChatFlagPlate, ChatSafetyDisclaimer } from "../components/ChatSafety";
 
 export default function InstantChatScreen() {
   const { appText } = useLang();
@@ -46,12 +47,15 @@ export default function InstantChatScreen() {
     setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
   }, []);
 
-  // Заголовок: имя собеседника из заказа.
+  // Заголовок: имя собеседника из заказа. Отменяем при уходе с экрана —
+  // иначе ответ прилетает в размонтированный компонент.
   useEffect(() => {
     if (!id) return;
-    fetchInstantOrder(id)
+    const ac = new AbortController();
+    fetchInstantOrder(id, ac.signal)
       .then(setOrder)
       .catch(() => {});
+    return () => ac.abort();
   }, [id]);
 
   // История + WS.
@@ -162,6 +166,14 @@ export default function InstantChatScreen() {
       ) : (
         <div className="chat chat--full">
           <div className="chat__body">
+            <ChatSafetyDisclaimer />
+            {!loaded && (
+              <div className="chat__loading" aria-live="polite">
+                <span className="skeleton chat__skeleton" />
+                <span className="skeleton chat__skeleton chat__skeleton--mine" />
+                <span className="skeleton chat__skeleton" />
+              </div>
+            )}
             {loaded && messages.length === 0 && (
               <p className="chat__empty">
                 {appText("Напиши первым — обсудите детали подачи.", "Беренсе булып яҙ — килеү тәфсиләтен һөйләшегеҙ.")}
@@ -170,9 +182,12 @@ export default function InstantChatScreen() {
             {messages.map((m) => {
               const mine = m.sender_id === myId;
               return (
-                <div key={m.id} className={"bubble" + (mine ? " bubble--mine" : "")}>
-                  {m.from_admin && <span className="bubble__admin">{appText("Поддержка", "Ярҙам")}</span>}
-                  {m.voice_url ? <VoiceBubble url={m.voice_url} /> : <ChatMessageBody text={m.text} />}
+                <div key={m.id} className={"msg" + (mine ? " msg--mine" : "")}>
+                  <div className={"bubble" + (mine ? " bubble--mine" : "")}>
+                    {m.from_admin && <span className="bubble__admin">Юлдаш ✓</span>}
+                    {m.voice_url ? <VoiceBubble url={m.voice_url} /> : <ChatMessageBody text={m.text} />}
+                  </div>
+                  <ChatFlagPlate flag={m.flag} mine={mine} />
                 </div>
               );
             })}

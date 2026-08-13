@@ -19,6 +19,8 @@ import type { Ride } from "../api/rides";
 import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
 import { IconRequest, IconRides, IconShield, IconGift, IconFilter, IconPin, IconCar } from "../components/Icons";
 import { YuModeTaxi } from "../components/BrandIcons";
+import { PartnerAdSlot } from "../components/PartnerAd";
+import { fetchPopularRoutes, type PopularRoute } from "../api/geo";
 
 type Status = "loading" | "error" | "ready";
 
@@ -28,9 +30,29 @@ export default function HomeScreen() {
   const navigate = useNavigate();
   const { isAuthed } = useAuth();
 
+  const { user } = useAuth();
+
+  /**
+   * Приветствие по времени суток. Мелочь, но именно с неё начинается разговор:
+   * «Карта» — это про интерфейс, «Доброе утро, Азамат» — про человека.
+   * Гостю имени нет — здороваемся без него, а не с пустым местом.
+   */
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    const name = (user?.name ?? "").trim().split(/\s+/)[0];
+    const suffix = name ? `, ${name}` : "";
+    if (h >= 5 && h < 12) return appText(`Доброе утро${suffix}`, `Хәйерле иртә${suffix}`);
+    if (h >= 12 && h < 18) return appText(`Добрый день${suffix}`, `Хәйерле көн${suffix}`);
+    if (h >= 18 && h < 23) return appText(`Добрый вечер${suffix}`, `Хәйерле кис${suffix}`);
+    return appText(`Доброй ночи${suffix}`, `Тыныс төн${suffix}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.name, lang]);
+
   const [status, setStatus] = useState<Status>("loading");
   // Ближайшее сезонное событие (публичная ручка). null = ничего не идёт или ручки нет.
   const [season, setSeason] = useState<SeasonalEvent | null>(null);
+  // Пресеты популярных маршрутов — чипы «Сибай → Уфа» в один тап.
+  const [popular, setPopular] = useState<PopularRoute[]>([]);
   const [rides, setRides] = useState<Ride[]>([]);
   const [reqs, setReqs] = useState<NearRequest[]>([]);
   const [me, setMe] = useState<GeoPoint | null>(null);
@@ -78,6 +100,9 @@ export default function HomeScreen() {
         setSeason(active);
       })
       .catch(() => setSeason(null)); // 404 / нет сети → баннера просто нет
+    fetchPopularRoutes(ac.signal)
+      .then((r) => setPopular(r.slice(0, 6)))
+      .catch(() => setPopular([])); // нет справочника → чипов просто нет
     return () => ac.abort();
   }, []);
 
@@ -162,8 +187,8 @@ export default function HomeScreen() {
   return (
     <>
       <ScreenHeader
-        title={appText("Карта", "Карта")}
-        subtitle={appText("Попутки между своими рядом", "Яҡында үҙебеҙ араһында юлдаштар")}
+        title={greeting}
+        subtitle={appText("Куда поедем?", "Ҡайҙа барабыҙ?")}
       />
 
       {/* Сезон: сабантуй, курбан, начало учёбы — когда все едут в одну сторону.
@@ -215,6 +240,78 @@ export default function HomeScreen() {
         ))}
       </div>
 
+      {/* «Такси, попутка, курьер» — три слова, за которыми три разные цены
+          и три разных ожидания. Человек, который путает их, платит не за то,
+          что думал, поэтому объяснение лежит прямо под кнопками. */}
+      <details className="modes-hint">
+        <summary>{appText("Чем отличается?", "Айырмаһы нимәлә?")}</summary>
+        <div className="modes-hint__body">
+          <div className="modes-hint__row">
+            <span className="modes-hint__ic modes-hint__ic--taxi" aria-hidden>
+              <YuModeTaxi size={18} />
+            </span>
+            <div>
+              <b>{appText("Такси", "Такси")}</b>
+              <p>
+                {appText(
+                  "Быстро. Машина едет прямо за тобой. Чуть дороже.",
+                  "Тиҙ. Машина тап һинең артыңдан килә. Бер аҙ ҡиммәтерәк."
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="modes-hint__row">
+            <span className="modes-hint__ic modes-hint__ic--pool" aria-hidden>
+              <IconRides size={18} />
+            </span>
+            <div>
+              <b>{appText("Попутка", "Юлдаш")}</b>
+              <p>
+                {appText(
+                  "Дешевле. Подсаживаешься к тому, кто и так едет туда.",
+                  "Арзаныраҡ. Барыбер шунда барған кешегә ултыраһың."
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="modes-hint__row">
+            <span className="modes-hint__ic modes-hint__ic--courier" aria-hidden>
+              <IconGift size={18} />
+            </span>
+            <div>
+              <b>{appText("Курьер", "Курьер")}</b>
+              <p>
+                {appText(
+                  "Едешь не ты, а посылка. Отвезёт тот, кто и так в пути.",
+                  "Һин түгел, бандеролең бара. Юлда булған кеше илтә."
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      {/* Куда чаще всего ездят. Один тап вместо набора двух названий руками —
+          и написание сразу совпадает со справочником. */}
+      {popular.length > 0 && (
+        <div className="chips" style={{ marginTop: 4 }}>
+          {popular.map((r) => {
+            const a = ru ? r.from.name_ru : r.from.name_ba || r.from.name_ru;
+            const b = ru ? r.to.name_ru : r.to.name_ba || r.to.name_ru;
+            return (
+              <button
+                key={`${r.from.id}-${r.to.id}`}
+                type="button"
+                className="chip"
+                onClick={() => navigate(`/rides?from=${encodeURIComponent(a)}&to=${encodeURIComponent(b)}`)}
+              >
+                {a} → {b}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <h2 className="section-title">
         {appText("Поездки рядом", "Яҡындағы сәфәрҙәр")}
       </h2>
@@ -265,6 +362,9 @@ export default function HomeScreen() {
             ))}
           </div>
         ))}
+
+      {/* Партнёр рядом — тариф «Город». Город берём тот, где человек ищет поездку. */}
+      <PartnerAdSlot placement="nearby" city={shownRides[0]?.from_city} />
 
       {sheet && <RideSheet ride={sheet} onClose={() => setSheet(null)} />}
     </>

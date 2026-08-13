@@ -155,9 +155,54 @@ export function setPayAgreement(
 export function rateBooking(
   id: number,
   stars: number,
-  text = ""
+  text = "",
+  tags: string[] = []
 ): Promise<unknown> {
-  return apiPost(`/bookings/${id}/rate`, { stars, text });
+  return apiPost(`/bookings/${id}/rate`, { stars, text, tags: tags.join(",") });
+}
+
+/**
+ * Быстрые метки к оценке. Список закрытый — сервер отбрасывает всё, чего тут нет
+ * (`safety_logic.RATING_TAGS`), максимум пять.
+ *
+ * Смысл в том, что развёрнутый отзыв пишут единицы, а метку ставят все: из меток
+ * складывается понятный портрет, который виден сразу, без чтения чужих сочинений.
+ * И метки публикуются без модерации — оскорбить закрытым списком нельзя.
+ *
+ * Набор зависит и от оценки, и от того, кого оцениваем: «Чисто в машине»
+ * пассажиру не адресуешь — машина не его.
+ */
+export function ratingTags(
+  stars: number,
+  rateeIsDriver: boolean
+): { key: string; ru: string; ba: string }[] {
+  if (stars >= 4) {
+    return rateeIsDriver
+      ? [
+          { key: "polite", ru: "Вежливый", ba: "Итәғәтле" },
+          { key: "ontime", ru: "Приехал вовремя", ba: "Ваҡытында килде" },
+          { key: "clean", ru: "Чисто в машине", ba: "Машинала таҙа" },
+          { key: "safe", ru: "Везёт аккуратно", ba: "Һаҡ йөрөтә" },
+          { key: "comfortable", ru: "Ехать удобно", ba: "Барыуы уңайлы" },
+        ]
+      : [
+          { key: "polite", ru: "Вежливый", ba: "Итәғәтле" },
+          { key: "ontime", ru: "Вовремя вышел", ba: "Ваҡытында сыҡты" },
+          { key: "helpful", ru: "Помог в дороге", ba: "Юлда ярҙам итте" },
+        ];
+  }
+  return rateeIsDriver
+    ? [
+        { key: "late", ru: "Опоздал", ba: "Һуңланы" },
+        { key: "rude", ru: "Грубый", ba: "Тупаҫ" },
+        { key: "unsafe", ru: "Опасная езда", ba: "Хәүефле йөрөтөү" },
+        { key: "dirty", ru: "Грязно в машине", ba: "Машинала бысраҡ" },
+        { key: "detour", ru: "Вёз кругами", ba: "Урап йөрөттө" },
+      ]
+    : [
+        { key: "late", ru: "Опоздал", ba: "Һуңланы" },
+        { key: "rude", ru: "Грубый", ba: "Тупаҫ" },
+      ];
 }
 
 /** Квитанция. 404 (нет эндпоинта на проде) / 409 (не завершена) → мягкая деградация. */

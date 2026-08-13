@@ -85,6 +85,13 @@ export default function AdminCabinetScreen() {
       sub: appText("Подтвердить, отклонить или списать", "Раҫлау, кире ҡағыу йәки алып ташлау"),
     },
     {
+      key: "support",
+      to: "/admin/support",
+      icon: <IconChat size={22} />,
+      title: appText("Обращения в поддержку", "Ярҙамға мөрәжәғәттәр"),
+      sub: appText("Ответить человеку — ответ уйдёт сразу", "Кешегә яуап — шунда уҡ бара"),
+    },
+    {
       key: "request",
       to: "/admin/request",
       icon: <IconRequest size={22} />,

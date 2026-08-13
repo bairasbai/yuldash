@@ -14,6 +14,7 @@ import { SubHeader } from "./ConsentsScreen";
 import { IconCheck, IconBolt, IconHospital, IconUsers } from "../components/Icons";
 import { YuModeRideshare } from "../components/BrandIcons";
 import { AmenityIcon } from "../components/amenityIcons";
+import CityField from "../components/CityField";
 
 type Opt =
   | "baggage"
@@ -147,27 +148,21 @@ export default function CreateRequestScreen() {
       />
 
       <div className="form">
-        <label className="field">
-          <span className="field__label">{appText("Откуда", "Ҡайҙан")}</span>
-          <input
-            className="field__input"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            placeholder={appText("Город или село", "Ҡала йәки ауыл")}
-            autoComplete="off"
-          />
-        </label>
+        {/* Подсказки из справочника: заявка и поездка должны быть написаны
+            одинаково, иначе они не встретятся в поиске. */}
+        <CityField
+          label={appText("Откуда", "Ҡайҙан")}
+          value={from}
+          onChange={setFrom}
+          placeholder={appText("Город или село", "Ҡала йәки ауыл")}
+        />
 
-        <label className="field">
-          <span className="field__label">{appText("Куда", "Ҡайҙа")}</span>
-          <input
-            className="field__input"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder={appText("Город или село", "Ҡала йәки ауыл")}
-            autoComplete="off"
-          />
-        </label>
+        <CityField
+          label={appText("Куда", "Ҡайҙа")}
+          value={to}
+          onChange={setTo}
+          placeholder={appText("Город или село", "Ҡала йәки ауыл")}
+        />
 
         <label className="field">
           <span className="field__label">{appText("Когда (необязательно)", "Ҡасан (мотлаҡ түгел)")}</span>

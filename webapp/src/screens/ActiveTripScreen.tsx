@@ -23,6 +23,7 @@ import {
   fetchTripState,
   fetchBoardingCode,
   rateBooking,
+  ratingTags,
   setPayAgreement,
   type BookingDetails,
   type PayMethod,
@@ -33,8 +34,11 @@ import {
   sendMessageRest,
   openBookingChat,
   openTripLocation,
+  editMessage,
+  deleteMessage,
   type ChatMessage,
 } from "../api/chat";
+import { ChatFlagPlate, ChatSafetyDisclaimer } from "../components/ChatSafety";
 import { winterCheck, winterCheckOk } from "../api/safety";
 import { setDriverStatus, type DriverPhase } from "../api/driver";
 import { LoadingList, ErrorState } from "../components/States";
@@ -289,14 +293,38 @@ export default function ActiveTripScreen() {
     }
   }
 
-  async function onRate(stars: number) {
-    if (!bookingId) return;
+  /**
+   * Оценка в два шага: сначала звёзды, потом метки. Метки зависят от оценки —
+   * «Везёт аккуратно» после двойки было бы издевательством, поэтому набор
+   * пересобирается, а выбранное сбрасывается при смене звёзд.
+   */
+  const [myStars, setMyStars] = useState(0);
+  const [myTags, setMyTags] = useState<string[]>([]);
+  const [rateText, setRateText] = useState("");
+  const [rateBusy, setRateBusy] = useState(false);
+
+  function pickStars(n: number) {
+    setMyStars(n);
+    setMyTags([]);
+  }
+
+  function toggleTag(key: string) {
+    setMyTags((prev) =>
+      prev.includes(key) ? prev.filter((t) => t !== key) : prev.length >= 5 ? prev : [...prev, key]
+    );
+  }
+
+  async function sendRate() {
+    if (!bookingId || myStars < 1 || rateBusy) return;
+    setRateBusy(true);
     try {
-      await rateBooking(bookingId, stars);
+      await rateBooking(bookingId, myStars, rateText.trim(), myTags);
       setRated(true);
     } catch {
       /* уже оценено / не завершена — тихо */
       setRated(true);
+    } finally {
+      setRateBusy(false);
     }
   }
 
@@ -539,14 +567,49 @@ export default function ActiveTripScreen() {
               <button
                 key={n}
                 type="button"
-                className="rate-star"
-                onClick={() => onRate(n)}
+                className={"rate-star" + (n <= myStars ? " is-on" : "")}
+                onClick={() => pickStars(n)}
                 aria-label={appText(`${n} звёзд`, `${n} йондоҙ`)}
               >
                 <IconStar size={34} />
               </button>
             ))}
           </div>
+
+          {/* Метки — один тап вместо сочинения. Развёрнутый отзыв пишут единицы,
+              а метку ставит почти каждый: из них и складывается портрет человека. */}
+          {myStars > 0 && (
+            <>
+              <div className="chips rate-tags">
+                {ratingTags(myStars, details.role === "passenger").map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    className={"chip" + (myTags.includes(t.key) ? " chip--on" : "")}
+                    onClick={() => toggleTag(t.key)}
+                  >
+                    {ru ? t.ru : t.ba}
+                  </button>
+                ))}
+              </div>
+
+              <label className="field" style={{ marginTop: 10 }}>
+                <span className="field__label">
+                  {appText("Пара слов о поездке (необязательно)", "Сәфәр хаҡында бер-ике һүҙ (мотлаҡ түгел)")}
+                </span>
+                <input
+                  className="field__input"
+                  value={rateText}
+                  maxLength={500}
+                  onChange={(e) => setRateText(e.target.value)}
+                />
+              </label>
+
+              <button type="button" className="btn-primary" style={{ marginTop: 10 }} onClick={() => void sendRate()} disabled={rateBusy}>
+                {rateBusy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Отправить оценку", "Баһаны ебәрергә")}
+              </button>
+            </>
+          )}
         </div>
       )}
       {st === "done" && rated && (
@@ -581,8 +644,19 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
   const endRef = useRef<HTMLDivElement | null>(null);
   const chatRef = useRef<ReturnType<typeof openBookingChat> | null>(null);
 
+  /** Правка/удаление: id сообщения, которое сейчас в работе. */
+  const [menuId, setMenuId] = useState<number | null>(null);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
+  const [busyId, setBusyId] = useState<number | null>(null);
+
   const upsert = useCallback((m: ChatMessage) => {
     setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+  }, []);
+
+  /** Сервер вернул обновлённое сообщение — подменяем его на месте, не дёргая всю историю. */
+  const replace = useCallback((m: ChatMessage) => {
+    setMessages((prev) => prev.map((x) => (x.id === m.id ? m : x)));
   }, []);
 
   // История + WS.
@@ -651,6 +725,41 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
     }
   }
 
+  /** Сохранить правку своего сообщения. Пустой текст = отмена, а не «стереть текст». */
+  async function saveEdit(id: number) {
+    const t = editText.trim();
+    if (!t || busyId) {
+      setEditId(null);
+      return;
+    }
+    setBusyId(id);
+    try {
+      replace(await editMessage(bookingId, id, t));
+      setEditId(null);
+    } catch {
+      /* не сохранилось — оставляем поле открытым, текст человек не потеряет */
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  /** Удалить: у всех (только своё) или скрыть у себя. */
+  async function removeMessage(id: number, scope: "all" | "me") {
+    if (busyId) return;
+    setMenuId(null);
+    setBusyId(id);
+    try {
+      const m = await deleteMessage(bookingId, id, scope);
+      // «У себя» сервер не возвращает пустой текст — просто убираем из своего списка.
+      if (scope === "me") setMessages((prev) => prev.filter((x) => x.id !== id));
+      else replace(m);
+    } catch {
+      /* не получилось — сообщение остаётся как было */
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function send() {
     const t = text.trim();
     if (!t) return;
@@ -662,6 +771,14 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
     <div className="chat">
       <div className="chat__title">{appText("Чат с водителем", "Водитель менән чат")}</div>
       <div className="chat__body">
+        <ChatSafetyDisclaimer />
+        {!loaded && (
+          <div className="chat__loading" aria-live="polite">
+            <span className="skeleton chat__skeleton" />
+            <span className="skeleton chat__skeleton chat__skeleton--mine" />
+            <span className="skeleton chat__skeleton" />
+          </div>
+        )}
         {loaded && messages.length === 0 && (
           <p className="chat__empty">
             {appText("Напиши первым — обсудите детали встречи.", "Беренсе булып яҙ — осрашыуҙы һөйләшегеҙ.")}
@@ -669,12 +786,93 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
         )}
         {messages.map((m) => {
           const mine = m.sender_id === myId;
+          // Своё текстовое можно поправить, удалить у всех или скрыть у себя.
+          // Чужое — только скрыть у себя: чужие слова не наши.
+          const canEdit = mine && !m.deleted && !m.voice_url;
+          if (m.deleted) {
+            return (
+              <div key={m.id} className={"bubble bubble--gone" + (mine ? " bubble--mine" : "")}>
+                {appText("Сообщение удалено", "Хәбәр юйылды")}
+              </div>
+            );
+          }
           return (
-            <div key={m.id} className={"bubble" + (mine ? " bubble--mine" : "")}>
-              {m.from_admin && (
-                <span className="bubble__admin">{appText("Поддержка", "Ярҙам")}</span>
+            <div key={m.id} className={"msg" + (mine ? " msg--mine" : "")}>
+            <div className={"bubble" + (mine ? " bubble--mine" : "")}>
+              {m.from_admin && <span className="bubble__admin">Юлдаш ✓</span>}
+
+              {editId === m.id ? (
+                <div className="bubble__edit">
+                  <input
+                    value={editText}
+                    autoFocus
+                    onChange={(e) => setEditText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void saveEdit(m.id);
+                      if (e.key === "Escape") setEditId(null);
+                    }}
+                    aria-label={appText("Поправить сообщение", "Хәбәрҙе төҙәтеү")}
+                  />
+                  <button type="button" onClick={() => void saveEdit(m.id)} disabled={busyId === m.id}>
+                    {appText("Сохранить", "Һаҡлау")}
+                  </button>
+                  <button type="button" onClick={() => setEditId(null)}>
+                    {appText("Отмена", "Кире алыу")}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {m.voice_url ? (
+                    <VoiceBubble url={m.voice_url} />
+                  ) : (
+                    <ChatMessageBody text={m.text} />
+                  )}
+                  {m.edited && (
+                    <span className="bubble__edited">{appText("изменено", "төҙәтелгән")}</span>
+                  )}
+                  <button
+                    type="button"
+                    className="bubble__more"
+                    aria-label={appText("Действия с сообщением", "Хәбәр менән эштәр")}
+                    onClick={() => setMenuId(menuId === m.id ? null : m.id)}
+                  >
+                    ⋯
+                  </button>
+                </>
               )}
-              {m.voice_url ? <VoiceBubble url={m.voice_url} /> : <ChatMessageBody text={m.text} />}
+
+              {menuId === m.id && (
+                <div className="bubble__menu" role="menu">
+                  {canEdit && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setEditText(m.text);
+                        setEditId(m.id);
+                        setMenuId(null);
+                      }}
+                    >
+                      {appText("Поправить", "Төҙәтергә")}
+                    </button>
+                  )}
+                  {mine && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="bubble__menu-danger"
+                      onClick={() => void removeMessage(m.id, "all")}
+                    >
+                      {appText("Удалить у всех", "Барыһынан юйырға")}
+                    </button>
+                  )}
+                  <button type="button" role="menuitem" onClick={() => void removeMessage(m.id, "me")}>
+                    {appText("Скрыть у себя", "Үҙемдән йәшерергә")}
+                  </button>
+                </div>
+              )}
+            </div>
+              <ChatFlagPlate flag={m.flag} mine={mine} />
             </div>
           );
         })}

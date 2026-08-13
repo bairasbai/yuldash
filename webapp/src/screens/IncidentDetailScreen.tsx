@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError, API_BASE } from "../api/client";
+import { ApiError, API_BASE, isOwnApiUrl } from "../api/client";
 import {
   appealIncident,
   fetchIncident,
@@ -28,8 +28,15 @@ type Status = "loading" | "error" | "ready";
 type Sheet = "none" | "respond" | "appeal" | "peace";
 
 /** Защищённые фото лежат на нашем сервере: путь → полный адрес. */
-function evidenceSrc(url: string): string {
-  return url.startsWith("http") ? url : `${API_BASE}${url}`;
+/**
+ * Фото-доказательство → адрес для <img>. Только свой хост: ссылку в спор
+ * кладёт вторая сторона, и подставить туда чужой адрес — способ узнать IP
+ * того, кто откроет карточку. Чужой адрес не показываем вовсе.
+ */
+function evidenceSrc(url: string): string | null {
+  if (!url) return null;
+  if (url.startsWith("/")) return `${API_BASE}${url}`;
+  return isOwnApiUrl(url) ? url : null;
 }
 
 export default function IncidentDetailScreen() {
@@ -151,22 +158,22 @@ export default function IncidentDetailScreen() {
             <p style={{ margin: 0 }}>
               {inc.description || appText("Без описания", "Тасуирламаһыҙ")}
             </p>
-            {inc.evidence_urls.length > 0 && (
+            {inc.evidence_urls.filter(evidenceSrc).length > 0 && (
               <div className="doc-photos" style={{ marginTop: 10 }}>
-                {inc.evidence_urls.map((u, i) => (
+                {inc.evidence_urls.filter(evidenceSrc).map((u, i) => (
                   <a
                     key={u}
                     className="doc-photos__item"
-                    href={evidenceSrc(u)}
+                    href={evidenceSrc(u)!}
                     target="_blank"
                     rel="noreferrer"
                   >
                     <img
                       className="doc-photo"
-                      src={evidenceSrc(u)}
+                      src={evidenceSrc(u)!}
                       alt={appText(
-                        `Фото ${i + 1} из ${inc.evidence_urls.length} — открыть`,
-                        `Фото ${i + 1} / ${inc.evidence_urls.length} — асыу`
+                        `Фото ${i + 1} из ${inc.evidence_urls.filter(evidenceSrc).length} — открыть`,
+                        `Фото ${i + 1} / ${inc.evidence_urls.filter(evidenceSrc).length} — асыу`
                       )}
                     />
                   </a>
@@ -176,7 +183,7 @@ export default function IncidentDetailScreen() {
           </div>
 
           {/* Объяснение обвинённого */}
-          {(inc.respondent_statement || inc.respondent_evidence_urls.length > 0) && (
+          {(inc.respondent_statement || inc.respondent_evidence_urls.filter(evidenceSrc).length > 0) && (
             <>
               <h2 className="section-title">
                 {inc.my_role === "respondent"
@@ -190,22 +197,22 @@ export default function IncidentDetailScreen() {
                 {inc.responded_at && (
                   <div className="money-row__date">{formatWhen(inc.responded_at, ru)}</div>
                 )}
-                {inc.respondent_evidence_urls.length > 0 && (
+                {inc.respondent_evidence_urls.filter(evidenceSrc).length > 0 && (
                   <div className="doc-photos" style={{ marginTop: 10 }}>
-                    {inc.respondent_evidence_urls.map((u, i) => (
+                    {inc.respondent_evidence_urls.filter(evidenceSrc).map((u, i) => (
                       <a
                         key={u}
                         className="doc-photos__item"
-                        href={evidenceSrc(u)}
+                        href={evidenceSrc(u)!}
                         target="_blank"
                         rel="noreferrer"
                       >
                         <img
                           className="doc-photo"
-                          src={evidenceSrc(u)}
+                          src={evidenceSrc(u)!}
                           alt={appText(
-                            `Фото ${i + 1} из ${inc.respondent_evidence_urls.length} — открыть`,
-                            `Фото ${i + 1} / ${inc.respondent_evidence_urls.length} — асыу`
+                            `Фото ${i + 1} из ${inc.respondent_evidence_urls.filter(evidenceSrc).length} — открыть`,
+                            `Фото ${i + 1} / ${inc.respondent_evidence_urls.filter(evidenceSrc).length} — асыу`
                           )}
                         />
                       </a>

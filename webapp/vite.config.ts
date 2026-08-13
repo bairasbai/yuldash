@@ -18,6 +18,10 @@ export default defineConfig({
         globIgnores: [
           "**/onboarding_bashkir_hero.png",
           "**/login_salavat_yulaev_hero.png",
+          // Админка — отдельными кусками и НЕ в офлайн-оболочке: её открывает
+          // один человек, у которого всегда есть сеть. Класть её всем в кеш —
+          // это лишние мегабайты мобильного трафика при первом визите.
+          "**/assets/Admin*.js",
         ],
         navigateFallback: "/index.html",
         // Подключаем наш обработчик Web Push (push / notificationclick) к

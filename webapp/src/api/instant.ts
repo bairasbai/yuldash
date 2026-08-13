@@ -88,6 +88,28 @@ export interface EstimateInput {
   category?: TaxiCategory;
 }
 
+/**
+ * Что уходит вместе с заказом, сверх маршрута (сервер: OrderIn).
+ *
+ * Комментарий и подъезд — потому что в селе «Ленина 12» это пять домов без табличек,
+ * а чат открывается только ПОСЛЕ принятия заказа: до этого сказать водителю нечего.
+ *
+ * for_name / for_phone — заказ ДЛЯ ДРУГОГО: сын из Уфы вызывает такси маме в Баймак.
+ * Без них водитель звонил заказчику в другой город, а мама стояла у ворот.
+ *
+ * women_only — жёсткий фильтр: подсунуть мужчину значит обмануть в том, ради чего
+ * галочку и ставили. Никого не нашлось — заказ честно истекает.
+ */
+export interface OrderExtras {
+  comment?: string;
+  entrance?: string;
+  for_name?: string;
+  for_phone?: string;
+  women_only?: boolean;
+}
+
+export type OrderInput = EstimateInput & OrderExtras;
+
 /** Ответ оценки (instant_service.estimate). */
 export interface EstimateResult {
   price: number;
@@ -114,6 +136,15 @@ export interface EstimateResult {
   pricing_cap_k?: number;
   /** Цены обоих классов одним запросом — пассажир выбирает с открытыми глазами. */
   options: { category: TaxiCategory | string; price: number; base_price?: number }[];
+  /**
+   * Скидка по промокоду. Сервер применяет её сам — вводить ничего не нужно,
+   * поля приходят всегда (ноль = скидки нет, а не «не пришло»).
+   * Разницу платит Юлдаш из своей комиссии: водитель получает столько же.
+   */
+  promo_code?: string;
+  promo_discount_kop?: number;
+  price_with_discount?: number;
+  promo_note?: { ru: string; ba: string } | null;
 }
 
 // ------------------------------- Доступность (гейт города) -------------------------------
@@ -144,13 +175,13 @@ export function instantEstimate(body: EstimateInput): Promise<EstimateResult> {
 }
 
 /** POST /instant/orders — вызвать машину сейчас (created→searching→offered|expired). */
-export function createInstantOrder(body: EstimateInput): Promise<InstantOrder> {
+export function createInstantOrder(body: OrderInput): Promise<InstantOrder> {
   return apiPost<InstantOrder>("/instant/orders", body);
 }
 
 /** POST /instant/schedule — предзаказ «на время» (статус scheduled). */
 export function createScheduledOrder(
-  body: EstimateInput & { scheduled_at: string }
+  body: OrderInput & { scheduled_at: string }
 ): Promise<InstantOrder> {
   return apiPost<InstantOrder>("/instant/schedule", body);
 }
@@ -218,9 +249,30 @@ export function fetchDriverOffer(signal?: AbortSignal): Promise<{ offer: Instant
 export function acceptOrder(id: number): Promise<InstantOrder> {
   return apiPost<InstantOrder>(`/instant/orders/${id}/accept`, undefined);
 }
-export function declineOrder(id: number): Promise<InstantOrder> {
-  return apiPost<InstantOrder>(`/instant/orders/${id}/decline`, undefined);
+/**
+ * Водитель не взял заказ. Причина необязательна, но её стоит спросить ПОСЛЕ отказа:
+ * без причины платформа видит только «не берут» и продолжает слать те же заказы тем же
+ * людям. С причиной видно, что чинить — далеко подавать, мало денег, не по пути.
+ * Это диагностика подбора, а не наказание: за отказ ничего не бывает.
+ */
+export type DeclineReason = "far" | "cheap" | "direction" | "busy" | "break" | "other";
+
+export function declineOrder(id: number, reason?: DeclineReason): Promise<InstantOrder> {
+  return apiPost<InstantOrder>(
+    `/instant/orders/${id}/decline`,
+    reason ? { reason } : undefined
+  );
 }
+
+/** Подписи причин. Порядок неслучаен: сверху то, что называют чаще всего. */
+export const DECLINE_REASONS: { key: DeclineReason; ru: string; ba: string }[] = [
+  { key: "far", ru: "Далеко подавать", ba: "Килергә алыҫ" },
+  { key: "cheap", ru: "Мало денег", ba: "Аҡса аҙ" },
+  { key: "direction", ru: "Не по пути", ba: "Юл ыңғайы түгел" },
+  { key: "busy", ru: "Уже занят", ba: "Мәшғүлмен" },
+  { key: "break", ru: "Перерыв", ba: "Тәнәфес" },
+  { key: "other", ru: "Другое", ba: "Башҡаһы" },
+];
 export function arrivedOrder(id: number): Promise<InstantOrder> {
   return apiPost<InstantOrder>(`/instant/orders/${id}/arrived`, undefined);
 }
@@ -465,4 +517,48 @@ export interface TaxiDocsInput {
 /** Продлил ОСАГО — сказал системе, не сбрасывая статус заявки в «на проверке». */
 export function updateTaxiDocuments(body: TaxiDocsInput): Promise<TaxiApplication> {
   return apiPost<TaxiApplication>("/taxi/documents", body);
+}
+
+// ------------------------------- Зона работы таксиста -------------------------------
+/**
+ * Где водитель готов брать заказы (зеркало GET/POST /instant/zone).
+ *
+ * Как «Мой район» у Яндекс Про, но бесплатно: в базовом режиме ОБЕ точки заказа
+ * внутри зоны, выход за неё — только по тумблеру. Без этого выбора заказы сыплются
+ * отовсюду, и водитель читает каждый вручную — именно это и выжигает людей.
+ *
+ * Влияет только на такси. Попутка (плановые поездки) зоной не ограничивается.
+ */
+export interface WorkZone {
+  work_zone: "city" | "district" | null; // база: мой город/село или весь район
+  work_city: string | null;
+  work_district: string | null;
+  work_intercity: boolean; // готов на выезд загород
+  work_regions: boolean; // и в соседние регионы (только вместе с загородом)
+  work_direction_id: number | null; // «только в сторону …», необязательно
+  work_direction?: { id: number; name_ru: string; name_ba: string } | null;
+}
+
+export interface WorkZoneInput {
+  zone: "city" | "district";
+  work_city?: string | null;
+  work_district?: string | null;
+  work_intercity?: boolean;
+  work_regions?: boolean;
+  work_direction_id?: number | null;
+}
+
+export function fetchWorkZone(signal?: AbortSignal): Promise<WorkZone> {
+  return apiGet<WorkZone>("/instant/zone", { signal });
+}
+
+export function saveWorkZone(body: WorkZoneInput): Promise<WorkZone> {
+  return apiPost<WorkZone>("/instant/zone", {
+    work_zone: body.zone,
+    work_city: body.work_city ?? null,
+    work_district: body.work_district ?? null,
+    work_intercity: body.work_intercity ?? false,
+    work_regions: body.work_regions ?? false,
+    work_direction_id: body.work_direction_id ?? null,
+  });
 }

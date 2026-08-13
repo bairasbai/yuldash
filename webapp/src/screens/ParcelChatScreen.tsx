@@ -27,6 +27,7 @@ import { ChatPhotoButton, ChatMessageBody } from "../components/ChatPhoto";
 import { ChatVoiceButton, VoiceBubble } from "../components/ChatVoice";
 import { IconArrow } from "../components/Icons";
 import { YuChat } from "../components/BrandIcons";
+import { ChatFlagPlate, ChatSafetyDisclaimer } from "../components/ChatSafety";
 
 /** Готовые фразы под доставку — один тап вместо набора на ходу. */
 function ParcelQuickReplies({ onPick }: { onPick: (t: string) => void }) {
@@ -197,6 +198,14 @@ export default function ParcelChatScreen() {
       ) : (
         <div className="chat chat--full">
           <div className="chat__body">
+            <ChatSafetyDisclaimer />
+            {!loaded && (
+              <div className="chat__loading" aria-live="polite">
+                <span className="skeleton chat__skeleton" />
+                <span className="skeleton chat__skeleton chat__skeleton--mine" />
+                <span className="skeleton chat__skeleton" />
+              </div>
+            )}
             {loaded && messages.length === 0 && (
               <p className="chat__empty">
                 {appText(
@@ -208,11 +217,12 @@ export default function ParcelChatScreen() {
             {messages.map((m) => {
               const mine = m.sender_id === myId;
               return (
-                <div key={m.id} className={"bubble" + (mine ? " bubble--mine" : "")}>
-                  {m.from_admin && (
-                    <span className="bubble__admin">{appText("Поддержка", "Ярҙам")}</span>
-                  )}
-                  {m.voice_url ? <VoiceBubble url={m.voice_url} /> : <ChatMessageBody text={m.text} />}
+                <div key={m.id} className={"msg" + (mine ? " msg--mine" : "")}>
+                  <div className={"bubble" + (mine ? " bubble--mine" : "")}>
+                    {m.from_admin && <span className="bubble__admin">Юлдаш ✓</span>}
+                    {m.voice_url ? <VoiceBubble url={m.voice_url} /> : <ChatMessageBody text={m.text} />}
+                  </div>
+                  <ChatFlagPlate flag={m.flag} mine={mine} />
                 </div>
               );
             })}

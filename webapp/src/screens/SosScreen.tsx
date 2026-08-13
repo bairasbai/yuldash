@@ -4,14 +4,14 @@
 //  «Сообщить своим» (POST /sos) — только со входом; гостю мягко
 //  предлагаем войти. Крупные тач-цели, всё двуязычно.
 // ================================================================
-import { useState, type ComponentType } from "react";
+import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { sendSos, type SosCategory } from "../api/safety";
 import { SubHeader } from "./ConsentsScreen";
-import { IconPhone, IconShield, IconCheck, IconWarn, IconHospital, IconHeart, IconCar } from "../components/Icons";
+import { IconPhone, IconShield, IconCheck, IconWarn, IconHospital, IconHeart, IconCar, IconCopy } from "../components/Icons";
 
 type SendState = "idle" | "sending" | "sent" | "error";
 type IconCmp = ComponentType<{ size?: number }>;
@@ -33,6 +33,46 @@ export default function SosScreen() {
   const [state, setState] = useState<SendState>("idle");
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Своё место. Нужно дважды: уходит вместе с сигналом близким И показывается
+   * на экране, чтобы продиктовать оператору 112. Оператор первым делом спросит
+   * «где вы?», а человек в чужом селе на трассе этого не знает.
+   */
+  const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [geoBusy, setGeoBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const askGeo = useCallback(() => {
+    if (!navigator.geolocation) return;
+    setGeoBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
+        setGeoBusy(false);
+      },
+      () => setGeoBusy(false),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  }, []);
+
+  // Спрашиваем сразу при открытии: на этом экране секунды на счету.
+  useEffect(() => {
+    askGeo();
+  }, [askGeo]);
+
+  const coordsText = pos ? `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` : "";
+
+  async function copyCoords() {
+    if (!coordsText) return;
+    try {
+      await navigator.clipboard.writeText(coordsText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* буфер недоступен — цифры на экране, их можно продиктовать */
+    }
+  }
+
   const cats: { key: SosCategory; label: string; Icon: IconCmp }[] = [
     { key: "medical", label: appText("Здоровье", "Һаулыҡ"), Icon: IconHeart },
     { key: "breakdown", label: appText("На трассе", "Юлда"), Icon: IconCar },
@@ -44,7 +84,9 @@ export default function SosScreen() {
     setState("sending");
     setError(null);
     try {
-      await sendSos({ category, note: note.trim() });
+      // Координаты кладём, если они уже есть: ждать GPS в экстренной ситуации нельзя,
+      // сигнал без места всё равно лучше, чем ничего.
+      await sendSos({ category, note: note.trim(), lat: pos?.lat, lng: pos?.lng });
       setState("sent");
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
@@ -87,6 +129,33 @@ export default function SosScreen() {
           "Шылтыратыу түләүһеҙ, интернетһеҙ ҙә эшләй."
         )}
       </p>
+
+      {/* Первое, что спросит оператор, — «где вы?». На трассе или в чужом селе
+          человек этого не знает. Цифры крупно и рядом кнопка «скопировать». */}
+      <div className="sos-coords">
+        <div className="sos-coords__label">{appText("Продиктуй оператору", "Операторға әйт")}</div>
+        {coordsText ? (
+          <>
+            <div className="sos-coords__value">{coordsText}</div>
+            <button type="button" className="btn-soft" onClick={copyCoords}>
+              {copied ? <IconCheck size={18} /> : <IconCopy size={18} />}
+              {copied ? appText("Скопировано", "Күсерелде") : appText("Скопировать", "Күсереү")}
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="sos-coords__off">
+              {appText(
+                "Геолокация выключена — включи, чтобы продиктовать координаты.",
+                "Геолокация һүнгән — координаттарҙы әйтер өсөн ҡабыҙ."
+              )}
+            </p>
+            <button type="button" className="btn-soft" onClick={askGeo} disabled={geoBusy}>
+              {geoBusy ? appText("Обновляю…", "Яңыртам…") : appText("Включить гео", "Геоны ҡабыҙыу")}
+            </button>
+          </>
+        )}
+      </div>
 
       {/* Сообщить своим — требует входа */}
       <h2 className="section-title">{appText("Сообщить близким", "Яҡындарға хәбәр итергә")}</h2>

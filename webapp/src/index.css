@@ -9,6 +9,7 @@
   --canon-green-glow: #7fe3ab; /* CanonGreen (dark) */
   --canon-gold: #f5b301; /* CanonGold light (dark override ниже) */
   --canon-gold-soft: #ffe3a1; /* CanonYellow light */
+  --canon-gold-ink: #7a5200; /* подпись на мягкой жёлтой плашке */
   /* CanonStar адаптивный: яркое золото на белой карточке давало контраст 2.08 — ниже порога
      3:1 для значащей графики. А в выборе оценки звёзды И ЕСТЬ информация, а не украшение.
      Светлая — глубокая охра (3.43), тёмная — прежнее золото (7.68). */
@@ -27,7 +28,7 @@
   --mint: #e7f5ec; /* CanonMint */
   --green: #073f25; /* CanonGreen — акцентный текст-зелёный */
   --green2: #0b6b3a; /* CanonGreen2 */
-  --green-btn: #0b6b3a; /* заливка кнопки (белый текст ≥3:1) */
+  --green-btn: #0b6b3a; /* заливка кнопки — белая подпись 16px/600 требует 4.5:1 */
   --warn-bg: #fff2d6; /* CanonWarnBg */
   --warn: #9a6200; /* CanonWarn */
   --danger-bg: #fdecea; /* CanonDangerBg */
@@ -134,6 +135,9 @@
     --yellow: #4a3a14; /* CanonYellow dark */
     --taxi-text: #ffe3a1; /* CanonTaxiText dark — светлый текст на тёмно-коричневой подложке */
     --canon-gold: #e8c36b; /* CanonGold dark */
+    /* Тёмная жёлтая плашка: светлая на тёмном фоне читалась как дыра в экране */
+    --canon-gold-soft: #4a3a14;
+    --canon-gold-ink: #ffe3a1;
     --bg: #0f1613; /* CanonBg dark */
     --surface: #192420;
     --surface-2: #101a16;
@@ -144,7 +148,9 @@
     --mint: #0f2419;
     --green: #7fe3ab;
     --green2: #27a463;
-    --green-btn: #27a463;
+    /* Заливка кнопки темнее, чем --green2: белая подпись 16px/600 — не «крупный
+       текст», ей нужен контраст 4.5, а на #27a463 выходило всего 3.19. */
+    --green-btn: #17804c;
     --warn-bg: #3a2e12;
     --warn: #e8b86a;
     --danger-bg: #3a1b18;
@@ -170,6 +176,9 @@
   --yellow: #4a3a14; /* CanonYellow dark */
   --taxi-text: #ffe3a1; /* CanonTaxiText dark — светлый текст на тёмно-коричневой подложке */
   --canon-gold: #e8c36b; /* CanonGold dark */
+  /* см. media-блок выше: плашка коричневая, подпись светлая */
+  --canon-gold-soft: #4a3a14;
+  --canon-gold-ink: #ffe3a1;
   --bg: #0f1613; /* CanonBg dark */
   --surface: #192420;
   --surface-2: #101a16;
@@ -180,7 +189,8 @@
   --mint: #0f2419;
   --green: #7fe3ab;
   --green2: #27a463;
-  --green-btn: #27a463;
+  /* см. комментарий выше: белая подпись кнопки требует 4.5, а не 3 */
+  --green-btn: #17804c;
   --warn-bg: #3a2e12;
   --warn: #e8b86a;
   --danger-bg: #3a1b18;
@@ -257,6 +267,21 @@ a {
   100% {
     background-position: 200% 0;
   }
+}
+
+/* ---- Клавиатура: видно, где ты сейчас ----
+   Отдельные элементы свой фокус имели, но у большинства кнопок и ссылок его не
+   было вовсе: человек, который ходит по интерфейсу с клавиатуры или переключателем,
+   двигался вслепую. :focus-visible, а не :focus — при обычном тапе рамка не мешает. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--green2);
+  outline-offset: 2px;
+  border-radius: var(--radius-tiny);
+}
+
+/* На фиксированно-тёмных подложках (шапка, кнопка-акцент) зелёная рамка тонет */
+:where(.lang-toggle, .screen-header, .app-header) :focus-visible {
+  outline-color: var(--on-accent);
 }
 
 @media (prefers-reduced-motion: reduce) {

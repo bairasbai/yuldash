@@ -8,7 +8,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { fetchAdminParcels, releaseParcelCourier, type ParcelsStatement } from "../api/admin";
+import {
+  fetchAdminParcels,
+  releaseParcelCourier,
+  adminCancelParcel,
+  adminCloseParcel,
+  type ParcelsStatement,
+} from "../api/admin";
 import { ApiError } from "../api/client";
 import type { Parcel } from "../api/parcels";
 import { SubHeader } from "./ConsentsScreen";
@@ -150,6 +156,9 @@ function ParcelAdminCard({
   const { appText } = useLang();
   const dtype = DTYPE_LABEL[p.delivery_type] ?? DTYPE_LABEL.poputka;
   const [release, setRelease] = useState<number | null>(null);
+  /** Разбор вручную: отменить доставку или закрыть её итогом. */
+  const [resolve, setResolve] = useState(false);
+  const [outcome, setOutcome] = useState<"canceled" | "returned" | "delivered">("canceled");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
@@ -168,6 +177,28 @@ function ParcelAdminCard({
         e instanceof ApiError && e.message
           ? e.message
           : appText("Не получилось снять курьера.", "Курьерҙы алып булманы.")
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Итог разбора: «отменена» — отдельной ручкой, остальное — закрытием с итогом. */
+  async function doResolve(id: number) {
+    if (busy) return;
+    setBusy(true);
+    setNote("");
+    try {
+      if (outcome === "canceled") await adminCancelParcel(id, reason.trim());
+      else await adminCloseParcel(id, outcome, reason.trim());
+      setResolve(false);
+      setReason("");
+      onReleased();
+    } catch (e) {
+      setNote(
+        e instanceof ApiError && e.message
+          ? e.message
+          : appText("Не получилось закрыть доставку.", "Илтеүҙе ябып булманы.")
       );
     } finally {
       setBusy(false);
@@ -266,6 +297,89 @@ function ParcelAdminCard({
           </button>
         )
       )}
+
+      {/* Разбор вручную: звонит бабушка, курьер пропал, стороны договорились сами.
+          Причину получают обе стороны — молчаливая отмена читается как «сервис
+          забрал посылку», а это худшее, что можно сделать с доверием. */}
+      {!["delivered", "canceled", "returned"].includes(String(p.status)) &&
+        (resolve ? (
+          <>
+            <span className="field__label" style={{ marginTop: 12, display: "block" }}>
+              {appText("Чем закончилось", "Нимә менән бөттө")}
+            </span>
+            <div className="seg" style={{ marginTop: 6 }}>
+              {(
+                [
+                  ["canceled", appText("Отменена", "Кире алынды")],
+                  ["returned", appText("Вернулась отправителю", "Ебәреүсегә ҡайтты")],
+                  ["delivered", appText("Всё-таки доставлена", "Барыбер тапшырылды")],
+                ] as ["canceled" | "returned" | "delivered", string][]
+              ).map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  className={"seg__item" + (outcome === k ? " is-active" : "")}
+                  onClick={() => setOutcome(k)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <label className="field" style={{ marginTop: 10 }}>
+              <span className="field__label">
+                {appText("Причина (её увидят стороны)", "Сәбәп (яҡтар күрәсәк)")}
+              </span>
+              <input
+                className="field__input"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                maxLength={200}
+                placeholder={appText("«Договорились сами, посылку забрали»", "«Үҙҙәре килешкән, аҫылманы алғандар»")}
+              />
+            </label>
+
+            <p className="demand__quiet">
+              {appText(
+                "При «вернулась» и «отменена» комиссию за неоказанную услугу не берём.",
+                "«Ҡайтты» һәм «кире алынды» осрағында күрһәтелмәгән хеҙмәт өсөн комиссия алмайбыҙ."
+              )}
+            </p>
+
+            <div className="act-card__actions" style={{ marginTop: 10 }}>
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={() => doResolve(p.id)}
+                disabled={busy || !reason.trim()}
+              >
+                {busy ? appText("Закрываем…", "Ябабыҙ…") : appText("Закрыть доставку", "Илтеүҙе ябыу")}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  setResolve(false);
+                  setReason("");
+                }}
+              >
+                {appText("Отмена", "Кире алыу")}
+              </button>
+            </div>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="btn-ghost"
+            style={{ width: "100%", marginTop: 10 }}
+            onClick={() => {
+              setResolve(true);
+              setReason("");
+            }}
+          >
+            {appText("Разобрать вручную", "Ҡул менән хәл итеү")}
+          </button>
+        ))}
 
       {note && <p className="demand__quiet">{note}</p>}
     </div>

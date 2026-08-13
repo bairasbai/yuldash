@@ -39,6 +39,7 @@ import {
   YuAccessible,
   YuStar,
 } from "../components/BrandIcons";
+import { PartnerAdSlot } from "../components/PartnerAd";
 
 function initials(name: string): string {
   const p = name.trim().split(/\s+/).filter(Boolean);
@@ -230,6 +231,14 @@ export default function ProfileScreen() {
       icon: <IconBell size={22} />,
       title: appText("Подписки на маршрут", "Маршрут яҙылыуҙары"),
       sub: appText("Появится попутка — пришлём", "Юлдаш сыҡһа — хәбәр итәбеҙ"),
+      authed: true,
+    },
+    {
+      key: "support-yuldash",
+      to: "/support-yuldash",
+      icon: <IconHeart size={22} />,
+      title: appText("Поддержать Юлдаш", "Юлдашҡа ярҙам итеү"),
+      sub: appText("Серверы, карты, SMS и поддержка", "Серверҙар, карталар, SMS һәм ярҙам"),
       authed: true,
     },
     {
@@ -482,6 +491,8 @@ export default function ProfileScreen() {
           );
         });
       })()}
+
+      <PartnerAdSlot placement="profile" />
 
       {isAuthed && (
         <button type="button" className="logout-btn" onClick={() => void logout()}>

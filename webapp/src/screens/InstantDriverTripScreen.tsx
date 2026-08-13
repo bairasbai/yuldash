@@ -25,6 +25,8 @@ import {
   fetchInstantOrder,
   acceptOrder,
   declineOrder,
+  DECLINE_REASONS,
+  type DeclineReason,
   arrivedOrder,
   onboardOrder,
   doneOrder,
@@ -42,7 +44,9 @@ import { LoadingList } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
 import { IconCar, IconStar, IconPhone, IconChat, IconCheck, IconWarn, IconProfile, IconShield, IconClock } from "../components/Icons";
 import { YuMoon } from "../components/BrandIcons";
-import { priceLabel, formatWhen } from "../utils/format";
+import { priceLabel, formatWhen, kopExactLabel } from "../utils/format";
+import DebtCard from "../components/DebtCard";
+import WorkZoneCard from "../components/WorkZoneCard";
 
 type Boot = "loading" | "error" | "need-approval" | "ready";
 const PRESENCE_MS = 15000;
@@ -266,14 +270,38 @@ export default function InstantDriverTripScreen() {
     }
   }
 
+  /**
+   * «Почему не взял?» — вопрос ПОСЛЕ отказа, а не вместо него.
+   *
+   * У оффера тикает обратный отсчёт: пока водитель за рулём выбирает причину,
+   * пассажир ждёт машину, которая уже не приедет. Поэтому сначала отказываем,
+   * и только потом спрашиваем — ответ необязателен.
+   *
+   * Без причин платформа видит только «не берут» и продолжает слать те же
+   * заказы тем же людям.
+   */
+  const [askWhy, setAskWhy] = useState<number | null>(null);
+
   async function skip() {
     if (!offer) return;
     const id = offer.id;
     setOffer(null);
     try {
       await declineOrder(id);
+      setAskWhy(id);
     } catch {
       /* уже ушёл дальше */
+    }
+  }
+
+  async function sendWhy(reason: DeclineReason) {
+    const id = askWhy;
+    setAskWhy(null);
+    if (!id) return;
+    try {
+      await declineOrder(id, reason);
+    } catch {
+      /* причина — не критично: отказ уже прошёл */
     }
   }
 
@@ -427,8 +455,66 @@ export default function InstantDriverTripScreen() {
               </>
             )}
           </p>
+
+          {/* Машина всё равно едет домой — пусть везёт земляка. Одна публикация
+              попутки разрешена и в отдых: это плановая поездка, не такси. */}
+          {workday.blocked && !workday.return_ride_used && (
+            <>
+              <p className="act-card__text">
+                {appText(
+                  "Возьми одного попутчика домой: машина всё равно едет назад. Одна публикация попутки до конца отдыха.",
+                  "Ҡайтҡанда бер юлдаш ал: машина барыбер кире бара. Ял бөткәнгә тиклем бер генә юлдаш иғланы."
+                )}
+              </p>
+              <button type="button" className="btn-soft" onClick={() => navigate("/create-ride")}>
+                {appText("Опубликовать поездку домой", "Ҡайтыу сәфәрен баҫтырыу")}
+              </button>
+            </>
+          )}
         </div>
       )}
+
+      {/* Отказ уже прошёл — спрашиваем причину. Можно молча закрыть. */}
+      {askWhy !== null && (
+        <section className="decline-why">
+          <div className="decline-why__title">
+            {appText("Почему не взял?", "Ниңә алманың?")}
+          </div>
+          <p className="decline-why__note">
+            {appText(
+              "Ответ необязателен и ни на что не влияет — он нужен, чтобы заказы приходили более подходящие.",
+              "Яуап мотлаҡ түгел һәм бер нәмәгә лә тәьҫир итмәй — заказдар тағы ла тапҡырыраҡ килһен өсөн кәрәк."
+            )}
+          </p>
+          <div className="chips decline-why__chips">
+            {DECLINE_REASONS.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                className="chip"
+                onClick={() => void sendWhy(r.key)}
+              >
+                {ru ? r.ru : r.ba}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="btn-soft" onClick={() => setAskWhy(null)}>
+            {appText("Пропустить", "Үткәреү")}
+          </button>
+        </section>
+      )}
+
+      {/* Долг по комиссии: пока он висит, такси заблокировано. Показываем до
+          тумблера «на линии» — иначе водитель жмёт его и не понимает, почему тихо. */}
+      <DebtCard />
+
+      {/* Где брать заказы. Без зоны они сыплются отовсюду, и человек читает
+          каждый вручную — именно это и выжигает водителей. */}
+      <WorkZoneCard />
+
+      {/* Смена и деньги за день: сколько отработал, сколько заработал и какая
+          комиссия. Цифры до конца дня, а не сюрприз в конце недели. */}
+      {workday && <ShiftCard wd={workday} />}
 
       <button
         type="button"
@@ -741,5 +827,69 @@ function DriverTrip({
         </button>
       )}
     </>
+  );
+}
+
+// ----------------------------- Смена и деньги за день -----------------------------
+/**
+ * Сколько водитель отработал, сколько заработал и какая у него комиссия.
+ * Зеркало Android-дашборда в кабинете таксиста.
+ *
+ * Комиссию показываем всегда, даже когда она максимальная: водитель должен
+ * видеть, сколько с него берут, до конца дня — а не узнавать это из недельного
+ * счёта. Ставка падает со стажем, и это тоже видно.
+ */
+function ShiftCard({ wd }: { wd: Workday }) {
+  const { appText } = useLang();
+
+  const h = Math.floor(wd.seconds_online / 3600);
+  const m = Math.floor((wd.seconds_online % 3600) / 60);
+  const shift = `${h}:${String(m).padStart(2, "0")}`;
+  const progress = wd.limit_sec > 0 ? Math.min(100, (wd.seconds_online / wd.limit_sec) * 100) : 0;
+
+  return (
+    <section className="shift-card">
+      <div className="shift-card__head">
+        <span className="shift-card__label">{appText("Смена такси", "Такси сменаһы")}</span>
+        <span className="shift-card__time">
+          {shift} <span className="shift-card__of">{appText(`из ${wd.limit_hours} ч`, `${wd.limit_hours} сәғәттән`)}</span>
+        </span>
+      </div>
+      <div className="shift-card__bar" aria-hidden>
+        <span style={{ width: `${progress}%` }} />
+      </div>
+
+      <div className="shift-card__money">
+        <div>
+          <div className="shift-card__net">{kopExactLabel(wd.net_today_kop)}</div>
+          <div className="shift-card__sub">{appText("Чистыми сегодня", "Бөгөн таҙа")}</div>
+        </div>
+        <div className="shift-card__orders">
+          <b>{wd.orders_today}</b>
+          <span>{appText("заказов", "заказ")}</span>
+        </div>
+      </div>
+
+      <div className="shift-card__split">
+        {appText(
+          `Пассажиры: ${kopExactLabel(wd.gross_today_kop)} · комиссия: ${kopExactLabel(wd.fee_today_kop)}`,
+          `Юлаусылар: ${kopExactLabel(wd.gross_today_kop)} · комиссия: ${kopExactLabel(wd.fee_today_kop)}`
+        )}
+      </div>
+
+      <p className="shift-card__fee">
+        {appText(
+          `Комиссия сервиса ${wd.fee_percent}% — ниже, чем у агрегаторов (22–30%).`,
+          `Сервис комиссияһы ${wd.fee_percent}% — агрегаторҙарҙан (22–30%) түбәнерәк.`
+        )}
+      </p>
+
+      <p className="shift-card__law">
+        {appText(
+          `После ${wd.limit_hours} часов на линии — отдых до утра. Попутка в лимит не входит.`,
+          `Линияла ${wd.limit_hours} сәғәттән һуң — иртәнгә тиклем ял. Юлдаш лимитҡа инмәй.`
+        )}
+      </p>
+    </section>
   );
 }

@@ -37,6 +37,20 @@ function autocheckBadge(result: string, appText: (r: string, b: string) => strin
   }
 }
 
+/**
+ * Что распознала автопроверка: номер прав и срок действия. Модератору важен
+ * не сам вердикт робота, а то, что робот прочитал, — цифры он сверит с фото
+ * глазами за секунду.
+ */
+function autocheckDetails(dataJson: string): { num: string; expiry: string } {
+  try {
+    const p = JSON.parse(dataJson || "{}");
+    return { num: String(p.license_number ?? ""), expiry: String(p.expiry ?? "") };
+  } catch {
+    return { num: "", expiry: "" }; // мусор в поле — просто не показываем строку
+  }
+}
+
 /** Защищённое фото документа: тянем с токеном → objectURL, чистим при размонтировании. */
 function SecureImage({ url, alt }: { url: string; alt: string }) {
   const { appText } = useLang();
@@ -115,12 +129,20 @@ export default function AdminDriversScreen() {
     };
   }, [load]);
 
+  /**
+   * Галочки «пол подтверждаю» по каждому водителю. Ключ — user_id.
+   * Ставит модератор, сверив с фото прав, которые уже перед глазами.
+   */
+  const [genderOk, setGenderOk] = useState<Record<number, boolean>>({});
+
   async function moderate(userId: number, approve: boolean) {
     if (busyId) return;
     setBusyId(userId);
     setRowError(null);
     try {
-      await moderateDriver(userId, approve);
+      const claimed = drivers.find((d) => d.user_id === userId)?.gender_claimed ?? "";
+      // Ничего не заявил — нечего и подтверждать: поле не шлём вовсе.
+      await moderateDriver(userId, approve, claimed ? Boolean(genderOk[userId]) : undefined);
       if (mounted.current) setDrivers((prev) => prev.filter((d) => d.user_id !== userId));
     } catch (e) {
       setRowError({
@@ -176,6 +198,17 @@ export default function AdminDriversScreen() {
                     {appText("Оценка автопроверки", "Автотикшереү баһаһы")}: {d.autocheck_score.toFixed(2)}
                   </div>
                 )}
+                {(() => {
+                  const { num, expiry } = autocheckDetails(d.autocheck_data);
+                  if (!num && !expiry) return null;
+                  return (
+                    <div className="admin-card__sub">
+                      {num && appText(`№ прав ${num}`, `права № ${num}`)}
+                      {num && expiry && "  ·  "}
+                      {expiry && appText(`срок до ${expiry}`, `ваҡыты ${expiry}`)}
+                    </div>
+                  );
+                })()}
 
                 <div className="doc-photos">
                   <div className="doc-photos__item">
@@ -187,6 +220,34 @@ export default function AdminDriversScreen() {
                     <SecureImage url={d.car_photo_url} alt={appText("Фото авто", "Авто фотоһы")} />
                   </div>
                 </div>
+
+                {/* Пол подтверждает человек по фото прав. Пока не подтверждён — бейдж
+                    «женщина за рулём» скрыт и женские заказы такси не приходят: иначе
+                    фильтр, который женщина включает ради безопасности, ничего не значит. */}
+                {d.gender_claimed && (
+                  <>
+                    <label className="admin-check">
+                      <input
+                        type="checkbox"
+                        checked={genderOk[d.user_id] ?? d.gender_verified ?? false}
+                        onChange={(e) =>
+                          setGenderOk((prev) => ({ ...prev, [d.user_id]: e.target.checked }))
+                        }
+                      />
+                      <span>
+                        {d.gender_claimed === "female"
+                          ? appText("Это женщина — подтверждаю", "Был ҡатын-ҡыҙ — раҫлайым")
+                          : appText("Это мужчина — подтверждаю", "Был ир-ат — раҫлайым")}
+                      </span>
+                    </label>
+                    <div className="admin-card__sub">
+                      {appText(
+                        "Сверь с фото прав. Без подтверждения бейдж и женские заказы не работают.",
+                        "Права фотоһы менән сағыштыр. Раҫлауһыҙ билдә лә, ҡатын-ҡыҙ заказы ла эшләмәй."
+                      )}
+                    </div>
+                  </>
+                )}
 
                 {rowError?.id === d.user_id && <div className="auth__error">{rowError.msg}</div>}
 

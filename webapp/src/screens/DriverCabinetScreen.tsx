@@ -44,6 +44,8 @@ import {
   IconIdCard,
   IconReceipt,
   IconShield,
+  IconShare,
+  IconTrend,
 } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
@@ -126,6 +128,34 @@ export default function DriverCabinetScreen() {
       );
     } finally {
       setFinishing(null);
+    }
+  }
+
+  /**
+   * Скинуть свою поездку в соседский чат. Половина пассажиров приходит
+   * не из ленты, а из «Ринат в WhatsApp кинул» — поэтому текст сразу
+   * готовый: маршрут, время, цена и ссылка.
+   */
+  async function shareRide(r: Ride) {
+    const when = formatWhen(r.depart_at, ru);
+    const text = appText(
+      `Еду ${r.from_city} → ${r.to_city}, ${when}. ${priceLabel(r.price, true)}, свободно мест: ${r.seats_left}. Юлдаш: https://yulbash.ru`,
+      `${r.from_city} → ${r.to_city} барам, ${when}. ${priceLabel(r.price, false)}, буш урын: ${r.seats_left}. Юлдаш: https://yulbash.ru`
+    );
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Юлдаш", text });
+        return;
+      } catch {
+        /* отменил — не ошибка */
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setFinishNote(appText("Ссылка скопирована", "Һылтанма күсерелде"));
+      window.setTimeout(() => setFinishNote(""), 1600);
+    } catch {
+      /* буфер недоступен — молчим, экран цел */
     }
   }
 
@@ -324,6 +354,31 @@ export default function DriverCabinetScreen() {
                       </div>
                     </div>
                     <StatusPill status={pill as never} />
+                    {/* Поездка едет — её ещё можно показать людям: поднять в ленте
+                        или скинуть ссылку в соседский чат. После рейса обе кнопки
+                        бессмысленны, поэтому их там нет. */}
+                    {st !== "done" && st !== "cancelled" && (
+                      <>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          aria-label={appText("Поделиться поездкой", "Сәфәр менән бүлешеү")}
+                          title={appText("Поделиться поездкой", "Сәфәр менән бүлешеү")}
+                          onClick={() => void shareRide(r)}
+                        >
+                          <IconShare size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          aria-label={appText("Поднять объявление", "Иғланды өҫкә күтәреү")}
+                          title={appText("Поднять объявление", "Иғланды өҫкә күтәреү")}
+                          onClick={() => navigate("/boost", { state: { rideId: r.id } })}
+                        >
+                          <IconTrend size={18} />
+                        </button>
+                      </>
+                    )}
                     {/* Завершить рейс целиком: пассажиры часто забывают нажать «Завершить»,
                         и тогда места висят занятыми, а поездка — в активных. */}
                     {st !== "done" && st !== "cancelled" && (

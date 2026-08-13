@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { fetchRides, type Ride } from "../api/rides";
 import ScreenHeader from "../components/ScreenHeader";
@@ -8,6 +8,8 @@ import { EmptyState, ErrorState, LoadingList } from "../components/States";
 import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
 import { IconFilter, IconSearch } from "../components/Icons";
 import { track } from "../analytics";
+import InviteDriverCallout from "../components/InviteDriverCallout";
+import PartnerAdCard, { usePartnerAds } from "../components/PartnerAd";
 
 type State =
   | { kind: "loading" }
@@ -31,15 +33,35 @@ export default function RidesScreen() {
   const filterOn = isFilterActive(prefs);
   const [state, setState] = useState<State>({ kind: "loading" });
 
-  const load = useCallback((signal?: AbortSignal) => {
-    setState({ kind: "loading" });
-    fetchRides(signal)
-      .then((rides) => setState({ kind: "ready", rides }))
-      .catch((e) => {
-        if (signal?.aborted || e?.name === "AbortError") return;
-        setState({ kind: "error" });
-      });
-  }, []);
+  // Реклама партнёра в ленте. Маршрутная (тариф «Маршрут») важнее общей:
+  // за неё платят дороже, и она ближе к тому, куда человек едет.
+  const routeAds = usePartnerAds("route");
+  const listAds = usePartnerAds("ridesList");
+  const inlineAd = routeAds[0] ?? listAds[0] ?? null;
+  const adLabel = routeAds[0]
+    ? appText("Партнёр по маршруту", "Маршрут партнёры")
+    : appText("Совет партнёра", "Партнёр кәңәше");
+
+  // Маршрут из адреса (?from=&to=) — по нему пришли с чипа популярного маршрута.
+  const [params, setParams] = useSearchParams();
+  const qFrom = params.get("from") ?? "";
+  const qTo = params.get("to") ?? "";
+  const routeOn = Boolean(qFrom || qTo);
+
+  const load = useCallback(
+    (signal?: AbortSignal) => {
+      setState({ kind: "loading" });
+      // Фильтр по маршруту считает сервер: тянуть всю ленту ради двух городов
+      // — лишний трафик на телефоне в селе.
+      fetchRides(signal, routeOn ? { from_city: qFrom || undefined, to_city: qTo || undefined } : undefined)
+        .then((rides) => setState({ kind: "ready", rides }))
+        .catch((e) => {
+          if (signal?.aborted || e?.name === "AbortError") return;
+          setState({ kind: "error" });
+        });
+    },
+    [qFrom, qTo, routeOn]
+  );
 
   useEffect(() => {
     const ac = new AbortController();
@@ -65,6 +87,12 @@ export default function RidesScreen() {
           <IconFilter size={16} />{" "}
           {filterOn ? appText("Фильтры включены", "Фильтрҙар ҡабыҙылған") : appText("Фильтры", "Фильтрҙар")}
         </button>
+        {/* Пришли с чипа маршрута — видно, что лента сужена, и можно снять одним тапом */}
+        {routeOn && (
+          <button type="button" className="chip chip--on" onClick={() => setParams({})}>
+            {qFrom || "…"} → {qTo || "…"} ✕
+          </button>
+        )}
       </div>
 
       {state.kind === "loading" && <LoadingList count={5} />}
@@ -89,14 +117,25 @@ export default function RidesScreen() {
                 </button>
               </div>
             ) : (
-              <EmptyState />
+              // Пусто по-настоящему — тупик. Единственное, что человек может
+              // сделать сейчас: позвать за руль знакомого.
+              <>
+                <EmptyState />
+                <InviteDriverCallout />
+              </>
             );
           }
           return (
             <div>
               {rides.map((ride, i) => (
-                <RideCard key={ride.id} ride={ride} index={i} />
+                <div key={ride.id}>
+                  <RideCard ride={ride} index={i} />
+                  {/* Реклама после третьей карточки: видно, но не в лицо с первого экрана */}
+                  {inlineAd && i === 2 && <PartnerAdCard ad={inlineAd} label={adLabel} />}
+                </div>
               ))}
+              {/* Список короче трёх — рекламу показываем в конце, иначе партнёр не получит показ */}
+              {inlineAd && rides.length <= 2 && <PartnerAdCard ad={inlineAd} label={adLabel} />}
             </div>
           );
         })()}

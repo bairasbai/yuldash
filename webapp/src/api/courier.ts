@@ -76,9 +76,20 @@ export function fetchCourierApplication(
 }
 
 /** POST /courier/apply — подать заявку (transport ∈ car|cargo, селфи обязательно). */
+/**
+ * Заявка «стать курьером».
+ *
+ * Имя, госномер и согласие с правилами сервер пока принимает мягко (флагом
+ * `courier_identity_required`), но спрашивать их нужно с самого начала: мы
+ * доверяем человеку чужую посылку, и знать о нём хотя бы столько же, сколько
+ * о попутчике, — минимум приличия. По госномеру его узнают у подъезда.
+ */
 export function applyCourier(body: {
   transport: CourierTransport;
   selfie_url: string;
+  full_name?: string;
+  car_plate?: string;
+  rules_accepted?: boolean;
 }): Promise<CourierApplication> {
   return apiPost<CourierApplication>("/courier/apply", body);
 }

@@ -4,17 +4,22 @@
 //  (POST) с живой доставкой через WebSocket /ws/bookings/{id}.
 //  WS-авторизация: первым кадром {"type":"auth","token":"<jwt>"}.
 // ================================================================
-import { API_BASE, apiGet, apiPost, apiUpload, getToken } from "./client";
+import { API_BASE, apiGet, apiPost, apiDelete, apiUpload, getToken, isOwnApiUrl } from "./client";
 
 /** Сообщение чата (строка Message + live-payload сокета). */
 export interface ChatMessage {
   id: number;
   sender_id: number;
   text: string;
-  flag?: string; // "" | "warn"
+  /** Метка сервера: "" — обычное, "warn" — фишинг, "contact" — телефон, "abuse" — грубость. */
+  flag?: string;
   from_admin?: boolean;
   /** Ссылка на голосовое (наш /voice). Пусто — обычное текстовое сообщение. */
   voice_url?: string;
+  /** Удалено у всех: текст очищен сервером, показываем пометку вместо пузыря. */
+  deleted?: boolean;
+  /** Отредактировано — рядом с текстом приписка «изменено». */
+  edited?: boolean;
   // REST отдаёт created_at, сокет — timestamp. Нормализуем в UI.
   created_at?: string;
   timestamp?: string;
@@ -38,6 +43,33 @@ export function sendMessageRest(
     text,
     voice_url: voiceUrl,
   });
+}
+
+/**
+ * Поправить своё сообщение (POST /bookings/{id}/messages/{mid}/edit).
+ * Сервер сам перепроверяет текст на подозрительное — «отправил безобидное,
+ * потом переписал» не проходит. Голосовое править нельзя.
+ * Ошибки: 403 чужое, 400 удалено / пусто / голосовое.
+ */
+export function editMessage(
+  bookingId: number,
+  messageId: number,
+  text: string
+): Promise<ChatMessage> {
+  return apiPost<ChatMessage>(`/bookings/${bookingId}/messages/${messageId}/edit`, { text });
+}
+
+/**
+ * Удалить сообщение (DELETE /bookings/{id}/messages/{mid}).
+ *   "all" — у всех: только своё, текст стирается, остаётся пометка;
+ *   "me"  — скрыть у себя: собеседник по-прежнему видит.
+ */
+export function deleteMessage(
+  bookingId: number,
+  messageId: number,
+  scope: "all" | "me"
+): Promise<ChatMessage> {
+  return apiDelete<ChatMessage>(`/bookings/${bookingId}/messages/${messageId}?scope=${scope}`);
 }
 
 /** Инбокс диалогов (GET /conversations). */
@@ -287,11 +319,21 @@ export function openTripLocation(
  */
 export const IMG_PREFIX = "[img]";
 
-/** Текст сообщения → ссылка на картинку, если это фото. Иначе null. */
+/**
+ * Текст сообщения → ссылка на картинку, если это фото. Иначе null.
+ *
+ * Принимаем ТОЛЬКО свой адрес. Легитимное фото всегда наше: его отдаёт
+ * POST /upload/chat-photo. А вот собеседник (или мошенник, притворяющийся
+ * поддержкой) может послать текст `[img]http://чужой-хост/1.png` руками —
+ * браузер сам сходит по ссылке, и на том конце запишут IP человека, который
+ * просто открыл чат. Чужой адрес показываем как обычный текст: сообщение
+ * не теряется, но никуда не ходим.
+ */
 export function imageUrlOf(text: string): string | null {
   if (!text?.startsWith(IMG_PREFIX)) return null;
   const url = text.slice(IMG_PREFIX.length).trim();
-  return url ? url : null;
+  if (!url || !isOwnApiUrl(url)) return null;
+  return url;
 }
 
 // ---- Фото в чат (POST /upload/chat-photo, multipart `file`) ----

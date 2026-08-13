@@ -12,7 +12,7 @@
 //  Эндпоинты /parcels/* уже есть на проде; курьер-часть (courier/
 //  buy_bring) появится после мержа release → мягкая деградация 404.
 // ================================================================
-import { apiGet, apiPost } from "./client";
+import { apiGet, apiPost, apiUpload } from "./client";
 
 // ------------------------------- Типы -------------------------------
 /** Движение посылки: created→accepted→in_transit→delivered (или canceled). */
@@ -158,18 +158,46 @@ export function fetchAvailableParcels(
   return apiGet<Parcel[]>(`/parcels/available${s ? `?${s}` : ""}`, { signal });
 }
 
-/** POST /parcels/{id}/accept — стать курьером заявки (created→accepted, откроется телефон). */
-export function acceptParcel(id: number): Promise<Parcel> {
-  return apiPost<Parcel>(`/parcels/${id}/accept`, undefined);
+/**
+ * POST /parcels/{id}/accept — стать курьером заявки (created→accepted, откроется телефон).
+ *
+ * pickupPhotoUrl — снимок «взял целой». Это первая граница ответственности: без него
+ * спор «привёз битой» упирается в слово против слова. Сервер принимает только НАШ адрес
+ * (/media, /secure/evidence) — чужой хост при открытии у оппонента слил бы его IP.
+ */
+export function acceptParcel(id: number, pickupPhotoUrl?: string): Promise<Parcel> {
+  return apiPost<Parcel>(
+    `/parcels/${id}/accept`,
+    pickupPhotoUrl ? { pickup_photo_url: pickupPhotoUrl } : undefined
+  );
 }
 
-/** POST /parcels/{id}/status — двигать статус. delivered требует code вручения. */
+/**
+ * POST /parcels/{id}/status — двигать статус. delivered требует code вручения.
+ * deliveryPhotoUrl — снимок «отдал целой», вторая граница ответственности.
+ */
 export function setParcelStatus(
   id: number,
   status: "in_transit" | "delivered",
-  code = ""
+  code = "",
+  deliveryPhotoUrl?: string
 ): Promise<Parcel> {
-  return apiPost<Parcel>(`/parcels/${id}/status`, { status, code });
+  return apiPost<Parcel>(`/parcels/${id}/status`, {
+    status,
+    code,
+    delivery_photo_url: deliveryPhotoUrl || undefined,
+  });
+}
+
+/**
+ * Фото-доказательство спора (POST /upload/evidence). Кладётся в ПРИВАТНУЮ область:
+ * на снимке бывают лица и номера, поэтому отдаётся только участникам спора и админу,
+ * а не публично, как фото в чате.
+ */
+export function uploadEvidence(file: File, signal?: AbortSignal): Promise<{ url: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiUpload<{ url: string }>("/upload/evidence", form, { signal });
 }
 
 /** GET /parcels/carrying — что я везу (accepted|in_transit), телефон получателя виден. */

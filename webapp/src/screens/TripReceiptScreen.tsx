@@ -11,7 +11,7 @@ import { ApiError } from "../api/client";
 import { fetchReceipt, type TripReceipt } from "../api/bookings";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconArrow, IconReceipt, IconHeart, IconCheck } from "../components/Icons";
+import { IconArrow, IconReceipt, IconHeart, IconCheck, IconShare } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 
 type State =
@@ -57,6 +57,42 @@ export default function TripReceiptScreen() {
     load(ac.signal);
     return () => ac.abort();
   }, [load]);
+
+  /**
+   * Текст квитанции — маршрут, дата, сумма. Ни телефона, ни точной точки:
+   * человек часто пересылает её в рабочий чат, а там лишние глаза.
+   */
+  const [shared, setShared] = useState(false);
+
+  async function shareReceipt() {
+    if (state.kind !== "ready") return;
+    const r = state.r;
+    const text = appText(
+      `Юлдаш · Квитанция поездки
+${r.from_city} → ${r.to_city}
+${formatWhen(r.depart_at, true)}
+${priceLabel(r.amount, true)}`,
+      `Юлдаш · Сәфәр квитанцияһы
+${r.from_city} → ${r.to_city}
+${formatWhen(r.depart_at, false)}
+${priceLabel(r.amount, false)}`
+    );
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Юлдаш", text });
+        return;
+      } catch {
+        /* отменил — не ошибка */
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setShared(true);
+      window.setTimeout(() => setShared(false), 1600);
+    } catch {
+      /* буфер недоступен — цифры на экране, их видно */
+    }
+  }
 
   return (
     <>
@@ -135,10 +171,24 @@ export default function TripReceiptScreen() {
             <b>{priceLabel(state.r.amount, ru)}</b>
           </div>
 
+          {/* Квитанцию просят на работе и в бухгалтерии — пусть уходит одной кнопкой,
+              а не переписыванием цифр с экрана. Телефонов в ней нет. */}
+          <button
+            type="button"
+            className="btn-soft"
+            style={{ marginTop: 12 }}
+            onClick={() => void shareReceipt()}
+          >
+            <IconShare size={18} />{" "}
+            {shared
+              ? appText("Скопировано", "Күсерелде")
+              : appText("Поделиться квитанцией", "Квитанция менән бүлешеү")}
+          </button>
+
           <p className="receipt__foot">
             {appText(
-              "Юлдаш — попутки между своими. Оплата проходит напрямую водителю.",
-              "Юлдаш — үҙебеҙ араһында юлдаштар. Түләү тура водителгә бара."
+              "Это запись о поездке, как вы договорились. Оплата — напрямую между вами.",
+              "Был — килешеү буйынса сәфәр яҙмаһы. Түләү — тура үҙ-ара."
             )}
           </p>
         </div>

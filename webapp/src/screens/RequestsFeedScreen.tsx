@@ -92,6 +92,18 @@ export default function RequestsFeedScreen() {
                   <span>
                     <b>{it.seats}</b> {appText("мест", "урын")}
                   </span>
+                  {/* Насколько заявка уводит с твоего маршрута. Без этого водитель
+                      читал каждую заявку руками — и уставал от тех, что в другую сторону. */}
+                  {/* «По пути» — зелёным, крюк — спокойно серым, без осуждения. */}
+                  {it.detour_km != null && (
+                    <span
+                      className={"badge " + (it.detour_km <= 10 ? "badge--mint" : "badge--muted")}
+                    >
+                      {it.detour_km <= 10
+                        ? appText("По пути", "Юл ыңғайында")
+                        : appText(`Крюк ≈ ${it.detour_km} км`, `Урау ≈ ${it.detour_km} км`)}
+                    </span>
+                  )}
                   {it.prefs.map((p) =>
                     PREF_LABEL[p] ? (
                       <span key={p} className="badge badge--mint">

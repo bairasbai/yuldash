@@ -17,6 +17,7 @@ import { SubHeader } from "./ConsentsScreen";
 import { StatusPill } from "../components/StatusPill";
 import { IconArrow, IconPhone, IconPin, IconCheck, IconLock } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
+import { PartnerAdSlot } from "../components/PartnerAd";
 
 export default function BookingScreen() {
   const { appText, lang } = useLang();
@@ -187,6 +188,8 @@ export default function BookingScreen() {
               </button>
             </>
           )}
+
+          <PartnerAdSlot placement="tripDetails" />
         </div>
       )}
     </>

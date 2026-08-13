@@ -58,7 +58,8 @@
   backdrop-filter: blur(6px);
 }
 .lang-toggle button {
-  min-width: 40px;
+  position: relative;
+  min-width: 44px;
   height: 34px;
   padding: 0 12px;
   border: 0;
@@ -68,6 +69,16 @@
   font-size: var(--font-caption);
   font-weight: 600;
   transition: background var(--motion-quick) ease, color var(--motion-quick) ease;
+}
+/* Тач-цель 44px без роста шапки: невидимая область поверх пилюли */
+.lang-toggle button::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 44px;
+  transform: translateY(-50%);
 }
 .lang-toggle button[data-active="true"] {
   background: #fff;
@@ -93,7 +104,7 @@
   letter-spacing: -0.01em;
 }
 .ride-card__arrow {
-  color: var(--green-bright, var(--canon-green-bright));
+  color: var(--green2);
   flex: none;
 }
 .ride-card__meta {
@@ -169,7 +180,7 @@
 }
 .badge--gold {
   background: var(--canon-gold-soft);
-  color: #7a5200;
+  color: var(--canon-gold-ink);
 }
 .badge--boost {
   background: var(--canon-gold);
@@ -540,7 +551,7 @@
   border: 1px solid var(--border);
 }
 .onb__lang button {
-  min-height: 34px;
+  min-height: 44px;
   padding: 0 12px;
   border: 0;
   border-radius: var(--radius-pill);
@@ -619,7 +630,7 @@
   transform: scale(0.98);
 }
 .onb__role.is-active {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
   background: var(--mint);
 }
 .onb__role-emoji {
@@ -660,7 +671,7 @@
   transition: border-color var(--motion-quick) ease;
 }
 .onb__simple.is-active {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .onb__simple-emoji {
   font-size: var(--font-heading);
@@ -677,7 +688,7 @@
   display: inline-block;
 }
 .status-dot--on {
-  background: var(--canon-green-bright);
+  background: var(--green2);
   opacity: 1;
   box-shadow: 0 0 0 3px var(--mint);
 }
@@ -887,7 +898,7 @@
 }
 .auth__code:focus {
   outline: none;
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .auth__name {
   width: 100%;
@@ -902,7 +913,7 @@
 }
 .auth__name:focus {
   outline: none;
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .auth__submit,
 .invite-share {
@@ -1398,7 +1409,7 @@ button.list-row:active {
   transform: scale(0.97);
 }
 .chip--on {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
   background: var(--mint);
   color: var(--green);
 }
@@ -1574,7 +1585,7 @@ button.list-row:active {
 }
 .field__input:focus {
   outline: none;
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .field__area {
   min-height: 96px;
@@ -1639,7 +1650,7 @@ button.list-row:active {
   transform: scale(0.97);
 }
 .seg__item.is-active {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
   background: var(--mint);
   color: var(--green);
 }
@@ -1705,7 +1716,7 @@ button.list-row:active {
   transform: scale(0.97);
 }
 .opt-chip.is-active {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
   background: var(--mint);
   color: var(--green);
 }
@@ -2006,7 +2017,7 @@ button.list-row:active {
 }
 .chat__input input:focus {
   outline: none;
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .chat__input button {
   width: 46px;
@@ -2167,7 +2178,7 @@ button.list-row:active {
 }
 .repeat-route__arrow {
   flex: none;
-  color: var(--canon-green-bright);
+  color: var(--green2);
 }
 
 /* Плитки статистики (Мой Юлдаш) */
@@ -4293,7 +4304,7 @@ button.list-row:active {
 }
 .hub-card:active {
   transform: scale(0.97);
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .hub-card__emoji {
   font-size: var(--font-display);
@@ -4378,7 +4389,7 @@ button.list-row:active {
   transform: scale(0.99);
 }
 .notif-row--unread {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
   background: var(--mint);
 }
 .notif-row__ico {
@@ -4530,7 +4541,7 @@ button.list-row:active {
   animation: fadeUp var(--motion-quick) ease both;
 }
 .faq-item--open {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .faq-q {
   display: flex;
@@ -4954,7 +4965,7 @@ select.field__input {
 }
 .stat-tile--hl {
   background: var(--mint);
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .stat-tile--hl b {
   color: var(--green);
@@ -5147,8 +5158,8 @@ select.field__input {
   border: 2px solid var(--border);
 }
 .push-dot--on {
-  background: var(--canon-green-bright);
-  border-color: var(--canon-green-bright);
+  background: var(--green2);
+  border-color: var(--green2);
   box-shadow: 0 0 0 4px var(--mint);
 }
 .push-block__hint {
@@ -5832,4 +5843,1070 @@ select.field__input {
   width: 210px;
   max-width: 100%;
   height: 40px;
+}
+
+/* ---- Реклама партнёра: то, за что бизнес заплатил ---- */
+.partner-ad {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  padding: var(--space-sm) var(--space-md);
+  margin-top: var(--space-md);
+  box-shadow: var(--depth-flat);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.partner-ad__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+.partner-ad__erid {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.partner-ad__label {
+  flex: none;
+}
+.partner-ad__body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.partner-ad__logo {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-field);
+  object-fit: cover;
+  background: var(--mint);
+}
+.partner-ad__logo--letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--green2);
+  font-size: var(--font-heading);
+  font-weight: 700;
+}
+.partner-ad__text {
+  flex: 1;
+  min-width: 0;
+}
+.partner-ad__title {
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.partner-ad__sub {
+  margin-top: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.partner-ad__btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--space-md);
+  border-radius: var(--radius-pill);
+  color: var(--green2);
+  font-size: var(--font-micro);
+  font-weight: 700;
+  text-decoration: none;
+  transition: transform var(--motion-quick) ease, background var(--motion-quick) ease;
+}
+.partner-ad__btn:active {
+  transform: scale(0.96);
+  background: var(--mint);
+}
+
+/* ---- «Позови водителя»: пустая выдача поиска ---- */
+.invite-driver {
+  margin-top: var(--space-lg);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.invite-driver__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+.invite-driver__ic {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  color: var(--on-accent);
+}
+.invite-driver__title {
+  color: var(--text);
+  font-size: var(--font-body);
+  font-weight: 700;
+}
+.invite-driver__sub {
+  margin-top: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
+/* ---- Безопасность в чате: плашка под сообщением и баннер при первом входе ---- */
+.chat-flag {
+  margin-top: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-tiny);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.chat-disclaimer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--warn-bg);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.chat-disclaimer__text {
+  flex: 1;
+  min-width: 0;
+  color: var(--warn);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.chat-disclaimer__ok {
+  flex: none;
+  min-height: 44px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-micro);
+  font-weight: 700;
+  transition: transform var(--motion-quick) ease;
+}
+.chat-disclaimer__ok:active {
+  transform: scale(0.94);
+}
+
+/* ---- Сообщение целиком: пузырь + плашка-предупреждение под ним ---- */
+.msg {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 82%;
+}
+.msg--mine {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.msg .bubble {
+  align-self: auto;
+  max-width: 100%;
+}
+.bubble {
+  position: relative;
+}
+/* Удалённое: серый контур без заливки — след остался, слов нет */
+.bubble--gone {
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: var(--font-caption);
+}
+.bubble--gone.bubble--mine {
+  color: var(--muted);
+}
+.bubble__edited {
+  margin-left: var(--space-sm);
+  opacity: 0.7;
+  font-size: var(--font-micro);
+}
+.bubble__more {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  opacity: 0;
+  font-size: var(--font-caption);
+  line-height: 1;
+  transition: opacity var(--motion-quick) ease;
+}
+.bubble:hover .bubble__more,
+.bubble:focus-within .bubble__more {
+  opacity: 0.65;
+}
+.bubble__menu {
+  position: absolute;
+  top: 26px;
+  right: 4px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+  padding: var(--space-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  box-shadow: var(--depth-raised);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.bubble__menu button {
+  min-height: 44px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-tiny);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-caption);
+  text-align: left;
+}
+.bubble__menu button:active {
+  background: var(--surface-2);
+}
+.bubble__menu-danger {
+  color: var(--danger);
+}
+.bubble__edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: center;
+}
+.bubble__edit input {
+  flex: 1;
+  min-width: 140px;
+  min-height: 44px;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tiny);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-caption);
+}
+.bubble__edit button {
+  min-height: 44px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-tiny);
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-micro);
+  font-weight: 700;
+}
+
+/* ---- Заказ такси: «только женщина за рулём» и «как меня найти» ---- */
+.taxi-women {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.taxi-women input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  accent-color: var(--green2);
+}
+.taxi-women__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.taxi-women__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+.taxi-women__sub {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.taxi-details {
+  margin-top: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  overflow: hidden;
+}
+.taxi-details__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-md);
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.taxi-details__head > span:first-child {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.taxi-details__title {
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+.taxi-details__sub {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.taxi-details__chev {
+  flex: none;
+  color: var(--muted);
+  transition: transform var(--motion-quick) ease;
+}
+.taxi-details__chev.is-open {
+  transform: rotate(90deg);
+}
+.taxi-details__body {
+  padding: 0 var(--space-md) var(--space-md);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.taxi-details__note {
+  margin-top: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- Ожидание у подъезда: сначала бесплатное окно, потом счётчик ---- */
+.wait-counter {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  color: var(--text);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.wait-counter--paid {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.wait-counter__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-caption);
+}
+.wait-counter__bar {
+  display: block;
+  height: 4px;
+  margin-top: var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--border);
+  overflow: hidden;
+}
+.wait-counter__bar span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  transition: width var(--motion-normal) linear;
+}
+
+/* ---- Причина отмены: чипы выбора ---- */
+.sheet__title {
+  margin: var(--space-sm) 0 var(--space-md);
+  font-size: var(--font-heading);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.reason-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+.reason-chip {
+  min-height: 48px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-caption);
+  text-align: left;
+  transition:
+    background var(--motion-quick) ease,
+    border-color var(--motion-quick) ease,
+    transform var(--motion-quick) ease;
+}
+.reason-chip:active {
+  transform: scale(0.99);
+}
+.reason-chip.is-active {
+  border-color: var(--green2);
+  background: var(--mint);
+  color: var(--green);
+  font-weight: 700;
+}
+
+/* ---- Промокод сработал (скидку платит Юлдаш) ---- */
+.promo-hit {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.promo-hit__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+.promo-hit__title {
+  flex: 1;
+  color: var(--green);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+.promo-hit__sum {
+  color: var(--green2);
+  font-size: var(--font-heading);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.promo-hit__code {
+  margin-top: var(--space-xs);
+  color: var(--green2);
+  font-size: var(--font-micro);
+}
+.promo-hit__note {
+  margin: var(--space-sm) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- Смена таксиста: часы, деньги, комиссия ---- */
+.shift-card {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.shift-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+.shift-card__label {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.shift-card__time {
+  color: var(--text);
+  font-size: var(--font-heading);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.shift-card__of {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  font-weight: 400;
+}
+.shift-card__bar {
+  display: block;
+  height: 6px;
+  margin-top: var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.shift-card__bar span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  transition: width var(--motion-slow) ease;
+}
+.shift-card__money {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+}
+.shift-card__net {
+  color: var(--text);
+  font-size: var(--font-title);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.shift-card__sub {
+  margin-top: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+.shift-card__orders {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.shift-card__orders b {
+  color: var(--text);
+  font-size: var(--font-heading);
+  font-variant-numeric: tabular-nums;
+}
+.shift-card__orders span {
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+.shift-card__split {
+  margin-top: var(--space-sm);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.shift-card__fee,
+.shift-card__law {
+  margin: var(--space-md) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- Долг по комиссии за такси ---- */
+.debt-card {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.debt-card--blocked {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+.debt-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.debt-card__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+.debt-card--blocked .debt-card__title {
+  color: var(--danger);
+}
+.debt-card__sum {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+.debt-card__sum b {
+  color: var(--text);
+  font-size: var(--font-title);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.debt-card__sum--pending b {
+  color: var(--muted);
+  font-size: var(--font-heading);
+}
+.debt-card__k {
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+.debt-card__due {
+  margin-top: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+.debt-card__note {
+  margin: var(--space-md) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.debt-card__weeks {
+  margin-top: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.debt-card__week {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  font-variant-numeric: tabular-nums;
+}
+.debt-card__pending-tag {
+  color: var(--warn);
+}
+.debt-card__sbp {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--surface-2);
+}
+.debt-card__payee {
+  margin-top: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+
+/* ---- Поле города с подсказками из справочника ---- */
+.city-field {
+  position: relative;
+}
+.city-field__list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 30;
+  margin: var(--space-xs) 0 0;
+  padding: var(--space-xs);
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  box-shadow: var(--depth-raised);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.city-field__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-tiny);
+  background: transparent;
+  text-align: left;
+}
+.city-field__item:active,
+.city-field__item:hover {
+  background: var(--surface-2);
+}
+.city-field__name {
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 600;
+}
+.city-field__sub {
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+
+/* ---- Время под сообщением в треде поддержки ---- */
+.ticket-time {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+
+/* ---- SOS: координаты, которые диктуют оператору ---- */
+.sos-coords {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  text-align: center;
+}
+.sos-coords__label {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.sos-coords__value {
+  margin: var(--space-sm) 0 var(--space-md);
+  color: var(--text);
+  font-size: var(--font-title);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  user-select: all;
+}
+.sos-coords__off {
+  margin: var(--space-sm) 0 var(--space-md);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
+/* ---- «Где работаю»: зона заказов таксиста ---- */
+.workzone {
+  margin-top: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  overflow: hidden;
+}
+.workzone__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-md);
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.workzone__ic {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.workzone__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.workzone__title {
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+.workzone__sub {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.workzone__action {
+  flex: none;
+  color: var(--green2);
+  font-size: var(--font-micro);
+  font-weight: 700;
+}
+.workzone__body {
+  padding: 0 var(--space-md) var(--space-md);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.workzone__note,
+.workzone__hint {
+  margin: var(--space-xs) 0 var(--space-md);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- Баннер новой версии (PWA) ---- */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--mint);
+  color: var(--green);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.update-banner__ic {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  color: var(--on-accent);
+}
+.update-banner__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.update-banner__actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.update-banner__later,
+.update-banner__go {
+  min-height: 44px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-tiny);
+  background: transparent;
+  font-size: var(--font-micro);
+  font-weight: 700;
+}
+.update-banner__later {
+  color: var(--muted);
+}
+.update-banner__go {
+  color: var(--green2);
+}
+
+/* ---- Общий блок оплаты по СБП ---- */
+.sbp-pay {
+  margin-top: var(--space-md);
+}
+.sbp-pay__go {
+  display: block;
+  margin-top: var(--space-md);
+  text-align: center;
+  text-decoration: none;
+}
+.sbp-pay__note {
+  margin: var(--space-md) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- «Чем отличается?» — три режима одним взглядом ---- */
+.modes-hint {
+  margin-top: var(--space-md);
+}
+.modes-hint > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: var(--green2);
+  font-size: var(--font-micro);
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+.modes-hint > summary::-webkit-details-marker {
+  display: none;
+}
+.modes-hint__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.modes-hint__row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+.modes-hint__row b {
+  color: var(--text);
+  font-size: var(--font-caption);
+}
+.modes-hint__row p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.modes-hint__ic {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-field);
+}
+.modes-hint__ic--taxi {
+  background: var(--taxi-bg);
+  color: var(--taxi-text);
+}
+.modes-hint__ic--pool {
+  background: var(--mint);
+  color: var(--green2);
+}
+.modes-hint__ic--courier {
+  background: var(--courier-bg);
+  color: var(--courier);
+}
+
+/* ---- Скелетон истории чата: «грузится» и «пусто» — разные вещи ---- */
+.chat__loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.chat__skeleton {
+  display: block;
+  width: 62%;
+  height: 38px;
+  border-radius: var(--radius-field) 16px 16px 4px;
+}
+.chat__skeleton--mine {
+  align-self: flex-end;
+  width: 48%;
+  border-radius: var(--radius-field) 16px 4px 16px;
+}
+
+/* ---- Фото посылки: граница ответственности ---- */
+.parcel-photo {
+  margin-top: var(--space-md);
+}
+.parcel-photo__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  width: 100%;
+}
+.parcel-photo__btn.is-done {
+  color: var(--green2);
+  background: var(--mint);
+}
+.parcel-photo__note {
+  margin: var(--space-xs) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Выбранные звёзды — золотые: видно, на чём палец остановился */
+.rate-star.is-on {
+  color: var(--canon-star);
+}
+
+/* Метки к оценке — переносятся, а не уезжают за край: башкирская подпись длиннее */
+.rate-tags {
+  flex-wrap: wrap;
+  margin-top: var(--space-md);
+  overflow: visible;
+}
+
+/* ---- Правила курьера: границы до заявки, а не после спора ---- */
+.courier-rule {
+  margin-top: var(--space-md);
+}
+.courier-rule b {
+  display: block;
+  color: var(--text);
+  font-size: var(--font-caption);
+}
+.courier-rule p {
+  margin: var(--space-xs) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- «Почему не взял?» — вопрос после отказа, не вместо него ---- */
+.decline-why {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.decline-why__title {
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+.decline-why__note {
+  margin: var(--space-xs) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.decline-why__chips {
+  flex-wrap: wrap;
+  margin: var(--space-md) 0;
+  overflow: visible;
+}
+
+/* Часы поддержки под кнопкой «написать» */
+.help-cta__hours {
+  margin: var(--space-md) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Подпись под названием класса машины */
+.taxi-class__hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
 }

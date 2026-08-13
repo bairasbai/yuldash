@@ -116,6 +116,109 @@ done, dispute), `stats.ts` (achievements), `safety.ts` (restrictions, policy), `
 (`ApiClient.IMG_PREFIX`). Отдельное поле под картинку в сообщении не заводили: старый
 Android перестал бы понимать такие сообщения.
 
+### Волна Е5: реклама, безопасность чата, крюк (2026-08-13)
+
+Сверка двух последних непроверенных файлов приложения (`SecondaryScreens.kt`,
+`RidesRequestsChatScreens.kt`) — шесть дыр, включая денежную.
+
+**Реклама партнёров — витрина.** `api/ads.ts` дополнен публичной частью: `fetchAds`
+(`GET /ads?city=&placement=`) и `sendAdEvent` (`POST /ads/{id}/event`). Раньше веб знал
+только кабинет — партнёр платил, а показов не было ни одного. Новый компонент
+`components/PartnerAd.tsx`: карточка + хук `usePartnerAds(placement, city)` + `PartnerAdSlot`.
+Подключён в пяти местах, как в приложении: `HomeScreen` (nearby), `RidesScreen`
+(route → ridesList, метки «Партнёр по маршруту» / «Совет партнёра»), `ProfileScreen`
+(profile), `HelpScreen` (help), `BookingScreen` (tripDetails). Место показа берётся
+с сервера и **не подменяется** — партнёр платит за конкретное. Показ считается один раз
+на объявление за жизнь экрана; ошибки события глотаются (реклама не ломает экран).
+
+**Безопасность чата.** `components/ChatSafety.tsx` — зеркало `ChatFlagPlate` /
+`ChatSafetyDisclaimer`. Адресат плашки зависит от флага: `contact` → отправителю,
+`warn`/`abuse` → получателю. Баннер первого входа помнится в `localStorage`
+(`yuldash.chatSafetySeen`). Подключено во все три чата: бронь (`ActiveTripScreen`),
+такси (`InstantChatScreen`), посылка (`ParcelChatScreen`). Бейдж `from_admin` приведён
+к приложению: «Юлдаш ✓» вместо «Поддержка».
+
+**Правка/удаление сообщений** (только чат брони — на сервере это есть лишь для booking):
+`chat.ts` + `editMessage`, `deleteMessage`, поля `deleted`/`edited` в `ChatMessage`.
+В `ActiveTripScreen` разметка сообщения разделена на обёртку `.msg` (пузырь + плашка
+под ним) — иначе жёлтая плашка попадала внутрь зелёного пузыря.
+
+**Прочее:** `InviteDriverCallout.tsx` (пустая выдача поиска → реф-ссылка);
+кнопки «Поделиться» и «Поднять объявление» на карточке своей поездки в
+`DriverCabinetScreen`; галочка подтверждения пола + распознанные данные автопроверки
+в `AdminDriversScreen` (`moderateDriver` получил третий параметр `gender_verified`);
+бейдж «По пути» / «Крюк ≈ N км» в `RequestsFeedScreen` (поле `detour_km`, порог 10 км —
+как в приложении).
+
+### Волны Е6-Е30: сверка по всем экранам приложения (2026-08-13)
+
+Метод: пройти все 60 Kotlin-файлов приложения и все 276 путей ApiClient, сверяя
+не строки, а **функции**. Итог по эндпоинтам: непокрытыми остались только те,
+что не использует и Android (вебхуки, `/rides/{id}/tips`, `/admin/bans`, выплаты).
+
+**Новые модули API:** `api/geo.ts` (справочник НП, районы, популярные маршруты,
+точки сбора), `api/support-donate.ts` (`POST /support/donate`). Расширены:
+`instant.ts` (OrderExtras — comment/entrance/for_name/for_phone/women_only;
+промо-поля в EstimateResult; WorkZone + fetch/saveWorkZone), `driver.ts`
+(DriverDebt + declareDebtPaid; pickup_point_id/lat/lng в RideCreateInput),
+`safety.ts` (lat/lng в SOS), `support.ts` (админ-очередь тикетов),
+`rides.ts` (RidesQuery — серверная фильтрация ленты), `admin.ts`
+(gender_verified в moderateDriver), `chat.ts` (edit/delete + deleted/edited).
+
+**Новые компоненты:** `PartnerAd` (витрина рекламы + usePartnerAds + PartnerAdSlot),
+`ChatSafety` (ChatFlagPlate + ChatSafetyDisclaimer), `InviteDriverCallout`,
+`CityField` (подсказки НП), `PickupChips` (ориентиры города), `DebtCard`,
+`WorkZoneCard`, `SbpPay` (общий блок перевода + ссылка в Сбербанк),
+`UpdateBanner` (PWA: «вышла новая версия»).
+
+**Новые экраны:** `SupportYuldashScreen` (`/support-yuldash`),
+`AdminSupportScreen` (`/admin/support`).
+
+**Важное про PWA:** регистрацию service worker перенесли из `main.tsx` в
+`UpdateBanner` — ему нужен колбэк `onNeedRefresh`, а две регистрации подряд
+дают гонку. `registerType: autoUpdate` остался: баннер только предлагает
+применить уже скачанное, а не качает заново.
+
+**Важное про приватность:** координаты SOS отправляются, но нигде не логируются
+и не показываются третьим лицам — только близким из доверенных контактов и
+дежурному Юлдаша, как в приложении.
+
+**Добор (2026-08-13):** фото-доказательства посылки (`uploadEvidence` → `/upload/evidence`,
+`pickup_photo_url` в accept и `delivery_photo_url` в status; компонент `ParcelPhoto`),
+взаимная оценка доставки (`ParcelRate`), быстрые метки к оценке поездки
+(`ratingTags` в `api/bookings.ts` — закрытый список зеркалит `safety_logic.RATING_TAGS`,
+набор зависит от оценки и роли оцениваемого), фильтр ленты курьера по направлению
+(`to_city` в `fetchCourierAvailable`).
+
+**Добор-2 (2026-08-13):** вкладки админ-споров приведены к приложению
+(`under_review` / `awaiting_response` / `appealed` / `resolved` / all — апелляции
+отдельной вкладкой, `fetchAdminIncidents` по умолчанию `under_review`, "all" шлётся
+без параметра); блок правил в онбординге курьера (что нельзя возить, ответственность,
+лимит buy_bring); ручной разбор доставки у админа (`adminCancelParcel`,
+`adminCloseParcel` → `/admin/parcels/{id}/cancel|close`); «Поделиться квитанцией»
+в `TripReceiptScreen`.
+
+**Качество (2026-08-13):** `--green-btn` в тёмной теме затемнён до `#17804c`
+(белая подпись 16px/600 — не «крупный текст», порог 4.5, было 3.19);
+`--canon-gold-soft`/`--canon-gold-ink` получили тёмные варианты (`#4a3a14` /
+`#ffe3a1`) — светлая плашка на тёмном фоне читалась как дыра; `--canon-green-bright`
+как граница/индикатор заменён на `--green2` (2.4 → 5.9 на мяте), в градиентах
+оставлен; глобальный `:focus-visible` (зелёная рамка, на тёмных подложках белая);
+тач-цель переключателя языка добрана псевдоэлементом до 44px без роста шапки.
+
+**Производительность (2026-08-13):** 83 редких экрана переведены на ленивую загрузку
+через `src/lazyScreen.ts` (обёртка над `React.lazy` с разовой перезагрузкой при
+пропавшем чанке — метка `yuldash.chunkReload` в sessionStorage, снимается в `App`
+через `clearChunkReloadFlag`). Главный бандл 862 → 380 КБ (255 → 122 КБ gzip).
+`Suspense` стоит ВНУТРИ `Shell` вокруг `<Outlet />` — иначе при переходе исчезает
+нижняя навигация. В основном куске намеренно оставлены пять вкладок нижней навигации,
+вход/старт и весь такси-поток (там подгрузка посреди заказа недопустима).
+Админские чанки исключены из precache (`globIgnores: **/assets/Admin*.js`).
+
+
+
+
+
 ## ⭐ Быстрые метки к оценке (2026-08-06, релизная ветка)
 
 После поездки под звёздами появился ряд меток в один тап: «Вежливый», «Приехал вовремя»,

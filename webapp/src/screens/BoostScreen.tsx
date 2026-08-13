@@ -22,8 +22,9 @@ import { fetchDriverRides } from "../api/driver";
 import type { Ride } from "../api/rides";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
+import SbpPay from "../components/SbpPay";
 import { formatWhen } from "../utils/format";
-import { IconArrow, IconRocket, IconCheck, IconCopy, IconClock, IconWarn, IconCar } from "../components/Icons";
+import { IconArrow, IconRocket, IconCheck, IconClock, IconWarn, IconCar } from "../components/Icons";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -43,7 +44,6 @@ export default function BoostScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BoostCreateResult | null>(null);
-  const [copied, setCopied] = useState(false);
   const [checking, setChecking] = useState(false);
 
   const load = useCallback((signal?: AbortSignal) => {
@@ -116,16 +116,6 @@ export default function BoostScreen() {
     }
   }
 
-  async function copyPhone(phone: string) {
-    try {
-      await navigator.clipboard.writeText(phone);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard недоступен — молча */
-    }
-  }
-
   // ---- Успех ----
   if (result?.status === "succeeded") {
     return (
@@ -161,28 +151,12 @@ export default function BoostScreen() {
               "СБП аша номерға күсер. Алғас — сәфәрҙе күтәрәбеҙ (күршеләрсә, ышаныс менән)."
             )}
           </p>
-          <div className="pay-sbp__row">
-            <div>
-              <div className="pay-sbp__label">{appText("Номер (СБП)", "Номер (СБП)")}</div>
-              <div className="pay-sbp__value">{result.payee.phone}</div>
-            </div>
-            <button type="button" className="btn-soft" onClick={() => copyPhone(result.payee!.phone)}>
-              {copied ? <IconCheck size={18} /> : <IconCopy size={18} />}
-              {copied ? appText("Скопировано", "Күсерелде") : appText("Копировать", "Күсереү")}
-            </button>
-          </div>
-          <div className="pay-sbp__row">
-            <div>
-              <div className="pay-sbp__label">{appText("Банк", "Банк")}</div>
-              <div className="pay-sbp__value">{result.payee.bank}</div>
-            </div>
-          </div>
-          <div className="pay-sbp__row">
-            <div>
-              <div className="pay-sbp__label">{appText("Получатель", "Алыусы")}</div>
-              <div className="pay-sbp__value">{result.payee.name}</div>
-            </div>
-          </div>
+          <SbpPay
+            phone={result.payee.phone}
+            bank={result.payee.bank}
+            name={result.payee.name}
+            amountRub={result.amount}
+          />
           <button type="button" className="btn-primary submit-btn" onClick={recheck} disabled={checking}>
             {checking ? appText("Проверяем…", "Тикшерәбеҙ…") : appText("Я оплатил", "Түләнем")}
           </button>

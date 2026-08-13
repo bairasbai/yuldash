@@ -38,6 +38,8 @@ import { SubHeader } from "./ConsentsScreen";
 import { LoadingList, ErrorState } from "../components/States";
 import { AvailableParcelCard, CarryParcelCard, CodeDialog } from "../components/parcelUi";
 import ParcelProblemActions from "../components/ParcelProblemActions";
+import ParcelPhoto from "../components/ParcelPhoto";
+import CityField from "../components/CityField";
 import { IconStar, IconCheck, IconCopy, IconBox, IconTrend } from "../components/Icons";
 import { YuCourierWalk } from "../components/BrandIcons";
 
@@ -305,10 +307,15 @@ function AvailableOrders({ zone }: { zone: CourierZone }) {
   const [boot, setBoot] = useState<"loading" | "error" | "ready">("loading");
   const [items, setItems] = useState<Parcel[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
+  // Снимок «взял целой» до того, как посылка стала твоей: первая граница ответственности.
+  const [photos, setPhotos] = useState<Record<number, string>>({});
+  // Куда еду сегодня. Курьер обычно едет в конкретную сторону, и заказы
+  // в противоположную для него просто шум — фильтрует сервер, не браузер.
+  const [dir, setDir] = useState("");
 
   const load = useCallback((signal?: AbortSignal) => {
     setBoot("loading");
-    fetchCourierAvailable({}, signal)
+    fetchCourierAvailable(dir.trim() ? { to_city: dir.trim() } : {}, signal)
       .then((rows) => {
         setItems(rows);
         setBoot("ready");
@@ -320,7 +327,7 @@ function AvailableOrders({ zone }: { zone: CourierZone }) {
           setBoot("ready");
         } else setBoot("error");
       });
-  }, []);
+  }, [dir]);
 
   // Пере-запрос при смене зоны (сервер фильтрует по зоне профиля).
   useEffect(() => {
@@ -332,7 +339,7 @@ function AvailableOrders({ zone }: { zone: CourierZone }) {
   async function onTake(id: number) {
     setBusyId(id);
     try {
-      await acceptParcel(id);
+      await acceptParcel(id, photos[id]);
       setItems((prev) => prev.filter((x) => x.id !== id));
     } catch {
       setItems((prev) => prev.filter((x) => x.id !== id));
@@ -341,23 +348,74 @@ function AvailableOrders({ zone }: { zone: CourierZone }) {
     }
   }
 
-  if (boot === "loading") return <LoadingList count={3} />;
-  if (boot === "error") return <ErrorState onRetry={() => load()} />;
+  const dirFilter = (
+    <CityField
+      label={appText("Куда еду", "Ҡайҙа барам")}
+      value={dir}
+      onChange={setDir}
+      placeholder={appText("Любое направление", "Теләһә ниндәй йүнәлеш")}
+    />
+  );
+
+  if (boot === "loading")
+    return (
+      <>
+        {dirFilter}
+        <LoadingList count={3} />
+      </>
+    );
+  if (boot === "error")
+    return (
+      <>
+        {dirFilter}
+        <ErrorState onRetry={() => load()} />
+      </>
+    );
   if (items.length === 0) {
     return (
+      <>
+      {dirFilter}
       <div className="state" style={{ paddingTop: 28 }}>
         <div className="state__icon">
           <IconBox size={34} />
         </div>
-        <h2>{appText("Пока нет заказов", "Әле заказдар юҡ")}</h2>
-        <p>{appText("В твоей зоне сейчас пусто. Оставайся на линии — заказ появится со временем.", "Зонаңда хәҙер буш. Линияла ҡал — заказ ваҡыт менән сыға.")}</p>
+        <h2>
+          {dir.trim()
+            ? appText("По этому направлению пусто", "Был йүнәлештә буш")
+            : appText("Пока нет заказов", "Әле заказдар юҡ")}
+        </h2>
+        <p>
+          {dir.trim()
+            ? appText(
+                "Убери фильтр направления — возможно, заказы есть в другую сторону.",
+                "Йүнәлеш фильтрын алып ташла — башҡа яҡта заказдар булыуы мөмкин."
+              )
+            : appText(
+                "В твоей зоне сейчас пусто. Оставайся на линии — заказ появится со временем.",
+                "Зонаңда хәҙер буш. Линияла ҡал — заказ ваҡыт менән сыға."
+              )}
+        </p>
+        {dir.trim() && (
+          <button type="button" className="btn-soft" onClick={() => setDir("")}>
+            {appText("Любое направление", "Теләһә ниндәй йүнәлеш")}
+          </button>
+        )}
       </div>
+      </>
     );
   }
   return (
     <div style={{ marginTop: 4 }}>
+      {dirFilter}
       {items.map((p) => (
-        <AvailableParcelCard key={p.id} p={p} busy={busyId === p.id} onTake={() => onTake(p.id)} />
+        <AvailableParcelCard
+          key={p.id}
+          p={p}
+          busy={busyId === p.id}
+          onTake={() => onTake(p.id)}
+          photo={photos[p.id]}
+          onPhoto={(url) => setPhotos((prev) => ({ ...prev, [p.id]: url }))}
+        />
       ))}
     </div>
   );
@@ -370,6 +428,9 @@ function CarryOrders() {
   const [items, setItems] = useState<Parcel[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [codeFor, setCodeFor] = useState<Parcel | null>(null);
+  // Снимки «взял целой» / «отдал целой» по посылкам: id → url.
+  // Держим до отправки — сервер принимает их вместе со сменой статуса.
+  const [photos, setPhotos] = useState<Record<number, string>>({});
   const [codeBusy, setCodeBusy] = useState(false);
   const [codeErr, setCodeErr] = useState<string | null>(null);
 
@@ -424,7 +485,7 @@ function CarryOrders() {
     setCodeBusy(true);
     setCodeErr(null);
     try {
-      await setParcelStatus(codeFor.id, "delivered", code.trim());
+      await setParcelStatus(codeFor.id, "delivered", code.trim(), photos[codeFor.id]);
       setItems((prev) => prev.filter((x) => x.id !== codeFor.id));
       setCodeFor(null);
     } catch (e) {
@@ -462,6 +523,14 @@ function CarryOrders() {
             onDeliver={() => { setCodeErr(null); setCodeFor(p); }}
             onGoodsCost={(kop) => onGoods(p.id, kop)}
           />
+          {/* Граница ответственности: снимок «отдал целой» до ввода кода.
+              В споре его отсутствие говорит само за себя. */}
+          <ParcelPhoto
+            kind="delivery"
+            url={photos[p.id] ?? null}
+            onReady={(url) => setPhotos((prev) => ({ ...prev, [p.id]: url }))}
+          />
+
           {/* Не вручилось: попытка, возврат, спор — вместо «бросить заявку висеть» */}
           <ParcelProblemActions parcel={p} role="courier" onChanged={() => load()} />
         </div>

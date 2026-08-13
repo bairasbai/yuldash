@@ -34,6 +34,7 @@ import {
   CarryParcelCard,
   CodeDialog,
 } from "../components/parcelUi";
+import ParcelRate from "../components/ParcelRate";
 import ParcelProblemActions from "../components/ParcelProblemActions";
 import { IconBox, IconCheck, IconChat, IconCopy, IconGift, IconRoute, IconShield, IconStar } from "../components/Icons";
 
@@ -498,6 +499,12 @@ function MineTab() {
               <button type="button" className="btn-ghost" style={{ marginTop: 10 }} onClick={() => onCancel(p.id)} disabled={busyId === p.id}>
                 {busyId === p.id ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить", "Кире алыу")}
               </button>
+            )}
+
+            {/* Доставлено — оцениваем курьера. Без истории оценок он для
+                следующего отправителя просто незнакомый человек с коробкой. */}
+            {p.status === "delivered" && p.courier && (
+              <ParcelRate parcelId={p.id} role="courier" />
             )}
           </div>
         );
