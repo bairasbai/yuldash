@@ -16,13 +16,14 @@ from ..config import settings as app_settings
 from ..db import get_session
 from ..errors import herr
 from ..middleware import user_over_limit
-from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, Rating, Settlement, User
+from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, Settlement, User
 from ..safety_logic import account_paused, ensure_active
 from ..security import current_user
 from ..timeutil import utcnow
-from ..services import user_rating
 from .referral import reward_driver_referral
 from .. import car_class
+from .. import rating_service
+from ..rating_service import guard_rating_window
 from .. import debt as debt_mod
 from .. import geo as geo_mod
 from .. import instant_service as isv
@@ -722,6 +723,10 @@ def done(order_id: int, user: User = Depends(current_user), session: Session = D
 # --------- взаимная оценка заказа (§9 Качество) ---------
 class RateIn(BaseModel):
     stars: int = Field(..., ge=1, le=5)
+    # Отзыв и метки принимались схемой и молча выбрасывались: человек писал о водителе такси,
+    # а в базе оставались одни звёзды (волна 57). Теперь идут тем же путём, что у попутки.
+    text: str = Field("", max_length=500)
+    tags: str = Field("", max_length=300)
 
 
 @router.post("/instant/orders/{order_id}/rate")
@@ -742,25 +747,12 @@ def rate_order(order_id: int, body: RateIn, user: User = Depends(current_user),
         raise herr(403, "Нельзя оценить этот заказ", "Был заказды баһалап булмай")
     if order.status != S.done:
         raise herr(409, "Оценить можно только завершённую поездку", "Тик тамамланған сәфәрҙе генә баһалап була")
-    stars = max(1, min(5, body.stars))
-    existing = session.exec(
-        select(Rating).where(Rating.order_id == order_id, Rating.rater_id == user.id)
-    ).first()
-    if existing:
-        existing.stars = stars
-        session.add(existing)
-    else:
-        session.add(Rating(order_id=order_id, rater_id=user.id, ratee_id=ratee_id, stars=stars))
-    session.commit()
-    avg, cnt = user_rating(session, ratee_id)
-    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ratee_id)).first()
-    if prof and cnt > 0:
-        prof.rating = round(avg, 1)
-        session.add(prof)
-        session.commit()
-    # 🟡 Лестница §9: рейтинг просел → мягкий пуш-совет (дедуп 1/нед), без наказания.
-    if cnt > 0:
-        quality_mod.maybe_low_rating_advice(session, ratee_id, avg)
+    # Тот же срок и та же логика, что у попутки: обе двери зовут одну функцию, иначе они
+    # снова разъедутся — здесь молча терялись отзыв и метки (волна 57).
+    guard_rating_window(order.done_at or order.created_at)
+    avg, cnt = rating_service.apply_rating(
+        session, user, ratee_id, stars=body.stars, text=body.text, tags=body.tags,
+        order_id=order_id, place="review")
     # Анонимность: rater не раскрываем, отдаём только агрегат оценённого.
     return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
 

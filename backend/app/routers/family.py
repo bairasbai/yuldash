@@ -13,13 +13,12 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..models import (
-    Booking, BookingStatus, DriverProfile, InstantOrder, ParcelDelivery, Rating, Ride,
+    Booking, BookingStatus, DriverProfile, InstantOrder, ParcelDelivery, Ride,
     TripShare, TrustedContact, User,
 )
-from ..safety_logic import clean_tags
+from ..rating_service import apply_rating, guard_rating_window
 from ..security import current_user
-from ..services import (booking_and_ride_for_user, may_send_family_sms, push_bilingual, send_text,
-                        user_rating)
+from ..services import (booking_and_ride_for_user, may_send_family_sms, push_bilingual, send_text)
 from ..timeutil import utcnow
 # Планку «завершить можно только начавшуюся поездку» держим одну на оба пути к переходу
 # (водительский в bookings.py и пассажирский здесь) — иначе они разъедутся при первой же правке.
@@ -417,39 +416,11 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
     # чужой получает 403, а участник недозавершённой — 409.
     if b.status != BookingStatus.done:
         raise HTTPException(status_code=409, detail="Оценить можно только завершённую поездку")
-    stars = max(1, min(5, body.stars))
-    text = (body.text or "").strip()[:500]
-    tags = clean_tags(body.tags)      # неизвестные коды молча отбрасываем, не роняя оценку
-    existing = session.exec(
-        select(Rating).where(Rating.booking_id == booking_id, Rating.rater_id == user.id)
-    ).first()
-    if existing:
-        existing.stars = stars
-        # Метки шлём тем же запросом, что и звёзды: первый тап по звезде уходит с пустым CSV,
-        # метки прилетают следующим. Пустое НЕ затирает уже поставленное — иначе человек,
-        # поправивший звёзды после меток, потерял бы метки.
-        if tags:
-            existing.tags = tags
-        if text != existing.text:
-            # Текст сменился → снова на модерацию (нельзя одобрить, потом подменить).
-            existing.text = text
-            existing.text_published = False
-        session.add(existing)
-    else:
-        session.add(Rating(booking_id=booking_id, rater_id=user.id, ratee_id=ratee_id,
-                           stars=stars, text=text, tags=tags, text_published=False))
-    session.commit()
-    avg, cnt = user_rating(session, ratee_id)
-    # Оценили водителя → обновим витринный рейтинг в профиле.
-    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ratee_id)).first()
-    if prof and cnt > 0:
-        prof.rating = round(avg, 1)
-        session.add(prof)
-        session.commit()
-    # 🟡 Лестница качества (§9): рейтинг просел → мягкий пуш-совет (дедуп 1/нед).
-    if cnt > 0:
-        from .. import quality
-        quality.maybe_low_rating_advice(session, ratee_id, avg)
+    # Срок на оценку. Считаем от времени выезда: у брони своего «завершено в» нет, а поездка —
+    # это про день выезда. Оценка через год говорит уже не о поездке (волна 57).
+    guard_rating_window(ride.depart_at if ride else None)
+    avg, cnt = apply_rating(session, user, ratee_id, stars=body.stars, text=body.text,
+                            tags=body.tags, booking_id=booking_id, place="review")
     return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
 
 
