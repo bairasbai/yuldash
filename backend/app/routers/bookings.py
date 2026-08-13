@@ -247,6 +247,9 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
     driver_car = f"{profile.car_make} {profile.car_model}".strip() if profile else ""
     unlocked = booking.status in (BookingStatus.confirmed, BookingStatus.onboard, BookingStatus.done)
     is_driver = ride.driver_id == user.id
+    # Контакты взрослого за подростка — водителю, пока бронь ЖИВАЯ. Отменённая ничего не
+    # открывает: см. комментарий у полей ниже.
+    guardian_visible = is_driver and booking.status != BookingStatus.cancelled
     return {
         "booking_id": booking.id,
         "ride_id": ride.id,
@@ -271,11 +274,17 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         # было нечем. Отдаём только участникам и только после подтверждения брони (ПДн).
         "driver_plate": ((profile.car_plate or "") if (unlocked and profile) else ""),
         "driver_car_color": ((profile.car_color or "") if (unlocked and profile) else ""),
-        # Пометку видят оба; телефон взрослого — только водителю (и сразу, ещё до подтверждения:
+        # Пометку видят оба; контакты взрослого — только водителю (и сразу, ещё до подтверждения:
         # именно на этих данных он и решает, берёт ли ответственность).
+        #
+        # Но ОТМЕНЁННАЯ бронь их больше не открывает (аудит 2026-08-12, волна 53). Решать уже
+        # нечего, поездки не будет — а это телефон человека, который в приложении не
+        # зарегистрирован, согласия не давал и убрать свои данные не может. Правило «сделки нет —
+        # контактов нет» действовало для телефона самого пассажира (`unlocked`), а тут его
+        # забыли: пассажир отменял бронь через минуту, и номер мамы оставался у водителя.
         "minor_passenger": bool(booking.minor_passenger),
-        "minor_guardian_name": (booking.minor_guardian_name if is_driver else ""),
-        "minor_guardian_phone": (booking.minor_guardian_phone if is_driver else ""),
+        "minor_guardian_name": (booking.minor_guardian_name if guardian_visible else ""),
+        "minor_guardian_phone": (booking.minor_guardian_phone if guardian_visible else ""),
         "pickup": (ride.pickup if unlocked else ""),
         "pickup_lat": (ride.pickup_lat if unlocked else None),
         "pickup_lng": (ride.pickup_lng if unlocked else None),
