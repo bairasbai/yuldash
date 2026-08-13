@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from .. import livepos            # модулем, а не функцией: так подмена в тестах цепляет вызов
@@ -157,6 +158,8 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     ).first()
     if existing:
         return existing
+    # Быстрая понятная проверка «мест нет» — чтобы не гонять человека через остальные шаги.
+    # Настоящая защита ниже: между этой строкой и списанием мест может вклиниться чужая бронь.
     if ride.seats_left < body.seats:
         raise herr(400, "Не хватает мест", "Урын етмәй")
     # Несовершеннолетний пассажир: взрослый обязателен и назван поимённо. Это не бюрократия —
@@ -192,11 +195,32 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         minor_passenger=bool(body.minor_passenger),
         minor_guardian_name=guardian_name, minor_guardian_phone=guardian_phone,
     )
-    ride.seats_left -= body.seats
+    # Место занимаем АТОМАРНО: «мест хватает» и вычитание — одним запросом к базе.
+    #
+    # Овербукинг и раньше был закрыт — блокировкой строки поездки в начале функции (см. выше
+    # `with_for_update`). Но только на PostgreSQL: SQLite такую блокировку ИГНОРИРУЕТ, а на
+    # ней работают тесты, локальная разработка и демо-база эмулятора. Там `seats_left -=`
+    # оставалось обычной парой «прочитал — записал», между которой помещается чужая бронь,
+    # и число мест уходило в минус (поездка тогда пропадает из поиска `seats_left > 0`).
+    #
+    # Хуже другое: саму защиту не проверял ни один тест — на SQLite `with_for_update()`
+    # пустая операция, поэтому её удаление при рефакторинге не уронило бы ничего.
+    #
+    # Условие внутри `UPDATE` работает на ОБЕИХ базах: вторую бронь отсекает сама база,
+    # ноль изменённых строк → мест уже нет. Блокировку строки оставляем — она сериализует
+    # остальную проверку. Тот же приём у статуса заказа такси (`instant_service.set_status`).
+    reserved = session.execute(
+        update(Ride)
+        .where(Ride.id == ride.id, Ride.seats_left >= body.seats)
+        .values(seats_left=Ride.seats_left - body.seats)
+    )
+    if reserved.rowcount == 0:
+        session.rollback()
+        raise herr(409, "Места только что разобрали", "Урындар хәҙер генә алынды")
     session.add(booking)
-    session.add(ride)
     session.commit()
     session.refresh(booking)
+    session.refresh(ride)   # объект в памяти помнит прежнее число мест — перечитываем
     notify_map_changed()   # места убыли → если 0, поездка уходит с карты live
     # Уведомление + push водителю о новой брони.
     #
