@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 
 from .. import livepos            # модулем, а не функцией: так подмена в тестах цепляет вызов
 from ..config import settings
+from ..flood import TOO_FAST_CREATING, guard_burst
 from ..db import get_session
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Rating, Ride, RideStatus, User
@@ -116,6 +117,13 @@ class BookingDetailsOut(BaseModel):
 @router.post("/bookings", response_model=Booking)
 def book(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) реально блокирует бронь
+    # Потолок на ТЕМП бронирования. Каждая бронь будит водителя пушем, и отмена будит второй
+    # раз: цикл «забронировал → отменил» давал 80 уведомлений за минуту одному человеку —
+    # травля кнопкой, ровно как 300 сообщений в чате (проверено запросом, аудит 2026-08-12,
+    # волна 51). Отменённые брони из счёта не исчезают: строка остаётся со статусом cancelled.
+    guard_burst(session, Booking.id, Booking.created_at, Booking.passenger_id == user.id,
+                per_minute=settings.flood_create_per_minute,
+                ru=TOO_FAST_CREATING[0], ba=TOO_FAST_CREATING[1])
     if body.seats < 1:
         raise herr(400, "Количество мест должно быть больше 0", "Урын һаны 0-дан күберәк булырға тейеш")
     # FOR UPDATE: блокируем строку поездки на время транзакции → нет овербукинга при гонке.

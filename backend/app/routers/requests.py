@@ -458,6 +458,10 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
         select(RequestResponse).where(
             RequestResponse.driver_id == user.id,
             RequestResponse.request_id.in_([r.id for r in reqs]),
+            # Отозванный отклик — не «я уже откликнулся»: строка теперь остаётся в базе следом
+            # для потолка темпа (волна 51), но в ленте водитель должен снова видеть кнопку
+            # «Откликнуться», а не старый id.
+            RequestResponse.status != "withdrawn",
         )
     ).all()}
     # Блокировки текущего водителя — ОДНИМ запросом (анти-N+1 вместо is_blocked в цикле по 200 заявкам).
@@ -534,8 +538,16 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
     workday_mod.guard_respond_request(session, user.id)
     if getattr(req, "only_trusted", False) and trust_level(session, user) < INSIDER_LEVEL:
         raise herr(403, "Заявка только для своих", "Заявка тик үҙ кешеләр өсөн")   # IDOR-защита: прямой id не обходит фильтр
+    # Потолок на ТЕМП откликов: каждый будит пассажира пушем, а отзыв позволял начать заново.
+    # Отозванные из счёта не исчезают — строка теперь остаётся (волна 51).
+    guard_burst(session, RequestResponse.id, RequestResponse.created_at,
+                RequestResponse.driver_id == user.id,
+                per_minute=settings.flood_create_per_minute,
+                ru=TOO_FAST_CREATING[0], ba=TOO_FAST_CREATING[1])
+    # Отозванный отклик дублем не считаем: водитель вправе вернуться к заявке, передумав.
     dup = session.exec(select(RequestResponse).where(
-        RequestResponse.request_id == request_id, RequestResponse.driver_id == user.id)).first()
+        RequestResponse.request_id == request_id, RequestResponse.driver_id == user.id,
+        RequestResponse.status != "withdrawn")).first()
     if dup:
         return {"ok": True, "id": dup.id}     # идемпотентно — повторный отклик не плодим
     # current_price = цена НА СТОЛЕ: пока торга не было, это первое предложение водителя.
@@ -641,8 +653,12 @@ def request_responses(request_id: int, user: User = Depends(current_user), sessi
         raise herr(404, "Заявка не найдена", "Заявка табылманы")
     if req.passenger_id != user.id and user.role != UserRole.admin:   # админ видит любые (помощь по звонку)
         raise herr(403, "Нет доступа", "Рөхсәт юҡ")
+    # Отозванные не показываем: для пассажира этого предложения больше нет. Строка остаётся
+    # в базе только как след для потолка темпа (волна 51), а не как живая карточка.
     resps = session.exec(
-        select(RequestResponse).where(RequestResponse.request_id == request_id).order_by(RequestResponse.id.desc())
+        select(RequestResponse).where(RequestResponse.request_id == request_id,
+                                      RequestResponse.status != "withdrawn")
+        .order_by(RequestResponse.id.desc())
     ).all()
     drivers = {u.id: u for u in session.exec(select(User).where(User.id.in_({r.driver_id for r in resps}))).all()} if resps else {}
     out: list = []
@@ -773,7 +789,9 @@ def decline_response(response_id: int, user: User = Depends(current_user), sessi
         raise herr(403, "Это не твой торг", "Был һинең һатыулашыуың түгел")
     if resp.status == "accepted":
         raise herr(409, "Отклик уже принят", "Яуап инде ҡабул ителгән")
-    if resp.status == "declined":
+    if resp.status in ("declined", "withdrawn"):
+        # Отозванный отклик отклонять нечего — иначе водитель получил бы пуш
+        # «не договорились по цене» на предложение, которое сам же снял (волна 51).
         return {"ok": True, "already": True}
     resp.status = "declined"
     session.add(resp)
@@ -871,6 +889,11 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
         if user.role != UserRole.admin:
             raise herr(403, "Нет доступа", "Рөхсәт юҡ")
         role = "passenger"        # админ действует от имени пассажира
+    # Водитель отозвал предложение — принять его нельзя. Раньше строка удалялась и сюда
+    # приходил 404; теперь она остаётся следом для потолка темпа, поэтому статус проверяем явно
+    # (волна 51). Иначе отозванный отклик снова стал бы принимаемым.
+    if resp.status == "withdrawn":
+        raise herr(409, "Водитель отозвал это предложение", "Водитель был тәҡдимен кире алды")
     if resp.status == "declined":
         raise herr(409, "Торг закрыт — по этому отклику не договорились",
                    "Һатыулашыу ябылған — был яуап буйынса килешмәгәндәр")
@@ -918,7 +941,13 @@ def withdraw_response(response_id: int, user: User = Depends(current_user), sess
         raise herr(403, "Можно отозвать только свой отклик", "Тик үҙ яуабыңды ғына кире алып була")
     if resp.status == "accepted":
         raise herr(409, "Отклик уже принят — отозвать нельзя", "Яуап инде ҡабул ителгән — кире алып булмай")
-    session.delete(resp)
+    # Помечаем, а не удаляем. Раньше строка стиралась — и вместе с ней исчезал единственный след
+    # того, что отклик БЫЛ. На этом держался поток уведомлений: откликнулся (пассажиру пуш) →
+    # отозвал → откликнулся снова, и так сорок раз подряд (проверено запросом, аудит 2026-08-12,
+    # волна 51). Счётчик, который живёт в удаляемой строке, обнуляется вместе с уликой — тот же
+    # урок, что с рассылкой SMS в волне 48.
+    resp.status = "withdrawn"
+    session.add(resp)
     session.commit()
     return {"ok": True}
 

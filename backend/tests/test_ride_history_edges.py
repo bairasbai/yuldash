@@ -106,8 +106,13 @@ def test_withdraw_own_pending_response(client, user_factory):
     after = client.get(f"/requests/{request['id']}/responses", headers=passenger["auth"])
     assert all(r["id"] != response_id for r in after.json())
 
-    # Повторный отзыв → 404 (строки уже нет).
-    assert client.delete(f"/responses/{response_id}", headers=driver["auth"]).status_code == 404
+    # Повторный отзыв проходит спокойно (200): строка отклика остаётся в базе следом для
+    # потолка темпа — раньше она удалялась, и на этом строился поток пушей пассажиру
+    # («откликнулся → отозвал → откликнулся», аудит 2026-08-12, волна 51).
+    assert client.delete(f"/responses/{response_id}", headers=driver["auth"]).status_code == 200
+    # …и отклик по-прежнему не виден пассажиру — для него предложения нет.
+    again = client.get(f"/requests/{request['id']}/responses", headers=passenger["auth"])
+    assert all(r["id"] != response_id for r in again.json())
 
 
 def test_withdraw_foreign_response_forbidden(client, user_factory):
