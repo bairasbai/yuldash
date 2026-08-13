@@ -1,7 +1,9 @@
 package com.yuldash.app
 
 import com.yuldash.app.data.ApiClient
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -55,5 +57,32 @@ class SecureImageRequestTest {
     @Test
     fun `адрес сайта считается своим`() {
         assertTrue(isOwnMediaHost("${BuildConfig.YULDASH_WEB_BASE_URL.trimEnd('/')}/media/chat/a.jpg"))
+    }
+
+    // --- ownImageModel: что вообще уходит в Coil ---
+    //
+    // Мало не дать токен: сам поход за картинкой уже сдаёт чужому серверу IP, город, время
+    // и устройство того, кто открыл экран. В чате поездки адрес приходит прямо из текста
+    // сообщения (префикс «[img]»), а его собеседник набирает руками — сервер его не чистит.
+    // Поэтому чужой адрес не превращается в модель картинки вовсе.
+
+    @Test
+    fun `свой адрес превращается в модель картинки`() {
+        val own = "${ApiClient.apiBase()}/media/chat/p.jpg"
+        assertEquals(own, ownImageModel(own))
+    }
+
+    @Test
+    fun `пробелы по краям не мешают распознать свой адрес`() {
+        val own = "${ApiClient.apiBase()}/media/chat/p.jpg"
+        assertEquals(own, ownImageModel("  $own  "))
+    }
+
+    @Test
+    fun `чужой адрес не превращается в модель картинки`() {
+        assertNull(ownImageModel("http://evil.example/1.png"))
+        assertNull(ownImageModel("https://$ourHost.evil.example/1.png"))
+        assertNull(ownImageModel("//evil.example/1.png"))
+        assertNull(ownImageModel(""))
     }
 }
