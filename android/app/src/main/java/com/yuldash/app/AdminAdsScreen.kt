@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -111,7 +112,8 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = CanonGold.copy(alpha = 0.15f), shape = RoundedCornerShape(999.dp)) {
-                            Text("Founder $founderUsed/$founderLimit", color = CanonGold, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                            // Золотом по золоту было 1.63:1 — счётчик читался только на просвет.
+                            Text("Founder $founderUsed/$founderLimit", color = canonChipInk(CanonGold), fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                         }
                         Spacer(Modifier.weight(1f))
                         Button(onClick = { editing = null; showForm = !showForm }, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg), shape = CanonCardShape) {
@@ -197,7 +199,8 @@ internal fun AdAdminCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(ad.title.ifBlank { appText("Без названия", "Исемһеҙ") }, modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Surface(color = statusColor.copy(alpha = 0.14f), shape = RoundedCornerShape(999.dp)) {
-                    Text(statusLabel, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                    // «На модерации» и «Пауза» окрашены золотом: золотом по золоту — 1.69:1.
+                    Text(statusLabel, color = canonChipInk(statusColor), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                 }
             }
             Text("${ad.partner.ifBlank { if (ad.ownerId != null) appText("Партнёр", "Партнёр") else "—" }} · ${planLabel(ad.plan)}", color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -351,7 +354,7 @@ internal fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCrea
                 enabled = canSave,
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg),
                 shape = CanonCardShape,
-                modifier = Modifier.fillMaxWidth().height(50.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
             ) {
                 if (sending) CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 else Text(appText(if (edit != null) "Сохранить" else "Создать (черновик)", if (edit != null) "Һаҡлау" else "Булдырыу (ҡаралама)"), fontWeight = FontWeight.Bold)

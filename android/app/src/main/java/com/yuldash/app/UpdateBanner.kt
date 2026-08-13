@@ -158,7 +158,9 @@ internal fun UpdateBanner(
                     shape = CanonItemShape,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = CanonGreen2,
-                        contentColor = CanonOnAccent,
+                        // Подложка адаптивная → чернила тоже: белым по светлому зелёному
+                        // в тёмной теме было 3.19:1 (см. CanonOnFilled).
+                        contentColor = CanonOnFilled,
                     ),
                     modifier = Modifier
                         .fillMaxWidth()

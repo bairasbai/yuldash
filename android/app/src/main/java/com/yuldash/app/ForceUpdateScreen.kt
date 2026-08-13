@@ -105,7 +105,7 @@ internal fun ForceUpdateScreen(storeUrl: String) {
                         }
                     },
                     shape = CanonItemShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2, contentColor = Color.White),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2, contentColor = CanonOnFilled),
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 54.dp),
