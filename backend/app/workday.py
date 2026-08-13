@@ -261,6 +261,22 @@ def carried_over_seconds(session: Session, driver_id: int, now: Optional[datetim
     return int(prev.seconds_online or 0)
 
 
+def last_online_at(session: Session, driver_id: int, now: Optional[datetime] = None):
+    """Когда водитель последний раз был на линии (наивный UTC) или None, если ни разу.
+
+    Смотрим сегодня и вчера: дальше в прошлое заглядывать незачем — любой перерыв длиннее
+    суток заведомо больше отдыха. Нужен тем, кто отличает «идущую смену» от «новой»
+    (предрейсовая самопроверка, волна 55)."""
+    now = now or utcnow()
+    today = local_day(now)
+    stamps = []
+    for day in (today, today - timedelta(days=1)):
+        wd = _get_day(session, driver_id, day)
+        if wd is not None and wd.last_heartbeat_at is not None:
+            stamps.append(wd.last_heartbeat_at)
+    return max(stamps) if stamps else None
+
+
 def shift_seconds(session: Session, driver_id: int, wd: TaxiWorkDay,
                   now: Optional[datetime] = None) -> int:
     """Сколько водитель за рулём в ТЕКУЩЕЙ смене: сегодня + хвост незаконченной вчерашней."""
