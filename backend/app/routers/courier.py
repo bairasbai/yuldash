@@ -25,6 +25,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
+from ..rating_service import guard_rating_window
 from ..config import settings
 from ..db import get_session
 from ..logs import admin_action
@@ -1101,6 +1102,10 @@ def parcel_rate(parcel_id: int, body: ParcelRateIn, user: User = Depends(current
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if parcel.status != "delivered":
         raise herr(409, "Оценить можно после вручения", "Тапшырғандан һуң баһалап була")
+    # Третья дверь к оценке — и в ней те же два пробела, что закрыли у попутки и такси
+    # (волна 57): не было срока и не было модерации текста. Считаем от создания доставки:
+    # своего «вручено в» у посылки нет, а доставка живёт дни, не месяцы (волна 58).
+    guard_rating_window(parcel.created_at)
     stars = int(body.stars or 0)
     if stars < 1 or stars > 5:
         raise herr(422, "Оценка от 1 до 5 звёзд", "Баһа 1-ҙән 5 йондоҙға тиклем")
@@ -1110,6 +1115,10 @@ def parcel_rate(parcel_id: int, body: ParcelRateIn, user: User = Depends(current
     if existing:
         raise herr(409, "Ты уже оценил", "Һин баһаланың инде")
     text = (body.text or "").strip()[:500]
+    if text:
+        # Отзыв о курьере виден в его публичном профиле — то же открытое поле, что комментарий.
+        # Помечаем (не режем и оценку не рвём): админ увидит телефон или грубость в очереди.
+        moderate_open_text(text, user.id, place="review", ref_id=parcel_id, session=session)
     session.add(Rating(parcel_id=parcel_id, rater_id=user.id, ratee_id=ratee_id,
                        stars=stars, text=text, text_published=False))
     session.commit()
