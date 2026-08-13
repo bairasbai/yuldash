@@ -10,6 +10,7 @@ from collections import deque
 from datetime import timedelta
 import base64
 import json
+import re
 import math
 import os
 import threading
@@ -206,6 +207,47 @@ def blocked_user_ids(session: Session, uid: int) -> set[int]:
     """Все user_id, с кем у uid есть блокировка в любую сторону — для фильтра выдачи поездок (без N+1)."""
     rows = session.exec(select(Block).where((Block.user_id == uid) | (Block.blocked_user_id == uid))).all()
     return {(r.blocked_user_id if r.user_id == uid else r.user_id) for r in rows}
+
+
+# ----------------------------- Телефон: один номер — один человек -----------------------------
+def find_user_by_phone(session: Session, raw: str):
+    """ЕДИНСТВЕННАЯ дверь «найти человека по номеру». Возвращает `User` или None.
+
+    Ищет по приведённому виду (`normalize_phone`), а если не нашёл — по написаниям, которые
+    могли попасть в базу раньше: «8XXXXXXXXXX», «7XXXXXXXXXX», без плюса, как ввели. Найдя
+    старое написание, ЧИНИТ строку — записывает приведённый вид. Так база выправляется сама,
+    по одному человеку за вход, без разовой миграции и без риска потерять чужие номера.
+
+    Почему не «просто сравнивать нормализованные»: `User.phone` — обычная колонка, сравнение
+    по функции не использовало бы индекс, а список кандидатов даёт то же самое за 2–3 запроса.
+    """
+    from .security import normalize_phone
+
+    s = (raw or "").strip()
+    if not s:
+        return None
+    norm = normalize_phone(s)
+    candidates = [norm, s]
+    digits = re.sub(r"\D", "", s)
+    if len(digits) == 11 and digits[0] in ("7", "8"):
+        candidates += ["+7" + digits[1:], "7" + digits[1:], "8" + digits[1:], digits]
+    elif len(digits) == 10 and digits[0] == "9":
+        candidates += ["+7" + digits, "7" + digits, "8" + digits, digits]
+    seen: set[str] = set()
+    for cand in candidates:
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
+        user = session.exec(select(User).where(User.phone == cand)).first()
+        if user is None:
+            continue
+        if user.phone != norm:
+            user.phone = norm      # самолечение: дальше этот человек ищется по одному виду
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+        return user
+    return None
 
 
 # ----------------------------- Пол (F9, безопасность женщин) -----------------------------
@@ -673,7 +715,7 @@ def send_sms(phone: str, code: str) -> None:
     else:
         if settings.is_prod:
             # SMS заморожен в проде — основной вход через мессенджеры. Понятный ответ вместо 500.
-            raise HTTPException(503, "SMS-вход временно недоступен. Войдите через мессенджер.")
+            raise HTTPException(503, "SMS-вход временно недоступен. Войди через мессенджер.")
         log.info(f"[OTP] {mp} -> {code}")  # мок/dev — код в логе
 
 
