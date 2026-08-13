@@ -240,6 +240,11 @@ private fun NearbyCouponsTab(onOpen: (CouponDto) -> Unit) {
                 }
             }
         }
+        // Витрина не обновилась, а карточки на экране остались: без этой плашки человек шёл
+        // в заведение со скидкой, которую партнёр уже снял.
+        if (error != null && coupons.isNotEmpty()) {
+            item(key = "stale") { AppStaleStrip(onRetry = { reload() }) }
+        }
         when {
             loading && coupons.isEmpty() -> {
                 item { SkeletonCard(lines = 3) }
@@ -363,6 +368,11 @@ private fun MyCouponsTab() {
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
     ) {
+        // Ровно та ситуация, ради которой тут жест: человек тянет экран, чтобы увидеть «погашен».
+        // Если обновление не прошло, а старый статус остался — молчать нельзя.
+        if (error != null && list.isNotEmpty()) {
+            item(key = "stale") { AppStaleStrip(onRetry = { reload() }) }
+        }
         when {
             loading && list.isEmpty() -> {
                 item { SkeletonCard(lines = 2) }

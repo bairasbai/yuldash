@@ -435,43 +435,18 @@ internal fun MoneySectionHeader(title: String, caption: String, modifier: Modifi
 
 /**
  * Цифры на экране есть, но обновить их не вышло. Молчать нельзя: человек решит, что видит
- * свежую сумму. Поэтому спокойная плашка + честный повтор (тач-цель 48dp).
+ * свежую сумму.
+ *
+ * Вид и поведение — общие ([AppStaleStrip]), тут только своя формулировка: на денежном экране
+ * важно назвать вещи своими именами («цифры могут быть старыми»), а не сказать обтекаемое
+ * «прежние данные».
  */
 @Composable
 internal fun MoneyStaleStrip(onRetry: () -> Unit) {
-    Surface(color = CanonWarnBg, shape = CanonItemShape) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(
-                appText("Не удалось обновить — цифры могут быть старыми", "Яңырта алманыҡ — һандар иҫке булыуы мөмкин"),
-                color = CanonWarn, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            Surface(
-                color = CanonSurface,
-                shape = RoundedCornerShape(999.dp),
-                modifier = Modifier.bounceClick(onRetry),
-            ) {
-                Row(
-                    Modifier.heightIn(min = 48.dp).padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        appText("Повторить", "Ҡабатлау"),
-                        color = CanonWarn, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
-                        fontWeight = FontWeight.Bold, maxLines = 1,
-                    )
-                }
-            }
-        }
-    }
+    AppStaleStrip(
+        onRetry = onRetry,
+        text = appText("Не удалось обновить — цифры могут быть старыми", "Яңырта алманыҡ — һандар иҫке булыуы мөмкин"),
+    )
 }
 
 /** "2026-07-14" → "14.07". Формат неожиданный — показываем как есть, выдумывать дату нельзя. */

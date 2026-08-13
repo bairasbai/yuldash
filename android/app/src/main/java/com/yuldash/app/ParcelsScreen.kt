@@ -2417,6 +2417,11 @@ private fun MyParcelsTab(onGoSend: () -> Unit = {}) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
         ) {
+            // Статус посылки на экране прежний, а обновить его не вышло. Раньше это было
+            // молчанием: отправитель видел «в пути» у уже доставленной посылки и ехал встречать.
+            if (error != null && list.isNotEmpty()) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload() }) }
+            }
             when {
                 loading && list.isEmpty() -> {
                     item { SkeletonCard(lines = 3) }

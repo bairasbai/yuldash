@@ -1361,6 +1361,8 @@ internal fun DriverCabinetScreen(
     var online by remember { mutableStateOf(false) }
     var onlineLoaded by remember { mutableStateOf(false) }   // статус пришёл с сервера → можно синкать фоновый сервис
     var debt by remember { mutableStateOf<com.yuldash.app.data.DriverDebtDto?>(null) }
+    // Заявка «Я оплатил» в работе: гасит кнопку, пока сервер не ответил.
+    var debtPaying by remember { mutableStateOf(false) }
     // Гейт такси (580-ФЗ): без одобренной заявки тумблер «Я на линии» заменяется CTA «Стать таксистом».
     var taxiApp by remember { mutableStateOf<com.yuldash.app.data.TaxiApplicationDto?>(null) }
     var taxiAppLoaded by remember { mutableStateOf(false) }
@@ -1540,8 +1542,14 @@ internal fun DriverCabinetScreen(
             driverBookings = driverBookings,
             ratingText = driverRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
             debt = debt,
-            onDeclareDebtPaid = {
+            debtPaying = debtPaying,
+            onDeclareDebtPaid = onDeclarePaid@{
+                if (debtPaying) return@onDeclarePaid
+                debtPaying = true
                 rateScope.launch {
+                    // try/finally, а не сброс флага в каждой ветке: внутри есть ранние выходы
+                    // (`return@onPaid`) — забыть один из них означало бы кнопку, погасшую навсегда.
+                    try {
                     ApiClient.declareDebtPaid()
                         .onSuccess onPaid@{ res ->
                             // ЮKassa (по флажку): уходим в браузер оплаты, статус проверяем поллингом.
@@ -1560,6 +1568,7 @@ internal fun DriverCabinetScreen(
                             Toast.makeText(ctx, debtPaidMsg, Toast.LENGTH_LONG).show(); reloadDebt()
                         }
                         .onFailure { Toast.makeText(ctx, debtPaidErrMsg, Toast.LENGTH_SHORT).show() }
+                    } finally { debtPaying = false }
                 }
             },
             womanVerified = womanVerified,
@@ -1934,7 +1943,7 @@ internal fun RestrictionsCard(data: com.yuldash.app.data.RestrictionsDto) {
             Text(appText(data.supportRu, data.supportBa), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
             OutlinedButton(
                 onClick = { showSupport = true },
-                modifier = Modifier.fillMaxWidth().height(48.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 shape = RoundedCornerShape(14.dp),
             ) { Text(appText("Написать в поддержку", "Ярҙамға яҙыу"), color = CanonText, fontWeight = FontWeight.Bold) }
         }
@@ -1978,7 +1987,7 @@ internal fun RestrictionsCard(data: com.yuldash.app.data.RestrictionsDto) {
  * Реквизиты СБП приходят с сервера (owner_sbp_phone/name из .env) — НЕ хардкод.
  */
 @Composable
-private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclarePaid: () -> Unit) {
+private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclarePaid: () -> Unit, paying: Boolean = false) {
     val onlyPending = debt.unpaidKop == 0 && debt.pendingKop > 0
     val bg = when { debt.blocked -> CanonDangerBg; onlyPending -> CanonMint; else -> CanonWarnBg }
     val accent = when { debt.blocked -> CanonRed; onlyPending -> CanonGreen2; else -> CanonWarn }
@@ -2041,12 +2050,23 @@ private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclare
                         }
                     }
                 }
+                // Кнопка гаснет на время запроса. Раньше нажатие не давало НИКАКОГО отклика:
+                // ни спиннера, ни блокировки — человек жал ещё раз и ещё. Сервер от повторов
+                // защищён (второй раз неоплаченных долгов уже нет), но молчащая кнопка в разделе
+                // «долг сервису» читается как «не сработало».
                 Button(
                     onClick = onDeclarePaid,
+                    enabled = !paying,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                ) { Text(appText("Я оплатил", "Мин түләнем"), fontWeight = FontWeight.Bold) }
+                ) {
+                    if (paying) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = CanonOnFilled, strokeWidth = 2.dp)
+                    } else {
+                        Text(appText("Я оплатил", "Мин түләнем"), fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
@@ -2510,6 +2530,7 @@ internal fun DriverCabinetContent(
     modifier: Modifier = Modifier,
     debt: com.yuldash.app.data.DriverDebtDto? = null,
     onDeclareDebtPaid: () -> Unit = {},
+    debtPaying: Boolean = false,
     // Гейт такси (580-ФЗ): taxiAppLoaded=true и заявка не approved → вместо тумблера CTA «Стать таксистом».
     taxiApplication: com.yuldash.app.data.TaxiApplicationDto? = null,
     taxiAppLoaded: Boolean = false,
@@ -2568,7 +2589,7 @@ internal fun DriverCabinetContent(
         }
         // Долг по комиссии за такси (Модель А «на доверии»): баннер только если есть что платить/подтверждать.
         if (debt != null && (debt.unpaidKop > 0 || debt.pendingKop > 0)) {
-            item { DriverDebtBanner(debt, onDeclareDebtPaid) }
+            item { DriverDebtBanner(debt, onDeclareDebtPaid, paying = debtPaying) }
         }
         // §9 Качество: активные ограничения (пауза такси по жалобам) + «написать в поддержку».
         if (restrictions != null && restrictions.items.isNotEmpty()) {
@@ -2651,6 +2672,12 @@ internal fun DriverCabinetContent(
                 CabinetMetric(appText("Свободно", "Буш"), driverRides.sumOf { it.seats }.toString(), Modifier.weight(1f))
                 CabinetMetric(appText("Рейтинг", "Рейтинг"), ratingText, Modifier.weight(1f))
             }
+        }
+        // Маршруты на экране прежние, а обновить их не вышло. Раньше сбой замечали только при
+        // пустом списке: водитель с двумя рейсами тянул экран, ничего не менялось, и он считал,
+        // что откликов правда нет.
+        if (driverRides.isNotEmpty() && ridesError) {
+            item(key = "stale") { AppStaleStrip(onRetry = onRetryRides) }
         }
         if (driverRides.isEmpty() && ridesLoading) {
             item { SkeletonCard(lines = 2) }
@@ -2908,6 +2935,11 @@ internal fun DriverCabinetContent(
                 CabinetMetric(appText("Рейсов сделано", "Рейс эшләнде"), ridesDone.toString(), Modifier.weight(1f))
                 CabinetMetric(appText("Пассажиров отвезено", "Пассажир йөрөтөлдө"), passengersServed.toString(), Modifier.weight(1f))
             }
+        }
+        // Архив не обновился, а прежние записи остались: последняя поездка в список не попала,
+        // и водитель решил, что она не засчиталась.
+        if (archiveError && archive.isNotEmpty()) {
+            item(key = "stale-archive") { AppStaleStrip(onRetry = onRetryArchive) }
         }
         when {
             archiveLoading && archive.isEmpty() -> item { SkeletonCard(lines = 2) }
@@ -3470,7 +3502,7 @@ internal fun AdsCabinetContent(
                 item {
                     Button(
                         onClick = onCreateAd,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                     ) {
@@ -3553,7 +3585,7 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
                 Text(appText("Одобрено! Оплати размещение — и объявление пойдёт в показы.", "Раҫланды! Урынлаштырыуҙы түлә — иғлан күрһәтелә башлай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
                 Button(
                     onClick = onPay,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
@@ -3575,7 +3607,7 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
                 // Продление размещения — тот же СБП-флоу, что и первичная оплата (перевод «на доверии»).
                 OutlinedButton(
                     onClick = onRenew,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.5.dp, CanonGreen2),
                 ) {
@@ -3672,7 +3704,7 @@ internal fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCre
         item {
             Button(
                 onClick = onCreate,
-                modifier = Modifier.fillMaxWidth().height(54.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {
@@ -3773,12 +3805,12 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { save(submit = false) }, enabled = !busy, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(14.dp)) {
+                    OutlinedButton(onClick = { save(submit = false) }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 52.dp), shape = RoundedCornerShape(14.dp)) {
                         Text(appText("Сохранить", "Һаҡларға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                     }
                     Button(
                         onClick = { save(submit = true) }, enabled = !busy,
-                        modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 52.dp), shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                     ) {
                         if (busy) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
@@ -4043,7 +4075,7 @@ internal fun PartnerAdCard(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
                     onClick = { openAdTarget(context, ad, adLabel); onClick(ad) },   // «Открыть» → сайт/звонок партнёра
-                    modifier = Modifier.weight(1f).height(44.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
@@ -4052,7 +4084,7 @@ internal fun PartnerAdCard(
                 ad.secondaryButtonText()?.let { button ->
                     OutlinedButton(
                         onClick = { if (onRoute != null) onRoute(ad) else routeToAd(context, ad, adLabel); onClick(ad) },   // «Маршрут»: в приложении (если есть карта) или внешние карты
-                        modifier = Modifier.weight(1f).height(44.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 44.dp),
                         shape = RoundedCornerShape(14.dp),
                         border = BorderStroke(1.dp, CanonGreen2)
                     ) {

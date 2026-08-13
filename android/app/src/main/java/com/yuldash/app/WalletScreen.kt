@@ -69,6 +69,9 @@ internal fun WalletScreen(onBack: () -> Unit) {
 
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
+    // Обновление не удалось, но цифры на экране уже есть — это НЕ то же самое, что ошибка
+    // на пустом экране, и молчанием быть не должно (см. AppStaleStrip).
+    var stale by remember { mutableStateOf(false) }
     var balance by remember { mutableStateOf<WalletBalanceDto?>(null) }
     var ledger by remember { mutableStateOf<List<WalletLedgerEntryDto>>(emptyList()) }
     // Вывод на карту (Модель Б, за флагом): статус грузим отдельно — его сбой не роняет весь кошелёк.
@@ -85,6 +88,10 @@ internal fun WalletScreen(onBack: () -> Unit) {
         balRes.onSuccess { balance = it }
         ledRes.onSuccess { ledger = it }
         error = balRes.isFailure && ledRes.isFailure
+        // Жест «потянуть вниз» отрабатывал вхолостую: индикатор крутился, пропадал, баланс не
+        // менялся — и водитель читал старую цифру как свежую («начисление не пришло»).
+        // Ошибку показывали только при пустой истории, то есть только новичку.
+        stale = (balRes.isFailure || ledRes.isFailure) && (balance != null || ledger.isNotEmpty())
         loading = false
         ApiClient.getPayoutStatus()
             .onSuccess { payout = it; payoutError = false }
@@ -109,6 +116,8 @@ internal fun WalletScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
+            if (stale) item(key = "stale") { MoneyStaleStrip(onRetry = { scope.launch { load() } }) }
+
             // Подпись под балансом зависит от того, включены ли выплаты. В Модели А деньги идут
             // мимо платформы, и обещание «доступно к выводу» под нулевым балансом читалось как
             // «мои деньги куда-то делись» (аудит 2026-07-26).
@@ -144,7 +153,9 @@ internal fun WalletScreen(onBack: () -> Unit) {
                 loading && ledger.isEmpty() -> item {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(4) { SkeletonCard(lines = 2) } }
                 }
-                error && ledger.isEmpty() -> item { AppErrorState(onRetry = { scope.launch { load() } }) }
+                // `&& !stale` — про сбой уже сказала полоска сверху; повторять то же самое
+                // второй раз на одном экране незачем.
+                error && ledger.isEmpty() && !stale -> item { AppErrorState(onRetry = { scope.launch { load() } }) }
                 ledger.isEmpty() -> item {
                     AppEmptyState(
                         title = appText("Пока операций нет", "Операциялар әлегә юҡ"),

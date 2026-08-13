@@ -309,6 +309,11 @@ internal fun SavedPlacesScreen(onBack: () -> Unit) {
                 }
             }
 
+            // Адреса не обновились, а на экране остались прежние: человек мог удалить «Работу»
+            // с другого устройства и не понять, почему она снова тут.
+            if (error && saved.isNotEmpty()) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload++ }) }
+            }
             when {
                 loading && saved.isEmpty() -> item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

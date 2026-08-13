@@ -664,7 +664,7 @@ internal fun CreateRideFormContent(
                 )
                 OutlinedButton(
                     onClick = onOpenPicker,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.dp, if (pinned) CanonGreen2 else CanonBorder)
                 ) {

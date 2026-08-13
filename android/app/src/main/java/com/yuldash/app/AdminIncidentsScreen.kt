@@ -179,6 +179,11 @@ internal fun AdminIncidentsScreen(onBack: () -> Unit) {
                     }
                 }
             }
+            // Список споров не обновился, прежние остались: новый спор не появился, и его
+            // разберут с опозданием — просто потому, что экран об этом промолчал.
+            if (error && list.isNotEmpty()) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload++ }) }
+            }
             when {
                 loading && list.isEmpty() ->
                     item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 4) } } }

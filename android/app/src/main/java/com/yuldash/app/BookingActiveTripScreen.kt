@@ -498,7 +498,7 @@ internal fun BookingScreen(
                                     val uri = android.net.Uri.parse("geo:$la,$ln?q=$la,$ln(" + android.net.Uri.encode(meet) + ")")
                                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
                                 },
-                                modifier = Modifier.fillMaxWidth().height(46.dp),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 border = BorderStroke(1.dp, CanonGreen2)
                             ) {
@@ -585,7 +585,7 @@ internal fun BookingScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(
                                 onClick = onMessage,
-                                modifier = Modifier.weight(1f).height(54.dp),
+                                modifier = Modifier.weight(1f).heightIn(min = 54.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 border = BorderStroke(1.dp, CanonGreen2)
                             ) {
@@ -596,7 +596,7 @@ internal fun BookingScreen(
                             Button(
                                 onClick = { onConfirmRide(payMethod, payAmountText.trim().toIntOrNull(), minorPassenger, guardianName.trim(), guardianPhone.trim()) },
                                 enabled = bookingId == null || canOpenActiveTrip,
-                                modifier = Modifier.weight(1.15f).height(54.dp),
+                                modifier = Modifier.weight(1.15f).heightIn(min = 54.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = CanonGreen2,
@@ -1494,7 +1494,7 @@ internal fun ActiveTripScreen(
                                     }
                                 },
                                 enabled = !rating && reviewText.isNotBlank(),
-                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                             ) {
@@ -1589,7 +1589,7 @@ internal fun ActiveTripScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     OutlinedButton(
                         onClick = { showCancel = true },
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                         shape = RoundedCornerShape(14.dp),
                         border = BorderStroke(1.dp, CanonRed)
                     ) {
@@ -1825,7 +1825,7 @@ internal fun ActiveTripScreen(
             item {
                 Button(
                     onClick = onSos,
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
                 ) {
@@ -2036,7 +2036,7 @@ internal fun RoadsideHelpButton(sending: Boolean, sent: Boolean, onClick: () -> 
     OutlinedButton(
         onClick = onClick,
         enabled = !sending && !sent,
-        modifier = modifier.fillMaxWidth().height(50.dp),
+        modifier = modifier.fillMaxWidth().heightIn(min = 50.dp),
         shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.outlinedButtonColors(containerColor = CanonWarnBg, contentColor = CanonWarn),
         border = BorderStroke(1.dp, CanonWarn),

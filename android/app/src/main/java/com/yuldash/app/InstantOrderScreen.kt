@@ -3852,7 +3852,7 @@ private fun TaxiComingSoonCard(
                         Button(
                             onClick = { submit() },
                             enabled = phone.isNotBlank() && !sending,
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                         ) {
@@ -3883,7 +3883,7 @@ private fun TaxiComingSoonCard(
                         }
                         // Такси уже включено (глобально), просто не в этом городе → проверку 580-ФЗ можно пройти заранее.
                         if (availability.reason == "city_off") {
-                            TextButton(onClick = onTaxiOnboarding, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                            TextButton(onClick = onTaxiOnboarding, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                                 Text(
                                     appText("Пройти проверку таксиста заранее →", "Таксист тикшереүен алдан үтергә →"),
                                     color = CanonTaxiText, fontSize = 14.sp, fontWeight = FontWeight.Bold,
@@ -3898,7 +3898,7 @@ private fun TaxiComingSoonCard(
         Spacer(Modifier.height(16.dp))
         Button(
             onClick = onBackToPooling,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
         ) {
@@ -4636,7 +4636,7 @@ internal fun InstantDriverTripScreen(
                                         if (toDest) current.toLng else current.fromLng,
                                     )
                                 },
-                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                 shape = RoundedCornerShape(14.dp),
                             ) {
                                 Icon(Icons.Default.Navigation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))

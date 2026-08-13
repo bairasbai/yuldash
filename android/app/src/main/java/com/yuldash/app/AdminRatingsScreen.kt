@@ -126,6 +126,11 @@ internal fun AdminRatingsScreen(onBack: () -> Unit) {
                     else appText("Как работает модерация", "Модерация нисек эшләй"),
                 )
             }
+            // Очередь на модерацию не обновилась: новые отзывы не пришли, а экран показывает
+            // прежние — и «всё разобрано» оказывается неправдой.
+            if (error && list.isNotEmpty()) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload++ }) }
+            }
             when {
                 loading && list.isEmpty() ->
                     item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }

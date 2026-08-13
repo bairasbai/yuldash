@@ -106,6 +106,9 @@ internal fun DriverEarningsScreen(onBack: () -> Unit) {
                 error && data == null -> item { AppErrorState(onRetry = { scope.launch { load(period) } }) }
                 else -> {
                     val d = data ?: return@LazyColumn
+                    // Обновление не удалось, а сумма на экране осталась прежней: без этой плашки
+                    // жест «потянуть вниз» выглядел успешным, и водитель считал старую цифру свежей.
+                    if (error) item(key = "stale") { MoneyStaleStrip(onRetry = { scope.launch { load(period) } }) }
                     // Итог: сумма во всю ширину + строка «поездок». Раньше это были две половинные
                     // плитки, и у водителя с хорошим месяцем шестизначная сумма упиралась в край.
                     // Та же карточка, что у курьера и в расшифровке таксиста — деньги в Юлдаше

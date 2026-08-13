@@ -531,7 +531,7 @@ internal fun SosContent(
             item {
                 Button(
                     onClick = { onDial("112") },
-                    modifier = Modifier.fillMaxWidth().height(64.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
                 ) {
@@ -1012,7 +1012,7 @@ internal fun VerifyDriverContent(
                 Button(
                     onClick = onSubmit,
                     enabled = canSubmit,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {

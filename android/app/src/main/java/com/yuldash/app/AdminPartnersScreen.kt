@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -112,6 +113,11 @@ internal fun AdminPartnersScreen(onBack: () -> Unit) {
                         )
                     }
                 }
+            }
+            // Список заявок не обновился, прежние остались: новая заявка партнёра не появилась,
+            // а экран об этом промолчал.
+            if (error != null && list.isNotEmpty()) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload() }) }
             }
             when {
                 loading && list.isEmpty() -> {
@@ -234,14 +240,14 @@ private fun AdminPartnerCard(p: AdminPartnerDto, busy: Boolean, onApprove: () ->
                     if (p.status == "pending") {
                         Button(
                             onClick = onApprove, enabled = !busy,
-                            modifier = Modifier.weight(1f).height(46.dp),
+                            modifier = Modifier.weight(1f).heightIn(min = 46.dp),
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                         ) { Text(appText("Одобрить", "Раҫлау"), fontWeight = FontWeight.Bold, fontSize = 14.sp) }
                     }
                     OutlinedButton(
                         onClick = onReject, enabled = !busy,
-                        modifier = Modifier.weight(1f).height(46.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 46.dp),
                         shape = RoundedCornerShape(14.dp),
                     ) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
                 }

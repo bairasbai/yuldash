@@ -568,7 +568,7 @@ internal fun MyTripCard(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
                     onClick = onPrimary,
-                    modifier = Modifier.weight(1f).height(44.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
@@ -577,7 +577,7 @@ internal fun MyTripCard(
                 if (secondaryAction.isNotBlank()) {
                     FilledTonalButton(
                         onClick = onSecondary,
-                        modifier = Modifier.weight(1.1f).height(44.dp),
+                        modifier = Modifier.weight(1.1f).heightIn(min = 44.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonMint, contentColor = CanonGreen2)
                     ) {
@@ -707,7 +707,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
                 Spacer(Modifier.weight(1f))
                 Button(
                     onClick = onOpen,
-                    modifier = Modifier.height(36.dp),
+                    modifier = Modifier.heightIn(min = 36.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                     contentPadding = PaddingValues(horizontal = 12.dp)
@@ -973,7 +973,7 @@ internal fun RideCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = onBook,
-                        modifier = Modifier.weight(1f).height(48.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         shape = RoundedCornerShape(14.dp)
                     ) {
                         Text(appText("Подробнее", "Ентекле"))
@@ -981,7 +981,7 @@ internal fun RideCard(
                     Button(
                         onClick = onBook,
                         enabled = hasSeats,
-                        modifier = Modifier.weight(1f).height(48.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                     ) {
@@ -1000,7 +1000,7 @@ internal fun RideCard(
                     Button(
                         onClick = onBook,
                         enabled = hasSeats,
-                        modifier = Modifier.weight(1f).height(48.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         shape = RoundedCornerShape(14.dp)
                     ) {
                         Text(if (hasSeats) appText("Забронировать", "Бронләү") else noSeatsText)
@@ -1378,7 +1378,7 @@ internal fun MyRequestsScreen(
 private fun CreateRequestButton(onCreateNew: () -> Unit) {
     Button(
         onClick = onCreateNew,
-        modifier = Modifier.fillMaxWidth().height(56.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
         shape = CanonFieldShape,
         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
     ) {
@@ -1434,7 +1434,7 @@ internal fun RequestSummaryCard(
             Box(Modifier.fillMaxWidth().height(1.dp).background(CanonBorder))
             OutlinedButton(
                 onClick = onAction,
-                modifier = Modifier.fillMaxWidth().height(44.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
                 shape = RoundedCornerShape(14.dp),
                 border = BorderStroke(1.dp, CanonGreen2)
             ) {
@@ -1447,14 +1447,14 @@ internal fun RequestSummaryCard(
             if (onEdit != null || onCancel != null) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     onEdit?.let { doEdit ->
-                        TextButton(onClick = doEdit, modifier = Modifier.weight(1f).height(44.dp)) {
+                        TextButton(onClick = doEdit, modifier = Modifier.weight(1f).heightIn(min = 44.dp)) {
                             Icon(Icons.Default.Edit, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(appText("Редактировать", "Үҙгәртеү"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
                     onCancel?.let { doCancel ->
-                        TextButton(onClick = doCancel, modifier = Modifier.weight(1f).height(44.dp)) {
+                        TextButton(onClick = doCancel, modifier = Modifier.weight(1f).heightIn(min = 44.dp)) {
                             Icon(Icons.Default.Close, contentDescription = null, tint = CanonRed, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(appText("Отменить заявку", "Заявканы кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -1661,7 +1661,7 @@ private fun FullRideCard(
             ) {
                 OutlinedButton(
                     onClick = onBook,
-                    modifier = Modifier.weight(1f).height(42.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 42.dp),
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.dp, CanonBorder)
                 ) {
@@ -1670,7 +1670,7 @@ private fun FullRideCard(
                 Button(
                     onClick = onBook,
                     enabled = hasSeats,
-                    modifier = Modifier.weight(1f).height(42.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 42.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
@@ -1755,7 +1755,7 @@ internal fun ChatScreen(
                             onClick = {
                                 if (key == "system") onNotifications() else selected = key
                             },
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                             shape = RoundedCornerShape(14.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(

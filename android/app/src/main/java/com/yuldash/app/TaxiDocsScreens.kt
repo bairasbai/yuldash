@@ -197,6 +197,12 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
             contentPadding = PaddingValues(top = GapS, bottom = BottomPad),
         ) {
             val a = app
+            // Человек тянет экран именно затем, чтобы увидеть решение админа по документам.
+            // Если обновление не прошло, а старый статус остался — молчать нельзя: он будет
+            // ждать одобрения, которое уже пришло (или не заметит отказ).
+            if (error && a != null) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload++ }) }
+            }
             when {
                 loading && a == null -> item(key = "skeleton") { TaxiDocsSkeleton() }
                 error && a == null -> item(key = "error") {

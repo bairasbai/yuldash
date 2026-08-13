@@ -867,7 +867,7 @@ internal fun SbpTransferSheet(amountKop: Int, onPaid: () -> Unit, onDismiss: () 
                     clipboard.setText(AnnotatedString(phone))
                     Toast.makeText(context, copied, Toast.LENGTH_SHORT).show()
                 },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {
@@ -875,7 +875,7 @@ internal fun SbpTransferSheet(amountKop: Int, onPaid: () -> Unit, onDismiss: () 
             }
             // Быстрая оплата: QR + кнопка «Оплатить в Сбербанке» (открывает перевод по номеру).
             SberPayBlock(phone)
-            OutlinedButton(onClick = onPaid, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp)) {
+            OutlinedButton(onClick = onPaid, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp), shape = RoundedCornerShape(14.dp)) {
                 Text(appText("Я перевёл", "Күсерҙем"))
             }
         }
@@ -927,7 +927,7 @@ internal fun SberPayBlock(phone: String, modifier: Modifier = Modifier) {
                 }.isSuccess
                 if (!ok) Toast.makeText(context, noAppMsg, Toast.LENGTH_LONG).show()
             },
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
         ) {

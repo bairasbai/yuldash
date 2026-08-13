@@ -176,6 +176,11 @@ internal fun DriverResponsesContent(
         contentPadding = PaddingValues(top = BargainGapTight, bottom = 24.dp),
     ) {
         item(key = "lede") { ResponsesLede(myTurn) }
+        // Торг живой: пассажир мог ответить прямо сейчас. Если обновить не вышло, а отклики
+        // на экране остались — молчать нельзя, иначе водитель ждёт хода, который уже сделан.
+        if (error && responses.isNotEmpty()) {
+            item(key = "stale") { AppStaleStrip(onRetry = onRetry) }
+        }
         when {
             // Скелетон той же формы, что карточка: список не «прыгает», когда данные придут.
             // Показываем его ТОЛЬКО когда показывать больше нечего — уже загруженные отклики

@@ -406,33 +406,8 @@ private fun CourierNotApprovedView(
 
 @Composable
 private fun CourierRefreshStrip(text: String, onRetry: () -> Unit) {
-    Surface(color = CanonWarnBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonWarn)) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text,
-                color = CanonWarn,
-                fontSize = DeliveryCaption,
-                lineHeight = DeliveryCaptionLine,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(
-                onClick = onRetry,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) {
-                Text(
-                    appText("Повторить", "Ҡабатлау"),
-                    color = CanonWarn,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = DeliveryBody,
-                    lineHeight = DeliveryBodyLine,
-                )
-            }
-        }
-    }
+    // Вид и поведение — общие ([AppStaleStrip]); у курьера только свой текст про доставки.
+    AppStaleStrip(onRetry = onRetry, text = text)
 }
 
 // ─────────────────────────── Одобрен → работа ───────────────────────────
@@ -1048,12 +1023,20 @@ private fun CourierAvailableTab(
                     }
                 }
             }
+            // Текст зависит от того, есть ли что показывать. Раньше строка была одна, и экран
+            // противоречил сам себе: сверху «показываем последний список», а сразу под ним
+            // «Свободных заказов нет». Поймал запуском на эмуляторе с оборванной связью.
+            // Обещать список можно, только когда он есть; при пустом — просто честно про сбой,
+            // иначе «заказов нет» читается как правда, хотя это всего лишь несостоявшийся запрос.
             if (feedReady && error != null && hasLoadedCurrentQuery) {
                 item {
                     CourierRefreshStrip(
-                        text = appText(
+                        text = if (visibleList.isNotEmpty()) appText(
                             "Не удалось обновить заказы — показываем последний список.",
                             "Заказдарҙы яңыртып булманы — һуңғы исемлекте күрһәтәбеҙ.",
+                        ) else appText(
+                            "Не удалось обновить заказы — список может быть неполным.",
+                            "Заказдарҙы яңыртып булманы — исемлек тулы булмаҫҡа мөмкин.",
                         ),
                         onRetry = { refreshKey++ },
                     )

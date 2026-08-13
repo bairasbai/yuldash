@@ -83,6 +83,12 @@ internal fun MyTaxiTripsScreen(onBack: () -> Unit, onOpenReceipt: (Int) -> Unit)
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp),
             ) {
+                // Список не обновился, а на экране остались прежние поездки. Раньше это было
+                // молчанием: жест срабатывал вхолостую, свежая поездка не появлялась, и человек
+                // решал, что чека за неё просто нет.
+                if (error && orders.isNotEmpty()) {
+                    item(key = "stale") { AppStaleStrip(onRetry = { reload++ }) }
+                }
                 when {
                     loading && orders.isEmpty() -> item {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

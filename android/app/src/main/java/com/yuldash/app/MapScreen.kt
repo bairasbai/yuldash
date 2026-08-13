@@ -831,27 +831,32 @@ private fun MapHero(
         // Кнопки — отдельный блок ПОД картой (не плавают на ней). Один размер текста, одна высота,
         // один радиус: пара читается как одна пилюля-действие, зелёная — главная, золотая — вторая.
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // `heightIn(min = ...)` вместо жёсткой высоты и две строки вместо одной: при системном
+            // шрифте 1.5× подпись «Мин водитель» обрезалась до «Мин во…», и кнопка переставала
+            // называть своё действие. Теперь она подрастает под текст, а обычный шрифт вёрстку
+            // не меняет — там обе подписи и так в одну строку. Высоты у пары остаются равными:
+            // Row тянет обе кнопки по самой высокой.
             Button(
                 onClick = { onFind(activeRoute ?: popular.firstOrNull() ?: demoPopularRoutes.first()) },
-                modifier = Modifier.weight(1.25f).height(56.dp),
+                modifier = Modifier.weight(1.25f).heightIn(min = 56.dp),
                 shape = RoundedCornerShape(22.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
-                contentPadding = PaddingValues(horizontal = 12.dp)
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(appText("Найти попутку", "Юлдаш табыу"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(appText("Найти попутку", "Юлдаш табыу"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             Button(
                 onClick = onDriver,
-                modifier = Modifier.weight(0.95f).height(56.dp),
+                modifier = Modifier.weight(0.95f).heightIn(min = 56.dp),
                 shape = RoundedCornerShape(22.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGold, contentColor = CanonGoldInk),
-                contentPadding = PaddingValues(horizontal = 12.dp)
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(appText("Я водитель", "Мин водитель"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(appText("Я водитель", "Мин водитель"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -885,7 +890,10 @@ private fun HomeHeader(onSos: () -> Unit) {
                 appText("Куда поедем?", "Ҡайҙа барабыҙ?"),
                 color = CanonGreen,
                 style = CanonTitle,
-                maxLines = 1,
+                // Две строки, а не одна: при системном шрифте 1.5× башкирское «Ҡайҙа барабыҙ?»
+                // обрывалось на «Ҡайҙа бараб…» — главный вопрос экрана человек не дочитывал.
+                // При обычном шрифте обе фразы и так помещаются в строку, вёрстка не меняется.
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -1918,7 +1926,7 @@ internal fun RequestPreviewCard(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Button(
                     onClick = { respondOpen = true },
-                    modifier = Modifier.weight(1f).height(48.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                     shape = RoundedCornerShape(14.dp)
                 ) { Text(appText("Откликнуться", "Яуап бирергә"), fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1) }
@@ -2036,7 +2044,7 @@ internal fun PickupPickerOverlay(
                 val t = mapView.mapWindow.map.cameraPosition.target
                 onConfirm(t.latitude, t.longitude)
             },
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(16.dp).height(54.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(16.dp).heightIn(min = 54.dp),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
         ) {

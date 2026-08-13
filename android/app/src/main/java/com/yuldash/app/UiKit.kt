@@ -141,7 +141,9 @@ internal fun AppButton(
     val contentColor = when (style) {
         AppButtonStyle.Accent -> CanonGoldInk
         AppButtonStyle.Secondary -> CanonGreen2
-        else -> Color.White
+        // Не `Color.White`: зелёная и красная подложки в тёмной теме светлеют, и белая надпись
+        // на них давала 3.19:1 и 3.31:1 при норме 4.5. См. CanonOnFilled.
+        else -> CanonOnFilled
     }
     val realEnabled = enabled && !loading
     if (style == AppButtonStyle.Secondary) {
@@ -309,6 +311,67 @@ internal fun AppNoticeCard(text: String, modifier: Modifier = Modifier, icon: Im
         ) {
             Icon(icon, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(20.dp))
             Text(text, color = CanonWarn, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+/**
+ * Полоска «обновить не удалось, на экране прежние данные» + кнопка «Повторить».
+ *
+ * Зачем отдельно от [AppErrorState]: тот ЗАМЕНЯЕТ собой контент и прав только тогда, когда
+ * показывать нечего. Если данные уже есть, подменять их ошибкой нельзя — человек потеряет то,
+ * что видел. А молчать ещё хуже.
+ *
+ * Как ломалось на самом деле: в «Кошельке» жест «потянуть вниз» и появился затем, чтобы цифры
+ * не были старыми. Но неудачу обновления экран обрабатывал только при ПУСТОЙ истории — то есть
+ * при пустом кошельке. У водителя с историей жест внешне срабатывал (индикатор крутился и
+ * пропадал), баланс не менялся, и он делал вывод «начисление не пришло». Один и тот же экран
+ * говорил правду новичку и врал тому, кто уже поездил.
+ *
+ * Правило: экран, который умеет обновляться жестом, обязан сказать, что обновление не удалось.
+ * Держит `StaleDataGuardTest`.
+ *
+ * Раньше эта плашка жила в трёх копиях (`MoneyStaleStrip`, `CourierRefreshStrip`, `AppNoticeCard`)
+ * с тремя разными текстами и стояла на 4 экранах из 25. Теперь она одна, а те — тонкие обёртки
+ * над ней ради своей формулировки.
+ */
+@Composable
+internal fun AppStaleStrip(
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+    // Коротко нарочно: рядом стоит кнопка «Повторить», и длинная фраза ломается на три строки —
+    // проверено на эмуляторе. Сравни с плашкой «Нет связи с сервером» вверху экрана: та говорит
+    // про связь вообще (и только при полном обрыве, IOException), эта — про конкретный список.
+    text: String = appText(
+        "Не удалось обновить — данные прежние",
+        "Яңырта алманыҡ — мәғлүмәт элекке",
+    ),
+) {
+    Surface(modifier = modifier.fillMaxWidth(), color = CanonWarnBg, shape = CanonItemShape) {
+        Row(
+            Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(12.dp))
+            Text(text, color = CanonWarn, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
+            // Тач-цель 48dp: плашка низкая, но нажимать по «Повторить» должно быть так же легко,
+            // как по обычной кнопке.
+            Surface(color = CanonSurface, shape = CircleShape, modifier = Modifier.bounceClick(onRetry)) {
+                Row(
+                    Modifier.heightIn(min = 48.dp).padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        appText("Повторить", "Ҡабатлау"),
+                        color = CanonWarn, fontSize = 14.sp, lineHeight = 20.sp,
+                        fontWeight = FontWeight.Bold, maxLines = 1,
+                    )
+                }
+            }
         }
     }
 }

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -419,7 +420,7 @@ private fun SubscriptionCard(partner: PartnerDto, onSubscribe: () -> Unit) {
                 }
             } else {
                 Text(appText("Подключи тариф, чтобы купоны появились на витрине.", "Купондар витринала күренһен өсөн тариф ҡуш."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
-                Button(onClick = onSubscribe, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                Button(onClick = onSubscribe, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
                     Text(appText("Выбрать тариф", "Тариф һайлау"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
@@ -494,16 +495,16 @@ private fun PartnerCouponRow(c: PartnerCouponDto, busy: Boolean, onEdit: () -> U
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onEdit, enabled = !busy, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp)) {
+                OutlinedButton(onClick = onEdit, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 42.dp), shape = RoundedCornerShape(14.dp)) {
                     Text(appText("Править", "Төҙәтеү"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
                 // Активировать / поставить на паузу
                 if (c.status == "active") {
-                    OutlinedButton(onClick = { onToggleStatus("paused") }, enabled = !busy, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp)) {
+                    OutlinedButton(onClick = { onToggleStatus("paused") }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 42.dp), shape = RoundedCornerShape(14.dp)) {
                         Text(appText("Пауза", "Туҡтатылған"), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 } else if (c.status == "draft" || c.status == "paused") {
-                    Button(onClick = { onToggleStatus("active") }, enabled = !busy, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                    Button(onClick = { onToggleStatus("active") }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 42.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
                         Text(appText("Включить", "Ҡабыҙыу"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
@@ -737,7 +738,7 @@ private fun PlanCard(plan: PartnerPlanDto, current: Boolean, busy: Boolean, onSe
             }
             Button(
                 onClick = onSelect, enabled = !busy,
-                modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = if (plan.premium) CanonGold else CanonGreen2, contentColor = if (plan.premium) CanonGoldInk else androidx.compose.ui.graphics.Color.White),
             ) {
                 Text(if (current) appText("Продлить", "Оҙайтыу") else appText("Оформить", "Рәсмиләштереү"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
