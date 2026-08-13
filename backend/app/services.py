@@ -365,6 +365,41 @@ def push_bilingual(session: Session, user_id: int, title_ru: str, title_ba: str,
         send_push(session, user_id, title, body)
 
 
+# Предохранитель от «шторма»: сколько уведомлений один человек может получить ПО ОДНОМУ И ТОМУ
+# ЖЕ объекту (броне, заявке, посылке) за минуту. Обычная поездка укладывается в единицы событий:
+# забронировали → подтвердили → выехал → подъезжает → завершена. Всё, что чаще, — это уже не
+# информирование, а звонок в карман (аудит 2026-08-12, волна 52).
+_NOTIFY_STORM_PER_MIN = 8
+
+
+def _notify_storm(s: Session, user_id: int, ref_kind: str, ref_id: "int | None") -> bool:
+    """Не пора ли замолчать по этому объекту. True — уведомление глотаем.
+
+    Последний рубеж, а не основная защита: каждое место, которое умеет будить человека, обязано
+    само не повторяться (например, статус поездки шлётся только при СМЕНЕ фазы). Но такие
+    правила пишутся поштучно и забываются — а цена ошибки лежит на том, кому ночью звонит
+    телефон. Здесь общий потолок на пару «человек + объект»: он не различает поводов и потому
+    переживает появление новых мест, откуда шлют.
+
+    Уведомления без привязки к объекту (`ref_id` пуст) не трогаем: там нечего группировать,
+    а глотать системные сообщения вслепую опаснее, чем пропустить их."""
+    if not ref_kind or ref_id is None:
+        return False
+    edge = utcnow() - timedelta(minutes=1)
+    recent = len(s.exec(
+        select(Notification.id).where(
+            Notification.user_id == user_id,
+            Notification.ref_kind == ref_kind,
+            Notification.ref_id == ref_id,
+            Notification.created_at > edge,
+        ).limit(_NOTIFY_STORM_PER_MIN + 1)
+    ).all())
+    if recent >= _NOTIFY_STORM_PER_MIN:
+        log.info(f"[NOTIFY] шторм по {ref_kind}#{ref_id} для user={user_id} — молчим")
+        return True
+    return False
+
+
 def push_notification(
     session: Session,
     user_id: int,
@@ -389,6 +424,8 @@ def push_notification(
     """
     try:
         with Session(engine) as s:
+            if _notify_storm(s, user_id, ref_kind, ref_id):
+                return
             s.add(Notification(
                 user_id=user_id,
                 type=ntype,

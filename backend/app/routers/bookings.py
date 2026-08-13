@@ -492,18 +492,24 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
         booking.arrival_verified = meters is not None
     else:
         booking.arrival_verified = False     # «выехал» — до места ещё ехать, подтверждать нечего
+    # Уведомляем, только если фаза РЕАЛЬНО сменилась. Раньше пуш уходил на каждое нажатие:
+    # тридцать раз «Водитель выехал» одному пассажиру, и всё это молча, кнопкой (проверено
+    # запросом, аудит 2026-08-12, волна 52). У SMS близким такое правило уже стояло
+    # («шлём только тем, у кого статус реально сменился»), а у пуша пассажиру — нет.
+    phase_changed = booking.driver_phase != body.status
     booking.driver_phase = body.status       # сохраняем «выехал/подъезжает» → пассажир увидит live, не только пушем
     session.add(booking)
     session.commit()
-    title_ru = {"departed": "Водитель выехал", "arriving": "Водитель подъезжает"}[body.status]
-    title_ba = {"departed": "Водитель юлға сыҡты", "arriving": "Водитель яҡынлаша"}[body.status]
-    route = f"{ride.from_city} → {ride.to_city}"
-    push_notification(
-        session, booking.passenger_id, "ride",
-        title_ru, title_ba,
-        route, route,
-        ref_kind="booking", ref_id=booking.id,
-    )
+    if phase_changed:
+        title_ru = {"departed": "Водитель выехал", "arriving": "Водитель подъезжает"}[body.status]
+        title_ba = {"departed": "Водитель юлға сыҡты", "arriving": "Водитель яҡынлаша"}[body.status]
+        route = f"{ride.from_city} → {ride.to_city}"
+        push_notification(
+            session, booking.passenger_id, "ride",
+            title_ru, title_ba,
+            route, route,
+            ref_kind="booking", ref_id=booking.id,
+        )
     return {"ok": True, "driver_phase": body.status}
 
 
