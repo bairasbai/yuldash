@@ -4,7 +4,7 @@ import json
 import os
 from urllib.parse import urlparse
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -270,6 +270,37 @@ def _run_autocheck(session: Session, dp: DriverProfile) -> None:
         dp.autocheck_data = json.dumps({"reasons": ["autocheck_error"], "error": str(e)[:200]}, ensure_ascii=False)
 
 
+# Как часто одна и та же заявка на проверку может дёргать Александра. Повторно слать документы
+# водителю НУЖНО (плохо снял права — переснял), но само нажатие ничего не меняет для модератора:
+# заявка уже висит у него на разборе. Пять минут, а не час: человек, который переснял права
+# и ждёт, должен дождаться проверки сегодня, а не завтра.
+_VERIFY_PING_EVERY = timedelta(minutes=5)
+
+
+def _worth_telling_admin(prev_status: str, prev_sent_at, prev_license: str, prev_car: str,
+                         dp: DriverProfile) -> bool:
+    """Стоит ли будить Александра этой подачей документов.
+
+    Заявка курьера и регистрация бизнеса на повтор отвечают «уже на рассмотрении» — то есть
+    дверь закрыта. У водителя повтор разрешён (и правильно: фото переснимают), но уведомление
+    уходило КАЖДЫЙ раз: 30 нажатий = 30 сообщений в Telegram (проверено запросом, аудит
+    2026-08-12, волна 50). Внимание админа — общий ресурс: среди тридцати дублей теряется
+    и настоящая срочная заявка, и чужая жалоба.
+
+    Говорим админу, когда это для него новость:
+      • заявки на разборе ещё не было (первая подача или после отказа) — всегда;
+      • документы реально заменили — значит смотреть надо заново;
+      • но не чаще раза в полчаса: перезаливать одни и те же права десять раз подряд человеку
+        незачем, а модератору тем более.
+    """
+    if prev_status != "pending":
+        return True
+    changed = (dp.license_url != prev_license) or (dp.car_photo_url != prev_car)
+    if not changed:
+        return False
+    return prev_sent_at is None or (utcnow() - prev_sent_at) >= _VERIFY_PING_EVERY
+
+
 @router.post("/driver/verify", response_model=DriverProfile)
 def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель отправляет документы на проверку → 'pending' + авто-проверка (OCR прав)."""
@@ -277,6 +308,7 @@ def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user
         raise herr(400, "Нужны фото прав и фото автомобиля", "Права һәм машина фотоһы кәрәк")
     dp = _get_or_create_profile(session, user.id)
     prev_license, prev_car = dp.license_url, dp.car_photo_url
+    prev_status, prev_sent_at = dp.docs_status, dp.verify_submitted_at
     dp.license_url = _ensure_owned_doc_url(body.license_url, user, dp)
     dp.car_photo_url = _ensure_owned_doc_url(body.car_photo_url, user, dp)
     dp.docs_status = "pending"
@@ -293,7 +325,8 @@ def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user
     # Прежние фото прав и авто больше не нужны — стираем, чтобы не копить чужие ПДн навсегда.
     drop_replaced_doc(prev_license, dp.license_url)
     drop_replaced_doc(prev_car, dp.car_photo_url)
-    if dp.docs_status == "pending":
+    if dp.docs_status == "pending" and _worth_telling_admin(prev_status, prev_sent_at,
+                                                            prev_license, prev_car, dp):
         car = " ".join(x for x in [dp.car_make, dp.car_model, dp.car_color, dp.car_plate] if x).strip() or "авто не указано"
         details = f"OCR: {dp.autocheck_result or 'нет'} · score {dp.autocheck_score:.2f}"
         notify_admin_telegram(
