@@ -236,6 +236,37 @@ def _maybe_warn(session: Session, driver_id: int, wd: TaxiWorkDay, remaining_sec
 
 
 # ------------------------------ учёт heartbeat ------------------------------
+def carried_over_seconds(session: Session, driver_id: int, now: Optional[datetime] = None) -> int:
+    """Сколько времени тянется в сегодняшний день из НЕЗАКОНЧЕННОЙ вчерашней смены.
+
+    Смена не обрывается полуночью. Учёт вёлся по календарным суткам, и водитель, работавший
+    «впритык», обходил правило об усталости, ни разу его не нарушив: 7,8 часа до полуночи
+    (в лимит не упёрся → блока нет), в 00:01 счётчик с нуля — и ещё 8 часов. Итого почти
+    шестнадцать часов за рулём подряд, и формально всё в порядке. Недельный лимит поймает это
+    через несколько дней, а ночная трасса Сибай–Уфа — сегодня (проверено запросом, аудит
+    2026-08-12, волна 54).
+
+    Ровно та же слепота, из-за которой заводили недельный лимит: «каждый отдельный день
+    выглядит нормальным». Только здесь она внутри суток.
+
+    Смена считается продолжающейся, пока между последним выходом на линию и текущим моментом
+    не прошёл положенный отдых (`rest_hours`). Поспал — начинаешь с нуля, и это ровно то,
+    ради чего правило и написано."""
+    now = now or utcnow()
+    prev = _get_day(session, driver_id, local_day(now) - timedelta(days=1))
+    if prev is None or not prev.last_heartbeat_at:
+        return 0
+    if (now - prev.last_heartbeat_at) >= timedelta(hours=settings.rest_hours):
+        return 0                      # отдых был — вчерашнее не тянем
+    return int(prev.seconds_online or 0)
+
+
+def shift_seconds(session: Session, driver_id: int, wd: TaxiWorkDay,
+                  now: Optional[datetime] = None) -> int:
+    """Сколько водитель за рулём в ТЕКУЩЕЙ смене: сегодня + хвост незаконченной вчерашней."""
+    return int(wd.seconds_online or 0) + carried_over_seconds(session, driver_id, now)
+
+
 def record_heartbeat(session: Session, driver_id: int, now: Optional[datetime] = None) -> TaxiWorkDay:
     """Учесть presence-heartbeat такси: +интервал от прошлого пинга (кэп
     workday_step_cap_sec — редкие heartbeat не накручивают). Первый пинг дня время не даёт.
@@ -247,7 +278,8 @@ def record_heartbeat(session: Session, driver_id: int, now: Optional[datetime] =
         if step > 0:
             wd.seconds_online += int(min(step, settings.workday_step_cap_sec))
     wd.last_heartbeat_at = now
-    remaining = shift_limit_sec() - wd.seconds_online
+    # Лимит считаем по СМЕНЕ, а не по календарным суткам (см. carried_over_seconds).
+    remaining = shift_limit_sec() - shift_seconds(session, driver_id, wd, now)
     if remaining <= 0 and wd.limit_reached_at is None:
         wd.limit_reached_at = now
         session.add(wd)
@@ -291,7 +323,10 @@ def summary(session: Session, driver_id: int, now: Optional[datetime] = None) ->
     now = now or utcnow()
     blocked_wd = blocking_workday(session, driver_id, now)
     wd = blocked_wd or _get_day(session, driver_id, local_day(now))
-    seconds = wd.seconds_online if wd else 0
+    # Показываем ту же цифру, по которой считается лимит: со «хвостом» вчерашней смены, если
+    # отдыха между ними не было (волна 54). Иначе в полночь прогресс визуально обнулялся бы,
+    # а блок приходил бы «неожиданно» — хуже всего, когда правило кажется случайным.
+    seconds = (shift_seconds(session, driver_id, wd, now) if wd else 0)
     limit = shift_limit_sec()
     return {
         "day": (wd.day if wd else local_day(now)).isoformat(),
