@@ -15,7 +15,7 @@ from ..security import current_user, gen_referral_code
 from ..timeutil import utcnow
 from ..trust_service import (
     CONSENT_KINDS, INSIDER_LEVEL, INVITE_CODE_USES, MAX_INVITES_PER_USER,
-    MIN_INVITER_LEVEL, list_consents, record_consent, trust_level, trust_summary,
+    can_invite, list_consents, record_consent, trust_summary,
 )
 
 router = APIRouter(tags=["trust"])
@@ -45,7 +45,7 @@ def _invite_out(inv: InviteCode) -> InviteOut:
 def create_invite(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Создать пригласительный код в круг «своих». Может только проверенный участник (L2+).
     Запас кодов на пользователя ограничен (анти-абьюз)."""
-    if trust_level(session, user) < MIN_INVITER_LEVEL:
+    if not can_invite(session, user):
         raise herr(403, "Приглашать в круг своих может только проверенный участник", "Ышаныс түңәрәгенә тик тикшерелгән ҡатнашыусы саҡыра ала")
     mine = session.exec(select(InviteCode).where(InviteCode.owner_id == user.id)).all()
     if len(mine) >= MAX_INVITES_PER_USER:
@@ -98,8 +98,10 @@ def redeem_invite(body: RedeemIn, user: User = Depends(current_user), session: S
         raise herr(400, "Код уже использован", "Код ҡулланылған инде")
     # V11: пригласивший мог быть разжалован (verified снят админом) ПОСЛЕ выпуска кода. Тогда код
     # больше не вводит в круг своих — иначе бывший проверенный продолжает плодить L3 в обход модерации.
+    # Проверяем ВЛАДЕЛЬЦА в момент активации, а не только при выпуске: код, розданный до
+    # наказания, иначе продолжал бы вводить людей в круг своих (волна 56).
     owner = session.get(User, inv.owner_id)
-    if owner is None or trust_level(session, owner) < MIN_INVITER_LEVEL:
+    if owner is None or not can_invite(session, owner):
         raise herr(400, "Код больше не действителен", "Код инде ғәмәлдә түгел")
     row = session.exec(select(Trust).where(Trust.user_id == user.id)).first()
     if row and row.level >= INSIDER_LEVEL:
