@@ -228,6 +228,68 @@ def _activate_payment(session: Session, payment: Payment) -> None:
                 partner.status = "active"
             session.add(partner)
     session.commit()
+    _tell_about_payment(session, payment, ok=True)
+
+
+# Что человек получает за деньги — своими словами, для уведомления.
+_PAID_TEXT = {
+    "boost": ("Оплата получена — объявление поднято в ленте 💚",
+              "Түләү ҡабул ителде — иғлан таҫмала өҫкә күтәрелде 💚"),
+    "ad": ("Оплата получена — реклама опубликована 💚",
+           "Түләү ҡабул ителде — реклама баҫылды 💚"),
+    "partner_sub": ("Оплата получена — подписка продлена 💚",
+                    "Түләү ҡабул ителде — яҙылыу оҙайтылды 💚"),
+    "donate": ("Спасибо за поддержку 💚 Перевод получен.",
+               "Ярҙамың өсөн рәхмәт 💚 Күсереү ҡабул ителде."),
+    "taxi_debt": ("Комиссия закрыта — такси снова доступно 💚",
+                  "Комиссия ябылды — такси кире асыҡ 💚"),
+    "courier_commission": ("Комиссия курьера закрыта 💚",
+                           "Курьер комиссияһы ябылды 💚"),
+}
+
+
+def _tell_about_payment(session: Session, payment: Payment, ok: bool) -> None:   # noqa: D401
+    """Сказать человеку, чем кончился его перевод.
+
+    Переводы у нас «на доверии»: человек отправляет деньги по СБП и ждёт, пока админ увидит
+    поступление и нажмёт кнопку. Ни подтверждение, ни отказ не доходили до него никак —
+    ни одного уведомления на всём пути (аудит 2026-08-08, волна 84).
+
+    Для человека это выглядит так: заплатил и смотришь в приложение, пытаясь понять, сработало
+    или нет. А если админ отклонил («перевод не нашли»), не происходит вообще ничего: человек
+    уверен, что оплатил, и ждёт неделю. Деньги — то место, где тишина обходится дороже всего.
+
+    Карточные платежи включаются вебхуком, без участия админа, — поэтому текст живёт здесь,
+    в общей точке успеха, а не в админской ручке.
+    """
+    from ..services import push_notification   # локальный импорт: services тянет роутеры на старте
+    ru_ba = _PAID_TEXT.get(payment.purpose or "")
+    if ok and ru_ba is None:
+        return   # служебные (ride/booking) человек и так видит по состоянию поездки
+    if ok:
+        title = ("Оплата получена", "Түләү ҡабул ителде")
+        body = ru_ba
+    else:
+        title = ("Перевод не нашли", "Күсереү табылманы")
+        body = ("Мы не увидели перевод. Если ты платил — напиши в поддержку, разберёмся 💚",
+                "Күсереүҙе күрмәнек. Түләгән булһаң — ярҙам хеҙмәтенә яҙ, асыҡлайбыҙ 💚")
+    # Уведомление должно ВЕСТИ туда, где человек увидит результат своих денег: поднятие —
+    # в его поездку, реклама — в кабинет объявлений, подписка — в «Мой бизнес», комиссия —
+    # в кабинет водителя. Донат никуда не ведёт: там нечего смотреть, это просто спасибо.
+    # Вида «payment» приложение не знает — тапнув по такому пушу, человек упёрся бы в пустоту
+    # (поймал сторож `test_notifications_lead_somewhere`).
+    ref_kind, ref_id = {
+        "boost": ("ride", payment.ride_id),
+        "ad": ("ad", payment.ad_id),
+        "partner_sub": ("partner", payment.partner_id),
+        "taxi_debt": ("debt", payment.user_id),
+        "courier_commission": ("debt", payment.user_id),
+    }.get(payment.purpose or "", ("", None))
+    push_notification(
+        session, payment.user_id, "system",
+        title[0], title[1], body[0], body[1],
+        ref_kind=ref_kind, ref_id=ref_id,
+    )
 
 
 def _notify_new_payment(session: Session, payment: Payment) -> None:
@@ -539,6 +601,7 @@ def admin_reject_payment(payment_id: int, user: User = Depends(current_user), se
         payment.status = "canceled"
         session.add(payment)
         session.commit()
+        _tell_about_payment(session, payment, ok=False)   # молчащий отказ = человек ждёт вечно (волна 84)
     admin_action(user.id, "payment.reject", payment_id=payment.id, user=payment.user_id)
     return {"payment_id": payment.id, "status": payment.status}
 
