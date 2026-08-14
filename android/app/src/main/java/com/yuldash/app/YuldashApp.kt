@@ -545,6 +545,21 @@ internal fun YuldashApp() {
     // Тап по пушу «новое сообщение» в попутке → бронь с чатом (аудит 2026-08-06: раньше
     // открывалась просто карта, а переписку человек искал сам). Экран брони сам догружает
     // детали по id — здесь достаточно самого номера. Не вошёл — сначала вход.
+    // Пуши поддержки и споров теперь несут адрес — открываем нужный экран, а не «просто
+    // приложение». Тот же приём и те же оговорки, что у брони ниже: ждём конца сплэша,
+    // гасим сигнал одноразово, без входа — сначала вход.
+    LaunchedEffect(DeepLink.pendingSupport.value, screen) {
+        if (!DeepLink.pendingSupport.value) return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        DeepLink.pendingSupport.value = false
+        screen = if (ApiClient.isLoggedIn()) Screen.Support else Screen.Login
+    }
+    LaunchedEffect(DeepLink.pendingFairness.value, screen) {
+        if (!DeepLink.pendingFairness.value) return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        DeepLink.pendingFairness.value = false
+        screen = if (ApiClient.isLoggedIn()) Screen.FairnessCenter else Screen.Login
+    }
     LaunchedEffect(DeepLink.pendingBookingChatId.value, screen) {
         val bid = DeepLink.pendingBookingChatId.value ?: return@LaunchedEffect
         // P3: ждём, пока сплэш/интро/онбординг отработают — иначе они перезапишут screen, а сигнал

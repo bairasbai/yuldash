@@ -340,6 +340,11 @@ class MainActivity : ComponentActivity() {
         when (type) {
             "chat" -> DeepLink.pendingBookingChatId.value = id        // чат попутки → экран брони
             "order_chat" -> NavSignals.openInstantChat.value = id     // чат такси-заказа
+            // Сервер теперь кладёт адрес в КАЖДОЕ уведомление, у которого он есть
+            // (см. services.push_notification). Разбираем то, что умеем открыть точно:
+            "booking" -> DeepLink.pendingBookingChatId.value = id     // бронь попутки → её экран
+            "support" -> DeepLink.pendingSupport.value = true         // ответ поддержки → «Поддержка»
+            "incident" -> DeepLink.pendingFairness.value = true       // решение по спору
             else -> return
         }
         i.removeExtra(FcmService.EXTRA_PUSH_TYPE)   // не сработать повторно при пересоздании
@@ -367,6 +372,17 @@ internal object DeepLink {
     val pendingRideId = mutableStateOf<Int?>(null)
     /** Тап по пушу о посылке → открыть «Посылки». Сбрасывается тем, кто открыл (одноразовый сигнал). */
     val pendingParcels = mutableStateOf(false)
+
+    /**
+     * Тап по пушу поддержки → открыть «Поддержку».
+     *
+     * До этого «Поддержка Юлдаш ответила» открывала просто приложение: человек, который писал
+     * за помощью, должен был сам вспомнить, где эта поддержка лежит, и найти свой тикет.
+     */
+    val pendingSupport = mutableStateOf(false)
+
+    /** Тап по пушу о споре → «Центр справедливости». Тот же довод, что у поддержки. */
+    val pendingFairness = mutableStateOf(false)
 
     /**
      * Тап по пушу «новое сообщение» в попутке → бронь с чатом (id брони). `null` = сигнала нет.
