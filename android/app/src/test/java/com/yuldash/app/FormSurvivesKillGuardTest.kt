@@ -34,6 +34,13 @@ class FormSurvivesKillGuardTest {
             "airConditioner", "onlyTrusted", "quiet", "noMinors",
             "recurrence", "category", "receiverName", "parcelSize", "pickup",
         ),
+        // Анкета бизнеса и редактор купона: заполняются один раз и вручную, потерять их
+        // особенно обидно — человек уходит искать свой адрес или ИНН в другом приложении.
+        "PartnerCabinetScreen.kt" to listOf(
+            "name", "category", "city", "address", "phone", "description",
+            "title", "discountText", "routeHint", "limitTotal", "limitPerUser",
+            "validUntil", "premium",
+        ),
     )
 
     /** Экраны, где приём уже применён. Сторож следит, чтобы его не растеряли при правках. */

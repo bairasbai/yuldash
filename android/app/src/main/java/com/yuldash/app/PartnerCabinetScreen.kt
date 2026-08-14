@@ -54,6 +54,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -169,12 +170,16 @@ private fun PartnerRejectedView(p: PartnerDto, onResubmitted: () -> Unit) {
 @Composable
 private fun PartnerForm(initial: PartnerDto?, onDone: () -> Unit, embedded: Boolean = false) {
     val scope = rememberCoroutineScope()
-    var name by remember { mutableStateOf(initial?.name ?: "") }
-    var category by remember { mutableStateOf(initial?.category ?: "cafe") }
-    var city by remember { mutableStateOf(initial?.city ?: "") }
-    var address by remember { mutableStateOf(initial?.address ?: "") }
-    var phone by remember { mutableStateOf(initial?.phone ?: "") }
-    var description by remember { mutableStateOf(initial?.description ?: "") }
+    // rememberSaveable: анкета бизнеса — шесть полей, и заполняют её один раз. Если Android
+    // выгрузит приложение, пока человек ищет в другом окне свой адрес или ИНН, всё вводится
+    // заново. Начальное значение из `initial` подставляется только при первом показе —
+    // после воскрешения выигрывает сохранённое, то есть правки человека.
+    var name by rememberSaveable { mutableStateOf(initial?.name ?: "") }
+    var category by rememberSaveable { mutableStateOf(initial?.category ?: "cafe") }
+    var city by rememberSaveable { mutableStateOf(initial?.city ?: "") }
+    var address by rememberSaveable { mutableStateOf(initial?.address ?: "") }
+    var phone by rememberSaveable { mutableStateOf(initial?.phone ?: "") }
+    var description by rememberSaveable { mutableStateOf(initial?.description ?: "") }
     var sending by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     val errDefault = appText("Не получилось сохранить. Повтори.", "Һаҡлап булманы. Ҡабатла.")
@@ -558,15 +563,15 @@ private data class CStatus(val bg: androidx.compose.ui.graphics.Color, val fg: a
 @Composable
 private fun CouponForm(partner: PartnerDto, initial: PartnerCouponDto?, onBack: () -> Unit, onSaved: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var title by remember { mutableStateOf(initial?.title ?: "") }
-    var description by remember { mutableStateOf(initial?.description ?: "") }
-    var discountText by remember { mutableStateOf(initial?.discountText ?: "") }
-    var city by remember { mutableStateOf(initial?.city ?: partner.city) }
-    var routeHint by remember { mutableStateOf(initial?.routeHint?.joinToString(", ") ?: "") }
-    var limitTotal by remember { mutableStateOf((initial?.limitTotal ?: 100).toString()) }
-    var limitPerUser by remember { mutableStateOf((initial?.limitPerUser ?: 1).toString()) }
-    var validUntil by remember { mutableStateOf(initial?.validUntil?.take(10) ?: "") }
-    var premium by remember { mutableStateOf(initial?.premium ?: false) }
+    var title by rememberSaveable { mutableStateOf(initial?.title ?: "") }
+    var description by rememberSaveable { mutableStateOf(initial?.description ?: "") }
+    var discountText by rememberSaveable { mutableStateOf(initial?.discountText ?: "") }
+    var city by rememberSaveable { mutableStateOf(initial?.city ?: partner.city) }
+    var routeHint by rememberSaveable { mutableStateOf(initial?.routeHint?.joinToString(", ") ?: "") }
+    var limitTotal by rememberSaveable { mutableStateOf((initial?.limitTotal ?: 100).toString()) }
+    var limitPerUser by rememberSaveable { mutableStateOf((initial?.limitPerUser ?: 1).toString()) }
+    var validUntil by rememberSaveable { mutableStateOf(initial?.validUntil?.take(10) ?: "") }
+    var premium by rememberSaveable { mutableStateOf(initial?.premium ?: false) }
     var sending by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     val errDefault = appText("Не получилось сохранить. Повтори.", "Һаҡлап булманы. Ҡабатла.")
