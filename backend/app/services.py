@@ -1168,12 +1168,33 @@ def seed_pickup_points(session: Session) -> None:
 
 
 def suggest_pickup_points(session: Session, city: str | None, limit: int = 12) -> list[PickupPoint]:
-    """Подсказки точек сбора для города — чаще выбираемые первыми (usage_count ↓)."""
-    q = select(PickupPoint)
-    if city and city.strip():
-        q = q.where(PickupPoint.city == city.strip())
+    """Подсказки точек сбора для города — чаще выбираемые первыми (usage_count ↓).
+
+    Наружу отдаём ТОЛЬКО курируемые ориентиры (`is_seed`). Пользовательские копятся в базе
+    для статистики и будущего одобрения, но в публичный справочник не попадают.
+
+    Почему так (аудит 2026-08-08, волна 91). Справочник пополнялся тем, что водитель написал
+    в поле «где встречаемся», — вместе с координатами. А пишут туда живым языком: «у дома 15
+    по Гагарина, синие ворота», «звони +7…, подъеду». Проверено запросом: и адрес с точными
+    координатами, и телефон оказывались в справочнике, который отдаётся БЕЗ входа кому угодно.
+    То есть чужой дом становился публичной подсказкой для всего города, а рядом в коде стояло
+    обещание «ориентиры — не персональные данные».
+
+    Модерация текста тут не спасает: она помечает запись для админа, но не отменяет сохранение
+    (осознанное решение проекта). Значит, разделять надо на выдаче.
+    """
+    from .geo import bare_name, fold   # локальный импорт: geo тянет services на верхнем уровне
+    q = select(PickupPoint).where(PickupPoint.is_seed == True)  # noqa: E712 — SQL IS TRUE
     q = q.order_by(PickupPoint.usage_count.desc(), PickupPoint.id.asc())
-    return session.exec(q.limit(max(1, min(limit, 50)))).all()
+    rows = session.exec(q).all()
+    if city and city.strip():
+        # Город сверяем СВЁРНУТЫМ именем: в справочнике ориентиров он записан по-башкирски
+        # («Баймаҡ»), а поездки приходят с русским написанием («Баймак») — и подсказки
+        # для целого района молча не находились (аудит 2026-08-08, волна 91). Функция
+        # свёртки в проекте уже была, её просто сюда не применили.
+        key = fold(bare_name(city))
+        rows = [p for p in rows if fold(bare_name(p.city)) == key]
+    return list(rows)[: max(1, min(limit, 50))]
 
 
 def record_pickup_choice(
@@ -1193,15 +1214,27 @@ def record_pickup_choice(
     city = (city or "").strip()
     if pt is None and title_ru and city:
         # дедуп по городу + названию (без регистра) — не плодим дубли одного ориентира
-        existing = session.exec(select(PickupPoint).where(PickupPoint.city == city)).all()
-        pt = next((p for p in existing if p.title_ru.strip().lower() == title_ru.lower()), None)
+        from .geo import bare_name, fold   # локальный импорт (см. suggest_pickup_points)
+        # Тот же свёрнутый ключ, что и в подсказках: иначе «Баймак» и «Баймаҡ» будут двумя
+        # разными городами, и один ориентир заведётся дважды (волна 91).
+        key = fold(bare_name(city))
+        existing = [p for p in session.exec(select(PickupPoint)).all() if fold(bare_name(p.city)) == key]
+        pt = next((p for p in existing if fold(p.title_ru) == fold(title_ru)), None)
     if pt is not None:
         pt.usage_count += 1
         session.add(pt)
         session.commit()
         session.refresh(pt)
         return pt
-    # новой точки нет — создаём, только если есть название + валидные координаты
+    # Новой точки нет — создаём, только если есть название + валидные координаты. Запись
+    # остаётся ВНУТРЕННЕЙ (`is_seed=False`): в публичные подсказки она не идёт, но по ней видно,
+    # какие ориентиры люди называют сами, — из этого потом растёт курируемый справочник.
+    #
+    # Текст с контактом (телефон, «пиши в вотсап») не сохраняем совсем: даже во внутреннем
+    # списке ему делать нечего, а модерация такие записи только помечает (волна 91).
+    from .antifraud import moderate_text   # локальный импорт: antifraud тянет services
+    if moderate_text(title_ru, check_contact=True):
+        return None
     if title_ru and city and lat is not None and lng is not None and -90 <= lat <= 90 and -180 <= lng <= 180:
         pt = PickupPoint(
             city=city, title_ru=title_ru, title_ba=(title_ba or "").strip(),

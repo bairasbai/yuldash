@@ -80,6 +80,19 @@ def test_choosing_known_point_on_ride_bumps_usage(client, user_factory):
 
 
 def test_new_pickup_on_ride_grows_directory(client, user_factory):
+    """Ориентир, названный человеком, копится ВНУТРИ, но в публичные подсказки не выходит.
+
+    Раньше этот тест закреплял обратное: новая точка сразу появлялась в открытом справочнике.
+    Так и было задумано (F14, «справочник растёт сам»), пока не выяснилось, что люди пишут
+    в поле «где встречаемся» свой домашний адрес и телефон, а справочник отдаётся без входа
+    кому угодно (аудит 2026-08-08, волна 91). Пользу оставили, публикацию убрали: записи
+    видно в базе — по ним растёт курируемый справочник, но через человека.
+    """
+    from sqlmodel import Session, select
+
+    from app.db import engine
+    from app.models import PickupPoint
+
     driver = user_factory("PickupDriver2", role=UserRole.driver)
     city = "Кушнаренково"   # не сидовый город
     assert client.get("/pickup-points", params={"city": city}).json() == []
@@ -90,11 +103,18 @@ def test_new_pickup_on_ride_grows_directory(client, user_factory):
     ))
     assert resp.status_code == 200, resp.text
 
-    after = client.get("/pickup-points", params={"city": city}).json()
-    assert len(after) == 1
-    assert after[0]["title_ru"] == "У сельсовета"
-    assert after[0]["usage_count"] == 1
-    assert after[0]["lat"] == 55.101 and after[0]["lng"] == 55.353
+    def _saved() -> list[PickupPoint]:
+        with Session(engine) as s:
+            return list(s.exec(select(PickupPoint).where(PickupPoint.city == city)).all())
+
+    saved = _saved()
+    assert len(saved) == 1, "названный человеком ориентир вообще не сохранился"
+    assert saved[0].title_ru == "У сельсовета"
+    assert saved[0].usage_count == 1
+    assert saved[0].lat == 55.101 and saved[0].lng == 55.353
+    assert saved[0].is_seed is False, "пользовательская точка помечена как курируемая"
+
+    assert client.get("/pickup-points", params={"city": city}).json() == [],         "точка, названная человеком, ушла в публичные подсказки — там может быть его адрес"
 
     # Повторная поездка с тем же ориентиром — не дублируем, а поднимаем usage.
     resp2 = client.post("/rides", headers=driver["auth"], json=_ride_body(
@@ -102,9 +122,9 @@ def test_new_pickup_on_ride_grows_directory(client, user_factory):
         pickup="У сельсовета", pickup_lat=55.101, pickup_lng=55.353,
     ))
     assert resp2.status_code == 200
-    after2 = client.get("/pickup-points", params={"city": city}).json()
-    assert len(after2) == 1
-    assert after2[0]["usage_count"] == 2
+    saved2 = _saved()
+    assert len(saved2) == 1
+    assert saved2[0].usage_count == 2
 
 
 def test_choosing_known_point_on_request_bumps_usage(client, user_factory):
