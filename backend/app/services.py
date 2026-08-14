@@ -499,14 +499,13 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
         #    «кто, куда и когда едет» в Баймаке узнают по одному оповещению.
         # Локальный импорт: trust_service тянет services на верхнем уровне — прямой импорт
         # здесь замкнул бы круг на старте приложения.
-        from .trust_service import INSIDER_LEVEL, trust_level
-        blocked = blocked_user_ids(session, ride.driver_id)
+        from .visibility import may_be_notified
+        blocked = set(blocked_user_ids(session, ride.driver_id))
         for w in watches:
             if w.watch_kind not in ("rides", "both"):   # G3: эта подписка караулит заявки, не поездки
                 continue
-            if w.user_id in blocked:
-                continue
-            if ride.only_trusted and trust_level(session, session.get(User, w.user_id)) < INSIDER_LEVEL:
+            if not may_be_notified(session, w.user_id, ride.driver_id,
+                                   bool(ride.only_trusted), blocked):
                 continue
             w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
             forward = (w_from == r_from and w_to == r_to)
@@ -559,8 +558,16 @@ def notify_request_watchers(session: Session, request: RideRequest) -> int:
         ).all()
         notified = 0
         to_push: list = []
+        # Те же правила, что у оповещения о поездке. Раньше их тут не было ни одного: водитель,
+        # которого пассажир заблокировал, узнавал из пуша, что тот собрался ехать — когда и куда;
+        # а заявка «только для своих» уходила любому караульщику (аудит 2026-08-08, волна 77).
+        from .visibility import may_be_notified
+        blocked = set(blocked_user_ids(session, request.passenger_id))
         for w in watches:
             if w.watch_kind not in ("requests", "both"):   # эта подписка караулит поездки, не заявки
+                continue
+            if not may_be_notified(session, w.user_id, request.passenger_id,
+                                   bool(getattr(request, "only_trusted", False)), blocked):
                 continue
             w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
             forward = (w_from == r_from and w_to == r_to)

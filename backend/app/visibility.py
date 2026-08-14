@@ -167,3 +167,30 @@ def visible_parcels(rows, user: Optional[User], session: Session):
     if not blocked:
         return rows
     return [p for p in rows if _f(p, "sender_id") not in blocked]
+
+
+def may_be_notified(session: Session, watcher_id: int, author_id: int,
+                    only_trusted: bool, blocked_ids: set[int]) -> bool:
+    """Можно ли рассказать этому караульщику о новой поездке/заявке.
+
+    Уведомление — такая же витрина, как лента, только приходит само. Правила те же:
+
+    * **блокировка** — человек, от которого прячутся, не должен узнавать, что тот собрался
+      ехать, когда и куда. Само оповещение выдаёт это раньше любой карточки;
+    * **«только для своих»** — заявку с этой пометкой видит лишь круг доверия (L3). В ленте
+      она скрыта, а пуш о ней раньше уходил кому угодно, кто караулит направление.
+
+    Появилось из-за расхождения (аудит 2026-08-08, волна 77): оповещение о ПОЕЗДКЕ оба
+    правила знало, а зеркальное оповещение о ЗАЯВКЕ — ни одного, хотя в его описании
+    было написано «те же правила». Теперь правило одно и лежит здесь.
+
+    `blocked_ids` считается ОДИН раз на всю рассылку (караулящих сотни, запрос на каждого
+    превратил бы публикацию поездки в лавину обращений к базе).
+    """
+    if watcher_id in blocked_ids:
+        return False
+    if only_trusted:
+        watcher = session.get(User, watcher_id)
+        if trust_level(session, watcher) < INSIDER_LEVEL:
+            return False
+    return True
