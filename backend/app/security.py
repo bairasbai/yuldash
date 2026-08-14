@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from .config import settings
@@ -108,8 +109,24 @@ def rotate_refresh(session: Session, raw: str) -> dict:
     ).first()
     if not rt or rt.revoked or rt.expires_at < utcnow():
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
-    rt.revoked = True                       # ротация: старый refresh больше не работает
-    session.add(rt)
+    # Гасим токен АТОМАРНО: условие «он ещё не погашен» живёт внутри UPDATE.
+    #
+    # Блокировка строки выше закрывает гонку на PostgreSQL, но SQLite её игнорирует — а на нём
+    # тесты, локальная разработка и демо-база. Там два параллельных /auth/refresh с ОДНИМ
+    # токеном проходили проверку оба и получали по свежей паре. Смысл одноразового refresh
+    # ровно в обратном: если токен утёк, второе его использование должно провалиться — по этому
+    # признаку и ловят кражу. Пока условие проверялось отдельно от записи, укравший работал
+    # наравне с хозяином, и следа не оставалось.
+    #
+    # И как везде: саму защиту не проверял ни один тест — на SQLite блокировка пустая операция.
+    burned = session.execute(
+        update(RefreshToken)
+        .where(RefreshToken.id == rt.id, RefreshToken.revoked == False)   # noqa: E712 — SQL IS FALSE
+        .values(revoked=True)
+    )
+    if burned.rowcount == 0:
+        session.rollback()
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
     session.commit()
     return issue_tokens(session, rt.user_id)
 

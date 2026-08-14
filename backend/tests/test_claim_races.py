@@ -135,3 +135,62 @@ def test_последнее_использование_кода_достаётс
     with Session(engine) as s:
         inv = s.exec(select(InviteCode).where(InviteCode.code == code)).first()
         assert inv.uses_left >= 0, "счётчик использований ушёл в минус"
+
+
+# ─────────────────── одноразовый refresh-токен: второе использование не проходит ───────────────────
+
+def test_один_refresh_нельзя_обменять_дважды(client, user_factory):
+    """Смысл одноразового refresh — поймать кражу: если токен утёк, ВТОРОЕ его использование
+    обязано провалиться. Пока условие «ещё не погашен» проверялось отдельно от записи, два
+    одновременных обмена проходили оба, и укравший работал наравне с хозяином, не оставляя следа.
+    """
+    from app.security import issue_tokens
+
+    u = user_factory("Хозяин токена")
+    with Session(engine) as s:
+        refresh = issue_tokens(s, u["id"])["refresh_token"]
+
+    codes = _together(
+        lambda _: client.post("/auth/refresh", json={"refresh_token": refresh}).status_code,
+        [1, 2],
+    )
+
+    assert codes.count(200) == 1, (
+        "один refresh обменяли дважды — кража такого токена осталась бы незамеченной "
+        "(ответы: %s)" % codes
+    )
+    assert 401 in codes, f"второе использование должно отдавать 401, а пришло {codes}"
+
+
+# ─────────────────── заявка пассажира: один принятый отклик ───────────────────
+
+def test_заявку_нельзя_закрыть_двумя_откликами(client, user_factory):
+    """Два одновременных «принять отклик» (пассажир из приложения и админ из Telegram-кнопки)
+    создавали ДВЕ поездки на одну заявку: за пассажиром выезжали два водителя, каждый по своей
+    договорённости о цене. Отменить лишнюю — значит подвести того, кто уже собрался ехать."""
+    from app.models import RideRequest
+
+    pax = user_factory("Пассажир")
+    r = client.post("/requests", headers=pax["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай", "seats": 1, "max_price": 500,
+    })
+    assert r.status_code == 200, r.text
+    req_id = r.json()["id"]
+
+    resp_ids = []
+    for name in ("Водитель1", "Водитель2"):
+        drv = user_factory(name, role=UserRole.driver)
+        rr = client.post(f"/requests/{req_id}/respond", headers=drv["auth"], json={"price": 400})
+        assert rr.status_code == 200, rr.text
+        resp_ids.append(rr.json()["id"])
+
+    codes = _together(
+        lambda rid: client.post(f"/responses/{rid}/accept", headers=pax["auth"]).status_code,
+        resp_ids,
+    )
+
+    assert codes.count(200) == 1, (
+        "заявку закрыли двумя откликами — за пассажиром поедут два водителя (ответы: %s)" % codes
+    )
+    with Session(engine) as s:
+        assert s.get(RideRequest, req_id).status == "matched"
