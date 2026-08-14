@@ -76,7 +76,8 @@ def test_приложение_умеет_открыть_то_что_шлёт_с�
     по-прежнему открывает просто приложение — только теперь это незаметно.
     """
     root = pathlib.Path(__file__).resolve().parents[2]
-    router = (root / "android/app/src/main/java/com/yuldash/app/MainActivity.kt").read_text(encoding="utf-8")
+    android = root / "android/app/src/main/java/com/yuldash/app"
+    router = (android / "MainActivity.kt").read_text(encoding="utf-8")
     handled = set(re.findall(r'"([a-z_]+)"\s*->', router))
     # Виды, ради которых правило и заводилось: человек ждёт ответа и должен попасть точно.
     must = {"support", "incident", "booking"}
@@ -84,4 +85,31 @@ def test_приложение_умеет_открыть_то_что_шлёт_с�
     assert not missing, (
         "сервер шлёт адрес, а приложение не знает, куда открыть: %s. "
         "Добавь ветку в openChatFromPush (MainActivity.kt)." % ", ".join(sorted(missing))
+    )
+
+
+def test_шторка_и_лента_ведут_в_одно_место():
+    """Одно событие — один адрес, откуда бы человек его ни открыл.
+
+    Лента уведомлений ВНУТРИ приложения разбирала десять видов (её дважды правили аудитами),
+    а тап по пушу в шторке — пять. То есть «Курьер забрал посылку» из ленты открывало посылки,
+    а из шторки — просто приложение. Человек не знает, что это два разных кода; он видит, что
+    приложение ведёт себя по-разному без причины.
+    """
+    root = pathlib.Path(__file__).resolve().parents[2]
+    android = root / "android/app/src/main/java/com/yuldash/app"
+    feed = (android / "SecondaryScreens.kt").read_text(encoding="utf-8")
+    router = (android / "MainActivity.kt").read_text(encoding="utf-8")
+    # Виды, которые умеет открывать лента (блок `when (n.refKind)`).
+    block = feed[feed.index("when (n.refKind)"):]
+    block = block[: block.index("\n    }")]
+    feed_kinds = set(re.findall(r'"([a-z_]+)"\s*->', block))
+    push_kinds = set(re.findall(r'"([a-z_]+)"\s*->', router))
+    # Заявки таксиста/курьера открывают экраны подачи документов — туда пуш ведёт кнопкой
+    # в самом уведомлении, отдельная ветка не нужна. Остальное должно совпадать.
+    allowed_gap = {"taxi_apply", "courier_apply"}
+    gap = feed_kinds - push_kinds - allowed_gap
+    assert not gap, (
+        "из ленты событие открывается, а из шторки нет: %s. "
+        "Одно событие должно вести в одно место." % ", ".join(sorted(gap))
     )

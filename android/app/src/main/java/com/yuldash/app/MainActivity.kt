@@ -345,6 +345,15 @@ class MainActivity : ComponentActivity() {
             "booking" -> DeepLink.pendingBookingChatId.value = id     // бронь попутки → её экран
             "support" -> DeepLink.pendingSupport.value = true         // ответ поддержки → «Поддержка»
             "incident" -> DeepLink.pendingFairness.value = true       // решение по спору
+            // Лента уведомлений внутри приложения разбирает ДЕСЯТЬ видов, а тап по пушу —
+            // разбирал пять. Одно и то же событие вело в разные места в зависимости от того,
+            // прочитал человек его в шторке или в ленте. Достраиваем до того же списка;
+            // назначения уже есть, новых экранов не нужно.
+            "ride" -> DeepLink.pendingRideId.value = id               // событие по моему рейсу
+            "parcel" -> DeepLink.pendingParcels.value = true          // ход посылки → «Посылки»
+            "debt" -> NavSignals.openDriverCabinet.value = true       // долг по комиссии виден в кабинете
+            "instant" -> NavSignals.openInstantOrder.value = true     // заказ такси
+            "request" -> DeepLink.pendingRequestResponsesId.value = id  // отклики на мою заявку
             else -> return
         }
         i.removeExtra(FcmService.EXTRA_PUSH_TYPE)   // не сработать повторно при пересоздании
@@ -383,6 +392,12 @@ internal object DeepLink {
 
     /** Тап по пушу о споре → «Центр справедливости». Тот же довод, что у поддержки. */
     val pendingFairness = mutableStateOf(false)
+
+    /**
+     * Тап по пушу «водитель откликнулся» → отклики ИМЕННО этой заявки (id заявки).
+     * Из ленты уведомлений это открывалось с самого начала, из шторки — нет.
+     */
+    val pendingRequestResponsesId = mutableStateOf<Int?>(null)
 
     /**
      * Тап по пушу «новое сообщение» в попутке → бронь с чатом (id брони). `null` = сигнала нет.

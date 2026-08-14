@@ -560,6 +560,15 @@ internal fun YuldashApp() {
         DeepLink.pendingFairness.value = false
         screen = if (ApiClient.isLoggedIn()) Screen.FairnessCenter else Screen.Login
     }
+    // «Водитель откликнулся на твою заявку» — открываем отклики именно этой заявки.
+    LaunchedEffect(DeepLink.pendingRequestResponsesId.value, screen) {
+        val rid = DeepLink.pendingRequestResponsesId.value ?: return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        DeepLink.pendingRequestResponsesId.value = null
+        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
+        responsesRequestId = rid
+        screen = Screen.RequestResponses
+    }
     LaunchedEffect(DeepLink.pendingBookingChatId.value, screen) {
         val bid = DeepLink.pendingBookingChatId.value ?: return@LaunchedEffect
         // P3: ждём, пока сплэш/интро/онбординг отработают — иначе они перезапишут screen, а сигнал
