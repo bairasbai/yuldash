@@ -671,11 +671,48 @@ def admin_set_status(ad_id: int, body: AdStatusIn, user: User = Depends(current_
     # При публикации founder — снова проверяем лимит (если был архивный)
     if body.status == "active" and ad.plan == "founder" and ad.status == "archived" and _founder_slots_used(session) >= FOUNDER_LIMIT:
         raise HTTPException(400, f"Слоты основателей заняты ({FOUNDER_LIMIT}/{FOUNDER_LIMIT})")
+    was = ad.status
     ad.status = body.status
     session.add(ad)
     session.commit()
     session.refresh(ad)
+    notify_ad_status_change(session, ad, was)
     return ad
+
+
+def notify_ad_status_change(session, ad, was: str) -> None:
+    """Сказать владельцу платной рекламы, что её сняли с эфира или вернули.
+
+    Про одобрение и отказ человеку говорили с самой волны 24, а про снятие руками — нет
+    (аудит 2026-08-08, волна 86). Для партнёра это выглядит так: он заплатил, реклама шла,
+    а потом перестала показываться. Ни письма, ни пуша — только догадки, что сломалось.
+    Деньги при этом уплачены вперёд, и молчание тут читается как «нас обманули».
+
+    Админские объявления (без владельца) молчат: адресата нет. Смена статуса «ни туда
+    ни сюда» (draft → archived у неопубликованного) тоже молчит — человек ещё ничего
+    не видел в эфире и ничего не потерял.
+    """
+    if not ad.owner_id:
+        return
+    live_before, live_after = was == "active", ad.status == "active"
+    if live_before == live_after:
+        return
+    if live_after:
+        push_notification(
+            session, ad.owner_id, "ads",
+            "Реклама снова в эфире", "Реклама кире эфирҙа",
+            f"«{ad.title}» опять показывается людям 💚",
+            f"«{ad.title}» кире кешеләргә күренә 💚",
+            ref_kind="ad", ref_id=ad.id,
+        )
+    else:
+        push_notification(
+            session, ad.owner_id, "ads",
+            "Реклама снята с показа", "Реклама күрһәтеүҙән алынды",
+            f"«{ad.title}» сейчас не показывается. Вопросы — напиши в поддержку 💚",
+            f"«{ad.title}» хәҙер күренмәй. Һорауҙар — ярҙам хеҙмәтенә яҙ 💚",
+            ref_kind="ad", ref_id=ad.id,
+        )
 
 
 @router.delete("/admin/ads/{ad_id}")
