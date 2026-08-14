@@ -17,7 +17,7 @@ from ..models import (
     Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
     RideRequest, RideStatus, User, UserRole,
 )
-from ..visibility import hidden_author_ids, visible_rides
+from ..visibility import FEED_MAX, hidden_author_ids, visible_rides
 from ..schemas import RideOut
 from ..security import current_user, gen_otp
 from ..services import (
@@ -969,7 +969,7 @@ def match_rides(request_id: int, user: User = Depends(current_user), session: Se
         Ride.seats_left >= req.seats,
         Ride.category == req.category,
     )
-    rides = session.exec(q.order_by(Ride.depart_at)).all()
+    rides = session.exec(q.order_by(Ride.depart_at).limit(FEED_MAX)).all()   # потолок витрины (волна 90)
     # Через public-payload: точная точка сбора (pickup/координаты) раскрывается только участнику
     # подтверждённой брони, а не всем, кто ищет попутку по заявке (приватность до брони).
     #
