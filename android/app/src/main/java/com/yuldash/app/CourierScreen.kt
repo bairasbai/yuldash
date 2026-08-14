@@ -437,6 +437,10 @@ private fun CourierWorkContent(
     var toggling by remember { mutableStateOf(false) }
     var configSaving by remember { mutableStateOf(false) }
     var sub by rememberSaveable { mutableIntStateOf(0) }   // 0 = доступные, 1 = везу, 2 = кабинет
+    // Экран заработка попросил показать заказы — выполняем и гасим сигнал.
+    LaunchedEffect(NavSignals.openCourierOrders.value) {
+        if (NavSignals.openCourierOrders.value) { sub = 0; NavSignals.openCourierOrders.value = false }
+    }
     val lineBusy = toggling || configSaving
     // Что курьер везёт прямо сейчас — состояние поднято сюда из вкладки «Везу» специально:
     // от него зависит живая отправка GPS отправителям, а она обязана пережить и прокрутку
@@ -748,7 +752,7 @@ private fun CourierWorkContent(
                     workCity = if (confirmedZone == "city") workCity else "",
                     onGoOnline = { setOnline(true) },
                 )
-                1 -> CourierCarryingTab(online = online, list = carrying, onList = { carrying = it })
+                1 -> CourierCarryingTab(online = online, list = carrying, onList = { carrying = it }, onGoOrders = { sub = 0 })
                 else -> CourierCabinetTab(me, onReloadMe, onEarnings, reloadingMe)
             }
         }
@@ -1210,6 +1214,7 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, canTake: Boolean, 
  */
 @Composable
 private fun CourierCarryingTab(
+    onGoOrders: () -> Unit = {},
     online: Boolean,
     list: List<ParcelDto>,
     onList: (List<ParcelDto>) -> Unit,
@@ -1294,10 +1299,14 @@ private fun CourierCarryingTab(
                 }
                 error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
                 list.isEmpty() -> item {
+                    // Текст указывал дорогу, но идти по ней человек должен был сам.
+                    // Кнопка ведёт ровно туда, куда указывает текст — на вкладку «Заказы».
                     AppEmptyState(
                         title = appText("Ты пока ничего не везёшь", "Әлегә бер нәмә лә илтмәйһең"),
                         text = appText("Возьми заказ во вкладке «Заказы» — он появится здесь.", "«Заказдар» бүлегендә заказ ал — ул бында күренер."),
                         icon = Icons.Default.LocalShipping,
+                        actionLabel = appText("Смотреть заказы", "Заказдарҙы ҡарау"),
+                        onAction = onGoOrders,
                     )
                 }
                 else -> {

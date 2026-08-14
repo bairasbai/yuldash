@@ -170,7 +170,7 @@ private fun CouponsListScreen(tab: Int, onTab: (Int) -> Unit, onOpen: (CouponDto
                 transitionSpec = { (fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK))) },
                 label = "coupon-tab",
             ) { t ->
-                if (t == 0) NearbyCouponsTab(onOpen) else MyCouponsTab()
+                if (t == 0) NearbyCouponsTab(onOpen) else MyCouponsTab(onGoNearby = { onTab(0) })
             }
         }
     }
@@ -351,7 +351,7 @@ private fun PremiumBadge() {
 // ─────────────────────────── Вкладка «Мои купоны» ───────────────────────────
 
 @Composable
-private fun MyCouponsTab() {
+private fun MyCouponsTab(onGoNearby: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var list by remember { mutableStateOf<List<MyCouponDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -389,10 +389,15 @@ private fun MyCouponsTab() {
             }
             error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
             list.isEmpty() -> item {
+                // Текст указывал дорогу («активируй на вкладке «Скидки рядом»»), но идти туда
+                // человек должен был сам. Экран, который знает, что делать дальше, обязан вести,
+                // а не подсказывать: кнопка переключает на ту же вкладку, о которой говорит текст.
                 AppEmptyState(
                     title = appText("Пока нет купонов", "Әлегә купондар юҡ"),
                     text = appText("Активируй скидку на вкладке «Скидки рядом» — код появится здесь.", "«Яҡындағы ташламалар» бүлегендә ташламаны активлаштыр — код бында күренер."),
                     icon = Icons.Default.LocalOffer,
+                    actionLabel = appText("Посмотреть скидки", "Ташламаларҙы ҡарау"),
+                    onAction = onGoNearby,
                 )
             }
             else -> items(list.size, key = { "myc-" + list[it].code }) { i ->
