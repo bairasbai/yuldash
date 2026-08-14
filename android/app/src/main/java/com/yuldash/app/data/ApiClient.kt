@@ -131,6 +131,8 @@ object ApiClient {
     }
 
     @Volatile private var prefs: android.content.SharedPreferences? = null
+    // Каталог кеша приложения — нужен, чтобы убрать записанные голосовые при выходе (волна 75).
+    @Volatile private var cacheDir: java.io.File? = null
 
     /** true → Android Keystore недоступен и токены лежат в НЕзашифрованных prefs.
      *  Диагностика: устанавливается в [init], дублируется предупреждением в Sentry. */
@@ -189,6 +191,7 @@ object ApiClient {
     /** Зовём один раз при старте приложения. */
     fun init(context: Context) {
         val app = context.applicationContext
+        cacheDir = app.cacheDir
         // Анти-фрод (B8-1): ANDROID_ID стабилен на устройстве (сбрасывается только factory reset).
         deviceId = runCatching {
             android.provider.Settings.Secure.getString(
@@ -423,6 +426,30 @@ object ApiClient {
         }?.apply()
         TripPassStore.clearAll()
         Outbox.clearAll()
+        clearVoiceCache()
+    }
+
+    /**
+     * Стереть записанные голосовые из кеша приложения.
+     *
+     * Зачем (аудит 2026-08-08, волна 75). Голос человека — такие же личные данные, как его
+     * телефон. Каждое голосовое сообщение записывается файлом в кеш приложения, уходит
+     * на сервер — и остаётся лежать на устройстве: удалять его никто не пытался. За полгода
+     * переписки в кеше копится весь архив сказанного вслух, и выход из аккаунта его не трогал.
+     * Телефон переходит мужу, сыну, покупателю — записи прежнего владельца едут с ним.
+     *
+     * Файл нужен ровно до конца отправки, поэтому чистим и сразу после неё (`dropVoiceFile`),
+     * и на выходе — второй проход на случай, когда отправка не удалась и файл остался.
+     */
+    fun clearVoiceCache() {
+        runCatching {
+            cacheDir?.listFiles { f -> f.isFile && f.name.startsWith("voice_") }?.forEach { it.delete() }
+        }
+    }
+
+    /** Убрать одну запись сразу после отправки — она уже на сервере, на телефоне не нужна. */
+    fun dropVoiceFile(path: String) {
+        runCatching { java.io.File(path).takeIf { it.name.startsWith("voice_") }?.delete() }
     }
 
     /** Необратимое удаление аккаунта и всех данных на сервере (POST /me/delete).

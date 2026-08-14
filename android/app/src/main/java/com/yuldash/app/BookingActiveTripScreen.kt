@@ -1796,6 +1796,9 @@ internal fun ActiveTripScreen(
                                         .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
                                 }
                                 .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
+                            // Запись ушла (или не ушла) — на телефоне ей делать нечего: это голос
+                            // человека, и он не должен копиться в кеше до смены владельца (волна 75).
+                            ApiClient.dropVoiceFile(path)
                         }
                     },
                     onPhotoPicked = { bytes ->

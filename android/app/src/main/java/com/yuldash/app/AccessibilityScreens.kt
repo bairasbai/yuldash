@@ -587,7 +587,9 @@ internal fun VoiceRequestScreen(
                     onClick = {
                         when {
                             recording -> finish()
-                            recordedPath != null -> recordedPath = null
+                            // «Записать заново»: старая запись больше не нужна ни экрану,
+                            // ни человеку — стираем её с телефона, а не только из состояния.
+                            recordedPath != null -> { ApiClient.dropVoiceFile(recordedPath!!); recordedPath = null }
                             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> begin()
                             else -> perm.launch(Manifest.permission.RECORD_AUDIO)
                         }
@@ -663,6 +665,8 @@ internal fun VoiceRequestScreen(
                                 }
                                 ApiClient.createRequest(vrRoute, "", 1, "regular", false, "", 0, voiceUrl = url, transcript = recognizedText, assisted = true)
                                     .onSuccess {
+                                        // Заявка ушла — запись голоса на телефоне не держим (волна 75).
+                                        ApiClient.dropVoiceFile(path)
                                         onCreateRequest(
                                             LocalRequest(
                                                 title = vrTitle,
