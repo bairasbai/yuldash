@@ -38,6 +38,7 @@ from .parcels import _FINAL_STATUSES, live_parcel_conds
 from ..security import current_user
 from ..services import (haversine_km, notify_admin_telegram, push_bilingual, push_notification,
                         user_rating)
+from ..visibility import visible_parcels
 from ..timeutil import utcnow
 from . import parcels as parcels_mod
 from .. import debt as debt_mod   # переиспользуем _local_day_expr: одна логика «локального дня» на проект
@@ -682,6 +683,10 @@ def courier_available(from_city: Optional[str] = None, to_city: Optional[str] = 
         rows = [p for p in rows if (p.to_city or "").strip().casefold() == tc]
     if prof is not None:
         rows = [p for p in rows if _order_matches_zone(session, p, prof)]
+    # Заблокированных не показываем — как в обычной ленте посылок. Раньше этой витрине про
+    # блокировку не сказали: курьер видел заказ человека, который его заблокировал, жал
+    # «Взять» и получал 403 без объяснения (аудит 2026-08-08, волна 73).
+    rows = visible_parcels(rows, user, session)
     # Комиссию в списке пересчитываем под СТАЖ ЭТОГО курьера. В заказе она сохранена по дефолтной
     # ступени (8%) — при создании курьер ещё не назначен. Курьеру на промо/tier1 показывался чужой,
     # заниженный доход: в кабинете «ты платишь 3%», а на карточке заказа вычиталось 8%. Финальная

@@ -39,7 +39,8 @@ from ..safety_logic import (ensure_active,
                             guard_own_evidence, is_own_media_url)
 from ..security import current_user
 from ..antifraud import moderate_open_text
-from ..services import blocked_user_ids, is_blocked, notify_admin_telegram, push_notification
+from ..services import is_blocked, notify_admin_telegram, push_notification
+from ..visibility import visible_parcels
 from ..timeutil import utcnow
 from ..workday import local_day
 
@@ -750,12 +751,8 @@ def parcels_available(
         ParcelDelivery.delivery_type == "poputka",
     )
     rows = session.exec(q.order_by(ParcelDelivery.id.desc())).all()
-    # Заблокированных не показываем вовсе. Отказ при попытке взять посылку — обязательная
-    # защита, но человеку незачем и видеть в ленте того, с кем он не хочет пересекаться:
-    # иначе он жмёт «Взять» и получает необъяснимый отказ.
-    blocked = blocked_user_ids(session, user.id)
-    if blocked:
-        rows = [p for p in rows if p.sender_id not in blocked]
+    # Заблокированных не показываем вовсе — правило общее с витриной проф-курьеров (волна 73).
+    rows = visible_parcels(rows, user, session)
     if from_city:
         fc = from_city.strip().lower()
         rows = [p for p in rows if p.from_city and p.from_city.strip().lower() == fc]

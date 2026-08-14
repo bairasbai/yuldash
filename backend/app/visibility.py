@@ -146,3 +146,24 @@ def hidden_author_ids(session: Session, user: Optional[User]) -> set[int]:
     if user is None:
         return set()
     return set(blocked_user_ids(session, user.id)) | set(suspended_user_ids(session))
+
+
+def visible_parcels(rows, user: Optional[User], session: Session):
+    """Посылки, которые человеку можно показать. Обе ленты доставки зовут ЭТО.
+
+    Повод один — блокировка (в обе стороны). Пауза §2 сюда НЕ входит намеренно: отправителю
+    на паузе новую посылку создать нельзя, но старую взять и довезти можно — сделке она
+    не мешает, в отличие от заявки, где нужен ответный клик наказанного.
+
+    Зачем прятать, если приём и так закрыт. Отказ при попытке взять посылку — обязательная
+    защита, но человеку незачем и видеть в ленте того, с кем он не хочет пересекаться: иначе
+    он жмёт «Взять» и получает необъяснимый отказ. Обычная лента («по пути») это понимала,
+    а профессиональная витрина курьеров — нет: там фильтра не было вовсе, и курьер раз за
+    разом упирался в 403 (аудит 2026-08-08, волна 73).
+    """
+    if user is None:
+        return rows
+    blocked = blocked_user_ids(session, user.id)
+    if not blocked:
+        return rows
+    return [p for p in rows if _f(p, "sender_id") not in blocked]
