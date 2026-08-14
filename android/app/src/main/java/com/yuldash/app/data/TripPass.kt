@@ -95,6 +95,7 @@ object TripPassStore {
     private const val PREF_PLAIN = "yuldash_trippass"
     private const val KEY_PREFIX = "pass_"
     @Volatile private var prefs: SharedPreferences? = null
+    @Volatile private var plainPrefs: SharedPreferences? = null
 
     fun init(context: Context) {
         val app = context.applicationContext
@@ -110,7 +111,32 @@ object TripPassStore {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
             )
         }.getOrNull()
-        prefs = secure ?: app.getSharedPreferences(PREF_PLAIN, Context.MODE_PRIVATE)
+        plainPrefs = app.getSharedPreferences(PREF_PLAIN, Context.MODE_PRIVATE)
+        val plain = plainPrefs!!
+        // Разовый перенос из открытого хранилища в шифрованное — как в очереди исходящих.
+        //
+        // Зачем (аудит 2026-08-08, волна 74). На «кривой» прошивке Keystore может не подняться,
+        // и тогда паспорт — имя, ГОСНОМЕР и ТЕЛЕФОН водителя, код посадки — ложится открытым.
+        // Дальше телефон перезагружают, шифрование заводится, и приложение начинает писать уже
+        // в защищённое место. Старые записи при этом оставались лежать в открытом навсегда:
+        // ни перенести, ни стереть их никто не пытался. Выход из аккаунта чистил только текущее
+        // хранилище — то есть обещание «вышел, и чужих данных на телефоне нет» выполнялось
+        // не полностью. У соседней очереди исходящих такой перенос был с самого начала.
+        if (secure != null) migratePlain(plain, secure)
+        prefs = secure ?: plain
+    }
+
+    /**
+     * Перенос «открытое → шифрованное» отдельной функцией, потому что иначе его нельзя проверить:
+     * в тестовой среде Keystore не поднимается, ветка `secure != null` не выполняется никогда,
+     * и тест на переезд был бы зелёным на пустоте (урок волны 61). Здесь оба хранилища —
+     * обычные параметры, и тест подставляет свои.
+     */
+    internal fun migratePlain(plain: SharedPreferences, secure: SharedPreferences) {
+        val moved = plain.all.filterKeys { it.startsWith(KEY_PREFIX) }
+        if (moved.isEmpty()) return
+        secure.edit().apply { moved.forEach { (k, v) -> if (v is String) putString(k, v) } }.apply()
+        plain.edit().clear().apply()
     }
 
     private fun sp(context: Context): SharedPreferences {
@@ -151,6 +177,10 @@ object TripPassStore {
      */
     fun clearAll() {
         runCatching { prefs?.edit()?.clear()?.apply() }
+        // И открытое хранилище тоже — там могли осесть паспорта прошлых запусков, когда
+        // шифрование не поднималось (волна 74). Обещание «вышел — чужих данных нет» должно
+        // выполняться целиком, а не для того хранилища, которое активно прямо сейчас.
+        runCatching { plainPrefs?.edit()?.clear()?.apply() }
     }
 }
 
