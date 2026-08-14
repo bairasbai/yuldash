@@ -120,12 +120,25 @@ def _parse_license(text: str) -> dict:
     }
 
 
-def check_driver_docs(license_url: str, car_photo_url: str) -> dict:
+def check_driver_docs(license_url: str, car_photo_url: str,
+                      birth_date: "date | None" = None) -> dict:
     """Главная: вернуть {'result','score','data'}.
 
     result: pass | needs_human | reject | error. Исключений не бросает.
     reasons в data — машинные коды (клиент рисует на двух языках через appText).
-    """
+
+    `birth_date` — дата рождения ИЗ ЗАЯВКИ. Без неё проверка отвечала на вопрос «похоже ли это
+    на действующие права», но не на «его ли это права»: скачанное из интернета фото чужих прав
+    набирало максимальный балл и получало `pass` (проверено пробой, аудит 2026-08-14, волна 67).
+    Пока авто-одобрение выключено, это стоило бы админу лишнего внимания; с включённым флагом —
+    выдало бы допуск к перевозке людей человеку с чужим документом.
+
+    Дату рождения выбрали намеренно, а не ФИО: она есть в заявке как отдельное поле, печатается
+    на правах и уже вытаскивается из текста. ФИО в заявке таксиста нет вовсе, а имя профиля
+    человек пишет как хочет («Марат», «Марат Такси»).
+
+    Не сошлось — отдаём ЧЕЛОВЕКУ, а не отказываем: OCR путает цифры и плохо читает мятые права.
+    Отказ по подозрению обиднее лишней минуты модератора."""
     data: dict = {"reasons": [], "ocr_used": False}
     name = _doc_name(license_url)
     if not name:
@@ -177,6 +190,15 @@ def check_driver_docs(license_url: str, car_photo_url: str) -> dict:
     if expired:
         data["reasons"].append("license_expired")
         return {"result": "needs_human", "score": score, "data": data}
+
+    # Чьи это права. Дату рождения из заявки ищем среди распознанных дат: её там не оказалось —
+    # либо документ чужой, либо OCR не разобрал. Оба случая решает человек (волна 67).
+    if birth_date is not None:
+        data["birth_date_checked"] = True
+        if birth_date.isoformat() not in parsed["dates_found"]:
+            data["reasons"].append("birth_date_mismatch")
+            return {"result": "needs_human", "score": score, "data": data}
+        data["birth_date_match"] = True
 
     if has_number and future_ok and score >= settings.driver_autocheck_min_score:
         data["reasons"].append("ok")

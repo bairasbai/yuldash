@@ -249,7 +249,13 @@ def _run_autocheck(session: Session, dp: DriverProfile) -> None:
         return
     try:
         from ..driver_check import check_driver_docs
-        res = check_driver_docs(dp.license_url, dp.car_photo_url)
+        from ..taxi import my_application
+        # Дата рождения из заявки — чтобы автопроверка отвечала не только «похоже на права»,
+        # но и «его ли это права» (волна 67). Заявки может не быть (документы шлют и до неё) —
+        # тогда сверять нечем, и вердикт как раньше.
+        app_row = my_application(session, dp.user_id)
+        res = check_driver_docs(dp.license_url, dp.car_photo_url,
+                                birth_date=getattr(app_row, "birth_date", None))
         dp.autocheck_result = res["result"]
         dp.autocheck_score = float(res["score"])
         dp.autocheck_data = json.dumps(res["data"], ensure_ascii=False)
