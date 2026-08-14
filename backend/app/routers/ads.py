@@ -16,6 +16,7 @@ from ..db import get_session
 from ..errors import herr
 from ..middleware import user_over_limit
 from ..models import Ad, AdEvent, Payment, User, UserRole
+from ..safety_logic import ensure_active
 from ..security import current_user
 from ..services import guard_own_media_url, notify_admin_telegram, push_notification
 from ..timeutil import utcnow
@@ -339,6 +340,7 @@ class AdCreateIn(BaseModel):
 @router.post("/ads")
 def ad_create(body: AdCreateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Партнёр создаёт своё объявление (черновик). Анти-спам: лимит на владельца."""
+    ensure_active(session, user.id)   # отстранённый разбором рекламу не заводит (волна 62)
     count = session.exec(select(func.count()).select_from(Ad).where(Ad.owner_id == user.id)).one()
     if count >= MAX_ADS_PER_OWNER:
         raise herr(429, "Слишком много объявлений — удали лишние", "Иғландар артыҡ күп — артығын бетер")
@@ -362,7 +364,12 @@ def ad_create(body: AdCreateIn, user: User = Depends(current_user), session: Ses
 
 def _own_editable_ad(ad_id: int, user: User, session: Session) -> Ad:
     """Достать СВОЁ редактируемое объявление или бросить понятную ошибку.
-    404 (а не 403) на чужое — чтобы не раскрывать существование чужих объявлений."""
+    404 (а не 403) на чужое — чтобы не раскрывать существование чужих объявлений.
+
+    Отстранённый разбором (§2) объявление не правит и не сдаёт на модерацию: реклама — такое
+    же активное действие, как публикация поездки (волна 62). Просмотр своей статистики
+    при этом остаётся: свои цифры человек вправе видеть и на паузе."""
+    ensure_active(session, user.id)
     ad = session.get(Ad, ad_id)
     if not ad or ad.owner_id != user.id:
         raise herr(404, "Объявление не найдено", "Иғлан табылманы")

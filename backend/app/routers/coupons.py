@@ -27,6 +27,7 @@ from ..db import get_session
 from ..errors import herr
 from ..middleware import user_over_limit
 from ..models import Coupon, CouponReport, CouponRedemption, Partner, Payment, User, UserRole
+from ..safety_logic import ensure_active
 from ..security import current_user
 from ..services import notify_admin_telegram, push_notification
 from ..timeutil import utcnow
@@ -469,6 +470,7 @@ def partner_register(body: PartnerIn, user: User = Depends(current_user), sessio
     city = body.city.strip()
     if not city:
         raise herr(422, "Укажи город бизнеса", "Бизнес ҡалаһын күрһәт")
+    ensure_active(session, user.id)   # отстранённый разбором бизнес не регистрирует (волна 62)
     _moderate_storefront(user.id, name, body.description, body.address)
     partner = Partner(
         owner_id=user.id, name=name, category=(body.category.strip() or "other"), city=city,
@@ -515,6 +517,13 @@ def partner_me(user: User = Depends(current_user), session: Session = Depends(ge
 
 def _own_partner(partner_id: int, user: User, session: Session) -> Partner:
     """Достать СВОЙ бизнес или 404 (чужой не раскрываем — IDOR закрыт)."""
+    # Пауза «Справедливости» (§2). Коммерческий контур её не знал вовсе: отстранённый разбором
+    # владелец создавал купоны, публиковал их в витрину и правил карточку бизнеса — проверено
+    # запросом, всё по 200 (аудит 2026-08-13, волна 62). Правило §2 — «приостановленный аккаунт
+    # не совершает активных действий», и витрина такое же активное действие, как публикация
+    # поездки. УЖЕ опубликованное и оплаченное не гасим: это деньги бизнеса и обязательство
+    # перед ним, а не его наказание (решение аудита, см. журнал волны 62).
+    ensure_active(session, user.id)
     partner = session.get(Partner, partner_id)
     if not partner or partner.owner_id != user.id:
         raise herr(404, "Бизнес не найден", "Бизнес табылманы")
@@ -606,7 +615,12 @@ def _coupon_mine(coupon: Coupon, session: Session) -> dict:
 
 
 def _my_active_partner(user: User, session: Session) -> Partner:
-    """Мой бизнес; для операций с купонами он должен быть одобрен (active)."""
+    """Мой бизнес; для операций с купонами он должен быть одобрен (active).
+
+    Отстранённый разбором (§2) новых купонов не заводит — см. `_own_partner` (волна 62).
+    Оплату подписки при этом не трогаем: платить сервису человек вправе всегда, иначе
+    наказание превращается в «не дам рассчитаться»."""
+    ensure_active(session, user.id)
     partner = session.exec(select(Partner).where(Partner.owner_id == user.id)).first()
     if not partner:
         raise herr(404, "Сначала зарегистрируй бизнес", "Башта бизнесты теркә")
@@ -697,7 +711,9 @@ def _tell_admin_coupon_held(coupon: Coupon, kind: str) -> None:
 
 
 def _own_coupon(coupon_id: int, user: User, session: Session) -> Coupon:
-    """Достать СВОЙ купон (по владельцу бизнеса) или 404."""
+    """Достать СВОЙ купон (по владельцу бизнеса) или 404. Отстранённый разбором купоны
+    не правит и не публикует — см. `_own_partner` (волна 62)."""
+    ensure_active(session, user.id)
     coupon = session.get(Coupon, coupon_id)
     if coupon:
         partner = session.get(Partner, coupon.partner_id)
