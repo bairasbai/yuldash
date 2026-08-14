@@ -542,6 +542,7 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
     # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).
     if r.target_user_id is not None:      # аккаунт обвиняемого удалён — наказывать некого
         quality.apply_ladder_after_resolve(session, r.target_user_id)
+    quality.tell_report_decision(session, r, confirmed=True)   # автор узнаёт исход (волна 85)
     admin_action(user.id, "report.resolve", report_id=report_id,
                  target_user=r.target_user_id, category=r.category)
     return _admin_report_out(session, r)
@@ -565,6 +566,7 @@ def admin_reject_report(report_id: int, body: ResolveIn | None = None,
     session.commit()
     session.refresh(r)
     quality.maybe_release_review_pause(session, r.target_user_id)
+    quality.tell_report_decision(session, r, confirmed=False)   # обе стороны узнают исход (волна 85)
     admin_action(user.id, "report.reject", report_id=report_id, target_user=r.target_user_id)
     return _admin_report_out(session, r)
 
