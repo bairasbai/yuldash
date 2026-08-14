@@ -35,6 +35,7 @@ from datetime import timedelta
 from sqlmodel import Session, select
 
 from . import instant_service as isv
+from . import sos_escalate
 from .config import settings
 from .db import engine
 from .logs import log
@@ -363,6 +364,10 @@ def run_once(session: Session, dry_run: bool = False) -> dict:
         "waits_finished": finish_expired_waits(session, dry_run),
         "offers_advanced": advance_stale_offers(session, dry_run),
         "parcels_handled": close_stuck_parcels(session, dry_run),
+        # Непринятые SOS — здесь же, а не отдельным таймером: этот воркер и так крутится
+        # чаще всех, а заводить ради безопасности ещё одну задачу в cron значит завести
+        # ещё одно место, где её могут забыть включить (волна 82).
+        "sos_escalated": sos_escalate.escalate_unhandled(session, dry_run),
     }
 
 

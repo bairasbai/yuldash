@@ -171,5 +171,9 @@ def test_run_once_is_safe_on_empty_and_dry_run(client, user_factory):
         res2 = tw.run_once(s)
     # parcels_handled — разбор зависших посылок: воркер обслуживает и такси, и доставку
     # (аудит 2026-08-03; детали ветки — в test_parcel_worker.py).
+    # sos_escalated — повтор по непринятому сигналу SOS: он живёт здесь же, потому что этот
+    # воркер крутится чаще всех, а отдельная запись в cron — ещё одно место, где её могут
+    # забыть включить (волна 82; сама ветка — в test_unanswered_sos_calls_again.py).
     assert set(res2) == {"scheduled_activated", "stuck_closed", "waits_retried",
-                         "waits_finished", "offers_advanced", "parcels_handled"}
+                         "waits_finished", "offers_advanced", "parcels_handled",
+                         "sos_escalated"}
