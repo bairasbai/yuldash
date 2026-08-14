@@ -292,11 +292,16 @@ internal fun NotificationsScreen(
     val allLabel = appText("Все", "Бөтәһе")
     val tripsLabel = appText("Поездки", "Сәфәрҙәр")
     val chatLabel = appText("Сообщения", "Хәбәрҙәр")
-    // Таба «Система» убрана: сервер таких уведомлений не шлёт (все события — booking/ride/message),
-    // поэтому она всегда была пустой. Оставили только реально наполняемые вкладки.
+    val deliveryLabel = appText("Доставка", "Илтеү")
+    // Здесь стояло: «сервер таких уведомлений не шлёт (все события — booking/ride/message)».
+    // Это перестало быть правдой: сервер шлёт ОДИННАДЦАТЬ видов, и самый частый из них —
+    // посылки (15 мест против 11 у поездок). Комментарий устарел, а по нему жил фильтр:
+    // «Поездки» показывали только попутку и не показывали такси, а доставку не собирал никто.
+    // Человек фильтровал «Поездки», не находил своё такси и решал, что уведомление не пришло.
     val selectedLabel = when (selected) {
         "trips" -> tripsLabel
         "chat" -> chatLabel
+        "delivery" -> deliveryLabel
         else -> allLabel
     }
 
@@ -354,8 +359,10 @@ internal fun NotificationsScreen(
 
     val visible = feed.items.filter { n ->
         when (selected) {
-            "trips" -> n.type == "booking" || n.type == "ride"
+            // «Поездки» — это ВСЁ, чем человек куда-то ехал: попутка (booking/ride) и такси.
+            "trips" -> n.type == "booking" || n.type == "ride" || n.type == "taxi"
             "chat" -> n.type == "message"
+            "delivery" -> n.type == "parcel"
             else -> true
         }
     }
@@ -401,11 +408,12 @@ internal fun NotificationsScreen(
             }
             item {
                 SegmentedTabs(
-                    listOf(allLabel, tripsLabel, chatLabel),
+                    listOf(allLabel, tripsLabel, deliveryLabel, chatLabel),
                     selectedLabel,
                     onSelect = {
                         selected = when (it) {
                             tripsLabel -> "trips"
+                            deliveryLabel -> "delivery"
                             chatLabel -> "chat"
                             else -> "all"
                         }
@@ -445,6 +453,15 @@ private fun notifIcon(type: String): androidx.compose.ui.graphics.vector.ImageVe
     "booking" -> Icons.Default.EventSeat
     "ride" -> Icons.Default.DirectionsCar
     "message" -> Icons.Default.ChatBubble
+    // Своя иконка была у трёх видов из одиннадцати — остальные восемь показывались одинаковым
+    // колокольчиком, в том числе САМЫЙ частый (посылки) и самый важный (безопасность).
+    // В списке из двадцати строк иконка — это то, чем человек ищет глазами.
+    "parcel" -> Icons.Default.LocalShipping
+    "taxi" -> Icons.Default.LocalTaxi
+    "safety" -> Icons.Default.Shield
+    "money" -> Icons.Default.Payments
+    "docs" -> Icons.Default.Description
+    "route_watch", "request_watch" -> Icons.Default.Search
     else -> Icons.Default.Notifications
 }
 
