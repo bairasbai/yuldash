@@ -11,7 +11,7 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..flood import TOO_FAST_CREATING, TOO_MANY_REQUESTS, guard_burst, guard_open_items
-from ..geo import bare_name
+from ..geo import name_variants
 from ..logs import admin_action, log
 from ..models import (
     Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
@@ -31,6 +31,20 @@ from ..antifraud import moderate_open_text
 from ..timeutil import client_dt_to_utc, utcnow
 from .. import workday as workday_mod
 from ..trust_service import INSIDER_LEVEL, trust_level
+
+
+def _city_match(column, session, city: str):
+    """Условие «этот город» с учётом ОБОИХ написаний — русского и башкирского.
+
+    Приложение подставляет название на языке человека: башкироязычный водитель публикует
+    «Баймаҡ», русскоязычная пассажирка ищет «Баймак». Сравнение строк как есть их не сводило,
+    и половина жителей района не видела поездки другой половины (аудит 2026-08-08, волна 92).
+    """
+    variants = name_variants(session, city)
+    if not variants:
+        return None
+    conds = [column.contains(v) for v in variants]
+    return conds[0] if len(conds) == 1 else or_(*conds)
 
 router = APIRouter(tags=["requests"])
 
@@ -200,9 +214,13 @@ def requests_near(
     Приватность: отдаём только город/точку отправления + имя, без телефона/точного адреса."""
     q = select(RideRequest).where(*live_request_conds())   # прошедшие в ленту не попадают
     if from_city:
-        q = q.where(RideRequest.from_city.contains(bare_name(from_city)))
+        cond = _city_match(RideRequest.from_city, session, from_city)
+        if cond is not None:
+            q = q.where(cond)
     if to_city:
-        q = q.where(RideRequest.to_city.contains(bare_name(to_city)))
+        cond = _city_match(RideRequest.to_city, session, to_city)
+        if cond is not None:
+            q = q.where(cond)
     # PostGIS-префильтр по радиусу (postgres + координаты) — как у /rides/near; иначе Python-haversine ниже.
     if lat is not None and lng is not None and radius_km is not None and session.bind.dialect.name == "postgresql":
         try:

@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
@@ -14,7 +14,7 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..flood import TOO_MANY_RIDES, guard_open_items
-from ..geo import bare_name
+from ..geo import name_variants
 from ..logs import log
 from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
                       RideStatus, User, UserRole)
@@ -56,6 +56,20 @@ RIDE_PAST_GRACE_HOURS = 2   # сколько часов после depart_at п�
 # «показать ещё» ходит с limit/offset. Явный limit по-прежнему капится 200/страница.
 DEFAULT_FEED_LIMIT = FEED_MAX   # общий потолок витрин (волна 89): один на ленту, клинику, посылки, курьеров
 
+
+
+def _city_match(column, session, city: str):
+    """Условие «этот город» с учётом ОБОИХ написаний — русского и башкирского.
+
+    Приложение подставляет название на языке человека: башкироязычный водитель публикует
+    «Баймаҡ», русскоязычная пассажирка ищет «Баймак». Сравнение строк как есть их не сводило,
+    и половина жителей района не видела поездки другой половины (аудит 2026-08-08, волна 92).
+    """
+    variants = name_variants(session, city)
+    if not variants:
+        return None
+    conds = [column.contains(v) for v in variants]
+    return conds[0] if len(conds) == 1 else or_(*conds)
 
 def _date_bounds(date: Optional[date_type]):
     """F4: границы суток для фильтра «когда едем» (date=YYYY-MM-DD → [00:00, +1день)).
@@ -344,9 +358,13 @@ def search_rides(
         Ride.seats_left > 0,
     )
     if from_city:
-        q = q.where(Ride.from_city.contains(bare_name(from_city)))
+        cond = _city_match(Ride.from_city, session, from_city)
+        if cond is not None:
+            q = q.where(cond)
     if to_city:
-        q = q.where(Ride.to_city.contains(bare_name(to_city)))
+        cond = _city_match(Ride.to_city, session, to_city)
+        if cond is not None:
+            q = q.where(cond)
     if category:
         # Анониму фильтр «в больницу» не даём: затирать связку в ответе бесполезно, если
         # выборку можно получить самим запросом — человек и так знает, что просил (волна 22).
@@ -417,9 +435,13 @@ def price_hint(
     (без краша) — коэффициенты бензина в config, уточнит Александр."""
     q = select(Ride.price).where(Ride.price > 0)
     if from_city:
-        q = q.where(Ride.from_city.contains(bare_name(from_city)))
+        cond = _city_match(Ride.from_city, session, from_city)
+        if cond is not None:
+            q = q.where(cond)
     if to_city:
-        q = q.where(Ride.to_city.contains(bare_name(to_city)))
+        cond = _city_match(Ride.to_city, session, to_city)
+        if cond is not None:
+            q = q.where(cond)
     prices = [p for p in session.exec(q).all() if p and p > 0]
 
     # Бензин на весь маршрут: км × (расход/100) × цена_литра → ₽ → копейки.
@@ -455,9 +477,13 @@ def _route_avg_price(session: Session, from_city: str, to_city: str) -> dict:
         Ride.created_at > utcnow() - timedelta(days=90),
     )
     if from_city:
-        q = q.where(Ride.from_city.contains(bare_name(from_city)))
+        cond = _city_match(Ride.from_city, session, from_city)
+        if cond is not None:
+            q = q.where(cond)
     if to_city:
-        q = q.where(Ride.to_city.contains(bare_name(to_city)))
+        cond = _city_match(Ride.to_city, session, to_city)
+        if cond is not None:
+            q = q.where(cond)
     prices = [p for p in session.exec(q.order_by(Ride.id.desc()).limit(500)).all() if p and p > 0]
     return {"avg": round(sum(prices) / len(prices)) if prices else 0, "count": len(prices)}
 
@@ -521,9 +547,13 @@ def rides_near(
     Сценарий: водитель отменил/сломался → клиент видит ближайшую по времени машину на своём маршруте и уезжает."""
     q = select(Ride).where(Ride.status == RideStatus.active, Ride.seats_left > 0)
     if from_city:
-        q = q.where(Ride.from_city.contains(bare_name(from_city)))
+        cond = _city_match(Ride.from_city, session, from_city)
+        if cond is not None:
+            q = q.where(cond)
     if to_city:
-        q = q.where(Ride.to_city.contains(bare_name(to_city)))
+        cond = _city_match(Ride.to_city, session, to_city)
+        if cond is not None:
+            q = q.where(cond)
     bounds = _date_bounds(date)
     if bounds:
         q = q.where(Ride.depart_at >= bounds[0], Ride.depart_at < bounds[1])
