@@ -104,9 +104,12 @@ def test_escalation_suspends_after_three_strikes_and_blocks_filing(client, user_
                     json={"resolution": "strike", "fault": "respondent"})
     st = client.get("/me/standing", headers=drv["auth"]).json()
     assert st["strikes"] == 3 and st["standing"] == "suspended" and st["can_act"] is False
-    # приостановленный аккаунт не подаёт новую жалобу (ensure_active)
+    # Раньше приостановленный не мог подать НИКАКУЮ жалобу. С волны 63 правило точнее:
+    # про СВОЮ поездку — может (иначе он не сообщит об опасном водителе, пока сам под
+    # разбором), а «в воздух» на кого угодно — нет. Подробности: волна 63 в журнале аудита
+    # и tests/test_the_pause_does_not_take_away_defence.py.
     pax2 = user_factory("EsPaxX"); bid2 = _booking(pax2["id"], drv["id"])
-    assert _file(client, drv, pax2["id"], booking_id=bid2).status_code == 403
+    assert _file(client, drv, pax2["id"], booking_id=bid2).status_code == 200
 
 
 def test_appeal_moves_to_appealed(client, user_factory):
