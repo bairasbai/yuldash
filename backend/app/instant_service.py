@@ -33,7 +33,8 @@ from .models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus as S, OfferDecline,
     Tariff, TripShare, TrustedContact, User,
 )
-from .services import (blocked_user_ids, haversine_km, may_send_family_sms, push_bilingual, send_push,
+from .services import (pick_lang, sms_lang_of,
+    blocked_user_ids, haversine_km, may_send_family_sms, push_bilingual, send_push,
                        send_text, user_rating)
 from .timeutil import utcnow
 
@@ -1415,6 +1416,14 @@ _SHARE_STATUS_TEXT = {
     "done": "доехал(а), поездка завершена",
     "cancelled": "поездка на такси отменилась",
 }
+# То же по-башкирски: SMS близким уходили только по-русски, и в башкироязычной семье мама
+# получала тревожное сообщение на чужом языке (аудит 2026-08-08, волна 95). Язык берём
+# у пассажира — про язык его мамы мы ничего не знаем, а он знает.
+_SHARE_STATUS_TEXT_BA = {
+    "sat": "таксиға ултырҙы",
+    "done": "барып етте, сәфәр тамамланды",
+    "cancelled": "такси сәфәре кире алынды",
+}
 
 
 def _notify_order_shares(session: Session, order: InstantOrder, share_status: str) -> None:
@@ -1426,6 +1435,7 @@ def _notify_order_shares(session: Session, order: InstantOrder, share_status: st
     passenger = session.get(User, order.passenger_id)
     who = (passenger.name if passenger and passenger.name else None) or "Твой близкий"
     text = _SHARE_STATUS_TEXT.get(share_status)
+    text_ba = _SHARE_STATUS_TEXT_BA.get(share_status) or text
     for share in shares:
         if share.last_status == share_status or text is None:
             continue
@@ -1436,7 +1446,10 @@ def _notify_order_shares(session: Session, order: InstantOrder, share_status: st
             # Общий суточный потолок SMS близким (волна 48). Тихо: статус едет автоматом
             # по ходу заказа, ошибку тут показывать некому и незачем.
             if may_send_family_sms(session, order.passenger_id, "status"):
-                send_text(contact.phone, f"Юлдаш: {who} {text}.")
+                lang = sms_lang_of(session, order.passenger_id)
+                send_text(contact.phone, pick_lang(
+                    lang, f"Юлдаш: {who} {text}.", f"Юлдаш: {who} {text_ba}.",
+                ))
     session.commit()
 
 

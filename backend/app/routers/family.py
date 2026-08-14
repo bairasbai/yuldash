@@ -18,7 +18,8 @@ from ..models import (
 )
 from ..rating_service import apply_rating, guard_rating_window
 from ..security import current_user
-from ..services import (booking_and_ride_for_user, may_send_family_sms, push_bilingual, send_text)
+from ..services import (pick_lang, sms_lang_of,
+    booking_and_ride_for_user, may_send_family_sms, push_bilingual, send_text)
 from ..timeutil import utcnow
 # Планку «завершить можно только начавшуюся поездку» держим одну на оба пути к переходу
 # (водительский в bookings.py и пассажирский здесь) — иначе они разъедутся при первой же правке.
@@ -131,7 +132,12 @@ def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user
         if not may_send_family_sms(session, user.id, "share_ride"):
             raise herr(429, "Слишком много сообщений близким за сутки. Попробуй завтра.",
                        "Бер тәүлеккә яҡындарға хәбәр артыҡ күп. Иртәгә ҡабатла.")
-        send_text(contact.phone, f"Юлдаш: {who} едет с попутчиком. Следи за поездкой: {_live_link(share.token)}")
+        lang = sms_lang_of(session, user.id)
+        send_text(contact.phone, pick_lang(
+            lang,
+            f"Юлдаш: {who} едет с попутчиком. Следи за поездкой: {_live_link(share.token)}",
+            f"Юлдаш: {who} юлдаш менән бара. Сәфәрҙе күҙәт: {_live_link(share.token)}",
+        ))
         session.refresh(share)   # учёт SMS коммитил сессию — освежаем перед ответом
     return share
 
@@ -192,7 +198,12 @@ def share_instant_trip(order_id: int, body: ShareIn, user: User = Depends(curren
         if not may_send_family_sms(session, user.id, "share_taxi"):
             raise herr(429, "Слишком много сообщений близким за сутки. Попробуй завтра.",
                        "Бер тәүлеккә яҡындарға хәбәр артыҡ күп. Иртәгә ҡабатла.")
-        send_text(contact.phone, f"Юлдаш: {who} едет на такси ({route}). Следи за поездкой: {_live_link(share.token)}")
+        lang = sms_lang_of(session, user.id)
+        send_text(contact.phone, pick_lang(
+            lang,
+            f"Юлдаш: {who} едет на такси ({route}). Следи за поездкой: {_live_link(share.token)}",
+            f"Юлдаш: {who} такси менән бара ({route}). Сәфәрҙе күҙәт: {_live_link(share.token)}",
+        ))
         session.refresh(share)   # учёт SMS коммитил сессию — освежаем перед ответом
     return share
 
@@ -268,8 +279,15 @@ def parcel_track_link(parcel_id: int, user: User = Depends(current_user),
             code = (parcel.confirm_code or "").strip()
             code_part = f" Код для курьера: {code}." if code else ""
             if may_send_family_sms(session, user.id, "parcel"):
-                send_text(phone, f"Юлдаш: {who} отправил тебе посылку ({route}).{code_part} "
-                                 f"Следи за доставкой: {_live_link(share.token)}")
+                code_part_ba = f" Курьер өсөн код: {code}." if code else ""
+                lang = sms_lang_of(session, user.id)
+                send_text(phone, pick_lang(
+                    lang,
+                    f"Юлдаш: {who} отправил тебе посылку ({route}).{code_part} "
+                    f"Следи за доставкой: {_live_link(share.token)}",
+                    f"Юлдаш: {who} һиңә бандероль ебәрҙе ({route}).{code_part_ba} "
+                    f"Доставканы күҙәт: {_live_link(share.token)}",
+                ))
                 sms_sent = True
         except Exception:   # SMS-шлюз мигнул — ссылку всё равно вернём отправителю (отдаст сам)
             pass
@@ -372,6 +390,10 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
         session.refresh(share)  # после commit объекты «обнуляются» — перечитываем
     # Реально уведомляем близких по SMS о статусе поездки.
     status_text = {"sat": "сел в машину", "arrived": "доехал до места", "done": "завершил поездку"}.get(body.status, body.status)
+    # То же по-башкирски: SMS близким уходили только по-русски (волна 95). Язык берём у того,
+    # кто завёл контакт: про язык его мамы мы ничего не знаем, а он знает.
+    status_text_ba = {"sat": "машинаға ултырҙы", "arrived": "урынына етте",
+                      "done": "сәфәрҙе тамамланы"}.get(body.status, status_text)
     who = user.name or user.phone
     for cid in changed_ids:
         c = session.get(TrustedContact, cid)
@@ -386,7 +408,10 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
             # Тихо: статус едет автоматом по ходу поездки, и красная ошибка «слишком много
             # сообщений» посреди дороги человеку не поможет. Потолок всё равно общий.
             if may_send_family_sms(session, user.id, "status"):
-                send_text(c.phone, f"Юлдаш: {who} {status_text}.")
+                lang = sms_lang_of(session, user.id)
+                send_text(c.phone, pick_lang(
+                    lang, f"Юлдаш: {who} {status_text}.", f"Юлдаш: {who} {status_text_ba}.",
+                ))
     # Учёт SMS коммитит сессию — после него объекты «обнуляются». Перечитываем ПЕРЕД ответом,
     # иначе клиент получил бы пустые поля вместо статусов (поймал tests/test_flows.py).
     for share in shares:
