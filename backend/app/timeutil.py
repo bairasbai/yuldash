@@ -40,3 +40,19 @@ def client_dt_to_utc(dt: Optional[datetime], naive_means: str = "local") -> Opti
         return dt
     from .config import settings   # локальный импорт: config сам тянет timeutil, циклы не нужны
     return dt - timedelta(hours=settings.local_tz_offset_hours)
+
+
+def local_date(dt: Optional[datetime]):
+    """Календарный день по МЕСТНОМУ времени (Уфа = UTC + `local_tz_offset_hours`).
+
+    Зачем отдельная функция. В базе всё лежит в UTC, а человек живёт по своему календарю,
+    и «пятнадцатое» у него начинается на пять часов раньше, чем у сервера. Пока даты просто
+    сравнивали через `.date()`, ранний рейс «15 августа, 4 утра» считался четырнадцатым:
+    в ленте он не находился по нужному дню, а подписка «карауль на 15-е» его пропускала
+    (аудит 2026-08-08, волна 79). Бьёт это по самому частому сельскому рейсу — выезду
+    в район затемно, чтобы успеть к открытию учреждений в Уфе.
+    """
+    if dt is None:
+        return None
+    from .config import settings   # локальный импорт: config сам тянет timeutil
+    return (dt + timedelta(hours=settings.local_tz_offset_hours)).date()

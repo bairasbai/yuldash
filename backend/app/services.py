@@ -31,7 +31,7 @@ from .models import (
     Rating, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent, User, UserRole,
 )
 from .schemas import RideOut
-from .timeutil import utcnow
+from .timeutil import local_date, utcnow
 
 # ----------------------------- Медиа-папки -----------------------------
 # Голосовые — публично (/media). Документы водителя (права/авто) — ПРИВАТНО (вне /media),
@@ -513,7 +513,9 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
             if not (forward or backward):
                 continue
             # Дата: если у подписки задан день — матчим только поездку в этот календарный день.
-            if w.watch_date is not None and w.watch_date.date() != ride.depart_at.date():
+            # Дни сравниваем в МЕСТНОМ календаре: подписка «на 15-е» обязана поймать выезд
+            # в четыре утра 15-го, который в базе лежит четырнадцатым числом (волна 79).
+            if w.watch_date is not None and local_date(w.watch_date) != local_date(ride.depart_at):
                 continue
             # Анти-спам: 1 пуш на подписку в сутки.
             if w.last_notified_at is not None and (now - w.last_notified_at) < timedelta(hours=24):
@@ -576,7 +578,7 @@ def notify_request_watchers(session: Session, request: RideRequest) -> int:
                 continue
             # Дата: если у подписки задан день, а у заявки есть желаемое время — матчим по дню.
             if (w.watch_date is not None and request.desired_at is not None
-                    and w.watch_date.date() != request.desired_at.date()):
+                    and local_date(w.watch_date) != local_date(request.desired_at)):   # местный день (волна 79)
                 continue
             if w.last_notified_at is not None and (now - w.last_notified_at) < timedelta(hours=24):
                 continue
