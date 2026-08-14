@@ -17,6 +17,7 @@ from ..db import get_session
 from ..errors import herr
 from ..models import MedicalPartner, Ride, RideStatus, User
 from ..security import current_user
+from ..ride_visibility import visible_rides
 from ..services import public_rides_payload, rides_out
 from ..timeutil import utcnow
 from datetime import timedelta
@@ -64,7 +65,11 @@ def rides_to_partner(partner_id: int, user: User = Depends(current_user), sessio
         Ride.depart_at >= utcnow() - timedelta(hours=_PAST_GRACE_HOURS),
     ).order_by(Ride.depart_at)
     rides = session.exec(q).all()
-    items = public_rides_payload(rides_out(rides, session))
+    # Те же правила видимости, что в ленте. Раньше эта витрина их не знала: пассажирка
+    # заблокировала водителя, в ленте он исчез — а здесь спокойно предлагался снова
+    # (аудит 2026-08-08, волна 71). Место, где человек едет в больницу, — последнее,
+    # где можно свести его с тем, от кого он прятался.
+    items = visible_rides(public_rides_payload(rides_out(rides, session)), user, session)
     return {
         "partner": partner,
         "count": len(items),

@@ -17,6 +17,7 @@ from ..models import (
     Block, Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
     RideRequest, RideStatus, User, UserRole,
 )
+from ..ride_visibility import visible_rides
 from ..schemas import RideOut
 from ..security import current_user, gen_otp
 from ..services import (
@@ -967,8 +968,11 @@ def match_rides(request_id: int, user: User = Depends(current_user), session: Se
         Ride.category == req.category,
     )
     rides = session.exec(q.order_by(Ride.depart_at)).all()
-    if trust_level(session, user) < INSIDER_LEVEL:   # «только для своих» видит лишь L3
-        rides = [r for r in rides if not r.only_trusted]
     # Через public-payload: точная точка сбора (pickup/координаты) раскрывается только участнику
     # подтверждённой брони, а не всем, кто ищет попутку по заявке (приватность до брони).
-    return public_rides_payload(rides_out(rides, session))
+    #
+    # Видимость — общей функцией, как в ленте. Раньше тут стояло только «только для своих»:
+    # своя проверка вместо общей означала, что про блокировку и паузу этот подбор не знал —
+    # заблокированный водитель приходил к человеку прямо в ответ на его заявку
+    # (аудит 2026-08-08, волна 71).
+    return visible_rides(public_rides_payload(rides_out(rides, session)), user, session)

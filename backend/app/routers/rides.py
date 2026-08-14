@@ -19,8 +19,7 @@ from ..logs import log
 from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
                       RideStatus, User, UserRole)
 from .. import workday as workday_mod
-from ..safety_logic import (MSG_WOMEN_ONLY_DRIVER, ensure_active, guard_women_only,
-                            suspended_user_ids)
+from ..safety_logic import (MSG_WOMEN_ONLY_DRIVER, ensure_active, guard_women_only)
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
 from ..timeutil import client_dt_to_utc, utcnow
@@ -33,9 +32,10 @@ from .bookings import DONE_EARLY_GRACE
 # уже его ответственность: пуш о новой брони приходит сразу (волна 18).
 _CONFIRM_GRACE = timedelta(minutes=30)
 from ..workday import local_now
-from ..trust_service import INSIDER_LEVEL, trust_level
+from ..ride_visibility import (hide_blocked, hide_health_hint, hide_suspended,
+                               hide_trusted_only, visible_rides)
 from ..services import (
-    CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
+    CITY_COORDS, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
     geocode_city, haversine_km, notify_map_changed, notify_route_watchers, public_ride_payload,
     public_rides_payload, push_notification, record_pickup_choice, ride_out, ride_out_with,
     rides_out, send_push,
@@ -63,87 +63,6 @@ def _date_bounds(date: Optional[date_type]):
         return None
     start = datetime(date.year, date.month, date.day)
     return start, start + timedelta(days=1)
-
-
-def _hide_blocked(items, user, session):
-    """Прячем из выдачи поездки заблокированных водителей (в обе стороны). Аноним → без фильтра.
-    items — список RideOut (свежие) или dict (из кеша/near); оба содержат driver_id."""
-    if user is None:
-        return items
-    blocked = blocked_user_ids(session, user.id)
-    if not blocked:
-        return items
-    return [r for r in items if (r["driver_id"] if isinstance(r, dict) else r.driver_id) not in blocked]
-
-
-def _hide_suspended(items, user, session):
-    """Прячем поездки водителей, которые сейчас на паузе за нарушения.
-
-    Не про безопасность — про честность выдачи. Везти такой водитель уже не может: подтвердить
-    бронь и принять цену ему закрыто (аудит 2026-08-08, волна 9). Но поездка продолжала висеть
-    в ленте, пассажир её бронировал и ждал подтверждения, которого не будет. Время человека
-    тратилось зря, а водитель выглядел как «не отвечает».
-
-    СВОЮ поездку водитель видит всегда — иначе он решит, что объявление пропало, и опубликует
-    заново. Тот же приём, что в `_hide_trusted_only`.
-
-    Цена запроса: ОДИН select на всю страницу (приостановленных единицы), а не проверка на
-    каждого водителя — это горячая ручка, N запросов тут недопустимы. Пустой набор → выходим
-    сразу, обычный случай не платит ничего.
-    """
-    ids = suspended_user_ids(session)
-    if not ids:
-        return items
-    uid = user.id if user is not None else None
-    def _drv(r):
-        return r["driver_id"] if isinstance(r, dict) else r.driver_id
-    return [r for r in items if _drv(r) not in ids or _drv(r) == uid]
-
-
-def _hide_health_hint(items, user):
-    """Анониму не показываем, что поездка едет в конкретную клинику.
-
-    «Кто и когда едет в такую-то больницу» — вывод о здоровье, а не просто маршрут. Ручка
-    `/medical-partners/{id}/rides` это уже понимает и требует входа. Но та же связка спокойно
-    уезжала во вторую дверь: `GET /rides` без токена отдавал `partner_id` и `category=hospital`
-    вместе с именем водителя и временем выезда (аудит 2026-08-08, волна 22). Барьер входа
-    отсекает поисковики и массовый сбор — ровно то, ради чего он поставлен в medical.py.
-
-    Саму поездку не прячем: человеку без входа она видна как обычная «Баймак → Уфа»,
-    и по ссылке карточка открывается. Убираем только связку с клиникой. Свою поездку
-    водитель видит целиком — как и в соседних фильтрах.
-    """
-    if user is not None:
-        return items
-    def _f(r, key):
-        return r[key] if isinstance(r, dict) else getattr(r, key, None)
-    out = []
-    for r in items:
-        hospital = _f(r, "category") in (RideCategory.hospital, "hospital")
-        if not hospital and not _f(r, "partner_id"):
-            out.append(r)
-            continue
-        patch = {"partner_id": None, "category": RideCategory.regular}
-        if isinstance(r, dict):
-            r = {**r, **{"partner_id": None, "category": RideCategory.regular.value}}
-        else:
-            r = r.model_copy(update=patch)
-        out.append(r)
-    return out
-
-
-def _hide_trusted_only(items, user, session):
-    """Прячем поездки «только для своих» (only_trusted) от всех, кто НЕ L3.
-    Аноним и L0–L2 их не видят; свой водитель видит СВОЮ поездку всегда.
-    items — RideOut (свежие) или dict (кеш/near); оба содержат only_trusted + driver_id."""
-    def _f(r, key):
-        return r[key] if isinstance(r, dict) else getattr(r, key)
-    # Вычисляем уровень зрителя один раз (не в цикле).
-    level = trust_level(session, user) if user is not None else 0
-    if level >= INSIDER_LEVEL:
-        return items
-    uid = user.id if user is not None else None
-    return [r for r in items if not _f(r, "only_trusted") or _f(r, "driver_id") == uid]
 
 
 def _recent_twin_ride(session: Session, driver_id: int, body: RideIn):
@@ -391,9 +310,7 @@ def search_rides(
     if no_filter:
         cached = cache_get_json("rides:active:v2")
         if cached is not None:
-            out = _hide_blocked(public_rides_payload(cached), user, session)
-            out = _hide_suspended(out, user, session)
-            return _hide_health_hint(_hide_trusted_only(out, user, session), user)
+            return visible_rides(public_rides_payload(cached), user, session)
 
     # Не показываем УЖЕ УЕХАВШИЕ поездки (аудит 2026-07-04: у поездки не было отсева по времени →
     # вчерашние висели в ленте). Грейс 2ч: поездка «только что уехала»/бронируют впритык — ещё видна.
@@ -450,9 +367,7 @@ def search_rides(
     public_out = public_rides_payload(out)
     if no_filter:
         cache_set_json("rides:active:v2", [r.model_dump(mode="json") for r in public_out], 20)
-    out = _hide_blocked(public_out, user, session)
-    out = _hide_suspended(out, user, session)
-    return _hide_health_hint(_hide_trusted_only(out, user, session), user)
+    return visible_rides(public_out, user, session)
 
 
 @lru_cache(maxsize=512)
@@ -633,9 +548,10 @@ def rides_near(
             continue
         dist_by_id[r.id] = dist
         kept.append(r)
-    kept = _hide_blocked(kept, user, session)   # прячем заблокированных до подсчёта total/пагинации
-    kept = _hide_suspended(kept, user, session)   # и водителей на паузе — бронь им всё равно не подтвердить
-    kept = _hide_trusted_only(kept, user, session)   # «только для своих» видит лишь L3
+    # Прячем до подсчёта total/пагинации: заблокированных, водителей на паузе (бронь им всё
+    # равно не подтвердить) и «только для своих» (видит лишь L3). Связку с клиникой снимаем
+    # ниже, после сборки dict-ов — поэтому тут отдельные фильтры, а не visible_rides целиком.
+    kept = hide_trusted_only(hide_suspended(hide_blocked(kept, user, session), user, session), user, session)
     total = len(kept)
     eff_limit = min(max(1, limit), 200) if limit is not None else DEFAULT_FEED_LIMIT
     page_ids = [r.id for r in kept[max(0, offset):max(0, offset) + eff_limit]]
@@ -654,7 +570,7 @@ def rides_near(
     # ORM-объекты `Ride`, страница потом перечитывается из базы заново — правка на них
     # бесследно терялась. Поймано пробой: лента уже молчала, а «рядом» всё ещё отдавало
     # `partner_id` анониму (аудит 2026-08-08, волна 22).
-    items = _hide_health_hint(items, user)
+    items = hide_health_hint(items, user)
     return {"count": total, "items": items}   # count = всего (чтобы клиент знал, есть ли «ещё»)
 
 
@@ -830,8 +746,7 @@ def get_ride(ride_id: int, user: Optional[User] = Depends(current_user_optional)
     out = public_ride_payload(ride_out(ride, session))
     # V5: те же фильтры, что в ленте — «только для своих» скрыта от не-L3, поездка в связке
     # блокировки не отдаётся по прямому id (иначе обход only_trusted/blocked + анонимный скрейпинг).
-    visible = _hide_trusted_only(_hide_suspended(_hide_blocked([out], user, session), user, session), user, session)
-    visible = _hide_health_hint(visible, user)
+    visible = visible_rides([out], user, session)
     if not visible:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")   # не раскрываем существование закрытой поездки
     return visible[0]
