@@ -32,7 +32,7 @@ from .bookings import DONE_EARLY_GRACE
 # уже его ответственность: пуш о новой брони приходит сразу (волна 18).
 _CONFIRM_GRACE = timedelta(minutes=30)
 from ..workday import local_now
-from ..visibility import (hide_blocked, hide_health_hint, hide_suspended,
+from ..visibility import (FEED_MAX, hide_blocked, hide_health_hint, hide_suspended,
                                hide_trusted_only, visible_rides)
 from ..services import (
     CITY_COORDS, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
@@ -54,7 +54,7 @@ RIDE_PAST_GRACE_HOURS = 2   # сколько часов после depart_at п�
 # ~11 000 карточек (~400мс CPU), а 20 параллельных клиентов клали сервер в таймауты.
 # Клиенту столько не нужно: выдача отсортирована (Boost → ближайший выезд),
 # «показать ещё» ходит с limit/offset. Явный limit по-прежнему капится 200/страница.
-DEFAULT_FEED_LIMIT = 200
+DEFAULT_FEED_LIMIT = FEED_MAX   # общий потолок витрин (волна 89): один на ленту, клинику, посылки, курьеров
 
 
 def _date_bounds(date: Optional[date_type]):

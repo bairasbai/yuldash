@@ -38,7 +38,7 @@ from .parcels import _FINAL_STATUSES, live_parcel_conds
 from ..security import current_user
 from ..services import (haversine_km, notify_admin_telegram, push_bilingual, push_notification,
                         user_rating)
-from ..visibility import visible_parcels
+from ..visibility import FEED_MAX, visible_parcels
 from ..timeutil import utcnow
 from . import parcels as parcels_mod
 from .. import debt as debt_mod   # переиспользуем _local_day_expr: одна логика «локального дня» на проект
@@ -673,7 +673,7 @@ def courier_available(from_city: Optional[str] = None, to_city: Optional[str] = 
             *live_parcel_conds(),                   # протухшие в ленту не попадают (см. parcels.py)
             ParcelDelivery.sender_id != user.id,
             ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
-        ).order_by(ParcelDelivery.id.desc())
+        ).order_by(ParcelDelivery.id.desc()).limit(FEED_MAX)   # потолок витрины (волна 89)
     ).all()
     if from_city:
         fc = from_city.strip().casefold()

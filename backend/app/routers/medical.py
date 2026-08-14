@@ -17,7 +17,7 @@ from ..db import get_session
 from ..errors import herr
 from ..models import MedicalPartner, Ride, RideStatus, User
 from ..security import current_user
-from ..visibility import visible_rides
+from ..visibility import FEED_MAX, visible_rides
 from ..services import public_rides_payload, rides_out
 from ..timeutil import utcnow
 from datetime import timedelta
@@ -64,7 +64,7 @@ def rides_to_partner(partner_id: int, user: User = Depends(current_user), sessio
         Ride.seats_left > 0,
         Ride.depart_at >= utcnow() - timedelta(hours=_PAST_GRACE_HOURS),
     ).order_by(Ride.depart_at)
-    rides = session.exec(q).all()
+    rides = session.exec(q.limit(FEED_MAX)).all()   # потолок витрины, как в ленте (волна 89)
     # Те же правила видимости, что в ленте. Раньше эта витрина их не знала: пассажирка
     # заблокировала водителя, в ленте он исчез — а здесь спокойно предлагался снова
     # (аудит 2026-08-08, волна 71). Место, где человек едет в больницу, — последнее,

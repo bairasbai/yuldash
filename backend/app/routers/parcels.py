@@ -40,7 +40,7 @@ from ..safety_logic import (ensure_active,
 from ..security import current_user
 from ..antifraud import moderate_open_text
 from ..services import is_blocked, notify_admin_telegram, push_notification
-from ..visibility import visible_parcels
+from ..visibility import FEED_MAX, visible_parcels
 from ..timeutil import utcnow
 from ..workday import local_day
 
@@ -750,7 +750,7 @@ def parcels_available(
         ParcelDelivery.sender_id != user.id,
         ParcelDelivery.delivery_type == "poputka",
     )
-    rows = session.exec(q.order_by(ParcelDelivery.id.desc())).all()
+    rows = session.exec(q.order_by(ParcelDelivery.id.desc()).limit(FEED_MAX)).all()   # потолок витрины (волна 89)
     # Заблокированных не показываем вовсе — правило общее с витриной проф-курьеров (волна 73).
     rows = visible_parcels(rows, user, session)
     if from_city:
