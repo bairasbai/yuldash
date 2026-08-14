@@ -23,7 +23,7 @@ from ..models import (
     TaxiApplicationStatus, TaxiCity, User, UserRole,
 )
 from ..security import current_user
-from ..services import push_notification
+from ..services import notify_admin_telegram, push_notification
 from ..timeutil import utcnow
 from .. import antifraud as af_mod
 from .. import car_class as cc
@@ -282,6 +282,10 @@ def taxi_apply(body: TaxiApplyIn, user: User = Depends(current_user), session: S
     app = taxi_mod.my_application(session, user.id)
     if app and app.status == TaxiApplicationStatus.approved:
         raise herr(409, "Заявка уже одобрена — ты в такси Юлдаша", "Заявка раҫланған — һин Юлдаш таксиһында")
+    # Была ли заявка УЖЕ на рассмотрении: от этого зависит, новость ли её подача для Александра
+    # (см. уведомление в конце). Повтор при pending разрешён — человек досылает фото, — но
+    # будить админа каждым нажатием нельзя, это волна 50 ровно про то же.
+    was_pending = bool(app and app.status == TaxiApplicationStatus.pending)
     # Фото — только СВОИ загруженные защищённые документы (анти-подмена чужих URL).
     permit_url = _ensure_owned_doc_url(body.permit_photo_url, user, None) if body.permit_photo_url.strip() else None
     osago_url = _ensure_owned_doc_url(body.osago_url, user, None) if body.osago_url.strip() else None
@@ -324,6 +328,26 @@ def taxi_apply(body: TaxiApplyIn, user: User = Depends(current_user), session: S
     # ДЕЙСТВУЮЩИЕ документы), поэтому старые файлы стираем здесь — иначе лежали бы вечно.
     for was, now in prev_docs:
         drop_replaced_doc(was, now)
+    # Сказать Александру, что кто-то ждёт решения. Уведомления о новой заявке ТАКСИСТА не было
+    # вовсе: она молча ложилась в очередь `/admin/taxi/applications`, а он смотрит Telegram,
+    # а не админку (у него 5–10 минут в день). Про заявку КУРЬЕРА сообщение приходит с самого
+    # начала, про документы водителя — тоже; заявку на 580-ФЗ просто забыли (аудит 2026-08-14,
+    # волна 68). Человек собрал ИНН, разрешение, ОСАГО и ждёт — а о нём никто не знает.
+    #
+    # Без персональных данных: id заявки и имя, как в курьерском уведомлении.
+    #
+    # Повторную подачу, пока заявка ВСЁ ЕЩЁ на рассмотрении, не шлём: человек досылает фото
+    # или правит опечатку, а для админа это не новая заявка. Первая подача и подача ПОСЛЕ
+    # отказа — новость всегда: во втором случае человек исправил замечания и ждёт ответа.
+    if not was_pending:
+        try:
+            notify_admin_telegram(
+                f"🚕 Новая заявка таксиста\nID: {app.id}\n"
+                f"От: {user.name or 'водитель'}\n"
+                f"→ Кабинет админа → Заявки таксистов"
+            )
+        except Exception:  # noqa: BLE001 — уведомление вторично, заявку не роняем
+            pass
     return _application_payload(app)
 
 
