@@ -2567,7 +2567,11 @@ internal fun ChatComposer(
     val recorder = remember { VoiceRecorder(context) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
-            val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            // Пережимаем перед отправкой: снимок с камеры весит 5-6 МБ, а в деревне это
+            // минута ожидания на слабой сети и реальные деньги за трафик — при обрыве
+            // сообщение просто теряется (аудит 2026-08-08, волна 88). Остальные экраны
+            // делали это с самого начала, чат почему-то нет.
+            val bytes = decodeToJpeg(context, uri)
             if (bytes != null) onPhotoPicked(bytes)
         }
     }

@@ -770,7 +770,7 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
             uploadingLicense = true
             uploadError = false
             scope.launch {
-                val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+                val bytes = decodeToJpeg(context, uri)   // пережимаем: слабая сеть, дорогой трафик (волна 88)
                 val url = if (bytes != null) ApiClient.uploadPhoto(bytes).getOrNull() else null
                 if (url != null) licenseUrl = url
                 else { uploadError = true; Toast.makeText(context, tUploadFail, Toast.LENGTH_SHORT).show() }  // не молчим при сбое загрузки
@@ -783,7 +783,7 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
             uploadingCar = true
             uploadError = false
             scope.launch {
-                val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+                val bytes = decodeToJpeg(context, uri)   // пережимаем: слабая сеть, дорогой трафик (волна 88)
                 val url = if (bytes != null) ApiClient.uploadPhoto(bytes).getOrNull() else null
                 if (url != null) carPhotoUrl = url
                 else { uploadError = true; Toast.makeText(context, tUploadFail, Toast.LENGTH_SHORT).show() }

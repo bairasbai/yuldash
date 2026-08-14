@@ -337,6 +337,11 @@
   у каждого ключа. `ApiClient.clearLocalSession` ходит по списку; паспорта поездок и очередь
   исходящих чистятся отдельно (`TripPassStore.clearAll`, `Outbox.clearAll`). Сторож —
   `SessionKeysGuardTest`: новый ключ на диске без решения = красный тест.
+- **Фото пережимаются перед отправкой на ВСЕХ экранах (2026-08-08, волна 88).** `decodeToJpeg`
+  (1024 px / q88) — чат, SOS-верификация, посылки, споры, аватар; документы (`TaxiOnboarding`,
+  `CourierOnboarding`) — `DOC_PHOTO_SIDE`=1600 / `DOC_PHOTO_QUALITY`=92, чтобы модератор
+  разобрал номер и даты. Сторож — `PhotosAreCompressedBeforeSendingTest` (ищет чтение байтов
+  из галереи напрямую).
 - **Чистка личных данных в отчётах о сбоях — зеркало сервера (2026-08-08, волна 87).**
   `YuldashApplication.SCRUB` повторяет `observability.py::scrub_text`: телефон, координаты,
   JWT, `/t/{token}`, почта, секреты в параметрах. Сторож `ScrubMirrorsServerTest` читает ОБА

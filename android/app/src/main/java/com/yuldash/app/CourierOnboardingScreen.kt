@@ -85,6 +85,14 @@ private sealed interface CourierGateUi {
  * «Стать курьером Юлдаша»: правила → выбор транспорта → селфи → статус заявки.
  * onOpenCourier — после одобрения ведём в режим курьера (работа).
  */
+// Документы пережимаем перед отправкой, но БЕРЕЖНЕЕ обычных фото: модератор должен разобрать
+// серию, номер и даты в правах, а после сжатия «как для чата» мелкий шрифт плывёт. При этом
+// снимок с камеры весит 5-6 МБ, и таксист с четырьмя документами отправлял двадцать мегабайт
+// по сельской сети: минуты ожидания, дорогой трафик и потеря всего при обрыве
+// (аудит 2026-08-08, волна 88). 1600 px по длинной стороне и качество 92 — читаемо и в разы легче.
+private const val DOC_PHOTO_SIDE = 1600
+private const val DOC_PHOTO_QUALITY = 92
+
 @Composable
 internal fun CourierOnboardingScreen(onBack: () -> Unit, onOpenCourier: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
@@ -175,7 +183,7 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
         if (uri != null) {
             uploadingSelfie = true
             scope.launch {
-                val bytes = runCatching { ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+                val bytes = decodeToJpeg(ctx, uri, maxSize = DOC_PHOTO_SIDE, quality = DOC_PHOTO_QUALITY)
                 val url = if (bytes != null) ApiClient.uploadPhoto(bytes).getOrNull() else null
                 if (url != null) selfieUrl = url
                 else android.widget.Toast.makeText(ctx, uploadFailMsg, android.widget.Toast.LENGTH_SHORT).show()
