@@ -261,6 +261,27 @@ def carried_over_seconds(session: Session, driver_id: int, now: Optional[datetim
     return int(prev.seconds_online or 0)
 
 
+def resting_driver_ids(session: Session, driver_ids: list, now: Optional[datetime] = None) -> set:
+    """Кто из этих водителей сейчас в блоке отдыха — ОДНИМ запросом на весь круг.
+
+    Нужна подбору такси (волна 60): гейт `guard_taxi_rested` спрашивает про одного, а в круге
+    кандидатов полтора десятка. Решение принимает тот же `unlock_at`, что и одиночный гейт,
+    поэтому разъехаться они не могут."""
+    if not driver_ids:
+        return set()
+    now = now or utcnow()
+    rows = session.exec(
+        select(TaxiWorkDay).where(
+            TaxiWorkDay.driver_id.in_(list(driver_ids)),
+            TaxiWorkDay.limit_reached_at.is_not(None),
+        ).order_by(TaxiWorkDay.day.desc())
+    ).all()
+    latest: dict = {}
+    for wd in rows:                      # строки отсортированы: первая на водителя — самая свежая
+        latest.setdefault(wd.driver_id, wd)
+    return {did for did, wd in latest.items() if now < unlock_at(wd)}
+
+
 def last_online_at(session: Session, driver_id: int, now: Optional[datetime] = None):
     """Когда водитель последний раз был на линии (наивный UTC) или None, если ни разу.
 

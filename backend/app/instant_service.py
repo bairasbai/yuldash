@@ -1012,6 +1012,18 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
     # подбора — в пуше оффера едет АДРЕС ПОДАЧИ пассажира, а отстраняют в том числе за
     # домогательство. Один запрос на весь круг, как в ленте поездок, а не проверка на каждого.
     paused = suspended_user_ids(session)
+    # …и остальные наказания водителя — тоже ОДНИМ запросом на круг. Их всего четыре: пауза §2
+    # (выше), пауза качества за брошенные заказы (ниже, в цикле), ОТДЫХ (§8) и ДОЛГ. Последние
+    # два подбор не знал вовсе: гейт стоит на выходе на линию и на приёме заказа, а водитель
+    # мог быть на линии УЖЕ — устал на восьмом часу или получил просрочку по комиссии прямо
+    # в смену. Проверено запросом: подбор возвращал обоих (аудит 2026-08-13, волна 60).
+    #
+    # Цена была не только в потерянном круге: в пуше оффера едет адрес подачи пассажира, и
+    # система предлагала работу тому, кому сама же её запретила из-за усталости.
+    from . import debt as debt_mod            # локальные импорты: без циклов на старте
+    from . import workday as workday_mod
+    resting = workday_mod.resting_driver_ids(session, ids)
+    in_debt = debt_mod.blocked_driver_ids(session, ids)
     area_a, area_b = _order_zone_ctx(session, order)
     out = []
     for did in ids:
@@ -1022,6 +1034,8 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
             continue
         if did in busy or did in blocked or did == order.passenger_id or did in paused:
             continue
+        if did in resting or did in in_debt:
+            continue          # отдых (§8) и долг: те же гейты, что на выходе на линию
         if not _zone_ok(session, p, area_a, area_b):
             continue
         avail = cc.available_or_legacy(getattr(p, "car_classes_available", ""), p.car_class)

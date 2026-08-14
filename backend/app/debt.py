@@ -464,8 +464,13 @@ def taxi_block_reason(session: Session, driver_id: int, now=None) -> Optional[st
     unpaid (cleanup.expire_stale_declares), водитель может заявить оплату снова — но уже под
     счётчик, то есть ограниченное число раз."""
     now = now or utcnow()
-    unpaid = _unpaid(session, driver_id)
-    pending = _pending(session, driver_id)
+    return _reason_from(_unpaid(session, driver_id), _pending(session, driver_id), now)
+
+
+def _reason_from(unpaid: list, pending: list, now) -> Optional[str]:
+    """Решение по уже собранным долгам одного водителя. Вынесено, чтобы ТОЧНО ТА ЖЕ логика
+    работала и в пакетной проверке круга подбора (волна 60) — иначе гейт на ручке и фильтр
+    в подборе разъедутся, а разъезжаются такие пары всегда."""
     # Долги, где доверие исчерпано: обещали оплату N+ раз, подтверждения так и нет.
     abused = [d for d in pending if (d.declare_count or 0) > settings.debt_max_declares]
     if abused:
@@ -479,6 +484,28 @@ def taxi_block_reason(session: Session, driver_id: int, now=None) -> Optional[st
     if sum(d.amount_kop for d in unpaid) > settings.debt_block_threshold_kop:
         return "over_threshold"
     return None
+
+
+def blocked_driver_ids(session: Session, driver_ids: list, now=None) -> set:
+    """Кто из этих водителей заблокирован долгом — ОДНИМ запросом на весь круг.
+
+    Нужна подбору такси: там до полутора десятков кандидатов, и спрашивать про каждого
+    отдельно значило бы три десятка запросов на каждый заказ. Решение принимает та же
+    `_reason_from`, что и одиночный гейт."""
+    if not driver_ids:
+        return set()
+    now = now or utcnow()
+    rows = session.exec(
+        select(CommissionDebt).where(
+            CommissionDebt.driver_id.in_(list(driver_ids)),
+            CommissionDebt.status.in_([DebtStatus.unpaid, DebtStatus.pending]),
+        )
+    ).all()
+    by_driver: dict = {}
+    for d in rows:
+        u, p = by_driver.setdefault(d.driver_id, ([], []))
+        (u if d.status == DebtStatus.unpaid else p).append(d)
+    return {did for did, (u, p) in by_driver.items() if _reason_from(u, p, now) is not None}
 
 
 # Понятная ошибка блокировки такси (RU — серверная строка; UI локализует через appText).
