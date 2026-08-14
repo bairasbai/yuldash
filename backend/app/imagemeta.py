@@ -152,3 +152,48 @@ def strip_image_metadata(data: bytes, ext: str) -> bytes:
     if not cleaned or len(cleaned) > len(data):
         return data                       # что-то пошло не так — отдаём как было
     return _blind_gps_pointer(cleaned)
+
+
+# Длинная сторона и качество, до которых ужимаем картинки на сервере.
+# 1600 — та же планка, что у документов в приложении (волна 88): номер и даты в правах
+# читаются, а вес падает в разы.
+SHRINK_SIDE = 1600
+SHRINK_QUALITY = 85
+
+
+def shrink_image(data: bytes, ext: str) -> bytes:
+    """Ужать картинку, если она больше нужного. Не смогли — возвращаем как есть.
+
+    Зачем (аудит 2026-08-08, волна 97). Сервер принимал и отдавал фото ровно такими, какими
+    их прислали, — до десяти мегабайт. Наше приложение жмёт картинки само (волна 88), но
+    правило, которое живёт только в клиенте, защищает лишь тех, кто обновился: веб-версия,
+    старая сборка и прямой вызов API шлют файл как есть. Дальше этот файл едет в ленту
+    и в чат — то есть его качает каждый, кто открыл экран, а не только автор.
+
+    Работаем мягко: нет Pillow, битый файл, неизвестный формат — отдаём исходные байты.
+    Картинка важнее идеального веса, и загрузка не должна падать из-за пережатия.
+    """
+    fmt = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}.get((ext or "").lower())
+    if fmt is None:
+        return data
+    try:
+        import io as _io
+
+        from PIL import Image
+    except Exception:  # noqa: BLE001 — Pillow нет в окружении: работаем как раньше
+        return data
+    try:
+        with Image.open(_io.BytesIO(data)) as img:
+            img.load()
+            if max(img.size) <= SHRINK_SIDE and len(data) <= 1_000_000:
+                return data          # уже маленькая — не трогаем пиксели зря
+            img.thumbnail((SHRINK_SIDE, SHRINK_SIDE))
+            if fmt == "JPEG" and img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            buf = _io.BytesIO()
+            save_kwargs = {"quality": SHRINK_QUALITY, "optimize": True} if fmt in ("JPEG", "WEBP") else {"optimize": True}
+            img.save(buf, format=fmt, **save_kwargs)
+            out = buf.getvalue()
+        return out if 0 < len(out) < len(data) else data
+    except Exception:  # noqa: BLE001 — не разобрали картинку: пусть едет как есть
+        return data

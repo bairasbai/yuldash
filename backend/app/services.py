@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 
 from .errors import herr
 from .db import engine
-from .imagemeta import strip_image_metadata
+from .imagemeta import shrink_image, strip_image_metadata
 from .logs import log
 from .models import (
     Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, Notification, PickupPoint,
@@ -140,7 +140,9 @@ def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sn
         # снимок из дома в профиле скачивался по прямой ссылке кем угодно (аудит 2026-08-08,
         # волна 21). Наш Android пережимает фото и метаданные теряет сам, но веб-версия шлёт
         # файл как есть, а к API можно прийти и напрямую — правило должно жить на сервере.
-        data = strip_image_metadata(data, ext)
+        # Сначала ужимаем (волна 97), потом срезаем метаданные: Pillow при пересохранении
+        # выбрасывает EXIF сам, но полагаться на это нельзя — исходник мог не пережаться.
+        data = strip_image_metadata(shrink_image(data, ext), ext)
     return data, ext
 
 
