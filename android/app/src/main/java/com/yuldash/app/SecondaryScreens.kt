@@ -2123,7 +2123,11 @@ internal fun ReportCategoryDialog(
                 }
                 AnimatedVisibility(selected != null) {
                     OutlinedTextField(
-                        value = details, onValueChange = { details = it },
+                        // Сервер принимает 1000 знаков (ReportIn.reason). Приложение не
+                        // ограничивало вовсе: человек описывал происшествие подробно, жал
+                        // «отправить» и получал «проверь введённые данные» — без единого
+                        // намёка, ЧТО не так. Момент для этого худший из возможных.
+                        value = details, onValueChange = { details = it.take(REPORT_DETAILS_MAX) },
                         placeholder = {
                             Text(
                                 if (selected == "other") appText("Опиши, что случилось", "Ни булғанын яҙ")

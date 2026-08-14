@@ -376,6 +376,23 @@ internal fun AppStaleStrip(
     }
 }
 
+/*
+ * Потолки свободного текста — ровно те, что принимает сервер.
+ *
+ * Зачем в одном месте. Сервер режет длину (`Field(max_length=…)`) и на превышении отвечает
+ * общим «Проверь введённые данные». Приложение эти потолки не знало, и человек упирался в
+ * отказ уже ПОСЛЕ того, как всё написал: описал происшествие подробно, нажал «отправить» —
+ * и получил непонятную ошибку. Теперь поле просто перестаёт принимать лишнее, как во всех
+ * привычных приложениях.
+ *
+ * Если меняешь число на сервере — поменяй и здесь: они должны совпадать (держит
+ * `TextLimitsMatchServerTest`).
+ */
+internal const val REPORT_DETAILS_MAX = 1000    // safety.ReportIn.reason
+internal const val SUPPORT_TEXT_MAX = 4000      // support.MessageIn.body
+internal const val PARCEL_DESC_MAX = 2000       // parcels.ParcelIn.description
+internal const val RIDE_COMMENT_MAX = 2000      // rides RideIn.comment
+
 // ─────────────────────────── Обновление жестом ───────────────────────────
 
 /**

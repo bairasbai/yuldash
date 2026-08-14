@@ -1951,7 +1951,7 @@ internal fun RequestPreviewCard(
                     )
                     OutlinedTextField(
                         value = comment,
-                        onValueChange = { comment = it },
+                        onValueChange = { comment = it.take(RIDE_COMMENT_MAX) },   // сервер принимает 2000
                         label = { Text(appText("Комментарий (необяз.)", "Аңлатма (мәжбүри түгел)")) },
                         minLines = 2
                     )

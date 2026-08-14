@@ -1957,7 +1957,7 @@ internal fun RestrictionsCard(data: com.yuldash.app.data.RestrictionsDto) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(appText("Расскажи, как было — поддержка перезвонит и разберётся по-человечески.", "Нисек булғанын һөйлә — ярҙам шылтыратып кешеләрсә асыҡлар."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                     OutlinedTextField(
-                        value = supportText, onValueChange = { supportText = it },
+                        value = supportText, onValueChange = { supportText = it.take(SUPPORT_TEXT_MAX) },   // сервер принимает 4000
                         placeholder = { Text(appText("Что случилось на самом деле?", "Ысынында ни булды?")) },
                         modifier = Modifier.fillMaxWidth(), minLines = 3,
                     )

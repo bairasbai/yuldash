@@ -1498,7 +1498,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
         }
         // Что за посылка / комментарий
         if (step == stepParcel) item {
-            ParcelField(description, { description = it }, appText("Что за посылка", "Нимә бул"), appText("Например: документы, книга, гостинец", "Мәҫәлән: документтар, китап, күстәнәс"), minLines = 2)
+            ParcelField(description, { description = it.take(PARCEL_DESC_MAX) }, appText("Что за посылка", "Нимә бул"), appText("Например: документы, книга, гостинец", "Мәҫәлән: документтар, китап, күстәнәс"), minLines = 2)
         }
         // Сколько заплатишь попутчику. Только для «по пути»: у курьерских типов цену считает
         // сервер (EstimateCard ниже). Раньше поля не было, и человек соглашался везти вслепую.
