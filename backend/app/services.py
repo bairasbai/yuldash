@@ -462,6 +462,28 @@ def _norm_city(s: str) -> str:
     return (s or "").strip().casefold()
 
 
+def _city_keys(name: str) -> set[str]:
+    """Все написания города одним множеством — для сравнения «это тот же город?».
+
+    Приложение подставляет название на языке человека, поэтому подписка «Стерлитамак»
+    не срабатывала на рейс «Стәрлетамаҡ»: караульщик просто не получал оповещения
+    (аудит 2026-08-08, волна 93). Та же беда, что в поиске поездок (волна 92), только тише —
+    человек не видит, что чего-то не пришло, и решает, что по его маршруту никто не ездит.
+
+    Свёртки букв тут мало: «Баймаҡ» и «Баймак» она сводит, а «Стәрлетамаҡ» и «Стерлитамак»
+    отличаются ещё и гласными. Единственный честный способ — справочник населённых пунктов.
+    """
+    from .geo import name_variants
+
+    # Справочник читаем СВОЕЙ короткой сессией и сразу её закрываем. Через сессию вызывающего
+    # нельзя: рассылка уведомлений пишет в собственной сессии, а наше чтение держало бы
+    # транзакцию открытой — на SQLite это «database is locked», и уведомление молча терялось
+    # (поймано полным прогоном после волны 93). Справочник лежит в памяти, так что второй
+    # и последующие вызовы в базу не ходят вовсе.
+    with Session(engine) as s:
+        return {_norm_city(v) for v in name_variants(s, name)} - {""}
+
+
 def _push_async(items: "list") -> None:
     """FCM-рассылка в фоновом daemon-потоке (своя сессия) — сеть не держит обработчик запроса.
     items: список (user_id, title, body). Ошибки глотаем: пуш вторичен, запись в ленте уже есть."""
@@ -482,7 +504,7 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
     Возвращает число оповещённых подписок (для тестов/логов). Не роняет публикацию поездки."""
     try:
         now = utcnow()
-        r_from, r_to = _norm_city(ride.from_city), _norm_city(ride.to_city)
+        r_from, r_to = _city_keys(ride.from_city), _city_keys(ride.to_city)
         # Берём только непротухшие подписки; чужие водителю (сам себе не шлём).
         watches = session.exec(
             select(RouteWatch).where(
@@ -507,9 +529,9 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
             if not may_be_notified(session, w.user_id, ride.driver_id,
                                    bool(ride.only_trusted), blocked):
                 continue
-            w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
-            forward = (w_from == r_from and w_to == r_to)
-            backward = (w.direction == "both" and w_from == r_to and w_to == r_from)
+            w_from, w_to = _city_keys(w.from_city), _city_keys(w.to_city)
+            forward = bool(w_from & r_from) and bool(w_to & r_to)
+            backward = w.direction == "both" and bool(w_from & r_to) and bool(w_to & r_from)
             if not (forward or backward):
                 continue
             # Дата: если у подписки задан день — матчим только поездку в этот календарный день.
@@ -551,7 +573,7 @@ def notify_request_watchers(session: Session, request: RideRequest) -> int:
     Возвращает число оповещённых. Не роняет создание заявки."""
     try:
         now = utcnow()
-        r_from, r_to = _norm_city(request.from_city), _norm_city(request.to_city)
+        r_from, r_to = _city_keys(request.from_city), _city_keys(request.to_city)
         watches = session.exec(
             select(RouteWatch).where(
                 RouteWatch.expires_at > now,
@@ -571,9 +593,9 @@ def notify_request_watchers(session: Session, request: RideRequest) -> int:
             if not may_be_notified(session, w.user_id, request.passenger_id,
                                    bool(getattr(request, "only_trusted", False)), blocked):
                 continue
-            w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
-            forward = (w_from == r_from and w_to == r_to)
-            backward = (w.direction == "both" and w_from == r_to and w_to == r_from)
+            w_from, w_to = _city_keys(w.from_city), _city_keys(w.to_city)
+            forward = bool(w_from & r_from) and bool(w_to & r_to)
+            backward = w.direction == "both" and bool(w_from & r_to) and bool(w_to & r_from)
             if not (forward or backward):
                 continue
             # Дата: если у подписки задан день, а у заявки есть желаемое время — матчим по дню.
