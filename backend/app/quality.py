@@ -123,7 +123,40 @@ def pause_taxi(session: Session, user_id: int, hours: Optional[int] = None,
         session.add(prof)
         session.commit()
         session.refresh(prof)
+        _tell_about_pause(session, user_id, reason, hours)
     return prof
+
+
+def _tell_about_pause(session: Session, user_id: int, reason: str, hours: Optional[int]) -> None:
+    """Сказать водителю, что такси на паузе и почему.
+
+    Уведомление стояло только на одном пути — когда паузу выдаёт автомат по накопленным
+    жалобам. Ручная пауза от админа и пауза «до разбора» уходили молча: у человека просто
+    переставали приходить заказы (аудит 2026-08-08, волна 83). Он думает, что приложение
+    сломалось, пишет в поддержку, теряет смену. Наказание без объяснения — это не наказание,
+    а поломка в его глазах.
+
+    Теперь текст живёт в одном месте: кто бы ни поставил паузу, человек узнаёт причину.
+    Попутка при этом работает — это важно сказать сразу, иначе водитель решит, что закрыто всё.
+    """
+    if reason == PAUSE_REASON_REVIEW:
+        ru = ("Такси на паузе, пока разбираем жалобу. Попутка работает как обычно 💚 "
+              "Своя версия — напиши в поддержку.")
+        ba = ("Ялыуҙы тикшергәнсе такси паузала. Юлдаш ғәҙәттәгесә эшләй 💚 "
+              "Үҙ һүҙең булһа — ярҙам хеҙмәтенә яҙ.")
+    elif reason == PAUSE_REASON_ADMIN:
+        h = hours if hours is not None else REVIEW_PAUSE_DAYS * 24
+        ru = (f"Поддержка поставила такси на паузу — {h} ч. Попутка работает как обычно 💚 "
+              f"Вопросы — напиши в поддержку.")
+        ba = (f"Ярҙам хеҙмәте таксины {h} сәғәткә паузаға ҡуйҙы. Юлдаш ғәҙәттәгесә эшләй 💚 "
+              f"Һорауҙар — ярҙам хеҙмәтенә яҙ.")
+    else:
+        return   # лестница жалоб рассказывает про паузу своим текстом (apply_ladder_after_resolve)
+    push_notification(
+        session, user_id, "safety",
+        "Такси на паузе", "Такси паузала",
+        ru, ba, ref_kind="debt", ref_id=user_id,
+    )
 
 
 def unpause_taxi(session: Session, user_id: int) -> Optional[DriverProfile]:
@@ -136,6 +169,15 @@ def unpause_taxi(session: Session, user_id: int) -> Optional[DriverProfile]:
         session.add(prof)
         session.commit()
         session.refresh(prof)
+        # И о снятии тоже говорим. Молчание тут стоит человеку денег: пауза кончилась или
+        # её сняли как ошибочную, а он про это не знает и не выходит на линию (волна 83).
+        push_notification(
+            session, user_id, "safety",
+            "Такси снова доступно", "Такси кире асыҡ",
+            "Пауза снята — можно принимать заказы 💚",
+            "Пауза алынды — заказдарҙы ала алаһың 💚",
+            ref_kind="debt", ref_id=user_id,
+        )
     return prof
 
 
