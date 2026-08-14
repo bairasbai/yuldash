@@ -49,7 +49,7 @@ _TERMINAL = (S.done, S.cancelled, S.expired)
 # поиска), но если ровно там оборвалось — заказ висел в нём ВЕЧНО, а анти-дубль на создании
 # считает его активным и на каждый тап «Заказать» возвращает тот же мёртвый заказ. Один сбой —
 # и человек больше никогда не мог вызвать такси (аудит 2026-08-07).
-_ALIVE = (S.created, S.searching, S.offered, S.accepted, S.arriving, S.onboard)
+_ALIVE = isv.LIVE_ORDER_STATUSES   # общий список «человек сейчас занят» (волна 76)
 
 
 def _last_move_at(o: InstantOrder):

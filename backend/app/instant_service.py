@@ -1207,6 +1207,13 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
     return fresh
 
 
+# Заказ «живой»: человек прямо сейчас едет или ждёт машину. Предзаказ (scheduled) сюда НЕ
+# входит — он ещё не поездка, а запись в календаре. Один список на все места, где спрашивают
+# «человек сейчас занят?»: подбор, воркер, создание заказа. Разные копии этого списка уже
+# однажды разошлись (волна 76), поэтому он тут один.
+LIVE_ORDER_STATUSES = (S.created, S.searching, S.offered, S.accepted, S.arriving, S.onboard)
+
+
 def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     """Активация предзаказа «на время»: scheduled → обычный поиск водителя.
     Цену/сурж пересчитываем ЗАНОВО на момент активации (не фиксируем при бронировании —
@@ -1223,6 +1230,28 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     stopped = cancel_for_suspended_passenger(session, order)
     if stopped is not None:
         return stopped
+    # ⬇️ «Один живой заказ на человека» — то же правило, что и при обычном заказе, но здесь оно
+    # решает не про удобство, а про чужое время.
+    #
+    # Правило стояло только на создании (POST /instant/orders возвращает уже идущий заказ вместо
+    # второго). Предзаказ его обходил: на одно и то же время можно было оформить сколько угодно,
+    # и в час X все они уходили в поиск разом. Проверено запросом (аудит 2026-08-08, волна 76):
+    # двенадцать предзаказов активировались за один GET, и КАЖДЫЙ водитель на линии получил
+    # оффер от одного и того же пассажира. Поедет он с одним — остальные потратят время
+    # и бензин впустую, а те, кто уже принял заказ и не дождался, получат «брошенный принятый»
+    # и паузу за отмену. Один человек наказывал водителей, формально ничего не нарушая.
+    #
+    # Не отменяем — откладываем: заказ человек сделал сам, и он актуален. Освободится (доехал
+    # или отменил) — активируется следующим проходом. Заказы уходят по одному, а не пачкой.
+    busy = session.exec(
+        select(InstantOrder).where(
+            InstantOrder.passenger_id == order.passenger_id,
+            InstantOrder.id != order.id,
+            InstantOrder.status.in_(LIVE_ORDER_STATUSES),
+        ).limit(1)
+    ).first()
+    if busy is not None:
+        return order   # остаётся scheduled — ждёт своей очереди
     est = estimate(session, (order.from_lat, order.from_lng),
                    (order.to_lat, order.to_lng), order.category or "standard")
     session.execute(

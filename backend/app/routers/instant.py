@@ -330,7 +330,7 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     existing = session.exec(
         select(InstantOrder).where(
             InstantOrder.passenger_id == user.id,
-            InstantOrder.status.in_([S.created, S.searching, S.offered, S.accepted, S.arriving, S.onboard]),
+            InstantOrder.status.in_(isv.LIVE_ORDER_STATUSES),
         )
     ).first()
     if existing:
@@ -454,7 +454,14 @@ def my_scheduled(user: User = Depends(current_user), session: Session = Depends(
     scheduled, activated = [], []
     for o in rows:
         if o.scheduled_at is not None and o.scheduled_at <= now:
-            activated.append(isv.order_payload(session, isv.activate_scheduled(session, o), user))
+            started = isv.activate_scheduled(session, o)
+            # Активация могла не состояться: человек уже едет по другому заказу — тогда предзаказ
+            # ждёт своей очереди (волна 76). В «поехали» его класть нельзя, иначе экран отчитается
+            # о начале поездки, которой нет.
+            if started.status == S.scheduled:
+                scheduled.append(isv.order_payload(session, started, user))
+            else:
+                activated.append(isv.order_payload(session, started, user))
         else:
             scheduled.append(isv.order_payload(session, o, user))
     return {"scheduled": scheduled, "activated": activated}
