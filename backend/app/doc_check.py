@@ -38,7 +38,7 @@ from .logs import log
 from .models import (
     DriverProfile, TaxiApplication, TaxiApplicationStatus,
 )
-from .timeutil import utcnow
+from .timeutil import local_date, utcnow
 
 # Человеческие названия документов для текста напоминания (RU/BA).
 _DOC_NAMES = {
@@ -83,7 +83,11 @@ def overdue_docs(app: TaxiApplication, today: "date_type | None" = None) -> dict
     и жёсткое требование выбило бы всех, кто ещё не обновился. Про пропуски напоминает
     `remind_missing`, а модератор видит их в очереди заявок.
     """
-    today = today or utcnow().date()
+    # День — МЕСТНЫЙ, башкирский. По мировому времени полночь наступает на пять часов позже,
+    # и страховка, кончившаяся вчера, ещё пять часов считалась действующей: таксист спокойно
+    # работал ночью без ОСАГО, а при аварии выплаты не получил бы никто (аудит 2026-08-08,
+    # волна 80). Ночь — как раз то время, когда цена ошибки самая высокая.
+    today = today or local_date(utcnow())
     return {f: d for f, d in _dates(app).items() if d < today}
 
 
@@ -105,7 +109,7 @@ def _warned_today(app: TaxiApplication, now) -> bool:
 
 def expire_overdue(session: Session, dry_run: bool = False) -> list:
     """Срок прошёл → снять допуск к такси и с линии. Возврат: id заявок."""
-    today = utcnow().date()
+    today = local_date(utcnow())   # местный день (волна 80)
     apps = session.exec(
         select(TaxiApplication).where(
             TaxiApplication.status == TaxiApplicationStatus.approved,
@@ -144,7 +148,7 @@ def expire_overdue(session: Session, dry_run: bool = False) -> list:
 
 def restore_renewed(session: Session, dry_run: bool = False) -> list:
     """Документы обновлены (все даты снова в будущем) → вернуть допуск. Возврат: id заявок."""
-    today = utcnow().date()
+    today = local_date(utcnow())   # местный день (волна 80)
     apps = session.exec(
         select(TaxiApplication).where(
             TaxiApplication.status == TaxiApplicationStatus.approved,
@@ -176,7 +180,7 @@ def restore_renewed(session: Session, dry_run: bool = False) -> list:
 
 def warn_soon(session: Session, dry_run: bool = False) -> list:
     """Скоро истекает (за docs_warn_days и ещё раз за docs_warn_again_days) → напомнить."""
-    today = utcnow().date()
+    today = local_date(utcnow())   # местный день (волна 80)
     now = utcnow()
     apps = session.exec(
         select(TaxiApplication).where(
