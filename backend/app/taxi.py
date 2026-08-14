@@ -95,18 +95,34 @@ def is_approved_taxi_driver(session: Session, user_id: int) -> bool:
     """Гейт (b): есть ли одобренная заявка таксиста (580-ФЗ) с ДЕЙСТВУЮЩИМИ документами.
 
     Раньше проверка была разовой: одобрили в июле — человек считался годным вечно и возил
-    с просроченным ОСАГО в декабре, а мы «проверенная служба» (аудит 2026-07-26). Теперь
-    фоновая задача app/doc_check.py ставит docs_expired, когда истёк срок ОСАГО или разрешения,
-    и допуск к такси снимается до обновления документа. ПОПУТКА при этом продолжает работать —
-    она не требует разрешения на такси."""
+    с просроченным ОСАГО в декабре, а мы «проверенная служба» (аудит 2026-07-26). Тогда завели
+    фоновую задачу app/doc_check.py: она ставит `docs_expired`, когда срок истёк, и допуск
+    снимается до обновления документа. ПОПУТКА продолжает работать — она не требует разрешения.
+
+    Но гейт смотрел ТОЛЬКО на флаг, то есть держался на том, что задача успела отработать.
+    Водитель с ОСАГО, истёкшим вчера, выходил на линию и вёз людей до её ближайшего запуска
+    (проверено запросом — 200; аудит 2026-08-14, волна 66). А если systemd-таймер на сервере
+    не настроен или упал, окно не «до утра», а навсегда — и никто этого не заметит.
+
+    Теперь решаем по ДАТАМ, а флаг остаётся быстрым индексом и поводом для уведомления.
+    Считает одна функция `doc_check.overdue_docs` — та же, которой пользуется задача."""
     app = my_application(session, user_id)
     if app is None or app.status != TaxiApplicationStatus.approved:
         return False
-    return not getattr(app, "docs_expired", False)
+    return not _docs_expired_now(app)
+
+
+def _docs_expired_now(app: TaxiApplication) -> bool:
+    """Флаг ИЛИ факт по датам. Импорт локальный: doc_check тянет модели и конфиг."""
+    if getattr(app, "docs_expired", False):
+        return True
+    from .doc_check import overdue_docs
+    return bool(overdue_docs(app))
 
 
 def taxi_docs_expired(session: Session, user_id: int) -> bool:
-    """Заявка одобрена, но документы просрочены — для честного текста отказа (MSG_DOCS_EXPIRED)."""
+    """Заявка одобрена, но документы просрочены — для честного текста отказа (MSG_DOCS_EXPIRED).
+    Отвечает так же, как гейт: по флагу И по датам (волна 66)."""
     app = my_application(session, user_id)
     return (app is not None and app.status == TaxiApplicationStatus.approved
-            and bool(getattr(app, "docs_expired", False)))
+            and _docs_expired_now(app))
