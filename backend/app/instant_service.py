@@ -18,7 +18,6 @@ from datetime import timedelta
 from enum import Enum
 from typing import Optional
 
-from fastapi import HTTPException
 from sqlalchemy import update
 from sqlmodel import Session, select
 
@@ -445,7 +444,10 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     zone = zone_for_km(dist_km)
     t = active_tariff(session, zone, category)
     if not t:
-        raise HTTPException(503, "Тарифы не настроены")
+        # Человек нажал «Заказать», а тарифов в базе нет — это наша недонастройка, но текст
+        # читает пассажир, и он должен быть на его языке (аудит 2026-08-08, волна 94).
+        raise herr(503, "Такси пока не считает цену. Попробуй позже или поезжай попуткой 🚗",
+                   "Такси хәҙергә хаҡты иҫәпләмәй. Һуңғараҡ ҡабатла йәки юлдаш менән бар 🚗")
 
     now = utcnow()
     surge = surge_k_for(session, frm[0], frm[1])
