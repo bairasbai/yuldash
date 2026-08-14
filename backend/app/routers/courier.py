@@ -595,6 +595,12 @@ def courier_online(body: CourierOnlineIn, user: User = Depends(current_user),
     """Выйти на линию (гейт курьера). Зона: база (свой НП или свой район) + тумблеры
     «выезд загород» и «соседние регионы» — те же правила, что у таксиста."""
     _guard_courier(user, session)
+    # Пауза «Справедливости» (§2). У таксиста она стоит на выходе на линию с самого начала
+    # (`_guard_taxi_driver`), у курьера её тут не было: отстранённый разбором спокойно выходил
+    # «на линию», висел там активным и получал рассылку о новых доставках. Взять заказ он бы
+    # не смог — приём закрыт, — но само правило «наказанный не работает» держалось на честном
+    # слове (проверено запросом: 200; аудит 2026-08-13, волна 61).
+    ensure_active(session, user.id)
     if (body.zone or "").strip() not in _ZONES:
         raise herr(422, "Выбери зону работы", "Эш зонаһын һайла")
     prof = _my_profile(session, user.id)
@@ -658,6 +664,7 @@ def courier_available(from_city: Optional[str] = None, to_city: Optional[str] = 
     """Доступные курьер-заказы (status=created, delivery_type ∈ courier|buy_bring, НЕ мои),
     отфильтрованные по зоне курьера. Приватность: БЕЗ телефона получателя (как M3). Гейт курьера."""
     _guard_courier(user, session)
+    ensure_active(session, user.id)   # отстранённому разбором витрина заказов не нужна (волна 61)
     prof = _my_profile(session, user.id)
     _guard_not_paused(prof)   # C3: на мягкой паузе заказы не берём
     rows = session.exec(

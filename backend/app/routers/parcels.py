@@ -589,6 +589,14 @@ def _notify_couriers_new_parcel(session: Session, parcel: ParcelDelivery) -> int
         rows = session.exec(
             select(CourierProfile).where(CourierProfile.online == True)  # noqa: E712
         ).all()
+        # Наказанным рассылку не шлём. Это тот же класс, что подбор такси в волне 60: гейты
+        # стоят на выходе на линию и на приёме заказа, а рассылка звала кого угодно, кто
+        # когда-то остался «на линии». Отстранённый разбором получал адреса новых доставок
+        # и приглашение взять заказ, который ему всё равно закроют (аудит 2026-08-13, волна 61).
+        from ..safety_logic import suspended_user_ids
+        from .courier import _commission_owed_kop
+        from ..config import settings as _cfg
+        punished = suspended_user_ids(session)
         sent = 0
         from .. import geo as geo_mod
         from ..config import settings as _settings
@@ -597,6 +605,12 @@ def _notify_couriers_new_parcel(session: Session, parcel: ParcelDelivery) -> int
         for prof in rows:
             if prof.user_id == parcel.sender_id:
                 continue                       # свою же посылку курьеру не предлагаем
+            if prof.user_id in punished:
+                continue                       # отстранён разбором (§2)
+            if prof.paused_until and prof.paused_until > utcnow():
+                continue                       # мягкая пауза по качеству
+            if _commission_owed_kop(session, prof.user_id) >= _cfg.courier_debt_block_threshold_kop:
+                continue                       # долг по комиссии: заказ он взять не сможет
             # Зона курьера — те же правила, что в списке заказов (`geo.zone_allows`). Раньше
             # здесь стояла своя проверка «по городу строкой»: пуш звал на заказ, которого
             # человек потом не находил в списке — район и «загород» она не понимала.
