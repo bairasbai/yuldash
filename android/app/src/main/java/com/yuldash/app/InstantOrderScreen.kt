@@ -87,6 +87,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -2829,6 +2830,10 @@ internal fun InstantDriverEnRouteCard(
                     }
                     // «Написать» (B7b-1): чат заказа — не звоня, уточнить подъезд/этаж/ориентир.
                     Surface(
+                        // Тач-цель 48dp (CLAUDE.md §4.5): иконка 20dp с отступом 12dp даёт 44dp.
+                        // Пассажир жмёт это на улице, водитель — за рулём; шесть пикселей тут
+                        // не косметика. Модификатор расширяет ОБЛАСТЬ НАЖАТИЯ, не меняя вид.
+                        modifier = Modifier.minimumInteractiveComponentSize(),
                         onClick = { NavSignals.openInstantChat.value = order.id },
                         shape = CircleShape, color = CanonMint,
                     ) {
@@ -2838,6 +2843,7 @@ internal fun InstantDriverEnRouteCard(
                     // Телефон — ТОЛЬКО после accept (сервер отдаёт его непустым).
                     if (order.driverPhone.isNotBlank()) {
                         Surface(
+                            modifier = Modifier.minimumInteractiveComponentSize(),   // тач-цель 48dp, см. выше
                             onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${order.driverPhone}"))) } },
                             shape = CircleShape, color = CanonGreen2,
                         ) {
@@ -4571,12 +4577,12 @@ internal fun InstantDriverTripScreen(
                                     Text("${current.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${current.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}", color = CanonMuted, fontSize = 14.sp, maxLines = 1)
                                 }
                                 // «Написать» (B7b-1): чат заказа — водителю удобнее коротким текстом на месте.
-                                Surface(onClick = { NavSignals.openInstantChat.value = current.id }, shape = CircleShape, color = CanonMint) {
+                                Surface(modifier = Modifier.minimumInteractiveComponentSize(), onClick = { NavSignals.openInstantChat.value = current.id }, shape = CircleShape, color = CanonMint) {
                                     Icon(Icons.Default.ChatBubble, contentDescription = appText("Написать пассажиру", "Пассажирға яҙырға"), tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(20.dp))
                                 }
                                 Spacer(Modifier.width(8.dp))
                                 if (current.passengerPhone.isNotBlank()) {
-                                    Surface(onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${current.passengerPhone}"))) } }, shape = CircleShape, color = CanonGreen2) {
+                                    Surface(modifier = Modifier.minimumInteractiveComponentSize(), onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${current.passengerPhone}"))) } }, shape = CircleShape, color = CanonGreen2) {
                                         Icon(Icons.Default.Phone, contentDescription = appText("Позвонить пассажиру", "Пассажирға шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(12.dp).size(20.dp))
                                     }
                                 }

@@ -2031,7 +2031,7 @@ internal fun PickupPickerOverlay(
             Modifier.align(Alignment.TopStart).fillMaxWidth().statusBarsPadding().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(onClick = onDismiss, shape = CircleShape, color = CanonSurface, shadowElevation = CanonDepth.raised) {
+            Surface(modifier = Modifier.minimumInteractiveComponentSize(), onClick = onDismiss, shape = CircleShape, color = CanonSurface, shadowElevation = CanonDepth.raised) {
                 Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Кире"), tint = CanonText, modifier = Modifier.padding(12.dp).size(18.dp))
             }
             Spacer(Modifier.width(8.dp))
