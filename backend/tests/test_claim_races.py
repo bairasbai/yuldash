@@ -194,3 +194,36 @@ def test_заявку_нельзя_закрыть_двумя_откликами(
     )
     with Session(engine) as s:
         assert s.get(RideRequest, req_id).status == "matched"
+
+
+# ─────────────────── промокод: лимит кампании — это деньги платформы ───────────────────
+
+def test_последний_промокод_достаётся_одному(client, user_factory):
+    """Скидку по промокоду оплачивает Юлдаш, водитель получает своё полностью. Значит лимит
+    кампании — это прямые деньги Александра: «сто активаций» должно означать ровно сто.
+
+    «Один код на человека» защищено уникальным индексом. А вот общий лимит проверялся отдельно
+    от записи: два РАЗНЫХ человека, активирующих последний купон одновременно, оба проходили
+    проверку — и кампания тихо раздавала больше, чем в неё заложили.
+    """
+    from app.models import PromoCode
+
+    admin = user_factory("Админ", role=UserRole.admin)
+    r = client.post("/admin/promo", headers=admin["auth"], json={
+        "code": "RACE1", "title": "Гонка", "kind": "welcome", "limit_total": 1,
+    })
+    assert r.status_code == 200, r.text
+
+    guests = [user_factory("Гость-A"), user_factory("Гость-B")]
+    codes = _together(
+        lambda g: client.post("/promo/apply", headers=g["auth"], json={"code": "RACE1"}).status_code,
+        guests,
+    )
+
+    assert codes.count(200) == 1, (
+        "лимит кампании пробит — платформа раздала больше скидок, чем заложила "
+        "(ответы: %s)" % codes
+    )
+    with Session(engine) as s:
+        promo = s.exec(select(PromoCode).where(PromoCode.code == "RACE1")).first()
+        assert promo.redeemed_count <= promo.limit_total, "счётчик активаций перескочил лимит"

@@ -19,6 +19,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -173,7 +174,7 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user), session: Sess
     # Нельзя активировать свой же код.
     if promo.owner_id is not None and promo.owner_id == user.id:
         raise herr(409, "Свой код активировать нельзя", "Үҙ кодыңды активлаштырып булмай")
-    # Общий лимит.
+    # Быстрый понятный отказ; настоящий барьер по лимиту — атомарный счётчик ниже.
     if promo.limit_total > 0 and promo.redeemed_count >= promo.limit_total:
         raise herr(409, "Промокод исчерпан", "Промокод бөттө")
 
@@ -185,8 +186,27 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user), session: Sess
         user.referral_credits = min(user.referral_credits + promo.perk_value, MAX_REFERRAL_CREDITS)
         session.add(user)
     discount_kop = promo_ride.granted_kop(promo)
-    promo.redeemed_count += 1
-    session.add(promo)
+    # Счётчик кампании увеличиваем АТОМАРНО: условие «лимит ещё не выбран» живёт внутри UPDATE.
+    #
+    # «Один код на человека» защищено уникальным индексом (см. IntegrityError ниже) — а вот
+    # общий лимит кампании проверялся отдельно от записи. Блокировка строки выше закрывает это
+    # на PostgreSQL, но SQLite её игнорирует, и там ДВА РАЗНЫХ человека, активирующих последний
+    # купон одновременно, оба проходили проверку и оба получали скидку.
+    #
+    # Это прямые деньги Александра: скидку по промокоду оплачивает платформа, водитель получает
+    # своё полностью (см. promo_ride.note). Кампания на 100 активаций тихо раздавала больше.
+    # И, как везде, саму защиту не проверял ни один тест — на SQLite блокировка пустая.
+    claimed = session.execute(
+        update(PromoCode)
+        .where(
+            PromoCode.id == promo.id,
+            or_(PromoCode.limit_total <= 0, PromoCode.redeemed_count < PromoCode.limit_total),
+        )
+        .values(redeemed_count=PromoCode.redeemed_count + 1)
+    )
+    if claimed.rowcount == 0:
+        session.rollback()
+        raise herr(409, "Промокод исчерпан", "Промокод бөттө")
     session.add(PromoRedemption(promo_id=promo.id, user_id=user.id, discount_kop=discount_kop))
     try:
         session.commit()
