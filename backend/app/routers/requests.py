@@ -14,10 +14,10 @@ from ..flood import TOO_FAST_CREATING, TOO_MANY_REQUESTS, guard_burst, guard_ope
 from ..geo import bare_name
 from ..logs import admin_action, log
 from ..models import (
-    Block, Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
+    Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
     RideRequest, RideStatus, User, UserRole,
 )
-from ..ride_visibility import visible_rides
+from ..visibility import hidden_author_ids, visible_rides
 from ..schemas import RideOut
 from ..security import current_user, gen_otp
 from ..services import (
@@ -26,7 +26,7 @@ from ..services import (
     record_pickup_choice, rides_out, user_rating,
 )
 from ..safety_logic import (account_paused, ensure_active, may_ride_together,
-                            MSG_WOMEN_ONLY_RESPOND, guard_women_only, suspended_user_ids)
+                            MSG_WOMEN_ONLY_RESPOND, guard_women_only)
 from ..antifraud import moderate_open_text
 from ..timeutil import client_dt_to_utc, utcnow
 from .. import workday as workday_mod
@@ -218,9 +218,13 @@ def requests_near(
     reqs = session.exec(q.order_by(RideRequest.id.desc())).all()
     pax = {u.id: u for u in session.exec(select(User).where(User.id.in_({r.passenger_id for r in reqs}))).all()} if reqs else {}
     is_insider = trust_level(session, user) >= INSIDER_LEVEL   # заявки «только для своих» видит лишь L3
+    # Кого не показываем: заблокированные + пассажиры на паузе §2. Общим множеством, как в
+    # ленте водителя. Раньше тут стояла только блокировка, и заявка человека на паузе висела
+    # «рядом» как живая — принять отклик он всё равно не может (аудит 2026-08-08, волна 72).
+    hidden = hidden_author_ids(session, user)
     items: list = []
     for r in reqs:
-        if user is not None and is_blocked(session, user.id, r.passenger_id):
+        if r.passenger_id in hidden and (user is None or r.passenger_id != user.id):
             continue
         if getattr(r, "only_trusted", False) and not is_insider and r.passenger_id != user.id:
             continue
@@ -465,12 +469,10 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
             RequestResponse.status != "withdrawn",
         )
     ).all()}
-    # Блокировки текущего водителя — ОДНИМ запросом (анти-N+1 вместо is_blocked в цикле по 200 заявкам).
-    blk = session.exec(select(Block).where(or_(Block.user_id == user.id, Block.blocked_user_id == user.id))).all()
-    blocked_ids = {(b.blocked_user_id if b.user_id == user.id else b.user_id) for b in blk}
-    # Пассажиры на паузе — тоже ОДНИМ запросом. Принять отклик им закрыто (волна 9), значит
-    # водитель торговался бы впустую: заявка живая на вид, а сделку по ней уже не закрыть.
-    paused_ids = suspended_user_ids(session)
+    # Кого не показываем: заблокированные (в обе стороны) + пассажиры на паузе §2 — принять
+    # отклик им закрыто (волна 9), водитель торговался бы впустую. Множеством, а не проверкой
+    # на каждого: в ленте до 200 заявок. Та же функция, что в «заявках рядом» (волна 72).
+    hidden = hidden_author_ids(session, user)
     is_insider = trust_level(session, user) >= INSIDER_LEVEL   # заявки «только для своих» видит лишь L3
     # Свои активные поездки — один запрос на всю ленту (не в цикле по 200 заявкам).
     my_rides = session.exec(
@@ -478,7 +480,7 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
     ).all()
     out: list = []
     for r in reqs:
-        if r.passenger_id in blocked_ids or r.passenger_id in paused_ids:
+        if r.passenger_id in hidden:
             continue
         if getattr(r, "only_trusted", False) and not is_insider:
             continue

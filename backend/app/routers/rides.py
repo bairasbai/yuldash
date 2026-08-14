@@ -32,7 +32,7 @@ from .bookings import DONE_EARLY_GRACE
 # уже его ответственность: пуш о новой брони приходит сразу (волна 18).
 _CONFIRM_GRACE = timedelta(minutes=30)
 from ..workday import local_now
-from ..ride_visibility import (hide_blocked, hide_health_hint, hide_suspended,
+from ..visibility import (hide_blocked, hide_health_hint, hide_suspended,
                                hide_trusted_only, visible_rides)
 from ..services import (
     CITY_COORDS, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,

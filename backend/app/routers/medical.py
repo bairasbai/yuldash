@@ -17,7 +17,7 @@ from ..db import get_session
 from ..errors import herr
 from ..models import MedicalPartner, Ride, RideStatus, User
 from ..security import current_user
-from ..ride_visibility import visible_rides
+from ..visibility import visible_rides
 from ..services import public_rides_payload, rides_out
 from ..timeutil import utcnow
 from datetime import timedelta
