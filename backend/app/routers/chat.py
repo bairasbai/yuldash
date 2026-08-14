@@ -191,7 +191,7 @@ def _order_for_chat(session: Session, order_id: int, user_id: int, write: bool) 
 
 class MessageIn(BaseModel):
     text: str = Field("", max_length=4000)
-    voice_url: Optional[str] = None
+    voice_url: Optional[str] = Field(None, max_length=500)
     transcript: Optional[str] = Field(None, max_length=4000)
 
 

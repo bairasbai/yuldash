@@ -480,17 +480,17 @@ def _require_admin(user: User) -> None:
 
 
 class AdIn(BaseModel):
-    partner_name: str = ""
-    partner_contact: str = ""
-    title: str = ""
-    text: str = ""
-    button: str = ""
-    target: str = ""
-    image_url: str = ""
-    erid: str = ""
-    plan: str = "standard"                   # founder/standard/premium
-    placements: str = ""                     # CSV
-    cities: str = ""                         # CSV
+    partner_name: str = Field("", max_length=120)
+    partner_contact: str = Field("", max_length=200)
+    title: str = Field("", max_length=120)
+    text: str = Field("", max_length=600)
+    button: str = Field("", max_length=40)
+    target: str = Field("", max_length=500)
+    image_url: str = Field("", max_length=500)
+    erid: str = Field("", max_length=60)
+    plan: str = Field("standard", max_length=20)                   # founder/standard/premium
+    placements: str = Field("", max_length=200)                     # CSV
+    cities: str = Field("", max_length=500)                         # CSV
     priority: int = 0
     starts_at: Optional[datetime] = None
     ends_at: Optional[datetime] = None       # null = бессрочно (founder)
@@ -552,11 +552,11 @@ def admin_ads(limit: int = 200, offset: int = 0,
 # ---------- Модерация партнёрских объявлений (self-serve) ----------
 
 class AdApproveIn(BaseModel):
-    erid: str = ""       # маркировка из ОРД (РФ закон): админ вставляет реальный erid при одобрении
+    erid: str = Field("", max_length=60)       # маркировка из ОРД (РФ закон): админ вставляет реальный erid при одобрении
 
 
 class AdRejectIn(BaseModel):
-    reason: str = ""
+    reason: str = Field("", max_length=500)
 
 
 @router.post("/admin/ads/{ad_id}/approve", response_model=Ad)

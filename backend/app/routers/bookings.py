@@ -562,7 +562,9 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
 
 
 class CancelIn(BaseModel):
-    reason: str = ""   # код причины отмены из пресетов UI (changed_mind/found_other/…); пусто = не указана
+    # Код причины из пресетов UI (changed_mind/found_other/…); пусто = не указана.
+    # Потолок — на случай, когда вместо кода приходит сочинение (волна 96).
+    reason: str = Field("", max_length=200)
 
 
 @router.post("/bookings/{booking_id}/cancel", response_model=Booking)

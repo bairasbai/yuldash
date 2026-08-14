@@ -33,8 +33,12 @@ class RideIn(BaseModel):
     only_trusted: bool = False        # «только для своих» — поездку увидят/забронируют лишь L3
     quiet: bool = False
     no_minors: bool = False           # не беру пассажиров младше 18 без сопровождения взрослого
-    waypoints: str = ""
-    recurrence: str = "none"          # none / daily / weekdays / weekly
+    # Остановки по пути одной строкой. Потолок обязателен: без него сюда влезали сотни тысяч
+    # символов, и такая поездка раздувала КАЖДЫЙ ответ ленты — на сельском интернете это
+    # мегабайты трафика и зависший экран у всех подряд (аудит 2026-08-08, волна 96).
+    # Десяти остановок с запасом хватает: длиннее человек и не пишет.
+    waypoints: str = Field("", max_length=500)
+    recurrence: str = Field("none", max_length=20)   # none / daily / weekdays / weekly
     receiver_name: Optional[str] = Field(None, max_length=120)   # посылка: кому отдать
     parcel_size: Optional[str] = Field(None, max_length=80)      # посылка: габарит/вес
     partner_id: Optional[int] = None  # F22: клиника-назначение (для category=hospital), опционально

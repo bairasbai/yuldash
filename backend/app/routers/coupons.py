@@ -902,7 +902,7 @@ def _partner_admin(partner: Partner) -> dict:
 
 
 class RejectIn(BaseModel):
-    reason: str = ""
+    reason: str = Field("", max_length=500)
 
 
 @router.get("/admin/partners")

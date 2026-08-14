@@ -234,8 +234,8 @@ def set_driver_profile(body: DriverProfileIn, user: User = Depends(current_user)
 
 
 class DriverVerifyIn(BaseModel):
-    license_url: str = ""
-    car_photo_url: str = ""
+    license_url: str = Field("", max_length=500)
+    car_photo_url: str = Field("", max_length=500)
 
 
 def _run_autocheck(session: Session, dp: DriverProfile) -> None:

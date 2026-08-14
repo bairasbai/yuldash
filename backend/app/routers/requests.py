@@ -73,7 +73,7 @@ class RequestIn(BaseModel):
     only_trusted: bool = False       # «только для своих» — заявку берут лишь водители L3
     comment: str = Field("", max_length=2000)
     for_relative_name: Optional[str] = Field(None, max_length=120)
-    voice_url: Optional[str] = None
+    voice_url: Optional[str] = Field(None, max_length=500)
     transcript: Optional[str] = Field(None, max_length=4000)
     pickup_point_id: Optional[int] = None   # F14: выбранная точка сбора (у заявки нет своей pickup-колонки — только пополняем usage справочника)
     assisted: bool = False   # заявка из «помощь»-режима (пожилой/голос/за близкого) — НЕ храним, только уведомляем админа

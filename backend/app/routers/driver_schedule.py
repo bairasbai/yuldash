@@ -67,7 +67,7 @@ class ScheduleIn(BaseModel):
     from_city: str = Field(..., min_length=1, max_length=80)
     to_city: str = Field(..., min_length=1, max_length=80)
     weekdays: str = Field(..., description="CSV дней ISO 1=Пн..7=Вс, напр. '1,3,5'")
-    time: str = Field(..., description="Время выезда ЧЧ:ММ, напр. '08:00'")
+    time: str = Field(..., max_length=10, description="Время выезда ЧЧ:ММ, напр. '08:00'")
     comment: str = Field("", max_length=200)
 
 
