@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -101,6 +102,36 @@ import androidx.compose.ui.unit.sp
  *   • Кнопку с сетевым запросом всегда делай `loading=`, не блокируй экран целиком.
  *   • Для списков предпочитай SkeletonCard спиннеру — пользователь видит «форму» контента.
  */
+
+// ─────────────────────── Опросы сервера ───────────────────────
+
+/**
+ * Повторяющаяся работа, которая идёт ТОЛЬКО пока экран перед глазами.
+ *
+ * Зачем. Экраны Юлдаша переспрашивают сервер по кругу: «где машины рядом», «что с заказом»,
+ * «нет ли нового предложения». Обычный `LaunchedEffect` этот круг не останавливает: человек
+ * свернул приложение или погасил экран — а телефон продолжает каждые пять секунд ходить в сеть.
+ * Батарея садится молча, за трафик платит пользователь, а сервер получает нагрузку от людей,
+ * которые в этот момент вообще не смотрят в телефон.
+ *
+ * Большинство экранов это уже учитывало — каждый своей копией одной и той же обвязки. Копий
+ * стало двенадцать, и на четырёх экранах обвязку просто забыли. Поэтому правило переехало
+ * сюда, в одно место: снаружи это обычный `LaunchedEffect`, только он засыпает вместе с
+ * приложением и просыпается, когда человек возвращается, — сразу со свежими данными.
+ *
+ * Не для фоновой работы, которая обязана идти со свёрнутым приложением: линия водителя живёт
+ * в отдельном сервисе (`TaxiLineService`) — там опрос не останавливается намеренно.
+ */
+@Composable
+internal fun RepeatWhileVisible(
+    vararg keys: Any?,
+    block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit,
+) {
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    LaunchedEffect(owner, *keys) {
+        owner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) { block() }
+    }
+}
 
 // ─────────────────────────── Кнопки ───────────────────────────
 

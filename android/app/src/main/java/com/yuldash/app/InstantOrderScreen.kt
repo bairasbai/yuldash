@@ -1425,9 +1425,11 @@ private fun InstantDestinationPicker(
     // Пришёл ли хоть один УСПЕШНЫЙ ответ. Без этого «машин рядом нет» и «ещё не спросили»
     // выглядят одинаково — пустым местом, и мы молча врём человеку, что рядом пусто.
     var nearbyLoaded by remember { mutableStateOf(false) }
-    LaunchedEffect(effFrom, toPoint) {
-        if (toPoint != null) { nearbyDrivers = emptyList(); return@LaunchedEffect }
-        val f = effFrom ?: return@LaunchedEffect
+    // Пока экран перед глазами — переспрашиваем, какие машины рядом. Свернул приложение →
+    // опрос засыпает: искать машины для человека, который сейчас не выбирает поездку, незачем.
+    RepeatWhileVisible(effFrom, toPoint) {
+        if (toPoint != null) { nearbyDrivers = emptyList(); return@RepeatWhileVisible }
+        val f = effFrom ?: return@RepeatWhileVisible
         var fails = 0
         while (isActive) {
             ApiClient.getNearbyDrivers(f.latitude, f.longitude)
@@ -3967,6 +3969,13 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
 
     // Presence-heartbeat (координаты не логируем). Следим за связью: если heartbeat не долетает,
     // водитель невидим серверу — честно показываем это чипом, а не делаем вид, что он «на линии».
+    //
+    // НАМЕРЕННО работает и со свёрнутым приложением (в отличие от соседних опросов на этом
+    // экране). Это не обновление картинки, а сигнал «я на линии, шлите заказы»: пропал сигнал —
+    // сервер через ~45 секунд забывает водителя, и тот стоит на трассе без заказов, думая что
+    // просто нет спроса. Обычно в фоне сигнал шлёт сервис линии, но если он не поднялся или его
+    // прибила система, этот цикл остаётся единственным. Дублирование раз в 12 секунд стоит
+    // копейки, пустой рабочий день водителя — нет.
     LaunchedEffect(online) {
         if (!online) { presenceFails = 0; return@LaunchedEffect }
         while (isActive) {
@@ -3978,9 +3987,11 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
             delay(12_000)
         }
     }
-    // Поллинг входящего оффера (пока нет активного на экране).
-    LaunchedEffect(online) {
-        if (!online) { offer = null; return@LaunchedEffect }
+    // Поллинг входящего оффера (пока нет активного на экране) — только пока экран перед глазами.
+    // Со свёрнутым приложением офферы ловит фоновый сервис линии и показывает полноэкранное
+    // уведомление: это водителю полезнее, чем обновлённый экран, которого он не видит.
+    RepeatWhileVisible(online) {
+        if (!online) { offer = null; return@RepeatWhileVisible }
         while (isActive) {
             if (offer == null) {
                 val incoming = ApiClient.getDriverOffer().getOrNull()
@@ -4427,10 +4438,20 @@ internal fun InstantDriverTripScreen(
             .onSuccess { order = it }
             .onFailure { e -> loadError = (e as? ApiException)?.status?.let { it >= 500 } ?: true }
         loading = false
+    }
+
+    // Дальше статус заказа переспрашиваем каждые 5 секунд — но ТОЛЬКО пока экран перед глазами.
+    // Свернул приложение — опрос засыпает вместе с ним: про смену статуса и так придёт пуш, а
+    // будить телефон каждые пять секунд ради экрана, на который никто не смотрит, незачем.
+    // Вернулся — опрос просыпается сразу, до первой паузы, поэтому свежее видно мгновенно.
+    // Первичная загрузка осталась выше отдельно: иначе при каждом возврате мигал бы спиннер.
+    RepeatWhileVisible(orderId, reloadTick, observeRemote) {
+        if (!observeRemote) return@RepeatWhileVisible
+        ApiClient.getInstantOrder(orderId).onSuccess { order = it }
         while (isActive) {
+            if (order?.status == "done" || order?.status == "cancelled" || order?.status == "expired") break
             delay(5_000)
             ApiClient.getInstantOrder(orderId).onSuccess { order = it }
-            if (order?.status == "done" || order?.status == "cancelled" || order?.status == "expired") break
         }
     }
 
