@@ -1,5 +1,6 @@
 package com.yuldash.app.data
 
+import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -159,5 +160,50 @@ class PushNotificationTest {
     fun `новый токен устройства уходит на сервер без падения`() {
         service().onNewToken("новый-токен-устройства")
         // Без входа в аккаунт регистрация — тихий no-op, но упасть она не имеет права.
+    }
+
+    // --- Погашенный экран: что прочитает тот, кто взял телефон со стола (волна 110) ---
+
+    @Test
+    fun `жалоба не читается с заблокированного экрана`() {
+        service().onMessageReceived(
+            message(
+                mapOf(
+                    "title" to "Поступила жалоба", "body" to "Категория: не заплатил",
+                    "type" to "safety", "private" to "1",
+                ),
+            ),
+        )
+        val n = shadowOf(manager()).allNotifications.single()
+        // Защита здесь — именно ОТДЕЛЬНАЯ безопасная версия. Само по себе VISIBILITY_PRIVATE
+        // ничего не прячет: это значение по умолчанию у любого уведомления, и без публичной
+        // версии система на замке показывает полный текст.
+        assertNotNull(
+            "нет безопасной версии — на замке высветится «Категория: не заплатил» целиком, " +
+                "и это прочитает любой, кто взял телефон со стола",
+            n.publicVersion,
+        )
+        val onLock = n.publicVersion.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+        assertTrue(
+            "на замке всё равно видна суть жалобы: $onLock",
+            onLock != null && !onLock.contains("заплатил"),
+        )
+        assertEquals(
+            "приложение должно попросить систему считать это личным",
+            Notification.VISIBILITY_PRIVATE, n.visibility,
+        )
+    }
+
+    @Test
+    fun `водитель подъезжает виден сразу, не разблокируя телефон`() {
+        service().onMessageReceived(
+            message(mapOf("title" to "Водитель подъезжает", "body" to "Баймак → Сибай", "type" to "booking")),
+        )
+        val n = shadowOf(manager()).allNotifications.single()
+        assertTrue(
+            "полезный пуш спрятали за заглушкой: пассажирка с сумками стоит на улице и должна " +
+                "прочитать это с погашенного экрана, не разблокируя телефон",
+            n.publicVersion == null,
+        )
     }
 }

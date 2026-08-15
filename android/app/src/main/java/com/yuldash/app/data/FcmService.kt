@@ -46,10 +46,12 @@ class FcmService : FirebaseMessagingService() {
         val n = msg.notification
         val title = n?.title ?: msg.data["title"] ?: "Юлдаш"
         val body = n?.body ?: msg.data["body"] ?: ""
-        showNotification(title, body, msg.data["type"], msg.data["id"])
+        showNotification(title, body, msg.data["type"], msg.data["id"], msg.data["private"] == "1")
     }
 
-    private fun showNotification(title: String, body: String, type: String?, refId: String?) {
+    private fun showNotification(
+        title: String, body: String, type: String?, refId: String?, privateText: Boolean = false,
+    ) {
         val mgr = getSystemService(NotificationManager::class.java) ?: return
         val silent = !AppPrefs.sounds(this)   // тумблер «Звуки» выключен → беззвучно
         // Раздельные каналы: чат отдельно от поездок/прочего → пользователь глушит/настраивает раздельно.
@@ -100,12 +102,21 @@ class FcmService : FirebaseMessagingService() {
         // видно «Юлдаш · Новое сообщение», а имя собеседника и текст открываются после разблокировки.
         // Остальные пуши (машина подъезжает, бронь подтверждена) остаются как были: они полезны
         // именно с экрана блокировки и ничего личного не раскрывают (аудит 2026-08-08, волна 14).
-        if (channelId == CHANNEL_CHAT) {
+        // Волна 110: то же самое, но по СМЫСЛУ, а не по каналу. Сервер помечает флагом `private`
+        // жалобы, разборы, паузы, долги и документы. На погашенном экране высвечивалось целиком
+        // «Поступила жалоба. Категория: не заплатил» и «Такси на паузе» — в районе, где все друг
+        // друга знают, это разговор у магазина, а телефон часто лежит на столе при всей семье.
+        if (channelId == CHANNEL_CHAT || privateText) {
             val lang = AppPrefs.language(this)
+            val hidden = if (channelId == CHANNEL_CHAT) {
+                appTextFor(lang, "Новое сообщение", "Яңы хәбәр")
+            } else {
+                appTextFor(lang, "Новое уведомление", "Яңы белдереү")
+            }
             val safe = NotificationCompat.Builder(this, channelId)
                 .setSmallIcon(R.drawable.ic_stat_notification)
                 .setContentTitle("Юлдаш")            // имя приложения — одно на оба языка
-                .setContentText(appTextFor(lang, "Новое сообщение", "Яңы хәбәр"))
+                .setContentText(hidden)
                 .setAutoCancel(true)
                 .setContentIntent(pi)
                 .build()
