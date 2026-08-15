@@ -34,6 +34,18 @@ NIGHT = datetime(2026, 8, 14, 21, 30)   # 02:30 по Уфе
 DAY = datetime(2026, 8, 14, 9, 30)      # 14:30 по Уфе
 
 
+@pytest.fixture(autouse=True)
+def тишина_включена(monkeypatch):
+    """Тихие часы включаем себе сами.
+
+    В тестовой среде они выключены целиком (волна 111): иначе прогон, начатый после десяти
+    вечера, ронял семнадцать посторонних тестов про уведомления — код при этом был в порядке,
+    просто наступила ночь. Правило простое: что проверяем, тем и управляем явно.
+    """
+    monkeypatch.setattr(svc.settings, "quiet_hours_from", 22)
+    monkeypatch.setattr(svc.settings, "quiet_hours_to", 7)
+
+
 @pytest.fixture
 def caught_pushes(monkeypatch):
     sent: list[str] = []

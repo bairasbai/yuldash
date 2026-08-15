@@ -146,8 +146,10 @@ def test_login_without_device_header_still_works(client):
 def signal_spy(monkeypatch):
     """Перехват push+SMS сигнала нового устройства (antifraud импортирует из services локально)."""
     calls = {"push": [], "sms": []}
+    # `data` принимаем ПОЗИЦИОННО, а не только через **kw: с волны 110 сервер помечает
+    # чувствительные пуши флагом приватности и передаёт словарь пятым аргументом.
     monkeypatch.setattr("app.services.send_push",
-                        lambda session, uid, title, body, **kw: calls["push"].append((uid, title, body)))
+                        lambda session, uid, title, body, data=None, **kw: calls["push"].append((uid, title, body)))
     monkeypatch.setattr("app.services.send_text",
                         lambda phone, text: calls["sms"].append((phone, text)))
     return calls

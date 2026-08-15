@@ -86,7 +86,7 @@ def test_stuck_without_coords_still_records(client, user_factory, monkeypatch):
 # ----------------------------- (1) авто-проверка «доехал?» -----------------------------
 def test_winter_check_sends_push_to_both_then_waits(client, user_factory, monkeypatch):
     pushes = []
-    monkeypatch.setattr("app.routers.safety.send_push", lambda session, uid, title, body: pushes.append(uid))
+    monkeypatch.setattr("app.routers.safety.send_push", lambda session, uid, title, body, data=None: pushes.append(uid))
 
     drv, pax, _ride, booking = _trip(client, user_factory)
     _backdate_depart(booking["id"])

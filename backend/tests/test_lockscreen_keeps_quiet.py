@@ -108,6 +108,37 @@ def test_помощь_на_замке_не_прячется(client, user_factory
     )
 
 
+def test_подмены_пуша_в_тестах_переживают_флаг():
+    """Сторож на прогон: тестовые заглушки должны принимать пятый аргумент.
+
+    Пока флага не было, `send_push` часто звали четырьмя аргументами, и заглушки писали
+    впритык: `lambda session, uid, title, body`. Первый же чувствительный пуш с флагом ронял
+    такой тест ошибкой про «5 аргументов вместо 4» — и выглядело это как поломка кода,
+    хотя ломалась подпорка в самом тесте (так и случилось в волне 110).
+    """
+    import re
+    from pathlib import Path
+
+    tests_dir = Path(__file__).resolve().parent
+    хрупкие = []
+    for path in sorted(tests_dir.glob("test_*.py")):
+        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "setattr" not in line or "send_push" not in line or "lambda" not in line:
+                continue
+            m = re.search(r"lambda ([^:]+):", line)
+            if not m:
+                continue
+            args = m.group(1)
+            if "*" in args:            # lambda *a, **k — переживёт что угодно
+                continue
+            if "data" not in args:
+                хрупкие.append(f"{path.name}:{i}")
+    assert not хрупкие, (
+        "эти заглушки упадут, как только пуш придёт с флагом приватности: " + "; ".join(хрупкие)
+        + ". Добавь им `data=None` — иначе поломка подпорки в тесте будет выглядеть как поломка кода."
+    )
+
+
 def test_приложение_понимает_флаг():
     """Сервер может ставить флаг сколько угодно — прячет его приложение.
 
