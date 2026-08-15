@@ -140,6 +140,9 @@ object ApiClient {
     // Каталог кеша приложения — нужен, чтобы убрать записанные голосовые при выходе (волна 75).
     @Volatile private var cacheDir: java.io.File? = null
 
+    /** Нужен, чтобы выход добрался до ВСЕХ ящиков настроек, а не только до того, где токен (волна 109). */
+    @Volatile private var appCtx: Context? = null
+
     /** true → Android Keystore недоступен и токены лежат в НЕзашифрованных prefs.
      *  Диагностика: устанавливается в [init], дублируется предупреждением в Sentry. */
     @Volatile internal var secureStorageUnavailable: Boolean = false
@@ -198,6 +201,7 @@ object ApiClient {
     fun init(context: Context) {
         val app = context.applicationContext
         cacheDir = app.cacheDir
+        appCtx = app
         // Анти-фрод (B8-1): ANDROID_ID стабилен на устройстве (сбрасывается только factory reset).
         deviceId = runCatching {
             android.provider.Settings.Secure.getString(
@@ -430,6 +434,18 @@ object ApiClient {
         prefs?.edit()?.apply {
             SessionKeys.CLEARED_ON_LOGOUT.forEach { remove(it) }
         }?.apply()
+        // Ящиков настроек на диске несколько, и раньше выход ходил только в тот, где лежит токен
+        // (волна 109). В остальных оставались «я вожу», номер брони и номера посылок — а по двум
+        // последним фоновый сервис умеет ВОСКРЕСНУТЬ и снова начать слать GPS уже под новым
+        // владельцем телефона. Адрес каждого ключа теперь записан в `SessionKeys.CLEARED_BY_FILE`.
+        appCtx?.let { ctx ->
+            SessionKeys.CLEARED_BY_FILE.forEach { (file, keys) ->
+                if (file == SessionKeys.MAIN_PREFS) return@forEach   // основной ящик закрыт выше
+                ctx.getSharedPreferences(file, Context.MODE_PRIVATE).edit()
+                    .apply { keys.forEach { remove(it) } }
+                    .apply()
+            }
+        }
         TripPassStore.clearAll()
         Outbox.clearAll()
         clearVoiceCache()

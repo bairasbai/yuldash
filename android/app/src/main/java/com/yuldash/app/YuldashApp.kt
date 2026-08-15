@@ -278,6 +278,21 @@ private fun adPlacementOf(code: String): AdPlacement? = when (code.trim().lowerc
     else -> null
 }
 
+/**
+ * Погасить ВСЮ живую трансляцию позиции — одной строкой на всех, кто уходит из аккаунта.
+ *
+ * Зачем (аудит 2026-08-08, волна 109). Сервисов, льющих GPS, два: поездка и доставка курьера.
+ * Выход из аккаунта и удаление аккаунта глушили только поездку. Доставка оставалась: её сервис
+ * умеет воскресать после смерти процесса по номерам посылок, сохранённым на диске, — то есть
+ * телефон нового владельца мог сам снова начать светить дорогу за прошлого.
+ *
+ * Появится третий такой сервис — гасить его надо здесь, и это держит `LogoutLeavesNothingTest`.
+ */
+internal fun stopLiveTracking(context: android.content.Context) {
+    TripLocationService.stop(context)
+    CourierLocationService.stop(context)
+}
+
 @Composable
 internal fun YuldashApp() {
     val context = LocalContext.current
@@ -1050,7 +1065,7 @@ internal fun YuldashApp() {
                     language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                 },
                 onAccountDeleted = {
-                    TripLocationService.stop(context)   // приватность: глушим live-GPS
+                    stopLiveTracking(context)           // приватность: глушим весь live-GPS (поездка + доставка)
                     vm.clearUserData()                  // чистим PII из памяти (сервер уже удалил аккаунт)
                     isAdmin = false
                     startHomeTab = HomeTab.Map
@@ -1209,7 +1224,7 @@ internal fun YuldashApp() {
                 onAdminCabinet = { screen = Screen.AdminCabinet },
                 onLogout = {
                     ApiClient.logout()
-                    TripLocationService.stop(context)   // приватность: глушим live-GPS вместе с сессией (даже если выход посреди поездки)
+                    stopLiveTracking(context)           // приватность: глушим весь live-GPS вместе с сессией (даже если выход посреди поездки)
                     vm.clearUserData()                  // стираем контакты/заявки/поездки из памяти — иначе их увидит следующий вошедший
                     screen = Screen.Login
                 }
