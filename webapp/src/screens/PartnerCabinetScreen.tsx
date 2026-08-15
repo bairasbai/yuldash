@@ -34,7 +34,8 @@ import {
   type CouponIn,
   type RedeemResult,
 } from "../api/coupons";
-import { rubLabel } from "../utils/format";
+import { pluralRu, rubLabel } from "../utils/format";
+import { serverDate } from "../utils/serverTime";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import {
@@ -111,6 +112,8 @@ export default function PartnerCabinetScreen() {
   const [redeemErr, setRedeemErr] = useState<string | null>(null);
 
   const partner: Partner | null = me?.partner ?? null;
+  const subscriptionUntilLabel =
+    serverDate(partner?.subscription_until)?.toLocaleDateString("ru-RU") ?? "";
 
   const load = useCallback((signal?: AbortSignal) => {
     setStatus("loading");
@@ -303,7 +306,7 @@ export default function PartnerCabinetScreen() {
           <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       </>
@@ -515,7 +518,7 @@ export default function PartnerCabinetScreen() {
               />
             </label>
             <label className="field" style={{ flex: 1 }}>
-              <span className="field__label">{appText("На человека", "Бер кешегә")}</span>
+              <span className="field__label">{appText("На человека", "Кешегә")}</span>
               <input
                 className="field__input"
                 type="number"
@@ -652,10 +655,10 @@ export default function PartnerCabinetScreen() {
                 <div>
                   <div className="biz-item__title">{appText("Подписка активна", "Яҙылыу әүҙем")}</div>
                   <div className="biz-item__meta">
-                    {partner.subscription_until
+                    {subscriptionUntilLabel
                       ? appText(
-                          `Действует до ${new Date(partner.subscription_until).toLocaleDateString("ru-RU")}`,
-                          `${new Date(partner.subscription_until).toLocaleDateString("ru-RU")} тиклем ғәмәлдә`
+                          `Действует до ${subscriptionUntilLabel}`,
+                          `${subscriptionUntilLabel} тиклем ғәмәлдә`
                         )
                       : ""}
                   </div>
@@ -682,7 +685,10 @@ export default function PartnerCabinetScreen() {
                   >
                     <div className="plan-card__icon">{p.premium ? <IconStar size={22} /> : <IconStore size={22} />}</div>
                     <div className="plan-card__title">{ru ? p.title : p.title_ba}</div>
-                    <div className="plan-card__hours">{appText(`${p.period_days} дней`, `${p.period_days} көн`)}</div>
+                    <div className="plan-card__hours">{appText(
+                      `${p.period_days} ${pluralRu(p.period_days, "день", "дня", "дней")}`,
+                      `${p.period_days} көн`
+                    )}</div>
                     <div className="plan-card__price">{(p.amount_kop / 100).toLocaleString("ru-RU")} ₽</div>
                   </button>
                 ))}
@@ -794,13 +800,50 @@ export default function PartnerCabinetScreen() {
                     </div>
                   </div>
 
+                  {/* Почему купон не виден людям. Без этого владелец думает, что сломался
+                      сайт, и создаёт копию за копией — а модерация заворачивает их снова. */}
+                  {(c.review === "held" || c.review === "blocked" || (c.reports_count ?? 0) > 0) && (
+                    <div className="act-card act-card--warn" style={{ marginTop: 10 }}>
+                      <div className="act-card__title">
+                        <IconWarn size={18} />
+                        {c.review === "blocked"
+                          ? appText("Купон снят администратором", "Купонды администратор алды")
+                          : c.review === "held"
+                            ? appText("Текст не прошёл проверку", "Текст тикшереүҙе үтмәне")
+                            : appText("На купон жалуются", "Купонға зарланалар")}
+                      </div>
+                      <p className="act-card__text" style={{ marginBottom: 0 }}>
+                        {c.review_note
+                          ? c.review_note
+                          : c.review === "blocked"
+                            ? appText(
+                                "Поправь текст и сохрани — он снова уйдёт на проверку.",
+                                "Текстты төҙәт тә һаҡла — ул яңынан тикшереүгә китә."
+                              )
+                            : appText(
+                                "Убери телефон, ссылку или резкие слова — и сохрани.",
+                                "Телефонды, һылтанманы йәки ҡаты һүҙҙәрҙе алып ташла ла һаҡла."
+                              )}
+                        {(c.reports_count ?? 0) > 0 && (
+                          <>
+                            <br />
+                            {appText(
+                              `Жалоб от людей: ${c.reports_count}`,
+                              `Кешеләрҙән зарланыу: ${c.reports_count}`
+                            )}
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="biz-item__actions">
                     <button type="button" className="btn-soft" onClick={() => startEditCoupon(c)}>
                       {appText("Редактировать", "Төҙәтеү")}
                     </button>
                     {c.status !== "archived" && (
                       <button type="button" className="btn-primary" onClick={() => toggleCouponStatus(c)}>
-                        {c.status === "active" ? appText("Скрыть", "Йәшереү") : appText("Показать", "Күрһәтеү")}
+                        {c.status === "active" ? appText("Скрыть", "Йәшереү") : appText("Показать", "Күрһәт")}
                       </button>
                     )}
                   </div>

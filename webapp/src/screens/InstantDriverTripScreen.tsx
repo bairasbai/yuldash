@@ -25,20 +25,29 @@ import {
   fetchInstantOrder,
   acceptOrder,
   declineOrder,
+  DECLINE_REASONS,
+  type DeclineReason,
   arrivedOrder,
   onboardOrder,
   doneOrder,
   cancelInstantOrder,
   fetchDemand,
+  fetchPretrip,
+  fetchWorkday,
   type InstantOrder,
   type DemandZone,
+  type PretripState,
+  type Workday,
 } from "../api/instant";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
-import { IconCar, IconStar, IconPhone, IconChat, IconCheck, IconWarn, IconProfile } from "../components/Icons";
+import { IconCar, IconStar, IconPhone, IconChat, IconCheck, IconWarn, IconProfile, IconShield, IconClock } from "../components/Icons";
 import { YuMoon } from "../components/BrandIcons";
-import { priceLabel } from "../utils/format";
+import { priceLabel, formatWhen, kopExactLabel } from "../utils/format";
+import DebtCard from "../components/DebtCard";
+import WorkZoneCard from "../components/WorkZoneCard";
+import { serverMs } from "../utils/serverTime";
 
 type Boot = "loading" | "error" | "need-approval" | "ready";
 const PRESENCE_MS = 15000;
@@ -93,10 +102,22 @@ export default function InstantDriverTripScreen() {
   const [boot, setBoot] = useState<Boot>("loading");
   const [driver, setDriver] = useState<DriverStatus | null>(null);
   const [onlineBusy, setOnlineBusy] = useState(false);
+  // Предрейсовая готовность на сегодня (580-ФЗ). null = сервер о ней не знает → блок скрыт.
+  const [pretrip, setPretrip] = useState<PretripState | null>(null);
+  // Смена: сколько на линии и сколько осталось до обязательного отдыха. null = сервер не знает.
+  const [workday, setWorkday] = useState<Workday | null>(null);
 
   const [offer, setOffer] = useState<InstantOrder | null>(null);
+  /** Заказ берётся прямо сейчас — второй тап не должен слать второй запрос. */
+  const [accepting, setAccepting] = useState(false);
+  /** Почему не взяли: «уже взял другой» либо «проверь связь». Молчать тут нельзя. */
+  const [acceptNote, setAcceptNote] = useState("");
   const [active, setActive] = useState<InstantOrder | null>(null);
+  /** Действие по активной поездке не прошло — сказать словами, а не ждать поллинга. */
+  const [tripNote, setTripNote] = useState("");
   const posRef = useRef<GeoPoint | null>(null);
+  /** Геолокацию не дали — «на линии» работать не будет. */
+  const [geoNote, setGeoNote] = useState(false);
 
   // ---------------- Загрузка: заявка таксиста + статус водителя + активная поездка ----------------
   const load = useCallback((signal?: AbortSignal) => {
@@ -136,6 +157,19 @@ export default function InstantDriverTripScreen() {
     return () => ac.abort();
   }, [load]);
 
+  // Готовность на сегодня — отдельным запросом: её отсутствие не должно ломать экран.
+  useEffect(() => {
+    if (boot !== "ready") return;
+    const ac = new AbortController();
+    fetchPretrip(ac.signal)
+      .then(setPretrip)
+      .catch(() => setPretrip(null)); // 404/403 → блок скрыт
+    fetchWorkday(ac.signal)
+      .then(setWorkday)
+      .catch(() => setWorkday(null));
+    return () => ac.abort();
+  }, [boot]);
+
   const online = !!driver?.online;
 
   // ---------------- Геолокация (watch) — держим последнюю позицию ----------------
@@ -145,7 +179,9 @@ export default function InstantDriverTripScreen() {
       (p) => {
         posRef.current = { lat: p.coords.latitude, lng: p.coords.longitude };
       },
-      () => {},
+      // Без места сервер водителя не видит: он «на линии», а заказы не приходят,
+      // и понять причину невозможно. Молчать тут нельзя.
+      () => setGeoNote(true),
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 12000 }
     );
     return () => navigator.geolocation.clearWatch(id);
@@ -232,27 +268,67 @@ export default function InstantDriverTripScreen() {
   }
 
   async function accept() {
-    if (!offer) return;
+    if (!offer || accepting) return; // второй тап на медленной сети — не второй заказ
+    setAcceptNote("");
+    setAccepting(true);
     try {
       const o = await acceptOrder(offer.id);
       setActive(o);
       setOffer(null);
       localStorage.setItem(ACTIVE_KEY, String(o.id));
     } catch (e) {
-      // 409 = кто-то принял раньше; просто убираем оффер.
-      setOffer(null);
-      if (!(e instanceof ApiError)) return;
+      const st = e instanceof ApiError ? e.status : -1;
+      if (st === 409 || st === 410) {
+        // Гонку проиграли: заказ уже у другого. Говорим об этом и ждём следующий.
+        setOffer(null);
+        setAcceptNote(appText("Заказ уже взял другой водитель", "Заказды башҡа йөрөтөүсе алды"));
+      } else {
+        // Связь оборвалась. Оффер НЕ убираем: раньше он молча исчезал, и водитель
+        // не знал, взял он заказ или нет — а пассажир ждал машину, которая не едет.
+        setAcceptNote(
+          appText(
+            "Не удалось взять заказ. Проверь связь и попробуй снова.",
+            "Заказды алып булманы. Бәйләнеште тикшереп ҡабатла."
+          )
+        );
+      }
+    } finally {
+      setAccepting(false);
     }
   }
 
+  /**
+   * «Почему не взял?» — вопрос ПОСЛЕ отказа, а не вместо него.
+   *
+   * У оффера тикает обратный отсчёт: пока водитель за рулём выбирает причину,
+   * пассажир ждёт машину, которая уже не приедет. Поэтому сначала отказываем,
+   * и только потом спрашиваем — ответ необязателен.
+   *
+   * Без причин платформа видит только «не берут» и продолжает слать те же
+   * заказы тем же людям.
+   */
+  const [askWhy, setAskWhy] = useState<number | null>(null);
+
   async function skip() {
-    if (!offer) return;
+    if (!offer || accepting) return; // пока берём заказ — «Пропустить» не должно срабатывать
     const id = offer.id;
     setOffer(null);
     try {
       await declineOrder(id);
+      setAskWhy(id);
     } catch {
       /* уже ушёл дальше */
+    }
+  }
+
+  async function sendWhy(reason: DeclineReason) {
+    const id = askWhy;
+    setAskWhy(null);
+    if (!id) return;
+    try {
+      await declineOrder(id, reason);
+    } catch {
+      /* причина — не критично: отказ уже прошёл */
     }
   }
 
@@ -263,18 +339,41 @@ export default function InstantDriverTripScreen() {
       const fn = next === "arrived" ? arrivedOrder : next === "onboard" ? onboardOrder : doneOrder;
       const o = await fn(active.id);
       setActive(o);
-      if (o.status === "done") localStorage.removeItem(ACTIVE_KEY);
+      setTripNote("");
+      if (o.status === "done") {
+        localStorage.removeItem(ACTIVE_KEY);
+        // Сразу на чек: там водитель отмечает «наличные получил», если пассажир ушёл.
+        navigate(`/taxi-receipt/${o.id}`);
+      }
     } catch {
-      /* тихо — повторит по поллингу */
+      // Молчать нельзя, особенно на «Завершить»: водитель уверен, что закрыл
+      // поездку, убирает телефон и уезжает — а заказ висит открытым.
+      setTripNote(
+        appText(
+          "Не отправилось. Проверь связь и нажми ещё раз.",
+          "Ебәрелмәне. Бәйләнеште тикшереп, тағы бас."
+        )
+      );
     }
   }
 
   async function cancelActive() {
     if (!active) return;
+    setTripNote("");
     try {
       await cancelInstantOrder(active.id);
-    } catch {
-      /* всё равно выходим */
+    } catch (e) {
+      // Обрыв связи: выходить НЕЛЬЗЯ. Раньше экран закрывался в любом случае —
+      // заказ оставался живым, а пассажир ждал машину, которая не приедет.
+      if (e instanceof ApiError && e.status === 0) {
+        setTripNote(
+          appText(
+            "Не получилось отменить — нет связи. Поездка ещё активна, попробуй ещё раз.",
+            "Кире алып булманы — бәйләнеш юҡ. Сәфәр әле әүҙем, тағы ҡабатла."
+          )
+        );
+        return;
+      }
     }
     localStorage.removeItem(ACTIVE_KEY);
     setActive(null);
@@ -298,7 +397,7 @@ export default function InstantDriverTripScreen() {
           <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       </>
@@ -319,7 +418,7 @@ export default function InstantDriverTripScreen() {
             )}
           </p>
           <button type="button" className="btn-primary" onClick={() => navigate("/taxi-onboarding")}>
-            {appText("Стать таксистом", "Таксист булыу")}
+            {appText("Стать таксистом Юлдаша", "Юлдаш таксисы булыу")}
           </button>
         </div>
       </>
@@ -332,6 +431,7 @@ export default function InstantDriverTripScreen() {
       <DriverTrip
         order={active}
         pos={posRef.current}
+        note={tripNote}
         onAdvance={advance}
         onCancel={cancelActive}
         onChat={() => navigate(`/taxi-chat/${active.id}`)}
@@ -347,11 +447,138 @@ export default function InstantDriverTripScreen() {
         onBack={() => navigate(-1)}
       />
 
+      {/* Готовность на сегодня. Показываем ДО тумблера: это про «можно ли вообще ехать». */}
+      {pretrip && !pretrip.confirmed && (
+        <div className={"act-card " + (pretrip.required ? "act-card--warn" : "act-card--mint")}>
+          <div className="act-card__title">
+            <IconShield size={18} /> {appText("Готовность к работе", "Эшкә әҙерлек")}
+          </div>
+          <p className="act-card__text">
+            {pretrip.required
+              ? appText(
+                  "Отметь готовность на сегодня — самочувствие, машина, без алкоголя.",
+                  "Бөгөнгә әҙерлекте билдәлә — үҙ хәлең, машина, эсемлекһеҙ."
+                )
+              : appText(
+                  "Можешь отметить готовность на сегодня — это остаётся твоим следом.",
+                  "Бөгөнгә әҙерлекте билдәләй алаһың — был һинең эҙең булып ҡала."
+                )}
+          </p>
+          <button
+            type="button"
+            className={pretrip.required ? "btn-primary" : "btn-soft"}
+            style={{ width: "100%" }}
+            onClick={() => navigate("/pretrip")}
+          >
+            {appText("Отметить готовность", "Әҙерлекте билдәләү")}
+          </button>
+        </div>
+      )}
+
+      {/* Смена: устал — это не «мягкая рекомендация», а причина не выезжать */}
+      {workday && (workday.blocked || workday.remaining_sec < 3600) && (
+        <div className={"act-card " + (workday.blocked ? "act-card--warn" : "act-card--mint")}>
+          <div className="act-card__title">
+            <IconClock size={18} />{" "}
+            {workday.blocked
+              ? appText("Смена закончилась", "Смена бөттө")
+              : appText("Смена скоро закончится", "Смена тиҙҙән бөтә")}
+          </div>
+          <p className="act-card__text" style={{ marginBottom: 0 }}>
+            {workday.blocked
+              ? appText(
+                  `Отдохни — за рулём ${workday.limit_hours} ч подряд достаточно.`,
+                  `Ял ит — рулдә ${workday.limit_hours} сәғәт етә.`
+                )
+              : appText(
+                  `Осталось ${Math.max(1, Math.round(workday.remaining_sec / 60))} мин до перерыва.`,
+                  `Тәнәфескә ${Math.max(1, Math.round(workday.remaining_sec / 60))} минут ҡалды.`
+                )}
+            {workday.blocked && workday.unlock_at && (
+              <>
+                <br />
+                {appText("Снова на линию: ", "Яңынан линияға: ")}
+                {formatWhen(workday.unlock_at, ru)}
+              </>
+            )}
+          </p>
+
+          {/* Машина всё равно едет домой — пусть везёт земляка. Одна публикация
+              попутки разрешена и в отдых: это плановая поездка, не такси. */}
+          {workday.blocked && !workday.return_ride_used && (
+            <>
+              <p className="act-card__text">
+                {appText(
+                  "Возьми одного попутчика домой: машина всё равно едет назад. Одна публикация попутки до конца отдыха.",
+                  "Ҡайтҡанда бер юлдаш ал: машина барыбер кире бара. Ял бөткәнгә тиклем бер генә юлдаш иғланы."
+                )}
+              </p>
+              <button type="button" className="btn-soft" onClick={() => navigate("/create-ride")}>
+                {appText("Опубликовать поездку домой", "Ҡайтыу сәфәрен баҫтырыу")}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Отказ уже прошёл — спрашиваем причину. Можно молча закрыть. */}
+      {askWhy !== null && (
+        <section className="decline-why">
+          <div className="decline-why__title">
+            {appText("Почему не взял?", "Ниңә алманың?")}
+          </div>
+          <p className="decline-why__note">
+            {appText(
+              "Ответ необязателен и ни на что не влияет — он нужен, чтобы заказы приходили более подходящие.",
+              "Яуап мотлаҡ түгел һәм бер нәмәгә лә тәьҫир итмәй — заказдар тағы ла тапҡырыраҡ килһен өсөн кәрәк."
+            )}
+          </p>
+          <div className="chips decline-why__chips">
+            {DECLINE_REASONS.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                className="chip"
+                onClick={() => void sendWhy(r.key)}
+              >
+                {ru ? r.ru : r.ba}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="btn-soft" onClick={() => setAskWhy(null)}>
+            {appText("Пропустить", "Үткәреү")}
+          </button>
+        </section>
+      )}
+
+      {/* Долг по комиссии: пока он висит, такси заблокировано. Показываем до
+          тумблера «на линии» — иначе водитель жмёт его и не понимает, почему тихо. */}
+      {/* Самая обидная поломка для водителя: тумблер «на линии» горит, а заказов
+          нет — потому что без геолокации сервер его просто не видит. */}
+      {geoNote && online && (
+        <div className="notice" role="status">
+          {appText(
+            "Не видим твоё место — заказы не придут. Разреши геолокацию в настройках браузера.",
+            "Урыныңды күрмәйбеҙ — заказдар килмәйәсәк. Браузер көйләүҙәрендә геолокацияға рөхсәт бир."
+          )}
+        </div>
+      )}
+
+      <DebtCard />
+
+      {/* Где брать заказы. Без зоны они сыплются отовсюду, и человек читает
+          каждый вручную — именно это и выжигает водителей. */}
+      <WorkZoneCard />
+
+      {/* Смена и деньги за день: сколько отработал, сколько заработал и какая
+          комиссия. Цифры до конца дня, а не сюрприз в конце недели. */}
+      {workday && <ShiftCard wd={workday} />}
+
       <button
         type="button"
         className={"onb__simple" + (online ? " is-active" : "")}
         onClick={toggleOnline}
-        disabled={onlineBusy}
+        disabled={onlineBusy || Boolean(workday?.blocked)}
       >
         <span className={"status-dot" + (online ? " status-dot--on" : "")} aria-hidden />
         <span className="onb__simple-text">
@@ -396,7 +623,22 @@ export default function InstantDriverTripScreen() {
       )}
 
       {/* Оффер — полноэкранный оверлей */}
-      {offer && <OfferOverlay order={offer} ru={ru} onAccept={accept} onSkip={skip} />}
+      {offer && (
+        <OfferOverlay
+          order={offer}
+          ru={ru}
+          accepting={accepting}
+          note={acceptNote}
+          onAccept={accept}
+          onSkip={skip}
+        />
+      )}
+      {/* Оффер уже закрылся, а сказать надо: «взял другой». Без этого заказ просто исчезал. */}
+      {!offer && acceptNote && (
+        <div className="offer-note" role="status" onAnimationEnd={() => setAcceptNote("")}>
+          {acceptNote}
+        </div>
+      )}
     </>
   );
 }
@@ -473,11 +715,15 @@ function DemandNearby({ getPos }: { getPos: () => GeoPoint | null }) {
 function OfferOverlay({
   order,
   ru,
+  accepting,
+  note,
   onAccept,
   onSkip,
 }: {
   order: InstantOrder;
   ru: boolean;
+  accepting: boolean;
+  note: string;
   onAccept: () => void;
   onSkip: () => void;
 }) {
@@ -485,7 +731,8 @@ function OfferOverlay({
   const [left, setLeft] = useState(20);
 
   useEffect(() => {
-    const exp = order.offer_expires_at ? new Date(order.offer_expires_at).getTime() : Date.now() + 20000;
+    const expMs = serverMs(order.offer_expires_at);
+    const exp = Number.isNaN(expMs) ? Date.now() + 20000 : expMs;
     const tick = () => {
       const sec = Math.max(0, Math.round((exp - Date.now()) / 1000));
       setLeft(sec);
@@ -523,12 +770,30 @@ function OfferOverlay({
             <span className="badge badge--gold">{appText("Комфорт", "Комфорт")}</span>
           )}
         </div>
+
+        {/* Пассажир с промокодом отдаёт на руки меньше, чем стоит поездка.
+            Водитель должен узнать это ДО того, как возьмёт заказ, а не в машине —
+            иначе он решит, что его обсчитали. Разницу платит Юлдаш. */}
+        {order.promo_discount_kop > 0 && (
+          <div className="offer-card__promo">
+            {appText(
+              `На руки от пассажира: ${Math.round(order.passenger_price_kop / 100)} ₽ — у него промокод −${Math.round(order.promo_discount_kop / 100)} ₽, разницу платит Юлдаш. Твой доход прежний.`,
+              `Пассажирҙан ҡулға: ${Math.round(order.passenger_price_kop / 100)} ₽ — унда промокод −${Math.round(order.promo_discount_kop / 100)} ₽, айырманы Юлдаш түләй. Һинең килемең үҙгәрмәй.`
+            )}
+          </div>
+        )}
+
+        {/* Не взяли и не поняли почему — худшее, что может быть за рулём. Говорим прямо. */}
+        {note && <div className="offer-card__note">{note}</div>}
+
         <div className="offer-card__actions">
-          <button type="button" className="btn-ghost" onClick={onSkip}>
+          <button type="button" className="btn-ghost" onClick={onSkip} disabled={accepting}>
             {appText("Пропустить", "Үткәреү")}
           </button>
-          <button type="button" className="btn-primary" onClick={onAccept}>
-            {appText("Взять заказ", "Заказды алыу")}
+          <button type="button" className="btn-primary" onClick={onAccept} disabled={accepting}>
+            {accepting
+              ? appText("Берём…", "Алабыҙ…")
+              : appText("Взять заказ", "Заказды алыу")}
           </button>
         </div>
       </div>
@@ -540,12 +805,15 @@ function OfferOverlay({
 function DriverTrip({
   order,
   pos,
+  note,
   onAdvance,
   onCancel,
   onChat,
 }: {
   order: InstantOrder;
   pos: GeoPoint | null;
+  /** Действие не прошло — показываем прямо у кнопок, а не где-то в стороне. */
+  note: string;
   onAdvance: (n: "arrived" | "onboard" | "done") => void;
   onCancel: () => void;
   onChat: () => void;
@@ -553,6 +821,9 @@ function DriverTrip({
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
+
+  // Отмена — через вопрос: и до посадки (пассажир уже ждёт), и тем более после.
+  const [confirm, setConfirm] = useState(false);
 
   const fromPt: GeoPoint | null = order.from_lat != null ? { lat: order.from_lat, lng: order.from_lng ?? 0 } : null;
   const toPt: GeoPoint | null = order.to_lat != null ? { lat: order.to_lat, lng: order.to_lng ?? 0 } : null;
@@ -652,11 +923,128 @@ function DriverTrip({
         <IconCheck size={18} /> {phase.btn}
       </button>
 
+      {note && (
+        <div className="notice" role="status">
+          {note}
+        </div>
+      )}
+
       {(s === "accepted" || s === "arriving") && (
-        <button type="button" className="btn-ghost" style={{ marginTop: 10 }} onClick={onCancel}>
+        <button type="button" className="btn-ghost" style={{ marginTop: 10 }} onClick={() => setConfirm(true)}>
           {appText("Отменить заказ", "Заказды кире алыу")}
         </button>
       )}
+
+      {/* Пассажир уже в машине. Кнопка нужна: бывает, что продолжать опасно —
+          и водитель не должен оставаться в машине только потому, что выйти
+          из поездки нечем. Но это крайняя мера, и мы говорим об этом прямо. */}
+      {s === "onboard" && (
+        <button type="button" className="btn-ghost" style={{ marginTop: 10 }} onClick={() => setConfirm(true)}>
+          {appText("Прервать поездку", "Сәфәрҙе туҡтатыу")}
+        </button>
+      )}
+
+      {confirm && (
+        <div className="sheet-backdrop" onClick={() => setConfirm(false)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <h2 className="sheet__title">
+              {s === "onboard"
+                ? appText("Прервать поездку?", "Сәфәрҙе туҡтатырғамы?")
+                : appText("Отменить заказ?", "Заказды кире алырғамы?")}
+            </h2>
+            <p className="sheet__comment">
+              {s === "onboard"
+                ? appText(
+                    "Пассажир уже в машине. Прерывай только если продолжать небезопасно; после этого открой спор или напиши в поддержку.",
+                    "Пассажир машинала инде. Дауам итеү хәүефле булһа ғына туҡтат; һуңынан бәхәс ас йәки ярҙамға яҙ."
+                  )
+                : appText(
+                    "Пассажир уже ждёт машину. Несколько отменённых заказов подряд ставят офферы на паузу.",
+                    "Юлаусы машинаны көтә инде. Бер нисә кире алынған заказ рәттән офферҙарҙы паузаға ҡуя."
+                  )}
+            </p>
+            <button
+              type="button"
+              className="btn-danger"
+              onClick={() => {
+                setConfirm(false);
+                onCancel();
+              }}
+            >
+              {s === "onboard"
+                ? appText("Прервать", "Туҡтатыу")
+                : appText("Отменить заказ", "Заказды кире алыу")}
+            </button>
+            <button type="button" className="btn-soft" style={{ marginTop: 8 }} onClick={() => setConfirm(false)}>
+              {appText("Продолжить поездку", "Сәфәрҙе дауам итеү")}
+            </button>
+          </div>
+        </div>
+      )}
     </>
+  );
+}
+
+// ----------------------------- Смена и деньги за день -----------------------------
+/**
+ * Сколько водитель отработал, сколько заработал и какая у него комиссия.
+ * Зеркало Android-дашборда в кабинете таксиста.
+ *
+ * Комиссию показываем всегда, даже когда она максимальная: водитель должен
+ * видеть, сколько с него берут, до конца дня — а не узнавать это из недельного
+ * счёта. Ставка падает со стажем, и это тоже видно.
+ */
+function ShiftCard({ wd }: { wd: Workday }) {
+  const { appText } = useLang();
+
+  const h = Math.floor(wd.seconds_online / 3600);
+  const m = Math.floor((wd.seconds_online % 3600) / 60);
+  const shift = `${h}:${String(m).padStart(2, "0")}`;
+  const progress = wd.limit_sec > 0 ? Math.min(100, (wd.seconds_online / wd.limit_sec) * 100) : 0;
+
+  return (
+    <section className="shift-card">
+      <div className="shift-card__head">
+        <span className="shift-card__label">{appText("Смена такси", "Такси сменаһы")}</span>
+        <span className="shift-card__time">
+          {shift} <span className="shift-card__of">{appText(`из ${wd.limit_hours} ч`, `${wd.limit_hours} сәғәттән`)}</span>
+        </span>
+      </div>
+      <div className="shift-card__bar" aria-hidden>
+        <span style={{ width: `${progress}%` }} />
+      </div>
+
+      <div className="shift-card__money">
+        <div>
+          <div className="shift-card__net">{kopExactLabel(wd.net_today_kop)}</div>
+          <div className="shift-card__sub">{appText("Чистыми сегодня", "Бөгөн таҙа")}</div>
+        </div>
+        <div className="shift-card__orders">
+          <b>{wd.orders_today}</b>
+          <span>{appText("заказов", "заказ")}</span>
+        </div>
+      </div>
+
+      <div className="shift-card__split">
+        {appText(
+          `Пассажиры: ${kopExactLabel(wd.gross_today_kop)} · комиссия: ${kopExactLabel(wd.fee_today_kop)}`,
+          `Юлаусылар: ${kopExactLabel(wd.gross_today_kop)} · комиссия: ${kopExactLabel(wd.fee_today_kop)}`
+        )}
+      </div>
+
+      <p className="shift-card__fee">
+        {appText(
+          `Комиссия сервиса ${wd.fee_percent}% — ниже, чем у агрегаторов (22–30%).`,
+          `Сервис комиссияһы ${wd.fee_percent}% — агрегаторҙарҙан (22–30%) түбәнерәк.`
+        )}
+      </p>
+
+      <p className="shift-card__law">
+        {appText(
+          `После ${wd.limit_hours} часов на линии — отдых до утра. Попутка в лимит не входит.`,
+          `Линияла ${wd.limit_hours} сәғәттән һуң — иртәнгә тиклем ял. Юлдаш лимитҡа инмәй.`
+        )}
+      </p>
+    </section>
   );
 }

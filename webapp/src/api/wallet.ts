@@ -73,3 +73,36 @@ export function requestPayout(
     idempotency_key: idempotencyKey,
   });
 }
+
+// ------------------------------- Оплата завершённой поездки -------------------------------
+/**
+ * Как пассажир платит за уже состоявшуюся поездку
+ * (POST /bookings/{id}/pay, POST /instant/orders/{id}/pay).
+ *
+ * Наличные — просто отметка «отдал из рук в руки»: деньги идут напрямую водителю,
+ * платформа их не держит. Карта и СБП — через банк.
+ *
+ * Оплата идемпотентна: повторное нажатие не спишет второй раз. И наоборот —
+ * отметка «наличными» гасит висящую банковскую ссылку, иначе человек, который
+ * передумал и заплатил налом, мог позже открыть старую ссылку и заплатить дважды.
+ *
+ * 503 = онлайн-оплата в этом городе ещё не включена: карту прячем, остаются
+ * наличные и перевод «на доверии».
+ */
+export type PayMethodKey = "cash" | "card" | "sbp";
+
+export interface PayTripResult {
+  status: "paid" | "already_paid" | "pending" | string;
+  method?: string;
+  payment_id?: number | null;
+  /** Банк вернул ссылку — уводим человека туда, дальше платит он сам. */
+  confirmation_url?: string | null;
+}
+
+export function payBooking(bookingId: number, method: PayMethodKey): Promise<PayTripResult> {
+  return apiPost<PayTripResult>(`/bookings/${bookingId}/pay`, { method });
+}
+
+export function payInstantOrder(orderId: number, method: PayMethodKey): Promise<PayTripResult> {
+  return apiPost<PayTripResult>(`/instant/orders/${orderId}/pay`, { method });
+}

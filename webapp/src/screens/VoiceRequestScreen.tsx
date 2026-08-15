@@ -266,7 +266,7 @@ export default function VoiceRequestScreen() {
           </label>
           {supportsRecording() && (
             <button type="button" className="link-btn" onClick={() => setTextMode(false)}>
-              {appText("Записать голосом", "Тауыш менән яҙырға")}
+              {appText("Записать голос", "Тауыш менән яҙырға")}
             </button>
           )}
         </div>

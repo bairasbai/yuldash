@@ -127,7 +127,7 @@ export default function AdminWaitlistScreen() {
           </div>
           <div className="stat-tile">
             <b>{data.by_role.driver.toLocaleString("ru-RU")}</b>
-            <span>{appText("водители", "водителдәр")}</span>
+            <span>{appText("водители", "йөрөтөүселәр")}</span>
           </div>
           <div className="stat-tile">
             <b>{data.invited.toLocaleString("ru-RU")}</b>
@@ -222,7 +222,7 @@ function WaitRow({
             <IconPhone size={14} /> {entry.phone}
           </a>
           <span className="admin-card__sub" style={{ display: "block" }}>
-            {entry.role === "driver" ? appText("Водитель", "Водитель") : appText("Пассажир", "Юлсы")}
+            {entry.role === "driver" ? appText("Водитель", "Йөрөтөүсе") : appText("Пассажир", "Юлсы")}
             {entry.city ? ` · ${entry.city}` : ""}
             {" · "}
             {formatRelative(entry.created_at, ru)}

@@ -119,7 +119,7 @@ export default function FiltersScreen() {
         >
           <span className="onb__simple-emoji"><IconUsers size={24} /></span>
           <span className="onb__simple-text">
-            <b>{appText("Только свои", "Тик үҙебеҙ")}</b>
+            <b>{appText("Только для своих", "Тик үҙебеҙ")}</b>
             <span>
               {appText(
                 "Показывать поездки проверенных попутчиков",

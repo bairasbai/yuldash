@@ -151,7 +151,7 @@ export default function AdsCabinetScreen() {
           <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}
@@ -231,6 +231,17 @@ export default function AdsCabinetScreen() {
                           </div>
                         )}
                       </div>
+                    )}
+
+                    {/* Предупреждаем ДО того, как показы встали: партнёр платил
+                        за поток людей, а не за то, чтобы однажды его не стало. */}
+                    {st?.days_left != null && st.days_left <= 3 && ad.status === "active" && (
+                      <p className="biz-item__ending">
+                        {appText(
+                          "Размещение скоро закончится. Продли, чтобы показы не прервались.",
+                          "Урынлаштырыу тиҙҙән бөтә. Күрһәтеү өҙөлмәһен өсөн оҙайт."
+                        )}
+                      </p>
                     )}
 
                     <div className="biz-item__actions">

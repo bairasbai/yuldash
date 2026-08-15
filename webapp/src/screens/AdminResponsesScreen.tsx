@@ -82,7 +82,7 @@ export default function AdminResponsesScreen() {
     <>
       <SubHeader
         title={appText("Принять отклик за юзера", "Юзер өсөн яуап")}
-        subtitle={appText("Выбор водителя по заявке", "Заявка буйынса водитель")}
+        subtitle={appText("Выбор водителя по заявке", "Заявка буйынса йөрөтөүсе")}
         onBack={() => navigate(-1)}
       />
 
@@ -129,7 +129,7 @@ export default function AdminResponsesScreen() {
       {state === "ready" && items.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
           <div className="state__icon"><IconShield size={34} /></div>
-          <h2>{appText("Откликов пока нет", "Яуаптар әле юҡ")}</h2>
+          <h2>{appText("Откликов пока нет", "Әлегә яуап юҡ")}</h2>
           <p>
             {appText(
               `На заявку #${loadedId} водители ещё не откликнулись.`,
@@ -149,7 +149,7 @@ export default function AdminResponsesScreen() {
                   <div className="list-row__title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     {it.driver_name}
                     {it.driver_rating != null && (
-                      <span className="profile-card__rating" style={{ fontSize: 13 }}>
+                      <span className="profile-card__rating" style={{ fontSize: "var(--font-caption)" }}>
                         <IconStar size={13} /> {it.driver_rating.toFixed(1)}
                       </span>
                     )}

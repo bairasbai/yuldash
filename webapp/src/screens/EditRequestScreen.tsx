@@ -19,12 +19,14 @@ import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconCheck, IconClock } from "../components/Icons";
 import { track } from "../analytics";
+import { serverDate } from "../utils/serverTime";
+import { minDateTimeNow } from "../utils/dateInput";
 
 /** ISO → значение для <input type="datetime-local"> (локальное время). */
 function isoToLocal(iso?: string | null): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
+  const d = serverDate(iso);
+  if (!d) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -180,7 +182,7 @@ export default function EditRequestScreen() {
     <>
       <SubHeader
         title={appText("Редактировать заявку", "Заявканы үҙгәртеү")}
-        subtitle={appText("Поменяй, что нужно — водители увидят сразу", "Кәрәген үҙгәрт — водителдәр шунда уҡ күрер")}
+        subtitle={appText("Поменяй, что нужно — водители увидят сразу", "Кәрәген үҙгәрт — йөрөтөүселәр шунда уҡ күрер")}
         onBack={() => navigate(-1)}
       />
 
@@ -212,6 +214,7 @@ export default function EditRequestScreen() {
           <input
             className="field__input"
             type="datetime-local"
+            min={minDateTimeNow()}
             value={when}
             onChange={(e) => setWhen(e.target.value)}
           />
@@ -244,6 +247,8 @@ export default function EditRequestScreen() {
               className="field__input"
               type="number"
               inputMode="numeric"
+              min={0}
+              max={1000000}
               value={maxPrice}
               onChange={(e) => setMaxPrice(e.target.value)}
               placeholder={appText("не важно", "мөһим түгел")}

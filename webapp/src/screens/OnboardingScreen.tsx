@@ -79,7 +79,7 @@ export default function OnboardingScreen() {
           <div key={step} className="onb__slide">
             <img
               className="onb__hero"
-              src="/onboarding_bashkir_hero.png"
+              src="/onboarding_bashkir_hero.webp"
               alt=""
               aria-hidden
             />

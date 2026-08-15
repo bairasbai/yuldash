@@ -21,6 +21,7 @@ import {
   IconBell,
   IconWallet,
   IconReceipt,
+  IconCar,
 } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
@@ -91,7 +92,7 @@ export default function PassengerCabinetScreen() {
     {
       key: "repeat",
       icon: <IconRoute size={22} />,
-      title: appText("Повтор маршрута", "Маршрутты ҡабатлау"),
+      title: appText("Повторить маршрут", "Маршрутты ҡабатлау"),
       onClick: () => navigate("/repeat"),
     },
     {
@@ -113,6 +114,13 @@ export default function PassengerCabinetScreen() {
       onClick: () => {
         if (latestDone) navigate(`/receipt/${latestDone.id}`);
       },
+    },
+    {
+      // Чек за такси раньше терялся: он открывался только сразу после поездки.
+      key: "mytaxi",
+      icon: <IconCar size={22} />,
+      title: appText("Поездки на такси", "Такси сәфәрҙәре"),
+      onClick: () => navigate("/my-taxi"),
     },
     {
       key: "wallet",
@@ -148,7 +156,7 @@ export default function PassengerCabinetScreen() {
                 >
                   <article className="trip__routecard">
                     <div className="ride-card__route">
-                      <span>{b.from_city || appText("Маршрут", "Маршрут")}</span>
+                      <span>{b.from_city || appText("Маршрут", "Юл")}</span>
                       {b.to_city && (
                         <>
                           <span className="ride-card__arrow">
@@ -196,7 +204,7 @@ export default function PassengerCabinetScreen() {
             <div className="consents__status" style={{ marginTop: 12 }}>
               {appText(
                 "Кошелёк и бонусы появятся позже. Пока оплата — напрямую водителю, по-соседски.",
-                "Янсыҡ һәм бонустар һуңынан буласаҡ. Хәҙергә түләү — тура водителгә, күршеләрсә."
+                "Янсыҡ һәм бонустар һуңынан буласаҡ. Хәҙергә түләү — тура йөрөтөүсегә, күршеләрсә."
               )}
             </div>
           )}
@@ -215,7 +223,7 @@ export default function PassengerCabinetScreen() {
                   >
                     <div className="list-row__main">
                       <div className="repeat-route">
-                        <span>{b.from_city || appText("Маршрут", "Маршрут")}</span>
+                        <span>{b.from_city || appText("Маршрут", "Юл")}</span>
                         {b.to_city && (
                           <>
                             <span className="repeat-route__arrow">
@@ -239,7 +247,7 @@ export default function PassengerCabinetScreen() {
                 style={{ marginTop: 12 }}
                 onClick={() => navigate("/repeat")}
               >
-                <IconRoute size={18} /> {appText("Повторить маршрут", "Маршрутты ҡабатларға")}
+                <IconRoute size={18} /> {appText("Повторить маршрут", "Маршрутты ҡабатлау")}
               </button>
             </>
           )}
@@ -254,7 +262,7 @@ export default function PassengerCabinetScreen() {
               <p>
                 {appText(
                   "Найди попутку на карте или оставь заявку — водители откликнутся.",
-                  "Картанан юлдаш тап йәки заявка ҡалдыр — водителдәр яуап бирер."
+                  "Картанан юлдаш тап йәки заявка ҡалдыр — йөрөтөүселәр яуап бирер."
                 )}
               </p>
               <button type="button" className="btn-primary" onClick={() => navigate("/map")}>

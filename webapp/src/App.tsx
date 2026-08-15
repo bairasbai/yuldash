@@ -1,97 +1,142 @@
+import { Suspense, useEffect } from "react";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
-import { useLang } from "./i18n/lang";
 import BottomNav from "./components/BottomNav";
 import InstallPrompt from "./components/InstallPrompt";
 import OfflineBanner from "./components/OfflineBanner";
 import RequireAuth from "./components/RequireAuth";
 import RequireAdmin from "./components/RequireAdmin";
+import { LoadingList } from "./components/States";
+import { lazyScreen, clearChunkReloadFlag } from "./lazyScreen";
 import RidesScreen from "./screens/RidesScreen";
-import StubScreen from "./screens/StubScreen";
 import SplashScreen from "./screens/SplashScreen";
 import IntroScreen from "./screens/IntroScreen";
 import OnboardingScreen from "./screens/OnboardingScreen";
 import LoginScreen from "./screens/LoginScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import ConsentsScreen from "./screens/ConsentsScreen";
-import TrustScreen from "./screens/TrustScreen";
-import InvitesScreen from "./screens/InvitesScreen";
 import HomeScreen from "./screens/HomeScreen";
 import CreateRequestScreen from "./screens/CreateRequestScreen";
-import RequestsFeedScreen from "./screens/RequestsFeedScreen";
-import RequestResponsesScreen from "./screens/RequestResponsesScreen";
-import EditRequestScreen from "./screens/EditRequestScreen";
 import BookingScreen from "./screens/BookingScreen";
 import ActiveTripScreen from "./screens/ActiveTripScreen";
-import TripReceiptScreen from "./screens/TripReceiptScreen";
-import FiltersScreen from "./screens/FiltersScreen";
-import SavedPlacesScreen from "./screens/SavedPlacesScreen";
-import RepeatTripScreen from "./screens/RepeatTripScreen";
-import MyStatsScreen from "./screens/MyStatsScreen";
-import RouteWatchesScreen from "./screens/RouteWatchesScreen";
-import ClinicRidesScreen from "./screens/ClinicRidesScreen";
-import PassengerCabinetScreen from "./screens/PassengerCabinetScreen";
-import CreateRideScreen from "./screens/CreateRideScreen";
-import DriverCabinetScreen from "./screens/DriverCabinetScreen";
-import DriverProfileScreen from "./screens/DriverProfileScreen";
-import DriverEarningsScreen from "./screens/DriverEarningsScreen";
-import BoostScreen from "./screens/BoostScreen";
-import VerifyDriverScreen from "./screens/VerifyDriverScreen";
+import UpdateBanner from "./components/UpdateBanner";
+import { watchOutbox } from "./utils/outbox";
 import InstantOrderScreen from "./screens/InstantOrderScreen";
 import InstantDriverTripScreen from "./screens/InstantDriverTripScreen";
 import InstantChatScreen from "./screens/InstantChatScreen";
-import ScheduledOrdersScreen from "./screens/ScheduledOrdersScreen";
-import TaxiOnboardingScreen from "./screens/TaxiOnboardingScreen";
-import CourierOnboardingScreen from "./screens/CourierOnboardingScreen";
-import CourierScreen from "./screens/CourierScreen";
-import ParcelsScreen from "./screens/ParcelsScreen";
-import WalletScreen from "./screens/WalletScreen";
-import CouponsScreen from "./screens/CouponsScreen";
-import PromoCodeScreen from "./screens/PromoCodeScreen";
-import PartnerCabinetScreen from "./screens/PartnerCabinetScreen";
-import AdsCabinetScreen from "./screens/AdsCabinetScreen";
-import AdEditorScreen from "./screens/AdEditorScreen";
-import PaymentInfoScreen from "./screens/PaymentInfoScreen";
-import PricingInfoScreen from "./screens/PricingInfoScreen";
+import ChatInboxScreen from "./screens/ChatInboxScreen";
 import SosScreen from "./screens/SosScreen";
-import TrustedContactsScreen from "./screens/TrustedContactsScreen";
-import FamilyOrderScreen from "./screens/FamilyOrderScreen";
-import CallbackHelpScreen from "./screens/CallbackHelpScreen";
-import VoiceRequestScreen from "./screens/VoiceRequestScreen";
-import SimpleModeScreen from "./screens/SimpleModeScreen";
-import NotificationsScreen from "./screens/NotificationsScreen";
-import SupportTicketsScreen from "./screens/SupportTicketsScreen";
-import SupportTicketScreen from "./screens/SupportTicketScreen";
-import HelpScreen from "./screens/HelpScreen";
-import AppReviewScreen from "./screens/AppReviewScreen";
-import SettingsScreen from "./screens/SettingsScreen";
-import PrivacyScreen from "./screens/PrivacyScreen";
-import RulesScreen from "./screens/RulesScreen";
-import BlocklistScreen from "./screens/BlocklistScreen";
-import ReportScreen from "./screens/ReportScreen";
-import AdminCabinetScreen from "./screens/AdminCabinetScreen";
-import AdminRequestScreen from "./screens/AdminRequestScreen";
-import AdminResponsesScreen from "./screens/AdminResponsesScreen";
-import AdminDriversScreen from "./screens/AdminDriversScreen";
-import AdminReportsScreen from "./screens/AdminReportsScreen";
-import AdminPaymentRequestsScreen from "./screens/AdminPaymentRequestsScreen";
-import AdminReviewsScreen from "./screens/AdminReviewsScreen";
-import AdminAdsScreen from "./screens/AdminAdsScreen";
-import AdminTaxiScreen from "./screens/AdminTaxiScreen";
-import AdminWaitlistScreen from "./screens/AdminWaitlistScreen";
-import AdminTaxiPulseScreen from "./screens/AdminTaxiPulseScreen";
-import IncomeCalculatorScreen from "./screens/IncomeCalculatorScreen";
-import AdminPartnersScreen from "./screens/AdminPartnersScreen";
-import AdminPromoScreen from "./screens/AdminPromoScreen";
-import AdminParcelsScreen from "./screens/AdminParcelsScreen";
-import AdminCourierScreen from "./screens/AdminCourierScreen";
+
+
+/**
+ * Редкие экраны грузим отдельным куском, а не вместе со всем приложением.
+ *
+ * Раньше первый заход тянул 862 КБ разом — вместе с админкой, калькулятором
+ * дохода и правовыми текстами, которых человек может не открыть никогда.
+ * В селе на слабой связи это лишние секунды перед первым экраном.
+ *
+ * Что осталось в основном куске: карта, лента, заказ, чат, профиль —
+ * то, ради чего сайт и открывают.
+ */
+const AdEditorScreen = lazyScreen(() => import("./screens/AdEditorScreen"));
+const AdminAdsScreen = lazyScreen(() => import("./screens/AdminAdsScreen"));
+const AdminCabinetScreen = lazyScreen(() => import("./screens/AdminCabinetScreen"));
+const AdminCourierScreen = lazyScreen(() => import("./screens/AdminCourierScreen"));
+const AdminDebtsScreen = lazyScreen(() => import("./screens/AdminDebtsScreen"));
+const AdminDriversScreen = lazyScreen(() => import("./screens/AdminDriversScreen"));
+const AdminIncidentsScreen = lazyScreen(() => import("./screens/AdminIncidentsScreen"));
+const AdminModerationScreen = lazyScreen(() => import("./screens/AdminModerationScreen"));
+const AdminParcelsScreen = lazyScreen(() => import("./screens/AdminParcelsScreen"));
+const AdminPartnersScreen = lazyScreen(() => import("./screens/AdminPartnersScreen"));
+const AdminPaymentRequestsScreen = lazyScreen(() => import("./screens/AdminPaymentRequestsScreen"));
+const AdminPretripScreen = lazyScreen(() => import("./screens/AdminPretripScreen"));
+const AdminPromoScreen = lazyScreen(() => import("./screens/AdminPromoScreen"));
+const AdminReportsScreen = lazyScreen(() => import("./screens/AdminReportsScreen"));
+const AdminRequestScreen = lazyScreen(() => import("./screens/AdminRequestScreen"));
+const AdminResponsesScreen = lazyScreen(() => import("./screens/AdminResponsesScreen"));
+const AdminReviewsScreen = lazyScreen(() => import("./screens/AdminReviewsScreen"));
+const AdminSosScreen = lazyScreen(() => import("./screens/AdminSosScreen"));
+const AdminSupportScreen = lazyScreen(() => import("./screens/AdminSupportScreen"));
+const AdminTaxiPulseScreen = lazyScreen(() => import("./screens/AdminTaxiPulseScreen"));
+const AdminTaxiScreen = lazyScreen(() => import("./screens/AdminTaxiScreen"));
+const AdminTextFlagsScreen = lazyScreen(() => import("./screens/AdminTextFlagsScreen"));
+const AdminWaitlistScreen = lazyScreen(() => import("./screens/AdminWaitlistScreen"));
+const AdsCabinetScreen = lazyScreen(() => import("./screens/AdsCabinetScreen"));
+const AppReviewScreen = lazyScreen(() => import("./screens/AppReviewScreen"));
+const BlocklistScreen = lazyScreen(() => import("./screens/BlocklistScreen"));
+const ClinicRidesScreen = lazyScreen(() => import("./screens/ClinicRidesScreen"));
+const CouponsScreen = lazyScreen(() => import("./screens/CouponsScreen"));
+const CourierOnboardingScreen = lazyScreen(() => import("./screens/CourierOnboardingScreen"));
+const FairnessCenterScreen = lazyScreen(() => import("./screens/FairnessCenterScreen"));
+const IncidentDetailScreen = lazyScreen(() => import("./screens/IncidentDetailScreen"));
+const IncomeCalculatorScreen = lazyScreen(() => import("./screens/IncomeCalculatorScreen"));
+const InvitesScreen = lazyScreen(() => import("./screens/InvitesScreen"));
+const MyStatsScreen = lazyScreen(() => import("./screens/MyStatsScreen"));
+const PartnerCabinetScreen = lazyScreen(() => import("./screens/PartnerCabinetScreen"));
+const PayDoneScreen = lazyScreen(() => import("./screens/PayDoneScreen"));
+const PaymentInfoScreen = lazyScreen(() => import("./screens/PaymentInfoScreen"));
+const PretripCheckScreen = lazyScreen(() => import("./screens/PretripCheckScreen"));
+const PricingInfoScreen = lazyScreen(() => import("./screens/PricingInfoScreen"));
+const PrivacyScreen = lazyScreen(() => import("./screens/PrivacyScreen"));
+const PromoCodeScreen = lazyScreen(() => import("./screens/PromoCodeScreen"));
+const RepeatTripScreen = lazyScreen(() => import("./screens/RepeatTripScreen"));
+const ReportScreen = lazyScreen(() => import("./screens/ReportScreen"));
+const RouteWatchesScreen = lazyScreen(() => import("./screens/RouteWatchesScreen"));
+const RulesScreen = lazyScreen(() => import("./screens/RulesScreen"));
+const SavedPlacesScreen = lazyScreen(() => import("./screens/SavedPlacesScreen"));
+const SimpleModeScreen = lazyScreen(() => import("./screens/SimpleModeScreen"));
+const SupportYuldashScreen = lazyScreen(() => import("./screens/SupportYuldashScreen"));
+const TaxiDocumentsScreen = lazyScreen(() => import("./screens/TaxiDocumentsScreen"));
+const TaxiOnboardingScreen = lazyScreen(() => import("./screens/TaxiOnboardingScreen"));
+const TrustScreen = lazyScreen(() => import("./screens/TrustScreen"));
+const VoiceRequestScreen = lazyScreen(() => import("./screens/VoiceRequestScreen"));
+
+const BoostScreen = lazyScreen(() => import("./screens/BoostScreen"));
+const CallbackHelpScreen = lazyScreen(() => import("./screens/CallbackHelpScreen"));
+const CourierEarningsScreen = lazyScreen(() => import("./screens/CourierEarningsScreen"));
+const CourierScreen = lazyScreen(() => import("./screens/CourierScreen"));
+const CreateRideScreen = lazyScreen(() => import("./screens/CreateRideScreen"));
+const DriverCabinetScreen = lazyScreen(() => import("./screens/DriverCabinetScreen"));
+const DriverEarningsScreen = lazyScreen(() => import("./screens/DriverEarningsScreen"));
+const DriverProfileScreen = lazyScreen(() => import("./screens/DriverProfileScreen"));
+const DriverResponsesScreen = lazyScreen(() => import("./screens/DriverResponsesScreen"));
+const DriverTaxiRidesScreen = lazyScreen(() => import("./screens/DriverTaxiRidesScreen"));
+const EditProfileScreen = lazyScreen(() => import("./screens/EditProfileScreen"));
+const EditRequestScreen = lazyScreen(() => import("./screens/EditRequestScreen"));
+const FamilyOrderScreen = lazyScreen(() => import("./screens/FamilyOrderScreen"));
+const FiltersScreen = lazyScreen(() => import("./screens/FiltersScreen"));
+const HelpScreen = lazyScreen(() => import("./screens/HelpScreen"));
+const MyTaxiTripsScreen = lazyScreen(() => import("./screens/MyTaxiTripsScreen"));
+const NotificationsScreen = lazyScreen(() => import("./screens/NotificationsScreen"));
+const ParcelChatScreen = lazyScreen(() => import("./screens/ParcelChatScreen"));
+const ParcelsScreen = lazyScreen(() => import("./screens/ParcelsScreen"));
+const PassengerCabinetScreen = lazyScreen(() => import("./screens/PassengerCabinetScreen"));
+const RequestResponsesScreen = lazyScreen(() => import("./screens/RequestResponsesScreen"));
+const RequestsFeedScreen = lazyScreen(() => import("./screens/RequestsFeedScreen"));
+const SafetyScreen = lazyScreen(() => import("./screens/SafetyScreen"));
+const ScheduledOrdersScreen = lazyScreen(() => import("./screens/ScheduledOrdersScreen"));
+const SettingsScreen = lazyScreen(() => import("./screens/SettingsScreen"));
+const SupportTicketScreen = lazyScreen(() => import("./screens/SupportTicketScreen"));
+const SupportTicketsScreen = lazyScreen(() => import("./screens/SupportTicketsScreen"));
+const TaxiReceiptScreen = lazyScreen(() => import("./screens/TaxiReceiptScreen"));
+const TripReceiptScreen = lazyScreen(() => import("./screens/TripReceiptScreen"));
+const TrustedContactsScreen = lazyScreen(() => import("./screens/TrustedContactsScreen"));
+const VerifyDriverScreen = lazyScreen(() => import("./screens/VerifyDriverScreen"));
+const WalletScreen = lazyScreen(() => import("./screens/WalletScreen"));
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
   return (
     <div className="app-shell">
       <OfflineBanner />
+      {/* Новая версия скачана — применится только после перезагрузки.
+          Пока человек не нажал, исправленный баг у него всё ещё есть. */}
+      <UpdateBanner />
       <main className="app-main">
-        <Outlet />
+        {/* Экран из отдельного куска ещё летит — показываем скелетон,
+            а навигация остаётся на месте: моргает только контент. */}
+        <Suspense fallback={<LoadingList count={3} />}>
+          <Outlet />
+        </Suspense>
       </main>
       <InstallPrompt />
       <BottomNav />
@@ -100,8 +145,18 @@ function Shell() {
 }
 
 export default function App() {
-  const { t } = useLang();
+  // Приложение поднялось — значит куски грузятся. Снимаем метку разовой
+  // перезагрузки, чтобы следующее обновление сайта тоже сработало.
+  useEffect(() => {
+    clearChunkReloadFlag();
+  }, []);
+
+  // Накопленные без сети «выехал»/«доехал» и сообщения досылаем на СТАРТЕ, а не
+  // только на экране поездки: человек мог закрыть его и больше не открывать.
+  useEffect(() => watchOutbox(() => {}), []);
+
   return (
+    <Suspense fallback={<div className="app-main"><LoadingList count={2} /></div>}>
     <Routes>
       {/* Полноэкранные экраны входа/старта — без нижней навигации */}
       <Route path="/splash" element={<SplashScreen />} />
@@ -114,7 +169,7 @@ export default function App() {
         <Route path="/rides" element={<RidesScreen />} />
         {/* Home-витрина (карта) — публична, гость тоже видит */}
         <Route path="/map" element={<HomeScreen />} />
-        <Route path="/chat" element={<StubScreen title={t("navChat")} />} />
+        <Route path="/chat" element={<ChatInboxScreen />} />
         <Route path="/profile" element={<ProfileScreen />} />
         {/* Согласия — локальные (152-ФЗ), доступны и гостю */}
         <Route path="/consents" element={<ConsentsScreen />} />
@@ -365,6 +420,14 @@ export default function App() {
           }
         />
         <Route
+          path="/support-yuldash"
+          element={
+            <RequireAuth>
+              <SupportYuldashScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
           path="/verify-driver"
           element={
             <RequireAuth>
@@ -415,6 +478,106 @@ export default function App() {
           }
         />
 
+        {/* --- Волна Е1: чеки, история, деньги и документы такси --- */}
+        <Route
+          path="/taxi-receipt/:orderId"
+          element={
+            <RequireAuth>
+              <TaxiReceiptScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/my-taxi"
+          element={
+            <RequireAuth>
+              <MyTaxiTripsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/taxi-rides"
+          element={
+            <RequireAuth>
+              <DriverTaxiRidesScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/taxi-docs"
+          element={
+            <RequireAuth>
+              <TaxiDocumentsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/pretrip"
+          element={
+            <RequireAuth>
+              <PretripCheckScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/my-responses"
+          element={
+            <RequireAuth>
+              <DriverResponsesScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/courier-earnings"
+          element={
+            <RequireAuth>
+              <CourierEarningsScreen />
+            </RequireAuth>
+          }
+        />
+
+        {/* --- Волна Е2: доверие, споры, чат посылки --- */}
+        <Route
+          path="/profile/edit"
+          element={
+            <RequireAuth>
+              <EditProfileScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/safety"
+          element={
+            <RequireAuth>
+              <SafetyScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/fairness"
+          element={
+            <RequireAuth>
+              <FairnessCenterScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/incidents/:id"
+          element={
+            <RequireAuth>
+              <IncidentDetailScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/parcel-chat/:parcelId"
+          element={
+            <RequireAuth>
+              <ParcelChatScreen />
+            </RequireAuth>
+          }
+        />
+
         {/* --- Волна 5: курьер и посылки --- */}
         <Route
           path="/parcels"
@@ -445,6 +608,9 @@ export default function App() {
         {/* «Скидки по пути» и «Как оплатить» — публичные витрины */}
         <Route path="/coupons" element={<CouponsScreen />} />
         <Route path="/payment-info" element={<PaymentInfoScreen />} />
+        {/* Сюда банк возвращает после оплаты картой (payment_return_url на сервере).
+            Роута не было — человек попадал на заставку и не знал, прошла ли оплата. */}
+        <Route path="/pay/done" element={<PayDoneScreen />} />
         {/* «Честно о цене» — публичная витрина (паритет с android PricingInfo) */}
         <Route path="/pricing" element={<PricingInfoScreen />} />
         <Route
@@ -629,11 +795,70 @@ export default function App() {
             </RequireAdmin>
           }
         />
+
+        {/* --- Волна Е3: SOS, споры, помеченные тексты, очередь модерации --- */}
+        <Route
+          path="/admin/sos"
+          element={
+            <RequireAdmin>
+              <AdminSosScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/incidents"
+          element={
+            <RequireAdmin>
+              <AdminIncidentsScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/text-flags"
+          element={
+            <RequireAdmin>
+              <AdminTextFlagsScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/pretrip"
+          element={
+            <RequireAdmin>
+              <AdminPretripScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/debts"
+          element={
+            <RequireAdmin>
+              <AdminDebtsScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/support"
+          element={
+            <RequireAdmin>
+              <AdminSupportScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/moderation"
+          element={
+            <RequireAdmin>
+              <AdminModerationScreen />
+            </RequireAdmin>
+          }
+        />
       </Route>
 
       {/* Старт → сплэш решает, куда дальше */}
       <Route path="/" element={<Navigate to="/splash" replace />} />
       <Route path="*" element={<Navigate to="/splash" replace />} />
     </Routes>
+    </Suspense>
   );
 }

@@ -14,6 +14,7 @@ import { ApiError } from "../api/client";
 import {
   fetchPendingRatings,
   publishRating,
+  excludeRating,
   fetchPendingAppReviews,
   publishAppReview,
   type PendingRating,
@@ -22,7 +23,7 @@ import {
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList, ErrorState } from "../components/States";
 import { formatRelative } from "../utils/format";
-import { IconCheck } from "../components/Icons";
+import { IconCheck, IconShield } from "../components/Icons";
 import { YuStar } from "../components/BrandIcons";
 
 type State = "loading" | "error" | "ready";
@@ -101,13 +102,34 @@ export default function AdminReviewsScreen() {
     }
   }
 
+  /** «Щит рейтинга»: оценка перестаёт влиять на средний балл. Текст при этом не публикуется. */
+  async function shield(id: number) {
+    if (busyId) return;
+    setBusyId(id);
+    setRowError(null);
+    try {
+      await excludeRating(id, true);
+      setRides((prev) => prev.filter((r) => r.id !== id));
+    } catch (e) {
+      setRowError({
+        id,
+        msg:
+          e instanceof ApiError && e.message
+            ? e.message
+            : appText("Не получилось. Попробуй ещё раз.", "Булманы. Ҡабат ҡара."),
+      });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const list = tab === "rides" ? rides : apps;
 
   return (
     <>
       <SubHeader
         title={appText("Модерация отзывов", "Фекерҙәрҙе тикшереү")}
-        subtitle={appText("Одобрить тексты к показу", "Текстарҙы күрһәтеүгә раҫлау")}
+        subtitle={appText("Одобрить текст к показу в профиле", "Текстарҙы күрһәтеүгә раҫлау")}
         onBack={() => navigate(-1)}
       />
 
@@ -161,19 +183,35 @@ export default function AdminReviewsScreen() {
                   <p className="admin-card__reason">«{r.text}»</p>
                   <div className="admin-card__sub">
                     {appText("Автор", "Автор")}: {r.author || appText("Аноним", "Аноним")}
+                    {r.ratee && (
+                      <>
+                        {" · "}
+                        {appText("о ком", "кем тураһында")}: {r.ratee}
+                      </>
+                    )}
                   </div>
                   {rowError?.id === r.id && <div className="auth__error">{rowError.msg}</div>}
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    style={{ width: "100%", marginTop: 12 }}
-                    onClick={() => publish(r.id, false)}
-                    disabled={busyId !== null}
-                  >
-                    {busyId === r.id ? appText("…", "…") : (
-                      <><IconCheck size={18} /> {appText("Опубликовать", "Баҫтырыу")}</>
-                    )}
-                  </button>
+                  <div className="act-card__actions" style={{ marginTop: 12 }}>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={() => publish(r.id, false)}
+                      disabled={busyId !== null}
+                    >
+                      {busyId === r.id ? appText("…", "…") : (
+                        <><IconCheck size={18} /> {appText("Опубликовать", "Баҫтырырға")}</>
+                      )}
+                    </button>
+                    {/* Щит рейтинга: одна месть-оценка не должна рушить рейтинг честного. */}
+                    <button
+                      type="button"
+                      className="btn-soft"
+                      onClick={() => shield(r.id)}
+                      disabled={busyId !== null}
+                    >
+                      <IconShield size={18} /> {appText("Снять с рейтинга", "Рейтингтан алыу")}
+                    </button>
+                  </div>
                 </div>
               ))
             : apps.map((r) => (
@@ -198,7 +236,7 @@ export default function AdminReviewsScreen() {
                     disabled={busyId !== null}
                   >
                     {busyId === r.id ? appText("…", "…") : (
-                      <><IconCheck size={18} /> {appText("Опубликовать", "Баҫтырыу")}</>
+                      <><IconCheck size={18} /> {appText("Опубликовать", "Баҫтырырға")}</>
                     )}
                   </button>
                 </div>

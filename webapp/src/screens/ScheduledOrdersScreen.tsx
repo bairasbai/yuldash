@@ -20,14 +20,15 @@ import {
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
 import { IconClock, IconArrow, IconTrash, IconCar, IconWarn, IconClockCal } from "../components/Icons";
-import { priceLabel } from "../utils/format";
+import { dayMonthShort, hhmm, priceLabel } from "../utils/format";
+import { serverDate, serverMs } from "../utils/serverTime";
 
 type Status = "loading" | "error" | "ready";
 
 /** «через 2 ч 15 мин» / «через 8 мин» / «пора ехать». */
 function countdown(iso: string | null, appText: (r: string, b: string) => string): string {
   if (!iso) return "";
-  const diff = new Date(iso).getTime() - Date.now();
+  const diff = serverMs(iso) - Date.now();
   if (diff <= 0) return appText("Пора ехать", "Китергә ваҡыт");
   const min = Math.round(diff / 60000);
   if (min < 60) return appText(`через ${min} мин`, `${min} минуттан`);
@@ -37,12 +38,12 @@ function countdown(iso: string | null, appText: (r: string, b: string) => string
 }
 
 /** «14 июл, 09:30». */
-function whenLabel(iso: string | null): string {
+function whenLabel(iso: string | null, ru: boolean): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const date = d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
-  const time = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const d = serverDate(iso);
+  if (!d) return "";
+  const date = dayMonthShort(d, ru);
+  const time = hhmm(d);
   return `${date}, ${time}`;
 }
 
@@ -99,8 +100,16 @@ export default function ScheduledOrdersScreen() {
     }
   }
 
+  /**
+   * Отмена предзаказа спрашивает подтверждение: корзина стоит рядом с «начать
+   * поиск», и промах пальцем стоил бы человеку машины на 6 утра. Вернуть предзаказ
+   * после отмены нельзя — только создать заново.
+   */
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+
   async function cancel(id: number) {
     const prev = rows;
+    setConfirmId(null);
     setRows(rows.filter((r) => r.id !== id)); // оптимистично
     try {
       await cancelScheduled(id);
@@ -124,7 +133,7 @@ export default function ScheduledOrdersScreen() {
           <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}
@@ -158,7 +167,7 @@ export default function ScheduledOrdersScreen() {
           {rows.length === 0 && dueNow.length === 0 ? (
             <div className="state" style={{ paddingTop: 40 }}>
               <div className="state__icon"><IconClockCal size={34} /></div>
-              <h2>{appText("Пока нет предзаказов", "Әле алдан заказдар юҡ")}</h2>
+              <h2>{appText("Пока предзаказов нет", "Әле алдан заказдар юҡ")}</h2>
               <p>
                 {appText(
                   "Закажи такси заранее — на время. Мы напомним и найдём машину к нужному часу.",
@@ -180,7 +189,7 @@ export default function ScheduledOrdersScreen() {
                     <div key={o.id} className="sched-card">
                       <div className="sched-card__head">
                         <span className="sched-card__when">
-                          <IconClock size={16} /> {whenLabel(o.scheduled_at)}
+                          <IconClock size={16} /> {whenLabel(o.scheduled_at, ru)}
                         </span>
                         <span className="badge badge--gold">{countdown(o.scheduled_at, appText)}</span>
                       </div>
@@ -211,7 +220,7 @@ export default function ScheduledOrdersScreen() {
                         <button
                           type="button"
                           className="icon-btn"
-                          onClick={() => cancel(o.id)}
+                          onClick={() => setConfirmId(o.id)}
                           aria-label={appText("Отменить предзаказ", "Алдан заказды кире алыу")}
                         >
                           <IconTrash size={20} />
@@ -230,6 +239,34 @@ export default function ScheduledOrdersScreen() {
             )
           )}
         </>
+      )}
+
+      {/* Подтверждение отмены: вернуть предзаказ назад нельзя */}
+      {confirmId != null && (
+        <div className="sheet-backdrop" onClick={() => setConfirmId(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <h2 className="sheet__title">
+              {appText("Отменить предзаказ?", "Алдан заказды кире алырғамы?")}
+            </h2>
+            <p className="sheet__comment">
+              {appText(
+                "Поиск машины в назначенное время не начнётся.",
+                "Билдәләнгән ваҡытта машина эҙләү башланмаясаҡ."
+              )}
+            </p>
+            <button type="button" className="btn-danger" onClick={() => void cancel(confirmId)}>
+              {appText("Отменить предзаказ", "Алдан заказды кире алыу")}
+            </button>
+            <button
+              type="button"
+              className="btn-soft"
+              style={{ marginTop: 8 }}
+              onClick={() => setConfirmId(null)}
+            >
+              {appText("Оставить", "Ҡалдырырға")}
+            </button>
+          </div>
+        </div>
       )}
     </>
   );

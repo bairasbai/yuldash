@@ -38,7 +38,7 @@ export default function SplashScreen() {
     <div className="splash">
       <div className="splash__mark">
         <img
-          src="/yuldash_logo.png"
+          src="/yuldash_logo.webp"
           alt="Юлдаш"
           width={104}
           height={104}

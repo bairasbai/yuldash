@@ -139,7 +139,7 @@ export default function RouteWatchesScreen() {
                     type="button"
                     className="icon-btn"
                     onClick={() => remove(w.id)}
-                    aria-label={appText("Удалить", "Юйырға")}
+                    aria-label={appText("Удалить", "Юйыу")}
                   >
                     <IconTrash size={20} />
                   </button>

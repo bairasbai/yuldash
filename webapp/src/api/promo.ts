@@ -24,6 +24,18 @@ export interface PromoMine {
     perk_value: number;
   } | null;
   redeemed_at?: string | null;
+  /**
+   * Скидка на поездку в такси, копейки. Вводить ничего не надо: сервер
+   * применит её сам при следующем заказе, и человек увидит её в цене
+   * ещё до кнопки «Вызвать».
+   *
+   * available=false при discount_used_order_id=null — кампанию выключили
+   * или срок вышел. Это разные вещи, и молчать о них нельзя: иначе
+   * человек будет ждать скидку, которой больше нет.
+   */
+  discount_kop?: number;
+  discount_available?: boolean;
+  discount_used_order_id?: number | null;
 }
 
 export function applyPromo(code: string): Promise<PromoApplyResult> {

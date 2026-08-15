@@ -22,6 +22,9 @@ import {
   IconWork,
   IconGift,
   IconBox,
+  IconWarn,
+  IconShield,
+  IconCheck,
 } from "../components/Icons";
 
 interface AdminLink {
@@ -39,6 +42,56 @@ export default function AdminCabinetScreen() {
   // Волна 8А — ядро модерации (реализовано).
   const ready: AdminLink[] = [
     {
+      // Первым в списке намеренно: сигнал о помощи не должен ждать своей очереди.
+      key: "sos",
+      to: "/admin/sos",
+      icon: <IconWarn size={22} />,
+      title: appText("Сигналы SOS", "SOS сигналдары"),
+      sub: appText("Кто просит помощи прямо сейчас", "Кем хәҙер ярҙам һорай"),
+    },
+    {
+      key: "incidents",
+      to: "/admin/incidents",
+      icon: <IconShield size={22} />,
+      title: appText("Разбор споров", "Бәхәстәрҙе ҡарау"),
+      sub: appText("Обе версии, решение с объяснением", "Ике версия, аңлатмалы ҡарар"),
+    },
+    {
+      key: "moderation",
+      to: "/admin/moderation",
+      icon: <IconCheck size={22} />,
+      title: appText("Очередь модерации", "Модерация сираты"),
+      sub: appText("Бизнесы и купоны без решения", "Ҡарарһыҙ бизнестар һәм купондар"),
+    },
+    {
+      key: "text-flags",
+      to: "/admin/text-flags",
+      icon: <IconFlag size={22} />,
+      title: appText("Помеченные тексты", "Билдәләнгән текстар"),
+      sub: appText("Фишинг, увод контакта, грубость", "Фишинг, контакт алыу, тупаҫлыҡ"),
+    },
+    {
+      key: "pretrip",
+      to: "/admin/pretrip",
+      icon: <IconCheck size={22} />,
+      title: appText("Готовность к работе", "Эшкә әҙерлек"),
+      sub: appText("Журнал предрейсовых отметок (580-ФЗ)", "Рейс алды билдәләр журналы"),
+    },
+    {
+      key: "debts",
+      to: "/admin/debts",
+      icon: <IconWallet size={22} />,
+      title: appText("Долги по комиссии", "Комиссия бурыстары"),
+      sub: appText("Подтвердить, отклонить или списать", "Раҫлау, кире ҡағыу йәки алып ташлау"),
+    },
+    {
+      key: "support",
+      to: "/admin/support",
+      icon: <IconChat size={22} />,
+      title: appText("Обращения в поддержку", "Ярҙамға мөрәжәғәттәр"),
+      sub: appText("Ответить человеку — ответ уйдёт сразу", "Кешегә яуап — шунда уҡ бара"),
+    },
+    {
       key: "request",
       to: "/admin/request",
       icon: <IconRequest size={22} />,
@@ -50,13 +103,13 @@ export default function AdminCabinetScreen() {
       to: "/admin/responses",
       icon: <IconChat size={22} />,
       title: appText("Принять отклик за юзера", "Юзер өсөн яуап ҡабул итеү"),
-      sub: appText("Выбрать водителя по заявке", "Заявка буйынса водитель һайлау"),
+      sub: appText("Выбрать водителя по заявке", "Заявка буйынса йөрөтөүсе һайлау"),
     },
     {
       key: "drivers",
       to: "/admin/drivers",
       icon: <IconWheel size={22} />,
-      title: appText("Модерация водителей", "Водителдәрҙе тикшереү"),
+      title: appText("Модерация водителей", "Йөрөтөүселәрҙе тикшереү"),
       sub: appText("Права, авто — одобрить/отклонить", "Права, авто — раҫлау/кире ҡағыу"),
     },
     {
@@ -78,8 +131,8 @@ export default function AdminCabinetScreen() {
       key: "reviews",
       to: "/admin/reviews",
       icon: <IconStar size={22} />,
-      title: appText("Отзывы", "Фекерҙәр"),
-      sub: appText("Модерация текстов отзывов", "Фекер текстарын тикшереү"),
+      title: appText("Отзывы", "Кире бәйләнеш"),
+      sub: appText("Модерация отзывов", "Фекер текстарын тикшереү"),
     },
     {
       key: "ads",

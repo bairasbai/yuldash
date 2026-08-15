@@ -11,7 +11,7 @@
 //  пока эндпоинт не развёрнут). Точка правды флага «включено на этом
 //  устройстве» — localStorage (webPushEnabled).
 // ================================================================
-import { sendWebPushSubscription, PushBackendMissing } from "../api/push";
+import { sendWebPushSubscription, PushBackendMissing, unregisterPush } from "../api/push";
 
 const ENABLED_KEY = "yuldash.push.web.enabled";
 
@@ -141,7 +141,12 @@ export async function disableWebPush(): Promise<void> {
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
-    if (sub) await sub.unsubscribe();
+    if (sub) {
+      // Сначала говорим серверу, потом гасим подписку в браузере. Иначе на общем телефоне
+      // следующий вошедший продолжал бы получать чужие уведомления: локального удаления мало.
+      await unregisterPush(sub.endpoint);
+      await sub.unsubscribe();
+    }
   } catch {
     /* мягко: флаг уже снят, подписка протухнет сама */
   }

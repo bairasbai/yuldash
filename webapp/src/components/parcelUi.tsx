@@ -5,11 +5,13 @@
 //  диалог ввода кода. Переиспользуют Canon-токены и i18n appText.
 // ================================================================
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import type { Parcel, ParcelSize } from "../api/parcels";
 import { isCarrying } from "../api/parcels";
-import { rubLabel } from "../utils/format";
-import { IconArrow, IconPhone, IconCheck } from "./Icons";
+import { dayMonthLong, rubLabel } from "../utils/format";
+import { IconArrow, IconPhone, IconCheck, IconChat } from "./Icons";
+import ParcelPhoto from "./ParcelPhoto";
 
 // ------------------------------- Подписи -------------------------------
 export function sizeLabel(size: ParcelSize | string, ru: boolean): string {
@@ -52,8 +54,23 @@ export function ParcelRoute({ p }: { p: Parcel }) {
         {p.urgency === "now" && (
           <span className="badge badge--gold">{appText("Срочно", "Ашығыс")}</span>
         )}
+        {p.fragile && (
+          <span className="badge badge--muted">{appText("Хрупкое", "Ватыла торған")}</span>
+        )}
+        {p.weight_kg != null && p.weight_kg > 0 && (
+          <span className="badge badge--muted">
+            {appText(`${p.weight_kg} кг`, `${p.weight_kg} кг`)}
+          </span>
+        )}
         {price > 0 && <span className="parcel-card__price">{rubLabel(price)}</span>}
       </div>
+      {/* Срок отдельной строкой: по нему курьер решает, успевает ли он вообще */}
+      {p.deliver_by && (
+        <div className="parcel-card__desc">
+          {appText("Нужно не позже: ", "Ошо көндән һуң түгел: ")}
+          {dayMonthLong(new Date(p.deliver_by + "T00:00:00"), ru)}
+        </div>
+      )}
       {p.description && <div className="parcel-card__desc">{p.description}</div>}
     </div>
   );
@@ -64,10 +81,15 @@ export function AvailableParcelCard({
   p,
   busy,
   onTake,
+  photo,
+  onPhoto,
 }: {
   p: Parcel;
   busy: boolean;
   onTake: () => void;
+  /** Снимок «взял целой» — необязателен, но в споре его отсутствие говорит само. */
+  photo?: string | null;
+  onPhoto?: (url: string) => void;
 }) {
   const { appText } = useLang();
   return (
@@ -77,6 +99,7 @@ export function AvailableParcelCard({
         <StatusPillParcel status={p.status} />
       </div>
       <ParcelRoute p={p} />
+      {onPhoto && <ParcelPhoto kind="pickup" url={photo ?? null} onReady={onPhoto} />}
       <button type="button" className="btn-primary" style={{ marginTop: 12 }} onClick={onTake} disabled={busy}>
         {busy ? appText("Берём…", "Алабыҙ…") : appText("Взять доставку", "Доставканы алыу")}
       </button>
@@ -201,7 +224,7 @@ export function CarryParcelCard({
               onClick={() => onGoodsCost(Number(goods) * 100)}
               disabled={busy || !goods}
             >
-              {appText("Сохранить", "Һаҡларға")}
+              {appText("Сохранить", "Һаҡлау")}
             </button>
           </div>
           <p className="parcel-card__desc" style={{ marginTop: 6 }}>
@@ -218,6 +241,10 @@ export function CarryParcelCard({
               {appText("В пути", "Юлда")}
             </button>
           )}
+          {/* Чат вместо звонка: за рулём написать проще, чем говорить. */}
+          <Link className="btn-soft" to={`/parcel-chat/${p.id}`}>
+            <IconChat size={18} /> {appText("Чат", "Чат")}
+          </Link>
           <button type="button" className="btn-primary" onClick={onDeliver} disabled={busy}>
             <IconCheck size={18} /> {appText("Доставлено", "Тапшырылды")}
           </button>

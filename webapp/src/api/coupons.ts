@@ -80,6 +80,15 @@ export function fetchCoupon(id: number, signal?: AbortSignal): Promise<Coupon> {
   return apiGet<Coupon>(`/coupons/${id}`, { auth: false, signal });
 }
 
+/**
+ * «Обещали не то» — жалоба ставит купон перед глазами админа.
+ * Купон при этом с витрины НЕ снимается: одна жалоба может быть и наветом конкурента.
+ * Решает человек, а не счётчик.
+ */
+export function reportCoupon(id: number, reason: string): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(`/coupons/${id}/report`, { reason });
+}
+
 export function activateCoupon(id: number): Promise<CouponActivation> {
   return apiPost<CouponActivation>(`/coupons/${id}/activate`);
 }
@@ -146,6 +155,15 @@ export interface PartnerCoupon {
   premium: boolean;
   status: string; // draft | active | paused | archived
   created_at: string | null;
+  /**
+   * Состояние проверки: approved | pending | held | blocked. Владелец должен понимать,
+   * почему купон не виден людям, — иначе он просто думает, что «сайт сломался».
+   */
+  review?: string;
+  /** Причина от модератора: что именно поправить в тексте. */
+  review_note?: string;
+  /** Сколько людей пожаловались на купон. */
+  reports_count?: number;
 }
 
 export interface PartnerIn {

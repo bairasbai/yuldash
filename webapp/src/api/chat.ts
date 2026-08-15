@@ -4,15 +4,22 @@
 //  (POST) с живой доставкой через WebSocket /ws/bookings/{id}.
 //  WS-авторизация: первым кадром {"type":"auth","token":"<jwt>"}.
 // ================================================================
-import { API_BASE, apiGet, apiPost, getToken } from "./client";
+import { API_BASE, apiGet, apiPost, apiDelete, apiUpload, getToken, isOwnApiUrl } from "./client";
 
 /** Сообщение чата (строка Message + live-payload сокета). */
 export interface ChatMessage {
   id: number;
   sender_id: number;
   text: string;
-  flag?: string; // "" | "warn"
+  /** Метка сервера: "" — обычное, "warn" — фишинг, "contact" — телефон, "abuse" — грубость. */
+  flag?: string;
   from_admin?: boolean;
+  /** Ссылка на голосовое (наш /voice). Пусто — обычное текстовое сообщение. */
+  voice_url?: string;
+  /** Удалено у всех: текст очищен сервером, показываем пометку вместо пузыря. */
+  deleted?: boolean;
+  /** Отредактировано — рядом с текстом приписка «изменено». */
+  edited?: boolean;
   // REST отдаёт created_at, сокет — timestamp. Нормализуем в UI.
   created_at?: string;
   timestamp?: string;
@@ -29,9 +36,40 @@ export function fetchMessages(
 
 export function sendMessageRest(
   bookingId: number,
+  text: string,
+  voiceUrl?: string
+): Promise<ChatMessage> {
+  return apiPost<ChatMessage>(`/bookings/${bookingId}/messages`, {
+    text,
+    voice_url: voiceUrl,
+  });
+}
+
+/**
+ * Поправить своё сообщение (POST /bookings/{id}/messages/{mid}/edit).
+ * Сервер сам перепроверяет текст на подозрительное — «отправил безобидное,
+ * потом переписал» не проходит. Голосовое править нельзя.
+ * Ошибки: 403 чужое, 400 удалено / пусто / голосовое.
+ */
+export function editMessage(
+  bookingId: number,
+  messageId: number,
   text: string
 ): Promise<ChatMessage> {
-  return apiPost<ChatMessage>(`/bookings/${bookingId}/messages`, { text });
+  return apiPost<ChatMessage>(`/bookings/${bookingId}/messages/${messageId}/edit`, { text });
+}
+
+/**
+ * Удалить сообщение (DELETE /bookings/{id}/messages/{mid}).
+ *   "all" — у всех: только своё, текст стирается, остаётся пометка;
+ *   "me"  — скрыть у себя: собеседник по-прежнему видит.
+ */
+export function deleteMessage(
+  bookingId: number,
+  messageId: number,
+  scope: "all" | "me"
+): Promise<ChatMessage> {
+  return apiDelete<ChatMessage>(`/bookings/${bookingId}/messages/${messageId}?scope=${scope}`);
 }
 
 /** Инбокс диалогов (GET /conversations). */
@@ -116,9 +154,13 @@ export function fetchOrderMessages(
 
 export function sendOrderMessageRest(
   orderId: number,
-  text: string
+  text: string,
+  voiceUrl?: string
 ): Promise<ChatMessage> {
-  return apiPost<ChatMessage>(`/instant/orders/${orderId}/messages`, { text });
+  return apiPost<ChatMessage>(`/instant/orders/${orderId}/messages`, {
+    text,
+    voice_url: voiceUrl,
+  });
 }
 
 /** WebSocket чата такси-заказа. Первым кадром {"type":"auth","token":...}. */
@@ -133,6 +175,73 @@ export function openOrderChat(
 ): { send: (text: string) => boolean; close: () => void } {
   const token = getToken();
   const ws = new WebSocket(`${wsBase()}/ws/instant/${orderId}/chat`);
+
+  ws.onopen = () => {
+    if (token) ws.send(JSON.stringify({ type: "auth", token }));
+    handlers.onOpen?.();
+  };
+  ws.onmessage = (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      if (data?.type === "message") handlers.onMessage(data as ChatMessage);
+    } catch {
+      /* не-JSON кадр — игнор */
+    }
+  };
+  ws.onclose = () => handlers.onClose?.();
+  ws.onerror = () => handlers.onError?.();
+
+  return {
+    send: (text: string) => {
+      if (ws.readyState !== WebSocket.OPEN) return false;
+      ws.send(JSON.stringify({ type: "message", text }));
+      return true;
+    },
+    close: () => {
+      try {
+        ws.close();
+      } catch {
+        /* уже закрыт */
+      }
+    },
+  };
+}
+
+// ---- Чат посылки (chat.py: /parcels/{id}/messages + /ws/parcel/{id}/chat) ----
+// До этого у посылки была только кнопка «позвонить»: договориться письменно —
+// где оставить, кому отдать, когда будут дома — было нечем.
+// После вручения/возврата/отмены чат остаётся на чтение, но не на запись.
+
+export function fetchParcelMessages(
+  parcelId: number,
+  signal?: AbortSignal
+): Promise<ChatMessage[]> {
+  return apiGet<ChatMessage[]>(`/parcels/${parcelId}/messages?limit=500`, { signal });
+}
+
+export function sendParcelMessageRest(
+  parcelId: number,
+  text: string,
+  voiceUrl?: string
+): Promise<ChatMessage> {
+  return apiPost<ChatMessage>(`/parcels/${parcelId}/messages`, {
+    text,
+    voice_url: voiceUrl,
+  });
+}
+
+/** WebSocket чата посылки. Первым кадром {"type":"auth","token":...}. */
+export function openParcelChat(
+  parcelId: number,
+  handlers: {
+    onMessage: (m: ChatMessage) => void;
+    onOpen?: () => void;
+    onClose?: () => void;
+    onError?: () => void;
+  }
+): { send: (text: string) => boolean; close: () => void } {
+  const token = getToken();
+  const ws = new WebSocket(`${wsBase()}/ws/parcel/${parcelId}/chat`);
 
   ws.onopen = () => {
     if (token) ws.send(JSON.stringify({ type: "auth", token }));
@@ -201,4 +310,37 @@ export function openTripLocation(
       }
     },
   };
+}
+
+/**
+ * Фото в сообщении помечается префиксом — так же, как в приложении (`ApiClient.IMG_PREFIX`).
+ * Отдельного поля под картинку в сообщении нет, и заводить его только ради веба нельзя:
+ * старый Android перестал бы понимать такие сообщения.
+ */
+export const IMG_PREFIX = "[img]";
+
+/**
+ * Текст сообщения → ссылка на картинку, если это фото. Иначе null.
+ *
+ * Принимаем ТОЛЬКО свой адрес. Легитимное фото всегда наше: его отдаёт
+ * POST /upload/chat-photo. А вот собеседник (или мошенник, притворяющийся
+ * поддержкой) может послать текст `[img]http://чужой-хост/1.png` руками —
+ * браузер сам сходит по ссылке, и на том конце запишут IP человека, который
+ * просто открыл чат. Чужой адрес показываем как обычный текст: сообщение
+ * не теряется, но никуда не ходим.
+ */
+export function imageUrlOf(text: string): string | null {
+  if (!text?.startsWith(IMG_PREFIX)) return null;
+  const url = text.slice(IMG_PREFIX.length).trim();
+  if (!url || !isOwnApiUrl(url)) return null;
+  return url;
+}
+
+// ---- Фото в чат (POST /upload/chat-photo, multipart `file`) ----
+// Отдельно от документов водителя: те приватны (/secure/docs), фото чата видит собеседник.
+// Нужно, чтобы объяснить «вот у какого подъезда стою» без десяти сообщений текстом.
+export function uploadChatPhoto(file: File, signal?: AbortSignal): Promise<{ url: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiUpload<{ url: string }>("/upload/chat-photo", form, { signal });
 }

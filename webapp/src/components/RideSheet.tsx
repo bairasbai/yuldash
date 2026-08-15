@@ -67,7 +67,7 @@ export default function RideSheet({
         aria-modal="true"
       >
         <div className="sheet__grip" aria-hidden />
-        <div className="ride-card__route" style={{ fontSize: 20 }}>
+        <div className="ride-card__route" style={{ fontSize: "var(--font-heading)" }}>
           <span>{ride.from_city}</span>
           <span className="ride-card__arrow">
             <IconArrow size={20} />
@@ -107,7 +107,7 @@ export default function RideSheet({
             type="button"
             className="sheet__driver-link"
             onClick={() => navigate(`/drivers/${ride.driver_id}`)}
-            aria-label={appText("Открыть профиль водителя", "Водитель профилен асыу")}
+            aria-label={appText("Открыть профиль водителя", "Йөрөтөүсе профилен асыу")}
           >
             <span className="ride-card__avatar" aria-hidden>
               {(ride.driver_name || "?").trim().charAt(0).toUpperCase()}
@@ -151,7 +151,7 @@ export default function RideSheet({
         <p className="sheet__note">
           {appText(
             "Телефон и точное место встречи откроются после подтверждения водителем.",
-            "Телефон һәм осрашыу урыны водитель раҫлағас асыла."
+            "Телефон һәм осрашыу урыны йөрөтөүсе раҫлағас асыла."
           )}
         </p>
       </div>

@@ -95,7 +95,7 @@ export default function PromoCodeScreen() {
           <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}
@@ -122,6 +122,34 @@ export default function PromoCodeScreen() {
                   )}
                 </div>
               )}
+              {/* Что теперь делать — ничего. Это и надо сказать: иначе человек
+                  ищет, куда ещё нажать, а скидка ждёт следующего заказа сама. */}
+              {(mine?.discount_kop ?? 0) > 0 && (
+                <div className="promo-applied__discount">
+                  {mine?.discount_used_order_id ? (
+                    appText(
+                      `Скидка ${Math.round((mine.discount_kop ?? 0) / 100)} ₽ уже использована — она пошла на прошлый заказ такси.`,
+                      `${Math.round((mine.discount_kop ?? 0) / 100)} ₽ ташлама ҡулланылған — ул үткән такси заказына китте.`
+                    )
+                  ) : mine?.discount_available ? (
+                    <>
+                      <b>{appText("Вводить больше ничего не нужно", "Башҡа бер нәмә лә индерергә кәрәкмәй")}</b>
+                      <p>
+                        {appText(
+                          `Скидка ${Math.round((mine.discount_kop ?? 0) / 100)} ₽ сработает сама при следующем заказе такси — ты увидишь её в цене ещё до кнопки «Вызвать».`,
+                          `${Math.round((mine.discount_kop ?? 0) / 100)} ₽ ташлама киләһе такси заказында үҙе эшләй — уны «Саҡырыу» төймәһенә тиклем үк хаҡта күрәһең.`
+                        )}
+                      </p>
+                    </>
+                  ) : (
+                    appText(
+                      "Срок скидки вышел или акцию закрыли. Промокод остаётся за тобой.",
+                      "Ташлама ваҡыты үтте йәки акция ябылды. Промокод һинеке булып ҡала."
+                    )
+                  )}
+                </div>
+              )}
+
               <p className="invite-hint" style={{ marginTop: 12 }}>
                 {appText(
                   "Один промокод на всю жизнь аккаунта — этот уже применён.",

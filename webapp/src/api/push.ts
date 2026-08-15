@@ -51,3 +51,12 @@ export async function sendWebPushSubscription(sub: PushSubscription): Promise<vo
     throw e;
   }
 }
+
+/**
+ * Отвязать подписку при выходе из аккаунта (POST /push/unregister).
+ * Приватность на общем телефоне: без этого следующий вошедший получал бы чужие уведомления.
+ * Идемпотентно, ошибки глотаем — выход из аккаунта не должен падать из-за пуша.
+ */
+export function unregisterPush(token: string): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>("/push/unregister", { token }).catch(() => ({ ok: false }));
+}

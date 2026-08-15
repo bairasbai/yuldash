@@ -12,12 +12,17 @@ export default defineConfig({
       includeAssets: ["favicon.ico", "apple-touch-icon.png"],
       manifest: false, // используем свой public/manifest.webmanifest
       workbox: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
-        // Тяжёлые hero-картинки (> 2 МБ) не кладём в precache app-shell —
-        // это экранные ассеты (онбординг/логин), грузятся по требованию.
+        globPatterns: ["**/*.{js,css,html,ico,png,webp,svg,woff2}"],
+        // Картинки онбординга и входа человек видит один раз, и они уже лёгкие
+        // (были PNG по 2 МБ, стали WebP по ~130 КБ). В офлайн-оболочку их
+        // всё равно не кладём — грузятся по требованию, когда экран открылся.
         globIgnores: [
-          "**/onboarding_bashkir_hero.png",
-          "**/login_salavat_yulaev_hero.png",
+          "**/onboarding_bashkir_hero.webp",
+          "**/login_salavat_yulaev_hero.webp",
+          // Админка — отдельными кусками и НЕ в офлайн-оболочке: её открывает
+          // один человек, у которого всегда есть сеть. Класть её всем в кеш —
+          // это лишние мегабайты мобильного трафика при первом визите.
+          "**/assets/Admin*.js",
         ],
         navigateFallback: "/index.html",
         // Подключаем наш обработчик Web Push (push / notificationclick) к

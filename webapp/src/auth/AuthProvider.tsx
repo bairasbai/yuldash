@@ -20,6 +20,10 @@ import {
   refreshSession,
   type Me,
 } from "../api/auth";
+import { disableWebPush } from "../push/webPush";
+import { clearOutbox } from "../utils/outbox";
+import { clearAllDrafts } from "../utils/formDraft";
+import { clearPersonalLocal } from "../utils/privacy";
 
 type Status = "loading" | "authed" | "guest";
 
@@ -101,6 +105,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Пуши гасим ДО выхода: серверу нужен ещё живой токен, чтобы отвязать подписку.
+    // Иначе на общем телефоне следующий вошедший получал бы чужие уведомления.
+    try {
+      await disableWebPush();
+    } catch {
+      /* не критично — выход важнее */
+    }
     try {
       await logoutServer();
     } catch {
@@ -109,6 +120,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null, null);
     setUser(null);
     setStatus("guest");
+    // Неотправленные сообщения прошлого человека нельзя оставлять: на общем телефоне
+    // они ушли бы ОТ НОВОГО аккаунта при первом же появлении сети.
+    clearOutbox();
+    // Черновики анкет — тоже личное: на общем телефоне следующий не должен
+    // увидеть чужой ИНН и номер разрешения.
+    clearAllDrafts();
+    // Согласия, роль, маршруты поиска, номер заказа. Согласие с офертой даёт
+    // ЧЕЛОВЕК: без этого следующий вошедший числился бы согласившимся с тем,
+    // чего не видел. Язык и тему оставляем — это настройки телефона.
+    clearPersonalLocal();
     // P1-1: чистим рантайм-кеши Service Worker — иначе приватные ответы (ленты/координаты)
     // переживают logout и доступны на общем устройстве через DevTools → Cache Storage.
     if (typeof caches !== "undefined") {

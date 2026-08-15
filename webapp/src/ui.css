@@ -28,7 +28,7 @@
   background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
   color: #fff;
   border-radius: 0 0 var(--radius-card) var(--radius-card);
-  box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--depth-card);
 }
 .screen-header__row {
   display: flex;
@@ -38,13 +38,13 @@
 }
 .screen-header h1 {
   margin: 0;
-  font-size: 26px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 .screen-header p {
   margin: 4px 0 0;
-  font-size: 14px;
+  font-size: var(--font-caption);
   opacity: 0.85;
 }
 
@@ -53,21 +53,34 @@
   flex: none;
   display: inline-flex;
   padding: 3px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.16);
   backdrop-filter: blur(6px);
 }
 .lang-toggle button {
-  min-width: 40px;
-  height: 34px;
+  position: relative;
+  min-width: 44px;
+  /* Тач-цель: 44px — минимум, ниже которого палец промахивается.
+     Переключателем языка пользуются при каждом заходе. */
+  height: 44px;
   padding: 0 12px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: rgba(255, 255, 255, 0.85);
-  font-size: 13px;
-  font-weight: 700;
-  transition: background 0.2s ease, color 0.2s ease;
+  font-size: var(--font-caption);
+  font-weight: 600;
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease;
+}
+/* Тач-цель 44px без роста шапки: невидимая область поверх пилюли */
+.lang-toggle button::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 44px;
+  transform: translateY(-50%);
 }
 .lang-toggle button[data-active="true"] {
   background: #fff;
@@ -81,19 +94,19 @@
   border-radius: var(--radius-item);
   padding: 14px;
   margin-top: 12px;
-  animation: fadeUp 0.35s ease both;
-  box-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.5);
+  animation: fadeUp var(--motion-normal) ease both;
+  box-shadow: var(--depth-card);
 }
 .ride-card__route {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 18px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 .ride-card__arrow {
-  color: var(--green-bright, var(--canon-green-bright));
+  color: var(--green2);
   flex: none;
 }
 .ride-card__meta {
@@ -102,7 +115,7 @@
   flex-wrap: wrap;
   gap: 8px 14px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--font-caption);
 }
 .ride-card__meta b {
   color: var(--text);
@@ -132,22 +145,22 @@
   display: grid;
   place-items: center;
   color: var(--green);
-  font-weight: 800;
+  font-weight: 700;
 }
 .ride-card__driver-name {
-  font-weight: 700;
-  font-size: 15px;
+  font-weight: 600;
+  font-size: var(--font-body);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .ride-card__driver-sub {
-  font-size: 12px;
+  font-size: var(--font-micro);
   color: var(--muted);
 }
 .ride-card__price {
-  font-size: 20px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   color: var(--green);
   white-space: nowrap;
 }
@@ -159,9 +172,9 @@
   gap: 4px;
   height: 24px;
   padding: 0 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-micro);
+  font-weight: 500;
 }
 .badge--mint {
   background: var(--mint);
@@ -169,7 +182,7 @@
 }
 .badge--gold {
   background: var(--canon-gold-soft);
-  color: #7a5200;
+  color: var(--canon-gold-ink);
 }
 .badge--boost {
   background: var(--canon-gold);
@@ -189,7 +202,7 @@
   );
   background-size: 400% 100%;
   animation: shimmer 1.4s ease infinite;
-  border-radius: 10px;
+  border-radius: var(--radius-field);
 }
 .skeleton-card {
   background: var(--surface);
@@ -203,10 +216,10 @@
 .state {
   text-align: center;
   padding: 56px 20px;
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .state__emoji {
-  font-size: 44px;
+  font-size: var(--font-display);
 }
 /* Брендовая линиевая иконка в кружке Canon — вместо hero-эмодзи в пустых
    и «скоро» состояниях (кошелёк/поездки/чат и т.п.). Как аватар-плейсхолдер
@@ -231,27 +244,27 @@
 }
 .state h2 {
   margin: 14px 0 6px;
-  font-size: 19px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
 }
 .state p {
   margin: 0 auto;
   max-width: 320px;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
 }
 .btn-primary {
   margin-top: 18px;
   min-height: 52px;
   padding: 0 22px;
   border: 0;
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--green-btn);
   color: #fff;
-  font-size: 16px;
-  font-weight: 800;
-  transition: transform 0.12s ease, opacity 0.2s ease;
+  font-size: var(--font-body);
+  font-weight: 600;
+  transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
 }
 .btn-primary:active {
   transform: scale(0.97);
@@ -268,7 +281,7 @@
   background: transparent;
   color: var(--muted);
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--font-caption);
 }
 
 /* ---- Нижняя навигация ---- */
@@ -298,15 +311,15 @@
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  transition: color 0.2s ease;
+  font-size: var(--font-micro);
+  font-weight: 500;
+  transition: color var(--motion-quick) ease;
 }
 .nav-item.is-active {
   color: var(--green);
 }
 .nav-item svg {
-  transition: transform 0.2s ease;
+  transition: transform var(--motion-quick) ease;
 }
 .nav-item.is-active svg {
   transform: translateY(-1px) scale(1.04);
@@ -323,10 +336,10 @@
   margin: 0 auto;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 22px;
+  border-radius: var(--radius-item);
   padding: 16px;
-  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.5);
-  animation: fadeUp 0.4s ease both;
+  box-shadow: var(--depth-sheet);
+  animation: fadeUp var(--motion-slow) ease both;
 }
 .install-sheet__row {
   display: flex;
@@ -336,17 +349,17 @@
 .install-sheet img {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   flex: none;
 }
 .install-sheet h3 {
   margin: 0 0 4px;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
 }
 .install-sheet p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
   line-height: 1.45;
 }
@@ -371,7 +384,7 @@
   justify-content: center;
   gap: 14px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--font-caption);
 }
 .spinner {
   width: 30px;
@@ -401,21 +414,21 @@
   text-align: center;
 }
 .splash__mark {
-  animation: fadeUp 0.5s ease both, floaty 3.2s ease-in-out infinite 0.5s;
+  animation: fadeUp var(--motion-slow) ease both, floaty 3.2s ease-in-out infinite 0.5s;
   filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.35));
 }
 .splash__word {
   margin-top: 18px;
-  font-size: 40px;
-  font-weight: 800;
+  font-size: var(--font-display);
+  font-weight: 700;
   letter-spacing: -0.01em;
-  animation: fadeUp 0.5s ease both 0.1s;
+  animation: fadeUp var(--motion-slow) ease both 0.1s;
 }
 .splash__slogan {
   margin: 4px 0 0;
   opacity: 0.85;
-  font-size: 15px;
-  animation: fadeUp 0.5s ease both 0.2s;
+  font-size: var(--font-body);
+  animation: fadeUp var(--motion-slow) ease both 0.2s;
 }
 .splash__spin {
   margin-top: 28px;
@@ -453,7 +466,7 @@
 }
 .intro__mark {
   margin-bottom: 20px;
-  animation: fadeUp 0.5s ease both;
+  animation: fadeUp var(--motion-slow) ease both;
 }
 .intro__stage {
   height: 58px;
@@ -463,16 +476,16 @@
   overflow: hidden;
 }
 .intro__word {
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.01em;
 }
 .intro__word--meaning {
-  font-size: 32px;
+  font-size: var(--font-display);
   opacity: 0.92;
-  animation: letterIn 0.5s ease both;
+  animation: letterIn var(--motion-slow) ease both;
 }
 .intro__word--brand {
-  font-size: 46px;
+  font-size: var(--font-display);
   animation: brandIn 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 @keyframes letterIn {
@@ -501,20 +514,20 @@
   margin-top: 14px;
   width: 46px;
   height: 3px;
-  border-radius: 3px;
+  border-radius: var(--radius-tiny);
   background: var(--canon-gold);
   animation: fadeUp 0.6s ease both 0.3s;
 }
 .intro__slogan {
   margin: 14px 0 0;
-  font-size: 15px;
+  font-size: var(--font-body);
   opacity: 0.85;
   animation: fadeUp 0.6s ease both 0.45s;
 }
 .intro__skip {
   position: absolute;
   bottom: calc(env(safe-area-inset-bottom) + 18px);
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: rgba(255, 255, 255, 0.7);
 }
 
@@ -535,20 +548,20 @@
 .onb__lang {
   display: inline-flex;
   padding: 3px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
   border: 1px solid var(--border);
 }
 .onb__lang button {
-  min-height: 34px;
+  min-height: 44px;
   padding: 0 12px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
-  transition: background 0.2s ease, color 0.2s ease;
+  font-size: var(--font-caption);
+  font-weight: 600;
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease;
 }
 .onb__lang button[data-active="true"] {
   background: var(--green-btn);
@@ -563,28 +576,28 @@
 .onb__slide {
   width: 100%;
   text-align: center;
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .onb__emoji {
-  font-size: 64px;
+  font-size: var(--font-display);
   line-height: 1;
 }
 .onb__slide h1 {
   margin: 22px 0 10px;
-  font-size: 28px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 .onb__slide p {
   margin: 0 auto;
   max-width: 340px;
   color: var(--muted);
-  font-size: 17px;
+  font-size: var(--font-body);
   line-height: 1.45;
 }
 .onb--big .onb__slide p,
 .onb--big .list-row__sub {
-  font-size: 18px;
+  font-size: var(--font-heading);
 }
 .onb__setup {
   text-align: left;
@@ -613,25 +626,25 @@
   border-radius: var(--radius-item);
   background: var(--surface);
   text-align: left;
-  transition: border-color 0.2s ease, transform 0.12s ease;
+  transition: border-color var(--motion-quick) ease, transform var(--motion-quick) ease;
 }
 .onb__role:active {
   transform: scale(0.98);
 }
 .onb__role.is-active {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
   background: var(--mint);
 }
 .onb__role-emoji {
-  font-size: 30px;
+  font-size: var(--font-title);
 }
 .onb__role-title {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .onb__role-sub {
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .onb__role-check {
@@ -657,13 +670,13 @@
   border: 1.5px solid var(--border);
   border-radius: var(--radius-item);
   background: var(--surface);
-  transition: border-color 0.2s ease;
+  transition: border-color var(--motion-quick) ease;
 }
 .onb__simple.is-active {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .onb__simple-emoji {
-  font-size: 22px;
+  font-size: var(--font-heading);
 }
 /* Точка статуса «на линии» — вместо эмодзи 🟢/⚪️. Приглушённый кружок,
    зелёный когда онлайн. Наследует Canon-токены (свет/тьма). */
@@ -677,7 +690,7 @@
   display: inline-block;
 }
 .status-dot--on {
-  background: var(--canon-green-bright);
+  background: var(--green2);
   opacity: 1;
   box-shadow: 0 0 0 3px var(--mint);
 }
@@ -688,21 +701,21 @@
   text-align: left;
 }
 .onb__simple-text b {
-  font-size: 15px;
+  font-size: var(--font-body);
   color: var(--text);
 }
 .onb__simple-text span {
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .switch {
   flex: none;
   width: 46px;
   height: 28px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--border);
   position: relative;
-  transition: background 0.2s ease;
+  transition: background var(--motion-quick) ease;
 }
 .switch::after {
   content: "";
@@ -713,8 +726,8 @@
   height: 22px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-  transition: transform 0.2s ease;
+  box-shadow: var(--depth-raised);
+  transition: transform var(--motion-quick) ease;
 }
 .switch.on {
   background: var(--green-btn);
@@ -731,9 +744,9 @@
 .onb__dots span {
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--border);
-  transition: width 0.25s ease, background 0.25s ease;
+  transition: width var(--motion-quick) ease, background var(--motion-quick) ease;
 }
 .onb__dots span.is-active {
   width: 26px;
@@ -748,7 +761,7 @@
 .onb__next {
   min-width: 130px;
   min-height: 56px;
-  border-radius: 20px;
+  border-radius: var(--radius-item);
 }
 
 /* ---- Auth (Login) ---- */
@@ -770,7 +783,7 @@
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   background: transparent;
   color: var(--text);
 }
@@ -781,38 +794,38 @@
 .auth__brand {
   text-align: center;
   margin: 8px 0 22px;
-  animation: fadeUp 0.4s ease both;
+  animation: fadeUp var(--motion-slow) ease both;
 }
 .auth__word {
   margin-top: 12px;
-  font-size: 30px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   letter-spacing: -0.01em;
 }
 .auth__slogan {
   margin: 2px 0 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--font-caption);
 }
 .auth__card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   padding: 22px;
-  box-shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.5);
-  animation: fadeUp 0.4s ease both 0.05s;
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-slow) ease both 0.05s;
 }
 .auth__card h1 {
   margin: 0 0 8px;
-  font-size: 22px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 .auth__lead {
   margin: 0 0 18px;
   color: var(--muted);
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: var(--font-body);
+  line-height: 1.45;
 }
 .btn-tg {
   width: 100%;
@@ -822,12 +835,12 @@
   justify-content: center;
   gap: 10px;
   border: 0;
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: #229ed9;
   color: #fff;
-  font-size: 16px;
-  font-weight: 700;
-  transition: transform 0.12s ease, opacity 0.2s ease;
+  font-size: var(--font-body);
+  font-weight: 600;
+  transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
 }
 .btn-tg:active {
   transform: scale(0.98);
@@ -841,7 +854,7 @@
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--font-caption);
   font-weight: 600;
   text-decoration: underline;
   min-height: 44px;
@@ -849,45 +862,45 @@
 .auth__note {
   margin-top: 4px;
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-caption);
   line-height: 1.45;
 }
 .auth__legal {
   margin: 16px 0 0;
   text-align: center;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-micro);
   line-height: 1.45;
 }
 .auth__error {
   margin-top: 14px;
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-field);
   background: var(--danger-bg);
   color: var(--danger);
-  font-size: 14px;
+  font-size: var(--font-caption);
   line-height: 1.45;
-  animation: fadeUp 0.25s ease both;
+  animation: fadeUp var(--motion-quick) ease both;
 }
 .auth__code {
   width: 100%;
   height: 60px;
   border: 1.5px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
   color: var(--text);
   text-align: center;
-  font-size: 30px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   letter-spacing: 0.32em;
   padding-left: 0.32em;
 }
 .auth__code:focus {
   outline: none;
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .auth__name {
   width: 100%;
@@ -895,14 +908,14 @@
   margin-top: 12px;
   padding: 0 16px;
   border: 1.5px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 16px;
+  font-size: var(--font-body);
 }
 .auth__name:focus {
   outline: none;
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .auth__submit,
 .invite-share {
@@ -934,8 +947,8 @@
 }
 .list-group__label {
   margin: 0 4px 8px;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-micro);
+  font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
@@ -956,10 +969,10 @@
   background: var(--surface);
   text-align: left;
   color: var(--text);
-  animation: fadeUp 0.3s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 button.list-row {
-  transition: transform 0.12s ease;
+  transition: transform var(--motion-quick) ease;
 }
 button.list-row:active {
   transform: scale(0.99);
@@ -968,7 +981,7 @@ button.list-row:active {
   flex: none;
   width: 42px;
   height: 42px;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   display: grid;
   place-items: center;
   background: var(--mint);
@@ -979,12 +992,12 @@ button.list-row:active {
   min-width: 0;
 }
 .list-row__title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
 }
 .list-row__sub {
   margin-top: 3px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
   line-height: 1.4;
 }
@@ -1004,10 +1017,10 @@ button.list-row:active {
 .consents__status {
   margin-top: 16px;
   padding: 14px 16px;
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--font-caption);
   line-height: 1.45;
   text-align: center;
 }
@@ -1024,7 +1037,7 @@ button.list-row:active {
   background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
   color: #fff;
   text-align: center;
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .trust-hero__badge {
   width: 60px;
@@ -1037,8 +1050,8 @@ button.list-row:active {
 }
 .trust-hero__level {
   margin-top: 12px;
-  font-size: 24px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
 }
 .trust-progress {
   margin: 14px auto 0;
@@ -1049,7 +1062,7 @@ button.list-row:active {
 .trust-progress span {
   width: 46px;
   height: 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-tiny);
   background: rgba(255, 255, 255, 0.25);
 }
 .trust-progress span.on {
@@ -1058,8 +1071,8 @@ button.list-row:active {
 .trust-hero__next {
   margin: 14px auto 0;
   max-width: 320px;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   opacity: 0.92;
 }
 .trust-row {
@@ -1074,8 +1087,8 @@ button.list-row:active {
   place-items: center;
   background: var(--surface-2);
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--font-micro);
+  font-weight: 500;
 }
 .trust-row__dot.on {
   background: var(--green-btn);
@@ -1093,8 +1106,8 @@ button.list-row:active {
   background: var(--surface);
   border: 1px solid var(--border);
   text-align: center;
-  box-shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.5);
-  animation: fadeUp 0.35s ease both;
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .invite-card__gift {
   width: 54px;
@@ -1102,19 +1115,21 @@ button.list-row:active {
   margin: 0 auto;
   border-radius: 50%;
   background: var(--canon-gold-soft);
-  color: #7a5200;
+  /* Было числом — и в тёмной теме оставалось тёмным на тёмном (контраст 1.59).
+     Переменная меняется вместе с фоном: 5.52 в светлой, 8.79 в тёмной. */
+  color: var(--canon-gold-ink);
   display: grid;
   place-items: center;
 }
 .invite-card__label {
   margin-top: 12px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-caption);
 }
 .invite-card__code {
   margin-top: 6px;
-  font-size: 34px;
-  font-weight: 800;
+  font-size: var(--font-display);
+  font-weight: 700;
   letter-spacing: 0.14em;
   color: var(--green);
 }
@@ -1131,13 +1146,19 @@ button.list-row:active {
   justify-content: center;
   gap: 8px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 15px;
-  font-weight: 700;
-  transition: transform 0.12s ease;
+  font-size: var(--font-body);
+  font-weight: 600;
+  transition: transform var(--motion-quick) ease;
 }
+/* «Показать ещё» под лентой: на всю ширину, с воздухом от последней карточки. */
+.show-more {
+  width: 100%;
+  margin: var(--space-md) 0 var(--space-lg);
+}
+
 .btn-soft:active {
   transform: scale(0.98);
 }
@@ -1160,19 +1181,19 @@ button.list-row:active {
 }
 .invite-stat b {
   display: block;
-  font-size: 26px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   color: var(--text);
 }
 .invite-stat span {
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .invite-hint {
   margin: 14px 0 0;
   color: var(--muted);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   text-align: center;
 }
 .invite-redeem {
@@ -1182,8 +1203,8 @@ button.list-row:active {
   background: var(--surface-2);
 }
 .invite-redeem__title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
 }
 .invite-redeem__row {
   margin-top: 12px;
@@ -1201,10 +1222,10 @@ button.list-row:active {
 .invite-redeem__msg {
   margin-top: 12px;
   padding: 10px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   background: var(--danger-bg);
   color: var(--danger);
-  font-size: 14px;
+  font-size: var(--font-caption);
 }
 .invite-redeem__msg.ok {
   background: var(--mint);
@@ -1223,7 +1244,7 @@ button.list-row:active {
   background: linear-gradient(155deg, #0b6b3a, #063a20);
   border: 0;
   color: #fff;
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .profile-card__avatar {
   width: 70px;
@@ -1235,8 +1256,8 @@ button.list-row:active {
   color: #fff;
   display: grid;
   place-items: center;
-  font-size: 26px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
 }
 .profile-card__avatar img {
   width: 100%;
@@ -1244,8 +1265,8 @@ button.list-row:active {
   object-fit: cover;
 }
 .profile-card__name {
-  font-size: 22px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   letter-spacing: -0.01em;
   color: #fff;
 }
@@ -1259,8 +1280,8 @@ button.list-row:active {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
 }
 .profile-guest {
@@ -1270,10 +1291,10 @@ button.list-row:active {
   background: var(--surface);
   border: 1px solid var(--border);
   text-align: center;
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .profile-guest__emoji {
-  font-size: 40px;
+  font-size: var(--font-display);
 }
 /* Брендовый знак Юлдаша в карточке гостя — вместо эмодзи-приветствия. */
 .profile-guest__mark {
@@ -1283,15 +1304,15 @@ button.list-row:active {
 }
 .profile-guest h2 {
   margin: 12px 0 6px;
-  font-size: 20px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
 }
 .profile-guest p {
   margin: 0 auto 4px;
   max-width: 320px;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
 }
 .logout-btn {
   margin: 22px auto 8px;
@@ -1301,11 +1322,11 @@ button.list-row:active {
   min-height: 48px;
   padding: 0 20px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: transparent;
   color: var(--danger);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
 }
 
 /* ================================================================
@@ -1358,22 +1379,22 @@ button.list-row:active {
   right: -30px;
 }
 .map-placeholder__pin {
-  font-size: 34px;
+  font-size: var(--font-display);
 }
 .map-placeholder__title {
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .map-placeholder__sub {
   max-width: 260px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
   line-height: 1.45;
 }
 .home-map {
   margin-top: 8px;
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 
 /* ---- Чипы-фильтры ---- */
@@ -1384,21 +1405,22 @@ button.list-row:active {
   margin-top: 12px;
 }
 .chip {
-  min-height: 40px;
+  /* Фильтры и зоны нажимают на ходу, часто одной рукой — 44px минимум. */
+  min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--text);
-  font-size: 13px;
-  font-weight: 700;
-  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
+  font-size: var(--font-caption);
+  font-weight: 600;
+  transition: transform var(--motion-quick) ease, border-color var(--motion-quick) ease, background var(--motion-quick) ease;
 }
 .chip:active {
   transform: scale(0.97);
 }
 .chip--on {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
   background: var(--mint);
   color: var(--green);
 }
@@ -1431,8 +1453,8 @@ button.list-row:active {
   border-radius: var(--radius-item);
   background: var(--surface);
   text-align: left;
-  transition: transform 0.12s ease;
-  animation: fadeUp 0.35s ease both;
+  transition: transform var(--motion-quick) ease;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .quick-tile:active {
   transform: scale(0.97);
@@ -1440,23 +1462,23 @@ button.list-row:active {
 .quick-tile__icon {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   display: grid;
   place-items: center;
   background: var(--mint);
   color: var(--green);
 }
 .quick-tile__title {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   line-height: 1.25;
   color: var(--text);
 }
 
 .section-title {
   margin: 22px 0 2px;
-  font-size: 17px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 .ride-card-btn {
@@ -1466,7 +1488,7 @@ button.list-row:active {
   border: 0;
   background: transparent;
   text-align: left;
-  transition: transform 0.12s ease;
+  transition: transform var(--motion-quick) ease;
 }
 .ride-card-btn:active {
   transform: scale(0.99);
@@ -1481,7 +1503,7 @@ button.list-row:active {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  animation: fadeIn 0.2s ease both;
+  animation: fadeIn var(--motion-quick) ease both;
 }
 .sheet {
   width: 100%;
@@ -1489,25 +1511,25 @@ button.list-row:active {
   background: var(--surface);
   border-radius: var(--radius-card) var(--radius-card) 0 0;
   padding: 12px 18px calc(20px + env(safe-area-inset-bottom));
-  box-shadow: 0 -20px 60px -20px rgba(0, 0, 0, 0.5);
-  animation: sheetUp 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  box-shadow: 0 -12px 28px -10px rgba(0, 0, 0, 0.28);
+  animation: sheetUp var(--motion-normal) cubic-bezier(0.2, 0.8, 0.2, 1) both;
   max-height: 88dvh;
   overflow-y: auto;
 }
 .sheet__grip {
   width: 40px;
   height: 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-tiny);
   background: var(--border);
   margin: 0 auto 14px;
 }
 .sheet__comment {
   margin: 12px 0 0;
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--font-caption);
   line-height: 1.45;
 }
 .sheet__driver {
@@ -1523,7 +1545,7 @@ button.list-row:active {
 .sheet__note {
   margin: 12px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-caption);
   line-height: 1.45;
   text-align: center;
 }
@@ -1557,8 +1579,8 @@ button.list-row:active {
   gap: 6px;
 }
 .field__label {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--muted);
 }
 .field__input {
@@ -1566,15 +1588,15 @@ button.list-row:active {
   min-height: 52px;
   padding: 0 16px;
   border: 1.5px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 16px;
+  font-size: var(--font-body);
   font-family: inherit;
 }
 .field__input:focus {
   outline: none;
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .field__area {
   min-height: 96px;
@@ -1593,22 +1615,22 @@ button.list-row:active {
   min-height: 52px;
   padding: 0 6px;
   border: 1.5px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
 }
 .stepper button {
   width: 44px;
   height: 44px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   background: var(--surface);
   color: var(--green);
-  font-size: 24px;
+  font-size: var(--font-title);
   font-weight: 700;
 }
 .stepper b {
-  font-size: 18px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
 }
 
 /* Сегмент-переключатель (тип поездки) */
@@ -1625,21 +1647,21 @@ button.list-row:active {
   justify-content: center;
   gap: 3px;
   border: 1.5px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--surface);
   color: var(--text);
-  font-size: 13px;
-  font-weight: 700;
-  transition: border-color 0.2s ease, background 0.2s ease, transform 0.12s ease;
+  font-size: var(--font-caption);
+  font-weight: 600;
+  transition: border-color var(--motion-quick) ease, background var(--motion-quick) ease, transform var(--motion-quick) ease;
 }
 .seg__item span {
-  font-size: 20px;
+  font-size: var(--font-heading);
 }
 .seg__item:active {
   transform: scale(0.97);
 }
 .seg__item.is-active {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
   background: var(--mint);
   color: var(--green);
 }
@@ -1654,19 +1676,19 @@ button.list-row:active {
   border: 0;
   background: transparent;
   color: var(--text);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
 }
 .more-toggle__chev {
-  transition: transform 0.25s ease;
+  transition: transform var(--motion-quick) ease;
   color: var(--muted);
-  font-size: 18px;
+  font-size: var(--font-heading);
 }
 .more-toggle__chev.open {
   transform: rotate(180deg);
 }
 .more-body {
-  animation: fadeUp 0.25s ease both;
+  animation: fadeUp var(--motion-quick) ease both;
 }
 /* «Дополнительно» как карточка (андроид: Surface CanonItemShape, шапка 56dp). */
 .more-block {
@@ -1694,18 +1716,18 @@ button.list-row:active {
   min-height: 44px;
   padding: 0 14px;
   border: 1.5px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--font-caption);
   font-weight: 600;
-  transition: border-color 0.2s ease, background 0.2s ease, transform 0.12s ease;
+  transition: border-color var(--motion-quick) ease, background var(--motion-quick) ease, transform var(--motion-quick) ease;
 }
 .opt-chip:active {
   transform: scale(0.97);
 }
 .opt-chip.is-active {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
   background: var(--mint);
   color: var(--green);
 }
@@ -1726,8 +1748,8 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  box-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.5);
-  animation: fadeUp 0.32s ease both;
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .offer-card__top {
   display: flex;
@@ -1737,10 +1759,10 @@ button.list-row:active {
 .offer-card__comment {
   margin: 12px 0 0;
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--font-caption);
   line-height: 1.45;
 }
 .offer-card__accepted {
@@ -1750,7 +1772,7 @@ button.list-row:active {
   justify-content: center;
   gap: 8px;
   min-height: 48px;
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--mint);
   color: var(--green);
   font-weight: 700;
@@ -1767,7 +1789,7 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  animation: fadeUp 0.32s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .trip__meta {
   margin-top: 12px;
@@ -1776,7 +1798,7 @@ button.list-row:active {
   align-items: center;
   gap: 8px 14px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--font-caption);
 }
 .trip__meta b {
   color: var(--text);
@@ -1802,13 +1824,13 @@ button.list-row:active {
 }
 .info-row__k {
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--font-caption);
   flex: none;
 }
 .info-row__v {
   text-align: right;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .info-row--link {
@@ -1826,10 +1848,10 @@ button.list-row:active {
 .unlock-card__point {
   margin: 0;
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-field);
   background: var(--mint);
   color: var(--green);
-  font-size: 14px;
+  font-size: var(--font-caption);
   font-weight: 600;
   line-height: 1.4;
 }
@@ -1845,11 +1867,11 @@ button.list-row:active {
   border-radius: var(--radius-item);
   background: var(--surface);
   border: 1px solid var(--border);
-  animation: fadeUp 0.3s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .trip-banner__hint {
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--font-caption);
 }
 .code-card {
   margin-top: 14px;
@@ -1858,22 +1880,22 @@ button.list-row:active {
   background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
   color: #fff;
   text-align: center;
-  animation: fadeUp 0.32s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .code-card__label {
-  font-size: 13px;
+  font-size: var(--font-caption);
   opacity: 0.85;
 }
 .code-card__value {
   margin-top: 6px;
-  font-size: 40px;
-  font-weight: 800;
+  font-size: var(--font-display);
+  font-weight: 700;
   letter-spacing: 0.28em;
   padding-left: 0.28em;
 }
 .code-card__hint {
   margin-top: 6px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   opacity: 0.85;
 }
 .sos-btn {
@@ -1881,12 +1903,12 @@ button.list-row:active {
   width: 100%;
   min-height: 52px;
   border: 1.5px solid var(--danger);
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--danger-bg);
   color: var(--danger);
-  font-size: 16px;
-  font-weight: 800;
-  transition: transform 0.12s ease;
+  font-size: var(--font-body);
+  font-weight: 600;
+  transition: transform var(--motion-quick) ease;
 }
 .sos-btn:active {
   transform: scale(0.98);
@@ -1898,11 +1920,11 @@ button.list-row:active {
   background: var(--surface);
   border: 1px solid var(--border);
   text-align: center;
-  animation: fadeUp 0.32s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .rate-card__title {
-  font-size: 17px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
 }
 .rate-stars {
   margin-top: 14px;
@@ -1918,7 +1940,7 @@ button.list-row:active {
   border: 0;
   background: transparent;
   color: var(--border);
-  transition: transform 0.12s ease, color 0.2s ease;
+  transition: transform var(--motion-quick) ease, color var(--motion-quick) ease;
 }
 .rate-star:active {
   transform: scale(1.15);
@@ -1938,8 +1960,8 @@ button.list-row:active {
 }
 .chat__title {
   padding: 14px 16px;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   border-bottom: 1px solid var(--border);
 }
 .chat__body {
@@ -1956,20 +1978,20 @@ button.list-row:active {
   max-width: 240px;
   text-align: center;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--font-caption);
   line-height: 1.45;
 }
 .bubble {
   align-self: flex-start;
   max-width: 82%;
   padding: 10px 14px;
-  border-radius: 16px 16px 16px 4px;
+  border-radius: var(--radius-field) 16px 16px 4px;
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text);
-  font-size: 15px;
+  font-size: var(--font-body);
   line-height: 1.4;
-  animation: fadeUp 0.2s ease both;
+  animation: fadeUp var(--motion-quick) ease both;
   overflow-wrap: anywhere;
 }
 .bubble--mine {
@@ -1977,12 +1999,12 @@ button.list-row:active {
   background: var(--green-btn);
   color: #fff;
   border-color: transparent;
-  border-radius: 16px 16px 4px 16px;
+  border-radius: var(--radius-field) 16px 4px 16px;
 }
 .bubble__admin {
   display: block;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-micro);
+  font-weight: 500;
   color: var(--warn);
   margin-bottom: 2px;
 }
@@ -1998,15 +2020,15 @@ button.list-row:active {
   min-height: 46px;
   padding: 0 14px;
   border: 1.5px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 15px;
+  font-size: var(--font-body);
   font-family: inherit;
 }
 .chat__input input:focus {
   outline: none;
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .chat__input button {
   width: 46px;
@@ -2018,7 +2040,7 @@ button.list-row:active {
   color: #fff;
   display: grid;
   place-items: center;
-  transition: transform 0.12s ease;
+  transition: transform var(--motion-quick) ease;
 }
 .chat__input button:active {
   transform: scale(0.94);
@@ -2031,12 +2053,12 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  box-shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.5);
-  animation: fadeUp 0.32s ease both;
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .receipt__brand {
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--green);
 }
 .receipt__route {
@@ -2044,14 +2066,14 @@ button.list-row:active {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 20px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 .receipt__date {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--font-caption);
 }
 .receipt__rows {
   margin-top: 16px;
@@ -2069,19 +2091,19 @@ button.list-row:active {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 15px;
+  font-size: var(--font-body);
   color: var(--muted);
 }
 .receipt__total b {
-  font-size: 24px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   color: var(--green);
 }
 .receipt__foot {
   margin: 16px 0 0;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--font-micro);
+  line-height: 1.45;
   text-align: center;
 }
 
@@ -2092,7 +2114,7 @@ button.list-row:active {
 
 /* Подсказка под полем формы */
 .field__hint {
-  font-size: 12px;
+  font-size: var(--font-micro);
   color: var(--muted);
   line-height: 1.4;
 }
@@ -2105,10 +2127,10 @@ button.list-row:active {
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   background: transparent;
   color: var(--muted);
-  transition: background 0.2s ease, color 0.2s ease, transform 0.12s ease;
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease, transform var(--motion-quick) ease;
 }
 .icon-btn:active {
   transform: scale(0.92);
@@ -2134,13 +2156,13 @@ button.list-row:active {
   min-height: 48px;
   padding: 10px 14px;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
   color: var(--text);
   text-align: left;
-  font-size: 14px;
+  font-size: var(--font-caption);
   line-height: 1.35;
-  transition: transform 0.12s ease, border-color 0.2s ease;
+  transition: transform var(--motion-quick) ease, border-color var(--motion-quick) ease;
 }
 .geo-hit:active {
   transform: scale(0.99);
@@ -2155,8 +2177,8 @@ button.list-row:active {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   letter-spacing: -0.01em;
   min-width: 0;
 }
@@ -2167,7 +2189,7 @@ button.list-row:active {
 }
 .repeat-route__arrow {
   flex: none;
-  color: var(--canon-green-bright);
+  color: var(--green2);
 }
 
 /* Плитки статистики (Мой Юлдаш) */
@@ -2183,29 +2205,29 @@ button.list-row:active {
   background: var(--surface);
   border: 1px solid var(--border);
   text-align: center;
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .stat-tile b {
   display: block;
-  font-size: 26px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--green);
 }
 .stat-tile span {
   display: block;
   margin-top: 4px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .stat-newbie {
   margin: 16px 0 0;
   padding: 14px 16px;
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   text-align: center;
 }
 
@@ -2228,8 +2250,8 @@ button.list-row:active {
   border-radius: var(--radius-item);
   background: var(--surface);
   text-align: left;
-  transition: transform 0.12s ease, border-color 0.2s ease;
-  animation: fadeUp 0.35s ease both;
+  transition: transform var(--motion-quick) ease, border-color var(--motion-quick) ease;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .cabinet-tile:active {
   transform: scale(0.98);
@@ -2237,15 +2259,15 @@ button.list-row:active {
 .cabinet-tile__icon {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   display: grid;
   place-items: center;
   background: var(--mint);
   color: var(--green);
 }
 .cabinet-tile__title {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   line-height: 1.3;
   color: var(--text);
 }
@@ -2262,8 +2284,8 @@ button.list-row:active {
   border-radius: var(--radius-item);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
 }
 
 /* ================================================================
@@ -2283,19 +2305,19 @@ button.list-row:active {
   background: var(--warn-bg);
   color: var(--warn);
   text-align: left;
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .trust-cta.is-static {
   background: var(--surface-2);
   color: var(--muted);
 }
 .trust-cta__emoji {
-  font-size: 22px;
+  font-size: var(--font-heading);
   flex: none;
 }
 .trust-cta__text {
   flex: 1;
-  font-size: 14px;
+  font-size: var(--font-caption);
   font-weight: 600;
   line-height: 1.4;
 }
@@ -2310,12 +2332,12 @@ button.list-row:active {
 .weekday-chip {
   min-height: 44px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   background: var(--surface);
   color: var(--text);
-  font-size: 13px;
-  font-weight: 700;
-  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
+  font-size: var(--font-caption);
+  font-weight: 600;
+  transition: transform var(--motion-quick) ease, border-color var(--motion-quick) ease, background var(--motion-quick) ease;
 }
 .weekday-chip:active {
   transform: scale(0.94);
@@ -2333,7 +2355,7 @@ button.list-row:active {
   align-items: center;
   text-align: center;
   padding: 20px 16px 4px;
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .dprofile-avatar {
   width: 84px;
@@ -2344,8 +2366,8 @@ button.list-row:active {
   place-items: center;
   background: var(--mint);
   color: var(--green);
-  font-size: 30px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   border: 1px solid var(--border);
 }
 .dprofile-avatar img {
@@ -2355,8 +2377,8 @@ button.list-row:active {
 }
 .dprofile-name {
   margin-top: 12px;
-  font-size: 22px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
 }
@@ -2367,7 +2389,7 @@ button.list-row:active {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text);
 }
 .dprofile-rating svg {
@@ -2376,17 +2398,17 @@ button.list-row:active {
 .dprofile-rating__count {
   font-weight: 500;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--font-caption);
 }
 .dprofile-car {
   margin-top: 6px;
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .dprofile-since {
   margin: 12px 0 0;
   text-align: center;
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 
@@ -2401,7 +2423,7 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-item);
   background: var(--surface);
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .review-card__head {
   display: flex;
@@ -2416,20 +2438,20 @@ button.list-row:active {
 .review-card__stars {
   color: var(--canon-star);
   letter-spacing: 1px;
-  font-size: 14px;
+  font-size: var(--font-caption);
 }
 .review-card__stars-off {
   color: var(--border);
 }
 .review-card__text {
   margin: 8px 0 0;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   color: var(--text);
 }
 .review-card__date {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--font-micro);
   color: var(--muted);
 }
 
@@ -2450,8 +2472,8 @@ button.list-row:active {
   gap: 6px;
 }
 .earn-bar__value {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-micro);
+  font-weight: 500;
   color: var(--green);
 }
 .earn-bar__track {
@@ -2459,23 +2481,23 @@ button.list-row:active {
   height: 120px;
   display: flex;
   align-items: flex-end;
-  border-radius: 10px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
   overflow: hidden;
 }
 .earn-bar__fill {
   width: 100%;
-  border-radius: 10px 10px 0 0;
+  border-radius: var(--radius-field) 10px 0 0;
   background: linear-gradient(180deg, var(--canon-green-bright), var(--green-btn));
-  transition: height 0.4s ease;
+  transition: height var(--motion-slow) ease;
 }
 .earn-bar__label {
-  font-size: 11px;
+  font-size: var(--font-micro);
   color: var(--muted);
   white-space: nowrap;
 }
 .earn-bar__trips {
-  font-size: 11px;
+  font-size: var(--font-micro);
   color: var(--muted);
   opacity: 0.8;
 }
@@ -2492,7 +2514,7 @@ button.list-row:active {
   background: var(--surface);
   color: var(--text);
   text-align: left;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition: border-color var(--motion-quick) ease, background var(--motion-quick) ease;
 }
 .boost-ride + .boost-ride {
   margin-top: 8px;
@@ -2521,8 +2543,8 @@ button.list-row:active {
   border-radius: var(--radius-item);
   background: var(--surface);
   text-align: left;
-  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
-  animation: fadeUp 0.35s ease both;
+  transition: transform var(--motion-quick) ease, border-color var(--motion-quick) ease, background var(--motion-quick) ease;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .plan-card:active {
   transform: scale(0.98);
@@ -2534,7 +2556,7 @@ button.list-row:active {
 .plan-card__icon {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   display: grid;
   place-items: center;
   background: var(--mint);
@@ -2544,37 +2566,37 @@ button.list-row:active {
   background: var(--surface);
 }
 .plan-card__title {
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .plan-card__hours {
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .plan-card__price {
   margin-top: 4px;
-  font-size: 18px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   color: var(--green);
 }
 
 /* --- Оплата по СБП «на доверии» --- */
 .pay-sbp {
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .pay-sbp__amount {
   text-align: center;
-  font-size: 40px;
-  font-weight: 800;
+  font-size: var(--font-display);
+  font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--green);
   margin-top: 8px;
 }
 .pay-sbp__hint {
   text-align: center;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   color: var(--muted);
   margin: 8px 0 16px;
 }
@@ -2592,12 +2614,12 @@ button.list-row:active {
   margin-top: 10px;
 }
 .pay-sbp__label {
-  font-size: 12px;
+  font-size: var(--font-micro);
   color: var(--muted);
 }
 .pay-sbp__value {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 
@@ -2614,7 +2636,7 @@ button.list-row:active {
   background: var(--surface);
   color: var(--text);
   text-align: left;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition: border-color var(--motion-quick) ease, background var(--motion-quick) ease;
 }
 .photo-slot.is-done {
   border-style: solid;
@@ -2624,7 +2646,7 @@ button.list-row:active {
 .photo-slot__icon {
   width: 48px;
   height: 48px;
-  border-radius: 14px;
+  border-radius: var(--radius-field);
   flex: none;
   display: grid;
   place-items: center;
@@ -2640,11 +2662,11 @@ button.list-row:active {
   gap: 3px;
 }
 .photo-slot__text b {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
 }
 .photo-slot__text span {
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .verify-rules {
@@ -2658,7 +2680,7 @@ button.list-row:active {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text);
 }
 .verify-rules__head svg {
@@ -2669,14 +2691,14 @@ button.list-row:active {
   padding-left: 20px;
 }
 .verify-rules li {
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   color: var(--text);
 }
 .verify-rules p {
   margin: 12px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   color: var(--muted);
 }
 
@@ -2745,11 +2767,11 @@ button.list-row:active {
   min-width: 0;
 }
 .taxi-route__label {
-  font-size: 12px;
+  font-size: var(--font-micro);
   color: var(--muted);
 }
 .taxi-route__value {
-  font-size: 15px;
+  font-size: var(--font-body);
   font-weight: 600;
   color: var(--text);
   overflow: hidden;
@@ -2759,7 +2781,7 @@ button.list-row:active {
 .taxi-route__input {
   border: none;
   background: transparent;
-  font-size: 15px;
+  font-size: var(--font-body);
   font-weight: 600;
   color: var(--text);
   width: 100%;
@@ -2783,7 +2805,7 @@ button.list-row:active {
 }
 .taxi-route__change {
   flex: none;
-  font-size: 13px;
+  font-size: var(--font-caption);
   font-weight: 600;
   color: var(--green);
 }
@@ -2797,8 +2819,8 @@ button.list-row:active {
   right: 0;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.16);
+  border-radius: var(--radius-field);
+  box-shadow: var(--depth-raised);
   overflow: hidden;
   max-height: 260px;
   overflow-y: auto;
@@ -2813,7 +2835,7 @@ button.list-row:active {
   border: none;
   border-bottom: 1px solid var(--border);
   text-align: left;
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--text);
   min-height: 48px;
 }
@@ -2848,7 +2870,7 @@ button.list-row:active {
   border-radius: var(--radius-item);
   background: var(--surface);
   text-align: left;
-  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
+  transition: transform var(--motion-quick) ease, border-color var(--motion-quick) ease, background var(--motion-quick) ease;
 }
 .taxi-class:active {
   transform: scale(0.98);
@@ -2863,13 +2885,13 @@ button.list-row:active {
   color: var(--green);
 }
 .taxi-class__name {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--text);
 }
 .taxi-class__price {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--green);
 }
@@ -2881,7 +2903,7 @@ button.list-row:active {
   background: var(--taxi-bg);
   border: 1px solid var(--taxi);
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--font-caption);
   font-weight: 600;
   line-height: 1.4;
 }
@@ -2893,7 +2915,7 @@ button.list-row:active {
   gap: 8px;
   padding: 5px;
   background: var(--surface-2);
-  border-radius: 16px;
+  border-radius: var(--radius-field);
 }
 .taxi-when__tab {
   flex: 1;
@@ -2903,23 +2925,23 @@ button.list-row:active {
   gap: 6px;
   min-height: 44px;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   background: transparent;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--muted);
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease;
 }
 .taxi-when__tab.is-active {
   background: var(--surface);
   color: var(--text);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--depth-raised);
 }
 
 .taxi-estimate-hint {
   margin-top: 12px;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 
@@ -2931,12 +2953,12 @@ button.list-row:active {
 }
 .taxi-search h2 {
   margin: 18px 0 6px;
-  font-size: 20px;
+  font-size: var(--font-heading);
 }
 .taxi-search p {
   color: var(--muted);
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: var(--font-body);
+  line-height: 1.45;
 }
 .taxi-search__pulse {
   width: 92px;
@@ -2959,14 +2981,14 @@ button.list-row:active {
   align-items: center;
   gap: 10px;
   padding: 10px 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .taxi-fare-line b {
   color: var(--green);
-  font-size: 16px;
+  font-size: var(--font-body);
 }
 
 /* --- Карточка водителя/пассажира в поездке --- */
@@ -2979,7 +3001,7 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-item);
   background: var(--surface);
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .taxi-driver__avatar {
   flex: none;
@@ -2990,15 +3012,15 @@ button.list-row:active {
   place-items: center;
   background: var(--mint);
   color: var(--green);
-  font-size: 22px;
+  font-size: var(--font-heading);
 }
 .taxi-driver__info {
   flex: 1;
   min-width: 0;
 }
 .taxi-driver__name {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
   display: flex;
   align-items: center;
@@ -3009,7 +3031,7 @@ button.list-row:active {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .taxi-driver__rating {
@@ -3047,8 +3069,8 @@ button.list-row:active {
   margin-top: 16px;
   padding: 0 4px;
   text-align: center;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   color: var(--muted);
 }
 
@@ -3058,7 +3080,7 @@ button.list-row:active {
   text-align: center;
 }
 .taxi-done__emoji {
-  font-size: 44px;
+  font-size: var(--font-display);
 }
 .taxi-fare {
   margin-top: 8px;
@@ -3068,20 +3090,20 @@ button.list-row:active {
   gap: 2px;
 }
 .taxi-fare span {
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .taxi-fare b {
-  font-size: 34px;
-  font-weight: 800;
+  font-size: var(--font-display);
+  font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--green);
 }
 .taxi-done__hint {
   margin-top: 10px;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
 }
 
 /* --- Водитель: ожидание на линии --- */
@@ -3092,12 +3114,12 @@ button.list-row:active {
 }
 .taxi-online-wait h2 {
   margin: 16px 0 6px;
-  font-size: 19px;
+  font-size: var(--font-heading);
 }
 .taxi-online-wait p {
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
 }
 
 /* --- Оффер: полноэкранный оверлей --- */
@@ -3112,16 +3134,16 @@ button.list-row:active {
   padding-bottom: calc(16px + env(safe-area-inset-bottom));
   background: rgba(6, 20, 12, 0.55);
   backdrop-filter: blur(4px);
-  animation: fadeIn 0.2s ease both;
+  animation: fadeIn var(--motion-quick) ease both;
 }
 .offer-card {
   width: 100%;
   max-width: 460px;
   padding: 22px 20px 20px;
-  border-radius: 26px;
+  border-radius: var(--radius-card);
   background: var(--surface);
-  box-shadow: 0 -10px 50px rgba(0, 0, 0, 0.3);
-  animation: fadeUp 0.28s ease both;
+  box-shadow: 0 -12px 28px -10px rgba(0, 0, 0, 0.28);
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .offer-card__timer {
   width: 52px;
@@ -3130,23 +3152,23 @@ button.list-row:active {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font-size: 22px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   color: #fff;
   background: var(--green-btn);
   animation: taxiPulse 1.2s ease-in-out infinite;
 }
 .offer-card__title {
   text-align: center;
-  font-size: 18px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   color: var(--text);
 }
 .offer-card__price {
   text-align: center;
   margin-top: 6px;
-  font-size: 30px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--green);
 }
@@ -3160,7 +3182,7 @@ button.list-row:active {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--text);
 }
 .offer-card__meta {
@@ -3169,9 +3191,58 @@ button.list-row:active {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
+/* Почему заказ не взялся — за рулём нужно понять это с одного взгляда. */
+.offer-card__note {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--canon-gold-soft);
+  color: var(--warn);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: 600;
+}
+
+/* Оффер уже закрылся («взял другой»), но объяснение должно догнать водителя. */
+.offer-note {
+  position: fixed;
+  left: 50%;
+  /* та же высота нижней навигации, что у остальных плавающих плашек */
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(92vw, 420px);
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-pill);
+  background: var(--canon-gold-soft);
+  color: var(--warn);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  text-align: center;
+  box-shadow: var(--depth-card);
+  /* 4 секунды — это не длительность движения (те берём со шкалы --motion-*),
+     а время, за которое человек за рулём успевает прочитать короткую фразу. */
+  animation: offerNoteLife 4s ease-out forwards;
+}
+@keyframes offerNoteLife {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  10%,
+  85% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
 .offer-card__actions {
   margin-top: 18px;
   display: flex;
@@ -3188,7 +3259,7 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-item);
   background: var(--surface);
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .sched-card + .sched-card {
   margin-top: 12px;
@@ -3203,13 +3274,13 @@ button.list-row:active {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--text);
 }
 .sched-card__meta {
   margin-top: 8px;
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .sched-card__actions {
@@ -3226,10 +3297,35 @@ button.list-row:active {
 .chat__readonly {
   padding: 14px;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
   border-top: 1px solid var(--border);
 }
+
+/* Спокойная плашка «так вышло»: не ошибка и не успех, а объяснение —
+   сообщение ждёт сети, место не дали, отмена не прошла. Тёплый тон, не красный:
+   человек ничего не сломал, ему просто нужно знать, что происходит. */
+.notice,
+.chat__queued {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: 10px 14px;
+  font-size: var(--font-caption);
+  color: var(--warn);
+  background: var(--canon-gold-soft);
+  border-top: 1px solid var(--border);
+  animation: fadeUp var(--motion-normal) ease-out both;
+}
+
+/* Вне чата плашка живёт среди карточек — ей нужно скругление, а не полоса. */
+.notice {
+  margin-top: var(--space-md);
+  border-top: 0;
+  border-radius: var(--radius-field);
+}
+
 
 /* ============================================================
    Волна 5 — Курьер и посылки
@@ -3245,7 +3341,7 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-item);
   background: var(--surface);
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .parcel-card__head {
   display: flex;
@@ -3255,8 +3351,8 @@ button.list-row:active {
   margin-bottom: 10px;
 }
 .parcel-card__to {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3274,21 +3370,21 @@ button.list-row:active {
   gap: 8px;
 }
 .parcel-card__size {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--text);
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
 }
 .parcel-card__price {
   margin-left: auto;
-  font-size: 16px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--green);
 }
 .parcel-card__desc {
-  font-size: 14px;
+  font-size: var(--font-caption);
   line-height: 1.4;
   color: var(--muted);
 }
@@ -3299,11 +3395,11 @@ button.list-row:active {
   margin-top: 12px;
   min-height: 44px;
   padding: 0 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   background: var(--mint);
   color: var(--green);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
 }
 .parcel-card__settle {
   display: flex;
@@ -3311,13 +3407,13 @@ button.list-row:active {
   justify-content: space-between;
   margin-top: 12px;
   padding: 12px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .parcel-card__settle b {
-  font-size: 16px;
+  font-size: var(--font-body);
   color: var(--text);
 }
 .parcel-card__goods {
@@ -3338,14 +3434,14 @@ button.list-row:active {
   justify-content: space-between;
   margin-top: 12px;
   padding: 10px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   border: 1px dashed var(--border);
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .parcel-card__code b {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 20px;
+  font-size: var(--font-heading);
   letter-spacing: 0.16em;
   color: var(--green);
 }
@@ -3362,8 +3458,8 @@ button.list-row:active {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .parcel-card__courier .btn-soft {
@@ -3375,15 +3471,15 @@ button.list-row:active {
 .parcel-done {
   margin-top: 18px;
   text-align: center;
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .parcel-done__emoji {
-  font-size: 46px;
+  font-size: var(--font-display);
 }
 .parcel-done h2 {
   margin: 8px 0 6px;
-  font-size: 22px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 .parcel-code {
@@ -3397,14 +3493,14 @@ button.list-row:active {
   gap: 4px;
 }
 .parcel-code__label {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--green);
 }
 .parcel-code__value {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 40px;
-  font-weight: 800;
+  font-size: var(--font-display);
+  font-weight: 700;
   letter-spacing: 0.2em;
   color: var(--green);
 }
@@ -3426,7 +3522,7 @@ button.list-row:active {
   border-radius: var(--radius-item);
   background: var(--canon-gold-soft, #fbf1d5);
   color: #6a4a00;
-  font-size: 14px;
+  font-size: var(--font-caption);
   line-height: 1.4;
   font-weight: 600;
 }
@@ -3444,13 +3540,13 @@ button.list-row:active {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 30px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   color: var(--green);
 }
 .courier-rating__meta {
   margin-top: 4px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .courier-fee {
@@ -3464,12 +3560,12 @@ button.list-row:active {
   background: var(--mint);
 }
 .courier-fee__pct {
-  font-size: 26px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   color: var(--green);
 }
 .courier-fee__label {
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--green);
   font-weight: 600;
 }
@@ -3487,8 +3583,8 @@ button.list-row:active {
   border-radius: var(--radius-card);
   background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
   color: #fff;
-  box-shadow: 0 20px 48px -30px rgba(0, 0, 0, 0.6);
-  animation: fadeUp 0.35s ease both;
+  box-shadow: var(--depth-sheet);
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .wallet-card__top {
   display: flex;
@@ -3498,27 +3594,27 @@ button.list-row:active {
 .wallet-card__chip {
   width: 34px;
   height: 34px;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   display: grid;
   place-items: center;
   background: rgba(255, 255, 255, 0.16);
   color: #fff;
 }
 .wallet-card__label {
-  font-size: 13px;
+  font-size: var(--font-caption);
   font-weight: 600;
   opacity: 0.9;
 }
 .wallet-card__amount {
   margin-top: 14px;
-  font-size: 40px;
-  font-weight: 800;
+  font-size: var(--font-display);
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 .wallet-card__hint {
   margin: 12px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   opacity: 0.86;
 }
 
@@ -3531,7 +3627,7 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-item);
   background: var(--surface);
-  animation: fadeUp 0.3s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .ledger-row + .ledger-row {
   margin-top: 10px;
@@ -3540,7 +3636,7 @@ button.list-row:active {
   width: 40px;
   height: 40px;
   flex: none;
-  border-radius: 12px;
+  border-radius: var(--radius-field);
   display: grid;
   place-items: center;
   background: var(--mint);
@@ -3557,19 +3653,19 @@ button.list-row:active {
   min-width: 0;
 }
 .ledger-row__title {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .ledger-row__sub {
   margin-top: 2px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .ledger-row__amount {
   flex: none;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -3584,8 +3680,8 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  box-shadow: 0 16px 40px -32px rgba(0, 0, 0, 0.5);
-  animation: fadeUp 0.35s ease both;
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .coupon-card__head {
   display: flex;
@@ -3596,10 +3692,10 @@ button.list-row:active {
   width: 44px;
   height: 44px;
   flex: none;
-  border-radius: 14px;
+  border-radius: var(--radius-field);
   display: grid;
   place-items: center;
-  font-size: 24px;
+  font-size: var(--font-title);
   background: var(--surface-2);
 }
 .coupon-card__partner {
@@ -3609,8 +3705,8 @@ button.list-row:active {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .coupon-card__pro {
@@ -3621,27 +3717,27 @@ button.list-row:active {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .coupon-card__title {
   margin-top: 14px;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
   line-height: 1.35;
 }
 .coupon-card__discount {
   margin-top: 6px;
-  font-size: 18px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--canon-star);
 }
 .coupon-card__desc {
   margin-top: 8px;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   color: var(--muted);
 }
 .coupon-card__foot {
@@ -3652,7 +3748,7 @@ button.list-row:active {
   gap: 12px;
 }
 .coupon-card__left {
-  font-size: 13px;
+  font-size: var(--font-caption);
   font-weight: 600;
   color: var(--muted);
 }
@@ -3669,35 +3765,35 @@ button.list-row:active {
   border-radius: var(--radius-card);
   background: var(--surface);
   text-align: center;
-  box-shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.5);
-  animation: fadeUp 0.35s ease both;
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .coupon-code__emoji {
-  font-size: 44px;
+  font-size: var(--font-display);
 }
 .coupon-code__title {
   margin-top: 10px;
-  font-size: 17px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .coupon-code__discount {
   margin-top: 4px;
-  font-size: 18px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   color: var(--canon-star);
 }
 .coupon-code__label {
   margin-top: 20px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   font-weight: 600;
   color: var(--muted);
 }
 .coupon-code__value {
   margin: 10px 0 18px;
   font-family: "SF Mono", ui-monospace, "Roboto Mono", Menlo, monospace;
-  font-size: 40px;
-  font-weight: 800;
+  font-size: var(--font-display);
+  font-weight: 700;
   letter-spacing: 0.14em;
   color: var(--green);
 }
@@ -3706,8 +3802,8 @@ button.list-row:active {
   padding: 14px 16px;
   border-radius: var(--radius-item);
   background: var(--surface-2);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   color: var(--muted);
   text-align: left;
 }
@@ -3721,7 +3817,7 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-item);
   background: var(--surface);
-  animation: fadeUp 0.3s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .mycoupon-row + .mycoupon-row {
   margin-top: 10px;
@@ -3731,21 +3827,21 @@ button.list-row:active {
   min-width: 0;
 }
 .mycoupon-row__title {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .mycoupon-row__discount {
   margin-top: 2px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   font-weight: 600;
   color: var(--canon-star);
 }
 .mycoupon-row__code {
   margin-top: 6px;
   font-family: "SF Mono", ui-monospace, "Roboto Mono", Menlo, monospace;
-  font-size: 18px;
-  font-weight: 700;
+  font-size: var(--font-heading);
+  font-weight: 600;
   letter-spacing: 0.1em;
   color: var(--green);
 }
@@ -3758,8 +3854,8 @@ button.list-row:active {
   border-radius: var(--radius-card);
   background: var(--surface);
   text-align: center;
-  box-shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.5);
-  animation: fadeUp 0.35s ease both;
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .promo-applied__gift {
   width: 56px;
@@ -3773,27 +3869,27 @@ button.list-row:active {
 }
 .promo-applied__label {
   margin-top: 14px;
-  font-size: 14px;
+  font-size: var(--font-caption);
   font-weight: 600;
   color: var(--muted);
 }
 .promo-applied__code {
   margin-top: 6px;
   font-family: "SF Mono", ui-monospace, "Roboto Mono", Menlo, monospace;
-  font-size: 28px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   letter-spacing: 0.1em;
   color: var(--green);
 }
 .promo-applied__title {
   margin-top: 8px;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .promo-applied__perk {
   margin-top: 6px;
-  font-size: 14px;
+  font-size: var(--font-caption);
   font-weight: 600;
   color: var(--canon-star);
 }
@@ -3806,19 +3902,19 @@ button.list-row:active {
   border: 1px solid var(--border);
   background: var(--surface-2);
   text-align: center;
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .biz-banner__emoji {
-  font-size: 40px;
+  font-size: var(--font-display);
 }
 .biz-banner h2 {
   margin: 10px 0 6px;
-  font-size: 18px;
+  font-size: var(--font-heading);
 }
 .biz-banner p {
   margin: 0;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   color: var(--muted);
 }
 .biz-banner.is-warn {
@@ -3837,7 +3933,7 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  animation: fadeUp 0.3s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .biz-item__head {
   display: flex;
@@ -3846,14 +3942,14 @@ button.list-row:active {
   gap: 12px;
 }
 .biz-item__title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
   line-height: 1.35;
 }
 .biz-item__meta {
   margin-top: 4px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .biz-item__stats {
@@ -3864,13 +3960,13 @@ button.list-row:active {
 }
 .biz-item__stat b {
   display: block;
-  font-size: 20px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   color: var(--green);
   line-height: 1.1;
 }
 .biz-item__stat span {
-  font-size: 12px;
+  font-size: var(--font-micro);
   color: var(--muted);
 }
 .biz-item__actions {
@@ -3894,24 +3990,24 @@ button.list-row:active {
   border-radius: var(--radius-card);
   border: 1px solid var(--border);
   background: var(--surface);
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .money-card__label {
-  font-size: 13px;
+  font-size: var(--font-caption);
   font-weight: 600;
   color: var(--muted);
 }
 .money-card__amount {
   margin-top: 6px;
-  font-size: 30px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text);
 }
 .money-card__hint {
   margin: 10px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   color: var(--muted);
 }
 
@@ -3922,7 +4018,7 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  animation: fadeUp 0.3s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .pay-way__head {
   display: flex;
@@ -3933,15 +4029,15 @@ button.list-row:active {
   width: 44px;
   height: 44px;
   flex: none;
-  border-radius: 14px;
+  border-radius: var(--radius-field);
   display: grid;
   place-items: center;
-  font-size: 22px;
+  font-size: var(--font-heading);
   background: var(--mint);
 }
 .pay-way__title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .pay-way__badge {
@@ -3949,8 +4045,8 @@ button.list-row:active {
 }
 .pay-way__text {
   margin: 12px 0 0;
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   color: var(--muted);
 }
 
@@ -3963,8 +4059,8 @@ button.list-row:active {
 /* ---- Крупные кнопки / варианты ---- */
 .btn-lg {
   min-height: 60px;
-  font-size: 18px;
-  border-radius: 18px;
+  font-size: var(--font-heading);
+  border-radius: var(--radius-item);
 }
 .btn-danger {
   margin-top: 18px;
@@ -3976,11 +4072,11 @@ button.list-row:active {
   gap: 10px;
   padding: 0 22px;
   border: 0;
-  border-radius: 16px;
-  background: var(--danger);
-  color: #fff;
-  font-weight: 800;
-  transition: transform 0.12s ease, opacity 0.2s ease;
+  border-radius: var(--radius-field);
+  background: var(--danger-btn);
+  color: var(--on-accent);
+  font-weight: 700;
+  transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
 }
 .btn-danger:active {
   transform: scale(0.97);
@@ -4000,8 +4096,8 @@ button.list-row:active {
   border: 0;
   background: transparent;
   color: var(--green);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
 }
 
 /* ---- Успех / крупные состояния ---- */
@@ -4012,13 +4108,13 @@ button.list-row:active {
   padding: 48px 20px;
 }
 .state--big .state__emoji {
-  font-size: 60px;
+  font-size: var(--font-display);
 }
 .state--big h2 {
-  font-size: 24px;
+  font-size: var(--font-title);
 }
 .state--big p {
-  font-size: 16px;
+  font-size: var(--font-body);
   max-width: 360px;
 }
 .state--big .btn-primary,
@@ -4044,20 +4140,20 @@ button.list-row:active {
 .safe-note p {
   margin: 0;
   color: var(--text);
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: var(--font-body);
+  line-height: 1.45;
 }
 .safe-note__emoji {
-  font-size: 40px;
+  font-size: var(--font-display);
 }
 .safe-note__ic {
-  font-size: 24px;
+  font-size: var(--font-title);
 }
 .safe-note--big {
   padding: 26px 20px;
 }
 .safe-note--big p {
-  font-size: 17px;
+  font-size: var(--font-body);
 }
 .safe-note--tight {
   flex-direction: row;
@@ -4067,16 +4163,16 @@ button.list-row:active {
   padding: 14px 16px;
 }
 .safe-note--tight p {
-  font-size: 14px;
+  font-size: var(--font-caption);
 }
 .soft-note {
   margin: 10px 0;
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-field);
   background: var(--surface-2);
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   text-align: center;
 }
 
@@ -4098,23 +4194,23 @@ button.list-row:active {
   background: var(--danger-bg);
   border: 1.5px solid transparent;
   color: var(--danger);
-  transition: transform 0.12s ease;
+  transition: transform var(--motion-quick) ease;
 }
 .sos-call:active {
   transform: scale(0.97);
 }
 .sos-call__emoji {
-  font-size: 28px;
+  font-size: var(--font-title);
 }
 .sos-call__num {
-  font-size: 30px;
-  font-weight: 900;
+  font-size: var(--font-title);
+  font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.1;
 }
 .sos-call__label {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--text);
   opacity: 0.8;
 }
@@ -4124,7 +4220,7 @@ button.list-row:active {
   gap: 6px;
   margin: 10px 2px 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-caption);
   line-height: 1.4;
 }
 .sos-hint--center {
@@ -4139,8 +4235,8 @@ button.list-row:active {
   border: 1px solid var(--border);
 }
 .sos-panel__q {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   margin-bottom: 12px;
 }
 .sos-send {
@@ -4153,14 +4249,14 @@ button.list-row:active {
   text-align: center;
 }
 .callback-illust {
-  font-size: 64px;
+  font-size: var(--font-display);
   margin-top: 8px;
 }
 .callback-lead {
   margin: 10px auto 18px;
   max-width: 380px;
-  font-size: 17px;
-  line-height: 1.5;
+  font-size: var(--font-body);
+  line-height: 1.45;
   color: var(--text);
 }
 .callback-phone {
@@ -4169,10 +4265,10 @@ button.list-row:active {
   gap: 8px;
   margin-bottom: 16px;
   padding: 10px 16px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--mint);
   color: var(--green);
-  font-size: 15px;
+  font-size: var(--font-body);
 }
 .callback-panel .field {
   text-align: left;
@@ -4194,7 +4290,7 @@ button.list-row:active {
   margin: 14px auto 0;
   max-width: 320px;
   color: var(--muted);
-  font-size: 15px;
+  font-size: var(--font-body);
   line-height: 1.45;
 }
 .voice-hint--center {
@@ -4211,13 +4307,13 @@ button.list-row:active {
   display: grid;
   place-items: center;
   box-shadow: 0 14px 34px -14px var(--canon-green-deep);
-  transition: transform 0.14s ease;
+  transition: transform var(--motion-quick) ease;
 }
 .rec-btn:active {
   transform: scale(0.95);
 }
 .rec-btn__mic {
-  font-size: 46px;
+  font-size: var(--font-display);
 }
 .rec-btn.is-recording {
   background: var(--danger);
@@ -4226,7 +4322,7 @@ button.list-row:active {
 .rec-btn__stop {
   width: 34px;
   height: 34px;
-  border-radius: 8px;
+  border-radius: var(--radius-tiny);
   background: #fff;
 }
 @keyframes recPulse {
@@ -4235,8 +4331,8 @@ button.list-row:active {
 }
 .rec-time {
   margin: 14px 0 0;
-  font-size: 26px;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--danger);
 }
@@ -4257,20 +4353,20 @@ button.list-row:active {
   border: 1px solid var(--border);
 }
 .fontscale__label {
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   margin-bottom: 12px;
 }
 .fontscale__seg .seg__item {
   min-height: 68px;
 }
 .fontscale__a {
-  font-weight: 900;
+  font-weight: 700;
   line-height: 1;
 }
-.fontscale__a--normal { font-size: 18px; }
-.fontscale__a--large { font-size: 24px; }
-.fontscale__a--xlarge { font-size: 30px; }
+.fontscale__a--normal { font-size: var(--font-heading); }
+.fontscale__a--large { font-size: var(--font-title); }
+.fontscale__a--xlarge { font-size: var(--font-title); }
 
 .hub-grid {
   display: grid;
@@ -4289,23 +4385,23 @@ button.list-row:active {
   border: 1.5px solid var(--border);
   color: var(--text);
   text-align: left;
-  transition: transform 0.12s ease, border-color 0.2s ease;
+  transition: transform var(--motion-quick) ease, border-color var(--motion-quick) ease;
 }
 .hub-card:active {
   transform: scale(0.97);
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .hub-card__emoji {
-  font-size: 38px;
+  font-size: var(--font-display);
   margin-bottom: 6px;
 }
 .hub-card__title {
-  font-size: 18px;
-  font-weight: 800;
+  font-size: var(--font-heading);
+  font-weight: 600;
   line-height: 1.2;
 }
 .hub-card__sub {
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--muted);
   line-height: 1.3;
 }
@@ -4332,11 +4428,11 @@ button.list-row:active {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--green-btn);
   color: #fff;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--font-micro);
+  font-weight: 500;
 }
 
 /* --- Точка «непрочитано» --- */
@@ -4371,19 +4467,19 @@ button.list-row:active {
   border-radius: var(--radius-item);
   background: var(--surface);
   color: var(--text);
-  transition: transform 0.12s ease, border-color 0.2s ease;
-  animation: fadeUp 0.24s ease both;
+  transition: transform var(--motion-quick) ease, border-color var(--motion-quick) ease;
+  animation: fadeUp var(--motion-quick) ease both;
 }
 .notif-row:active {
   transform: scale(0.99);
 }
 .notif-row--unread {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
   background: var(--mint);
 }
 .notif-row__ico {
   flex: none;
-  font-size: 22px;
+  font-size: var(--font-heading);
   line-height: 1;
   margin-top: 2px;
 }
@@ -4392,15 +4488,15 @@ button.list-row:active {
   min-width: 0;
 }
 .notif-row__title {
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   line-height: 1.3;
   display: flex;
   align-items: center;
 }
 .notif-row__body {
   margin-top: 3px;
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--muted);
   line-height: 1.4;
 }
@@ -4409,11 +4505,11 @@ button.list-row:active {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: var(--font-micro);
   color: var(--muted);
 }
 .notif-row__open {
-  font-weight: 800;
+  font-weight: 700;
   color: var(--green);
 }
 
@@ -4427,7 +4523,7 @@ button.list-row:active {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  animation: fadeUp 0.24s ease both;
+  animation: fadeUp var(--motion-quick) ease both;
 }
 .support-compose__actions {
   display: flex;
@@ -4455,8 +4551,8 @@ button.list-row:active {
   border-radius: var(--radius-item);
   background: var(--surface);
   color: var(--text);
-  transition: transform 0.12s ease;
-  animation: fadeUp 0.24s ease both;
+  transition: transform var(--motion-quick) ease;
+  animation: fadeUp var(--motion-quick) ease both;
 }
 .support-row:active {
   transform: scale(0.99);
@@ -4473,15 +4569,15 @@ button.list-row:active {
 .support-row__subject {
   flex: 1;
   min-width: 0;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .support-row__last {
   margin-top: 4px;
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--muted);
   line-height: 1.4;
   overflow: hidden;
@@ -4492,7 +4588,7 @@ button.list-row:active {
 }
 .support-row__meta {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--font-micro);
   color: var(--muted);
 }
 .badge--muted {
@@ -4504,7 +4600,7 @@ button.list-row:active {
 .bubble__time {
   display: block;
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--font-micro);
   opacity: 0.7;
   text-align: right;
 }
@@ -4527,10 +4623,10 @@ button.list-row:active {
   border-radius: var(--radius-item);
   background: var(--surface);
   overflow: hidden;
-  animation: fadeUp 0.24s ease both;
+  animation: fadeUp var(--motion-quick) ease both;
 }
 .faq-item--open {
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .faq-q {
   display: flex;
@@ -4543,14 +4639,14 @@ button.list-row:active {
   background: transparent;
   border: 0;
   color: var(--text);
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   line-height: 1.35;
 }
 .faq-q__chev {
   flex: none;
   color: var(--muted);
-  transition: transform 0.2s ease;
+  transition: transform var(--motion-quick) ease;
 }
 .faq-item--open .faq-q__chev {
   transform: rotate(90deg);
@@ -4558,10 +4654,10 @@ button.list-row:active {
 }
 .faq-a {
   padding: 0 16px 16px;
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: var(--font-body);
+  line-height: 1.45;
   color: var(--muted);
-  animation: fadeUp 0.2s ease both;
+  animation: fadeUp var(--motion-quick) ease both;
 }
 .help-cta {
   margin-top: 24px;
@@ -4572,8 +4668,8 @@ button.list-row:active {
   text-align: center;
 }
 .help-cta__lead {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   margin-bottom: 14px;
 }
 .help-tg {
@@ -4584,8 +4680,8 @@ button.list-row:active {
   min-height: 44px;
   padding: 0 14px;
   color: var(--green);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   text-decoration: none;
 }
 
@@ -4595,8 +4691,8 @@ button.list-row:active {
 }
 .rate-card__hint {
   margin-top: 10px;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--green);
 }
 
@@ -4612,25 +4708,25 @@ button.list-row:active {
   border: 1px solid var(--danger);
   border-radius: var(--radius-item);
   background: var(--danger-bg);
-  animation: fadeUp 0.3s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .danger-zone__title {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--danger);
 }
 .danger-zone__text {
   margin: 6px 0 0;
-  font-size: 13.5px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   color: var(--text);
 }
 .danger-zone__confirm {
   margin-top: 14px;
 }
 .danger-zone__confirm-q {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--danger);
   margin-bottom: 12px;
 }
@@ -4647,30 +4743,30 @@ button.list-row:active {
 .danger-zone__err {
   margin: 4px 0 12px;
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-field);
   background: var(--surface);
   border: 1px solid var(--danger);
   color: var(--danger);
-  font-size: 13.5px;
+  font-size: var(--font-caption);
   line-height: 1.45;
 }
 
 /* ---- Юридический документ (Политика / Соглашение) ---- */
 .legal {
   margin-top: 14px;
-  animation: fadeUp 0.3s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .legal__note {
   margin: 0 0 18px;
   padding: 14px 16px;
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--mint);
   color: var(--green);
-  font-size: 13.5px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
 }
 .legal__link {
-  font-weight: 800;
+  font-weight: 700;
   text-decoration: underline;
   word-break: break-word;
 }
@@ -4679,14 +4775,14 @@ button.list-row:active {
 }
 .legal__h {
   margin: 0 0 8px;
-  font-size: 17px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 .legal__p {
   margin: 0 0 10px;
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: var(--font-body);
+  line-height: 1.45;
   color: var(--text);
 }
 .legal__p--intro {
@@ -4701,17 +4797,17 @@ button.list-row:active {
   gap: 12px;
   padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: var(--surface);
 }
 .report-target__label {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--muted);
 }
 .report-target__name {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   text-align: right;
   min-width: 0;
 }
@@ -4721,7 +4817,7 @@ button.list-row:active {
   flex: none;
   min-height: 40px;
   padding: 0 14px;
-  font-size: 13.5px;
+  font-size: var(--font-caption);
 }
 
 /* Ссылка-кнопка «Пожаловаться» (профиль водителя) */
@@ -4734,12 +4830,12 @@ button.list-row:active {
   min-height: 48px;
   padding: 0 18px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-field);
   background: transparent;
   color: var(--muted);
-  font-size: 14.5px;
-  font-weight: 700;
-  transition: transform 0.12s ease, color 0.2s ease;
+  font-size: var(--font-body);
+  font-weight: 600;
+  transition: transform var(--motion-quick) ease, color var(--motion-quick) ease;
 }
 .report-link:active {
   transform: scale(0.98);
@@ -4783,12 +4879,12 @@ select.field__input {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .admin-card__sub {
-  font-size: 13.5px;
+  font-size: var(--font-caption);
   color: var(--muted);
   margin-top: 4px;
   line-height: 1.45;
@@ -4798,8 +4894,8 @@ select.field__input {
   align-items: center;
   gap: 6px;
   margin-top: 4px;
-  font-size: 13.5px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--green);
 }
 .admin-card__reason {
@@ -4807,16 +4903,16 @@ select.field__input {
   padding: 10px 12px;
   background: var(--surface-2);
   border-radius: var(--radius-item);
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--text);
-  line-height: 1.5;
+  line-height: 1.45;
 }
 .admin-check {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-top: 12px;
-  font-size: 13.5px;
+  font-size: var(--font-caption);
   color: var(--text);
   cursor: pointer;
 }
@@ -4841,8 +4937,8 @@ select.field__input {
   gap: 6px;
 }
 .doc-photos__cap {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-micro);
+  font-weight: 500;
   color: var(--muted);
 }
 .doc-photo {
@@ -4864,7 +4960,7 @@ select.field__input {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12.5px;
+  font-size: var(--font-micro);
   color: var(--muted);
 }
 
@@ -4891,7 +4987,7 @@ select.field__input {
 
 /* Звёзды отзыва (текстом, доступно) */
 .review-stars {
-  font-size: 17px;
+  font-size: var(--font-body);
   letter-spacing: 1px;
   color: var(--gold);
 }
@@ -4908,7 +5004,7 @@ select.field__input {
   padding: 10px 12px;
   background: var(--surface-2);
   border-radius: var(--radius-item);
-  font-size: 13px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .ad-stat-row b {
@@ -4933,10 +5029,10 @@ select.field__input {
   padding: 10px 12px 10px 16px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 999px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
-  font-size: 14px;
-  font-weight: 700;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--depth-raised);
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--text);
 }
 .wait-invite-bar .btn-primary {
@@ -4954,7 +5050,7 @@ select.field__input {
 }
 .stat-tile--hl {
   background: var(--mint);
-  border-color: var(--canon-green-bright);
+  border-color: var(--green2);
 }
 .stat-tile--hl b {
   color: var(--green);
@@ -4964,7 +5060,7 @@ select.field__input {
   align-items: center;
   gap: 6px;
   margin: 16px 0 4px;
-  font-size: 12.5px;
+  font-size: var(--font-micro);
   color: var(--muted);
 }
 
@@ -4980,17 +5076,17 @@ select.field__input {
   gap: 6px;
 }
 .income-hero__cap {
-  font-size: 14px;
+  font-size: var(--font-caption);
   font-weight: 600;
   opacity: 0.92;
 }
 .income-hero__net {
-  font-size: 34px;
-  font-weight: 900;
+  font-size: var(--font-display);
+  font-weight: 700;
   line-height: 1.1;
 }
 .income-hero__note {
-  font-size: 12px;
+  font-size: var(--font-micro);
   opacity: 0.86;
   line-height: 1.4;
 }
@@ -5000,7 +5096,7 @@ select.field__input {
   justify-content: space-between;
   gap: 12px;
   padding: 5px 0;
-  font-size: 14px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .income-breakdown b {
@@ -5027,18 +5123,18 @@ select.field__input {
   margin-bottom: 8px;
 }
 .calc-slider__label {
-  font-size: 14px;
+  font-size: var(--font-caption);
   font-weight: 600;
   color: var(--text);
 }
 .calc-slider__value {
   flex: none;
   padding: 3px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-tiny);
   background: var(--mint);
   color: var(--green);
-  font-size: 13px;
-  font-weight: 800;
+  font-size: var(--font-caption);
+  font-weight: 600;
 }
 .calc-range {
   width: 100%;
@@ -5048,8 +5144,8 @@ select.field__input {
 }
 .calc-disclaimer {
   margin: 14px 4px 4px;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--font-micro);
+  line-height: 1.45;
   color: var(--muted);
 }
 
@@ -5072,11 +5168,11 @@ select.field__input {
   padding: calc(env(safe-area-inset-top) + 8px) 16px 8px;
   background: var(--warn-bg);
   color: var(--warn);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   text-align: center;
-  box-shadow: 0 8px 24px -16px rgba(0, 0, 0, 0.5);
-  animation: fadeDown 0.28s ease both;
+  box-shadow: var(--depth-card);
+  animation: fadeDown var(--motion-normal) ease both;
 }
 .offline-banner--back {
   background: var(--mint);
@@ -5128,13 +5224,13 @@ select.field__input {
   min-width: 0;
 }
 .push-block__title {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--text);
 }
 .push-block__sub {
   margin-top: 3px;
-  font-size: 13px;
+  font-size: var(--font-caption);
   line-height: 1.4;
   color: var(--muted);
 }
@@ -5147,14 +5243,14 @@ select.field__input {
   border: 2px solid var(--border);
 }
 .push-dot--on {
-  background: var(--canon-green-bright);
-  border-color: var(--canon-green-bright);
+  background: var(--green2);
+  border-color: var(--green2);
   box-shadow: 0 0 0 4px var(--mint);
 }
 .push-block__hint {
   margin: 12px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
   color: var(--muted);
 }
 .push-block__actions {
@@ -5165,17 +5261,17 @@ select.field__input {
   flex-wrap: wrap;
 }
 .push-block__note {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-micro);
+  font-weight: 500;
   color: var(--muted);
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
 }
 .push-block__msg {
   margin: 12px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--font-caption);
+  line-height: 1.45;
 }
 .push-block__msg--ok {
   color: var(--green);
@@ -5209,7 +5305,7 @@ select.field__input {
 .brand-logo-img {
   display: block;
   object-fit: contain;
-  border-radius: 26px;
+  border-radius: var(--radius-card);
 }
 
 /* Онбординг: hero-фото Башкортостана (как OnboardingHeroCard в андроиде) */
@@ -5219,7 +5315,7 @@ select.field__input {
   aspect-ratio: 3 / 2;
   object-fit: cover;
   border-radius: var(--radius-card);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.14);
+  box-shadow: var(--depth-raised);
 }
 .onb__hero-accent {
   margin-top: 18px;
@@ -5237,7 +5333,7 @@ select.field__input {
   object-fit: cover;
   border-radius: var(--radius-card);
   margin: 4px 0 8px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--depth-raised);
 }
 
 /* Простой режим: брендовые иконки в крупных карточках */
@@ -5268,16 +5364,16 @@ select.field__input {
   background: var(--mint);
   border: 1px solid var(--hairline-green);
   border-radius: var(--radius-item);
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .winter-check__title {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: var(--font-body);
+  font-weight: 600;
   color: var(--green);
 }
 .winter-check__hint {
   margin: 6px 0 0;
-  font-size: 13.5px;
+  font-size: var(--font-caption);
   line-height: 1.45;
   color: var(--muted-strong);
 }
@@ -5305,11 +5401,11 @@ select.field__input {
 /* ---- Спрос рядом (карта спроса водителю) ---- */
 .demand {
   margin-top: 6px;
-  animation: fadeUp 0.35s ease both;
+  animation: fadeUp var(--motion-normal) ease both;
 }
 .demand__quiet {
   margin: 8px 2px 0;
-  font-size: 13.5px;
+  font-size: var(--font-caption);
   color: var(--muted);
 }
 .demand-row {
@@ -5326,27 +5422,27 @@ select.field__input {
   gap: 10px;
 }
 .demand-row__name {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
   color: var(--text);
 }
 .demand-row__count {
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: var(--font-micro);
+  font-weight: 500;
   color: var(--green2);
   white-space: nowrap;
 }
 .demand-bar {
   margin-top: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
   overflow: hidden;
 }
 .demand-bar__fill {
   display: block;
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: linear-gradient(90deg, var(--canon-green-bright), var(--green2));
   transition: width 0.6s ease;
 }
@@ -5359,17 +5455,1765 @@ select.field__input {
   margin-left: 10px;
   padding: 6px 12px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--green2);
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: var(--font-micro);
+  font-weight: 500;
 }
 .payout__privacy {
   display: flex;
   align-items: center;
   gap: 6px;
   margin: 2px 2px 6px;
-  font-size: 12.5px;
+  font-size: var(--font-micro);
   color: var(--muted);
+}
+
+/* ================================================================
+   Волна Е1 — паритет с Android: чек за такси, мои поездки такси,
+   документы и предрейс, заработок курьера, торг по откликам.
+   Только токены (index.css), своих чисел цвета/радиуса нет.
+   ================================================================ */
+
+/* ---- Карточка-действие: заголовок + пояснение + кнопка ---- */
+.act-card {
+  margin-top: 14px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.act-card--warn {
+  background: var(--warn-bg);
+  border-color: transparent;
+}
+.act-card--mint {
+  background: var(--mint);
+  border-color: var(--hairline-green);
+}
+.act-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-body);
+  font-weight: 600;
+  color: var(--green);
+}
+.act-card--warn .act-card__title {
+  color: var(--warn);
+}
+.act-card__text {
+  margin: 6px 0 12px;
+  font-size: var(--font-caption);
+  line-height: 1.45;
+  color: var(--muted-strong);
+}
+.act-card__actions {
+  display: flex;
+  gap: 10px;
+}
+.act-card__actions .btn-primary,
+.act-card__actions .btn-soft,
+.act-card__actions .btn-ghost {
+  flex: 1;
+  min-height: 48px;
+  margin: 0;
+}
+
+/* ---- Номер заказа в шапке чека ---- */
+.receipt__num {
+  float: right;
+  font-size: var(--font-micro);
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* ---- Строка денег: цена → комиссия → чистыми ---- */
+.money-row {
+  padding: 14px;
+  margin-top: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.money-row__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.money-row__route {
+  font-size: var(--font-body);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.money-row__net {
+  flex: none;
+  font-size: var(--font-body);
+  font-weight: 600;
+  color: var(--green);
+}
+.money-row__date {
+  margin-top: 2px;
+  font-size: var(--font-micro);
+  color: var(--muted);
+}
+.money-row__calc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: var(--font-caption);
+  color: var(--muted-strong);
+}
+.money-row__op {
+  color: var(--muted);
+}
+.money-row__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ---- Итог сверху списка (всего / комиссия / чистыми) ---- */
+.money-total {
+  margin-top: 14px;
+  padding: 18px;
+  background: var(--mint);
+  border: 1px solid var(--hairline-green);
+  border-radius: var(--radius-card);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.money-total__label {
+  font-size: var(--font-caption);
+  font-weight: 600;
+  color: var(--muted-strong);
+}
+.money-total__value {
+  margin-top: 2px;
+  font-size: var(--font-title);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--green);
+}
+.money-total__rows {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--hairline-green);
+}
+
+/* ---- Срок документа: дата + сколько осталось ---- */
+.doc-term {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  margin-top: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+}
+.doc-term--soon {
+  background: var(--warn-bg);
+  border-color: transparent;
+}
+.doc-term--over {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+.doc-term__ic {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--mint);
+  color: var(--green2);
+}
+.doc-term--soon .doc-term__ic {
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--warn);
+}
+.doc-term--over .doc-term__ic {
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--danger);
+}
+.doc-term__main {
+  flex: 1;
+  min-width: 0;
+}
+.doc-term__title {
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+.doc-term__sub {
+  margin-top: 2px;
+  font-size: var(--font-caption);
+  color: var(--muted);
+}
+.doc-term__date {
+  flex: none;
+  font-size: var(--font-caption);
+  font-weight: 600;
+  color: var(--muted-strong);
+}
+
+/* ---- Торг: ход сторон ---- */
+.bargain {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-item);
+}
+.bargain__label {
+  font-size: var(--font-micro);
+  font-weight: 500;
+  color: var(--muted);
+}
+.bargain__steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.bargain__step {
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: var(--font-micro);
+  font-weight: 500;
+}
+.bargain__step--mine {
+  background: var(--mint);
+  border-color: var(--hairline-green);
+  color: var(--green);
+}
+.bargain__arrow {
+  color: var(--muted);
+}
+.bargain-price {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+.bargain-price__label {
+  font-size: var(--font-caption);
+  color: var(--muted);
+}
+.bargain-price__value {
+  font-size: var(--font-heading);
+  font-weight: 600;
+  color: var(--green);
+}
+.bargain-turn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-micro);
+  font-weight: 500;
+}
+.bargain-turn--mine {
+  background: var(--mint);
+  color: var(--green);
+}
+
+/* ================================================================
+   Волна Е2 — доверие и споры, чат посылки, погода на маршруте.
+   ================================================================ */
+
+/* ---- ❄️ Погода на маршруте (появляется, только когда есть что сказать) ---- */
+.weather-warn {
+  margin-top: 14px;
+  padding: 16px;
+  background: var(--warn-bg);
+  border-radius: var(--radius-card);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.weather-warn--severe {
+  background: var(--danger-bg);
+}
+.weather-warn__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.weather-warn__ic {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--warn);
+}
+.weather-warn--severe .weather-warn__ic {
+  color: var(--danger);
+}
+.weather-warn__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.weather-warn__title {
+  font-size: var(--font-body);
+  font-weight: 600;
+  color: var(--warn);
+}
+.weather-warn--severe .weather-warn__title {
+  color: var(--danger);
+}
+.weather-warn__temp {
+  font-size: var(--font-micro);
+  color: var(--muted);
+}
+.weather-warn__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: var(--font-caption);
+  line-height: 1.45;
+  color: var(--text);
+}
+.weather-warn__row svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warn);
+}
+.weather-warn--severe .weather-warn__row svg {
+  color: var(--danger);
+}
+.weather-warn__row--severe {
+  font-weight: 700;
+}
+.weather-warn__foot {
+  margin: 12px 0 0;
+  font-size: var(--font-micro);
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* ---- Инбокс чатов (вкладка «Чат») ---- */
+.inbox-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  margin-top: 10px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.inbox-row__main {
+  flex: 1;
+  min-width: 0;
+}
+.inbox-row__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.inbox-row__name {
+  font-size: var(--font-body);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inbox-row__when {
+  flex: none;
+  font-size: var(--font-micro);
+  color: var(--muted);
+}
+.inbox-row__route {
+  margin-top: 2px;
+  font-size: var(--font-micro);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inbox-row__last {
+  margin-top: 6px;
+  font-size: var(--font-caption);
+  color: var(--muted-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Фото в чате (публичная media-папка, видит собеседник) ---- */
+.chat-photo {
+  display: block;
+  max-width: 220px;
+  max-height: 260px;
+  width: auto;
+  height: auto;
+  border-radius: var(--radius-item);
+  object-fit: cover;
+}
+
+/* ---- «Из чего сложилась цена» (раскрывающийся блок под оценкой такси) ---- */
+.price-why {
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+}
+.price-why > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--font-caption);
+  font-weight: 600;
+  color: var(--green2);
+}
+.price-why > summary::-webkit-details-marker {
+  display: none;
+}
+.price-why > summary::after {
+  content: " ▾";
+  color: var(--muted);
+}
+.price-why[open] > summary::after {
+  content: " ▴";
+}
+
+/* ---- Голос в чате: кнопка записи и пузырь с плеером ---- */
+.chat-voice-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--green2);
+}
+.chat-voice-btn.is-rec {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.chat-voice-btn__time {
+  font-size: var(--font-micro);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.chat-voice {
+  display: block;
+  width: 210px;
+  max-width: 100%;
+  height: 40px;
+}
+
+/* ---- Реклама партнёра: то, за что бизнес заплатил ---- */
+.partner-ad {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  padding: var(--space-sm) var(--space-md);
+  margin-top: var(--space-md);
+  box-shadow: var(--depth-flat);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.partner-ad__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+.partner-ad__erid {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.partner-ad__label {
+  flex: none;
+}
+.partner-ad__body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.partner-ad__logo {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-field);
+  object-fit: cover;
+  background: var(--mint);
+}
+.partner-ad__logo--letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--green2);
+  font-size: var(--font-heading);
+  font-weight: 700;
+}
+.partner-ad__text {
+  flex: 1;
+  min-width: 0;
+}
+.partner-ad__title {
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.partner-ad__sub {
+  margin-top: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.partner-ad__btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--space-md);
+  border-radius: var(--radius-pill);
+  color: var(--green2);
+  font-size: var(--font-micro);
+  font-weight: 700;
+  text-decoration: none;
+  transition: transform var(--motion-quick) ease, background var(--motion-quick) ease;
+}
+.partner-ad__btn:active {
+  transform: scale(0.96);
+  background: var(--mint);
+}
+
+/* ---- «Позови водителя»: пустая выдача поиска ---- */
+.invite-driver {
+  margin-top: var(--space-lg);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.invite-driver__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+.invite-driver__ic {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  color: var(--on-accent);
+}
+.invite-driver__title {
+  color: var(--text);
+  font-size: var(--font-body);
+  font-weight: 700;
+}
+.invite-driver__sub {
+  margin-top: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
+/* ---- Безопасность в чате: плашка под сообщением и баннер при первом входе ---- */
+.chat-flag {
+  margin-top: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-tiny);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.chat-disclaimer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--warn-bg);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.chat-disclaimer__text {
+  flex: 1;
+  min-width: 0;
+  color: var(--warn);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.chat-disclaimer__ok {
+  flex: none;
+  min-height: 44px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-micro);
+  font-weight: 700;
+  transition: transform var(--motion-quick) ease;
+}
+.chat-disclaimer__ok:active {
+  transform: scale(0.94);
+}
+
+/* ---- Сообщение целиком: пузырь + плашка-предупреждение под ним ---- */
+.msg {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 82%;
+}
+.msg--mine {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.msg .bubble {
+  align-self: auto;
+  max-width: 100%;
+}
+.bubble {
+  position: relative;
+}
+/* Удалённое: серый контур без заливки — след остался, слов нет */
+.bubble--gone {
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: var(--font-caption);
+}
+.bubble--gone.bubble--mine {
+  color: var(--muted);
+}
+.bubble__edited {
+  margin-left: var(--space-sm);
+  opacity: 0.7;
+  font-size: var(--font-micro);
+}
+.bubble__more {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  opacity: 0;
+  font-size: var(--font-caption);
+  line-height: 1;
+  transition: opacity var(--motion-quick) ease;
+}
+.bubble:hover .bubble__more,
+.bubble:focus-within .bubble__more {
+  opacity: 0.65;
+}
+.bubble__menu {
+  position: absolute;
+  top: 26px;
+  right: 4px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+  padding: var(--space-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  box-shadow: var(--depth-raised);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.bubble__menu button {
+  min-height: 44px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-tiny);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-caption);
+  text-align: left;
+}
+.bubble__menu button:active {
+  background: var(--surface-2);
+}
+.bubble__menu-danger {
+  color: var(--danger);
+}
+.bubble__edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: center;
+}
+.bubble__edit input {
+  flex: 1;
+  min-width: 140px;
+  min-height: 48px;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tiny);
+  background: var(--surface);
+  color: var(--text);
+  /* Не мельче 16px: Safari на айфоне зумит страницу при касании поля с мелким
+     текстом и обратно не отзумливает — человек остаётся в увеличенной вёрстке. */
+  font-size: var(--font-body);
+}
+.bubble__edit button {
+  min-height: 48px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-tiny);
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-micro);
+  font-weight: 700;
+}
+
+/* ---- Заказ такси: «только женщина за рулём» и «как меня найти» ---- */
+.taxi-women {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.taxi-women input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  accent-color: var(--green2);
+}
+.taxi-women__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.taxi-women__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+.taxi-women__sub {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.taxi-details {
+  margin-top: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  overflow: hidden;
+}
+.taxi-details__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-md);
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.taxi-details__head > span:first-child {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.taxi-details__title {
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+.taxi-details__sub {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.taxi-details__chev {
+  flex: none;
+  color: var(--muted);
+  transition: transform var(--motion-quick) ease;
+}
+.taxi-details__chev.is-open {
+  transform: rotate(90deg);
+}
+.taxi-details__body {
+  padding: 0 var(--space-md) var(--space-md);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.taxi-details__note {
+  margin-top: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- Ожидание у подъезда: сначала бесплатное окно, потом счётчик ---- */
+.wait-counter {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  color: var(--text);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.wait-counter--paid {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.wait-counter__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-caption);
+}
+.wait-counter__bar {
+  display: block;
+  height: 4px;
+  margin-top: var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--border);
+  overflow: hidden;
+}
+.wait-counter__bar span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  transition: width var(--motion-normal) linear;
+}
+
+/* ---- Причина отмены: чипы выбора ---- */
+.sheet__title {
+  margin: var(--space-sm) 0 var(--space-md);
+  font-size: var(--font-heading);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.reason-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+.reason-chip {
+  min-height: 48px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-caption);
+  text-align: left;
+  transition:
+    background var(--motion-quick) ease,
+    border-color var(--motion-quick) ease,
+    transform var(--motion-quick) ease;
+}
+.reason-chip:active {
+  transform: scale(0.99);
+}
+.reason-chip.is-active {
+  border-color: var(--green2);
+  background: var(--mint);
+  color: var(--green);
+  font-weight: 700;
+}
+
+/* ---- Промокод сработал (скидку платит Юлдаш) ---- */
+.promo-hit {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.promo-hit__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+.promo-hit__title {
+  flex: 1;
+  color: var(--green);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+.promo-hit__sum {
+  color: var(--green2);
+  font-size: var(--font-heading);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.promo-hit__code {
+  margin-top: var(--space-xs);
+  color: var(--green2);
+  font-size: var(--font-micro);
+}
+.promo-hit__note {
+  margin: var(--space-sm) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- Смена таксиста: часы, деньги, комиссия ---- */
+.shift-card {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.shift-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+.shift-card__label {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.shift-card__time {
+  color: var(--text);
+  font-size: var(--font-heading);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.shift-card__of {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  font-weight: 400;
+}
+.shift-card__bar {
+  display: block;
+  height: 6px;
+  margin-top: var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.shift-card__bar span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  transition: width var(--motion-slow) ease;
+}
+.shift-card__money {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+}
+.shift-card__net {
+  color: var(--text);
+  font-size: var(--font-title);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.shift-card__sub {
+  margin-top: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+.shift-card__orders {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.shift-card__orders b {
+  color: var(--text);
+  font-size: var(--font-heading);
+  font-variant-numeric: tabular-nums;
+}
+.shift-card__orders span {
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+.shift-card__split {
+  margin-top: var(--space-sm);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.shift-card__fee,
+.shift-card__law {
+  margin: var(--space-md) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- Долг по комиссии за такси ---- */
+.debt-card {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.debt-card--blocked {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+.debt-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.debt-card__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+.debt-card--blocked .debt-card__title {
+  color: var(--danger);
+}
+.debt-card__sum {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+.debt-card__sum b {
+  color: var(--text);
+  font-size: var(--font-title);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.debt-card__sum--pending b {
+  color: var(--muted);
+  font-size: var(--font-heading);
+}
+.debt-card__k {
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+.debt-card__due {
+  margin-top: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+.debt-card__note {
+  margin: var(--space-md) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.debt-card__weeks {
+  margin-top: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.debt-card__week {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  font-variant-numeric: tabular-nums;
+}
+.debt-card__pending-tag {
+  color: var(--warn);
+}
+.debt-card__sbp {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--surface-2);
+}
+.debt-card__payee {
+  margin-top: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+
+/* ---- Поле города с подсказками из справочника ---- */
+.city-field {
+  position: relative;
+}
+.city-field__list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 30;
+  margin: var(--space-xs) 0 0;
+  padding: var(--space-xs);
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  box-shadow: var(--depth-raised);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.city-field__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-tiny);
+  background: transparent;
+  text-align: left;
+}
+.city-field__item:active,
+.city-field__item:hover {
+  background: var(--surface-2);
+}
+.city-field__name {
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 600;
+}
+.city-field__sub {
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+
+/* ---- Время под сообщением в треде поддержки ---- */
+.ticket-time {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+
+/* ---- SOS: координаты, которые диктуют оператору ---- */
+.sos-coords {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  text-align: center;
+}
+.sos-coords__label {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.sos-coords__value {
+  margin: var(--space-sm) 0 var(--space-md);
+  color: var(--text);
+  font-size: var(--font-title);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  user-select: all;
+}
+.sos-coords__off {
+  margin: var(--space-sm) 0 var(--space-md);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
+/* ---- «Где работаю»: зона заказов таксиста ---- */
+.workzone {
+  margin-top: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  overflow: hidden;
+}
+.workzone__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-md);
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.workzone__ic {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.workzone__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.workzone__title {
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+.workzone__sub {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.workzone__action {
+  flex: none;
+  color: var(--green2);
+  font-size: var(--font-micro);
+  font-weight: 700;
+}
+.workzone__body {
+  padding: 0 var(--space-md) var(--space-md);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.workzone__note,
+.workzone__hint {
+  margin: var(--space-xs) 0 var(--space-md);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- Баннер новой версии (PWA) ---- */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--mint);
+  color: var(--green);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.update-banner__ic {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  color: var(--on-accent);
+}
+.update-banner__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.update-banner__actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.update-banner__later,
+.update-banner__go {
+  min-height: 44px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-tiny);
+  background: transparent;
+  font-size: var(--font-micro);
+  font-weight: 700;
+}
+.update-banner__later {
+  color: var(--muted);
+}
+.update-banner__go {
+  color: var(--green2);
+}
+
+/* ---- Общий блок оплаты по СБП ---- */
+.sbp-pay {
+  margin-top: var(--space-md);
+}
+.sbp-pay__go {
+  display: block;
+  margin-top: var(--space-md);
+  text-align: center;
+  text-decoration: none;
+}
+.sbp-pay__note {
+  margin: var(--space-md) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- «Чем отличается?» — три режима одним взглядом ---- */
+.modes-hint {
+  margin-top: var(--space-md);
+}
+.modes-hint > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: var(--green2);
+  font-size: var(--font-micro);
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+.modes-hint > summary::-webkit-details-marker {
+  display: none;
+}
+.modes-hint__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.modes-hint__row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+.modes-hint__row b {
+  color: var(--text);
+  font-size: var(--font-caption);
+}
+.modes-hint__row p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.modes-hint__ic {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-field);
+}
+.modes-hint__ic--taxi {
+  background: var(--taxi-bg);
+  color: var(--taxi-text);
+}
+.modes-hint__ic--pool {
+  background: var(--mint);
+  color: var(--green2);
+}
+.modes-hint__ic--courier {
+  background: var(--courier-bg);
+  color: var(--courier);
+}
+
+/* ---- Скелетон истории чата: «грузится» и «пусто» — разные вещи ---- */
+.chat__loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.chat__skeleton {
+  display: block;
+  width: 62%;
+  height: 38px;
+  border-radius: var(--radius-field) 16px 16px 4px;
+}
+.chat__skeleton--mine {
+  align-self: flex-end;
+  width: 48%;
+  border-radius: var(--radius-field) 16px 4px 16px;
+}
+
+/* ---- Фото посылки: граница ответственности ---- */
+.parcel-photo {
+  margin-top: var(--space-md);
+}
+.parcel-photo__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  width: 100%;
+}
+.parcel-photo__btn.is-done {
+  color: var(--green2);
+  background: var(--mint);
+}
+.parcel-photo__note {
+  margin: var(--space-xs) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Выбранные звёзды — золотые: видно, на чём палец остановился */
+.rate-star.is-on {
+  color: var(--canon-star);
+}
+
+/* Метки к оценке — переносятся, а не уезжают за край: башкирская подпись длиннее */
+.rate-tags {
+  flex-wrap: wrap;
+  margin-top: var(--space-md);
+  overflow: visible;
+}
+
+/* ---- Правила курьера: границы до заявки, а не после спора ---- */
+.courier-rule {
+  margin-top: var(--space-md);
+}
+.courier-rule b {
+  display: block;
+  color: var(--text);
+  font-size: var(--font-caption);
+}
+.courier-rule p {
+  margin: var(--space-xs) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- «Почему не взял?» — вопрос после отказа, не вместо него ---- */
+.decline-why {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.decline-why__title {
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+.decline-why__note {
+  margin: var(--space-xs) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.decline-why__chips {
+  flex-wrap: wrap;
+  margin: var(--space-md) 0;
+  overflow: visible;
+}
+
+/* Часы поддержки под кнопкой «написать» */
+.help-cta__hours {
+  margin: var(--space-md) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Подпись под названием класса машины */
+.taxi-class__hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Предупреждение в карточке посылки: отмена уже стоит кому-то денег */
+.parcel-card__warn {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Сколько ходов осталось в торге: он конечен, и знать об этом надо заранее */
+.bargain__left {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+  border-radius: var(--radius-tiny);
+  background: var(--surface-2);
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.bargain__left--last {
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-weight: 700;
+}
+
+/* Что делать после ввода промокода — ничего, и это надо сказать */
+.promo-applied__discount {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.promo-applied__discount b {
+  display: block;
+  font-size: var(--font-caption);
+}
+.promo-applied__discount p {
+  margin: var(--space-xs) 0 0;
+}
+
+/* За что курьер платит процент: без этого «комиссия» читается как штраф */
+.courier-fee__why {
+  margin: var(--space-sm) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Совет после отказа проверки: без него человек шлёт то же фото повторно */
+.verify-hint {
+  margin: var(--space-sm) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Промокод пассажира в оффере: водитель должен знать сумму на руки заранее */
+.offer-card__promo {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: 700;
+}
+
+/* Ожидания от доставки: везёт сосед, а не служба со страховкой */
+.parcel-expect {
+  margin: var(--space-md) 0 0;
+  padding: var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Размещение рекламы на исходе: сказать до того, как показы встали */
+.biz-item__ending {
+  margin: var(--space-sm) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Денежные чаевые: только если водитель сам их включил */
+.tip-money {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+.tip-money__label {
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+
+/* ---- Оплата состоявшейся поездки ---- */
+.pay-trip {
+  margin-top: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.pay-trip__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  color: var(--text);
+  font-size: var(--font-caption);
+}
+.pay-trip__head b {
+  margin-left: auto;
+  font-size: var(--font-heading);
+  font-variant-numeric: tabular-nums;
+}
+.pay-trip__note {
+  margin: var(--space-sm) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- Чаевые водителя: номер СБП по желанию ---- */
+.tips-sbp {
+  margin-top: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  overflow: hidden;
+}
+.tips-sbp__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-md);
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.tips-sbp__head > span:first-child {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tips-sbp__head b {
+  color: var(--text);
+  font-size: var(--font-caption);
+}
+.tips-sbp__head > span:first-child > span {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.tips-sbp__body {
+  padding: 0 var(--space-md) var(--space-md);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+
+/* ---- «Как получить больше заявок»: подсказка, а не упрёк ---- */
+.ride-tips {
+  flex-basis: 100%;
+  margin-top: var(--space-sm);
+}
+.ride-tips__head {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-micro);
+  font-weight: 700;
+  text-align: left;
+}
+.ride-tips__list {
+  margin: var(--space-xs) 0 0;
+  padding-left: var(--space-lg);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.ride-tips__list li {
+  margin-top: var(--space-xs);
+}
+
+/* ============================================================
+   Длинный текст в карточках: перенос, а не выезд за край.
+   Города, имена и описания приходят от людей и от справочника,
+   и в башкирском они заметно длиннее русских. Общая страховка
+   стоит на body, здесь — там, где текст лежит в узкой колонке
+   рядом с иконкой или ценой и обязан ужиматься.
+   ============================================================ */
+.ride-card__route,
+.list-row__title,
+.list-row__sub,
+.dprofile-name,
+.parcel-card__desc,
+.review-card__author,
+.sched-card__when,
+.city-field__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }

@@ -41,9 +41,31 @@ export interface Ride {
   driver_since?: string; // "YYYY-MM"
 }
 
-/** Публичная лента активных поездок. Токен не обязателен (auth: false). */
-export function fetchRides(signal?: AbortSignal): Promise<Ride[]> {
-  return apiGet<Ride[]>("/rides", { auth: false, signal });
+/**
+ * Публичная лента активных поездок. Токен не обязателен (auth: false).
+ *
+ * Фильтры считает СЕРВЕР, а не клиент: на 11 тысячах поездок тянуть всё и резать
+ * в браузере — это лишний мегабайт трафика на телефоне в селе. Без фильтров
+ * ответ отдаётся из кеша, с фильтрами — запросом в базу.
+ */
+export interface RidesQuery {
+  from_city?: string;
+  to_city?: string;
+  category?: RideCategory;
+  date?: string; // YYYY-MM-DD — только поездки этого дня
+  women_only?: boolean;
+  pets_allowed?: boolean;
+  child_seat?: boolean;
+  baggage?: boolean;
+}
+
+export function fetchRides(signal?: AbortSignal, q?: RidesQuery): Promise<Ride[]> {
+  const p = new URLSearchParams();
+  Object.entries(q ?? {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "" && v !== false) p.set(k, String(v));
+  });
+  const qs = p.toString();
+  return apiGet<Ride[]>(`/rides${qs ? `?${qs}` : ""}`, { auth: false, signal });
 }
 
 /** Карточка поездки (GET /rides/{id}) — публичная, без личных данных. */

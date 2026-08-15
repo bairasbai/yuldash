@@ -1,7 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import { LangProvider } from "./i18n/lang";
 import { AuthProvider } from "./auth/AuthProvider";
@@ -14,8 +13,8 @@ import "./ui.css";
 applyTheme();
 applyFontScale();
 
-// Service worker: автообновление (registerType: autoUpdate в vite.config.ts).
-registerSW({ immediate: true });
+// Service worker регистрирует UpdateBanner: ему же нужен колбэк «есть новая
+// версия», а две регистрации подряд — лишний повод для гонки.
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

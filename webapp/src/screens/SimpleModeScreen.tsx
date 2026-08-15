@@ -33,13 +33,13 @@ export default function SimpleModeScreen() {
     {
       to: "/rides",
       icon: <YuRoute size={40} />,
-      title: appText("Найти поездку", "Сәфәр табырға"),
+      title: appText("Найти поездку", "Сәфәр табыу"),
       sub: appText("Попутки рядом", "Яҡындағы юлдаштар"),
     },
     {
       to: "/taxi",
       icon: <YuModeTaxi size={40} />,
-      title: appText("Вызвать машину", "Машина саҡырырға"),
+      title: appText("Вызвать машину", "Машина саҡырыу"),
       sub: appText("Быстрый заказ", "Тиҙ заказ"),
     },
     {

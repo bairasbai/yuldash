@@ -145,7 +145,7 @@ export default function SupportTicketsScreen() {
             >
               {send === "sending"
                 ? appText("Отправляем…", "Ебәрәбеҙ…")
-                : appText("Отправить", "Ебәрергә")}
+                : appText("Отправить", "Ебәреү")}
             </button>
           </div>
         </div>
@@ -159,7 +159,7 @@ export default function SupportTicketsScreen() {
           <h2>{appText("Не удалось загрузить", "Йөкләп булманы")}</h2>
           <p>{appText("Проверь соединение и попробуй снова.", "Бәйләнеште тикшереп, ҡабат ҡара.")}</p>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}

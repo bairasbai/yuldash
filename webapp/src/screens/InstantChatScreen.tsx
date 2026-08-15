@@ -19,9 +19,12 @@ import {
 } from "../api/chat";
 import { fetchInstantOrder, isUnlocked, type InstantOrder } from "../api/instant";
 import { SubHeader } from "./ConsentsScreen";
+import { ChatPhotoButton, ChatMessageBody } from "../components/ChatPhoto";
+import { ChatVoiceButton, VoiceBubble } from "../components/ChatVoice";
 import { IconArrow } from "../components/Icons";
 import { YuChat } from "../components/BrandIcons";
 import QuickReplies from "../components/QuickReplies";
+import { ChatFlagPlate, ChatSafetyDisclaimer } from "../components/ChatSafety";
 
 export default function InstantChatScreen() {
   const { appText } = useLang();
@@ -35,6 +38,8 @@ export default function InstantChatScreen() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState("");
   const [live, setLive] = useState(false);
+  /** Вложение (голосовое или фото) не ушло — говорим об этом человеку. */
+  const [attachNote, setAttachNote] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [noChat, setNoChat] = useState(false); // чат ещё не открыт (до accept)
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -44,12 +49,15 @@ export default function InstantChatScreen() {
     setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
   }, []);
 
-  // Заголовок: имя собеседника из заказа.
+  // Заголовок: имя собеседника из заказа. Отменяем при уходе с экрана —
+  // иначе ответ прилетает в размонтированный компонент.
   useEffect(() => {
     if (!id) return;
-    fetchInstantOrder(id)
+    const ac = new AbortController();
+    fetchInstantOrder(id, ac.signal)
       .then(setOrder)
       .catch(() => {});
+    return () => ac.abort();
   }, [id]);
 
   // История + WS.
@@ -103,7 +111,7 @@ export default function InstantChatScreen() {
   const peer =
     order?.role === "driver"
       ? order?.passenger_name || appText("Пассажир", "Юлаусы")
-      : order?.driver_name || appText("Водитель", "Водитель");
+      : order?.driver_name || appText("Водитель", "Йөрөтөүсе");
 
   // Общая отправка (поле ввода и быстрые ответы): живой сокет, фолбэк — REST.
   async function sendText(t: string) {
@@ -116,6 +124,20 @@ export default function InstantChatScreen() {
       } catch (e) {
         if (e instanceof ApiError) setText(t);
       }
+    }
+  }
+
+  /** Голос уходит по REST: сокет передаёт только текст, а ссылку надо положить в поле. */
+  async function sendVoice(voiceUrl: string) {
+    try {
+      const m = await sendOrderMessageRest(id, "", voiceUrl);
+      upsert(m);
+    } catch {
+      // Запись ушла на сервер, а сообщение с ней — нет. Человек уверен, что
+      // его услышали, поэтому молчать здесь нельзя.
+      setAttachNote(
+        appText("Голосовое не ушло. Запиши ещё раз.", "Тауыш китмәне. Тағы яҙып ҡара.")
+      );
     }
   }
 
@@ -143,13 +165,21 @@ export default function InstantChatScreen() {
           <p>
             {appText(
               "Как только водитель примет заказ — здесь можно будет списаться.",
-              "Водитель заказды алғас — бында яҙышып була."
+              "Йөрөтөүсе заказды алғас — бында яҙышып була."
             )}
           </p>
         </div>
       ) : (
         <div className="chat chat--full">
           <div className="chat__body">
+            <ChatSafetyDisclaimer />
+            {!loaded && (
+              <div className="chat__loading" aria-live="polite">
+                <span className="skeleton chat__skeleton" />
+                <span className="skeleton chat__skeleton chat__skeleton--mine" />
+                <span className="skeleton chat__skeleton" />
+              </div>
+            )}
             {loaded && messages.length === 0 && (
               <p className="chat__empty">
                 {appText("Напиши первым — обсудите детали подачи.", "Беренсе булып яҙ — килеү тәфсиләтен һөйләшегеҙ.")}
@@ -158,9 +188,12 @@ export default function InstantChatScreen() {
             {messages.map((m) => {
               const mine = m.sender_id === myId;
               return (
-                <div key={m.id} className={"bubble" + (mine ? " bubble--mine" : "")}>
-                  {m.from_admin && <span className="bubble__admin">{appText("Поддержка", "Ярҙам")}</span>}
-                  {m.text}
+                <div key={m.id} className={"msg" + (mine ? " msg--mine" : "")}>
+                  <div className={"bubble" + (mine ? " bubble--mine" : "")}>
+                    {m.from_admin && <span className="bubble__admin">Юлдаш ✓</span>}
+                    {m.voice_url ? <VoiceBubble url={m.voice_url} /> : <ChatMessageBody text={m.text} />}
+                  </div>
+                  <ChatFlagPlate flag={m.flag} mine={mine} />
                 </div>
               );
             })}
@@ -168,11 +201,16 @@ export default function InstantChatScreen() {
           </div>
           {readOnly ? (
             <div className="chat__readonly">
-              {appText("Поездка завершена — чат только для чтения.", "Сәфәр тамамланды — чат тик уҡыу өсөн.")}
+              {appText("Поездка завершена — чат доступен только для чтения.", "Сәфәр тамамланды — чат тик уҡыу өсөн.")}
             </div>
           ) : (
             <>
               {/* Быстрые ответы — один тап отправляет готовую фразу */}
+              {attachNote && (
+                <div className="chat__queued" role="status">
+                  {attachNote}
+                </div>
+              )}
               <QuickReplies onPick={(t) => void sendText(t)} />
               <div className="chat__input">
               <input
@@ -182,9 +220,12 @@ export default function InstantChatScreen() {
                   if (e.key === "Enter") send();
                 }}
                 placeholder={appText("Сообщение…", "Хат…")}
-                aria-label={appText("Сообщение", "Хат")}
+          maxLength={4000}
+                aria-label={appText("Сообщение", "Хәбәр")}
               />
-              <button type="button" onClick={send} aria-label={appText("Отправить", "Ебәрергә")}>
+              <ChatPhotoButton onReady={(t) => void sendText(t)} onProblem={setAttachNote} />
+                <ChatVoiceButton onSend={(u) => void sendVoice(u)} onProblem={setAttachNote} />
+          <button type="button" onClick={send} aria-label={appText("Отправить", "Ебәреү")}>
                 <IconArrow size={20} />
               </button>
               </div>

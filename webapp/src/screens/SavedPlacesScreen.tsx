@@ -135,7 +135,7 @@ export default function SavedPlacesScreen() {
     <>
       <SubHeader
         title={appText("Мои адреса", "Адрестарым")}
-        subtitle={appText("Дом, работа и любимые точки", "Өй, эш һәм яҡын нөктәләр")}
+        subtitle={appText("Дом, работа и любимые места", "Өй, эш һәм яҡын нөктәләр")}
         onBack={() => navigate(-1)}
       />
 
@@ -175,7 +175,7 @@ export default function SavedPlacesScreen() {
                     type="button"
                     className="icon-btn"
                     onClick={() => remove(p.id)}
-                    aria-label={appText("Удалить", "Юйырға")}
+                    aria-label={appText("Удалить", "Юйыу")}
                   >
                     <IconTrash size={20} />
                   </button>
