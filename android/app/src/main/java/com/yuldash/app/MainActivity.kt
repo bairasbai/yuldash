@@ -268,6 +268,16 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("yuldash_theme", MODE_PRIVATE)
         if (prefs.contains("dark_override")) ThemePrefs.darkOverride = prefs.getBoolean("dark_override", false)
         FontScalePrefs.load(this)   // «Крупный шрифт»: восстановить выбранный размер текста (yuldash_prefs)
+        // «Удалить анимации» в спец.возможностях Android — это не каприз: вестибулярные
+        // нарушения, мигрень, укачивание. Читаем системный выключатель ОДИН раз при старте
+        // и гасим длительности во всём приложении (CanonMotion). Ноль означает «сразу
+        // конечное состояние»: карточки и экраны не перестают появляться, появляются мгновенно.
+        // Настройку меняют редко и с перезапуском — читать её на каждый кадр незачем.
+        CanonMotion.enabled = runCatching {
+            android.provider.Settings.Global.getFloat(
+                contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f,
+            ) > 0f
+        }.getOrDefault(true)
         handleNavIntent(intent)   // холодный старт из полноэкранного оффера такси (B7a-2)
         handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
         setContent {
