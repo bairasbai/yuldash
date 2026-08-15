@@ -1744,7 +1744,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
         // живут в rememberSaveable, ходить между шагами можно свободно.
         if (step != stepRoute) item {
             AppButton(
-                text = appText("Назад", "Кире"),
+                text = appText("Назад", "Артҡа"),
                 onClick = { if (!working) step -= 1 },
                 style = AppButtonStyle.Secondary,
                 enabled = !working,

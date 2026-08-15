@@ -659,7 +659,7 @@ internal fun SosContent(
                     color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp
                 )
             }
-            item { TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text(appText("Назад", "Кире")) } }
+            item { TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text(appText("Назад", "Артҡа")) } }
         }
     }
 }
@@ -728,7 +728,7 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
     // Строки для Toast (вне Composable-контекста лямбд) — считаем заранее.
     val tUploadFail = appText("Не удалось загрузить фото, попробуй ещё раз", "Фотоны йөкләп булманы, тағы ҡабатла")
     val tSubmitFail = appText("Не получилось отправить. Проверь сеть и повтори", "Ебәреп булманы. Сетте тикшереп ҡабатла")
-    val tStatusFail = appText("Не удалось загрузить твой статус водителя. Проверь сеть.", "Водитель статусыңды йөкләп булманы. Сетте тикшер.")
+    val tStatusFail = appText("Не удалось загрузить твой статус водителя. Проверь сеть.", "Йөрөтөүсе статусыңды йөкләп булманы. Сетте тикшер.")
 
     // При сетевом сбое честно предупреждаем (не молчим и не показываем пустую форму как
     // «документы не отправлены», если статус на сервере другой).
@@ -916,7 +916,7 @@ internal fun VerifyDriverContent(
                 }
             }
             item {
-                Text(appText("Проверка водителя", "Водителде тикшереү"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
+                Text(appText("Проверка водителя", "Йөрөтөүсене тикшереү"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
                 Text(appText("Пройди проверку — так пассажиры будут доверять", "Пассажирҙар ышанһын өсөн тикшереүҙе үт"), color = CanonMuted, fontSize = 16.sp, lineHeight = 23.sp)
             }
             item {
@@ -949,7 +949,7 @@ internal fun VerifyDriverContent(
                 OutlinedTextField(value = seats, onValueChange = onSeatsChange, label = { Text(appText("Количество мест", "Урындар һаны")) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), singleLine = true)
             }
             item { Text(appText("Документы (фото)", "Документтар (фото)"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
-            item { UploadTile(appText("Фото водительских прав", "Водитель танытмаһы фотоһы"), licenseUrl != null, uploadingLicense, onPickLicense) }
+            item { UploadTile(appText("Фото водительских прав", "Йөрөтөүсе танытмаһы фотоһы"), licenseUrl != null, uploadingLicense, onPickLicense) }
             item { UploadTile(appText("Фото автомобиля", "Машина фотоһы"), carPhotoUrl != null, uploadingCar, onPickCar) }
             item {
                 Button(
@@ -1009,7 +1009,7 @@ internal fun DriverReasonBanner(docsStatus: String, autocheckResult: String, aut
     // Машинные коды причин → дружелюбный двуязычный текст (коды из backend/driver_check.py).
     val explanations: List<String> = buildList {
         if (reasons.contains("not_a_license")) add(appText("Не разобрали номер прав на фото.", "Фотола права номерын таный алманыҡ."))
-        if (reasons.contains("no_license_number")) add(appText("Не нашли номер водительского удостоверения.", "Водитель танытмаһы номерын тапманыҡ."))
+        if (reasons.contains("no_license_number")) add(appText("Не нашли номер водительского удостоверения.", "Йөрөтөүсе танытмаһы номерын тапманыҡ."))
         if (reasons.contains("license_expired")) add(appText("Похоже, срок действия прав истёк.", "Права ваҡыты үткән кеүек."))
         if (reasons.contains("no_expiry_date")) add(appText("Не нашли срок действия на фото.", "Фотола ваҡыт срогын тапманыҡ."))
         if (reasons.contains("doc_not_found") || reasons.contains("doc_read_error")) add(appText("Фото прав не открылось. Загрузи его ещё раз.", "Права фотоһы асылманы. Тағы йөклә."))

@@ -851,7 +851,7 @@ private fun MapHero(
             ) {
                 Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(appText("Я водитель", "Мин водитель"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(appText("Я водитель", "Мин йөрөтөүсе"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -2024,7 +2024,7 @@ internal fun PickupPickerOverlay(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(onClick = onDismiss, shape = CircleShape, color = CanonSurface, shadowElevation = CanonDepth.raised) {
-                Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Кире"), tint = CanonText, modifier = Modifier.padding(12.dp).size(18.dp))
+                Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Артҡа"), tint = CanonText, modifier = Modifier.padding(12.dp).size(18.dp))
             }
             Spacer(Modifier.width(8.dp))
             Surface(shape = RoundedCornerShape(14.dp), color = CanonSurface, shadowElevation = CanonDepth.raised) {

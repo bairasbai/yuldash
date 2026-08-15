@@ -109,7 +109,7 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         WaitlistStatCard(appText("Пассажиры", "Пассажирҙар"), d.passengers.toString(), Modifier.weight(1f))
-                        WaitlistStatCard(appText("Водители", "Водителдәр"), d.drivers.toString(), Modifier.weight(1f))
+                        WaitlistStatCard(appText("Водители", "Йөрөтөүселәр"), d.drivers.toString(), Modifier.weight(1f))
                     }
                 }
                 if (d.byCity.isNotEmpty()) {
@@ -133,7 +133,7 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     WaitlistFilterChip(appText("Все", "Барыһы"), roleFilter == "") { roleFilter = "" }
                     WaitlistFilterChip(appText("Пассажиры", "Пассажирҙар"), roleFilter == "passenger") { roleFilter = "passenger" }
-                    WaitlistFilterChip(appText("Водители", "Водителдәр"), roleFilter == "driver") { roleFilter = "driver" }
+                    WaitlistFilterChip(appText("Водители", "Йөрөтөүселәр"), roleFilter == "driver") { roleFilter = "driver" }
                     WaitlistFilterChip(appText("Ждут", "Көтәләр"), invitedFilter == false) {
                         invitedFilter = if (invitedFilter == false) null else false
                     }
@@ -172,7 +172,7 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
                                 Text(e.phone, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 val meta = buildList {
                                     if (e.city.isNotBlank()) add(e.city)
-                                    add(if (e.role == "driver") appText("водитель", "водитель") else appText("пассажир", "пассажир"))
+                                    add(if (e.role == "driver") appText("водитель", "йөрөтөүсе") else appText("пассажир", "пассажир"))
                                     add(e.createdAt.take(10))
                                 }.joinToString("  ·  ")
                                 Text(meta, color = CanonMuted, fontSize = 12.sp)

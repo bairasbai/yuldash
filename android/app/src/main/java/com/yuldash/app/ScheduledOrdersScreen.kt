@@ -418,7 +418,7 @@ private fun RouteLine(order: InstantOrderDto) {
 
 @Composable
 private fun activatedScheduledTitle(status: String): String = when (status) {
-    "accepted", "arriving" -> appText("Водитель едет к тебе", "Водитель һиңә килә")
+    "accepted", "arriving" -> appText("Водитель едет к тебе", "Йөрөтөүсе һиңә килә")
     "onboard" -> appText("Поездка началась", "Сәфәр башланды")
     else -> appText("Пора ехать — ищем машину", "Барыр ваҡыт — машина эҙләйбеҙ")
 }

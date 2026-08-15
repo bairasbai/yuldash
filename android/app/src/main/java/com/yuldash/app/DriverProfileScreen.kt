@@ -66,7 +66,7 @@ internal fun DriverProfileScreen(driverId: Int, onBack: () -> Unit) {
 
     Scaffold(
         containerColor = CanonBg,
-        topBar = { ScreenTopBar(appText("Профиль водителя", "Водитель профиле"), onBack) },
+        topBar = { ScreenTopBar(appText("Профиль водителя", "Йөрөтөүсе профиле"), onBack) },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {

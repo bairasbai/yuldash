@@ -1640,7 +1640,7 @@ internal fun OnboardingContent(
                                 }
                             }
                         ) {
-                            Text(appText("Назад", "Кире"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                            Text(appText("Назад", "Артҡа"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                         }
                     } else {
                         Spacer(Modifier.width(82.dp))
@@ -1859,13 +1859,13 @@ internal fun OnboardingRoleChooser(selected: RideRole, onSelect: (RideRole) -> U
         OnboardingRoleCard(
             icon = Icons.Default.Person,
             title = appText("Я пассажир", "Мин пассажир"),
-            body = appText("Ищу поездки, создаю заявки и общаюсь с водителями.", "Сәфәр эҙләйем, заявка булдырам һәм водителдәр менән һөйләшәм."),
+            body = appText("Ищу поездки, создаю заявки и общаюсь с водителями.", "Сәфәр эҙләйем, заявка булдырам һәм йөрөтөүселәр менән һөйләшәм."),
             selected = selected == RideRole.Passenger,
             onClick = { onSelect(RideRole.Passenger) }
         )
         OnboardingRoleCard(
             icon = Icons.Default.DirectionsCar,
-            title = appText("Я водитель", "Мин водитель"),
+            title = appText("Я водитель", "Мин йөрөтөүсе"),
             body = appText("Публикую поездки, откликаюсь на заявки и прохожу проверку.", "Сәфәрҙәр ҡуям, заявкаларға яуап бирәм һәм тикшереү үтәм."),
             selected = selected == RideRole.Driver,
             onClick = { onSelect(RideRole.Driver) }
@@ -2110,7 +2110,7 @@ internal fun ScreenTopBar(title: String, onBack: () -> Unit) {
         title = { Text(title, fontWeight = FontWeight.Bold) },
         navigationIcon = {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Кире"))
+                Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Артҡа"))
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(

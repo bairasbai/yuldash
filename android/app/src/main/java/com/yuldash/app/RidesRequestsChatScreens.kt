@@ -376,7 +376,7 @@ internal fun RidesScreen(
                 visibleBookings.isEmpty() -> item {
                     EmptyStateCard(
                         title = appText("Поездок пока нет", "Әлегә сәфәрҙәр юҡ"),
-                        text = appText("Создай заявку или опубликуй маршрут водителя.", "Заявка булдыр йәки водитель маршрутын баҫтыр."),
+                        text = appText("Создай заявку или опубликуй маршрут водителя.", "Заявка булдыр йәки йөрөтөүсе маршрутын баҫтыр."),
                         icon = Icons.Default.Route,
                         action = appText("Создать заявку", "Заявка булдырыу"),
                         onAction = onCreateRequest
@@ -772,7 +772,7 @@ internal fun InviteDriverCallout() {
     var refCode by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { ApiClient.getReferral().onSuccess { refCode = it.code } }
 
-    val shareTitle = appText("Пригласить водителя", "Водитель саҡырыу")
+    val shareTitle = appText("Пригласить водителя", "Йөрөтөүсе саҡырыу")
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -791,7 +791,7 @@ internal fun InviteDriverCallout() {
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    appText("Никто не едет? Позови водителя", "Бер кем дә бармаймы? Водитель саҡыр"),
+                    appText("Никто не едет? Позови водителя", "Бер кем дә бармаймы? Йөрөтөүсе саҡыр"),
                     color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp
                 )
                 Text(
@@ -1252,7 +1252,7 @@ internal fun MyRequestsScreen(
             onDismissRequest = { cancelTarget = null },
             containerColor = CanonSurface,
             title = { Text(appText("Отменить заявку?", "Заявканы кире алабыҙмы?"), color = CanonText, fontWeight = FontWeight.Bold) },
-            text = { Text(appText("Водители больше не увидят её. Это действие нельзя отменить.", "Водителдәр уны күрмәҫ. Быны кире ҡайтарып булмай."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) },
+            text = { Text(appText("Водители больше не увидят её. Это действие нельзя отменить.", "Йөрөтөүселәр уны күрмәҫ. Быны кире ҡайтарып булмай."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) },
             confirmButton = {
                 TextButton(onClick = { onCancel(ct.serverId); cancelTarget = null }) {
                     Text(appText("Отменить заявку", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold)
@@ -1306,7 +1306,7 @@ internal fun MyRequestsScreen(
                     EmptyStateCard(
                         title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
                         text = appText("Создай заявку — водители увидят её и откликнутся.",
-                                       "Заявка булдыр — водителдәр уны күреп яуап бирер."),
+                                       "Заявка булдыр — йөрөтөүселәр уны күреп яуап бирер."),
                         icon = Icons.Default.AddBox,
                         action = appText("Создать заявку", "Заявка булдырыу"),
                         onAction = onCreateNew,
@@ -1779,7 +1779,7 @@ internal fun ChatScreen(
                     Box(Modifier.appearIn(0)) {
                         InfoCard(
                             title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
-                            text = appText("Создай заявку на вкладке «Заявка» — водители откликнутся", "«Заявка» бүлегендә заявка яһа — водителдәр яуап бирер"),
+                            text = appText("Создай заявку на вкладке «Заявка» — водители откликнутся", "«Заявка» бүлегендә заявка яһа — йөрөтөүселәр яуап бирер"),
                             icon = Icons.Default.ListAlt
                         )
                     }
@@ -1791,8 +1791,8 @@ internal fun ChatScreen(
                     // которую уже не будет никогда. Подписываем честно.
                     val closed = r.status != "active"
                     val statusLine = when (r.status) {
-                        "active" -> appText("Смотреть отклики водителей", "Водитель яуаптарын ҡарау")
-                        "matched" -> appText("Водитель найден", "Водитель табылды")
+                        "active" -> appText("Смотреть отклики водителей", "Йөрөтөүсе яуаптарын ҡарау")
+                        "matched" -> appText("Водитель найден", "Йөрөтөүсе табылды")
                         "cancelled" -> appText("Заявка отменена", "Ғариза кире алынған")
                         else -> appText("Время вышло — откликов не будет",
                                         "Ваҡыт үтте — яуап булмаясаҡ")
@@ -2312,7 +2312,7 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
     val failMsg = appText("Не получилось принять", "Ҡабул итеп булманы")
     // Сбой загрузки откликов больше не выглядит как «откликов нет» — ошибка + «Повторить».
     LaunchedEffect(requestId, reloadTick) { loading = true; error = false; ApiClient.getRequestResponses(requestId).onSuccess { resps = it }.onFailure { error = true }; loading = false }
-    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики водителей", "Водитель яуаптары"), onBack) }) { padding ->
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики водителей", "Йөрөтөүсе яуаптары"), onBack) }) { padding ->
         ResponsesContent(
             loading = loading,
             error = error,
@@ -2382,13 +2382,13 @@ internal fun ResponsesContent(
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-        item { Text(appText("Выбери водителя — поездка начнётся, откроется чат. Цена не подходит — предложи свою.", "Водитель һайла — сәфәр башлана, чат асыла. Хаҡ ярамаһа — үҙеңдекен тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
+        item { Text(appText("Выбери водителя — поездка начнётся, откроется чат. Цена не подходит — предложи свою.", "Йөрөтөүсе һайла — сәфәр башлана, чат асыла. Хаҡ ярамаһа — үҙеңдекен тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
         if (loading) {
             item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
         } else if (error) {
             item { ListedError(appText("Не удалось загрузить отклики. Проверь сеть.", "Яуаптарҙы йөкләп булманы. Сетте тикшер."), onRetry = onRetry) }
         } else if (responses.isEmpty()) {
-            item { ListedEmpty(appText("Откликов пока нет", "Әлегә яуап юҡ"), appText("Водители ещё не откликнулись. Загляни позже.", "Водителдәр яуап бирмәгән. Һуңыраҡ кер.")) }
+            item { ListedEmpty(appText("Откликов пока нет", "Әлегә яуап юҡ"), appText("Водители ещё не откликнулись. Загляни позже.", "Йөрөтөүселәр яуап бирмәгән. Һуңыраҡ кер.")) }
         } else {
             items(responses, key = { it.id }) { r ->
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
@@ -2414,7 +2414,7 @@ internal fun ResponsesContent(
                                 enabled = !accepting,
                                 modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                            ) { Text(appText("Поехать с этим водителем", "Был водитель менән барырға"), fontWeight = FontWeight.Bold) }
+                            ) { Text(appText("Поехать с этим водителем", "Был йөрөтөүсе менән барырға"), fontWeight = FontWeight.Bold) }
                         }
                         if (r.canCounter) {
                             TextButton(onClick = { onCounter(r) }, enabled = !accepting, modifier = Modifier.fillMaxWidth()) {
@@ -2730,7 +2730,7 @@ internal fun ChatEmptyState() {
             Text(
                 appText(
                     "Найдите поездку и забронируйте место — после брони откроется чат с водителем или пассажиром.",
-                    "Сәфәр табып, урын бронла — бронынан һуң водитель йәки пассажир менән чат асыла."
+                    "Сәфәр табып, урын бронла — бронынан һуң йөрөтөүсе йәки пассажир менән чат асыла."
                 ),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center
             )
@@ -2840,7 +2840,7 @@ internal fun VoiceMessageCard(message: LocalVoiceMessage) {
                     Text(appText("${message.durationSec} сек · нажми ▶", "${message.durationSec} сек · ▶ баҫ"), color = CanonMuted, fontSize = 14.sp)
                 } else {
                     Text(message.transcript, color = CanonText, fontSize = 14.sp, lineHeight = 20.sp)
-                    Text(appText("Расшифровка для водителя", "Водитель өсөн текст"), color = CanonMuted, fontSize = 12.sp)
+                    Text(appText("Расшифровка для водителя", "Йөрөтөүсе өсөн текст"), color = CanonMuted, fontSize = 12.sp)
                 }
             }
             Text(message.time, color = CanonMuted, fontSize = 12.sp)

@@ -935,7 +935,7 @@ internal fun RulesScreen(onBack: () -> Unit) {
     val rules = listOf(
         appText("Уважай попутчика", "Юлдашыңды хөрмәт ит") to appText("Юлдаш — поездки между своими. Веди себя по-соседски и приезжай вовремя.", "Юлдаш — үҙ кешеләр араһында сәфәр. Әҙәпле һәм ваҡытлы бул."),
         appText("Договаривайтесь заранее", "Алдан килешегеҙ") to appText("Согласуй место и время встречи в чате до выезда.", "Сығышҡа тиклем осрашыу урынын һәм ваҡытын чатта килешегеҙ."),
-        appText("Безопасность прежде всего", "Хәүефһеҙлек беренсе урында") to appText("Пристегнись, не отвлекай водителя, при опасности — кнопка SOS.", "Бәйлән, водителде борсома, хәүеф булһа — SOS төймәһе."),
+        appText("Безопасность прежде всего", "Хәүефһеҙлек беренсе урында") to appText("Пристегнись, не отвлекай водителя, при опасности — кнопка SOS.", "Бәйлән, йөрөтөүсене борсома, хәүеф булһа — SOS төймәһе."),
         // Водитель узнаёт об этом ЗАРАНЕЕ, а не постфактум: правило, о котором не предупредили,
         // ощущается как слежка. Отдаём только то, что и так видно на улице (решение 2026-08-06).
         appText("Если кто-то нажмёт SOS", "Кемдер SOS баҫһа") to appText(
@@ -985,8 +985,8 @@ internal fun PaymentInfoScreen(onBack: () -> Unit, onOpenPricing: () -> Unit = {
                         Icon(Icons.Default.CreditCard, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(32.dp))
                         Spacer(Modifier.width(12.dp))
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(appText("Оплата напрямую водителю", "Тура водителгә түләү"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text(appText("Сейчас оплата — переводом по СБП на карту водителя, как договоритесь в чате.", "Хәҙер түләү — СБП аша водитель картаһына, чатта килешеүсә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                            Text(appText("Оплата напрямую водителю", "Тура йөрөтөүсегә түләү"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(appText("Сейчас оплата — переводом по СБП на карту водителя, как договоритесь в чате.", "Хәҙер түләү — СБП аша йөрөтөүсе картаһына, чатта килешеүсә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                         }
                     }
                 }
@@ -1072,7 +1072,7 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
                     title = appText("Попутка — бесплатна", "Юлдаш — бушлай"),
                     body = appText(
                         "За саму поездку между своими Юлдаш не берёт ничего. Ты просто скидываешься водителю на бензин напрямую — по-соседски. Сумму видно заранее и можно честно поделить на всех.",
-                        "Үҙ кешеләр араһындағы сәфәр өсөн Юлдаш бер нәмә лә алмай. Һин бензинға тура водителгә өҫтәйһең — күршеләрсә. Сумма алдан күренә, бөтәһенә лә намыҫлы бүленә.",
+                        "Үҙ кешеләр араһындағы сәфәр өсөн Юлдаш бер нәмә лә алмай. Һин бензинға тура йөрөтөүсегә өҫтәйһең — күршеләрсә. Сумма алдан күренә, бөтәһенә лә намыҫлы бүленә.",
                     ),
                 )
             }
@@ -1110,10 +1110,10 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
             item {
                 PricingBlock(
                     icon = Icons.Default.Verified,
-                    title = appText("Комиссия водителя — 3–8%", "Водитель комиссияһы — 3–8%"),
+                    title = appText("Комиссия водителя — 3–8%", "Йөрөтөүсе комиссияһы — 3–8%"),
                     body = appText(
                         "С поездок такси Юлдаш берёт небольшую комиссию с водителя — от 3% до 8% в зависимости от стажа: чем дольше и надёжнее возишь, тем меньше платишь. У попутки комиссии нет вовсе.",
-                        "Такси сәфәрҙәренән Юлдаш водителдән бәләкәй комиссия ала — стажға ҡарап 3%-тан 8%-ҡа тиклем: оҙағыраҡ һәм ышаныслыраҡ йөрөтһәң, шунса аҙ түләйһең. Юлдашта комиссия бөтөнләй юҡ.",
+                        "Такси сәфәрҙәренән Юлдаш йөрөтөүсенән бәләкәй комиссия ала — стажға ҡарап 3%-тан 8%-ҡа тиклем: оҙағыраҡ һәм ышаныслыраҡ йөрөтһәң, шунса аҙ түләйһең. Юлдашта комиссия бөтөнләй юҡ.",
                     ),
                 )
             }
@@ -1135,7 +1135,7 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
                     title = appText("Оплата — пока напрямую по СБП", "Түләү — әлегә СБП аша тура"),
                     body = appText(
                         "Сейчас деньги идут напрямую водителю переводом по СБП — «на доверии», как между своими. Юлдаш их не держит. Скоро добавим оплату картой прямо в приложении.",
-                        "Хәҙер аҡса водителгә СБП аша тура күсә — «ышаныс менән», үҙ-ара кеүек. Юлдаш уны тотмай. Тиҙҙән ҡушымтала карта менән түләү өҫтәйбеҙ.",
+                        "Хәҙер аҡса йөрөтөүсегә СБП аша тура күсә — «ышаныс менән», үҙ-ара кеүек. Юлдаш уны тотмай. Тиҙҙән ҡушымтала карта менән түләү өҫтәйбеҙ.",
                     ),
                 )
             }
@@ -1304,7 +1304,7 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     val token = remember { ApiClient.currentToken() ?: "" }
-    val approvedMsg = appText("Водитель одобрен", "Водитель раҫланды")
+    val approvedMsg = appText("Водитель одобрен", "Йөрөтөүсе раҫланды")
     val rejectedMsg = appText("Отклонено", "Кире ҡағылды")
     val actionErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
@@ -1322,7 +1322,7 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
         }
     }
     LaunchedEffect(Unit) { reload() }
-    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Модерация водителей", "Водителдәрҙе модерациялау"), onBack) }) { padding ->
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Модерация водителей", "Йөрөтөүселәрҙе модерациялау"), onBack) }) { padding ->
         AdminDriversContent(
             loading = loading,
             error = error,
@@ -1360,7 +1360,7 @@ internal fun AdminDriversContent(
         } else if (error != null) {
             item { ListedError(error) { onRetry() } }
         } else if (drivers.isEmpty()) {
-            item { ListedEmpty(appText("Нет заявок на проверку", "Тикшереүгә заявка юҡ"), appText("Здесь появятся водители, отправившие документы.", "Бында документ ебәргән водителдәр күренер")) }
+            item { ListedEmpty(appText("Нет заявок на проверку", "Тикшереүгә заявка юҡ"), appText("Здесь появятся водители, отправившие документы.", "Бында документ ебәргән йөрөтөүселәр күренер")) }
         } else {
             items(drivers.size, key = { drivers[it].userId }) { i ->
                 val d = drivers[i]
@@ -1369,7 +1369,7 @@ internal fun AdminDriversContent(
                         Text(d.name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         Text((d.car.ifBlank { "—" }) + " · " + d.phone, color = CanonMuted, fontSize = 14.sp)
                         AutoCheckRow(d.autocheckResult, d.autocheckData)
-                        Text(appText("Водительское удостоверение", "Водитель таныҡлығы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(appText("Водительское удостоверение", "Йөрөтөүсе таныҡлығы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         DocImage(d.licenseUrl, token)
                         Text(appText("Фото автомобиля", "Автомобиль фотоһы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         DocImage(d.carPhotoUrl, token)
@@ -1591,7 +1591,7 @@ internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, 
             }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Default.Verified, appText("Модерация водителей", "Водителдәрҙе модерациялау"), appText("Проверить права и фото, одобрить", "Права һәм фотоны тикшереп раҫлау"), onClick = onDrivers)
+                    SettingsNavRow(Icons.Default.Verified, appText("Модерация водителей", "Йөрөтөүселәрҙе модерациялау"), appText("Проверить права и фото, одобрить", "Права һәм фотоны тикшереп раҫлау"), onClick = onDrivers)
                     SettingsNavRow(Icons.Default.LocalTaxi, appText("Таксисты", "Таксистар"), appText("Заявки 580-ФЗ и города, где включено такси", "580-ФЗ заявкалары һәм такси ҡабыҙылған ҡалалар"), onClick = onTaxi)
                     SettingsNavRow(Icons.Default.MonitorHeart, appText("Пульс такси", "Такси пульсы"), appText("На линии, активные заказы, счётчики дня по городам", "Линияла, актив заказдар, көн һандары ҡалалар буйынса"), onClick = onTaxiPulse)
                     SettingsNavRow(Icons.Default.Campaign, appText("Лист ожидания", "Көтөү исемлеге"), appText("Ранний доступ: кто ждёт запуска, волны приглашений", "Иртә инеү: кем көтә, саҡырыу тулҡындары"), onClick = onWaitlist)
@@ -1697,7 +1697,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                     Text(appText("Долги за такси", "Такси бурыстары"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
                 item {
-                    Text(appText("Водитель перевёл комиссию по СБП и нажал «Я оплатил». Сверь по имени и сумме — подтверди, и такси у него разблокируется.", "Водитель комиссияны СБП аша күсереп «Мин түләнем» баҫҡан. Исем һәм сумма буйынса тикшер — раҫла, такси блокан асыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                    Text(appText("Водитель перевёл комиссию по СБП и нажал «Я оплатил». Сверь по имени и сумме — подтверди, и такси у него разблокируется.", "Йөрөтөүсе комиссияны СБП аша күсереп «Мин түләнем» баҫҡан. Исем һәм сумма буйынса тикшер — раҫла, такси блокан асыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                 }
                 items(debts.size, key = { debts[it].debtId }) { i ->
                     val g = debts[i]
@@ -1778,7 +1778,7 @@ internal fun AdminRequestScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            item { Text(appText("После «Попросить звонок» заполни заявку за человека — водители увидят её как обычную.", "«Шылтыратыу һорау»ҙан һуң кеше өсөн заявка тултыр — водителдәр уны ғәҙәти күрер."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
+            item { Text(appText("После «Попросить звонок» заполни заявку за человека — водители увидят её как обычную.", "«Шылтыратыу һорау»ҙан һуң кеше өсөн заявка тултыр — йөрөтөүселәр уны ғәҙәти күрер."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
             item { OutlinedTextField(phone, { phone = it }, label = { Text(appText("Телефон пользователя", "Ҡулланыусы телефоны")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
             item { OutlinedTextField(name, { name = it }, label = { Text(appText("Имя (необязательно)", "Исем (мотлаҡ түгел)")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
             item { OutlinedTextField(from, { from = it }, label = { Text(appText("Откуда", "Ҡайҙан")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
@@ -1820,7 +1820,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     // Отклики, приём которых прямо сейчас в работе — против двойного тапа (см. кнопку ниже).
     val accepting = remember { mutableStateListOf<Int>() }
-    val acceptedMsg = appText("Поездка создана. Перезвоните пассажиру и водителю.", "Сәфәр булдырылды. Пассажирға һәм водителгә шылтырат.")
+    val acceptedMsg = appText("Поездка создана. Перезвоните пассажиру и водителю.", "Сәфәр булдырылды. Пассажирға һәм йөрөтөүсегә шылтырат.")
     val noResp = appText("Откликов нет или заявка не найдена", "Яуап юҡ йәки заявка табылманы")
     val acceptErr = appText("Не получилось принять отклик. Проверь сеть и повтори.", "Яуапты алып булманы. Сетте тикшереп ҡабатла.")
     fun load() {
@@ -2202,13 +2202,13 @@ internal fun HelpScreen(
     val faq = listOf(
         Triple(Icons.Default.Search, appText("Как найти поездку?", "Сәфәрҙе нисек табырға?"), appText(
             "Откройте вкладку «Карта» или «Поездки». В «Ближайших поездках» включите нужные фильтры (только женщины, кресло, животные) и нажмите «Поехать» — водитель получит вашу бронь и код посадки.",
-            "«Карта» йәки «Сәфәрҙәр» бүлеген ас. «Яҡын сәфәрҙәр»ҙә кәрәкле фильтрҙарҙы тоҡандыр һәм «Барам» тип баҫ — водитель брондауҙы һәм ултырыу кодын ала.")),
+            "«Карта» йәки «Сәфәрҙәр» бүлеген ас. «Яҡын сәфәрҙәр»ҙә кәрәкле фильтрҙарҙы тоҡандыр һәм «Барам» тип баҫ — йөрөтөүсе брондауҙы һәм ултырыу кодын ала.")),
         Triple(Icons.Default.AddRoad, appText("Как создать заявку?", "Заявканы нисек булдырырға?"), appText(
             "Вкладка «Заявка» → укажите маршрут, дату и число мест → отправьте. Водители увидят заявку и откликнутся; вы выберете подходящего во вкладке «Чат» → «Заявки».",
-            "«Заявка» бүлеге → юлды, көндө һәм урын һанын күрһәт → ебәр. Водителдәр заявканы күреп яуап бирер; «Чат» → «Заявкалар»ҙа кәрәклеһен һайларһың.")),
-        Triple(Icons.Default.Shield, appText("Как проходит проверка водителя?", "Водитель нисек тикшерелә?"), appText(
+            "«Заявка» бүлеге → юлды, көндө һәм урын һанын күрһәт → ебәр. Йөрөтөүселәр заявканы күреп яуап бирер; «Чат» → «Заявкалар»ҙа кәрәклеһен һайларһың.")),
+        Triple(Icons.Default.Shield, appText("Как проходит проверка водителя?", "Йөрөтөүсе нисек тикшерелә?"), appText(
             "Водитель загружает фото прав и авто в разделе «Стать водителем». Модератор Юлдаша проверяет вручную и ставит значок «Проверен». Документы видны только модератору.",
-            "Водитель «Водитель булыу» бүлегендә права һәм машина фотоһын тейәй. Юлдаш модераторы ҡулдан тикшереп «Тикшерелгән» билдәһен ҡуя. Документтар тик модераторға күренә.")),
+            "Йөрөтөүсе «Йөрөтөүсе булыу» бүлегендә права һәм машина фотоһын тейәй. Юлдаш модераторы ҡулдан тикшереп «Тикшерелгән» билдәһен ҡуя. Документтар тик модераторға күренә.")),
         Triple(Icons.Default.Notifications, appText("Что делать в экстренной ситуации?", "Ашығыс хәлдә нимә эшләргә?"), appText(
             "Нажмите красную кнопку SOS («Безопасность» или активная поездка). Откроется звонок в службы 112/102/101/103, а доверенным контактам уйдёт SMS с вашими координатами.",
             "Ҡыҙыл SOS төймәһенә баҫ («Хәүефһеҙлек» йәки сәфәр барышында). 112/102/101/103-кә шылтыратыу асыла, ышаныслы кешеләргә координаталар менән SMS китә.")),

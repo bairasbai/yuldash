@@ -133,7 +133,7 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
                         item {
                             InfoCard(
                                 title = appText("Пока тихо", "Әлегә тыныс"),
-                                text = appText("Нет водителей на линии и активных заказов", "Линияла водителдәр һәм актив заказдар юҡ"),
+                                text = appText("Нет водителей на линии и активных заказов", "Линияла йөрөтөүселәр һәм актив заказдар юҡ"),
                                 icon = Icons.Default.DirectionsCar,
                             )
                         }

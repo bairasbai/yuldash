@@ -156,7 +156,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                 item {
                     ListedEmpty(
                         appText("Заявок нет", "Заявка юҡ"),
-                        appText("Здесь появятся водители, которые хотят возить такси.", "Бында такси йөрөтөргә теләгән водителдәр күренер"),
+                        appText("Здесь появятся водители, которые хотят возить такси.", "Бында такси йөрөтөргә теләгән йөрөтөүселәр күренер"),
                     )
                 }
             } else {
@@ -230,7 +230,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                                         OutlinedTextField(
                                             value = rejectComment,
                                             onValueChange = { rejectComment = it.take(300) },
-                                            label = { Text(appText("Почему отклоняешь (увидит водитель)", "Ниңә кире ҡағаһың (водитель күрер)")) },
+                                            label = { Text(appText("Почему отклоняешь (увидит водитель)", "Ниңә кире ҡағаһың (йөрөтөүсе күрер)")) },
                                             modifier = Modifier.fillMaxWidth(),
                                             shape = RoundedCornerShape(14.dp),
                                         )
@@ -339,7 +339,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                     ) {
                         Icon(Icons.Default.Add, contentDescription = appText("Добавить город", "Ҡала өҫтәү"))
                         Spacer(Modifier.width(4.dp))
-                        Text(appText("Добавить", "Өҫтәү"), fontWeight = FontWeight.Bold)
+                        Text(appText("Добавить", "Өҫтәргә"), fontWeight = FontWeight.Bold)
                     }
                 }
             }

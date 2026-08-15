@@ -166,7 +166,7 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
         topBar = {
             ScreenTopBar(
                 if (role == "driver") appText("Чат с пассажиром", "Пассажир менән чат")
-                else appText("Чат с водителем", "Водитель менән чат"),
+                else appText("Чат с водителем", "Йөрөтөүсе менән чат"),
                 onBack,
             )
         },

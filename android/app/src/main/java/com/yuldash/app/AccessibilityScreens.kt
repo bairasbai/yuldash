@@ -539,9 +539,9 @@ internal fun VoiceRequestScreen(
     var uploading by remember { mutableStateOf(false) }
     var submittingText by remember { mutableStateOf(false) }
     val trusted = contacts.firstOrNull()
-    val voiceRequestStatus = appText("ищем водителя", "водитель эҙләйбеҙ")
+    val voiceRequestStatus = appText("ищем водителя", "йөрөтөүсе эҙләйбеҙ")
     val vrTitle = appText("Голосовая заявка", "Тауыш заявкаһы")
-    val vrRoute = appText("Голосом — водитель слушает", "Тауыш менән — водитель тыңлай")
+    val vrRoute = appText("Голосом — водитель слушает", "Тауыш менән — йөрөтөүсе тыңлай")
     val vrNow = appText("сейчас", "хәҙер")
     val vrPrompt = appText("Скажи маршрут", "Маршрутты әйт")
     val vrNoStt = appText("Распознавание недоступно на устройстве", "Таныу ҡорамалда юҡ")
@@ -578,7 +578,7 @@ internal fun VoiceRequestScreen(
             item {
                 InfoCard(
                     title = appText("Нажми и скажи", "Баҫ һәм әйт"),
-                    text = appText("Скажи голосом: откуда, куда и когда. Водитель послушает — на русском или башкирском.", "Тауыш менән әйт: ҡайҙан, ҡайҙа, ҡасан. Водитель тыңлар — урыҫса йәки башҡортса."),
+                    text = appText("Скажи голосом: откуда, куда и когда. Водитель послушает — на русском или башкирском.", "Тауыш менән әйт: ҡайҙан, ҡайҙа, ҡасан. Йөрөтөүсе тыңлар — урыҫса йәки башҡортса."),
                     icon = Icons.Default.VolumeUp
                 )
             }
@@ -888,7 +888,7 @@ internal fun CreatePassengerRequestContent(
         }
         item {
             InfoCard(
-                title = appText("Водители увидят условия", "Водителдәр шарттарҙы күрә"),
+                title = appText("Водители увидят условия", "Йөрөтөүселәр шарттарҙы күрә"),
                 text = appText("Телефон и точная геолокация откроются только после подтверждения поездки.", "Телефон һәм теүәл геолокация сәфәр раҫланғандан һуң ғына асыла."),
                 icon = Icons.Default.Lock
             )
@@ -1262,7 +1262,7 @@ internal fun TrustedContactsScreen(
                     // Показать сразу в списке, не дожидаясь обновления родителя/сервера.
                     if (merged.none { it.phone == newContact.phone }) locallyAdded.add(newContact)
                     nm = ""; rel = ""; ph = ""; showAdd = false
-                }) { Text(appText("Добавить", "Өҫтәү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+                }) { Text(appText("Добавить", "Өҫтәргә"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },
             dismissButton = { TextButton(onClick = { showAdd = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
@@ -1387,7 +1387,7 @@ internal fun RepeatTripScreen(
     var loadError by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
     var submittingRoute by remember { mutableStateOf<String?>(null) }
-    val repeatStatus = appText("ищем водителя", "водитель эҙләйбеҙ")
+    val repeatStatus = appText("ищем водителя", "йөрөтөүсе эҙләйбеҙ")
     val repeatNow = appText("сейчас", "хәҙер")
     val sendError = appText("Не получилось создать заявку. Проверь сеть и повтори.", "Заявка булдырып булманы. Интернетте тикшереп ҡабатла.")
 
@@ -1501,7 +1501,7 @@ internal fun RepeatTripContent(
                         title = appText("Нужно войти", "Инергә кәрәк"),
                         text = appText(
                             "Войди через Telegram, чтобы Юлдаш мог создать заявку и показать ответы водителей.",
-                            "Юлдаш заявка булдырып, водителдәр яуаптарын күрһәтһен өсөн Telegram аша ин."
+                            "Юлдаш заявка булдырып, йөрөтөүселәр яуаптарын күрһәтһен өсөн Telegram аша ин."
                         ),
                         icon = Icons.Default.Person,
                         actionLabel = appText("Войти", "Инеү"),
