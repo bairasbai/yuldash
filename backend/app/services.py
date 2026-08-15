@@ -374,6 +374,31 @@ def push_bilingual(session: Session, user_id: int, title_ru: str, title_ba: str,
 _NOTIFY_STORM_PER_MIN = 8
 
 
+# Виды уведомлений, которые ЗВОНЯТ всегда — даже ночью.
+#
+# Беда и идущая сделка ждать до утра не могут: SOS и наказания (safety), сообщение
+# от попутчика (message), такси в поиске и подаче (instant), деньги и долг (money),
+# статусы начатой доставки и поездки (parcel, booking, taxi). Всё остальное — новости,
+# которые прекрасно подождут: «появилась поездка по маршруту», «оцени поездку», реклама,
+# купоны, сводки.
+_LOUD_AT_NIGHT = {"safety", "message", "instant", "money", "parcel", "booking", "taxi"}
+
+
+def _is_quiet_hour(now=None) -> bool:
+    """Сейчас ночь по МЕСТНОМУ времени? (аудит 2026-08-08, волна 105)
+
+    Считаем по башкирскому календарю, как долги и сводка: сервер живёт в UTC, а спит человек
+    по своим часам. Порог `quiet_hours_to = 0` выключает тишину целиком — на случай, если
+    Александр решит, что тихие часы мешают.
+    """
+    start = int(settings.quiet_hours_from or 0)
+    end = int(settings.quiet_hours_to or 0)
+    if end <= 0:
+        return False
+    hour = ((now or utcnow()) + timedelta(hours=settings.local_tz_offset_hours)).hour
+    return hour >= start or hour < end if start > end else start <= hour < end
+
+
 def _notify_storm(s: Session, user_id: int, ref_kind: str, ref_id: "int | None") -> bool:
     """Не пора ли замолчать по этому объекту. True — уведомление глотаем.
 
@@ -424,6 +449,10 @@ def push_notification(
     на ЯЗЫКЕ ПОЛУЧАТЕЛЯ (User.language, порт из notification-fixes): правило «любая надпись —
     на двух языках» действует и для уведомлений; в ленте оба текста хранятся всегда.
     """
+    # Ночью не звоним по несрочному: запись в Центре уведомлений остаётся, человек увидит её
+    # утром, а телефон молчит (волна 105). Беда, идущая поездка и чужое сообщение проходят.
+    if push and ntype not in _LOUD_AT_NIGHT and _is_quiet_hour():
+        push = False
     try:
         with Session(engine) as s:
             if _notify_storm(s, user_id, ref_kind, ref_id):
@@ -488,7 +517,16 @@ def _city_keys(name: str) -> set[str]:
 
 def _push_async(items: "list") -> None:
     """FCM-рассылка в фоновом daemon-потоке (своя сессия) — сеть не держит обработчик запроса.
-    items: список (user_id, title, body). Ошибки глотаем: пуш вторичен, запись в ленте уже есть."""
+    items: список (user_id, title, body). Ошибки глотаем: пуш вторичен, запись в ленте уже есть.
+
+    Ночью молчим: сюда приходят только новости про маршруты («появилась поездка», «пассажир
+    на твоём маршруте»), а они прекрасно ждут до утра. Запись в Центре уведомлений уже сделана
+    отдельно — человек проснётся и увидит (аудит 2026-08-08, волна 105).
+    """
+    if _is_quiet_hour():
+        log.info(f"[NOTIFY] тихие часы — {len(items)} оповещений о маршрутах без звука")
+        return
+
     def run():
         try:
             with Session(engine) as s:
