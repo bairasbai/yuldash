@@ -27,6 +27,7 @@ from datetime import datetime, timedelta, timezone
 
 from ..config import settings
 from ..db import get_session
+from ..visibility import visible_rides
 from ..errors import herr
 from ..livepos import livepos_get
 from ..models import (
@@ -475,18 +476,32 @@ def _preview_dict(ride: Ride, session: Session) -> dict:
     }
 
 
-def _shareable(ride: Ride) -> bool:
+def _shareable(ride: Ride, session: Session) -> bool:
     """Публичную OG/preview-витрину показываем только для «живой» поездки и НЕ «только для своих».
     История (done/cancelled) и «круг своих» (only_trusted) по прямому /r/{id} не раскрываем — иначе
-    перебор ride_id даёт анонимный скрейпинг графа поездок (кто/куда/когда возит). Паритет с /rides/{id}."""
-    return ride.status == RideStatus.active and not getattr(ride, "only_trusted", False)
+    перебор ride_id даёт анонимный скрейпинг графа поездок (кто/куда/когда возит). Паритет с /rides/{id}.
+
+    Остальное спрашиваем у ОБЩЕЙ точки видимости — той же, что и лента (аудит 2026-08-08,
+    волна 112). Своя проверка отставала на одно правило: водителя сняли с линии за жалобы,
+    в приложении объявление исчезло, а прямая ссылка — та самая, которую он уже кинул
+    в сельский чат, — продолжала работать и собирать пассажиров. Они приходили к машине,
+    которая никуда не едет, и упирались в бронь, которую некому подтвердить.
+
+    Смотрим глазами АНОНИМА (`user=None`): по этой ссылке заходят из мессенджера, без входа.
+    """
+    if ride.status != RideStatus.active:
+        return False
+    # «Только для своих» тут отдельной строкой НЕ проверяем: `visible_rides` прячет такие
+    # поездки от анонима сама. Дубль был бы вторым местом, где живёт то же правило, — ровно
+    # с этого и начинается расхождение дверей.
+    return bool(visible_rides([ride], None, session))
 
 
 @router.get("/r/{ride_id}/preview")
 def ride_preview(ride_id: int, session: Session = Depends(get_session)) -> dict:
     """Публичные данные поездки для веб-превью и deep-link. Без ПДн."""
     ride = session.get(Ride, ride_id)
-    if not ride or not _shareable(ride):
+    if not ride or not _shareable(ride, session):
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     return _preview_dict(ride, session)
 
@@ -669,7 +684,7 @@ def ride_share_page(
 ):
     """Красивая server-rendered страница поездки с OG-тегами (карточка в мессенджерах)."""
     ride = session.get(Ride, ride_id)
-    if not ride or not _shareable(ride):
+    if not ride or not _shareable(ride, session):
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     lang = "ba" if str(lang).lower().startswith("ba") else "ru"
     return HTMLResponse(_render_html(_preview_dict(ride, session), lang))
