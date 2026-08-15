@@ -1191,7 +1191,7 @@ internal fun SafetyFooter(currentLanguage: AppLanguage, modifier: Modifier = Mod
             )
         }
         Text(
-            text = appTextFor(currentLanguage, "Юлдаш заботится о вас", "Юлдаш һеҙҙең хаҡта хәстәрләй"),
+            text = appTextFor(currentLanguage, "Юлдаш заботится о тебе", "Юлдаш һинең хаҡта хәстәрләй"),
             color = CanonMuted,
             fontSize = LoginCaption,
             lineHeight = 20.sp,

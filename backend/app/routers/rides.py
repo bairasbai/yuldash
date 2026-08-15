@@ -270,7 +270,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     if not ride:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     if ride.driver_id != user.id:
-        raise herr(403, "Это не ваша поездка", "Был һинең сәфәрең түгел")
+        raise herr(403, "Это не твоя поездка", "Был һинең сәфәрең түгел")
     if ride.status != RideStatus.active:
         raise herr(400, "Менять можно только активную поездку", "Тик актив сәфәрҙе генә үҙгәртеп була")
     live = session.exec(select(Booking).where(
@@ -653,7 +653,7 @@ def _ride_owned(session: Session, ride_id: int, user: User) -> Ride:
     if not ride:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     if ride.driver_id != user.id and user.role != UserRole.admin:
-        raise herr(403, "Это не ваша поездка", "Был һинең сәфәрең түгел")
+        raise herr(403, "Это не твоя поездка", "Был һинең сәфәрең түгел")
     return ride
 
 
