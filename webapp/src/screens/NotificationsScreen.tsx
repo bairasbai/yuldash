@@ -127,12 +127,18 @@ export default function NotificationsScreen() {
   }
 
   async function readAll() {
+    // Помечаем сразу — так экран отзывчивее. Но если сервер не принял, надо
+    // вернуть как было: иначе счётчик показывает ноль, а непрочитанные остаются,
+    // и человек находит их снова при следующем заходе.
+    const prevItems = items;
+    const prevUnread = unread;
     setItems((prev) => prev.map((x) => ({ ...x, read: true })));
     setUnread(0);
     try {
       await markAllRead();
     } catch {
-      /* мягко: счётчик обновится при следующей загрузке */
+      setItems(prevItems);
+      setUnread(prevUnread);
     }
   }
 
@@ -177,7 +183,7 @@ export default function NotificationsScreen() {
           <h2>{appText("Не удалось загрузить", "Йөкләп булманы")}</h2>
           <p>{appText("Проверь соединение и попробуй снова.", "Бәйләнеште тикшереп, ҡабат ҡара.")}</p>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}
@@ -219,7 +225,7 @@ export default function NotificationsScreen() {
                     <span>{formatRelative(n.created_at, ru)}</span>
                     {linked && (
                       <span className="notif-row__open">
-                        {appText("Открыть", "Асырға")} ›
+                        {appText("Открыть", "Асыу")} ›
                       </span>
                     )}
                   </div>

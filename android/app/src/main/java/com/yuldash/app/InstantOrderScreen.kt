@@ -87,6 +87,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -444,7 +445,7 @@ private fun TaxiPromoSavingsCard(estimate: InstantEstimateDto?) {
 @Composable
 private fun taxiPromoHonestText(): String = appText(
     "Скидку оплачивает Юлдаш из своей комиссии — водитель получит своё полностью.",
-    "Ташламаны Юлдаш үҙ комиссияһынан түләй — водитель үҙенекен тулыһынса ала.",
+    "Ташламаны Юлдаш үҙ комиссияһынан түләй — йөрөтөүсе үҙенекен тулыһынса ала.",
 )
 
 /**
@@ -467,7 +468,7 @@ private fun TaxiPromoPayRow(order: InstantOrderDto, forDriver: Boolean, modifier
                         "Пассажир ҡулға ${formatTaxiKop(order.passengerPayKop)} бирә",
                     ) else appText(
                         "К оплате водителю ${formatTaxiKop(order.passengerPayKop)}",
-                        "Водителгә түләргә ${formatTaxiKop(order.passengerPayKop)}",
+                        "Йөрөтөүсегә түләргә ${formatTaxiKop(order.passengerPayKop)}",
                     ),
                     color = CanonGreen2, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
@@ -484,7 +485,7 @@ private fun TaxiPromoPayRow(order: InstantOrderDto, forDriver: Boolean, modifier
                     "Промокод −$savedText хаҡын Юлдаш түләй: айырманы үҙ комиссиябыҙҙан алабыҙ, етмәһә — кеҫәңә өҫтәйбеҙ. Һин промокодһыҙҙағы кеүек үк алаһың.",
                 ) else appText(
                     "Скидка по промокоду −$savedText. Её оплачивает Юлдаш — водитель получит своё полностью, спорить не о чем.",
-                    "Промокод буйынса ташлама −$savedText. Уны Юлдаш түләй — водитель үҙенекен тулыһынса ала, бәхәсләшер нәмә юҡ.",
+                    "Промокод буйынса ташлама −$savedText. Уны Юлдаш түләй — йөрөтөүсе үҙенекен тулыһынса ала, бәхәсләшер нәмә юҡ.",
                 ),
                 color = CanonGreen2, fontSize = TxCaption, lineHeight = LhCaption,
             )
@@ -982,11 +983,11 @@ internal fun InstantOrderScreen(
                                 // которую потом разбирают двое незнакомых людей у обочины.
                                 o.noShow -> appText(
                                     "Водитель ждал ${o.waitFreeMin}+ минут, но не дождался. Подача — ${formatTaxiKop(o.cancelFeeKop)}, переведи водителю. Частые такие отмены ставят такси на паузу.",
-                                    "Водитель ${o.waitFreeMin}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${formatTaxiKop(o.cancelFeeKop)}, водителгә күсер. Йыш улай булһа — такси паузаға китә.")
+                                    "Йөрөтөүсе ${o.waitFreeMin}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${formatTaxiKop(o.cancelFeeKop)}, йөрөтөүсегә күсер. Йыш улай булһа — такси паузаға китә.")
                                 o.cancelFeeKop > 0 && o.cancelBy == "passenger" -> appText(
                                     "Отмена была платной: ${formatTaxiKop(o.cancelFeeKop)} (подача) — переведи водителю. Частые платные отмены ставят такси на паузу.",
-                                    "Кире алыу түләүле булды: ${formatTaxiKop(o.cancelFeeKop)} (килеү хаҡы) — водителгә күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.")
-                                o.cancelBy == "driver" -> appText("Водитель отменил. Попробуй заказать снова.", "Водитель баш тартты. Ҡабат заказ ит.")
+                                    "Кире алыу түләүле булды: ${formatTaxiKop(o.cancelFeeKop)} (килеү хаҡы) — йөрөтөүсегә күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.")
+                                o.cancelBy == "driver" -> appText("Водитель отменил. Попробуй заказать снова.", "Йөрөтөүсе баш тартты. Ҡабат заказ ит.")
                                 else -> appText("Ты отменил заказ — бесплатно.", "Һин заказды кире алдың — бушлай.")
                             },
                             action = appText("Новый заказ", "Яңы заказ"),
@@ -1130,7 +1131,7 @@ private fun InstantRetryCard(onRetry: () -> Unit, onBack: () -> Unit) {
         Spacer(Modifier.height(24.dp))
         Column(Modifier.appearIn(3), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             AppButton(text = appText("Повторить", "Ҡабатлау"), onClick = onRetry, style = AppButtonStyle.Primary)
-            AppButton(text = appText("Назад", "Кире"), onClick = onBack, style = AppButtonStyle.Secondary)
+            AppButton(text = appText("Назад", "Артҡа"), onClick = onBack, style = AppButtonStyle.Secondary)
         }
     }
 }
@@ -1424,9 +1425,11 @@ private fun InstantDestinationPicker(
     // Пришёл ли хоть один УСПЕШНЫЙ ответ. Без этого «машин рядом нет» и «ещё не спросили»
     // выглядят одинаково — пустым местом, и мы молча врём человеку, что рядом пусто.
     var nearbyLoaded by remember { mutableStateOf(false) }
-    LaunchedEffect(effFrom, toPoint) {
-        if (toPoint != null) { nearbyDrivers = emptyList(); return@LaunchedEffect }
-        val f = effFrom ?: return@LaunchedEffect
+    // Пока экран перед глазами — переспрашиваем, какие машины рядом. Свернул приложение →
+    // опрос засыпает: искать машины для человека, который сейчас не выбирает поездку, незачем.
+    RepeatWhileVisible(effFrom, toPoint) {
+        if (toPoint != null) { nearbyDrivers = emptyList(); return@RepeatWhileVisible }
+        val f = effFrom ?: return@RepeatWhileVisible
         var fails = 0
         while (isActive) {
             ApiClient.getNearbyDrivers(f.latitude, f.longitude)
@@ -1831,10 +1834,10 @@ private fun InstantDestinationPicker(
             Surface(color = CanonSurface, shape = CanonItemShape) {
                 SettingSwitchRow(
                     icon = Icons.Default.Shield,
-                    title = appText("Только женщина за рулём", "Тик ҡатын-ҡыҙ водитель"),
+                    title = appText("Только женщина за рулём", "Тик ҡатын-ҡыҙ йөрөтөүсе"),
                     subtitle = appText(
                         "Заказ увидят только женщины-водители. Их меньше — машину можно ждать дольше или не дождаться.",
-                        "Заказды тик ҡатын-ҡыҙ водителдәр күрәсәк. Улар аҙыраҡ — машинаны оҙағыраҡ көтөргә тура килеүе бар.",
+                        "Заказды тик ҡатын-ҡыҙ йөрөтөүселәр күрәсәк. Улар аҙыраҡ — машинаны оҙағыраҡ көтөргә тура килеүе бар.",
                     ),
                     checked = womenOnly,
                     onCheckedChange = { womenOnly = it },
@@ -1921,7 +1924,7 @@ private fun InstantDestinationPicker(
             if (scheduled) appText("Предзаказ ждёт своего времени. Открой Юлдаш ко времени подачи, чтобы начать поиск. Цену уточним при подаче.",
                 "Алдан заказ үҙ ваҡытын көтә. Эҙләүҙе башлар өсөн Юлдашты килеү ваҡытына ас. Хаҡты килгәндә асыҡлайбыҙ.")
             else appText("Оплата водителю напрямую. Телефон водителя откроется после того, как он примет заказ.",
-                "Түләү водителгә тура. Водитель заказды алғас, уның телефоны асыла."),
+                "Түләү йөрөтөүсегә тура. Йөрөтөүсе заказды алғас, уның телефоны асыла."),
             color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption)
     }
 
@@ -2014,7 +2017,7 @@ private fun InstantOrderDetails(
                     OutlinedTextField(
                         value = comment,
                         onValueChange = onComment,
-                        label = { Text(appText("Комментарий водителю", "Водителгә аңлатма")) },
+                        label = { Text(appText("Комментарий водителю", "Йөрөтөүсегә аңлатма")) },
                         placeholder = { Text(appText("«За магазином, синие ворота»", "«Кибет артында, зәңгәр ҡапҡа»")) },
                         minLines = 2,
                         modifier = Modifier.fillMaxWidth(),
@@ -2040,7 +2043,7 @@ private fun InstantOrderDetails(
                             Column(Modifier.weight(1f)) {
                                 Text(appText("Заказ для другого человека", "Икенсе кеше өсөн заказ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 Text(
-                                    appText("Водитель будет звонить ему, а не тебе", "Водитель һиңә түгел, уға шылтырата"),
+                                    appText("Водитель будет звонить ему, а не тебе", "Йөрөтөүсе һиңә түгел, уға шылтырата"),
                                     color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                                 )
                             }
@@ -2072,7 +2075,7 @@ private fun InstantOrderDetails(
                             Text(
                                 appText(
                                     "Телефон увидит только водитель и только после того, как примет заказ.",
-                                    "Телефонды тик водитель, тик заказды алғандан һуң күрә.",
+                                    "Телефонды тик йөрөтөүсе, тик заказды алғандан һуң күрә.",
                                 ),
                                 color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                             )
@@ -2499,7 +2502,7 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
         // в заказе, и показывать полную цену значило бы обещать одно, а взять другое.
         val payWhileSearching = formatTaxiKop(order.passengerPayKop)
         Text(
-            appText("≈ $payWhileSearching · подбираем ближайшего водителя", "≈ $payWhileSearching · яҡын водителде табабыҙ"),
+            appText("≈ $payWhileSearching · подбираем ближайшего водителя", "≈ $payWhileSearching · яҡын йөрөтөүсене табабыҙ"),
             color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption, textAlign = TextAlign.Center,
         )
         if (order.hasPromoDiscount) {
@@ -2687,10 +2690,10 @@ internal fun InstantDriverEnRouteCard(
     // Семантика фаз (§5, структура как Яндекс): accepted = водитель едет к тебе,
     // arriving = «Я на месте» (машина ждёт — тикает ожидание), onboard = в пути.
     val phaseTitle = when (order.status) {
-        "accepted" -> appText("Водитель едет к тебе", "Водитель һиңә килә")
+        "accepted" -> appText("Водитель едет к тебе", "Йөрөтөүсе һиңә килә")
         "arriving" -> appText("Машина на месте", "Машина урынында")
         "onboard" -> appText("В пути", "Юлда")
-        else -> appText("Водитель едет", "Водитель килә")
+        else -> appText("Водитель едет", "Йөрөтөүсе килә")
     }
     // Шаг для полоски фаз: тот же смысл, что и заголовок, но читается без чтения.
     val phaseStep = when (order.status) {
@@ -2829,19 +2832,24 @@ internal fun InstantDriverEnRouteCard(
                     }
                     // «Написать» (B7b-1): чат заказа — не звоня, уточнить подъезд/этаж/ориентир.
                     Surface(
+                        // Тач-цель 48dp (CLAUDE.md §4.5): иконка 20dp с отступом 12dp даёт 44dp.
+                        // Пассажир жмёт это на улице, водитель — за рулём; шесть пикселей тут
+                        // не косметика. Модификатор расширяет ОБЛАСТЬ НАЖАТИЯ, не меняя вид.
+                        modifier = Modifier.minimumInteractiveComponentSize(),
                         onClick = { NavSignals.openInstantChat.value = order.id },
                         shape = CircleShape, color = CanonMint,
                     ) {
-                        Icon(Icons.Default.ChatBubble, contentDescription = appText("Написать водителю", "Водителгә яҙырға"), tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(20.dp))
+                        Icon(Icons.Default.ChatBubble, contentDescription = appText("Написать водителю", "Йөрөтөүсегә яҙырға"), tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(20.dp))
                     }
                     Spacer(Modifier.width(8.dp))
                     // Телефон — ТОЛЬКО после accept (сервер отдаёт его непустым).
                     if (order.driverPhone.isNotBlank()) {
                         Surface(
+                            modifier = Modifier.minimumInteractiveComponentSize(),   // тач-цель 48dp, см. выше
                             onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${order.driverPhone}"))) } },
                             shape = CircleShape, color = CanonGreen2,
                         ) {
-                            Icon(Icons.Default.Phone, contentDescription = appText("Позвонить водителю", "Водителгә шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(12.dp).size(20.dp))
+                            Icon(Icons.Default.Phone, contentDescription = appText("Позвонить водителю", "Йөрөтөүсегә шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(12.dp).size(20.dp))
                         }
                     }
                 }
@@ -2858,7 +2866,7 @@ internal fun InstantDriverEnRouteCard(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    appText("К оплате водителю", "Водителгә түләргә"),
+                                    appText("К оплате водителю", "Йөрөтөүсегә түләргә"),
                                     color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
                                 )
                                 Text(
@@ -2909,7 +2917,7 @@ internal fun InstantDriverEnRouteCard(
                 Text(
                     appText(
                         "Водитель уже приехал и ждёт. Отмена — $cancelFeeText (подача), переведи водителю напрямую. Частые платные отмены ставят такси на паузу.",
-                        "Водитель килде инде һәм көтә. Кире алыу — $cancelFeeText (килеү хаҡы), водителгә туранан күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.",
+                        "Йөрөтөүсе килде инде һәм көтә. Кире алыу — $cancelFeeText (килеү хаҡы), йөрөтөүсегә туранан күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.",
                     ),
                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
@@ -3037,7 +3045,7 @@ private fun InstantCancelReasonDialog(
                         Text(
                             appText(
                                 "Отмена сейчас платная: $feeText за подачу — переведи водителю.",
-                                "Хәҙер кире алыу түләүле: килеү өсөн $feeText — водителгә күсер.",
+                                "Хәҙер кире алыу түләүле: килеү өсөн $feeText — йөрөтөүсегә күсер.",
                             ),
                             color = CanonWarn, fontSize = TxCaption, lineHeight = LhCaption,
                             fontWeight = FontWeight.Bold,
@@ -3221,7 +3229,7 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                                                 }
                                                 .onFailure {
                                                     onDismiss()
-                                                    Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show()
                                                 }
                                         }
                                     }
@@ -3256,7 +3264,7 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                                             activeShares = activeShares.filterNot { it.id == share.id }
                                             Toast.makeText(ctx, revokedMsg, Toast.LENGTH_SHORT).show()
                                         }
-                                        .onFailure { Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show() }
                                 }
                             }, modifier = Modifier.heightIn(min = 44.dp)) {
                                 Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -3324,11 +3332,11 @@ private fun InstantNoDriversCard(
             // галочка ничего не значила бы (аудит 2026-08-06).
             order.womenOnly -> appText(
                 "Свободных женщин-водителей рядом не нашли. Мы не подставим вместо них другого водителя — ты просила именно женщину. Можем подождать: как только кто-то освободится, пришлём уведомление.",
-                "Яҡында буш ҡатын-ҡыҙ водитель табылманы. Уның урынына башҡа водителде тәҡдим итмәйбеҙ — һин нәҡ ҡатын-ҡыҙ һораның. Көтә алабыҙ: берәйһе бушаныу менән хәбәр итәбеҙ.",
+                "Яҡында буш ҡатын-ҡыҙ йөрөтөүсе табылманы. Уның урынына башҡа йөрөтөүсене тәҡдим итмәйбеҙ — һин нәҡ ҡатын-ҡыҙ һораның. Көтә алабыҙ: берәйһе бушаныу менән хәбәр итәбеҙ.",
             )
             else -> appText(
                 "Свободных водителей рядом не нашли. Можем подождать — как только кто-то освободится, пришлём уведомление.",
-                "Яҡында буш водитель табылманы. Көтә алабыҙ — берәйһе бушаныу менән хәбәр итәбеҙ.",
+                "Яҡында буш йөрөтөүсе табылманы. Көтә алабыҙ — берәйһе бушаныу менән хәбәр итәбеҙ.",
             )
         },
         action = if (waiting) appText("Заказать заново", "Яңынан заказ итеү")
@@ -3411,7 +3419,7 @@ private fun TaxiDisputeLink(order: InstantOrderDto, isDriver: Boolean) {
     // Кому предъявляем: пассажир — водителю, водитель — пассажиру. Нет второй стороны → нечего разбирать.
     val respondentId = if (isDriver) order.passengerId else order.driverId
     val respondentName = if (isDriver) order.passengerName.ifBlank { appText("пассажира", "юлаусыны") }
-    else order.driverName.ifBlank { appText("водителя", "водителде") }
+    else order.driverName.ifBlank { appText("водителя", "йөрөтөүсене") }
     if (respondentId == null || respondentId <= 0) return
 
     if (filed) {
@@ -3566,7 +3574,7 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
                                 scope.launch {
                                     ApiClient.rateInstantOrder(order.id, n)
                                         .onSuccess { if (!rated) { rated = true; Toast.makeText(ctx, thanksMsg, Toast.LENGTH_SHORT).show() } }
-                                        .onFailure { Toast.makeText(ctx, rateFail, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(ctx, serverSaid(it, rateFail), Toast.LENGTH_LONG).show() }
                                 }
                             },
                         contentAlignment = Alignment.Center,
@@ -3587,7 +3595,7 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
             TextButton(onClick = { showReport = true }) {
                 Text(
                     if (isDriver) appText("Пожаловаться на пассажира", "Пассажирға ялыу")
-                    else appText("Пожаловаться на водителя", "Водителгә ялыу"),
+                    else appText("Пожаловаться на водителя", "Йөрөтөүсегә ялыу"),
                     color = CanonMuted, fontSize = 14.sp,
                 )
             }
@@ -3596,7 +3604,7 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
     if (showReport) {
         ReportCategoryDialog(
             title = if (isDriver) appText("Жалоба на пассажира", "Пассажирға ялыу")
-            else appText("Жалоба на водителя", "Водителгә ялыу"),
+            else appText("Жалоба на водителя", "Йөрөтөүсегә ялыу"),
             categories = if (isDriver) reportCategoriesPassenger() else reportCategoriesDriver(),
             onDismiss = { showReport = false },
             onSend = { category, details ->
@@ -3604,7 +3612,7 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
                 scope.launch {
                     ApiClient.reportUser(reason = details, category = category, orderId = order.id)
                         .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
-                        .onFailure { Toast.makeText(ctx, sendFail, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, sendFail), Toast.LENGTH_LONG).show() }
                 }
             },
         )
@@ -3667,7 +3675,7 @@ internal fun UnpaidReportButton(orderId: Int? = null, bookingId: Int? = null, mo
                 scope.launch {
                     ApiClient.reportUser(category = "unpaid", orderId = orderId, bookingId = bookingId)
                         .onSuccess { sent = true }
-                        .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
                     sending = false
                 }
             },
@@ -3712,7 +3720,7 @@ internal fun NoShowButton(bookingId: Int, modifier: Modifier = Modifier) {
                 scope.launch {
                     ApiClient.markNoShow(bookingId)
                         .onSuccess { sent = true }
-                        .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
                     sending = false
                 }
             },
@@ -3828,7 +3836,7 @@ private fun TaxiComingSoonCard(
                         // Роль: пассажир / водитель (тач-цель ≥48dp).
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             WaitlistRoleChip(appText("Я пассажир", "Мин пассажир"), role == "passenger", Modifier.weight(1f)) { role = "passenger" }
-                            WaitlistRoleChip(appText("Я водитель", "Мин водитель"), role == "driver", Modifier.weight(1f)) { role = "driver" }
+                            WaitlistRoleChip(appText("Я водитель", "Мин йөрөтөүсе"), role == "driver", Modifier.weight(1f)) { role = "driver" }
                         }
                         OutlinedTextField(
                             value = phone,
@@ -3852,7 +3860,7 @@ private fun TaxiComingSoonCard(
                         Button(
                             onClick = { submit() },
                             enabled = phone.isNotBlank() && !sending,
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                         ) {
@@ -3870,7 +3878,7 @@ private fun TaxiComingSoonCard(
                         )
                         Text(
                             appText("Первым водителям — 0% комиссии первые 3 месяца. Оставь номер как водитель, и город твой.",
-                                "Тәүге водителдәргә — тәүге 3 айҙа 0% комиссия. Номерыңды водитель итеп ҡалдыр — ҡала һинеке."),
+                                "Тәүге йөрөтөүселәргә — тәүге 3 айҙа 0% комиссия. Номерыңды йөрөтөүсе итеп ҡалдыр — ҡала һинеке."),
                             color = CanonTaxiText, fontSize = 14.sp, lineHeight = 20.sp,
                         )
                         if (role != "driver") {
@@ -3883,7 +3891,7 @@ private fun TaxiComingSoonCard(
                         }
                         // Такси уже включено (глобально), просто не в этом городе → проверку 580-ФЗ можно пройти заранее.
                         if (availability.reason == "city_off") {
-                            TextButton(onClick = onTaxiOnboarding, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                            TextButton(onClick = onTaxiOnboarding, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                                 Text(
                                     appText("Пройти проверку таксиста заранее →", "Таксист тикшереүен алдан үтергә →"),
                                     color = CanonTaxiText, fontSize = 14.sp, fontWeight = FontWeight.Bold,
@@ -3898,7 +3906,7 @@ private fun TaxiComingSoonCard(
         Spacer(Modifier.height(16.dp))
         Button(
             onClick = onBackToPooling,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
         ) {
@@ -3932,7 +3940,7 @@ private fun InstantLoginNeeded(onLoginRequired: () -> Unit) {
         icon = Icons.Default.DirectionsCar,
         title = appText("Войди, чтобы заказать машину", "Машина заказлар өсөн ин"),
         subtitle = appText("Быстрый заказ доступен после входа — так водитель видит, кому ехать.",
-            "Тиҙ заказ ингәндән һуң эшләй — водитель кемгә барырын күрә."),
+            "Тиҙ заказ ингәндән һуң эшләй — йөрөтөүсе кемгә барырын күрә."),
         action = appText("Войти", "Инеү"),
         onAction = onLoginRequired,
         onSecondary = onLoginRequired,
@@ -3956,11 +3964,18 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
     // Заказ, от которого водитель ТОЛЬКО ЧТО отказался и по которому мы необязательным шагом
     // спрашиваем «почему». Отказ уже ушёл на сервер — тут остался один вопрос, не блокирующий.
     var declineAskFor by remember { mutableStateOf<Int?>(null) }
-    val acceptTakenMsg = appText("Заказ уже взял другой водитель", "Заказды башҡа водитель алды")
+    val acceptTakenMsg = appText("Заказ уже взял другой водитель", "Заказды башҡа йөрөтөүсе алды")
     val acceptNetMsg = appText("Не удалось взять заказ. Проверь связь и попробуй снова.", "Заказды алып булманы. Бәйләнеште тикшереп ҡабатла.")
 
     // Presence-heartbeat (координаты не логируем). Следим за связью: если heartbeat не долетает,
     // водитель невидим серверу — честно показываем это чипом, а не делаем вид, что он «на линии».
+    //
+    // НАМЕРЕННО работает и со свёрнутым приложением (в отличие от соседних опросов на этом
+    // экране). Это не обновление картинки, а сигнал «я на линии, шлите заказы»: пропал сигнал —
+    // сервер через ~45 секунд забывает водителя, и тот стоит на трассе без заказов, думая что
+    // просто нет спроса. Обычно в фоне сигнал шлёт сервис линии, но если он не поднялся или его
+    // прибила система, этот цикл остаётся единственным. Дублирование раз в 12 секунд стоит
+    // копейки, пустой рабочий день водителя — нет.
     LaunchedEffect(online) {
         if (!online) { presenceFails = 0; return@LaunchedEffect }
         while (isActive) {
@@ -3972,9 +3987,11 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
             delay(12_000)
         }
     }
-    // Поллинг входящего оффера (пока нет активного на экране).
-    LaunchedEffect(online) {
-        if (!online) { offer = null; return@LaunchedEffect }
+    // Поллинг входящего оффера (пока нет активного на экране) — только пока экран перед глазами.
+    // Со свёрнутым приложением офферы ловит фоновый сервис линии и показывает полноэкранное
+    // уведомление: это водителю полезнее, чем обновлённый экран, которого он не видит.
+    RepeatWhileVisible(online) {
+        if (!online) { offer = null; return@RepeatWhileVisible }
         while (isActive) {
             if (offer == null) {
                 val incoming = ApiClient.getDriverOffer().getOrNull()
@@ -4421,10 +4438,20 @@ internal fun InstantDriverTripScreen(
             .onSuccess { order = it }
             .onFailure { e -> loadError = (e as? ApiException)?.status?.let { it >= 500 } ?: true }
         loading = false
+    }
+
+    // Дальше статус заказа переспрашиваем каждые 5 секунд — но ТОЛЬКО пока экран перед глазами.
+    // Свернул приложение — опрос засыпает вместе с ним: про смену статуса и так придёт пуш, а
+    // будить телефон каждые пять секунд ради экрана, на который никто не смотрит, незачем.
+    // Вернулся — опрос просыпается сразу, до первой паузы, поэтому свежее видно мгновенно.
+    // Первичная загрузка осталась выше отдельно: иначе при каждом возврате мигал бы спиннер.
+    RepeatWhileVisible(orderId, reloadTick, observeRemote) {
+        if (!observeRemote) return@RepeatWhileVisible
+        ApiClient.getInstantOrder(orderId).onSuccess { order = it }
         while (isActive) {
+            if (order?.status == "done" || order?.status == "cancelled" || order?.status == "expired") break
             delay(5_000)
             ApiClient.getInstantOrder(orderId).onSuccess { order = it }
-            if (order?.status == "done" || order?.status == "cancelled" || order?.status == "expired") break
         }
     }
 
@@ -4571,12 +4598,12 @@ internal fun InstantDriverTripScreen(
                                     Text("${current.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${current.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}", color = CanonMuted, fontSize = 14.sp, maxLines = 1)
                                 }
                                 // «Написать» (B7b-1): чат заказа — водителю удобнее коротким текстом на месте.
-                                Surface(onClick = { NavSignals.openInstantChat.value = current.id }, shape = CircleShape, color = CanonMint) {
+                                Surface(modifier = Modifier.minimumInteractiveComponentSize(), onClick = { NavSignals.openInstantChat.value = current.id }, shape = CircleShape, color = CanonMint) {
                                     Icon(Icons.Default.ChatBubble, contentDescription = appText("Написать пассажиру", "Пассажирға яҙырға"), tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(20.dp))
                                 }
                                 Spacer(Modifier.width(8.dp))
                                 if (current.passengerPhone.isNotBlank()) {
-                                    Surface(onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${current.passengerPhone}"))) } }, shape = CircleShape, color = CanonGreen2) {
+                                    Surface(modifier = Modifier.minimumInteractiveComponentSize(), onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${current.passengerPhone}"))) } }, shape = CircleShape, color = CanonGreen2) {
                                         Icon(Icons.Default.Phone, contentDescription = appText("Позвонить пассажиру", "Пассажирға шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(12.dp).size(20.dp))
                                     }
                                 }
@@ -4636,7 +4663,7 @@ internal fun InstantDriverTripScreen(
                                         if (toDest) current.toLng else current.fromLng,
                                     )
                                 },
-                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                 shape = RoundedCornerShape(14.dp),
                             ) {
                                 Icon(Icons.Default.Navigation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))

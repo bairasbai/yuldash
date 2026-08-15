@@ -406,33 +406,8 @@ private fun CourierNotApprovedView(
 
 @Composable
 private fun CourierRefreshStrip(text: String, onRetry: () -> Unit) {
-    Surface(color = CanonWarnBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonWarn)) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text,
-                color = CanonWarn,
-                fontSize = DeliveryCaption,
-                lineHeight = DeliveryCaptionLine,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(
-                onClick = onRetry,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) {
-                Text(
-                    appText("Повторить", "Ҡабатлау"),
-                    color = CanonWarn,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = DeliveryBody,
-                    lineHeight = DeliveryBodyLine,
-                )
-            }
-        }
-    }
+    // Вид и поведение — общие ([AppStaleStrip]); у курьера только свой текст про доставки.
+    AppStaleStrip(onRetry = onRetry, text = text)
 }
 
 // ─────────────────────────── Одобрен → работа ───────────────────────────
@@ -462,6 +437,10 @@ private fun CourierWorkContent(
     var toggling by remember { mutableStateOf(false) }
     var configSaving by remember { mutableStateOf(false) }
     var sub by rememberSaveable { mutableIntStateOf(0) }   // 0 = доступные, 1 = везу, 2 = кабинет
+    // Экран заработка попросил показать заказы — выполняем и гасим сигнал.
+    LaunchedEffect(NavSignals.openCourierOrders.value) {
+        if (NavSignals.openCourierOrders.value) { sub = 0; NavSignals.openCourierOrders.value = false }
+    }
     val lineBusy = toggling || configSaving
     // Что курьер везёт прямо сейчас — состояние поднято сюда из вкладки «Везу» специально:
     // от него зависит живая отправка GPS отправителям, а она обязана пережить и прокрутку
@@ -773,7 +752,7 @@ private fun CourierWorkContent(
                     workCity = if (confirmedZone == "city") workCity else "",
                     onGoOnline = { setOnline(true) },
                 )
-                1 -> CourierCarryingTab(online = online, list = carrying, onList = { carrying = it })
+                1 -> CourierCarryingTab(online = online, list = carrying, onList = { carrying = it }, onGoOrders = { sub = 0 })
                 else -> CourierCabinetTab(me, onReloadMe, onEarnings, reloadingMe)
             }
         }
@@ -1048,12 +1027,20 @@ private fun CourierAvailableTab(
                     }
                 }
             }
+            // Текст зависит от того, есть ли что показывать. Раньше строка была одна, и экран
+            // противоречил сам себе: сверху «показываем последний список», а сразу под ним
+            // «Свободных заказов нет». Поймал запуском на эмуляторе с оборванной связью.
+            // Обещать список можно, только когда он есть; при пустом — просто честно про сбой,
+            // иначе «заказов нет» читается как правда, хотя это всего лишь несостоявшийся запрос.
             if (feedReady && error != null && hasLoadedCurrentQuery) {
                 item {
                     CourierRefreshStrip(
-                        text = appText(
+                        text = if (visibleList.isNotEmpty()) appText(
                             "Не удалось обновить заказы — показываем последний список.",
                             "Заказдарҙы яңыртып булманы — һуңғы исемлекте күрһәтәбеҙ.",
+                        ) else appText(
+                            "Не удалось обновить заказы — список может быть неполным.",
+                            "Заказдарҙы яңыртып булманы — исемлек тулы булмаҫҡа мөмкин.",
                         ),
                         onRetry = { refreshKey++ },
                     )
@@ -1227,6 +1214,7 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, canTake: Boolean, 
  */
 @Composable
 private fun CourierCarryingTab(
+    onGoOrders: () -> Unit = {},
     online: Boolean,
     list: List<ParcelDto>,
     onList: (List<ParcelDto>) -> Unit,
@@ -1311,10 +1299,14 @@ private fun CourierCarryingTab(
                 }
                 error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
                 list.isEmpty() -> item {
+                    // Текст указывал дорогу, но идти по ней человек должен был сам.
+                    // Кнопка ведёт ровно туда, куда указывает текст — на вкладку «Заказы».
                     AppEmptyState(
                         title = appText("Ты пока ничего не везёшь", "Әлегә бер нәмә лә илтмәйһең"),
                         text = appText("Возьми заказ во вкладке «Заказы» — он появится здесь.", "«Заказдар» бүлегендә заказ ал — ул бында күренер."),
                         icon = Icons.Default.LocalShipping,
+                        actionLabel = appText("Смотреть заказы", "Заказдарҙы ҡарау"),
+                        onAction = onGoOrders,
                     )
                 }
                 else -> {
@@ -1354,6 +1346,19 @@ private fun CourierCarryingTab(
                                 }
                                 ParcelTrackMap(tracked, asCourier = true)
                             }
+                        }
+                        // Гололёд и метель на маршруте — третья функция того же ряда, что кнопки
+                        // ниже, и её курьеру тоже не дали. Погоду видит таксист, видит водитель
+                        // попутки, видит тот, кто ПУБЛИКУЕТ рейс, — а человек, который прямо
+                        // сейчас везёт посылку по той же трассе Баймак–Сибай, не видел ничего.
+                        // Довод тот же, что записан ниже про «Застрял» и SOS: курьер едет ОДИН,
+                        // рядом нет пассажира, который скажет «смотри, лёд». Предупреждение
+                        // ничего не запрещает — решает человек, но знать он должен заранее.
+                        item(key = "ccar-weather") {
+                            val route = activeParcels.firstOrNull { it.status == "in_transit" } ?: activeParcels.first()
+                            WeatherWarningCard(
+                                rememberRouteWeather(fromCity = route.fromCity, toCity = route.toCity),
+                            )
                         }
                         // «Застрял на трассе» — у попутки и такси кнопка была, у курьера нет,
                         // хотя он едет по той же зимней трассе и ОДИН: рядом нет пассажира,

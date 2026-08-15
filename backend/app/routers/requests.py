@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, or_, text
+from sqlalchemy import and_, or_, text, update
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -844,6 +844,7 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
     ).first()
     if not req:
         raise herr(404, "Заявка не найдена", "Заявка табылманы")
+    # Быстрый понятный отказ; настоящая защита — атомарный захват заявки ниже.
     if req.status != "active":
         raise herr(400, "Заявка уже закрыта", "Заявка инде ябылған")
     # Пауза «Справедливости» и блокировка — здесь, в общей точке, а не только на кнопке в
@@ -851,9 +852,31 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
     # и гейты стояли лишь на первой: авто-подбор сводил пассажира без приложения с отстранённым
     # или заблокированным водителем (аудит 2026-08-12, волна 46). Текст нейтральный — сюда
     # приходят и те, кому не положено знать о чужом разборе.
+    #
+    # Проверка стоит ДО захвата заявки ниже: иначе негодный отклик закрыл бы заявку и упал,
+    # оставив пассажира и без этой поездки, и без права дождаться честного отклика.
     if not may_ride_together(session, req.passenger_id, resp.driver_id):
         raise herr(409, "Сейчас эту поездку оформить не получится. Заявка активна — дождись другого отклика.",
                    "Хәҙер был сәфәрҙе асып булмай. Заявка актив — башҡа яуапты көт.")
+    # Заявку ЗАКРЫВАЕМ атомарно, ДО создания поездки: условие «она всё ещё активна» живёт
+    # внутри UPDATE.
+    #
+    # Блокировка строки выше закрывает гонку на PostgreSQL, но SQLite её игнорирует — а на
+    # нём тесты, локальная разработка и демо-база. Там два одновременных accept (пассажир из
+    # приложения и админ из Telegram-кнопки, или автоподбор) проходили проверку оба, и на одну
+    # заявку создавались ДВЕ поездки с двумя бронями: за пассажиром выезжали два водителя,
+    # каждый по своей договорённости о цене. Отменить лишнюю — значит подвести человека,
+    # который уже собрался ехать.
+    #
+    # И как везде: саму защиту не проверял ни один тест — на SQLite блокировка пустая.
+    claimed = session.execute(
+        update(RideRequest)
+        .where(RideRequest.id == req.id, RideRequest.status == "active")
+        .values(status="matched")
+    )
+    if claimed.rowcount == 0:
+        session.rollback()
+        raise herr(400, "Заявка уже закрыта", "Заявка инде ябылған")
     # Цена отклика идёт прямо в Ride/Booking мимо клампа create_ride (0..100000) → кламп здесь же,
     # иначе водитель отдаёт цену до 1_000_000 (потолок RespondIn) в обход общего лимита.
     # Берём цену НА СТОЛЕ (после торга), а не первое предложение водителя: иначе поездка
@@ -871,9 +894,7 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
         status=BookingStatus.confirmed, boarding_code=gen_otp(),
     )
     session.add(booking)
-    req.status = "matched"
-    resp.status = "accepted"
-    session.add(req)
+    resp.status = "accepted"   # req.status уже выставлен атомарным UPDATE выше
     session.add(resp)
     session.commit()   # атомарно: сбой не оставит «осиротевшую» поездку без брони и не даст принять отклик повторно
     session.refresh(booking)

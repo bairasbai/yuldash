@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
@@ -115,6 +116,11 @@ internal fun AdminModerationScreen(onBack: () -> Unit, onOpenPartners: () -> Uni
                 }
             }
 
+            // Очередь не обновилась, а прежняя осталась на экране: одобришь то, что уже одобрено,
+            // и не увидишь то, что пришло минуту назад.
+            if (error != null && queue.total > 0) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload() }) }
+            }
             when {
                 loading && queue.total == 0 -> {
                     item { SkeletonCard(lines = 3) }
@@ -248,14 +254,14 @@ private fun ModerationCouponCard(
             Row(horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
                 Button(
                     onClick = onApprove, enabled = !busy,
-                    modifier = Modifier.weight(1f).height(44.dp), shape = CanonTinyShape,
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp), shape = CanonTinyShape,
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                 ) {
                     Text(appText("Всё в порядке", "Бөтәһе яҡшы"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
                 OutlinedButton(
                     onClick = onBlock, enabled = !busy,
-                    modifier = Modifier.weight(1f).height(44.dp), shape = CanonTinyShape,
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp), shape = CanonTinyShape,
                 ) {
                     Text(appText("Снять", "Алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }

@@ -33,12 +33,17 @@ import {
   setParcelStatus,
   type Parcel,
 } from "../api/parcels";
-import { rubLabel, formatWhen } from "../utils/format";
+import { formatWhen, pluralRu, rubLabel } from "../utils/format";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList, ErrorState } from "../components/States";
 import { AvailableParcelCard, CarryParcelCard, CodeDialog } from "../components/parcelUi";
-import { IconStar, IconCheck, IconCopy, IconBox } from "../components/Icons";
+import ParcelProblemActions from "../components/ParcelProblemActions";
+import ParcelPhoto from "../components/ParcelPhoto";
+import CityField from "../components/CityField";
+import { IconStar, IconCheck, IconCopy, IconBox, IconTrend } from "../components/Icons";
 import { YuCourierWalk } from "../components/BrandIcons";
+import { serverMs } from "../utils/serverTime";
+import { rememberPayment } from "../utils/pendingPayment";
 
 type Boot = "loading" | "error" | "soon" | "need-approval" | "ready";
 type Tab = "available" | "carry" | "cabinet";
@@ -58,6 +63,11 @@ export default function CourierScreen() {
   const [tab, setTab] = useState<Tab>("available");
   const [zone, setZone] = useState<CourierZone>("city");
   const [onlineBusy, setOnlineBusy] = useState(false);
+  // Город работы: по нему сервер отбирает заказы. Без него курьеру сыпалось всё подряд.
+  const [workCity, setWorkCity] = useState("");
+  const [cityDirty, setCityDirty] = useState(false);
+  /** Смена зоны не дошла до сервера — сказать, иначе чип врёт. */
+  const [zoneNote, setZoneNote] = useState("");
 
   const load = useCallback((signal?: AbortSignal) => {
     setBoot("loading");
@@ -65,6 +75,7 @@ export default function CourierScreen() {
       .then((data) => {
         setMe(data);
         if (data.profile?.zone) setZone(data.profile.zone as CourierZone);
+        if (data.profile?.work_city) setWorkCity(data.profile.work_city);
         setBoot("ready");
       })
       .catch((e) => {
@@ -82,13 +93,15 @@ export default function CourierScreen() {
   }, [load]);
 
   const online = !!me?.profile?.online;
-  const paused = !!me?.paused_until && new Date(me.paused_until).getTime() > Date.now();
+  const paused = !!me?.paused_until && serverMs(me.paused_until) > Date.now();
 
   async function toggleOnline() {
     if (onlineBusy || !me) return;
     setOnlineBusy(true);
     try {
-      const prof = online ? await courierOffline() : await courierOnline({ zone });
+      const prof = online
+        ? await courierOffline()
+        : await courierOnline({ zone, work_city: workCity.trim() });
       setMe({ ...me, profile: prof });
     } catch (e) {
       // 403 = мягкая пауза по качеству → перечитаем кабинет (покажет плашку).
@@ -100,13 +113,24 @@ export default function CourierScreen() {
 
   async function changeZone(z: CourierZone) {
     if (z === zone) return;
+    const prev = zone;
     setZone(z);
+    setZoneNote("");
     if (online && me) {
       try {
-        const prof = await courierOnline({ zone: z });
+        const prof = await courierOnline({ zone: z, work_city: workCity.trim() });
         setMe({ ...me, profile: prof });
       } catch {
-        /* оставим локальную зону — список всё равно пере-запросится */
+        // Зону отбирает СЕРВЕР. Если он не принял новую, а чип остался
+        // переключённым, курьер думает, что работает по республике,
+        // а заказы приходят по-старому. Возвращаем как было и говорим.
+        setZone(prev);
+        setZoneNote(
+          appText(
+            "Не получилось сменить зону. Проверь связь и попробуй ещё раз.",
+            "Зонаны алмаштырып булманы. Бәйләнеште тикшереп ҡабатла."
+          )
+        );
       }
     }
   }
@@ -201,6 +225,52 @@ export default function CourierScreen() {
         <span className={"switch" + (online ? " on" : "")} />
       </button>
 
+      {/* Город работы: сервер по нему отбирает заказы, поэтому спрашиваем до выхода на линию */}
+      <label className="field" style={{ marginTop: 14 }}>
+        <span className="field__label">{appText("Город работы", "Эш ҡалаһы")}</span>
+        <input
+          className="field__input"
+          value={workCity}
+          onChange={(e) => {
+            setWorkCity(e.target.value);
+            setCityDirty(true);
+          }}
+          maxLength={80}
+          placeholder={appText("Например: Баймак", "Мәҫәлән: Баймаҡ")}
+        />
+        {cityDirty && (
+          <span className="field__hint">
+            {online
+              ? appText(
+                  "Подтверди новый город — до этого заказы остаются по прежнему.",
+                  "Яңы ҡаланы раҫла — шунға тиклем заказдар элеккесә ҡала."
+                )
+              : appText(
+                  "Город применится, когда выйдешь на линию.",
+                  "Ҡала линияға сыҡҡас ҡулланыла."
+                )}
+          </span>
+        )}
+      </label>
+      {cityDirty && online && (
+        <button
+          type="button"
+          className="btn-soft"
+          style={{ width: "100%", marginTop: 8 }}
+          onClick={async () => {
+            try {
+              const prof = await courierOnline({ zone, work_city: workCity.trim() });
+              if (me) setMe({ ...me, profile: prof });
+              setCityDirty(false);
+            } catch {
+              /* не применилось — прежний город остаётся, экран не ломаем */
+            }
+          }}
+        >
+          {appText("Сохранить город", "Ҡаланы һаҡларға")}
+        </button>
+      )}
+
       {/* Зона работы */}
       <span className="field__label" style={{ marginTop: 14, display: "block" }}>
         {appText("Зона работы", "Эш зонаһы")}
@@ -212,6 +282,12 @@ export default function CourierScreen() {
           </button>
         ))}
       </div>
+
+      {zoneNote && (
+        <div className="notice" role="status">
+          {zoneNote}
+        </div>
+      )}
 
       {/* Вкладки */}
       <div className="taxi-when parcel-tabs" style={{ marginTop: 16 }}>
@@ -226,23 +302,50 @@ export default function CourierScreen() {
         </button>
       </div>
 
-      {tab === "available" && <AvailableOrders zone={zone} />}
+      {tab === "available" && <AvailableOrders zone={zone} online={online} onGoOnline={toggleOnline} />}
       {tab === "carry" && <CarryOrders />}
-      {tab === "cabinet" && me && <Cabinet me={me} onReload={() => load()} />}
+      {tab === "cabinet" && me && (
+        <>
+          <Cabinet me={me} onReload={() => load()} />
+          {/* Заработок отдельно от комиссии: иначе работа выглядит одним сплошным долгом. */}
+          <button
+            type="button"
+            className="btn-soft"
+            style={{ width: "100%", marginTop: 12 }}
+            onClick={() => navigate("/courier-earnings")}
+          >
+            <IconTrend size={18} /> {appText("Мой заработок", "Минең табыш")}
+          </button>
+        </>
+      )}
     </>
   );
 }
 
 // ============================ Доступные заказы ============================
-function AvailableOrders({ zone }: { zone: CourierZone }) {
+function AvailableOrders({
+  zone,
+  online,
+  onGoOnline,
+}: {
+  zone: CourierZone;
+  /** На линии ли курьер: без линии курьерских заказов не показываем. */
+  online: boolean;
+  onGoOnline: () => void;
+}) {
   const { appText } = useLang();
   const [boot, setBoot] = useState<"loading" | "error" | "ready">("loading");
   const [items, setItems] = useState<Parcel[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
+  // Снимок «взял целой» до того, как посылка стала твоей: первая граница ответственности.
+  const [photos, setPhotos] = useState<Record<number, string>>({});
+  // Куда еду сегодня. Курьер обычно едет в конкретную сторону, и заказы
+  // в противоположную для него просто шум — фильтрует сервер, не браузер.
+  const [dir, setDir] = useState("");
 
   const load = useCallback((signal?: AbortSignal) => {
     setBoot("loading");
-    fetchCourierAvailable({}, signal)
+    fetchCourierAvailable(dir.trim() ? { to_city: dir.trim() } : {}, signal)
       .then((rows) => {
         setItems(rows);
         setBoot("ready");
@@ -254,7 +357,7 @@ function AvailableOrders({ zone }: { zone: CourierZone }) {
           setBoot("ready");
         } else setBoot("error");
       });
-  }, []);
+  }, [dir]);
 
   // Пере-запрос при смене зоны (сервер фильтрует по зоне профиля).
   useEffect(() => {
@@ -266,7 +369,7 @@ function AvailableOrders({ zone }: { zone: CourierZone }) {
   async function onTake(id: number) {
     setBusyId(id);
     try {
-      await acceptParcel(id);
+      await acceptParcel(id, photos[id]);
       setItems((prev) => prev.filter((x) => x.id !== id));
     } catch {
       setItems((prev) => prev.filter((x) => x.id !== id));
@@ -275,23 +378,88 @@ function AvailableOrders({ zone }: { zone: CourierZone }) {
     }
   }
 
-  if (boot === "loading") return <LoadingList count={3} />;
-  if (boot === "error") return <ErrorState onRetry={() => load()} />;
+  const dirFilter = (
+    <CityField
+      label={appText("Куда еду", "Ҡайҙа барам")}
+      value={dir}
+      onChange={setDir}
+      placeholder={appText("Любое направление", "Теләһә ниндәй йүнәлеш")}
+    />
+  );
+
+  if (boot === "loading")
+    return (
+      <>
+        {dirFilter}
+        <LoadingList count={3} />
+      </>
+    );
+  if (boot === "error")
+    return (
+      <>
+        {dirFilter}
+        <ErrorState onRetry={() => load()} />
+      </>
+    );
   if (items.length === 0) {
     return (
+      <>
+      {dirFilter}
       <div className="state" style={{ paddingTop: 28 }}>
         <div className="state__icon">
           <IconBox size={34} />
         </div>
-        <h2>{appText("Пока нет заказов", "Әле заказдар юҡ")}</h2>
-        <p>{appText("В твоей зоне сейчас пусто. Оставайся на линии — заказ появится со временем.", "Зонаңда хәҙер буш. Линияла ҡал — заказ ваҡыт менән сыға.")}</p>
+        <h2>
+          {!online
+            ? appText("Сначала включи линию", "Тәүҙә линияны ҡабыҙ")
+            : dir.trim()
+              ? appText("По этому направлению пусто", "Был йүнәлештә буш")
+              : appText("Пока нет заказов", "Әле заказдар юҡ")}
+        </h2>
+        {/* Пусто по трём разным причинам — и человеку нужно знать, по какой:
+            выключенная линия чинится одним нажатием, а «в зоне никого» — нет. */}
+        <p>
+          {!online
+            ? appText(
+                "Курьерские заказы появятся только на линии — так никто не возьмёт заказ случайно. Заказы «по пути» можно смотреть и без линии.",
+                "Курьер заказдары тик линияла күренә — шулай заказды осраҡлы алып булмай. «Юл ыңғайы» заказдарын линияһыҙ ҙа ҡарарға була."
+              )
+            : dir.trim()
+              ? appText(
+                  "Убери фильтр направления — возможно, заказы есть в другую сторону.",
+                  "Йүнәлеш фильтрын алып ташла — башҡа яҡта заказдар булыуы мөмкин."
+                )
+              : appText(
+                  "В твоей зоне сейчас пусто. Оставайся на линии — заказ появится со временем.",
+                  "Зонаңда хәҙер буш. Линияла ҡал — заказ ваҡыт менән сыға."
+                )}
+        </p>
+        {!online && (
+          <button type="button" className="btn-primary" onClick={onGoOnline}>
+            {appText("Включить линию", "Линияны ҡабыҙыу")}
+          </button>
+        )}
+        {online && dir.trim() && (
+          <button type="button" className="btn-soft" onClick={() => setDir("")}>
+            {appText("Любое направление", "Теләһә ниндәй йүнәлеш")}
+          </button>
+        )}
       </div>
+      </>
     );
   }
   return (
     <div style={{ marginTop: 4 }}>
+      {dirFilter}
       {items.map((p) => (
-        <AvailableParcelCard key={p.id} p={p} busy={busyId === p.id} onTake={() => onTake(p.id)} />
+        <AvailableParcelCard
+          key={p.id}
+          p={p}
+          busy={busyId === p.id}
+          onTake={() => onTake(p.id)}
+          photo={photos[p.id]}
+          onPhoto={(url) => setPhotos((prev) => ({ ...prev, [p.id]: url }))}
+        />
       ))}
     </div>
   );
@@ -304,6 +472,9 @@ function CarryOrders() {
   const [items, setItems] = useState<Parcel[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [codeFor, setCodeFor] = useState<Parcel | null>(null);
+  // Снимки «взял целой» / «отдал целой» по посылкам: id → url.
+  // Держим до отправки — сервер принимает их вместе со сменой статуса.
+  const [photos, setPhotos] = useState<Record<number, string>>({});
   const [codeBusy, setCodeBusy] = useState(false);
   const [codeErr, setCodeErr] = useState<string | null>(null);
 
@@ -358,14 +529,14 @@ function CarryOrders() {
     setCodeBusy(true);
     setCodeErr(null);
     try {
-      await setParcelStatus(codeFor.id, "delivered", code.trim());
+      await setParcelStatus(codeFor.id, "delivered", code.trim(), photos[codeFor.id]);
       setItems((prev) => prev.filter((x) => x.id !== codeFor.id));
       setCodeFor(null);
     } catch (e) {
       setCodeErr(
         e instanceof ApiError && e.message
           ? e.message
-          : appText("Неверный код. Проверь и попробуй снова.", "Код дөрөҫ түгел. Тикшереп ҡабат ҡара.")
+          : appText("Неверный код. Проверь и введи снова.", "Код дөрөҫ түгел. Тикшереп ҡабат ҡара.")
       );
     } finally {
       setCodeBusy(false);
@@ -380,7 +551,7 @@ function CarryOrders() {
         <div className="state__icon">
           <YuCourierWalk size={36} />
         </div>
-        <h2>{appText("Ты ничего не везёшь", "Һин бер нәмә лә йөрөтмәйһең")}</h2>
+        <h2>{appText("Ты пока ничего не везёшь", "Һин бер нәмә лә йөрөтмәйһең")}</h2>
         <p>{appText("Возьми заказ во вкладке «Заказы» — он появится здесь.", "«Заказдар» бүлегендә заказ ал — ул бында күренер.")}</p>
       </div>
     );
@@ -388,14 +559,25 @@ function CarryOrders() {
   return (
     <div style={{ marginTop: 4 }}>
       {items.map((p) => (
-        <CarryParcelCard
-          key={p.id}
-          p={p}
-          busy={busyId === p.id}
-          onDepart={() => onDepart(p.id)}
-          onDeliver={() => { setCodeErr(null); setCodeFor(p); }}
-          onGoodsCost={(kop) => onGoods(p.id, kop)}
-        />
+        <div key={p.id}>
+          <CarryParcelCard
+            p={p}
+            busy={busyId === p.id}
+            onDepart={() => onDepart(p.id)}
+            onDeliver={() => { setCodeErr(null); setCodeFor(p); }}
+            onGoodsCost={(kop) => onGoods(p.id, kop)}
+          />
+          {/* Граница ответственности: снимок «отдал целой» до ввода кода.
+              В споре его отсутствие говорит само за себя. */}
+          <ParcelPhoto
+            kind="delivery"
+            url={photos[p.id] ?? null}
+            onReady={(url) => setPhotos((prev) => ({ ...prev, [p.id]: url }))}
+          />
+
+          {/* Не вручилось: попытка, возврат, спор — вместо «бросить заявку висеть» */}
+          <ParcelProblemActions parcel={p} role="courier" onChanged={() => load()} />
+        </div>
       ))}
       {codeFor && (
         <CodeDialog busy={codeBusy} error={codeErr} onSubmit={onDeliver} onClose={() => setCodeFor(null)} />
@@ -432,6 +614,7 @@ function Cabinet({ me, onReload }: { me: CourierMe; onReload: () => void }) {
         setMsg({ ru: "Комиссия оплачена. Спасибо! 💚", ba: "Комиссия түләнде. Рәхмәт! 💚" });
         onReload();
       } else if (r.method === "yookassa" && r.confirmation_url) {
+        rememberPayment(r.payment_id, "commission", "/courier");
         window.location.href = r.confirmation_url;
       } else {
         setPay(r); // sbp_manual — реквизиты
@@ -508,7 +691,10 @@ function Cabinet({ me, onReload }: { me: CourierMe; onReload: () => void }) {
         </div>
         <div className="courier-rating__meta">
           {me.rating.count > 0
-            ? appText(`${me.rating.count} оценок доставки`, `${me.rating.count} доставка баһаһы`)
+            ? appText(
+                `${me.rating.count} ${pluralRu(me.rating.count, "оценка", "оценки", "оценок")} доставки`,
+                `${me.rating.count} доставка баһаһы`
+              )
             : appText("Пока нет оценок", "Әле баһа юҡ")}
         </div>
       </div>
@@ -521,6 +707,15 @@ function Cabinet({ me, onReload }: { me: CourierMe; onReload: () => void }) {
         </div>
         <span className="badge badge--mint">{appText(tier.ru, tier.ba)}</span>
       </div>
+
+      {/* За что берём процент. Без этой строки «комиссия» читается как штраф,
+          а не как плата за то, что заказы вообще нашлись. */}
+      <p className="courier-fee__why">
+        {appText(
+          `Это сбор Юлдаша (${s.current_fee_percent}%) за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.`,
+          `Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы (${s.current_fee_percent}%). Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш.`
+        )}
+      </p>
 
       {/* Выписка */}
       <div className="info-list">

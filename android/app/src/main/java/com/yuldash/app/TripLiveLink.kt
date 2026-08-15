@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -66,7 +67,7 @@ internal fun LiveLinkCard(link: String, modifier: Modifier = Modifier) {
                     copySensitive(ctx, link)   // ссылка показывает, где человек едет сейчас
                     Toast.makeText(ctx, copiedMsg, Toast.LENGTH_SHORT).show()
                 },
-                modifier = Modifier.weight(1f).height(48.dp),
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 shape = RoundedCornerShape(14.dp),
             ) {
                 Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать ссылку", "Һылтанманы күсереү"),
@@ -82,7 +83,7 @@ internal fun LiveLinkCard(link: String, modifier: Modifier = Modifier) {
                     }
                     ctx.startActivity(Intent.createChooser(send, shareTitle))
                 },
-                modifier = Modifier.weight(1f).height(48.dp),
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
             ) {

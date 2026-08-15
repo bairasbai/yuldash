@@ -8,13 +8,19 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
-import { publishRide, type RideCreateInput } from "../api/driver";
+import { publishRide, fetchPriceHint, type RideCreateInput, type PriceHint } from "../api/driver";
 import { fetchMedicalPartners, type MedicalPartner } from "../api/medical";
 import type { RideCategory } from "../api/rides";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCheck, IconBolt, IconHospital, IconUsers } from "../components/Icons";
+import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarningCard";
+import { IconCheck, IconBolt, IconHospital, IconUsers, IconTrend } from "../components/Icons";
 import { YuModeRideshare } from "../components/BrandIcons";
 import { AmenityIcon } from "../components/amenityIcons";
+import CityField from "../components/CityField";
+import PickupChips from "../components/PickupChips";
+import { priceLabel, rubLabel } from "../utils/format";
+import { useDraftSync, clearDraft } from "../utils/formDraft";
+import { minDateTimeNow } from "../utils/dateInput";
 
 type Amenity =
   | "baggage"
@@ -27,12 +33,40 @@ type Amenity =
 
 type Recur = "none" | "daily" | "weekdays" | "weekly";
 
+/** Ключ черновика формы «Опубликовать поездку». */
+const RIDE_DRAFT = "create-ride";
+
 export default function CreateRideScreen() {
-  const { appText } = useLang();
+  const { appText, lang } = useLang();
+  const ru = lang !== "ba";
   const navigate = useNavigate();
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  // Погода по названиям городов: человек печатает «Баймак → Сибай», геокодит сервер.
+  const weather = useRouteWeather({ fromCity: from.trim(), toCity: to.trim() });
+
+  // Ориентир цены по маршруту (GET /rides/price_hint). Ждём паузу в наборе: город печатают
+  // буквами, иначе на «Сибай» ушло бы пять запросов, четыре из них по несуществующим городам.
+  const [hint, setHint] = useState<PriceHint | null>(null);
+  useEffect(() => {
+    const f = from.trim();
+    const t = to.trim();
+    if (!f || !t) {
+      setHint(null);
+      return;
+    }
+    const ac = new AbortController();
+    const timer = window.setTimeout(() => {
+      fetchPriceHint(f, t, ac.signal)
+        .then(setHint)
+        .catch(() => setHint(null)); // 404 / нет сети → просто не показываем
+    }, 700);
+    return () => {
+      window.clearTimeout(timer);
+      ac.abort();
+    };
+  }, [from, to]);
   const [when, setWhen] = useState(""); // datetime-local
   const [seats, setSeats] = useState(3);
   const [price, setPrice] = useState("");
@@ -51,6 +85,9 @@ export default function CreateRideScreen() {
   const [onlyTrusted, setOnlyTrusted] = useState(false);
   const [recurrence, setRecurrence] = useState<Recur>("none");
   const [comment, setComment] = useState("");
+  // Ориентир встречи из справочника города — «у мечети», «автовокзал».
+  const [pickup, setPickup] = useState("");
+  const [pickupPointId, setPickupPointId] = useState<number | null>(null);
 
   const [showMore, setShowMore] = useState(false);
 
@@ -60,6 +97,26 @@ export default function CreateRideScreen() {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Форма длинная: маршрут, время, цена, удобства, комментарий. Отвлёкся на звонок,
+  // айфон выгрузил вкладку — и всё заново. Черновик держит заполненное до публикации.
+  useDraftSync(
+    RIDE_DRAFT,
+    { from, to, when, seats, price, category, amen, onlyTrusted, recurrence, comment, pickup },
+    (d) => {
+      if (d.from) setFrom(d.from);
+      if (d.to) setTo(d.to);
+      if (d.when) setWhen(d.when);
+      if (d.seats) setSeats(d.seats);
+      if (d.price) setPrice(d.price);
+      if (d.category) setCategory(d.category);
+      if (d.amen) setAmen((prev) => ({ ...prev, ...d.amen }));
+      if (d.onlyTrusted) setOnlyTrusted(d.onlyTrusted);
+      if (d.recurrence) setRecurrence(d.recurrence);
+      if (d.comment) setComment(d.comment);
+      if (d.pickup) setPickup(d.pickup);
+    }
+  );
   const [done, setDone] = useState(false);
   const [createdId, setCreatedId] = useState<number | null>(null);
 
@@ -85,7 +142,7 @@ export default function CreateRideScreen() {
     { key: "baggage", label: appText("Багаж", "Багаж") },
     { key: "child_seat", label: appText("Детское кресло", "Бала урыны") },
     { key: "air_conditioner", label: appText("Кондиционер", "Кондиционер") },
-    { key: "pets_allowed", label: appText("Можно с питомцем", "Хайуан менән") },
+    { key: "pets_allowed", label: appText("Можно ехать с питомцем", "Хайуан менән") },
     { key: "non_smoking", label: appText("Без курения", "Тартмайынса") },
     { key: "quiet", label: appText("Тихая поездка", "Тыныс сәфәр") },
     { key: "women_only", label: appText("Только женщины", "Тик ҡатын-ҡыҙ") },
@@ -113,6 +170,8 @@ export default function CreateRideScreen() {
       price: price ? Math.max(0, parseInt(price, 10) || 0) : 0,
       category,
       comment: comment.trim(),
+      pickup: pickup.trim() || undefined,
+      pickup_point_id: pickupPointId,
       only_trusted: onlyTrusted,
       recurrence,
       baggage: amen.baggage,
@@ -129,6 +188,7 @@ export default function CreateRideScreen() {
       const ride = await publishRide(body);
       setCreatedId(ride.id);
       setDone(true);
+      clearDraft(RIDE_DRAFT); // опубликовано — черновик больше не нужен
     } catch (e) {
       setError(
         e instanceof ApiError && e.message
@@ -175,7 +235,7 @@ export default function CreateRideScreen() {
             style={{ marginTop: 10 }}
             onClick={() => navigate("/driver")}
           >
-            {appText("В кабинет водителя", "Водитель кабинетына")}
+            {appText("В кабинет водителя", "Йөрөтөүсе кабинетына")}
           </button>
         </div>
       </>
@@ -191,33 +251,34 @@ export default function CreateRideScreen() {
       />
 
       <div className="form">
-        <label className="field">
-          <span className="field__label">{appText("Откуда", "Ҡайҙан")}</span>
-          <input
-            className="field__input"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            placeholder={appText("Город или село", "Ҡала йәки ауыл")}
-            autoComplete="off"
-          />
-        </label>
+        {/* Подсказки из справочника: одно написание на всех. «Темясово»
+            человек напишет пятью способами, и заявка не совпадёт ни с одной поездкой. */}
+        <CityField
+          label={appText("Откуда", "Ҡайҙан")}
+          value={from}
+          onChange={setFrom}
+          placeholder={appText("Город или село", "Ҡала йәки ауыл")}
+        />
 
-        <label className="field">
-          <span className="field__label">{appText("Куда", "Ҡайҙа")}</span>
-          <input
-            className="field__input"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder={appText("Город или село", "Ҡала йәки ауыл")}
-            autoComplete="off"
-          />
-        </label>
+        <CityField
+          label={appText("Куда", "Ҡайҙа")}
+          value={to}
+          onChange={setTo}
+          placeholder={appText("Город или село", "Ҡала йәки ауыл")}
+        />
+
+        {/* Ориентиры этого города: «у мечети», «автовокзал» — вместо тыка в карту */}
+        <PickupChips city={from} value={pickup} onPick={setPickup} onPickPoint={setPickupPointId} />
+
+        {/* ❄️ Погода на маршруте — пусто, когда сказать нечего */}
+        <WeatherWarningCard weather={weather} />
 
         <label className="field">
           <span className="field__label">{appText("Когда выезжаешь", "Ҡасан сығаһың")}</span>
           <input
             className="field__input"
             type="datetime-local"
+            min={minDateTimeNow()}
             value={when}
             onChange={(e) => setWhen(e.target.value)}
           />
@@ -246,16 +307,60 @@ export default function CreateRideScreen() {
           </div>
           <label className="field" style={{ flex: 1 }}>
             <span className="field__label">{appText("Цена с места, ₽", "Урын хаҡы, ₽")}</span>
+            {/* Границы те же, что у сервера (0…100 000 ₽): лучше не дать ввести
+                лишний ноль, чем показать отказ после отправки формы. */}
             <input
               className="field__input"
               type="number"
               inputMode="numeric"
+              min={0}
+              max={100000}
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               placeholder={appText("0 — договорная", "0 — килешеү")}
             />
           </label>
         </div>
+
+        {/* Ориентир цены: сколько в среднем берут по этому маршруту и сколько уйдёт бензина.
+            Подсказка, а не правило — цену решает водитель. */}
+        {hint && (hint.avg > 0 || hint.fuel_estimate_kop != null) && (
+          <div className="act-card act-card--mint" style={{ marginTop: 0 }}>
+            <div className="act-card__title">
+              <IconTrend size={18} /> {appText("Сколько обычно берут", "Ғәҙәттә күпме алалар")}
+            </div>
+            <div className="info-list" style={{ marginTop: 8 }}>
+              {hint.avg > 0 && (
+                <div className="info-row">
+                  <span className="info-row__k">
+                    {appText("Средняя цена по маршруту", "Маршрут буйынса урта хаҡ")}
+                  </span>
+                  <span className="info-row__v">{priceLabel(hint.avg, ru)}</span>
+                </div>
+              )}
+              {hint.distance_km != null && (
+                <div className="info-row">
+                  <span className="info-row__k">{appText("Расстояние", "Ара")}</span>
+                  <span className="info-row__v">
+                    {Math.round(hint.distance_km)} {appText("км", "км")}
+                  </span>
+                </div>
+              )}
+              {hint.fuel_estimate_kop != null && (
+                <div className="info-row">
+                  <span className="info-row__k">{appText("Бензин на дорогу", "Юлға бензин")}</span>
+                  <span className="info-row__v">{rubLabel(hint.fuel_estimate_kop)}</span>
+                </div>
+              )}
+            </div>
+            <p className="act-card__text" style={{ margin: "8px 0 0" }}>
+              {appText(
+                "Это ориентир по прошлым поездкам — цену решаешь ты.",
+                "Был үткән сәфәрҙәр буйынса ориентир — хаҡты үҙең хәл итәһең."
+              )}
+            </p>
+          </div>
+        )}
 
         <span className="field__label" style={{ marginTop: 4 }}>
           {appText("Тип поездки", "Сәфәр төрө")}

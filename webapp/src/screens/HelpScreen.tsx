@@ -10,6 +10,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import { SubHeader } from "./ConsentsScreen";
 import { IconChevron, IconTelegram, IconSearch } from "../components/Icons";
+import { PartnerAdSlot } from "../components/PartnerAd";
 
 interface Faq {
   q: [string, string];
@@ -150,7 +151,14 @@ export default function HelpScreen() {
           <IconTelegram size={20} />
           {appText("Мы в Telegram", "Беҙ Telegram-да")}
         </a>
+        {/* Когда ждать ответ. Без этого человек пишет ночью и решает,
+            что его игнорируют. */}
+        <p className="help-cta__hours">
+          {appText("Мы отвечаем ежедневно с 9:00 до 21:00", "Көн һайын 9:00-дән 21:00-гә тиклем яуап бирәбеҙ")}
+        </p>
       </div>
+
+      <PartnerAdSlot placement="help" label={appText("Полезный партнёр", "Файҙалы партнёр")} />
     </>
   );
 }

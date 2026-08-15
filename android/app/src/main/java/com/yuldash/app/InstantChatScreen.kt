@@ -155,7 +155,7 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
                 .onFailure {
                     messages = messages.filter { it.id != tempId }   // честно: не ушло — не показываем
                     input = text
-                    Toast.makeText(context, sendFailMsg, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, serverSaid(it, sendFailMsg), Toast.LENGTH_LONG).show()
                 }
             sending = false
         }
@@ -166,7 +166,7 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
         topBar = {
             ScreenTopBar(
                 if (role == "driver") appText("Чат с пассажиром", "Пассажир менән чат")
-                else appText("Чат с водителем", "Водитель менән чат"),
+                else appText("Чат с водителем", "Йөрөтөүсе менән чат"),
                 onBack,
             )
         },

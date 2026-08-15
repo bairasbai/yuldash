@@ -52,7 +52,7 @@ function statusBadge(s: string): { cls: string; ru: string; ba: string } {
 }
 
 /** Защищённое селфи: тянем с токеном → objectURL, чистим при размонтировании. */
-function SecureImage({ url, alt }: { url: string; alt: string }) {
+function SecureImage({ url, alt }: { url: string | null; alt: string }) {
   const { appText } = useLang();
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -316,7 +316,7 @@ function CourierCard({
               onClick={() => setRejecting(false)}
               disabled={busy !== null}
             >
-              {appText("Назад", "Кире")}
+              {appText("Назад", "Артҡа")}
             </button>
             <button
               type="button"

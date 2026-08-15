@@ -213,7 +213,7 @@ private fun TaxiReceiptCard(r: InstantReceiptDto) {
                 Text(
                     appText(
                         "Это запись о поездке. Деньги идут напрямую водителю — Юлдаш их не держит.",
-                        "Был — сәфәр яҙмаһы. Аҡса туранан-тура водителгә бара — Юлдаш уны тотмай.",
+                        "Был — сәфәр яҙмаһы. Аҡса туранан-тура йөрөтөүсегә бара — Юлдаш уны тотмай.",
                     ),
                     color = CanonMuted, fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine,
                 )
@@ -412,7 +412,7 @@ private fun TaxiAfterRideActions(
                         iconTint = CanonGreen2,
                         title = if (thanked) appText("Рәхмәт сказан 💚", "Рәхмәт әйтелде 💚")
                         else appText("Сказать рәхмәт", "Рәхмәт әйтеү"),
-                        text = appText("Тёплое спасибо водителю — без денег.", "Водителгә йылы рәхмәт — аҡсаһыҙ."),
+                        text = appText("Тёплое спасибо водителю — без денег.", "Йөрөтөүсегә йылы рәхмәт — аҡсаһыҙ."),
                     )
                     if (!thanked) {
                         AppButton(

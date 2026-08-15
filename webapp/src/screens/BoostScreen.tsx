@@ -22,8 +22,10 @@ import { fetchDriverRides } from "../api/driver";
 import type { Ride } from "../api/rides";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
+import SbpPay from "../components/SbpPay";
 import { formatWhen } from "../utils/format";
-import { IconArrow, IconRocket, IconCheck, IconCopy, IconClock, IconWarn, IconCar } from "../components/Icons";
+import { IconArrow, IconRocket, IconCheck, IconClock, IconWarn, IconCar } from "../components/Icons";
+import { rememberPayment } from "../utils/pendingPayment";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -43,7 +45,6 @@ export default function BoostScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BoostCreateResult | null>(null);
-  const [copied, setCopied] = useState(false);
   const [checking, setChecking] = useState(false);
 
   const load = useCallback((signal?: AbortSignal) => {
@@ -87,6 +88,8 @@ export default function BoostScreen() {
       setResult(res);
       // ЮKassa: уводим в браузерную оплату.
       if (res.status === "pending" && res.method === "yookassa" && res.confirmation_url) {
+        // Уходим в банк целиком — номер платежа в памяти не переживёт возврата.
+        rememberPayment(res.payment_id, "boost", "/driver");
         window.location.href = res.confirmation_url;
         return;
       }
@@ -116,16 +119,6 @@ export default function BoostScreen() {
     }
   }
 
-  async function copyPhone(phone: string) {
-    try {
-      await navigator.clipboard.writeText(phone);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard недоступен — молча */
-    }
-  }
-
   // ---- Успех ----
   if (result?.status === "succeeded") {
     return (
@@ -141,7 +134,7 @@ export default function BoostScreen() {
             )}
           </p>
           <button type="button" className="btn-primary" onClick={() => navigate("/driver")}>
-            {appText("В кабинет водителя", "Водитель кабинетына")}
+            {appText("В кабинет водителя", "Йөрөтөүсе кабинетына")}
           </button>
         </div>
       </>
@@ -161,28 +154,12 @@ export default function BoostScreen() {
               "СБП аша номерға күсер. Алғас — сәфәрҙе күтәрәбеҙ (күршеләрсә, ышаныс менән)."
             )}
           </p>
-          <div className="pay-sbp__row">
-            <div>
-              <div className="pay-sbp__label">{appText("Номер (СБП)", "Номер (СБП)")}</div>
-              <div className="pay-sbp__value">{result.payee.phone}</div>
-            </div>
-            <button type="button" className="btn-soft" onClick={() => copyPhone(result.payee!.phone)}>
-              {copied ? <IconCheck size={18} /> : <IconCopy size={18} />}
-              {copied ? appText("Скопировано", "Күсерелде") : appText("Копировать", "Күсереү")}
-            </button>
-          </div>
-          <div className="pay-sbp__row">
-            <div>
-              <div className="pay-sbp__label">{appText("Банк", "Банк")}</div>
-              <div className="pay-sbp__value">{result.payee.bank}</div>
-            </div>
-          </div>
-          <div className="pay-sbp__row">
-            <div>
-              <div className="pay-sbp__label">{appText("Получатель", "Алыусы")}</div>
-              <div className="pay-sbp__value">{result.payee.name}</div>
-            </div>
-          </div>
+          <SbpPay
+            phone={result.payee.phone}
+            bank={result.payee.bank}
+            name={result.payee.name}
+            amountRub={result.amount}
+          />
           <button type="button" className="btn-primary submit-btn" onClick={recheck} disabled={checking}>
             {checking ? appText("Проверяем…", "Тикшерәбеҙ…") : appText("Я оплатил", "Түләнем")}
           </button>
@@ -242,7 +219,7 @@ export default function BoostScreen() {
           <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}

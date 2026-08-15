@@ -66,6 +66,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CardGiftcard
+import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
@@ -294,11 +297,16 @@ internal fun NotificationsScreen(
     val allLabel = appText("Все", "Бөтәһе")
     val tripsLabel = appText("Поездки", "Сәфәрҙәр")
     val chatLabel = appText("Сообщения", "Хәбәрҙәр")
-    // Таба «Система» убрана: сервер таких уведомлений не шлёт (все события — booking/ride/message),
-    // поэтому она всегда была пустой. Оставили только реально наполняемые вкладки.
+    val deliveryLabel = appText("Доставка", "Илтеү")
+    // Здесь стояло: «сервер таких уведомлений не шлёт (все события — booking/ride/message)».
+    // Это перестало быть правдой: сервер шлёт ОДИННАДЦАТЬ видов, и самый частый из них —
+    // посылки (15 мест против 11 у поездок). Комментарий устарел, а по нему жил фильтр:
+    // «Поездки» показывали только попутку и не показывали такси, а доставку не собирал никто.
+    // Человек фильтровал «Поездки», не находил своё такси и решал, что уведомление не пришло.
     val selectedLabel = when (selected) {
         "trips" -> tripsLabel
         "chat" -> chatLabel
+        "delivery" -> deliveryLabel
         else -> allLabel
     }
 
@@ -361,8 +369,10 @@ internal fun NotificationsScreen(
 
     val visible = feed.items.filter { n ->
         when (selected) {
-            "trips" -> n.type == "booking" || n.type == "ride"
+            // «Поездки» — это ВСЁ, чем человек куда-то ехал: попутка (booking/ride) и такси.
+            "trips" -> n.type == "booking" || n.type == "ride" || n.type == "taxi"
             "chat" -> n.type == "message"
+            "delivery" -> n.type == "parcel"
             else -> true
         }
     }
@@ -408,11 +418,12 @@ internal fun NotificationsScreen(
             }
             item {
                 SegmentedTabs(
-                    listOf(allLabel, tripsLabel, chatLabel),
+                    listOf(allLabel, tripsLabel, deliveryLabel, chatLabel),
                     selectedLabel,
                     onSelect = {
                         selected = when (it) {
                             tripsLabel -> "trips"
+                            deliveryLabel -> "delivery"
                             chatLabel -> "chat"
                             else -> "all"
                         }
@@ -452,6 +463,21 @@ private fun notifIcon(type: String): androidx.compose.ui.graphics.vector.ImageVe
     "booking" -> Icons.Default.EventSeat
     "ride" -> Icons.Default.DirectionsCar
     "message" -> Icons.Default.ChatBubble
+    // Своя иконка была у трёх видов из одиннадцати — остальные восемь показывались одинаковым
+    // колокольчиком, в том числе САМЫЙ частый (посылки) и самый важный (безопасность).
+    // В списке из двадцати строк иконка — это то, чем человек ищет глазами.
+    "parcel" -> Icons.Default.LocalShipping
+    "taxi" -> Icons.Default.LocalTaxi
+    "safety" -> Icons.Default.Shield
+    "money" -> Icons.Default.Payments
+    "docs" -> Icons.Default.Description
+    "route_watch", "request_watch" -> Icons.Default.Search
+    // Виды, приехавшие с ветки аудита (реклама, купоны, быстрый заказ, приглашения друзей):
+    // сервер их шлёт, значит в ленте они обязаны отличаться глазами, а не только текстом.
+    "ads" -> Icons.Default.Campaign
+    "coupon" -> Icons.Default.LocalOffer
+    "instant" -> Icons.Default.Bolt
+    "referral" -> Icons.Default.CardGiftcard
     else -> Icons.Default.Notifications
 }
 
@@ -599,7 +625,7 @@ internal fun RouteWatchesScreen(
                                         }
                                         .onFailure {
                                             val m = (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg
-                                            Toast.makeText(ctx, m, Toast.LENGTH_LONG).show()
+                                            Toast.makeText(ctx, serverSaid(it, m), Toast.LENGTH_LONG).show()
                                         }
                                     submitting = false
                                 }
@@ -631,7 +657,7 @@ internal fun RouteWatchesScreen(
                             scope.launch {
                                 ApiClient.deleteRouteWatch(w.id)
                                     .onSuccess { watches = watches.filterNot { it.id == w.id }; Toast.makeText(ctx, removedMsg, Toast.LENGTH_SHORT).show() }
-                                    .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                                    .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
                             }
                         }
                     )
@@ -942,7 +968,7 @@ internal fun RulesScreen(onBack: () -> Unit) {
     val rules = listOf(
         appText("Уважай попутчика", "Юлдашыңды хөрмәт ит") to appText("Юлдаш — поездки между своими. Веди себя по-соседски и приезжай вовремя.", "Юлдаш — үҙ кешеләр араһында сәфәр. Әҙәпле һәм ваҡытлы бул."),
         appText("Договаривайтесь заранее", "Алдан килешегеҙ") to appText("Согласуй место и время встречи в чате до выезда.", "Сығышҡа тиклем осрашыу урынын һәм ваҡытын чатта килешегеҙ."),
-        appText("Безопасность прежде всего", "Хәүефһеҙлек беренсе урында") to appText("Пристегнись, не отвлекай водителя, при опасности — кнопка SOS.", "Бәйлән, водителде борсома, хәүеф булһа — SOS төймәһе."),
+        appText("Безопасность прежде всего", "Хәүефһеҙлек беренсе урында") to appText("Пристегнись, не отвлекай водителя, при опасности — кнопка SOS.", "Бәйлән, йөрөтөүсене борсома, хәүеф булһа — SOS төймәһе."),
         // Водитель узнаёт об этом ЗАРАНЕЕ, а не постфактум: правило, о котором не предупредили,
         // ощущается как слежка. Отдаём только то, что и так видно на улице (решение 2026-08-06).
         appText("Если кто-то нажмёт SOS", "Кемдер SOS баҫһа") to appText(
@@ -992,8 +1018,8 @@ internal fun PaymentInfoScreen(onBack: () -> Unit, onOpenPricing: () -> Unit = {
                         Icon(Icons.Default.CreditCard, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(32.dp))
                         Spacer(Modifier.width(12.dp))
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(appText("Оплата напрямую водителю", "Тура водителгә түләү"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text(appText("Сейчас оплата — переводом по СБП на карту водителя, как договоритесь в чате.", "Хәҙер түләү — СБП аша водитель картаһына, чатта килешеүсә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                            Text(appText("Оплата напрямую водителю", "Тура йөрөтөүсегә түләү"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(appText("Сейчас оплата — переводом по СБП на карту водителя, как договоритесь в чате.", "Хәҙер түләү — СБП аша йөрөтөүсе картаһына, чатта килешеүсә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                         }
                     }
                 }
@@ -1079,7 +1105,7 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
                     title = appText("Попутка — бесплатна", "Юлдаш — бушлай"),
                     body = appText(
                         "За саму поездку между своими Юлдаш не берёт ничего. Ты просто скидываешься водителю на бензин напрямую — по-соседски. Сумму видно заранее и можно честно поделить на всех.",
-                        "Үҙ кешеләр араһындағы сәфәр өсөн Юлдаш бер нәмә лә алмай. Һин бензинға тура водителгә өҫтәйһең — күршеләрсә. Сумма алдан күренә, бөтәһенә лә намыҫлы бүленә.",
+                        "Үҙ кешеләр араһындағы сәфәр өсөн Юлдаш бер нәмә лә алмай. Һин бензинға тура йөрөтөүсегә өҫтәйһең — күршеләрсә. Сумма алдан күренә, бөтәһенә лә намыҫлы бүленә.",
                     ),
                 )
             }
@@ -1117,10 +1143,10 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
             item {
                 PricingBlock(
                     icon = Icons.Default.Verified,
-                    title = appText("Комиссия водителя — 3–8%", "Водитель комиссияһы — 3–8%"),
+                    title = appText("Комиссия водителя — 3–8%", "Йөрөтөүсе комиссияһы — 3–8%"),
                     body = appText(
                         "С поездок такси Юлдаш берёт небольшую комиссию с водителя — от 3% до 8% в зависимости от стажа: чем дольше и надёжнее возишь, тем меньше платишь. У попутки комиссии нет вовсе.",
-                        "Такси сәфәрҙәренән Юлдаш водителдән бәләкәй комиссия ала — стажға ҡарап 3%-тан 8%-ҡа тиклем: оҙағыраҡ һәм ышаныслыраҡ йөрөтһәң, шунса аҙ түләйһең. Юлдашта комиссия бөтөнләй юҡ.",
+                        "Такси сәфәрҙәренән Юлдаш йөрөтөүсенән бәләкәй комиссия ала — стажға ҡарап 3%-тан 8%-ҡа тиклем: оҙағыраҡ һәм ышаныслыраҡ йөрөтһәң, шунса аҙ түләйһең. Юлдашта комиссия бөтөнләй юҡ.",
                     ),
                 )
             }
@@ -1142,7 +1168,7 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
                     title = appText("Оплата — пока напрямую по СБП", "Түләү — әлегә СБП аша тура"),
                     body = appText(
                         "Сейчас деньги идут напрямую водителю переводом по СБП — «на доверии», как между своими. Юлдаш их не держит. Скоро добавим оплату картой прямо в приложении.",
-                        "Хәҙер аҡса водителгә СБП аша тура күсә — «ышаныс менән», үҙ-ара кеүек. Юлдаш уны тотмай. Тиҙҙән ҡушымтала карта менән түләү өҫтәйбеҙ.",
+                        "Хәҙер аҡса йөрөтөүсегә СБП аша тура күсә — «ышаныс менән», үҙ-ара кеүек. Юлдаш уны тотмай. Тиҙҙән ҡушымтала карта менән түләү өҫтәйбеҙ.",
                     ),
                 )
             }
@@ -1313,7 +1339,7 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     val token = remember { ApiClient.currentToken() ?: "" }
-    val approvedMsg = appText("Водитель одобрен", "Водитель раҫланды")
+    val approvedMsg = appText("Водитель одобрен", "Йөрөтөүсе раҫланды")
     val rejectedMsg = appText("Отклонено", "Кире ҡағылды")
     val actionErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
@@ -1331,15 +1357,15 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
         }
     }
     LaunchedEffect(Unit) { reload() }
-    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Модерация водителей", "Водителдәрҙе модерациялау"), onBack) }) { padding ->
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Модерация водителей", "Йөрөтөүселәрҙе модерациялау"), onBack) }) { padding ->
         AdminDriversContent(
             loading = loading,
             error = error,
             drivers = list,
             token = token,
             onRetry = { reload() },
-            onApprove = { d, genderOk -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, true, genderOk).onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } },
-            onReject = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, false).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } },
+            onApprove = { d, genderOk -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, true, genderOk).onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() } } },
+            onReject = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, false).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() } } },
             modifier = Modifier.padding(padding),
         )
     }
@@ -1369,7 +1395,7 @@ internal fun AdminDriversContent(
         } else if (error != null) {
             item { ListedError(error) { onRetry() } }
         } else if (drivers.isEmpty()) {
-            item { ListedEmpty(appText("Нет заявок на проверку", "Тикшереүгә заявка юҡ"), appText("Здесь появятся водители, отправившие документы.", "Бында документ ебәргән водителдәр күренер")) }
+            item { ListedEmpty(appText("Нет заявок на проверку", "Тикшереүгә заявка юҡ"), appText("Здесь появятся водители, отправившие документы.", "Бында документ ебәргән йөрөтөүселәр күренер")) }
         } else {
             items(drivers.size, key = { drivers[it].userId }) { i ->
                 val d = drivers[i]
@@ -1378,7 +1404,7 @@ internal fun AdminDriversContent(
                         Text(d.name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         Text((d.car.ifBlank { "—" }) + " · " + d.phone, color = CanonMuted, fontSize = 14.sp)
                         AutoCheckRow(d.autocheckResult, d.autocheckData)
-                        Text(appText("Водительское удостоверение", "Водитель таныҡлығы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(appText("Водительское удостоверение", "Йөрөтөүсе таныҡлығы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         DocImage(d.licenseUrl, token)
                         Text(appText("Фото автомобиля", "Автомобиль фотоһы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         DocImage(d.carPhotoUrl, token)
@@ -1470,7 +1496,7 @@ internal fun AdminReportsScreen(onBack: () -> Unit) {
     fun act(block: suspend () -> Result<Unit>) {
         scope.launch {
             block().onSuccess { Toast.makeText(ctx, doneMsg, Toast.LENGTH_SHORT).show(); reload() }
-                .onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() }
+                .onFailure { Toast.makeText(ctx, serverSaid(it, actionErr), Toast.LENGTH_LONG).show() }
         }
     }
     LaunchedEffect(Unit) { reload() }
@@ -1552,10 +1578,10 @@ internal fun AdminReportsContent(
                         if (r.resolution.isNotBlank()) Text(appText("Решение: ", "Ҡарар: ") + r.resolution, color = CanonMuted, fontSize = 14.sp)
                         if (open) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { onResolve(r, false) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                                Button(onClick = { onResolve(r, false) }, modifier = Modifier.weight(1f).heightIn(min = 44.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
                                     Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 }
-                                OutlinedButton(onClick = { onReject(r) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(14.dp)) {
+                                OutlinedButton(onClick = { onReject(r) }, modifier = Modifier.weight(1f).heightIn(min = 44.dp), shape = RoundedCornerShape(14.dp)) {
                                     Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 }
                             }
@@ -1600,7 +1626,7 @@ internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, 
             }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Default.Verified, appText("Модерация водителей", "Водителдәрҙе модерациялау"), appText("Проверить права и фото, одобрить", "Права һәм фотоны тикшереп раҫлау"), onClick = onDrivers)
+                    SettingsNavRow(Icons.Default.Verified, appText("Модерация водителей", "Йөрөтөүселәрҙе модерациялау"), appText("Проверить права и фото, одобрить", "Права һәм фотоны тикшереп раҫлау"), onClick = onDrivers)
                     SettingsNavRow(Icons.Default.LocalTaxi, appText("Таксисты", "Таксистар"), appText("Заявки 580-ФЗ и города, где включено такси", "580-ФЗ заявкалары һәм такси ҡабыҙылған ҡалалар"), onClick = onTaxi)
                     SettingsNavRow(Icons.Default.MonitorHeart, appText("Пульс такси", "Такси пульсы"), appText("На линии, активные заказы, счётчики дня по городам", "Линияла, актив заказдар, көн һандары ҡалалар буйынса"), onClick = onTaxiPulse)
                     SettingsNavRow(Icons.Default.Campaign, appText("Лист ожидания", "Көтөү исемлеге"), appText("Ранний доступ: кто ждёт запуска, волны приглашений", "Иртә инеү: кем көтә, саҡырыу тулҡындары"), onClick = onWaitlist)
@@ -1706,7 +1732,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                     Text(appText("Долги за такси", "Такси бурыстары"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
                 item {
-                    Text(appText("Водитель перевёл комиссию по СБП и нажал «Я оплатил». Сверь по имени и сумме — подтверди, и такси у него разблокируется.", "Водитель комиссияны СБП аша күсереп «Мин түләнем» баҫҡан. Исем һәм сумма буйынса тикшер — раҫла, такси блокан асыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                    Text(appText("Водитель перевёл комиссию по СБП и нажал «Я оплатил». Сверь по имени и сумме — подтверди, и такси у него разблокируется.", "Йөрөтөүсе комиссияны СБП аша күсереп «Мин түләнем» баҫҡан. Исем һәм сумма буйынса тикшер — раҫла, такси блокан асыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
                 }
                 items(debts.size, key = { debts[it].debtId }) { i ->
                     val g = debts[i]
@@ -1722,8 +1748,8 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                             Text((g.driverName.ifBlank { noName }) + (if (g.driverPhone.isNotBlank()) " · ${g.driverPhone}" else ""), color = CanonMuted, fontSize = 14.sp)
                             if (g.weeks.isNotEmpty()) Text(appText("Недели: ", "Аҙналар: ") + g.weeks.joinToString(", "), color = CanonMuted, fontSize = 12.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { val id = g.debtId; val k = "debt-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmDebt(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }; busy.remove(k) } }, enabled = "debt-ok-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
-                                OutlinedButton(onClick = { val id = g.debtId; val k = "debt-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectDebt(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }; busy.remove(k) } }, enabled = "debt-no-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                                Button(onClick = { val id = g.debtId; val k = "debt-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmDebt(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-ok-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                                OutlinedButton(onClick = { val id = g.debtId; val k = "debt-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectDebt(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-no-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
                             }
                         }
                     }
@@ -1755,8 +1781,8 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                             if (p.note.isNotBlank()) Text(p.note, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             if (p.createdAt.length >= 10) Text(p.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { val id = p.paymentId; val k = "pay-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmPayment(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }; busy.remove(k) } }, enabled = "pay-ok-${p.paymentId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
-                                OutlinedButton(onClick = { val id = p.paymentId; val k = "pay-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectPayment(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }; busy.remove(k) } }, enabled = "pay-no-${p.paymentId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                                Button(onClick = { val id = p.paymentId; val k = "pay-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmPayment(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "pay-ok-${p.paymentId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                                OutlinedButton(onClick = { val id = p.paymentId; val k = "pay-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectPayment(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "pay-no-${p.paymentId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
                             }
                         }
                     }
@@ -1787,7 +1813,7 @@ internal fun AdminRequestScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            item { Text(appText("После «Попросить звонок» заполни заявку за человека — водители увидят её как обычную.", "«Шылтыратыу һорау»ҙан һуң кеше өсөн заявка тултыр — водителдәр уны ғәҙәти күрер."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
+            item { Text(appText("После «Попросить звонок» заполни заявку за человека — водители увидят её как обычную.", "«Шылтыратыу һорау»ҙан һуң кеше өсөн заявка тултыр — йөрөтөүселәр уны ғәҙәти күрер."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
             item { OutlinedTextField(phone, { phone = it }, label = { Text(appText("Телефон пользователя", "Ҡулланыусы телефоны")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
             item { OutlinedTextField(name, { name = it }, label = { Text(appText("Имя (необязательно)", "Исем (мотлаҡ түгел)")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
             item { OutlinedTextField(from, { from = it }, label = { Text(appText("Откуда", "Ҡайҙан")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
@@ -1806,11 +1832,11 @@ internal fun AdminRequestScreen(onBack: () -> Unit) {
                         scope.launch {
                             ApiClient.adminRequestForPhone(phone.trim(), name.trim(), from.trim(), to.trim(), s, comment.trim())
                                 .onSuccess { Toast.makeText(ctx, okMsg, Toast.LENGTH_SHORT).show(); onBack() }
-                                .onFailure { Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show(); sending = false }
+                                .onFailure { Toast.makeText(ctx, serverSaid(it, errMsg), Toast.LENGTH_LONG).show(); sending = false }
                         }
                     },
                     enabled = !sending,
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) { Text(appText("Создать заявку", "Заявка булдырыу"), fontWeight = FontWeight.Bold) }
@@ -1829,7 +1855,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     // Отклики, приём которых прямо сейчас в работе — против двойного тапа (см. кнопку ниже).
     val accepting = remember { mutableStateListOf<Int>() }
-    val acceptedMsg = appText("Поездка создана. Перезвоните пассажиру и водителю.", "Сәфәр булдырылды. Пассажирға һәм водителгә шылтырат.")
+    val acceptedMsg = appText("Поездка создана. Перезвони пассажиру и водителю.", "Сәфәр булдырылды. Пассажирға һәм йөрөтөүсегә шылтырат.")
     val noResp = appText("Откликов нет или заявка не найдена", "Яуап юҡ йәки заявка табылманы")
     val acceptErr = appText("Не получилось принять отклик. Проверь сеть и повтори.", "Яуапты алып булманы. Сетте тикшереп ҡабатла.")
     fun load() {
@@ -1838,7 +1864,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
         scope.launch {
             ApiClient.getRequestResponses(id)
                 .onSuccess { resps = it; loading = false; if (it.isEmpty()) Toast.makeText(ctx, noResp, Toast.LENGTH_SHORT).show() }
-                .onFailure { loading = false; Toast.makeText(ctx, noResp, Toast.LENGTH_SHORT).show() }
+                .onFailure { loading = false; Toast.makeText(ctx, serverSaid(it, noResp), Toast.LENGTH_LONG).show() }
         }
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики по заявке", "Заявка буйынса яуаптар"), onBack) }) { padding ->
@@ -1877,7 +1903,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
                                     if (accepting.add(id)) scope.launch {
                                         ApiClient.acceptResponse(id)
                                             .onSuccess { Toast.makeText(ctx, acceptedMsg, Toast.LENGTH_LONG).show(); load() }
-                                            .onFailure { Toast.makeText(ctx, acceptErr, Toast.LENGTH_SHORT).show() }
+                                            .onFailure { Toast.makeText(ctx, serverSaid(it, acceptErr), Toast.LENGTH_LONG).show() }
                                         accepting.remove(id)
                                     }
                                 },
@@ -1924,8 +1950,8 @@ internal fun BlocklistScreen(onBack: () -> Unit) {
             blocks = blocks,
             addable = addable,
             onRetry = { reload() },
-            onUnblock = { id -> scope.launch { ApiClient.unblockUser(id).onSuccess { reload() }.onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() } } },
-            onBlock = { id -> scope.launch { ApiClient.blockUser(id).onSuccess { reload(); Toast.makeText(ctx, blockedMsg, Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() } } },
+            onUnblock = { id -> scope.launch { ApiClient.unblockUser(id).onSuccess { reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErr), Toast.LENGTH_LONG).show() } } },
+            onBlock = { id -> scope.launch { ApiClient.blockUser(id).onSuccess { reload(); Toast.makeText(ctx, blockedMsg, Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErr), Toast.LENGTH_LONG).show() } } },
             modifier = Modifier.padding(padding),
         )
     }
@@ -2008,7 +2034,7 @@ internal fun ReportScreen(onBack: () -> Unit) {
                 scope.launch {
                     ApiClient.reportUser(targetUserId = id, reason = details, category = category)
                         .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
-                        .onFailure { Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, errMsg), Toast.LENGTH_LONG).show() }
                 }
                 target = null
             },
@@ -2115,7 +2141,11 @@ internal fun ReportCategoryDialog(
                 }
                 AnimatedVisibility(selected != null) {
                     OutlinedTextField(
-                        value = details, onValueChange = { details = it },
+                        // Сервер принимает 1000 знаков (ReportIn.reason). Приложение не
+                        // ограничивало вовсе: человек описывал происшествие подробно, жал
+                        // «отправить» и получал «проверь введённые данные» — без единого
+                        // намёка, ЧТО не так. Момент для этого худший из возможных.
+                        value = details, onValueChange = { details = it.take(REPORT_DETAILS_MAX) },
                         placeholder = {
                             Text(
                                 if (selected == "other") appText("Опиши, что случилось", "Ни булғанын яҙ")
@@ -2210,16 +2240,18 @@ internal fun HelpScreen(
     // FAQ строим в composable-контексте (appText), не внутри LazyColumn-лямбды.
     val faq = listOf(
         Triple(Icons.Default.Search, appText("Как найти поездку?", "Сәфәрҙе нисек табырға?"), appText(
-            "Откройте вкладку «Карта» или «Поездки». В «Ближайших поездках» включите нужные фильтры (только женщины, кресло, животные) и нажмите «Поехать» — водитель получит вашу бронь и код посадки.",
-            "«Карта» йәки «Сәфәрҙәр» бүлеген ас. «Яҡын сәфәрҙәр»ҙә кәрәкле фильтрҙарҙы тоҡандыр һәм «Барам» тип баҫ — водитель брондауҙы һәм ултырыу кодын ала.")),
+            "Открой вкладку «Карта» или «Поездки». В «Ближайших поездках» включи нужные фильтры (только женщины, кресло, животные) и нажми «Поехать» — водитель получит твою бронь и код посадки.",
+            "«Карта» йәки «Сәфәрҙәр» бүлеген ас. «Яҡын сәфәрҙәр»ҙә кәрәкле фильтрҙарҙы тоҡандыр һәм «Барам» тип баҫ — йөрөтөүсе брондауҙы һәм ултырыу кодын ала.")),
         Triple(Icons.Default.AddRoad, appText("Как создать заявку?", "Заявканы нисек булдырырға?"), appText(
             "Вкладка «Заявка» → укажи маршрут, дату и число мест → отправь. Водители увидят заявку и откликнутся; подходящего выберешь во вкладке «Чат» → «Заявки».",
-            "«Заявка» бүлеге → юлды, көндө һәм урын һанын күрһәт → ебәр. Водителдәр заявканы күреп яуап бирер; «Чат» → «Заявкалар»ҙа кәрәклеһен һайларһың.")),
+            "«Заявка» бүлеге → юлды, көндө һәм урын һанын күрһәт → ебәр. Йөрөтөүселәр заявканы күреп яуап бирер; «Чат» → «Заявкалар»ҙа кәрәклеһен һайларһың.")),
         Triple(Icons.Default.Shield, appText("Как проходит проверка водителя?", "Водитель нисек тикшерелә?"), appText(
             "Водитель загружает фото прав и авто в разделе «Стать водителем». Модератор Юлдаша проверяет вручную и ставит значок «Проверен». Документы видны только модератору.",
-            "Водитель «Водитель булыу» бүлегендә права һәм машина фотоһын тейәй. Юлдаш модераторы ҡулдан тикшереп «Тикшерелгән» билдәһен ҡуя. Документтар тик модераторға күренә.")),
+            "Йөрөтөүсе «Йөрөтөүсе булыу» бүлегендә права һәм машина фотоһын тейәй. Юлдаш модераторы ҡулдан тикшереп «Тикшерелгән» билдәһен ҡуя. Документтар тик модераторға күренә.")),
         Triple(Icons.Default.Notifications, appText("Что делать в экстренной ситуации?", "Ашығыс хәлдә нимә эшләргә?"), appText(
-            "Нажмите красную кнопку SOS («Безопасность» или активная поездка). Откроется звонок в службы 112/102/101/103, а доверенным контактам уйдёт SMS с вашими координатами.",
+            // Русский был на «вы», башкирский рядом — на «ты» («баҫ»). В ответе про SOS тон
+            // особенно важен: это читают, когда страшно.
+            "Нажми красную кнопку SOS («Безопасность» или активная поездка). Откроется звонок в службы 112/102/101/103, а доверенным контактам уйдёт SMS с твоими координатами.",
             "Ҡыҙыл SOS төймәһенә баҫ («Хәүефһеҙлек» йәки сәфәр барышында). 112/102/101/103-кә шылтыратыу асыла, ышаныслы кешеләргә координаталар менән SMS китә.")),
     )
     val faqFiltered = if (helpQuery.isBlank()) faq else faq.filter { it.second.contains(helpQuery.trim(), ignoreCase = true) }
@@ -2284,7 +2316,7 @@ internal fun HelpScreen(
                         scope.launch {
                             ApiClient.requestCallback("Поддержка из раздела «Помощь»")
                                 .onSuccess { Toast.makeText(ctx, supportSent, Toast.LENGTH_SHORT).show() }
-                                .onFailure { Toast.makeText(ctx, supportErr, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(ctx, serverSaid(it, supportErr), Toast.LENGTH_LONG).show() }
                         }
                     })
                     // Доп. вариант — Telegram (кому привычнее). Основной путь — внутренний чат выше.

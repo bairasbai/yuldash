@@ -16,7 +16,7 @@ export default function QuickReplies({
 
   // Фразы дорожного этикета — покрывают 90% переписки в поездке.
   const phrases: string[] = [
-    appText("Выезжаю", "Сығып китәм"), // DRAFT
+    appText("Выезжаю", "Сығам"), // DRAFT
     appText("Жду у подъезда", "Подъезд янында көтәм"), // DRAFT
     appText("Опаздываю на 5 минут", "5 минутҡа һуңлайым"), // DRAFT
     appText("Я на месте", "Мин урында"), // DRAFT

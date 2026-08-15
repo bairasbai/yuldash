@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import ScreenHeader from "../components/ScreenHeader";
+import { fetchSeasonalEvents, type SeasonalEvent } from "../api/seasonal";
 import RideCard from "../components/RideCard";
 import RideSheet from "../components/RideSheet";
 import YandexMap, { type MapMarker, type GeoPoint } from "../components/YandexMap";
@@ -18,18 +19,46 @@ import type { Ride } from "../api/rides";
 import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
 import { IconRequest, IconRides, IconShield, IconGift, IconFilter, IconPin, IconCar } from "../components/Icons";
 import { YuModeTaxi } from "../components/BrandIcons";
+import { PartnerAdSlot } from "../components/PartnerAd";
+import { fetchPopularRoutes, type PopularRoute } from "../api/geo";
+import { useVisibleInterval } from "../utils/useVisibleInterval";
 
 type Status = "loading" | "error" | "ready";
 
 export default function HomeScreen() {
-  const { appText } = useLang();
+  const { appText, lang } = useLang();
+  const ru = lang !== "ba";
   const navigate = useNavigate();
   const { isAuthed } = useAuth();
 
+  const { user } = useAuth();
+
+  /**
+   * Приветствие по времени суток. Мелочь, но именно с неё начинается разговор:
+   * «Карта» — это про интерфейс, «Доброе утро, Азамат» — про человека.
+   * Гостю имени нет — здороваемся без него, а не с пустым местом.
+   */
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    const name = (user?.name ?? "").trim().split(/\s+/)[0];
+    const suffix = name ? `, ${name}` : "";
+    if (h >= 5 && h < 12) return appText(`Доброе утро${suffix}`, `Хәйерле иртә${suffix}`);
+    if (h >= 12 && h < 18) return appText(`Добрый день${suffix}`, `Хәйерле көн${suffix}`);
+    if (h >= 18 && h < 23) return appText(`Добрый вечер${suffix}`, `Хәйерле кис${suffix}`);
+    return appText(`Доброй ночи${suffix}`, `Тыныс төн${suffix}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.name, lang]);
+
   const [status, setStatus] = useState<Status>("loading");
+  // Ближайшее сезонное событие (публичная ручка). null = ничего не идёт или ручки нет.
+  const [season, setSeason] = useState<SeasonalEvent | null>(null);
+  // Пресеты популярных маршрутов — чипы «Сибай → Уфа» в один тап.
+  const [popular, setPopular] = useState<PopularRoute[]>([]);
   const [rides, setRides] = useState<Ride[]>([]);
   const [reqs, setReqs] = useState<NearRequest[]>([]);
   const [me, setMe] = useState<GeoPoint | null>(null);
+  /** Место не дали — говорим об этом словами, иначе кнопка выглядит сломанной. */
+  const [geoNote, setGeoNote] = useState("");
   const [nearOnly, setNearOnly] = useState(false);
   const [sheet, setSheet] = useState<Ride | null>(null);
   // Фильтры по умолчанию (локальные) — применяем к списку поездок рядом.
@@ -38,8 +67,10 @@ export default function HomeScreen() {
   const shownRides = useMemo(() => applyRideFilters(rides, prefs), [rides, prefs]);
 
   const load = useCallback(
-    (signal?: AbortSignal, coords?: GeoPoint | null) => {
-      setStatus("loading");
+    (signal?: AbortSignal, coords?: GeoPoint | null, quiet = false) => {
+      // Тихое обновление — для авто-перезагрузки: карта не должна моргать
+      // скелетоном каждые полминуты у человека на глазах.
+      if (!quiet) setStatus("loading");
       const ridesP = fetchRidesNear(
         coords ? { lat: coords.lat, lng: coords.lng, radius_km: 200 } : {},
         signal
@@ -60,6 +91,9 @@ export default function HomeScreen() {
         })
         .catch((e) => {
           if (signal?.aborted || e?.name === "AbortError") return;
+          // Тихая перезагрузка не должна стирать уже показанную карту: сеть моргнула —
+          // человек продолжает видеть поездки, а не экран ошибки.
+          if (quiet) return;
           setStatus("error");
         });
     },
@@ -68,9 +102,30 @@ export default function HomeScreen() {
 
   useEffect(() => {
     const ac = new AbortController();
+    fetchSeasonalEvents(21, ac.signal)
+      .then((r) => {
+        const active = r.items.find((e) => e.active) ?? r.items[0] ?? null;
+        setSeason(active);
+      })
+      .catch(() => setSeason(null)); // 404 / нет сети → баннера просто нет
+    fetchPopularRoutes(ac.signal)
+      .then((r) => setPopular(r.slice(0, 6)))
+      .catch(() => setPopular([])); // нет справочника → чипов просто нет
+    return () => ac.abort();
+  }, []);
+
+  useEffect(() => {
+    const ac = new AbortController();
     load(ac.signal, null);
     return () => ac.abort();
   }, [load]);
+
+  // Карта — живой экран: поездки появляются и уезжают, пока человек смотрит.
+  // Раньше сайт показывал снимок на момент открытия: уехавшие висели, новые не
+  // приходили. Приложение обновляет пины раз в ~25 секунд и молчит в фоне.
+  useVisibleInterval(25000, () => {
+    if (status !== "loading") load(undefined, me, true);
+  });
 
   // Фильтр «Ближайшие» — просим геолокацию и перегружаем по координатам.
   function toggleNear() {
@@ -86,11 +141,19 @@ export default function HomeScreen() {
         const c = { lat: p.coords.latitude, lng: p.coords.longitude };
         setMe(c);
         setNearOnly(true);
+        setGeoNote("");
         load(undefined, c);
       },
       () => {
-        // Отказ в гео — не падаем, просто оставляем общий список.
+        // Отказ в гео — не падаем и НЕ молчим: человек нажал кнопку, она не
+        // включилась, и без объяснения это выглядит поломкой, а не запретом.
         setNearOnly(false);
+        setGeoNote(
+          appText(
+            "Не видим твоё место. Разреши доступ к геолокации в настройках браузера — покажем поездки рядом.",
+            "Урыныңды күрмәйбеҙ. Браузер көйләүҙәрендә геолокацияға рөхсәт бир — яҡындағы сәфәрҙәрҙе күрһәтербеҙ."
+          )
+        );
       },
       { timeout: 8000, maximumAge: 60000 }
     );
@@ -139,7 +202,7 @@ export default function HomeScreen() {
     {
       key: "invite",
       icon: <IconGift size={22} />,
-      title: appText("Позови своих", "Үҙеңдекеләрҙе саҡыр"),
+      title: appText("Позови своего", "Үҙеңдекеләрҙе саҡыр"),
       onClick: () => navigate("/invites"),
     },
   ];
@@ -147,9 +210,22 @@ export default function HomeScreen() {
   return (
     <>
       <ScreenHeader
-        title={appText("Карта", "Карта")}
-        subtitle={appText("Попутки между своими рядом", "Яҡында үҙебеҙ араһында юлдаштар")}
+        title={greeting}
+        subtitle={appText("Куда поедем?", "Ҡайҙа барабыҙ?")}
       />
+
+      {/* Сезон: сабантуй, курбан, начало учёбы — когда все едут в одну сторону.
+          Ничего не навязываем: подсказка «сегодня будет много попутчиков». */}
+      {season && (
+        <div className="act-card act-card--mint">
+          <div className="act-card__title">
+            <span aria-hidden>{season.emoji}</span> {ru ? season.name_ru : season.name_ba}
+          </div>
+          <p className="act-card__text" style={{ marginBottom: 0 }}>
+            {ru ? season.note_ru : season.note_ba}
+          </p>
+        </div>
+      )}
 
       <div className="home-map">
         <YandexMap markers={markers} me={me} height={280} />
@@ -172,6 +248,12 @@ export default function HomeScreen() {
         </button>
       </div>
 
+      {geoNote && (
+        <div className="notice" role="status">
+          {geoNote}
+        </div>
+      )}
+
       <div className="quick-row" role="list">
         {quick.map((q) => (
           <button
@@ -186,6 +268,78 @@ export default function HomeScreen() {
           </button>
         ))}
       </div>
+
+      {/* «Такси, попутка, курьер» — три слова, за которыми три разные цены
+          и три разных ожидания. Человек, который путает их, платит не за то,
+          что думал, поэтому объяснение лежит прямо под кнопками. */}
+      <details className="modes-hint">
+        <summary>{appText("Чем отличается?", "Айырмаһы нимәлә?")}</summary>
+        <div className="modes-hint__body">
+          <div className="modes-hint__row">
+            <span className="modes-hint__ic modes-hint__ic--taxi" aria-hidden>
+              <YuModeTaxi size={18} />
+            </span>
+            <div>
+              <b>{appText("Такси", "Такси")}</b>
+              <p>
+                {appText(
+                  "Быстро. Машина едет прямо за тобой. Чуть дороже.",
+                  "Тиҙ. Машина тап һинең артыңдан килә. Бер аҙ ҡиммәтерәк."
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="modes-hint__row">
+            <span className="modes-hint__ic modes-hint__ic--pool" aria-hidden>
+              <IconRides size={18} />
+            </span>
+            <div>
+              <b>{appText("Попутка", "Юлдаш")}</b>
+              <p>
+                {appText(
+                  "Дешевле. Подсаживаешься к тому, кто и так едет туда.",
+                  "Арзаныраҡ. Барыбер шунда барған кешегә ултыраһың."
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="modes-hint__row">
+            <span className="modes-hint__ic modes-hint__ic--courier" aria-hidden>
+              <IconGift size={18} />
+            </span>
+            <div>
+              <b>{appText("Курьер", "Курьер")}</b>
+              <p>
+                {appText(
+                  "Едешь не ты, а посылка. Отвезёт тот, кто и так в пути.",
+                  "Һин түгел, бандеролең бара. Юлда булған кеше илтә."
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      {/* Куда чаще всего ездят. Один тап вместо набора двух названий руками —
+          и написание сразу совпадает со справочником. */}
+      {popular.length > 0 && (
+        <div className="chips" style={{ marginTop: 4 }}>
+          {popular.map((r) => {
+            const a = ru ? r.from.name_ru : r.from.name_ba || r.from.name_ru;
+            const b = ru ? r.to.name_ru : r.to.name_ba || r.to.name_ru;
+            return (
+              <button
+                key={`${r.from.id}-${r.to.id}`}
+                type="button"
+                className="chip"
+                onClick={() => navigate(`/rides?from=${encodeURIComponent(a)}&to=${encodeURIComponent(b)}`)}
+              >
+                {a} → {b}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <h2 className="section-title">
         {appText("Поездки рядом", "Яҡындағы сәфәрҙәр")}
@@ -210,7 +364,7 @@ export default function HomeScreen() {
                   )
                 : appText(
                     "Оставь заявку — водители увидят её и откликнутся.",
-                    "Заявка ҡалдыр — водителдәр күреп яуап бирер."
+                    "Заявка ҡалдыр — йөрөтөүселәр күреп яуап бирер."
                   )}
             </p>
             <button
@@ -237,6 +391,9 @@ export default function HomeScreen() {
             ))}
           </div>
         ))}
+
+      {/* Партнёр рядом — тариф «Город». Город берём тот, где человек ищет поездку. */}
+      <PartnerAdSlot placement="nearby" city={shownRides[0]?.from_city} />
 
       {sheet && <RideSheet ride={sheet} onClose={() => setSheet(null)} />}
     </>

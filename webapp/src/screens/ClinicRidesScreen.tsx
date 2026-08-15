@@ -92,7 +92,7 @@ export default function ClinicRidesScreen() {
               <p>
                 {appText(
                   "Оставь заявку — водители увидят, что нужно доехать до клиники.",
-                  "Заявка ҡалдыр — водителдәр клиникаға барырға кәрәклеген күрер."
+                  "Заявка ҡалдыр — йөрөтөүселәр клиникаға барырға кәрәклеген күрер."
                 )}
               </p>
               <button type="button" className="btn-primary" onClick={() => navigate("/request")}>

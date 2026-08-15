@@ -793,3 +793,170 @@ release отдают 404/403 → мягкая деградация (блок с�
 `api/instant.ts` (+fetchDemand, DemandZone), `api/wallet.ts` (+payout status/requisite/payout),
 `components/QuickReplies.tsx`, `IconPencil`, стили `ui.css` (winter-check / quick-replies / demand / payout),
 роут `/requests/:id/edit` в `App.tsx`. Черновой башкирский — в `BASHKIR_DRAFT.md` (раздел «Волны А–Г»).
+
+---
+
+## ✅ Волны Е1–Е3 — «1 в 1 с приложением» закрыто (готово, сборка зелёная)
+
+Продолжение работы codex. Сравнили `enum Screen` Android (87 экранов) с маршрутами PWA
+и закрыли **все** расхождения: 16 недостающих экранов, торг о цене, погоду на маршруте
+и живую вкладку «Чат» (была заглушка). Каждый новый эндпоинт мягко деградирует
+(404/403 → «скоро» или блок скрыт), состояния загрузка/пусто/ошибка есть везде,
+все строки — парами `appText(ru, ba)`, черновой башкирский → `BASHKIR_DRAFT.md`.
+
+### Волна Е1 — деньги и документы такси/курьера (7 экранов + торг)
+
+| Экран | Роут | Эндпоинты |
+|---|---|---|
+| `TaxiReceiptScreen` | `/taxi-receipt/:orderId` | `GET /instant/orders/{id}/receipt`, `POST …/cash-received`, `POST …/lost-item`, `POST …/rate` |
+| `MyTaxiTripsScreen` | `/my-taxi` | `GET /instant/orders/mine` |
+| `DriverTaxiRidesScreen` | `/taxi-rides` | `GET /driver/taxi-rides` |
+| `TaxiDocumentsScreen` | `/taxi-docs` | `GET /taxi/application`, `POST /taxi/documents` |
+| `PretripCheckScreen` | `/pretrip` | `GET/POST /taxi/pretrip` |
+| `CourierEarningsScreen` | `/courier-earnings` | `GET /courier/earnings?period=` |
+| `DriverResponsesScreen` | `/my-responses` | `GET /responses/mine`, `POST /responses/{id}/counter`, `/decline`, `DELETE /responses/{id}` |
+
+**Торг о цене** дошёл до обеих сторон: у пассажира (`RequestResponsesScreen`) появились
+«цена на столе», дорожка ходов и «Своя цена»; у водителя — отдельный экран «Мои отклики».
+Общий компонент `BargainTrail` держит вид торга одинаковым с обеих сторон
+(урок Android: `BargainUi.kt` — общие примитивы вместо копий).
+
+**Точность денег:** новый хелпер `kopExactLabel` показывает копейки, если они есть.
+Округлять там, где человек сверяет сумму с чеком, нельзя: «188 ₽» в списке против
+«188,50 ₽» в чеке — первый повод усомниться в приложении (урок Android 2026-08-03).
+
+**Связки:** завершение такси у пассажира и у водителя ведёт на чек; кабинет водителя
+получил 4 новые плитки; кабинет пассажира — «Поездки на такси»; кабинет курьера —
+«Мой заработок»; перед выходом на линию водитель видит карточку «Готовность к работе».
+
+### Волна Е2 — доверие, споры, чат посылки, погода (5 экранов + вкладка «Чат»)
+
+| Экран | Роут | Эндпоинты |
+|---|---|---|
+| `FairnessCenterScreen` | `/fairness` | `GET /me/standing`, `GET /incidents/mine` |
+| `IncidentDetailScreen` | `/incidents/:id` | `GET /incidents/{id}`, `POST …/respond`, `…/appeal`, `…/withdraw` |
+| `ParcelChatScreen` | `/parcel-chat/:parcelId` | `GET/POST /parcels/{id}/messages`, WS `/ws/parcel/{id}/chat` |
+| `ChatInboxScreen` | `/chat` (вкладка) | `GET /conversations` |
+| `SafetyScreen` | `/safety` | локальный хаб (SOS, чёрный список, жалоба, правила, «только проверенные») |
+
+**Погода на маршруте** (`WeatherWarningCard` + хук `useRouteWeather`, `GET /weather/route`)
+встроена в три места: публикация поездки (по названиям городов), заказ такси (по координатам)
+и активная поездка. Когда предупреждать не о чем — карточки нет вовсе: пустая плашка каждый
+день перестаёт читаться, и в день гололёда её пролистают вместе с остальным.
+
+**Вкладка «Чат»** была `StubScreen` «Скоро здесь» — человек, которому написал водитель,
+не имел способа найти переписку. Теперь это живой инбокс; мёртвый `StubScreen.tsx` удалён.
+
+**«Только проверенные»** в хабе безопасности берётся из общих фильтров (`filterPrefs.onlyTrusted`),
+а не заводит второй флаг: иначе одна настройка жила бы в двух местах своей жизнью.
+
+### Волна Е3 — админка (4 экрана + щит рейтинга)
+
+| Экран | Роут | Эндпоинты |
+|---|---|---|
+| `AdminSosScreen` | `/admin/sos` | `GET /admin/sos?status=`, `POST /admin/sos/{id}/handle` |
+| `AdminIncidentsScreen` | `/admin/incidents` | `GET /admin/incidents?status=`, `POST …/resolve` |
+| `AdminTextFlagsScreen` | `/admin/text-flags` | `GET /admin/text-flags?kind=` |
+| `AdminModerationScreen` | `/admin/moderation` | `GET /admin/moderation`, `POST /admin/coupons/{id}/approve|block`, `/admin/partners/{id}/approve|reject` |
+
+`AdminRatingsScreen` отдельным экраном не заводили: модерация текстовых отзывов уже жила
+в `AdminReviewsScreen` — туда добавлены недостающие части паритета: имя того, **о ком**
+отзыв (без него админ модерировал вслепую) и «Снять с рейтинга» (`POST /admin/ratings/{id}/exclude`).
+
+В кабинете админа SOS стоит **первым** в списке намеренно: сигнал о помощи не должен ждать
+своей очереди за заявками на оплату.
+
+### Что осталось за пределами PWA (осознанно)
+
+- **`ForceUpdateScreen`** (Android) не переносим: у веба принудительное обновление делает
+  service worker (`vite-plugin-pwa`, `autoUpdate`) — экрана «обнови приложение» тут не нужно.
+- Всё остальное из `enum Screen` Android имеет пару в PWA.
+
+### Проверено
+
+- `npx tsc --noEmit` — чисто; `npm run build` — зелёный (dist + sw.js + manifest).
+- В новых экранах нет хардкода цвета (`#hex`) — только токены из `index.css`/`ui.css`.
+- Нет ни одной односторонней строки: каждый `appText` — с двумя аргументами.
+- Новые CSS-примитивы (`act-card`, `money-row`, `money-total`, `doc-term`, `bargain*`,
+  `weather-warn`, `inbox-row`) собраны на тех же токенах, без своих чисел цвета/радиуса.
+
+---
+
+## ✅ Волна Е4 — паритет по НАЧИНКЕ, а не только по экранам (готово, сборка зелёная)
+
+Волны Е1–Е3 сравнивали список экранов. Здесь сверка пошла глубже: из
+`android/…/data/ApiClient.kt` вынуты **все 276 обращений к серверу** и сопоставлены
+с `webapp/src/api/*.ts`. Нашлось **19 функций**, которые приложение умело, а сайт — нет,
+плюс замороженный SMS-вход. Закрыто всё; повторная сверка даёт 0 расхождений
+(два «остатка» — склейка `?query` в скрипте: `/driver/rides?status=` и
+`/admin/taxi/pretrip?day=`, обе ручки в вебе есть).
+
+### Е4.1 — поездка-попутка
+
+| Что | Эндпоинт | Где в вебе |
+|---|---|---|
+| Водитель двигает статус: «выехал / подъезжаю / завершил» | `POST /bookings/{id}/driver-status` | `ActiveTripScreen` |
+| Завершить рейс целиком (все брони разом) | `POST /rides/{id}/complete` | `DriverCabinetScreen` |
+| Ориентир цены при публикации (средняя по маршруту + бензин) | `GET /rides/price_hint` | `CreateRideScreen` |
+| «Поделиться поездкой с близким» + отзыв ссылки + статусы «села/доехала/завершила» | `POST /bookings/{id}/share`, `GET …/shares`, `DELETE …/share/{id}`, `POST …/trip-status` | новый `components/ShareTripCard.tsx` |
+| То же для такси | `POST /instant/orders/{id}/share`, `GET/DELETE …` | `InstantOrderScreen` (фаза «водитель едет») |
+
+Заодно убрана заглушка: SOS в активной поездке показывал `alert()` «появится в обновлении» —
+теперь ведёт на реальный экран `/sos`.
+
+### Е4.2 — такси и посылки
+
+| Что | Эндпоинт | Где в вебе |
+|---|---|---|
+| «В твоём классе никого нет» → предложить соседний класс с ценой | `GET/POST /instant/orders/{id}/alternatives` | `InstantOrderScreen`, фаза поиска |
+| Смена водителя: сколько на линии, сколько до перерыва, блок отдыха | `GET /instant/workday` | `InstantDriverTripScreen` |
+| «Никого нет дома» — посылка остаётся у курьера | `POST /parcels/{id}/attempt-failed` | новый `components/ParcelProblemActions.tsx` |
+| Возврат отправителю (начать / вернул) | `POST /parcels/{id}/return-start`, `…/return-done` | там же |
+| Спор по доставке через «Справедливость» (5 типов + фото) | `POST /parcels/{id}/dispute` | там же |
+| Трекинг-ссылка получателю посылки | `POST/DELETE /parcels/{id}/track-link` | `api/family.ts` |
+
+Пока водитель заблокирован по смене, тумблер «Я на линии» неактивен — это не бюрократия:
+уставший за рулём опаснее пустого заказа.
+
+### Е4.3 — профиль, безопасность, чат
+
+| Что | Эндпоинт | Где в вебе |
+|---|---|---|
+| Достижения (бейджи + прогресс до следующего) | `GET /me/achievements` | `MyStatsScreen` |
+| Мои ограничения: что нельзя и до когда | `GET /me/restrictions` | `FairnessCenterScreen` |
+| Пороги «Справедливости» с сервера | `GET /safety/policy` | `api/safety.ts` |
+| Сезонные события (сабантуй, курбан, начало учёбы) | `GET /seasonal-events` | баннер в `HomeScreen` |
+| Фото в чат (все три чата: бронь, такси, посылка) | `POST /upload/chat-photo` | новый `components/ChatPhoto.tsx` |
+| Отписка от пушей при выходе из аккаунта | `POST /push/unregister` | `push/webPush.ts` + `AuthProvider` |
+| **Вход по SMS** | `POST /auth/request-code`, `/auth/verify` | `LoginScreen` за флагом `VITE_SMS_LOGIN_ENABLED` |
+
+**Про SMS отдельно.** В приложении форма входа по SMS цела, но скрыта за
+`BuildConfig.SMS_LOGIN_ENABLED` (нет юрлица для sms.ru). В вебе была не форма, а текстовая
+заглушка — то есть при появлении юрлица пришлось бы писать экран с нуля. Теперь тут ровно
+та же конструкция: рабочая форма + запросы, включается одной переменной сборки.
+
+**Фото в чате** помечается префиксом `[img]` — как в приложении (`ApiClient.IMG_PREFIX`).
+Отдельное поле под картинку в сообщении заводить нельзя: старый Android перестал бы
+понимать такие сообщения.
+
+**Отписка от пушей** идёт ДО выхода, пока токен ещё жив. Иначе на общем телефоне следующий
+вошедший продолжал бы получать чужие уведомления — локального удаления подписки мало.
+
+### Е4.4 — админка
+
+| Что | Эндпоинт | Где в вебе |
+|---|---|---|
+| Долги по комиссии: подтвердить / отклонить / **списать с причиной** | `GET /admin/debts`, `POST …/confirm|reject|forgive` | новый `AdminDebtsScreen` (`/admin/debts`) |
+| Снять курьера с доставки (пропал, не отвечает) | `POST /admin/parcels/{id}/release-courier` | `AdminParcelsScreen` |
+| Журнал предрейсовых отметок за день (580-ФЗ) | `GET /admin/taxi/pretrip?day=` | новый `AdminPretripScreen` (`/admin/pretrip`) |
+
+«Списать» — не удобство, а замена вранью: без него водитель оставался должен комиссию за
+поездку, где пассажир ему не заплатил, а «подтвердить» несуществующую оплату означало бы
+кривые отчёты о собранной комиссии.
+
+### Проверено
+
+- `npx tsc --noEmit` — чисто; `npm run build` — зелёный.
+- Повторная сверка 276 обращений приложения к серверу: расхождений нет.
+- Погода и подсказка цены запрашиваются с паузой в 700 мс после набора — иначе на слово
+  «Сибай» уходило бы пять запросов, четыре из них по несуществующим городам.

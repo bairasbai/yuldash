@@ -759,6 +759,78 @@ def test_deleting_the_account_removes_the_coordinates(client, user_factory, fake
     assert member not in set(fake_redis.zrange(PRESENCE_KEY, 0, -1)),         "местоположение удалённого человека осталось в Redis"
 
 
+def test_forced_offline_removes_the_coordinates(client, user_factory, fake_redis, monkeypatch):
+    """Сняли с линии ЗА ДОКУМЕНТЫ — точка тоже обязана исчезнуть.
+
+    Продолжение того же урока (2026-08-12): чистку presence звал только тумблер, а снять
+    с линии может ещё и система — просроченные документы (`doc_check.expire_overdue`).
+    Заказы такому водителю не шли (гейт по базе), поэтому поломки было не видно, — а точка
+    человека, снятого принудительно, лежала в GEO вечно.
+    """
+    from datetime import timedelta as _td
+    from app import doc_check
+    from app.timeutil import utcnow as _utcnow
+    from app.db import engine as _engine
+    from app.instant_service import PRESENCE_KEY
+    from app.models import TaxiApplication
+    from sqlmodel import Session as _S, select as _sel
+    from test_instant import _driver_online, _heartbeat, ORIG
+
+    monkeypatch.setattr("app.doc_check._push", lambda *a, **k: None)
+    d = _driver_online(client, user_factory, "ExpiredDocsDrv")
+    _heartbeat(client, d, ORIG)
+    member = f"driver:{d['id']}"
+    assert member in set(fake_redis.zrange(PRESENCE_KEY, 0, -1)), "координаты не записались"
+
+    with _S(_engine) as s:
+        app_row = s.exec(_sel(TaxiApplication).where(TaxiApplication.user_id == d["id"])).first()
+        if app_row is None:
+            app_row = TaxiApplication(user_id=d["id"], status="approved")
+        # Дату берём теми же часами, что и проверяемый код (`expire_overdue` сравнивает с
+        # `utcnow().date()`). Раньше тут стояло `date.today()` — МЕСТНАЯ дата. В Башкортостане
+        # это UTC+5: с местной полуночи до 5 утра местная дата уже завтрашняя, а UTC ещё
+        # вчерашняя, и «вчера» по-местному оказывалось «сегодня» по UTC — срок не считался
+        # просроченным, тест падал. Пять часов в сутки, каждые сутки. Поймано ровно на этом:
+        # прогон перевалил за местную полночь, и зелёный тест покраснел на неизменном коде.
+        # Запас в два дня — чтобы не сидеть на границе ни при каком часовом поясе.
+        app_row.osago_until = _utcnow().date() - _td(days=2)
+        s.add(app_row)
+        s.commit()
+    with _S(_engine) as s:
+        doc_check.expire_overdue(s)
+
+    assert member not in set(fake_redis.zrange(PRESENCE_KEY, 0, -1)),         "точка водителя, снятого за документы, осталась в Redis навсегда"
+
+
+def test_driver_offline_goes_through_one_door():
+    """Сторож класса: флаг «на линии» гасит только `instant_service.driver_go_offline`.
+
+    Тот же урок, что с полом и с вердиктом по документам: правило, написанное в обработчике
+    (тут — «сняли с линии → убери координаты»), молча не работает в остальных дверях.
+    """
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "app"
+    hits = []
+    for path in root.rglob("*.py"):
+        if path.name == "instant_service.py":
+            continue                       # единственная законная дверь
+        text = path.read_text(encoding="utf-8")
+        if "DriverProfile" not in text:
+            continue                       # курьер — отдельный профиль, presence у него нет
+        # Разбираем КОД, а не текст: иначе сторож ловит собственные комментарии и docstring.
+        for node in ast.walk(ast.parse(text)):
+            if not isinstance(node, ast.Assign):
+                continue
+            if not (isinstance(node.value, ast.Constant) and node.value.value is False):
+                continue
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Attribute) and tgt.attr == "online":
+                    hits.append(f"{path.name}:{node.lineno}")
+    assert not hits, "снимают с линии мимо driver_go_offline: " + ", ".join(hits)
+
+
 def test_retention_sweeps_coordinates_without_heartbeat(client, user_factory, fake_redis):
     """Главный случай: человек не снимает тумблер, а просто закрывает приложение.
 

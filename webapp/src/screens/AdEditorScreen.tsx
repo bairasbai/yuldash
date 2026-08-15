@@ -24,6 +24,7 @@ import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconMap, IconMegaphone, IconWarn } from "../components/Icons";
 
+import { pluralRu } from "../utils/format";
 type Status = "loading" | "error" | "soon" | "ready";
 
 export default function AdEditorScreen() {
@@ -175,7 +176,7 @@ export default function AdEditorScreen() {
           <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}
@@ -258,7 +259,10 @@ export default function AdEditorScreen() {
                 <div className="plan-card__icon"><IconMap size={22} /></div>
                 <div className="plan-card__title">{ru ? p.title : p.title_ba}</div>
                 <div className="plan-card__hours">
-                  {appText(`${p.period_days} дней`, `${p.period_days} көн`)}
+                  {appText(
+                    `${p.period_days} ${pluralRu(p.period_days, "день", "дня", "дней")}`,
+                    `${p.period_days} көн`
+                  )}
                 </div>
                 <div className="plan-card__price">{(p.amount_kop / 100).toLocaleString("ru-RU")} ₽</div>
               </button>

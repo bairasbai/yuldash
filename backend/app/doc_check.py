@@ -130,8 +130,10 @@ def expire_overdue(session: Session, dry_run: bool = False) -> list:
         # отбиваются гейтом — выглядит как поломка приложения, а не как честный запрет.
         dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == app.user_id)).first()
         if dp and dp.online:
-            dp.online = False
-            session.add(dp)
+            # Через общую дверь: она же убирает координаты из Redis. Раньше здесь стоял
+            # голый флаг, и точка снятого за документы водителя лежала в GEO вечно.
+            from .instant_service import driver_go_offline
+            driver_go_offline(session, dp)
         session.commit()
         names_ru = ", ".join(_DOC_NAMES[f][0] for f in overdue)
         names_ba = ", ".join(_DOC_NAMES[f][1] for f in overdue)

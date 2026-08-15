@@ -16,6 +16,7 @@ import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow, IconRequest, IconCheck } from "../components/Icons";
 import { formatWhen } from "../utils/format";
+import { useScrollMemory } from "../utils/useScrollMemory";
 
 const PREF_LABEL: Record<string, [string, string]> = {
   women: ["Только женщины", "Тик ҡатын-ҡыҙ"],
@@ -27,13 +28,21 @@ const PREF_LABEL: Record<string, [string, string]> = {
   ac: ["Кондиционер", "Кондиционер"],
 };
 
+/** По сколько заявок добавляем за раз («Показать ещё»). */
+const PAGE = 30;
+
 export default function RequestsFeedScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
 
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
+
+  // Позиция в ленте заявок переживает переход к заявке и обратно.
+  useScrollMemory("requests", status === "ready");
   const [items, setItems] = useState<RequestFeedItem[]>([]);
+  /** Сколько заявок показано сейчас — растёт по кнопке «Показать ещё». */
+  const [shown, setShown] = useState(PAGE);
   const [respondTo, setRespondTo] = useState<RequestFeedItem | null>(null);
 
   const load = useCallback((signal?: AbortSignal) => {
@@ -74,7 +83,9 @@ export default function RequestsFeedScreen() {
           </div>
         ) : (
           <div>
-            {items.map((it, i) => (
+            {/* Сервер отдаёт до 200 заявок. Рисуем частями — иначе дешёвый телефон
+                строит две сотни карточек сразу и подвисает. */}
+            {items.slice(0, shown).map((it, i) => (
               <article
                 key={it.id}
                 className="ride-card"
@@ -92,6 +103,18 @@ export default function RequestsFeedScreen() {
                   <span>
                     <b>{it.seats}</b> {appText("мест", "урын")}
                   </span>
+                  {/* Насколько заявка уводит с твоего маршрута. Без этого водитель
+                      читал каждую заявку руками — и уставал от тех, что в другую сторону. */}
+                  {/* «По пути» — зелёным, крюк — спокойно серым, без осуждения. */}
+                  {it.detour_km != null && (
+                    <span
+                      className={"badge " + (it.detour_km <= 10 ? "badge--mint" : "badge--muted")}
+                    >
+                      {it.detour_km <= 10
+                        ? appText("По пути", "Юл ыңғайында")
+                        : appText(`Крюк ≈ ${it.detour_km} км`, `Урау ≈ ${it.detour_km} км`)}
+                    </span>
+                  )}
                   {it.prefs.map((p) =>
                     PREF_LABEL[p] ? (
                       <span key={p} className="badge badge--mint">
@@ -114,7 +137,7 @@ export default function RequestsFeedScreen() {
                   </div>
                   {it.responded ? (
                     <span className="badge badge--mint">
-                      <IconCheck size={14} /> {appText("Вы откликнулись", "Яуап бирҙегеҙ")}
+                      <IconCheck size={14} /> {appText("Ты откликнулся", "Яуап бирҙең")}
                     </span>
                   ) : (
                     <button
@@ -129,6 +152,19 @@ export default function RequestsFeedScreen() {
                 </div>
               </article>
             ))}
+
+            {items.length > shown && (
+              <button
+                type="button"
+                className="btn-soft show-more"
+                onClick={() => setShown((n) => n + PAGE)}
+              >
+                {appText(
+                  `Показать ещё · осталось ${items.length - shown}`,
+                  `Тағы күрһәтергә · ${items.length - shown} ҡалды`
+                )}
+              </button>
+            )}
           </div>
         ))}
 
@@ -189,7 +225,7 @@ function RespondSheet({
     <div className="sheet-backdrop" onClick={onClose} role="presentation">
       <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <div className="sheet__grip" aria-hidden />
-        <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 800 }}>
+        <h2 style={{ margin: "0 0 4px", fontSize: "var(--font-heading)", fontWeight: 800 }}>
           {appText("Твой отклик", "Яуабың")}
         </h2>
         <p className="sheet__note" style={{ marginTop: 0 }}>

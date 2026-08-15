@@ -18,6 +18,14 @@ export interface RideCreateInput {
   category?: RideCategory;
   comment?: string;
   pickup?: string;
+  /**
+   * Ориентир из справочника города («у мечети», «автовокзал»). Сервер сам подставит
+   * по нему название и координаты — тогда пассажир увидит точку на карте, а не
+   * строку текста, и справочник заодно узнает, что этим ориентиром пользуются.
+   */
+  pickup_point_id?: number | null;
+  pickup_lat?: number | null;
+  pickup_lng?: number | null;
   pets_allowed?: boolean;
   child_seat?: boolean;
   women_only?: boolean;
@@ -64,6 +72,20 @@ export function setDriverOnline(online: boolean): Promise<{ online: boolean }> {
   return apiPost<{ online: boolean }>("/driver/online", { online });
 }
 
+/**
+ * POST /driver/gender — водитель по желанию указывает пол.
+ *
+ * Это ЗАЯВКА, а не подтверждение: бейдж «женщина за рулём» и женские заказы
+ * такси включает модератор, сверив с фото прав. Иначе любой мог бы назваться
+ * женщиной и попасть в выдачу — а этот фильтр женщины включают ради безопасности.
+ *
+ * Наружу раскрывается только полезный сигнал «female»; «male» и пустое
+ * значение никому не показываются.
+ */
+export function setDriverGender(gender: "female" | "male" | ""): Promise<DriverStatus> {
+  return apiPost<DriverStatus>("/driver/gender", { gender });
+}
+
 // ----------------------------- Мои поездки / архив -----------------------------
 export type DriverRidesStatus = "active" | "all" | "done" | "cancelled";
 
@@ -74,6 +96,54 @@ export function fetchDriverRides(
 ): Promise<Ride[]> {
   const q = status && status !== "active" ? `?status=${status}` : "";
   return apiGet<Ride[]>(`/driver/rides${q}`, { signal });
+}
+
+/**
+ * Водитель двигает статус брони: «выехал» → «подъезжаю» → «завершил».
+ *
+ * Закрывает тревогу ожидания: пассажир видит, что за ним уже едут, а не гадает.
+ * «done» водитель тоже может нажать сам — раньше закрыть бронь мог ТОЛЬКО пассажир,
+ * и забытая им кнопка держала места поездки занятыми.
+ *
+ * 409 = поездка ещё не началась (завершить можно после времени выезда).
+ */
+export type DriverPhase = "departed" | "arriving" | "done";
+
+export function setDriverStatus(
+  bookingId: number,
+  status: DriverPhase
+): Promise<{ ok?: boolean; status?: string }> {
+  return apiPost(`/bookings/${bookingId}/driver-status`, { status });
+}
+
+/** Завершить весь рейс (все брони разом) — POST /rides/{id}/complete. */
+export function completeRide(rideId: number): Promise<Ride> {
+  return apiPost<Ride>(`/rides/${rideId}/complete`);
+}
+
+// ----------------------------- Подсказка цены -----------------------------
+/**
+ * GET /rides/price_hint?from_city=&to_city= — ориентир, а не правило.
+ * `avg` — средняя цена прошлых поездок по маршруту, `fuel_estimate_kop` — честная
+ * оценка бензина на весь путь. `distance_km`/`fuel_estimate_kop` = null, если координаты
+ * городов неизвестны (без краша — просто не показываем).
+ */
+export interface PriceHint {
+  avg: number; // ₽
+  count: number; // сколько прошлых поездок в основе
+  distance_km: number | null;
+  fuel_estimate_kop: number | null;
+}
+
+export function fetchPriceHint(
+  fromCity: string,
+  toCity: string,
+  signal?: AbortSignal
+): Promise<PriceHint> {
+  const p = new URLSearchParams();
+  if (fromCity.trim()) p.set("from_city", fromCity.trim());
+  if (toCity.trim()) p.set("to_city", toCity.trim());
+  return apiGet<PriceHint>(`/rides/price_hint?${p.toString()}`, { signal });
 }
 
 // ----------------------------- Публичный профиль -----------------------------
@@ -164,6 +234,39 @@ export function fetchDriverEarnings(
   return apiGet<DriverEarnings>(`/driver/earnings?period=${period}`, { signal });
 }
 
+// ----------------------------- Мои поездки такси (расшифровка денег) -----------------------------
+/** Одна завершённая такси-поездка: цена → комиссия → чистыми (debt.py::driver_rides).
+ *  Закрывает вопрос «Юлдаш говорит 4200, я насчитал 4600 — где мои 400?». */
+export interface DriverTaxiRide {
+  order_id: number;
+  done_at: string | null;
+  from: string;
+  to: string;
+  price: number; // ₽ — как видел пассажир
+  promo_discount_kop: number; // скидку пассажиру оплатила платформа
+  promo_comp_kop: number; // её доплата в кошелёк водителя
+  fee_kop: number; // комиссия платформы
+  net_kop: number; // «чистыми» водителю
+  paid: boolean;
+  payment_method: string;
+  fee_status: string; // unpaid | pending | paid | none
+}
+
+/** GET /driver/taxi-rides — только СВОИ поездки (по токену). */
+export interface DriverTaxiRides {
+  rides: DriverTaxiRide[];
+  total_price: number; // ₽
+  total_fee_kop: number;
+  total_net_kop: number;
+}
+
+export function fetchDriverTaxiRides(
+  limit = 100,
+  signal?: AbortSignal
+): Promise<DriverTaxiRides> {
+  return apiGet<DriverTaxiRides>(`/driver/taxi-rides?limit=${limit}`, { signal });
+}
+
 // ----------------------------- Проверка водителя (документы) -----------------------------
 /** POST /upload/photo (multipart `file`) → {url} защищённого документа. */
 export function uploadDoc(
@@ -200,4 +303,89 @@ export function submitDriverVerify(body: {
   car_photo_url: string;
 }): Promise<{ docs_status: string }> {
   return apiPost<{ docs_status: string }>("/driver/verify", body);
+}
+
+// ----------------------------- Долг по комиссии за такси -----------------------------
+/**
+ * Сколько водитель должен сервису за такси (зеркало backend/app/routers/debt.py).
+ *
+ * Комиссию мы не списываем автоматически: раз в неделю водитель переводит её по СБП
+ * и нажимает «Я оплатил», админ подтверждает. Пока долг висит — такси блокируется,
+ * но попутка работает как обычно: плановые поездки к комиссии отношения не имеют.
+ */
+export interface DebtWeek {
+  week: string; // ISO-неделя
+  amount_kop: number;
+  status: string; // unpaid | pending
+}
+
+export interface DriverDebt {
+  unpaid_kop: number;
+  pending_kop: number; // заявлено к оплате, ждёт подтверждения админом
+  due_at: string | null;
+  overdue: boolean;
+  blocked: boolean;
+  block_reason: string | null; // overdue | threshold | null
+  threshold_kop: number;
+  sbp: { phone: string; name: string };
+  weeks: DebtWeek[];
+}
+
+export function fetchDriverDebt(signal?: AbortSignal): Promise<DriverDebt> {
+  return apiGet<DriverDebt>("/driver/debt", { signal });
+}
+
+/** Ответ POST /driver/debt/paid: карта (ЮKassa) или «я перевёл по СБП» (на доверии). */
+export interface DebtPaidResult {
+  ok?: boolean;
+  method?: string; // yookassa | sbp_manual
+  status?: string;
+  amount_kop?: number;
+  confirmation_url?: string;
+  /** Номер платежа — по нему проверяем оплату после возврата из банка. */
+  payment_id?: number;
+}
+
+/** «Я оплатил» — долг уходит на подтверждение админу (или открывается оплата картой). */
+export function declareDebtPaid(): Promise<DebtPaidResult> {
+  return apiPost<DebtPaidResult>("/driver/debt/paid");
+}
+
+// ----------------------------- Денежные чаевые (opt-in) -----------------------------
+/**
+ * POST /me/tips-sbp — водитель включает или выключает денежные чаевые,
+ * указав свой номер СБП. Пустая строка = выключить.
+ *
+ * Номер показывается пассажиру ТОЛЬКО после завершённой поездки и только
+ * если водитель сам его оставил: телефон — личное, отдаём по согласию
+ * и минимально. Без этого «дать чаевые» у пассажира просто не появится.
+ */
+export function setTipsSbp(sbp: string): Promise<{ tips_sbp: string; accepting: boolean }> {
+  return apiPost<{ tips_sbp: string; accepting: boolean }>("/me/tips-sbp", { sbp });
+}
+
+// ----------------------------- «Как получить больше заявок» -----------------------------
+/**
+ * GET /rides/{id}/tips — добрые советы по конкретной поездке: нет фото профиля,
+ * не пройдена проверка, цена выше средней по маршруту, нет описания.
+ *
+ * Это не упрёк и не рейтинг: пусто (`all_good`) значит «всё выглядит хорошо».
+ * Только своя поездка — чужие сервер не раскрывает.
+ */
+export interface RideTip {
+  code: string;
+  ru: string;
+  ba: string;
+}
+
+export interface RideTips {
+  ride_id: number;
+  tips: RideTip[];
+  all_good: boolean;
+  route_avg_price: number | null;
+  route_sample: number;
+}
+
+export function fetchRideTips(rideId: number, signal?: AbortSignal): Promise<RideTips> {
+  return apiGet<RideTips>(`/rides/${rideId}/tips`, { signal });
 }

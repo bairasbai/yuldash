@@ -61,6 +61,19 @@ export default function SupportTicketScreen() {
     return () => ac.abort();
   }, [load]);
 
+  // Ответ поддержки приходит без уведомления в чат — экран должен сам его забрать.
+  // Раньше человек писал, Юлдаш отвечал, а на сайте ответа не было до перезахода:
+  // выглядело так, будто его игнорируют. Приложение обновляет чат каждые 8 секунд.
+  useEffect(() => {
+    if (state !== "ok" || !id) return;
+    const iv = window.setInterval(() => {
+      fetchTicket(id)
+        .then(setThread)
+        .catch(() => {}); // нет сети — просто ждём следующего круга
+    }, 8000);
+    return () => window.clearInterval(iv);
+  }, [state, id]);
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [thread?.messages.length]);
@@ -126,7 +139,7 @@ export default function SupportTicketScreen() {
           <h2>{appText("Не удалось загрузить", "Йөкләп булманы")}</h2>
           <p>{appText("Проверь соединение и попробуй снова.", "Бәйләнеште тикшереп, ҡабат ҡара.")}</p>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       </>
@@ -202,7 +215,7 @@ export default function SupportTicketScreen() {
               type="button"
               onClick={send}
               disabled={sending || !text.trim()}
-              aria-label={appText("Отправить", "Ебәрергә")}
+              aria-label={appText("Отправить", "Ебәреү")}
             >
               <IconArrow size={20} />
             </button>

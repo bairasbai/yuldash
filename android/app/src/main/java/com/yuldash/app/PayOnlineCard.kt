@@ -136,7 +136,7 @@ internal fun PayOnlineCard(
                     if (st.status == "succeeded") stage = PayOnlineStage.Paid
                     else Toast.makeText(context, notYetMsg, Toast.LENGTH_SHORT).show()
                 }
-                .onFailure { busy = false; Toast.makeText(context, errMsg, Toast.LENGTH_SHORT).show() }
+                .onFailure { busy = false; Toast.makeText(context, serverSaid(it, errMsg), Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -218,7 +218,7 @@ internal fun PayOnlineCard(
                             Column(Modifier.weight(1f)) {
                                 Text(appText("Оплачено — спасибо!", "Түләнде — рәхмәт!"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 Text(
-                                    appText("Деньги уйдут водителю.", "Аҡса водителгә китә."),
+                                    appText("Деньги уйдут водителю.", "Аҡса йөрөтөүсегә китә."),
                                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                                 )
                             }

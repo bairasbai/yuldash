@@ -115,6 +115,24 @@ def presence_offline(driver_id: int) -> None:
         pass
 
 
+def driver_go_offline(session, profile) -> None:
+    """ЕДИНСТВЕННАЯ дверь «снять водителя с линии»: флаг в базе + чистка presence.
+
+    Снять с линии можно двумя путями: человек сам щёлкает тумблер и система снимает его
+    принудительно (просроченные документы, `doc_check.py`). Чистку координат из Redis звал
+    только первый — у GEO-множества нет срока жизни, поэтому последнее местоположение
+    водителя, снятого за документы, лежало там вечно. Заказы ему не шли (гейт по базе), так
+    что поломки видно не было — а точка человека оставалась. Это ровно §8 «чувствительное
+    не храним дольше нужного».
+
+    Коммит — на вызывающем: снятие с линии обычно часть большей операции.
+    Сторож двери — `test_driver_offline_goes_through_one_door`.
+    """
+    profile.online = False
+    session.add(profile)
+    presence_offline(profile.user_id)
+
+
 def nearby_drivers(lat: float, lng: float, limit: int = 8) -> list[dict]:
     """Свободные машины «на линии» рядом с пассажиром — АНОНИМНЫЕ позиции + ≈ETA до подачи.
 
@@ -467,10 +485,21 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     place = class_rollout.place_at(session, frm[0], frm[1])
     opened = class_rollout.open_categories(session, place)
     options = []
+    # Тарифы забираем ОДНИМ запросом, а не по одному на класс.
+    #
+    # Оценка цены — самая частая операция в приложении: она пересчитывается каждый раз, когда
+    # пассажир двигает точку подачи или назначения по карте. Здесь на каждый из четырёх классов
+    # уходил свой запрос к базе, то есть четыре похода вместо одного — на каждое движение пальца.
+    # Классов ровно четыре и растут они редко, зона одна: весь набор влезает в один SELECT,
+    # дальше обычный поиск по словарю.
+    tariffs = {
+        t.category: t
+        for t in session.exec(
+            select(Tariff).where(Tariff.zone == zone, Tariff.active == True)  # noqa: E712
+        ).all()
+    }
     for cat in cc.ORDER_CATEGORIES:
-        ct = session.exec(
-            select(Tariff).where(Tariff.zone == zone, Tariff.category == cat, Tariff.active == True)  # noqa: E712
-        ).first()
+        ct = tariffs.get(cat)
         if ct:
             ct_dynamic = total_k(ct, surge, now, pickup=pickup, weather=weather.k)
             options.append({

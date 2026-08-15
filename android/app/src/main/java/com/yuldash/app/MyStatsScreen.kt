@@ -121,7 +121,7 @@ internal fun MyStatsScreen(onBack: () -> Unit) {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.Default.ArrowBackIosNew,
-                            contentDescription = appText("Назад", "Кире"),
+                            contentDescription = appText("Назад", "Артҡа"),
                             tint = CanonGreen,
                         )
                     }

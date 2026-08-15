@@ -99,8 +99,8 @@ export default function InvitesScreen() {
   return (
     <>
       <SubHeader
-        title={appText("Позови своих", "Үҙеңдекеләрҙе саҡыр")}
-        subtitle={appText("Пригласи соседа — бонус вам обоим", "Күршеңде саҡыр — икәүгә лә бонус")}
+        title={appText("Позови своего", "Үҙеңдекеләрҙе саҡыр")}
+        subtitle={appText("Пригласи соседа — бонус обоим", "Күршеңде саҡыр — икәүгә лә бонус")}
         onBack={() => navigate(-1)}
       />
 

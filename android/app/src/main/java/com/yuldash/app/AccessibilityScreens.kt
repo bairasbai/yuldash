@@ -72,6 +72,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Woman
 import androidx.compose.material.icons.filled.SmokingRooms
 import androidx.compose.material.icons.filled.Luggage
@@ -539,9 +540,9 @@ internal fun VoiceRequestScreen(
     var uploading by remember { mutableStateOf(false) }
     var submittingText by remember { mutableStateOf(false) }
     val trusted = contacts.firstOrNull()
-    val voiceRequestStatus = appText("ищем водителя", "водитель эҙләйбеҙ")
+    val voiceRequestStatus = appText("ищем водителя", "йөрөтөүсе эҙләйбеҙ")
     val vrTitle = appText("Голосовая заявка", "Тауыш заявкаһы")
-    val vrRoute = appText("Голосом — водитель слушает", "Тауыш менән — водитель тыңлай")
+    val vrRoute = appText("Голосом — водитель слушает", "Тауыш менән — йөрөтөүсе тыңлай")
     val vrNow = appText("сейчас", "хәҙер")
     val vrPrompt = appText("Скажи маршрут", "Маршрутты әйт")
     val vrNoStt = appText("Распознавание недоступно на устройстве", "Таныу ҡорамалда юҡ")
@@ -581,7 +582,7 @@ internal fun VoiceRequestScreen(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
             putExtra(RecognizerIntent.EXTRA_PROMPT, vrPrompt)
         }
-        runCatching { sttLauncher.launch(intent) }.onFailure { Toast.makeText(context, vrNoStt, Toast.LENGTH_SHORT).show() }
+        runCatching { sttLauncher.launch(intent) }.onFailure { Toast.makeText(context, serverSaid(it, vrNoStt), Toast.LENGTH_LONG).show() }
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Голосовая заявка", "Тауыш заявкаһы"), onBack) }) { padding ->
         LazyColumn(
@@ -592,7 +593,7 @@ internal fun VoiceRequestScreen(
             item {
                 InfoCard(
                     title = appText("Нажми и скажи", "Баҫ һәм әйт"),
-                    text = appText("Скажи голосом: откуда, куда и когда. Водитель послушает — на русском или башкирском.", "Тауыш менән әйт: ҡайҙан, ҡайҙа, ҡасан. Водитель тыңлар — урыҫса йәки башҡортса."),
+                    text = appText("Скажи голосом: откуда, куда и когда. Водитель послушает — на русском или башкирском.", "Тауыш менән әйт: ҡайҙан, ҡайҙа, ҡасан. Йөрөтөүсе тыңлар — урыҫса йәки башҡортса."),
                     icon = Icons.Default.VolumeUp
                 )
             }
@@ -608,7 +609,7 @@ internal fun VoiceRequestScreen(
                             else -> perm()
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().height(78.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 78.dp),
                     shape = RoundedCornerShape(22.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = if (recording) CanonRed else CanonGreen2)
                 ) {
@@ -623,7 +624,7 @@ internal fun VoiceRequestScreen(
             item {
                 OutlinedButton(
                     onClick = { recognizeRu() },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                     shape = RoundedCornerShape(14.dp)
                 ) {
                     Icon(Icons.Default.HeadsetMic, contentDescription = null)
@@ -660,7 +661,7 @@ internal fun VoiceRequestScreen(
             }
             recordedPath?.let { path ->
                 item {
-                    VoiceMessageCard(LocalVoiceMessage(appText("Вы", "Һеҙ"), "", appText("сейчас", "хәҙер"), audioPath = path, durationSec = recordedDur))
+                    VoiceMessageCard(LocalVoiceMessage(appText("Я", "Мин"), "", appText("сейчас", "хәҙер"), audioPath = path, durationSec = recordedDur))
                 }
                 item {
                     AppButton(
@@ -906,7 +907,7 @@ internal fun CreatePassengerRequestContent(
         }
         item {
             InfoCard(
-                title = appText("Водители увидят условия", "Водителдәр шарттарҙы күрә"),
+                title = appText("Водители увидят условия", "Йөрөтөүселәр шарттарҙы күрә"),
                 text = appText("Телефон и точная геолокация откроются только после подтверждения поездки.", "Телефон һәм теүәл геолокация сәфәр раҫланғандан һуң ғына асыла."),
                 icon = Icons.Default.Lock
             )
@@ -1280,20 +1281,65 @@ internal fun TrustedContactsScreen(
                     // Показать сразу в списке, не дожидаясь обновления родителя/сервера.
                     if (merged.none { it.phone == newContact.phone }) locallyAdded.add(newContact)
                     nm = ""; rel = ""; ph = ""; showAdd = false
-                }) { Text(appText("Добавить", "Өҫтәү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+                }) { Text(appText("Добавить", "Өҫтәргә"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },
             dismissButton = { TextButton(onClick = { showAdd = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
+    }
+    // Удаление контакта. Спрашиваем подтверждение: близкий перестанет получать статус поездки
+    // и SOS — это ровно то, ради чего его добавляли, и промах пальцем не должен это отнимать.
+    var toDelete by remember { mutableStateOf<TrustedContact?>(null) }
+    // Кого уже убрали на этом экране: сервер отвечает не мгновенно, а список склеен из трёх
+    // источников — без этого набора удалённый контакт мигал бы обратно.
+    val removedPhones = remember { mutableStateListOf<String>() }
+    val deleteFailed = appText("Не получилось убрать. Проверь сеть и повтори.", "Алып булманы. Сетте тикшереп ҡабатла.")
+    val ctx = LocalContext.current
+    val deleteScope = rememberCoroutineScope()
+    toDelete?.let { victim ->
+        AlertDialog(
+            onDismissRequest = { toDelete = null },
+            containerColor = CanonSurface,
+            title = { Text(appText("Убрать ${victim.name}?", "${victim.name} алынһынмы?"), color = CanonText, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    appText(
+                        "Перестанет получать статус твоих поездок и сигнал SOS. Добавить обратно можно в любой момент.",
+                        "Сәфәрҙәрең статусын һәм SOS сигналын алыуҙан туҡтай. Теләһә ҡасан кире өҫтәп була.",
+                    ),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val phone = victim.phone
+                    toDelete = null
+                    removedPhones.add(phone)
+                    locallyAdded.removeAll { it.phone == phone }
+                    deleteScope.launch {
+                        // id > 0 — контакт с сервера. Только что добавленный локально ещё без id:
+                        // его достаточно убрать из списка, на сервере его пока нет.
+                        if (victim.id > 0) {
+                            ApiClient.deleteContact(victim.id).onFailure {
+                                removedPhones.remove(phone)   // не получилось — контакт возвращается на экран
+                                Toast.makeText(ctx, serverSaid(it, deleteFailed), Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }) { Text(appText("Убрать", "Алырға"), color = CanonRed, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { toDelete = null }) { Text(appText("Оставить", "Ҡалдырырға"), color = CanonMuted) } },
         )
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Доверенные контакты", "Ышаныслы контакттар"), onBack) }) { padding ->
         TrustedContactsContent(
             loading = loading,
             loadError = loadError,
-            contacts = merged,
+            contacts = merged.filterNot { it.phone in removedPhones },
             loadErrorText = loadErr,
             onRetry = { reloadKey++ },
             onAddClick = { showAdd = true },
             modifier = Modifier.padding(padding).fillMaxSize(),
+            onDelete = { toDelete = it },
         )
     }
 }
@@ -1312,6 +1358,7 @@ internal fun TrustedContactsContent(
     onRetry: () -> Unit,
     onAddClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onDelete: (TrustedContact) -> Unit = {},
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -1359,7 +1406,7 @@ internal fun TrustedContactsContent(
                 }
             }
             else -> itemsIndexed(contacts, key = { _, c -> c.phone }) { index, contact ->
-                Box(Modifier.appearIn(index)) { TrustedContactCard(contact) }
+                Box(Modifier.appearIn(index)) { TrustedContactCard(contact, onDelete = { onDelete(contact) }) }
             }
         }
         item {
@@ -1372,9 +1419,9 @@ internal fun TrustedContactsContent(
 }
 
 @Composable
-private fun TrustedContactCard(contact: TrustedContact) {
+private fun TrustedContactCard(contact: TrustedContact, onDelete: () -> Unit = {}) {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = CircleShape) {
                 Text(contact.name.take(1).ifBlank { "?" }, modifier = Modifier.padding(12.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 19.sp)
             }
@@ -1384,6 +1431,17 @@ private fun TrustedContactCard(contact: TrustedContact) {
                 Text("${contact.relationText()} · ${contact.phone}", color = CanonMuted, fontSize = 14.sp)
             }
             Text(if (contact.notifyByDefault) appText("Статус", "Статус") else appText("Только SOS", "Тик SOS"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            // Убрать контакт. Кнопки не было вовсе: человек, которому уходит геопозиция в поездке
+            // и SOS-сигнал ночью, оставался в списке навсегда. Тач-цель 48dp — рядом текст, промах
+            // по такой кнопке стоил бы дорого.
+            IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    Icons.Default.DeleteOutline,
+                    contentDescription = appText("Убрать контакт", "Контактты алыу"),
+                    tint = CanonMuted,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
     }
 }
@@ -1405,7 +1463,7 @@ internal fun RepeatTripScreen(
     var loadError by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
     var submittingRoute by remember { mutableStateOf<String?>(null) }
-    val repeatStatus = appText("ищем водителя", "водитель эҙләйбеҙ")
+    val repeatStatus = appText("ищем водителя", "йөрөтөүсе эҙләйбеҙ")
     val repeatNow = appText("сейчас", "хәҙер")
     val sendError = appText("Не получилось создать заявку. Проверь сеть и повтори.", "Заявка булдырып булманы. Интернетте тикшереп ҡабатла.")
 
@@ -1426,8 +1484,8 @@ internal fun RepeatTripScreen(
                         titleBa = "${s.count} тапҡыр",
                         from = s.from,
                         to = s.to,
-                        timeHint = "из вашей истории",
-                        timeHintBa = "һеҙҙең тарихтан",
+                        timeHint = "из твоей истории",
+                        timeHintBa = "һинең тарихтан",
                         categoryKey = "regular"
                     )
                 }
@@ -1507,8 +1565,10 @@ internal fun RepeatTripContent(
             SectionHeader(
                 title = appText("Частые маршруты", "Йыш маршруттар"),
                 subtitle = appText(
-                    "Выберите маршрут — Юлдаш сразу создаст заявку.",
-                    "Маршрутты һайлағыҙ — Юлдаш шунда уҡ заявка булдыра."
+                    // Оба языка были на «вы» — единственный тон Юлдаша «ты», и в простом
+                    // режиме он важнее всего: тут читают пожилые, и «вы» звучит казённо.
+                    "Выбери маршрут — Юлдаш сразу создаст заявку.",
+                    "Маршрутты һайла — Юлдаш шунда уҡ заявка булдыра."
                 )
             )
         }
@@ -1519,7 +1579,7 @@ internal fun RepeatTripContent(
                         title = appText("Нужно войти", "Инергә кәрәк"),
                         text = appText(
                             "Войди через Telegram, чтобы Юлдаш мог создать заявку и показать ответы водителей.",
-                            "Юлдаш заявка булдырып, водителдәр яуаптарын күрһәтһен өсөн Telegram аша ин."
+                            "Юлдаш заявка булдырып, йөрөтөүселәр яуаптарын күрһәтһен өсөн Telegram аша ин."
                         ),
                         icon = Icons.Default.Person,
                         actionLabel = appText("Войти", "Инеү"),
@@ -1683,7 +1743,7 @@ internal fun CallbackHelpContent(
         item {
             Button(
                 onClick = onPrimaryAction,
-                modifier = Modifier.fillMaxWidth().height(58.dp).testTag("callback_btn"),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp).testTag("callback_btn"),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {

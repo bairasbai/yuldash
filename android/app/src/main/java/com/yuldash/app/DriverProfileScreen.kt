@@ -66,7 +66,7 @@ internal fun DriverProfileScreen(driverId: Int, onBack: () -> Unit) {
 
     Scaffold(
         containerColor = CanonBg,
-        topBar = { ScreenTopBar(appText("Профиль водителя", "Водитель профиле"), onBack) },
+        topBar = { ScreenTopBar(appText("Профиль водителя", "Йөрөтөүсе профиле"), onBack) },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
@@ -273,9 +273,5 @@ private fun tenureValue(days: Int, lang: AppLanguage): String {
     }
 }
 
-/** ISO-дата «2026-07-05T…» → «05.07.2026». Пусто/битое → null (подпись не показываем). */
-private fun shortDate(iso: String): String? {
-    val d = iso.trim().take(10)
-    if (d.length != 10 || d[4] != '-' || d[7] != '-') return null
-    return "${d.substring(8, 10)}.${d.substring(5, 7)}.${d.substring(0, 4)}"
-}
+// `shortDate` жила здесь своей копией — теперь одна общая в CouponsScreen.kt.
+// Поведение этой копии и стало общим: битую дату не показываем вовсе.

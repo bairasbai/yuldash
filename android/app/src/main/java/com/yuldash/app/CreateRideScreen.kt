@@ -169,6 +169,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -277,36 +278,44 @@ internal fun createRideValid(from: String, to: String, price: String): Boolean {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, prefillDate: String? = null) {
-    var from by remember { mutableStateOf("") }
-    var to by remember { mutableStateOf("") }
+    // rememberSaveable, а не remember: Android выгружает приложение из памяти, пока человек
+    // отвечает на звонок или смотрит карту в другом приложении. Экран после этого
+    // восстанавливается (`screen` живёт в SavedStateHandle), а вот заполненная форма — нет:
+    // водитель возвращался к пустым полям и заполнял всё заново. В «Посылках» и «Такси»
+    // длинные формы уже переживают выгрузку — здесь было исключением.
+    // Переведены только поля, которые человек ввёл руками. Загруженное с сервера
+    // (`partners`, `geoRoutes`, `priceHintDto`) и временное (`showPicker`, `publishing`)
+    // переживать выгрузку не должно — оно перезапросится или начнётся заново.
+    var from by rememberSaveable { mutableStateOf("") }
+    var to by rememberSaveable { mutableStateOf("") }
     // F15: если открыли из баннера «на праздник» — дата события уже стоит (можно поменять пикером).
-    var dateTime by remember { mutableStateOf(prefillDate.orEmpty()) }
-    var seats by remember { mutableStateOf("2") }
-    var price by remember { mutableStateOf("300") }
-    var comment by remember { mutableStateOf("") }
-    var petsAllowed by remember { mutableStateOf(false) }
-    var childSeat by remember { mutableStateOf(false) }
-    var womenOnly by remember { mutableStateOf(false) }
-    var smoking by remember { mutableStateOf(false) }
-    var baggage by remember { mutableStateOf(false) }
-    var airConditioner by remember { mutableStateOf(false) }
-    var onlyTrusted by remember { mutableStateOf(false) }   // «только для своих» (L3)
-    var quiet by remember { mutableStateOf(false) }
+    var dateTime by rememberSaveable { mutableStateOf(prefillDate.orEmpty()) }
+    var seats by rememberSaveable { mutableStateOf("2") }
+    var price by rememberSaveable { mutableStateOf("300") }
+    var comment by rememberSaveable { mutableStateOf("") }
+    var petsAllowed by rememberSaveable { mutableStateOf(false) }
+    var childSeat by rememberSaveable { mutableStateOf(false) }
+    var womenOnly by rememberSaveable { mutableStateOf(false) }
+    var smoking by rememberSaveable { mutableStateOf(false) }
+    var baggage by rememberSaveable { mutableStateOf(false) }
+    var airConditioner by rememberSaveable { mutableStateOf(false) }
+    var onlyTrusted by rememberSaveable { mutableStateOf(false) }   // «только для своих» (L3)
+    var quiet by rememberSaveable { mutableStateOf(false) }
     // Водитель заранее говорит, берёт ли подростков без сопровождения. Честнее, чем отказывать
     // на месте, когда ребёнок уже стоит у дороги.
-    var noMinors by remember { mutableStateOf(false) }
+    var noMinors by rememberSaveable { mutableStateOf(false) }
     var waypoints by remember { mutableStateOf(listOf<String>()) }
-    var recurrence by remember { mutableStateOf("none") }
-    var category by remember { mutableStateOf("regular") }
-    var partnerId by remember { mutableStateOf<Int?>(null) }   // F22: клиника-назначение (для category=hospital)
+    var recurrence by rememberSaveable { mutableStateOf("none") }
+    var category by rememberSaveable { mutableStateOf("regular") }
+    var partnerId by rememberSaveable { mutableStateOf<Int?>(null) }   // F22: клиника-назначение (для category=hospital)
     var partners by remember { mutableStateOf<List<com.yuldash.app.data.MedicalPartnerDto>>(emptyList()) }
     LaunchedEffect(Unit) { ApiClient.getMedicalPartners().onSuccess { partners = it } }   // справочник клиник (тихо; форма работает и без него)
-    var receiverName by remember { mutableStateOf("") }   // посылка: кому отдать
-    var parcelSize by remember { mutableStateOf("") }     // посылка: габарит/вес
-    var pickup by remember { mutableStateOf("") }
-    var pickupLat by remember { mutableStateOf<Double?>(null) }
-    var pickupLng by remember { mutableStateOf<Double?>(null) }
-    var pickupPointId by remember { mutableStateOf<Int?>(null) }   // F14: id выбранной точки справочника (null = ручной ввод/карта)
+    var receiverName by rememberSaveable { mutableStateOf("") }   // посылка: кому отдать
+    var parcelSize by rememberSaveable { mutableStateOf("") }     // посылка: габарит/вес
+    var pickup by rememberSaveable { mutableStateOf("") }
+    var pickupLat by rememberSaveable { mutableStateOf<Double?>(null) }
+    var pickupLng by rememberSaveable { mutableStateOf<Double?>(null) }
+    var pickupPointId by rememberSaveable { mutableStateOf<Int?>(null) }   // F14: id выбранной точки справочника (null = ручной ввод/карта)
     val isBa = LocalAppLanguage.current == AppLanguage.Ba
     var showPicker by remember { mutableStateOf(false) }
     // Подсказка цены + честный расчёт бензина по маршруту (аддитивные поля сервера).
@@ -664,7 +673,7 @@ internal fun CreateRideFormContent(
                 )
                 OutlinedButton(
                     onClick = onOpenPicker,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.dp, if (pinned) CanonGreen2 else CanonBorder)
                 ) {

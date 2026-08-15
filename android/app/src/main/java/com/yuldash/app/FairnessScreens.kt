@@ -357,6 +357,11 @@ internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> U
                 }
             }
 
+            // Спор идёт: ответ второй стороны или решение могли прийти прямо сейчас. Если
+            // обновление сорвалось, а список остался прежним — человек ждёт хода, который уже сделан.
+            if (error && list.isNotEmpty()) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload++ }) }
+            }
             when {
                 loading && list.isEmpty() -> items(2) { i ->
                     Box(Modifier.appearIn(i)) { SkeletonCard(lines = 3) }

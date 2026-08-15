@@ -111,12 +111,21 @@ internal fun kopToRub(kop: Int): String {
     return (if (kop < 0) "−" else "") + rub + tail + " ₽"
 }
 
-/** Обрезать ISO-дату до "дд.мм.гггг" (или как есть, если формат другой). */
+/**
+ * ISO-дата «2026-07-05T…» → «05.07.2026». Непонятный формат → null (подпись не показываем).
+ *
+ * Одна на всё приложение. Копий было две с ОДНИМ именем: здесь и в профиле водителя — и они
+ * расходились на битой дате. Эта возвращала её как есть: «2026-3-2» превращалось в «2.3.2026»,
+ * то есть на купоне могло стоять неправильное «действует до». Лучше не показать срок вовсе,
+ * чем показать выдуманный: по этой подписи человек решает, ехать ли за скидкой.
+ *
+ * Третья функция с тем же именем (в баннере событий) давала другой формат — «дд.мм», без года.
+ * Она переименована в `shortDayMonth`, чтобы одно имя не значило двух разных вещей.
+ */
 internal fun shortDate(iso: String?): String? {
-    if (iso.isNullOrBlank()) return null
-    val date = iso.take(10)
-    val parts = date.split("-")
-    return if (parts.size == 3) "${parts[2]}.${parts[1]}.${parts[0]}" else date
+    val d = (iso ?: "").trim().take(10)
+    if (d.length != 10 || d[4] != '-' || d[7] != '-') return null
+    return "${d.substring(8, 10)}.${d.substring(5, 7)}.${d.substring(0, 4)}"
 }
 
 // ─────────────────────────── Экран ───────────────────────────
@@ -161,7 +170,7 @@ private fun CouponsListScreen(tab: Int, onTab: (Int) -> Unit, onOpen: (CouponDto
                 transitionSpec = { (fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK))) },
                 label = "coupon-tab",
             ) { t ->
-                if (t == 0) NearbyCouponsTab(onOpen) else MyCouponsTab()
+                if (t == 0) NearbyCouponsTab(onOpen) else MyCouponsTab(onGoNearby = { onTab(0) })
             }
         }
     }
@@ -239,6 +248,11 @@ private fun NearbyCouponsTab(onOpen: (CouponDto) -> Unit) {
                     cities.forEach { c -> CouponFilterChip(c, cityFilter == c) { cityFilter = if (cityFilter == c) "" else c } }
                 }
             }
+        }
+        // Витрина не обновилась, а карточки на экране остались: без этой плашки человек шёл
+        // в заведение со скидкой, которую партнёр уже снял.
+        if (error != null && coupons.isNotEmpty()) {
+            item(key = "stale") { AppStaleStrip(onRetry = { reload() }) }
         }
         when {
             loading && coupons.isEmpty() -> {
@@ -337,7 +351,7 @@ private fun PremiumBadge() {
 // ─────────────────────────── Вкладка «Мои купоны» ───────────────────────────
 
 @Composable
-private fun MyCouponsTab() {
+private fun MyCouponsTab(onGoNearby: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var list by remember { mutableStateOf<List<MyCouponDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -363,6 +377,11 @@ private fun MyCouponsTab() {
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
     ) {
+        // Ровно та ситуация, ради которой тут жест: человек тянет экран, чтобы увидеть «погашен».
+        // Если обновление не прошло, а старый статус остался — молчать нельзя.
+        if (error != null && list.isNotEmpty()) {
+            item(key = "stale") { AppStaleStrip(onRetry = { reload() }) }
+        }
         when {
             loading && list.isEmpty() -> {
                 item { SkeletonCard(lines = 2) }
@@ -370,10 +389,15 @@ private fun MyCouponsTab() {
             }
             error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
             list.isEmpty() -> item {
+                // Текст указывал дорогу («активируй на вкладке «Скидки рядом»»), но идти туда
+                // человек должен был сам. Экран, который знает, что делать дальше, обязан вести,
+                // а не подсказывать: кнопка переключает на ту же вкладку, о которой говорит текст.
                 AppEmptyState(
                     title = appText("Пока нет купонов", "Әлегә купондар юҡ"),
                     text = appText("Активируй скидку на вкладке «Скидки рядом» — код появится здесь.", "«Яҡындағы ташламалар» бүлегендә ташламаны активлаштыр — код бында күренер."),
                     icon = Icons.Default.LocalOffer,
+                    actionLabel = appText("Посмотреть скидки", "Ташламаларҙы ҡарау"),
+                    onAction = onGoNearby,
                 )
             }
             else -> items(list.size, key = { "myc-" + list[it].code }) { i ->

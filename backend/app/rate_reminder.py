@@ -44,19 +44,29 @@ def rate_reminder_once(session: Session, dry_run: bool = False) -> list[tuple[in
             Booking.created_at > utcnow() - timedelta(days=REMIND_MAX_AGE_DAYS),
         )
     ).all()
+    if not done:
+        return []
+    # Поездки и уже поставленные оценки забираем ДВУМЯ запросами на весь список, а не по два
+    # на каждую бронь. Раньше: поездка (session.get) плюс проверка оценки на каждого из двоих —
+    # то есть три похода в базу на бронь. За сутки таких броней столько же, сколько поездок в
+    # городе, и с ростом это растёт линейно.
+    rides = {
+        r.id: r for r in session.exec(select(Ride).where(Ride.id.in_({b.ride_id for b in done}))).all()
+    }
+    rated: set[tuple[int, int]] = {
+        (r.booking_id, r.rater_id)
+        for r in session.exec(select(Rating).where(Rating.booking_id.in_([b.id for b in done]))).all()
+    }
     for b in done:
-        ride = session.get(Ride, b.ride_id)
+        ride = rides.get(b.ride_id)
         if ride:
             for uid in (b.passenger_id, ride.driver_id):
-                already = session.exec(
-                    select(Rating).where(Rating.booking_id == b.id, Rating.rater_id == uid)
-                ).first()
-                if already:
+                if (b.id, uid) in rated:
                     continue                  # уже оценил эту поездку → не напоминаем
                 if not dry_run:
                     push_notification(
                         session, uid, "ride",
-                        "Оцените поездку", "Сәфәрҙе баһалағыҙ",
+                        "Оцени поездку", "Сәфәрҙе баһала",
                         "Поставь оценку попутчику — это помогает доверию между своими.",
                         "Юлдашыңа баһа ҡуй — был үҙ-ара ышанысҡа ярҙам итә.",
                         ref_kind="booking", ref_id=b.id,

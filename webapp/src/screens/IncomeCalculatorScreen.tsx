@@ -66,11 +66,11 @@ export default function IncomeCalculatorScreen() {
 
       {/* Из чего складывается */}
       <div className="admin-card" style={{ marginTop: 12 }}>
-        <div className="admin-card__title" style={{ fontSize: 15, marginBottom: 8 }}>
+        <div className="admin-card__title" style={{ fontSize: "var(--font-body)", marginBottom: 8 }}>
           {appText("Из чего доход", "Килем нимәнән")}
         </div>
         <Breakdown label={appText("Купоны и реклама бизнеса", "Купондар һәм бизнес рекламаһы")} value={rub(calc.couponsIncome * routes)} />
-        <Breakdown label={appText("Boost водителей", "Водителдәр Boost'ы")} value={rub(calc.boostIncome * routes)} />
+        <Breakdown label={appText("Boost водителей", "Йөрөтөүселәр Boost'ы")} value={rub(calc.boostIncome * routes)} />
         {taxiOn && <Breakdown label={appText("Комиссия такси", "Такси комиссияһы")} value={rub(calc.taxiIncome * routes)} />}
       </div>
 
@@ -86,7 +86,7 @@ export default function IncomeCalculatorScreen() {
       {/* Такси (опционально) */}
       <div className="admin-card" style={{ marginTop: 12 }}>
         <label className="admin-check" style={{ marginTop: 0, justifyContent: "space-between" }}>
-          <span style={{ fontWeight: 700, fontSize: 15 }}>{appText("Включить такси (комиссия)", "Таксины ҡабыҙыу (комиссия)")}</span>
+          <span style={{ fontWeight: 700, fontSize: "var(--font-body)" }}>{appText("Включить такси (комиссия)", "Таксины ҡабыҙыу (комиссия)")}</span>
           <input type="checkbox" checked={taxiOn} onChange={(e) => setTaxiOn(e.target.checked)} aria-label={appText("Включить такси", "Таксины ҡабыҙыу")} />
         </label>
         {taxiOn ? (

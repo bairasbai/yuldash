@@ -14,6 +14,8 @@ import { SubHeader } from "./ConsentsScreen";
 import { IconCheck, IconBolt, IconHospital, IconUsers } from "../components/Icons";
 import { YuModeRideshare } from "../components/BrandIcons";
 import { AmenityIcon } from "../components/amenityIcons";
+import CityField from "../components/CityField";
+import { minDateTimeNow } from "../utils/dateInput";
 
 type Opt =
   | "baggage"
@@ -109,7 +111,7 @@ export default function CreateRequestScreen() {
         />
         <div className="state">
           <div className="state__icon"><IconCheck size={34} /></div>
-          <h2>{appText("Готово! Ищем водителя", "Әҙер! Водитель эҙләйбеҙ")}</h2>
+          <h2>{appText("Готово! Ищем водителя", "Әҙер! Йөрөтөүсе эҙләйбеҙ")}</h2>
           <p>
             {appText(
               "Как только кто-то откликнется — покажем предложения. Загляни во «Мои заявки».",
@@ -142,38 +144,33 @@ export default function CreateRequestScreen() {
     <>
       <SubHeader
         title={appText("Куда едем?", "Ҡайҙа барабыҙ?")}
-        subtitle={appText("Оставь заявку — водители откликнутся", "Заявка ҡалдыр — водителдәр яуап бирер")}
+        subtitle={appText("Оставь заявку — водители откликнутся", "Заявка ҡалдыр — йөрөтөүселәр яуап бирер")}
         onBack={() => navigate(-1)}
       />
 
       <div className="form">
-        <label className="field">
-          <span className="field__label">{appText("Откуда", "Ҡайҙан")}</span>
-          <input
-            className="field__input"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            placeholder={appText("Город или село", "Ҡала йәки ауыл")}
-            autoComplete="off"
-          />
-        </label>
+        {/* Подсказки из справочника: заявка и поездка должны быть написаны
+            одинаково, иначе они не встретятся в поиске. */}
+        <CityField
+          label={appText("Откуда", "Ҡайҙан")}
+          value={from}
+          onChange={setFrom}
+          placeholder={appText("Город или село", "Ҡала йәки ауыл")}
+        />
 
-        <label className="field">
-          <span className="field__label">{appText("Куда", "Ҡайҙа")}</span>
-          <input
-            className="field__input"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder={appText("Город или село", "Ҡала йәки ауыл")}
-            autoComplete="off"
-          />
-        </label>
+        <CityField
+          label={appText("Куда", "Ҡайҙа")}
+          value={to}
+          onChange={setTo}
+          placeholder={appText("Город или село", "Ҡала йәки ауыл")}
+        />
 
         <label className="field">
           <span className="field__label">{appText("Когда (необязательно)", "Ҡасан (мотлаҡ түгел)")}</span>
           <input
             className="field__input"
             type="datetime-local"
+            min={minDateTimeNow()}
             value={when}
             onChange={(e) => setWhen(e.target.value)}
           />
@@ -206,6 +203,8 @@ export default function CreateRequestScreen() {
               className="field__input"
               type="number"
               inputMode="numeric"
+              min={0}
+              max={1000000}
               value={maxPrice}
               onChange={(e) => setMaxPrice(e.target.value)}
               placeholder={appText("не важно", "мөһим түгел")}
@@ -301,7 +300,7 @@ export default function CreateRequestScreen() {
           onClick={submit}
           disabled={!canSubmit}
         >
-          {busy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Найти водителя", "Водитель табырға")}
+          {busy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Найти водителя", "Йөрөтөүсе табырға")}
         </button>
       </div>
     </>

@@ -149,7 +149,7 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
             ApiClient.activateScheduledOrder(id)
                 .onSuccess { onActivated() }
                 .onFailure {
-                    Toast.makeText(ctx, actionError, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, serverSaid(it, actionError), Toast.LENGTH_LONG).show()
                     reload++   // гонка (уже активирован/отменён) → обновим список
                 }
             busyId = 0
@@ -164,7 +164,7 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                     data = data.copy(scheduled = data.scheduled.filterNot { it.id == id })
                 }
                 .onFailure {
-                    Toast.makeText(ctx, actionError, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, serverSaid(it, actionError), Toast.LENGTH_LONG).show()
                     reload++
                 }
             busyId = 0
@@ -418,7 +418,7 @@ private fun RouteLine(order: InstantOrderDto) {
 
 @Composable
 private fun activatedScheduledTitle(status: String): String = when (status) {
-    "accepted", "arriving" -> appText("Водитель едет к тебе", "Водитель һиңә килә")
+    "accepted", "arriving" -> appText("Водитель едет к тебе", "Йөрөтөүсе һиңә килә")
     "onboard" -> appText("Поездка началась", "Сәфәр башланды")
     else -> appText("Пора ехать — ищем машину", "Барыр ваҡыт — машина эҙләйбеҙ")
 }

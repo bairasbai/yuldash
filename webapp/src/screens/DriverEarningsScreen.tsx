@@ -18,10 +18,12 @@ import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconTrend } from "../components/Icons";
 
+import { dayMonthShort } from "../utils/format";
 type Status = "loading" | "error" | "soon" | "ready";
 
 export default function DriverEarningsScreen() {
-  const { appText } = useLang();
+  const { appText, lang } = useLang();
+  const ru = lang !== "ba";
   const navigate = useNavigate();
 
   const [period, setPeriod] = useState<EarningsPeriod>("week");
@@ -51,21 +53,21 @@ export default function DriverEarningsScreen() {
   const periods: { key: EarningsPeriod; label: string }[] = [
     { key: "week", label: appText("Неделя", "Аҙна") },
     { key: "month", label: appText("Месяц", "Ай") },
-    { key: "all", label: appText("Всё время", "Бар ваҡыт") },
+    { key: "all", label: appText("Всё время", "Бөтә ваҡыт") },
   ];
 
   const maxSum = data ? Math.max(1, ...data.by_day.map((d) => d.sum)) : 1;
 
-  function dayLabel(iso: string): string {
+  function dayLabel(iso: string, ru: boolean): string {
     const d = new Date(iso + "T00:00:00");
     if (isNaN(d.getTime())) return iso;
-    return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+    return dayMonthShort(d, ru);
   }
 
   return (
     <>
       <SubHeader
-        title={appText("Мой заработок", "Табышым")}
+        title={appText("Мой заработок", "Минең табыш")}
         subtitle={appText("Заработок с завершённых заказов", "Тамамланған заказдарҙан табыш")}
         onBack={() => navigate(-1)}
       />
@@ -108,7 +110,7 @@ export default function DriverEarningsScreen() {
           </div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load(period)}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}
@@ -146,7 +148,7 @@ export default function DriverEarningsScreen() {
                         style={{ height: `${Math.max(6, Math.round((d.sum / maxSum) * 100))}%` }}
                       />
                     </div>
-                    <div className="earn-bar__label">{dayLabel(d.date)}</div>
+                    <div className="earn-bar__label">{dayLabel(d.date, ru)}</div>
                     <div className="earn-bar__trips">
                       {d.trips} {appText("п.", "с.")}
                     </div>

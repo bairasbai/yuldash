@@ -105,7 +105,9 @@ internal fun MobilityScreenIntro(
                     Surface(shape = CircleShape, color = accent.copy(alpha = 0.14f)) {
                         Text(
                             badge,
-                            color = accent,
+                            // Не `accent`: в режиме «Такси» акцент жёлтый, и подпись на своей же
+                            // жёлтой подложке давала 1.97:1 — слово «Такси» было почти не видно.
+                            color = canonChipInk(accent),
                             style = CanonMicro,   // метка режима — подпись, а не второй заголовок
                             modifier = Modifier.padding(horizontal = CanonSpace.sm, vertical = CanonSpace.xs),
                         )

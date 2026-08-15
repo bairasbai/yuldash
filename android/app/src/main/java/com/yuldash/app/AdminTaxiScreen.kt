@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -159,7 +160,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                 item {
                     ListedEmpty(
                         appText("Заявок нет", "Заявка юҡ"),
-                        appText("Здесь появятся водители, которые хотят возить такси.", "Бында такси йөрөтөргә теләгән водителдәр күренер"),
+                        appText("Здесь появятся водители, которые хотят возить такси.", "Бында такси йөрөтөргә теләгән йөрөтөүселәр күренер"),
                     )
                 }
             } else {
@@ -215,7 +216,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                                                     .onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }
                                             }
                                         },
-                                        modifier = Modifier.weight(1f).height(48.dp),
+                                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                         shape = RoundedCornerShape(14.dp),
                                         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                                     ) { Text(appText("Одобрить", "Раҫлау"), fontWeight = FontWeight.Bold) }
@@ -223,7 +224,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                                         onClick = {
                                             if (rejectingId == a.id) { rejectingId = null } else { rejectingId = a.id; rejectComment = "" }
                                         },
-                                        modifier = Modifier.weight(1f).height(48.dp),
+                                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                         shape = RoundedCornerShape(14.dp),
                                     ) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
                                 }
@@ -233,7 +234,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                                         OutlinedTextField(
                                             value = rejectComment,
                                             onValueChange = { rejectComment = it.take(300) },
-                                            label = { Text(appText("Почему отклоняешь (увидит водитель)", "Ниңә кире ҡағаһың (водитель күрер)")) },
+                                            label = { Text(appText("Почему отклоняешь (увидит водитель)", "Ниңә кире ҡағаһың (йөрөтөүсе күрер)")) },
                                             modifier = Modifier.fillMaxWidth(),
                                             shape = RoundedCornerShape(14.dp),
                                         )
@@ -248,7 +249,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                                                 }
                                             },
                                             enabled = rejectComment.isNotBlank(),
-                                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                             shape = RoundedCornerShape(14.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = CanonRed),
                                         ) { Text(appText("Отклонить с комментарием", "Комментарий менән кире ҡағыу"), fontWeight = FontWeight.Bold) }
@@ -336,13 +337,13 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                             }
                         },
                         enabled = newCity.isNotBlank() && !cityBusy,
-                        modifier = Modifier.height(56.dp),
+                        modifier = Modifier.heightIn(min = 56.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                     ) {
                         Icon(Icons.Default.Add, contentDescription = appText("Добавить город", "Ҡала өҫтәү"))
                         Spacer(Modifier.width(4.dp))
-                        Text(appText("Добавить", "Өҫтәү"), fontWeight = FontWeight.Bold)
+                        Text(appText("Добавить", "Өҫтәргә"), fontWeight = FontWeight.Bold)
                     }
                 }
             }

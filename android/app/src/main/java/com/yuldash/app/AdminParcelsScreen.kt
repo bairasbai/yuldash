@@ -118,6 +118,11 @@ internal fun AdminParcelsScreen(onBack: () -> Unit) {
                         color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                     )
                 }
+                // Доставки и сбор не обновились, прежние цифры остались: сумма сбора выглядит
+                // свежей, хотя она вчерашняя.
+                if (error != null && list.isNotEmpty()) {
+                    item(key = "stale") { AppStaleStrip(onRetry = { reload() }) }
+                }
                 statement?.let { s -> item { ParcelStatementCard(s) } }
                 item(key = "state") {
                     AnimatedContent(

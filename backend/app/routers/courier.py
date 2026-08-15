@@ -642,19 +642,35 @@ def courier_offline(user: User = Depends(current_user), session: Session = Depen
     return _profile_payload(prof)
 
 
-def _order_matches_zone(session: Session, p: ParcelDelivery, prof: CourierProfile) -> bool:
+def _order_matches_zone(
+    session: Session, p: ParcelDelivery, prof: CourierProfile,
+    area_cache: dict | None = None,
+) -> bool:
     """Подходит ли заказ под зону курьера. Правила общие с такси (`geo.zone_allows`):
     база — свой НП или свой район, выезд за неё — по тумблерам «загород»/«соседние регионы».
 
     Города посылки лежат текстом, поэтому сначала переводим их в справочник: «Берёзовка
-    (Иглинский р-н)» → нужная из четырёх. Не узнали — не режем (fail-open)."""
+    (Иглинский р-н)» → нужная из четырёх. Не узнали — не режем (fail-open).
+
+    `area_cache` — словарь «название города → место», один на весь список заказов. Перевод
+    названия в справочник ходит в базу, а городов в районе десяток на сотни посылок: без
+    словаря один и тот же «Сибай» искали бы заново на каждую строку ленты."""
+    def место(name: str):
+        имя = name or ""
+        if area_cache is None:
+            return geo_mod.area_by_name(session, имя)
+        ключ = имя.strip().casefold()
+        if ключ not in area_cache:
+            area_cache[ключ] = geo_mod.area_by_name(session, имя)
+        return area_cache[ключ]
+
     return geo_mod.zone_allows(
         session,
         zone=prof.zone, work_city=prof.work_city, work_district=prof.work_district,
         intercity=bool(prof.work_intercity), regions=bool(prof.work_regions),
         direction_id=prof.work_direction_id,
-        a=geo_mod.area_by_name(session, p.from_city or ""),
-        b=geo_mod.area_by_name(session, p.to_city or ""),
+        a=место(p.from_city),
+        b=место(p.to_city),
         local_km=settings.instant_intercity_km,   # общий порог «местная поездка / межгород»
     )
 
@@ -682,7 +698,11 @@ def courier_available(from_city: Optional[str] = None, to_city: Optional[str] = 
         tc = to_city.strip().casefold()
         rows = [p for p in rows if (p.to_city or "").strip().casefold() == tc]
     if prof is not None:
-        rows = [p for p in rows if _order_matches_zone(session, p, prof)]
+        # Один словарь городов на всю ленту: «Сибай» переводится в справочник один раз,
+        # а не на каждую посылку. Пересчитывать его между запросами нельзя — справочник
+        # общий, но живёт он ровно на время этого ответа.
+        area_cache: dict = {}
+        rows = [p for p in rows if _order_matches_zone(session, p, prof, area_cache)]
     # Заблокированных не показываем — как в обычной ленте посылок. Раньше этой витрине про
     # блокировку не сказали: курьер видел заказ человека, который его заблокировал, жал
     # «Взять» и получал 403 без объяснения (аудит 2026-08-08, волна 73).

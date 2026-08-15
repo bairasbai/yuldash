@@ -114,7 +114,7 @@ export default function RepeatTripScreen() {
   return (
     <>
       <SubHeader
-        title={appText("Повтор маршрута", "Маршрутты ҡабатлау")}
+        title={appText("Повторить маршрут", "Маршрутты ҡабатлау")}
         subtitle={appText("Поедешь как в прошлый раз — в один тап", "Үткәндәге кеүек — бер баҫыуҙа")}
         onBack={() => navigate(-1)}
       />

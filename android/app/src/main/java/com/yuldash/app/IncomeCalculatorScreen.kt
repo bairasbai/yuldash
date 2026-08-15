@@ -112,7 +112,7 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(appText("Из чего доход", "Килем нимәнән"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         BreakdownRow(appText("Купоны и реклама бизнеса", "Купондар һәм бизнес рекламаһы"), rub(couponsIncome * routes))
-                        BreakdownRow(appText("Boost водителей", "Водителдәр Boost'ы"), rub(boostIncome * routes))
+                        BreakdownRow(appText("Boost водителей", "Йөрөтөүселәр Boost'ы"), rub(boostIncome * routes))
                         if (taxiOn) BreakdownRow(appText("Комиссия такси", "Такси комиссияһы"), rub(taxiIncome * routes))
                     }
                 }
@@ -144,7 +144,7 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
                             // «Чистыми после бензина» рядом с валовым — прозрачно, что именно вычли.
                             Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(appText("Сколько остаётся водителю", "Водителгә күпме ҡала"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text(appText("Сколько остаётся водителю", "Йөрөтөүсегә күпме ҡала"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
                                             Text(appText("Валовый (что платят)", "Ялпы (нимә түләйҙәр)"), color = CanonMuted, fontSize = 12.sp)

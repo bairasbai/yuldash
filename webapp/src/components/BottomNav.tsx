@@ -26,9 +26,11 @@ const tabs: Tab[] = [
 ];
 
 export default function BottomNav() {
-  const { t } = useLang();
+  const { t, appText } = useLang();
   return (
-    <nav className="bottom-nav" aria-label="Основная навигация">
+    // Подпись для озвучки экрана — тоже надпись, и она была только по-русски:
+    // незрячий человек с башкирским интерфейсом слышал чужой язык.
+    <nav className="bottom-nav" aria-label={appText("Основная навигация", "Төп навигация")}>
       {tabs.map(({ to, key, Icon }) => (
         <NavLink
           key={to}

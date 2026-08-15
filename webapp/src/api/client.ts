@@ -100,6 +100,118 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Язык интерфейса для текстов ошибок. Читаем из того же места, что и i18n. */
+function isBashkir(): boolean {
+  try {
+    return localStorage.getItem("yuldash.lang") === "ba";
+  } catch {
+    return false;
+  }
+}
+
+/** Общая фраза, когда сервер не прислал понятного текста. */
+function genericByStatus(status: number, ba: boolean): string {
+  if (status === 0)
+    return ba
+      ? "Бәйләнеш юҡ. Интернетты тикшереп ҡабатла."
+      : "Нет связи. Проверь интернет и попробуй ещё раз.";
+  if (status === 403)
+    return ba ? "Быға хоҡуғың юҡ." : "Нет доступа к этому действию.";
+  if (status === 404)
+    return ba ? "Табылманы." : "Не найдено.";
+  if (status === 409)
+    return ba ? "Хәл үҙгәргән — экранды яңырт." : "Состояние изменилось — обнови экран.";
+  if (status === 422)
+    return ba ? "Мәғлүмәт дөрөҫ түгел. Тикшереп ҡара." : "Данные заполнены неверно. Проверь поля.";
+  if (status === 429)
+    return ba ? "Артыҡ йыш. Бер аҙ көт." : "Слишком часто. Подожди немного.";
+  if (status >= 500)
+    return ba ? "Серверҙа хата. Аҙыраҡтан ҡабатла." : "Ошибка на сервере. Попробуй чуть позже.";
+  return ba ? "Булманы. Ҡабатлап ҡара." : "Не получилось. Попробуй ещё раз.";
+}
+
+/**
+ * Имена полей, как их называет человек. Сервер присылает служебные («from_city»),
+ * и «проверь поля» на форме из десяти строк никому не помогает.
+ * Чего нет в списке — не называем: лучше общая фраза, чем английское слово.
+ */
+const FIELD_RU: Record<string, [string, string]> = {
+  phone: ["телефон", "телефон"],
+  name: ["имя", "исем"],
+  from_city: ["город отправления", "сығыу ҡалаһы"],
+  to_city: ["город назначения", "барыр ҡала"],
+  depart_at: ["время выезда", "сығыу ваҡыты"],
+  desired_at: ["время", "ваҡыт"],
+  scheduled_at: ["время подачи", "килеү ваҡыты"],
+  seats: ["число мест", "урын һаны"],
+  seats_total: ["число мест", "урын һаны"],
+  price: ["цена", "хаҡ"],
+  code: ["код", "код"],
+  text: ["текст", "текст"],
+  reason: ["причина", "сәбәп"],
+  comment: ["комментарий", "иҫкәрмә"],
+  receiver_name: ["имя получателя", "алыусы исеме"],
+  receiver_phone: ["телефон получателя", "алыусы телефоны"],
+  weight_kg: ["вес", "ауырлыҡ"],
+  inn: ["ИНН", "ИНН"],
+  permit_number: ["номер разрешения", "рөхсәт номеры"],
+  birth_date: ["дата рождения", "тыуған көн"],
+  amount: ["сумма", "сумма"],
+  amount_kop: ["сумма", "сумма"],
+  stars: ["оценка", "баһа"],
+  city: ["город", "ҡала"],
+  title: ["название", "атама"],
+};
+
+/** Ошибка валидации FastAPI → «Проверь: телефон, цена». */
+function validationMessage(detail: unknown[], ba: boolean): string | null {
+  const names: string[] = [];
+  for (const item of detail) {
+    const loc = (item as { loc?: unknown[] })?.loc;
+    if (!Array.isArray(loc)) continue;
+    // loc = ["body", "phone"] — берём последний осмысленный кусок.
+    const key = String(loc[loc.length - 1] ?? "");
+    const pair = FIELD_RU[key];
+    if (pair && !names.includes(pair[ba ? 1 : 0])) names.push(pair[ba ? 1 : 0]);
+  }
+  if (names.length === 0) return null;
+  return ba
+    ? `Тикшер: ${names.join(", ")}.`
+    : `Проверь: ${names.join(", ")}.`;
+}
+
+/**
+ * Тело ошибки → фраза для человека.
+ *
+ * Сервер отвечает тремя разными формами, и раньше все три превращались в
+ * `String(detail)`:
+ *   • {ru, ba} — двуязычная ошибка (280 мест в бэкенде) давала «[object Object]»;
+ *   • массив — ошибка валидации FastAPI, тоже «[object Object]»;
+ *   • строка — единственная форма, которая работала.
+ *
+ * То есть почти все объяснения сервера до человека не доходили. Теперь берём
+ * нужный язык, а для форм без готового текста — общую фразу по коду.
+ */
+function errorMessage(status: number, detail: unknown): string {
+  const ba = isBashkir();
+  if (Array.isArray(detail)) {
+    return validationMessage(detail, ba) ?? genericByStatus(status, ba);
+  }
+  if (detail && typeof detail === "object") {
+    const d = detail as { ru?: string; ba?: string };
+    const ru = (d.ru ?? "").trim();
+    const bashkir = (d.ba ?? "").trim();
+    if (ba && bashkir) return bashkir;
+    if (ru) return ru;
+    if (bashkir) return bashkir;
+  }
+  // Строка от сервера всегда по-русски: башкиру отдаём общую фразу, а не чужой язык.
+  if (typeof detail === "string" && detail.trim()) {
+    return ba ? genericByStatus(status, true) : detail;
+  }
+  return genericByStatus(status, ba);
+}
+
 async function request<T>(
   path: string,
   init: RequestInit & { auth?: boolean; _retried?: boolean } = {}
@@ -115,9 +227,12 @@ async function request<T>(
         ...(headers as Record<string, string> | undefined),
       },
     });
-  } catch (e) {
-    // Сеть недоступна / CORS / таймаут — единый тип для UI.
-    throw new ApiError(0, e instanceof Error ? e.message : "network");
+  } catch {
+    // Сеть недоступна / CORS / таймаут. Сообщение браузера сюда класть НЕЛЬЗЯ:
+    // это «Failed to fetch» (Chrome), «Load failed» (Safari) — английский технический
+    // текст, который экраны показывают человеку как есть (`e.message`, 146 мест).
+    // Кладём сразу человеческую фразу на его языке.
+    throw new ApiError(0, genericByStatus(0, isBashkir()));
   }
 
   if (res.status === 401) {
@@ -128,16 +243,22 @@ async function request<T>(
     setToken(null);
     setRefreshToken(null);
     onUnauthorized?.();
-    throw new ApiError(401, "unauthorized");
+    throw new ApiError(
+      401,
+      isBashkir() ? "Яңынан инергә кәрәк." : "Нужно войти заново."
+    );
   }
 
   if (!res.ok) {
-    let detail = res.statusText;
+    // statusText — это «Bad Gateway» и «Internal Server Error»: английский текст
+    // от nginx, который экраны показали бы человеку как объяснение. Берём общую
+    // фразу по коду и меняем её только если сервер прислал понятное тело.
+    let detail = genericByStatus(res.status, isBashkir());
     try {
       const body = await res.json();
-      if (body?.detail) detail = String(body.detail);
+      detail = errorMessage(res.status, body?.detail);
     } catch {
-      /* тело не JSON — оставляем statusText */
+      /* тело не JSON (упал прокси, отдал HTML) — остаётся человеческая фраза */
     }
     throw new ApiError(res.status, detail);
   }

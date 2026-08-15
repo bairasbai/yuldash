@@ -1,8 +1,10 @@
 import { useLang } from "../i18n/lang";
 import type { Ride } from "../api/rides";
 import { IconArrow, IconCheck } from "./Icons";
+import { serverDate } from "../utils/serverTime";
 import { YuStar, YuWomenOnly } from "./BrandIcons";
 
+import { dayMonthShort, hhmm } from "../utils/format";
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -10,8 +12,8 @@ function initials(name: string): string {
 }
 
 function formatWhen(iso: string, ru: boolean): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
+  const d = serverDate(iso);
+  if (!d) return "";
   const now = new Date();
   const sameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() &&
@@ -20,14 +22,10 @@ function formatWhen(iso: string, ru: boolean): string {
   const tomorrow = new Date(now);
   tomorrow.setDate(now.getDate() + 1);
 
-  const time = d.toLocaleTimeString(ru ? "ru-RU" : "ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const time = hhmm(d);
   if (sameDay(d, now)) return `${ru ? "Сегодня" : "Бөгөн"} ${time}`;
   if (sameDay(d, tomorrow)) return `${ru ? "Завтра" : "Иртәгә"} ${time}`;
-  const date = d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
-  return `${date} ${time}`;
+  return `${dayMonthShort(d, ru)} ${time}`;
 }
 
 export default function RideCard({ ride, index }: { ride: Ride; index: number }) {

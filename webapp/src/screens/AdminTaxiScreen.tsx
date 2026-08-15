@@ -272,11 +272,11 @@ function Applications({ ru }: { ru: boolean }) {
                     style={{ marginTop: 12, minHeight: 76, paddingTop: 12 }}
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
-                    placeholder={appText("Что поправить — водитель увидит и подаст снова", "Нимә төҙәтергә — водитель күрер һәм яңынан ебәрер")}
+                    placeholder={appText("Что поправить — водитель увидит и подаст снова", "Нимә төҙәтергә — йөрөтөүсе күрер һәм яңынан ебәрер")}
                   />
                   <div className="field-row" style={{ marginTop: 10 }}>
                     <button type="button" className="btn-soft" style={{ flex: 1 }} onClick={() => setRejectingId(null)} disabled={busyId !== null}>
-                      {appText("Назад", "Кире")}
+                      {appText("Назад", "Артҡа")}
                     </button>
                     <button type="button" className="btn-danger" style={{ flex: 1, marginTop: 0 }} onClick={() => reject(a.id)} disabled={busyId !== null}>
                       {busyId === a.id ? appText("…", "…") : appText("Отклонить", "Кире ҡағыу")}
@@ -379,7 +379,7 @@ function Cities() {
           style={{ flex: 1 }}
         />
         <button type="button" className="btn-primary" onClick={add} disabled={busy || !name.trim()} style={{ minWidth: 96 }}>
-          {busy ? appText("…", "…") : appText("Добавить", "Өҫтәү")}
+          {busy ? appText("…", "…") : appText("Добавить", "Өҫтәргә")}
         </button>
       </div>
 
@@ -401,7 +401,7 @@ function Cities() {
           {cities.map((c) => (
             <div key={c.id} className="admin-card" style={{ padding: 14 }}>
               <div className="admin-card__head" style={{ marginBottom: 0 }}>
-                <div className="admin-card__title" style={{ fontSize: 15 }}>
+                <div className="admin-card__title" style={{ fontSize: "var(--font-body)" }}>
                   {c.city}
                   <span className={`badge ${c.enabled ? "badge--mint" : "badge--muted"}`} style={{ marginLeft: 8 }}>
                     {c.enabled ? appText("вкл", "ҡабыҙылған") : appText("выкл", "һүндерелгән")}

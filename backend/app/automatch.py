@@ -53,15 +53,30 @@ def automatch_once(session: Session, dry_run: bool = False) -> list[tuple[int, i
     cutoff = utcnow() - timedelta(seconds=settings.automatch_grace_sec)
     matched: list[tuple[int, int]] = []
     active = session.exec(select(RideRequest).where(RideRequest.status == "active")).all()
+    # Два справочника ОДНИМ запросом каждый, а не по два запроса на заявку.
+    #
+    # Раньше на каждую активную заявку уходило два похода в базу: «есть ли у пассажира
+    # приложение» и «какие есть отклики». При полусотне живых заявок это сто запросов за прогон,
+    # и растёт линейно вместе с городом. Оба ответа берутся одним запросом на весь список —
+    # дальше обычный поиск по словарю.
+    if not active:
+        return []
+    passenger_ids = {r.passenger_id for r in active}
+    request_ids = [r.id for r in active]
+    with_device = {
+        t.user_id
+        for t in session.exec(select(DeviceToken).where(DeviceToken.user_id.in_(passenger_ids))).all()
+    }
+    offers_by_request: dict[int, list] = {}
+    for o in session.exec(select(RequestResponse).where(
+        RequestResponse.request_id.in_(request_ids), RequestResponse.status == "offered",
+    )).all():
+        offers_by_request.setdefault(o.request_id, []).append(o)
     for req in active:
         # Только пассажир БЕЗ приложения: сам принять не может → это «помощь». Есть приложение → выбирает сам.
-        has_device = session.exec(
-            select(DeviceToken).where(DeviceToken.user_id == req.passenger_id)
-        ).first() is not None
-        if has_device:
+        if req.passenger_id in with_device:
             continue
-        offers = session.exec(select(RequestResponse).where(
-            RequestResponse.request_id == req.id, RequestResponse.status == "offered")).all()
+        offers = offers_by_request.get(req.id) or []
         # Отстранённого и заблокированного отсеиваем ЗДЕСЬ, а не полагаемся на отказ при приёме:
         # иначе один негодный отклик уводил бы всю заявку в except ниже, и человек без приложения
         # остался бы без машины при живых честных откликах (аудит 2026-08-12, волна 46).

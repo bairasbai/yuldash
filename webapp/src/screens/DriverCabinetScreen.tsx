@@ -15,10 +15,15 @@ import { ApiError } from "../api/client";
 import {
   fetchDriverStatus,
   setDriverOnline,
+  setDriverGender,
+  setTipsSbp,
+  fetchRideTips,
+  type RideTips,
   fetchDriverRides,
   fetchMySchedules,
   createSchedule,
   deleteSchedule,
+  completeRide,
   type DriverStatus,
   type DriverSchedule,
 } from "../api/driver";
@@ -41,6 +46,10 @@ import {
   IconClock,
   IconWarn,
   IconIdCard,
+  IconReceipt,
+  IconShield,
+  IconShare,
+  IconTrend,
 } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
@@ -55,7 +64,7 @@ function VerifyBanner({ docs }: { docs: string }) {
   if (docs === "verified") {
     return (
       <div className="consents__status" style={{ marginTop: 12 }}>
-        <IconCheck size={16} /> {appText("Ты проверенный водитель", "Һин тикшерелгән водитель")}
+        <IconCheck size={16} /> {appText("Ты проверенный водитель", "Һин тикшерелгән йөрөтөүсе")}
       </div>
     );
   }
@@ -102,8 +111,78 @@ export default function DriverCabinetScreen() {
 
   const [status, setStatus] = useState<Status>("loading");
   const [driver, setDriver] = useState<DriverStatus | null>(null);
+  const [womanBusy, setWomanBusy] = useState(false);
+
+  /**
+   * Заявить/снять «женщина за рулём». Снимаем в пустое значение, а не в «male»:
+   * пол — добровольное поле, и передумать человек может без объяснений.
+   */
+  async function toggleWoman() {
+    if (!driver || womanBusy) return;
+    const next = driver.gender === "female" ? "" : "female";
+    setWomanBusy(true);
+    setDriver({ ...driver, gender: next }); // оптимистично
+    try {
+      const st = await setDriverGender(next);
+      setDriver(st);
+    } catch {
+      setDriver({ ...driver, gender: driver.gender }); // откат
+    } finally {
+      setWomanBusy(false);
+    }
+  }
   const [rides, setRides] = useState<Ride[]>([]);
   const [schedules, setSchedules] = useState<DriverSchedule[]>([]);
+  const [finishing, setFinishing] = useState<number | null>(null);
+  const [finishNote, setFinishNote] = useState("");
+
+  /** Завершить рейс целиком (POST /rides/{id}/complete) — закрывает все брони разом. */
+  async function finishRide(rideId: number) {
+    if (finishing) return;
+    setFinishing(rideId);
+    setFinishNote("");
+    try {
+      await completeRide(rideId);
+      setRides((prev) => prev.map((x) => (x.id === rideId ? { ...x, status: "done" } : x)));
+    } catch (e) {
+      setFinishNote(
+        e instanceof ApiError && e.message
+          ? e.message
+          : appText("Не получилось завершить. Проверь сеть.", "Тамамлап булманы. Селтәрҙе тикшер.")
+      );
+    } finally {
+      setFinishing(null);
+    }
+  }
+
+  /**
+   * Скинуть свою поездку в соседский чат. Половина пассажиров приходит
+   * не из ленты, а из «Ринат в WhatsApp кинул» — поэтому текст сразу
+   * готовый: маршрут, время, цена и ссылка.
+   */
+  async function shareRide(r: Ride) {
+    const when = formatWhen(r.depart_at, ru);
+    const text = appText(
+      `Еду ${r.from_city} → ${r.to_city}, ${when}. ${priceLabel(r.price, true)}, свободно мест: ${r.seats_left}. Юлдаш: https://yulbash.ru`,
+      `${r.from_city} → ${r.to_city} барам, ${when}. ${priceLabel(r.price, false)}, буш урын: ${r.seats_left}. Юлдаш: https://yulbash.ru`
+    );
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Юлдаш", text });
+        return;
+      } catch {
+        /* отменил — не ошибка */
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setFinishNote(appText("Ссылка скопирована", "Һылтанма күсерелде"));
+      window.setTimeout(() => setFinishNote(""), 1600);
+    } catch {
+      /* буфер недоступен — молчим, экран цел */
+    }
+  }
+
   const [onlineBusy, setOnlineBusy] = useState(false);
 
   const load = useCallback((signal?: AbortSignal) => {
@@ -159,7 +238,7 @@ export default function DriverCabinetScreen() {
   return (
     <>
       <ScreenHeader
-        title={appText("Кабинет водителя", "Водитель кабинеты")}
+        title={appText("Кабинет водителя", "Йөрөтөүсе кабинеты")}
         subtitle={appText("Поездки, заявки и заработок", "Сәфәрҙәр, заявкалар һәм табыш")}
       />
 
@@ -186,6 +265,41 @@ export default function DriverCabinetScreen() {
             </span>
             <span className={"switch" + (driver.online ? " on" : "")} />
           </button>
+
+          {/* «Я — женщина за рулём». Заявка, а не подтверждение: бейдж и женские
+              заказы такси включает модератор по фото прав. Без этого тумблера на
+              сайте фильтр «только женщина» некому было наполнять — женщина-водитель
+              просто не могла о себе заявить. */}
+          <button
+            type="button"
+            className={"onb__simple" + (driver.gender === "female" ? " is-active" : "")}
+            style={{ marginTop: 10 }}
+            onClick={() => void toggleWoman()}
+            disabled={womanBusy}
+          >
+            <span className="onb__simple-text">
+              <b>{appText("Я — женщина за рулём", "Мин — рулдә ҡатын-ҡыҙ")}</b>
+              <span>
+                {appText(
+                  "По желанию: пассажирки увидят бейдж и смогут заказать такси только к женщине за рулём",
+                  "Теләк буйынса: пассажир ҡатын-ҡыҙҙар билдәне күрер һәм тик ҡатын-ҡыҙ йөрөтөүсегә такси заказлай алыр"
+                )}
+              </span>
+            </span>
+            <span className={"switch" + (driver.gender === "female" ? " on" : "")} />
+          </button>
+          {driver.gender === "female" && (
+            <p className="verify-hint">
+              {appText(
+                "Бейдж включит модератор, сверив с фото прав. Так фильтр «только женщины» остаётся настоящим.",
+                "Билдәне модератор права фотоһы менән сағыштырып ҡабыҙа. Шулай «тик ҡатын-ҡыҙ» фильтры ысын булып ҡала."
+              )}
+            </p>
+          )}
+
+          {/* Денежные чаевые — по желанию. Без номера пассажир вообще не увидит
+              такой возможности: телефон водителя до его согласия наружу не идёт. */}
+          <TipsSbpRow />
 
           <VerifyBanner docs={driver.docs_status} />
 
@@ -215,11 +329,11 @@ export default function DriverCabinetScreen() {
           <div className="cabinet-grid" style={{ marginTop: 16 }}>
             <button type="button" className="cabinet-tile" onClick={() => navigate("/requests-feed")}>
               <span className="cabinet-tile__icon"><IconRequest size={22} /></span>
-              <span className="cabinet-tile__title">{appText("Заявки пассажиров", "Юлаусы заявкалары")}</span>
+              <span className="cabinet-tile__title">{appText("Заявки пассажиров", "Пассажир заявкалары")}</span>
             </button>
             <button type="button" className="cabinet-tile" onClick={() => navigate("/earnings")}>
               <span className="cabinet-tile__icon"><IconWallet size={22} /></span>
-              <span className="cabinet-tile__title">{appText("Мой заработок", "Табышым")}</span>
+              <span className="cabinet-tile__title">{appText("Мой заработок", "Минең табыш")}</span>
             </button>
             <button type="button" className="cabinet-tile" onClick={() => navigate("/boost")}>
               <span className="cabinet-tile__icon"><IconRocket size={22} /></span>
@@ -231,7 +345,23 @@ export default function DriverCabinetScreen() {
             </button>
             <button type="button" className="cabinet-tile" onClick={() => navigate("/taxi-onboarding")}>
               <span className="cabinet-tile__icon"><IconRides size={22} /></span>
-              <span className="cabinet-tile__title">{appText("Стать таксистом", "Таксист булыу")}</span>
+              <span className="cabinet-tile__title">{appText("Стать таксистом Юлдаша", "Юлдаш таксисы булыу")}</span>
+            </button>
+            <button type="button" className="cabinet-tile" onClick={() => navigate("/my-responses")}>
+              <span className="cabinet-tile__icon"><IconRequest size={22} /></span>
+              <span className="cabinet-tile__title">{appText("Мои отклики", "Минең яуаптарым")}</span>
+            </button>
+            <button type="button" className="cabinet-tile" onClick={() => navigate("/taxi-rides")}>
+              <span className="cabinet-tile__icon"><IconReceipt size={22} /></span>
+              <span className="cabinet-tile__title">{appText("Мои поездки такси", "Такси сәфәрҙәрем")}</span>
+            </button>
+            <button type="button" className="cabinet-tile" onClick={() => navigate("/taxi-docs")}>
+              <span className="cabinet-tile__icon"><IconIdCard size={22} /></span>
+              <span className="cabinet-tile__title">{appText("Документы и сроки", "Документтар һәм ваҡыттар")}</span>
+            </button>
+            <button type="button" className="cabinet-tile" onClick={() => navigate("/pretrip")}>
+              <span className="cabinet-tile__icon"><IconShield size={22} /></span>
+              <span className="cabinet-tile__title">{appText("Готовность к работе", "Эшкә әҙерлек")}</span>
             </button>
           </div>
 
@@ -242,7 +372,9 @@ export default function DriverCabinetScreen() {
             wd={ru ? WD_RU : WD_BA}
           />
 
-          {/* Мои поездки / Архив */}
+{finishNote && <p className="taxi-note">{finishNote}</p>}
+
+                    {/* Мои поездки / Архив */}
           <h2 className="section-title">{appText("Мои поездки", "Сәфәрҙәрем")}</h2>
           {rides.length === 0 ? (
             <div className="state" style={{ paddingTop: 12 }}>
@@ -281,6 +413,52 @@ export default function DriverCabinetScreen() {
                       </div>
                     </div>
                     <StatusPill status={pill as never} />
+                    {/* Поездка едет — её ещё можно показать людям: поднять в ленте
+                        или скинуть ссылку в соседский чат. После рейса обе кнопки
+                        бессмысленны, поэтому их там нет. */}
+                    {st !== "done" && st !== "cancelled" && (
+                      <>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          aria-label={appText("Поделиться поездкой", "Сәфәр менән бүлешеү")}
+                          title={appText("Поделиться поездкой", "Сәфәр менән бүлешеү")}
+                          onClick={() => void shareRide(r)}
+                        >
+                          <IconShare size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          aria-label={appText("Поднять объявление", "Иғланды өҫкә күтәреү")}
+                          title={appText("Поднять объявление", "Иғланды өҫкә күтәреү")}
+                          onClick={() => navigate("/boost", { state: { rideId: r.id } })}
+                        >
+                          <IconTrend size={18} />
+                        </button>
+                      </>
+                    )}
+                    {/* Завершить рейс целиком: пассажиры часто забывают нажать «Завершить»,
+                        и тогда места висят занятыми, а поездка — в активных. */}
+                    {st !== "done" && st !== "cancelled" && (
+                      <button
+                        type="button"
+                        className="btn-soft btn-soft--sm"
+                        onClick={() => finishRide(r.id)}
+                        disabled={finishing === r.id}
+                      >
+                        {finishing === r.id
+                          ? appText("Завершаем…", "Тамамлайбыҙ…")
+                          : appText("Завершить", "Тамамлау")}
+                      </button>
+                    )}
+
+                    {/* Поездка висит без броней — сервер знает почему: нет фото,
+                        не пройдена проверка, цена выше средней, нет описания.
+                        Это подсказка, а не упрёк: всё хорошо — блока просто нет. */}
+                    {st !== "done" && st !== "cancelled" && r.seats_left === r.seats_total && (
+                      <RideTipsRow rideId={r.id} />
+                    )}
                   </div>
                 );
               })}
@@ -445,7 +623,7 @@ function ScheduleSection({
                 appText("Сохраняем…", "Һаҡлайбыҙ…")
               ) : (
                 <>
-                  <IconCheck size={18} /> {appText("Добавить", "Өҫтәү")}
+                  <IconCheck size={18} /> {appText("Добавить", "Өҫтәргә")}
                 </>
               )}
             </button>
@@ -453,5 +631,131 @@ function ScheduleSection({
         </div>
       )}
     </>
+  );
+}
+
+// ----------------------------- Денежные чаевые (по желанию) -----------------------------
+/**
+ * Водитель оставляет номер СБП — и только тогда пассажир после поездки увидит
+ * возможность поблагодарить деньгами. Без номера этой кнопки у пассажира нет
+ * вовсе: телефон водителя до его согласия наружу не идёт.
+ *
+ * Выключить так же просто: пустое поле — и номер стирается.
+ */
+function TipsSbpRow() {
+  const { appText } = useLang();
+  const [open, setOpen] = useState(false);
+  const [sbp, setSbp] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await setTipsSbp(sbp.trim());
+      setSbp(r.tips_sbp);
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2000);
+      if (!r.accepting) setOpen(false);
+    } catch (e) {
+      setError(
+        e instanceof ApiError && e.message
+          ? e.message
+          : appText("Не получилось сохранить. Проверь номер.", "Һаҡлап булманы. Номерҙы тикшер.")
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="tips-sbp">
+      <button type="button" className="tips-sbp__head" onClick={() => setOpen((v) => !v)}>
+        <span>
+          <b>{appText("Чаевые от пассажиров", "Юлаусыларҙан рәхмәт аҡсаһы")}</b>
+          <span>
+            {appText(
+              "По желанию. Оставь номер СБП — пассажир сможет поблагодарить деньгами.",
+              "Теләк буйынса. СБП номерын ҡалдыр — юлаусы аҡса менән рәхмәт әйтә алыр."
+            )}
+          </span>
+        </span>
+        <span className="workzone__action">
+          {saved ? <IconCheck size={18} /> : open ? appText("Скрыть", "Йәшереү") : appText("Настроить", "Көйләү")}
+        </span>
+      </button>
+
+      {open && (
+        <div className="tips-sbp__body">
+          <label className="field">
+            <span className="field__label">{appText("Номер для СБП", "СБП өсөн номер")}</span>
+            <input
+              className="field__input"
+              type="tel"
+              autoComplete="tel"
+              value={sbp}
+              onChange={(e) => setSbp(e.target.value)}
+              placeholder="+7 917 000-00-00"
+            />
+            <span className="field__hint">
+              {appText(
+                "Номер увидит только пассажир и только после завершённой поездки. Пустое поле — выключить.",
+                "Номерҙы тик юлаусы, тик тамамланған сәфәрҙән һуң күрә. Буш ҡыр — һүндереү."
+              )}
+            </span>
+          </label>
+          {error && <div className="auth__error">{error}</div>}
+          <button type="button" className="btn-soft" onClick={() => void save()} disabled={busy}>
+            {busy ? appText("Сохраняем…", "Һаҡлайбыҙ…") : appText("Сохранить", "Һаҡлау")}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ----------------------------- «Как получить больше заявок» -----------------------------
+/**
+ * Поездка опубликована, а броней нет. Причина обычно бытовая: нет фото профиля,
+ * не пройдена проверка, цена выше средней по маршруту, нет пары слов о поездке.
+ *
+ * Сервер это считает и отдаёт добрыми словами. Показываем только когда есть что
+ * сказать: «всё хорошо» отдельной плашкой не пишем — она быстро перестаёт читаться.
+ */
+function RideTipsRow({ rideId }: { rideId: number }) {
+  const { appText, lang } = useLang();
+  const ru = lang !== "ba";
+  const [tips, setTips] = useState<RideTips | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    fetchRideTips(rideId, ac.signal)
+      .then(setTips)
+      .catch(() => setTips(null)); // 404 / нет ручки → блока нет
+    return () => ac.abort();
+  }, [rideId]);
+
+  if (!tips || tips.all_good || tips.tips.length === 0) return null;
+
+  return (
+    <div className="ride-tips">
+      <button type="button" className="ride-tips__head" onClick={() => setOpen((v) => !v)}>
+        {appText(
+          `Как получить больше заявок · ${tips.tips.length}`,
+          `Күберәк заявка алыу юлы · ${tips.tips.length}`
+        )}
+      </button>
+      {open && (
+        <ul className="ride-tips__list">
+          {tips.tips.map((t) => (
+            <li key={t.code}>{ru ? t.ru : t.ba}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

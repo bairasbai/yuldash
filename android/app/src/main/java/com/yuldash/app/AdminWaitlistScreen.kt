@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -109,7 +110,7 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         WaitlistStatCard(appText("Пассажиры", "Пассажирҙар"), d.passengers.toString(), Modifier.weight(1f))
-                        WaitlistStatCard(appText("Водители", "Водителдәр"), d.drivers.toString(), Modifier.weight(1f))
+                        WaitlistStatCard(appText("Водители", "Йөрөтөүселәр"), d.drivers.toString(), Modifier.weight(1f))
                     }
                 }
                 if (d.byCity.isNotEmpty()) {
@@ -133,7 +134,7 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     WaitlistFilterChip(appText("Все", "Барыһы"), roleFilter == "") { roleFilter = "" }
                     WaitlistFilterChip(appText("Пассажиры", "Пассажирҙар"), roleFilter == "passenger") { roleFilter = "passenger" }
-                    WaitlistFilterChip(appText("Водители", "Водителдәр"), roleFilter == "driver") { roleFilter = "driver" }
+                    WaitlistFilterChip(appText("Водители", "Йөрөтөүселәр"), roleFilter == "driver") { roleFilter = "driver" }
                     WaitlistFilterChip(appText("Ждут", "Көтәләр"), invitedFilter == false) {
                         invitedFilter = if (invitedFilter == false) null else false
                     }
@@ -143,10 +144,17 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
                 }
             }
             // ---------- Состояния: загрузка / ошибка / пусто / список ----------
-            if (loading) {
+            // `.isNullOrEmpty()` в двух первых ветках — чтобы уже загруженный список не исчезал
+            // при каждом обновлении: раньше жест сверху вниз сначала прятал строки за скелетоном,
+            // а при сбое подменял их карточкой ошибки. Список был, а на экране его не было.
+            val loaded = data?.items.orEmpty()
+            if (error != null && loaded.isNotEmpty()) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload() }) }
+            }
+            if (loading && loaded.isEmpty()) {
                 item { SkeletonCard(lines = 3) }
                 item { SkeletonCard(lines = 3) }
-            } else if (error != null) {
+            } else if (error != null && loaded.isEmpty()) {
                 item { ListedError(error ?: "") { reload() } }
             } else if (data?.items.isNullOrEmpty()) {
                 item {
@@ -172,7 +180,7 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
                                 Text(e.phone, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 val meta = buildList {
                                     if (e.city.isNotBlank()) add(e.city)
-                                    add(if (e.role == "driver") appText("водитель", "водитель") else appText("пассажир", "пассажир"))
+                                    add(if (e.role == "driver") appText("водитель", "йөрөтөүсе") else appText("пассажир", "пассажир"))
                                     add(e.createdAt.take(10))
                                 }.joinToString("  ·  ")
                                 Text(meta, color = CanonMuted, fontSize = 12.sp)
@@ -208,7 +216,7 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
                                 }
                             },
                             enabled = !inviting,
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                         ) {

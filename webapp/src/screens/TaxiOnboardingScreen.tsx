@@ -5,7 +5,7 @@
 //
 //  Правила + заявка (ИНН, разрешение, ОСАГО, селфи, класс авто) +
 //  статус проверки (pending/approved/rejected + причина).
-//  Гейт «Такси скоро в вашем городе», если taxi выключено.
+//  Гейт «Такси скоро в твоём городе», если taxi выключено.
 //
 //  Фото грузим через POST /upload/photo (uploadDoc) → защищённый url.
 // ================================================================
@@ -22,9 +22,13 @@ import {
 } from "../api/instant";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
-import { IconCheck, IconCamera, IconShield, IconWarn, IconCar, IconClock } from "../components/Icons";
+import { IconCheck, IconCamera, IconShield, IconWarn, IconCar, IconClock, IconIdCard } from "../components/Icons";
+import { useDraftSync, clearDraft } from "../utils/formDraft";
 
 type Boot = "loading" | "error" | "gate" | "ready";
+
+/** Ключ черновика анкеты таксиста. */
+const TAXI_DRAFT = "taxi-application";
 
 /** Слот загрузки документа (переиспользуем паттерн проверки водителя). */
 function DocSlot({
@@ -95,9 +99,31 @@ export default function TaxiOnboardingScreen() {
   const [permitUrl, setPermitUrl] = useState("");
   const [osagoUrl, setOsagoUrl] = useState("");
   const [selfieUrl, setSelfieUrl] = useState("");
-  const [uploading, setUploading] = useState<"" | "permit" | "osago" | "selfie">("");
+  const [uploading, setUploading] = useState<"" | "permit" | "osago" | "selfie" | "criminal">("");
+  // Справка о несудимости — необязательна, но её видит модератор, и с ней
+  // заявку одобряют увереннее: соседи доверяют человеку, а не бумаге.
+  const [criminalUrl, setCriminalUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Из этой анкеты УХОДИТЬ приходится: сфотографировать разрешение, найти ОСАГО
+  // в галерее. На айфоне вкладка в фоне выгружается — раньше человек возвращался
+  // к пустой форме и начинал заново. Теперь заполненное ждёт его на месте.
+  useDraftSync(
+    TAXI_DRAFT,
+    { inn, permit, birth, licenseYear, carClass, permitUrl, osagoUrl, selfieUrl, criminalUrl },
+    (d) => {
+      if (d.inn) setInn(d.inn);
+      if (d.permit) setPermit(d.permit);
+      if (d.birth) setBirth(d.birth);
+      if (d.licenseYear) setLicenseYear(d.licenseYear);
+      if (d.carClass) setCarClass(d.carClass);
+      if (d.permitUrl) setPermitUrl(d.permitUrl);
+      if (d.osagoUrl) setOsagoUrl(d.osagoUrl);
+      if (d.selfieUrl) setSelfieUrl(d.selfieUrl);
+      if (d.criminalUrl) setCriminalUrl(d.criminalUrl);
+    }
+  );
 
   const load = useCallback((signal?: AbortSignal) => {
     setBoot("loading");
@@ -144,19 +170,20 @@ export default function TaxiOnboardingScreen() {
     return () => ac.abort();
   }, [load]);
 
-  async function pick(kind: "permit" | "osago" | "selfie", f: File) {
+  async function pick(kind: "permit" | "osago" | "selfie" | "criminal", f: File) {
     setUploading(kind);
     setError(null);
     try {
       const { url } = await uploadDoc(f);
       if (kind === "permit") setPermitUrl(url);
       else if (kind === "osago") setOsagoUrl(url);
+      else if (kind === "criminal") setCriminalUrl(url);
       else setSelfieUrl(url);
     } catch (e) {
       setError(
         e instanceof ApiError && e.message
           ? e.message
-          : appText("Не удалось загрузить фото. Попробуй снова.", "Фотоны йөкләргә булманы. Ҡабат ҡара.")
+          : appText("Не удалось загрузить фото, попробуй ещё раз", "Фотоны йөкләргә булманы. Ҡабат ҡара.")
       );
     } finally {
       setUploading("");
@@ -179,10 +206,12 @@ export default function TaxiOnboardingScreen() {
         permit_photo_url: permitUrl,
         osago_url: osagoUrl,
         selfie_url: selfieUrl,
+        criminal_record_url: criminalUrl || undefined,
         car_class: carClass,
       });
       setApp(a);
       setEditing(false);
+      clearDraft(TAXI_DRAFT); // отправлено — черновик больше не нужен
     } catch (e) {
       setError(
         e instanceof ApiError && e.message
@@ -198,7 +227,7 @@ export default function TaxiOnboardingScreen() {
   if (boot === "loading") {
     return (
       <>
-        <SubHeader title={appText("Стать таксистом", "Таксист булыу")} onBack={() => navigate(-1)} />
+        <SubHeader title={appText("Стать таксистом Юлдаша", "Юлдаш таксисы булыу")} onBack={() => navigate(-1)} />
         <LoadingList count={2} />
       </>
     );
@@ -207,12 +236,12 @@ export default function TaxiOnboardingScreen() {
   if (boot === "error") {
     return (
       <>
-        <SubHeader title={appText("Стать таксистом", "Таксист булыу")} onBack={() => navigate(-1)} />
+        <SubHeader title={appText("Стать таксистом Юлдаша", "Юлдаш таксисы булыу")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
           <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       </>
@@ -225,7 +254,7 @@ export default function TaxiOnboardingScreen() {
         <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
           <div className="state__icon"><IconCar size={34} /></div>
-          <h2>{appText("Такси скоро в вашем городе", "Такси тиҙҙән ҡалағыҙҙа")}</h2>
+          <h2>{appText("Такси скоро в твоём городе 🚕", "Такси тиҙҙән ҡалаңда 🚕")}</h2>
           <p>
             {gateMsg
               ? gateMsg.ru
@@ -235,7 +264,7 @@ export default function TaxiOnboardingScreen() {
                 )}
           </p>
           <button type="button" className="btn-primary" onClick={() => navigate("/driver")}>
-            {appText("В кабинет водителя", "Водитель кабинетына")}
+            {appText("В кабинет водителя", "Йөрөтөүсе кабинетына")}
           </button>
         </div>
       </>
@@ -310,7 +339,7 @@ export default function TaxiOnboardingScreen() {
             </button>
           ) : (
             <button type="button" className="btn-soft" onClick={() => navigate("/driver")}>
-              {appText("В кабинет водителя", "Водитель кабинетына")}
+              {appText("В кабинет водителя", "Йөрөтөүсе кабинетына")}
             </button>
           )}
         </div>
@@ -327,13 +356,89 @@ export default function TaxiOnboardingScreen() {
         onBack={() => navigate(-1)}
       />
 
+      {/* Условия — до формы: по ним человек и решает, идти к нам или нет.
+          Проценты и часы дублируют backend/app/config.py (fee_tier*_percent, taxi_shift_limit_hours)
+          и текст приложения. Публичной ручки с ними нет — меняются вместе, в трёх местах. */}
+      <div className="act-card act-card--mint">
+        <div className="act-card__title">
+          <IconCheck size={18} /> {appText("Наши условия", "Беҙҙең шарттар")}
+        </div>
+        <p className="act-card__text">
+          {appText(
+            "Вози своих — по-соседски и без жадных процентов.",
+            "Үҙеңдекеләрҙе йөрөт — күршеләрсә, комач процентһыҙ."
+          )}
+        </p>
+        <div className="info-list">
+          <div className="info-row">
+            <span className="info-row__k">
+              {appText("Комиссия — втрое ниже, чем у Яндекса", "Комиссия — Яндекстан өс тапҡыр кәмерәк")}
+            </span>
+            <span className="info-row__v">
+              {appText("3% → 5% → 8%", "3% → 5% → 8%")}
+            </span>
+          </div>
+          <div className="info-row">
+            <span className="info-row__k">{appText("Как платится", "Нисек түләнә")}</span>
+            <span className="info-row__v">
+              {appText("Раз в неделю по СБП", "Аҙнаға бер СБП аша")}
+            </span>
+          </div>
+          <div className="info-row">
+            <span className="info-row__k">{appText("На линии", "Линияла")}</span>
+            <span className="info-row__v">{appText("до 8 часов в день", "көнөнә 8 сәғәткә тиклем")}</span>
+          </div>
+        </div>
+        <p className="act-card__text" style={{ margin: "10px 0 0" }}>
+          {appText(
+            "Первый месяц 3%, второй — 5%, дальше 8%. Остальное — твоё. Никаких автосписаний: долг переводишь сам, по-человечески. Ограничение по часам — требование закона и твоя безопасность.",
+            "Беренсе ай 3%, икенсеһе — 5%, артабан 8%. Ҡалғаны — һинеке. Автоматик тотоп алыу юҡ: бурысты үҙең күсерәһең. Сәғәт сикләүе — закон талабы һәм һинең именлегең."
+          )}
+        </p>
+      </div>
+
+      {/* Что требует закон — отдельно от «что понадобится»: это не наши правила, а 580-ФЗ */}
+      <div className="act-card">
+        <div className="act-card__title">
+          <IconIdCard size={18} /> {appText("По закону (580-ФЗ) нужно", "Закон буйынса (580-ФЗ) кәрәк")}
+        </div>
+        <div className="info-list">
+          <div className="info-row">
+            <span className="info-row__k">{appText("Самозанятость (ИНН)", "Үҙ эшмәкәрлеге (ИНН)")}</span>
+            <span className="info-row__v">
+              {appText("Бесплатно в «Мой налог», 10 минут", "«Мой налог»та бушлай, 10 минут")}
+            </span>
+          </div>
+          <div className="info-row">
+            <span className="info-row__k">{appText("Разрешение на такси", "Такси рөхсәте")}</span>
+            <span className="info-row__v">
+              {appText("Минтранс через Госуслуги", "Минтранс, Госуслуги аша")}
+            </span>
+          </div>
+          <div className="info-row">
+            <span className="info-row__k">{appText("ОСАГО", "ОСАГО")}</span>
+            <span className="info-row__v">{appText("Действующий, на твою машину", "Ғәмәлдә, һинең машинаға")}</span>
+          </div>
+          <div className="info-row">
+            <span className="info-row__k">{appText("Возраст 20+ и стаж от 2 лет", "Йәш 20+ һәм стаж 2 йылдан")}</span>
+            <span className="info-row__v">{appText("Проверим по заявке", "Ғариза буйынса тикшерәбеҙ")}</span>
+          </div>
+          <div className="info-row">
+            <span className="info-row__k">{appText("Чек после каждой поездки", "Һәр сәфәрҙән һуң чек")}</span>
+            <span className="info-row__v">
+              {appText("В «Мой налог» — обязанность самозанятого", "«Мой налог»та — үҙ эшмәкәренең бурысы")}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div className="verify-rules">
         <div className="verify-rules__head">
           <IconShield size={22} />
           {appText("Что понадобится", "Ни кәрәк")}
         </div>
         <ul>
-          <li>{appText("ИНН (10–12 цифр)", "ИНН (10–12 һан)")}</li>
+          <li>{appText("ИНН — 10–12 цифр", "ИНН (10–12 һан)")}</li>
           <li>{appText("Номер разрешения на такси", "Такси рөхсәте номеры")}</li>
           <li>{appText("Стаж вождения от 2 лет, возраст 20+", "Йөрөтөү стажы 2 йылдан, йәш 20+")}</li>
           <li>{appText("Фото разрешения и ОСАГО", "Рөхсәт һәм ОСАГО фотоһы")}</li>
@@ -429,6 +534,16 @@ export default function TaxiOnboardingScreen() {
         url={selfieUrl}
         uploading={uploading === "selfie"}
         onPick={(f) => pick("selfie", f)}
+      />
+      <DocSlot
+        title={appText("Справка о несудимости", "Судимлек юҡлығы белешмәһе")}
+        hint={appText(
+          "С Госуслуг. По желанию, но повышает доверие соседей.",
+          "Госуслугиҙан. Теләк буйынса, әммә күршеләр ышанысын арттыра."
+        )}
+        url={criminalUrl}
+        uploading={uploading === "criminal"}
+        onPick={(f) => pick("criminal", f)}
       />
 
       {error && <div className="auth__error">{error}</div>}

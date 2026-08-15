@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -53,6 +54,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -168,12 +170,16 @@ private fun PartnerRejectedView(p: PartnerDto, onResubmitted: () -> Unit) {
 @Composable
 private fun PartnerForm(initial: PartnerDto?, onDone: () -> Unit, embedded: Boolean = false) {
     val scope = rememberCoroutineScope()
-    var name by remember { mutableStateOf(initial?.name ?: "") }
-    var category by remember { mutableStateOf(initial?.category ?: "cafe") }
-    var city by remember { mutableStateOf(initial?.city ?: "") }
-    var address by remember { mutableStateOf(initial?.address ?: "") }
-    var phone by remember { mutableStateOf(initial?.phone ?: "") }
-    var description by remember { mutableStateOf(initial?.description ?: "") }
+    // rememberSaveable: анкета бизнеса — шесть полей, и заполняют её один раз. Если Android
+    // выгрузит приложение, пока человек ищет в другом окне свой адрес или ИНН, всё вводится
+    // заново. Начальное значение из `initial` подставляется только при первом показе —
+    // после воскрешения выигрывает сохранённое, то есть правки человека.
+    var name by rememberSaveable { mutableStateOf(initial?.name ?: "") }
+    var category by rememberSaveable { mutableStateOf(initial?.category ?: "cafe") }
+    var city by rememberSaveable { mutableStateOf(initial?.city ?: "") }
+    var address by rememberSaveable { mutableStateOf(initial?.address ?: "") }
+    var phone by rememberSaveable { mutableStateOf(initial?.phone ?: "") }
+    var description by rememberSaveable { mutableStateOf(initial?.description ?: "") }
     var sending by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     val errDefault = appText("Не получилось сохранить. Повтори.", "Һаҡлап булманы. Ҡабатла.")
@@ -419,7 +425,7 @@ private fun SubscriptionCard(partner: PartnerDto, onSubscribe: () -> Unit) {
                 }
             } else {
                 Text(appText("Подключи тариф, чтобы купоны появились на витрине.", "Купондар витринала күренһен өсөн тариф ҡуш."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
-                Button(onClick = onSubscribe, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                Button(onClick = onSubscribe, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
                     Text(appText("Выбрать тариф", "Тариф һайлау"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
@@ -494,16 +500,16 @@ private fun PartnerCouponRow(c: PartnerCouponDto, busy: Boolean, onEdit: () -> U
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onEdit, enabled = !busy, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp)) {
+                OutlinedButton(onClick = onEdit, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 42.dp), shape = RoundedCornerShape(14.dp)) {
                     Text(appText("Править", "Төҙәтеү"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
                 // Активировать / поставить на паузу
                 if (c.status == "active") {
-                    OutlinedButton(onClick = { onToggleStatus("paused") }, enabled = !busy, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp)) {
+                    OutlinedButton(onClick = { onToggleStatus("paused") }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 42.dp), shape = RoundedCornerShape(14.dp)) {
                         Text(appText("Пауза", "Туҡтатылған"), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 } else if (c.status == "draft" || c.status == "paused") {
-                    Button(onClick = { onToggleStatus("active") }, enabled = !busy, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                    Button(onClick = { onToggleStatus("active") }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 42.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
                         Text(appText("Включить", "Ҡабыҙыу"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
@@ -557,15 +563,15 @@ private data class CStatus(val bg: androidx.compose.ui.graphics.Color, val fg: a
 @Composable
 private fun CouponForm(partner: PartnerDto, initial: PartnerCouponDto?, onBack: () -> Unit, onSaved: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var title by remember { mutableStateOf(initial?.title ?: "") }
-    var description by remember { mutableStateOf(initial?.description ?: "") }
-    var discountText by remember { mutableStateOf(initial?.discountText ?: "") }
-    var city by remember { mutableStateOf(initial?.city ?: partner.city) }
-    var routeHint by remember { mutableStateOf(initial?.routeHint?.joinToString(", ") ?: "") }
-    var limitTotal by remember { mutableStateOf((initial?.limitTotal ?: 100).toString()) }
-    var limitPerUser by remember { mutableStateOf((initial?.limitPerUser ?: 1).toString()) }
-    var validUntil by remember { mutableStateOf(initial?.validUntil?.take(10) ?: "") }
-    var premium by remember { mutableStateOf(initial?.premium ?: false) }
+    var title by rememberSaveable { mutableStateOf(initial?.title ?: "") }
+    var description by rememberSaveable { mutableStateOf(initial?.description ?: "") }
+    var discountText by rememberSaveable { mutableStateOf(initial?.discountText ?: "") }
+    var city by rememberSaveable { mutableStateOf(initial?.city ?: partner.city) }
+    var routeHint by rememberSaveable { mutableStateOf(initial?.routeHint?.joinToString(", ") ?: "") }
+    var limitTotal by rememberSaveable { mutableStateOf((initial?.limitTotal ?: 100).toString()) }
+    var limitPerUser by rememberSaveable { mutableStateOf((initial?.limitPerUser ?: 1).toString()) }
+    var validUntil by rememberSaveable { mutableStateOf(initial?.validUntil?.take(10) ?: "") }
+    var premium by rememberSaveable { mutableStateOf(initial?.premium ?: false) }
     var sending by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     val errDefault = appText("Не получилось сохранить. Повтори.", "Һаҡлап булманы. Ҡабатла.")
@@ -737,7 +743,7 @@ private fun PlanCard(plan: PartnerPlanDto, current: Boolean, busy: Boolean, onSe
             }
             Button(
                 onClick = onSelect, enabled = !busy,
-                modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = if (plan.premium) CanonGold else CanonGreen2, contentColor = if (plan.premium) CanonGoldInk else androidx.compose.ui.graphics.Color.White),
             ) {
                 Text(if (current) appText("Продлить", "Оҙайтыу") else appText("Оформить", "Рәсмиләштереү"), fontWeight = FontWeight.Bold, fontSize = 16.sp)

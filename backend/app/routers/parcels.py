@@ -25,7 +25,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, update
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -820,9 +820,25 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
         # Комиссия платформы копится долгом (Модель А). У такси блокировка была с начала,
         # у курьера — не было вообще: можно было возить месяцами и не платить (аудит 2026-07-26).
         _guard_courier_debt(session, user.id)
-    parcel.courier_id = user.id
-    parcel.status = "accepted"
-    parcel.accepted_at = utcnow()
+    # Посылку ЗАБИРАЕМ атомарно: условие «она всё ещё свободна» живёт внутри UPDATE.
+    #
+    # Блокировка строки выше (`with_for_update`) закрывает гонку на PostgreSQL, но SQLite её
+    # игнорирует — а на нём работают тесты, локальная разработка и демо-база. Там два курьера
+    # проходили проверку `status != "created"` одновременно, и побеждал тот, кто записал
+    # последним: первый видел «посылка твоя», вёз её, а в базе курьером стоял другой —
+    # с его телефоном у отправителя и его правом отметить вручение.
+    # И главное: саму защиту не проверял ни один тест — на SQLite блокировка пустая операция,
+    # её удаление при рефакторинге не уронило бы ничего.
+    now = utcnow()
+    taken = session.execute(
+        update(ParcelDelivery)
+        .where(ParcelDelivery.id == parcel.id, ParcelDelivery.status == "created")
+        .values(courier_id=user.id, status="accepted", accepted_at=now)
+    )
+    if taken.rowcount == 0:
+        session.rollback()
+        raise herr(409, "Посылку уже взяли", "Бандерольде инде алғандар")
+    session.refresh(parcel)
     photo = ((body.pickup_photo_url if body else "") or "").strip()
     # Своё фото, а не чужое: приватный снимок с чужим именем курьер мог бы предъявить админу
     # в споре как собственное доказательство (аудит 2026-08-08, волна 9).
