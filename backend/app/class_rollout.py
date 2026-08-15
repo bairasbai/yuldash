@@ -56,14 +56,26 @@ def place_of_driver(session: Session, p: DriverProfile) -> str:
 
 
 def _approved_driver_ids(session: Session) -> set[int]:
-    """Кто прошёл модерацию таксиста и не выбыл по срокам документов."""
+    """Кто прошёл модерацию таксиста и ПРЯМО СЕЙЧАС допущен по срокам документов.
+
+    Считаем по датам, а не по флагу `docs_expired` (аудит 2026-08-08, волна 100). Флаг ставит
+    фоновая задача, и между истечением ОСАГО и её приходом водитель для набора выглядел живым.
+    Проверено запросом: класс «Комфорт» открывался тремя водителями, у двоих из которых
+    страховка кончилась в 2020 году.
+
+    Для человека это худший вид пустоты: кнопка тарифа есть, он её выбирает — а возить некому.
+    Ровно от этого порог набора и защищает («пустая кнопка дороже отсутствующей», см. шапку
+    файла), и держаться он должен на фактах.
+
+    Ту же функцию `doc_check.overdue_docs` зовут гейт такси и ночная задача — одно решение
+    на всех, чтобы они не разъехались (урок волны 60).
+    """
+    from .doc_check import overdue_docs
+
     rows = session.exec(
-        select(TaxiApplication.user_id).where(
-            TaxiApplication.status == TaxiApplicationStatus.approved,
-            TaxiApplication.docs_expired == False,  # noqa: E712
-        )
+        select(TaxiApplication).where(TaxiApplication.status == TaxiApplicationStatus.approved)
     ).all()
-    return {r for r in rows}
+    return {r.user_id for r in rows if not overdue_docs(r)}
 
 
 def class_counts(session: Session, place: str) -> dict[str, int]:
