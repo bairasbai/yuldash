@@ -25,7 +25,8 @@ router = APIRouter(tags=["safety"])
 
 # F12 «Зимний протокол»: авто-проверка «доехал?».
 # Если участник не подтвердил «всё в порядке» за это время после пуша — эскалация доверенным контактам.
-WINTER_ESCALATE_AFTER_MIN = 30
+# Порог живёт в `winter_escalate` — одно число на ручку и на робота (волна 114).
+from ..winter_escalate import ESCALATE_AFTER_MIN as WINTER_ESCALATE_AFTER_MIN  # noqa: E402
 
 # Анти-спам SMS: SOS-событие пишем ВСЕГДА (жизнь дороже), но рассылку доверенным контактам
 # глушим, если за последний час их уже оповещали > N раз — иначе мэш-кнопка = поток SMS и расходы.
@@ -921,51 +922,16 @@ def _winter_run(
         # Молча выходим — придумывать за него, кому звонить, мы не вправе.
         return {"state": "no_share"}
 
-    # Не эскалируем повторно: иначе каждый следующий вызов после порога заново шлёт SMS
-    # близким — это и флуд, и расход, и лишняя паника.
-    already = session.exec(select(SosEvent).where(
-        SosEvent.user_id == watch_user_id,
-        SosEvent.category == "other",
-        SosEvent.note.like(f"%{kind}#{obj_id}%"),
-    ).limit(1)).first()
-    if already:
-        return {"state": "escalated", "already": True, "sos_event_id": already.id}
-
-    escalate = SosEvent(
-        user_id=watch_user_id,
-        booking_id=obj_id if kind == "booking" else None,
-        order_id=obj_id if kind == "order" else None,
-        category="other",
-        note=(f"Зимний протокол ({kind}#{obj_id}): нет ответа "
-              f"{WINTER_ESCALATE_AFTER_MIN} мин после проверки «доехал?»"),
+    # Сам зов близких живёт в `winter_escalate` — ОДНОЙ точкой на всех (волна 114). Оттуда же
+    # его зовёт ночной робот: раньше этот шаг делала только ручка из приложения, и человек,
+    # у которого сел телефон, не получал помощи вовсе — а тому, кто цел и снова открыл
+    # приложение, улетала тревога близким.
+    from ..winter_escalate import escalate_now
+    return escalate_now(
+        session, kind=kind, obj_id=obj_id, watch_user_id=watch_user_id,
+        contact_phones=contact_phones, also_notify_user_id=also_notify_user_id,
+        background=background,
     )
-    session.add(escalate)
-    session.commit()
-    session.refresh(escalate)
-
-    who_row = session.get(User, watch_user_id)
-    who = (who_row.name or who_row.phone) if who_row else "человек"
-    background.add_task(
-        _send_sos_sms, contact_phones,
-        f"Юлдаш: {who} не отметил(а), что доехал(а). Позвони, проверь, всё ли хорошо.",
-    )
-    background.add_task(
-        notify_admin_telegram,
-        f"❄️ Зимний протокол: нет ответа (Юлдаш)\n{kind} #{obj_id}\n"
-        f"Контактов уведомлено: {len(contact_phones)}",
-    )
-    if also_notify_user_id:
-        from ..services import push_notification
-        push_notification(
-            session, also_notify_user_id, "system",
-            "Курьер не выходит на связь", "Курьер бәйләнешкә сыҡмай",
-            "Мы не получили от него подтверждения и уже предупредили его близких.",
-            "Беҙ унан раҫлау алманыҡ һәм яҡындарына хәбәр иттек.",
-            ref_kind=kind, ref_id=obj_id,
-        )
-    log.info(f"[WINTER] {kind}={obj_id} escalated contacts={len(contact_phones)}")
-    return {"state": "escalated", "sos_event_id": escalate.id,
-            "contacts_notified": len(contact_phones)}
 
 
 def _winter_ack(session: Session, obj) -> dict:

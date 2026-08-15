@@ -176,4 +176,6 @@ def test_run_once_is_safe_on_empty_and_dry_run(client, user_factory):
     # забыть включить (волна 82; сама ветка — в test_unanswered_sos_calls_again.py).
     assert set(res2) == {"scheduled_activated", "stuck_closed", "waits_retried",
                          "waits_finished", "offers_advanced", "parcels_handled",
-                         "sos_escalated"}
+                         # Зимний протокол переехал в робота (волна 114): помощь молчащему
+                         # человеку больше не зависит от того, открыл ли он приложение.
+                         "sos_escalated", "winter_escalated"}

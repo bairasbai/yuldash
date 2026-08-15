@@ -35,7 +35,7 @@ from datetime import timedelta
 from sqlmodel import Session, select
 
 from . import instant_service as isv
-from . import promo_ride, sos_escalate
+from . import promo_ride, sos_escalate, winter_escalate
 from .config import settings
 from .db import engine
 from .logs import log
@@ -374,6 +374,12 @@ def run_once(session: Session, dry_run: bool = False) -> dict:
         # чаще всех, а заводить ради безопасности ещё одну задачу в cron значит завести
         # ещё одно место, где её могут забыть включить (волна 82).
         "sos_escalated": sos_escalate.escalate_unhandled(session, dry_run),
+        # Зимний протокол — по той же причине (волна 114). Шаг «человек молчит полчаса →
+        # зовём близких» раньше делала только ручка из приложения: у того, кто в кювете
+        # или с севшим телефоном, тревога не уходила НИКОГДА, а у того, кто цел и снова
+        # открыл приложение, — уходила. Безопасность не может зависеть от того,
+        # открыт ли у человека экран.
+        "winter_escalated": 0 if dry_run else winter_escalate.escalate_silent(session),
     }
 
 
