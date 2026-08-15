@@ -2799,12 +2799,16 @@ internal fun EmojiPicker(onPick: (String) -> Unit) {
                 .padding(horizontal = 4.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            CHAT_EMOJIS.chunked(8).forEach { row ->
+            // По шесть в ряд, а не по восемь: тач-цель у каждого эмодзи должна быть не меньше
+            // 48dp (правило доступности проекта). Было 40dp — на морозе в перчатках и в тряске
+            // машины это промахи, а промах здесь означает «отправил не то» (аудит 2026-08-08,
+            // волна 104). Шесть по 48dp помещаются даже на узком экране.
+            CHAT_EMOJIS.chunked(6).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     row.forEach { e ->
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(48.dp)
                                 .clip(CircleShape)
                                 .clickable { onPick(e) },
                             contentAlignment = Alignment.Center
