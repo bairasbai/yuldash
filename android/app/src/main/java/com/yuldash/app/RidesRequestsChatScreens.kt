@@ -2584,10 +2584,26 @@ internal fun ChatComposer(
         recording = false
         if (p != null) onVoiceRecorded(p, dur)
     }
-    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) begin() }
+    // Разрешение просим общим гейтом: он объясняет ЗАЧЕМ микрофон и, если система больше
+    // не спрашивает, говорит про настройки. Раньше отказ обрабатывался как `if (granted)` —
+    // то есть человек жал «записать голосовое», ничего не происходило, и он жал снова
+    // (аудит 2026-08-08, волна 103). Молчащая кнопка читается как поломка приложения.
+    val deniedMic = appText(
+        "Без микрофона голосовое не записать. Напиши текстом — так тоже дойдёт 💚",
+        "Микрофонһыҙ тауыш яҙмаһын яҙып булмай. Яҙып ебәр — ул да барып етә 💚",
+    )
+    val askMic = rememberPermissionGate(
+        permission = Manifest.permission.RECORD_AUDIO,
+        titleRu = "Записать голосовое",
+        titleBa = "Тауыш яҙмаһы яҙырға",
+        whyRu = "Микрофон нужен, чтобы записать короткое сообщение попутчику — это удобнее, чем набирать текст за рулём или на морозе.",
+        whyBa = "Микрофон юлдашыңа ҡыҫҡа хәбәр яҙыр өсөн кәрәк — руль артында йәки һыуыҡта яҙғандан уңайлыраҡ.",
+        onGranted = { begin() },
+        onDenied = { Toast.makeText(context, deniedMic, Toast.LENGTH_LONG).show() },
+    )
     fun requestVoice() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) begin()
-        else permLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        else askMic()
     }
     var showEmoji by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }

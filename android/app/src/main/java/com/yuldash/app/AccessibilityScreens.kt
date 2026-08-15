@@ -553,7 +553,21 @@ internal fun VoiceRequestScreen(
         recordedDur = ((SystemClock.elapsedRealtime() - startMs) / 1000).toInt().coerceAtLeast(1)
         recording = false
     }
-    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) begin() }
+    // Тот же общий гейт, что и в чате (волна 103): объяснение зачем + понятный ответ
+    // на отказ. Здесь это особенно важно — экран сделан для тех, кому набирать текст трудно.
+    val deniedMicText = appText(
+        "Без микрофона заявку голосом не записать. Можно набрать текстом или попросить близкого помочь 💚",
+        "Микрофонһыҙ заявканы тауыш менән яҙып булмай. Яҙып та була, йәки яҡының ярҙам итһен 💚",
+    )
+    val perm = rememberPermissionGate(
+        permission = Manifest.permission.RECORD_AUDIO,
+        titleRu = "Сказать заявку голосом",
+        titleBa = "Заявканы тауыш менән әйтеү",
+        whyRu = "Микрофон нужен, чтобы записать заявку голосом — не придётся набирать текст.",
+        whyBa = "Заявканы тауыш менән яҙыр өсөн микрофон кәрәк — текст яҙырға тура килмәй.",
+        onGranted = { begin() },
+        onDenied = { Toast.makeText(context, deniedMicText, Toast.LENGTH_LONG).show() },
+    )
     var recognizedText by remember { mutableStateOf<String?>(null) }
     val sttLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -591,7 +605,7 @@ internal fun VoiceRequestScreen(
                             // ни человеку — стираем её с телефона, а не только из состояния.
                             recordedPath != null -> { ApiClient.dropVoiceFile(recordedPath!!); recordedPath = null }
                             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> begin()
-                            else -> perm.launch(Manifest.permission.RECORD_AUDIO)
+                            else -> perm()
                         }
                     },
                     modifier = Modifier.fillMaxWidth().height(78.dp),
