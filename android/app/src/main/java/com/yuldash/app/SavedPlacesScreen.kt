@@ -309,6 +309,11 @@ internal fun SavedPlacesScreen(onBack: () -> Unit) {
                 }
             }
 
+            // Адреса не обновились, а на экране остались прежние: человек мог удалить «Работу»
+            // с другого устройства и не понять, почему она снова тут.
+            if (error && saved.isNotEmpty()) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload++ }) }
+            }
             when {
                 loading && saved.isEmpty() -> item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -331,7 +336,7 @@ internal fun SavedPlacesScreen(onBack: () -> Unit) {
                             saved = saved.filterNot { it.id == place.id }   // оптимистично убираем
                             scope.launch {
                                 ApiClient.deleteSavedPlace(place.id)
-                                    .onFailure { saved = prev; Toast.makeText(ctx, deleteFailMsg, Toast.LENGTH_SHORT).show() }
+                                    .onFailure { saved = prev; Toast.makeText(ctx, serverSaid(it, deleteFailMsg), Toast.LENGTH_LONG).show() }
                             }
                         },
                     )
@@ -352,7 +357,7 @@ internal fun SavedPlacesScreen(onBack: () -> Unit) {
                         .onSuccess { reload++ }
                         .onFailure {
                             val msg = (it as? ApiException)?.message ?: saveFailMsg
-                            Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+                            Toast.makeText(ctx, serverSaid(it, msg), Toast.LENGTH_LONG).show()
                         }
                 }
             },

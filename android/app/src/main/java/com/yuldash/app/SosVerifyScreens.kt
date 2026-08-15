@@ -275,6 +275,11 @@ internal data class SosService(
     val sosCategory: String     // что шлём «своим» в наш бэкенд
 )
 
+/** Сколько ждём координаты в ЧП, прежде чем сказать «не получилось». Не анимация — это срок
+ *  ожидания железа, поэтому не со шкалы `CanonMotion`. 12 секунд: холодный GPS обычно успевает,
+ *  а человек в беде дольше смотреть на спиннер не должен. */
+private const val SOS_LOCATE_TIMEOUT_MS = 12_000L
+
 @Composable
 internal fun SosScreen(
     onBack: () -> Unit,
@@ -320,13 +325,29 @@ internal fun SosScreen(
     var sosLat by remember { mutableStateOf(LocationPrefs.lastLat) }
     var sosLng by remember { mutableStateOf(LocationPrefs.lastLng) }
     var locating by remember { mutableStateOf(false) }
+    // Попытка определить место закончилась ничем. Без этого экран ЧП вечно висел на «Обновляю…»:
+    // одноразовый запрос координат ждали без срока, и если фикса не приходило (в помещении,
+    // холодный старт GPS, эмулятор) — надпись не менялась никогда. Человек в беде ждёт того,
+    // чего не будет, вместо того чтобы продиктовать адрес словами (живая проверка 2026-08-12).
+    var locFailed by remember { mutableStateOf(false) }
+    val lm = remember { context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager }
+    var locListener by remember { mutableStateOf<android.location.LocationListener?>(null) }
+    var locTimeout by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     fun applyLoc(loc: android.location.Location) {
         sosLat = loc.latitude; sosLng = loc.longitude
         LocationPrefs.lastLat = loc.latitude; LocationPrefs.lastLng = loc.longitude
     }
+    // Снять подписку на координаты. Обязательна: без неё каждое нажатие «Обновить» оставляло
+    // висеть ещё один слушатель GPS — на экране, который открывают в аварии.
+    fun stopLocating() {
+        locListener?.let { l -> try { lm.removeUpdates(l) } catch (e: SecurityException) {} }
+        locListener = null
+        locTimeout?.cancel(); locTimeout = null
+        locating = false
+    }
     fun fetchLoc() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
-        val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+        stopLocating()          // повторное нажатие не должно плодить слушателей
         // 1) Мгновенно показать последнее известное (чтобы не было пусто).
         try {
             (lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
@@ -339,18 +360,33 @@ internal fun SosScreen(
             lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) -> android.location.LocationManager.NETWORK_PROVIDER
             else -> null
         }
-        if (provider != null) {
-            locating = true
-            try {
-                lm.requestSingleUpdate(provider, object : android.location.LocationListener {
-                    override fun onLocationChanged(loc: android.location.Location) { applyLoc(loc); locating = false }
-                    override fun onStatusChanged(p: String?, s: Int, e: android.os.Bundle?) {}
-                    override fun onProviderEnabled(p: String) {}
-                    override fun onProviderDisabled(p: String) {}
-                }, android.os.Looper.getMainLooper())
-            } catch (e: SecurityException) { locating = false } catch (e: Exception) { locating = false }
+        if (provider == null) {          // все источники выключены — так и говорим, а не «обновляю»
+            locFailed = sosLat == null
+            return
         }
+        locating = true; locFailed = false
+        try {
+            val listener = object : android.location.LocationListener {
+                override fun onLocationChanged(loc: android.location.Location) { applyLoc(loc); stopLocating() }
+                override fun onStatusChanged(p: String?, s: Int, e: android.os.Bundle?) {}
+                override fun onProviderEnabled(p: String) {}
+                override fun onProviderDisabled(p: String) {}
+            }
+            lm.requestSingleUpdate(provider, listener, android.os.Looper.getMainLooper())
+            locListener = listener
+            // Ждём фикс ограниченное время. Не дождались — честно говорим и даём «Повторить»:
+            // в ЧП лучше сразу перейти к «продиктуй адрес словами», чем смотреть на спиннер.
+            locTimeout = scope.launch {
+                kotlinx.coroutines.delay(SOS_LOCATE_TIMEOUT_MS)
+                val gotNothing = sosLat == null
+                stopLocating()
+                locFailed = gotNothing
+            }
+        } catch (e: SecurityException) { stopLocating(); locFailed = sosLat == null }
+        catch (e: Exception) { stopLocating(); locFailed = sosLat == null }
     }
+    // Ушли с экрана — подписку снимаем: GPS не должен работать «в никуда».
+    DisposableEffect(Unit) { onDispose { stopLocating() } }
     val locPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) fetchLoc()
     }
@@ -421,6 +457,7 @@ internal fun SosScreen(
         onCategoryChange = { category = it },
         coordsText = coordsText,
         locating = locating,
+        locFailed = locFailed,
         loggedIn = loggedIn,
         sent = sent,
         failed = failed,
@@ -451,6 +488,7 @@ internal fun SosContent(
     onCategoryChange: (String) -> Unit = {},
     coordsText: String?,
     locating: Boolean,
+    locFailed: Boolean = false,   // координаты не пришли за отведённое время
     loggedIn: Boolean,
     sent: Boolean,
     failed: Boolean,
@@ -493,7 +531,7 @@ internal fun SosContent(
             item {
                 Button(
                     onClick = { onDial("112") },
-                    modifier = Modifier.fillMaxWidth().height(64.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
                 ) {
@@ -555,7 +593,19 @@ internal fun SosContent(
                                 Text(appText("Координаты: ", "Координаталар: ") + coordsText, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                         } else {
-                            Text(appText("Геолокация выключена — включи, чтобы продиктовать координаты.", "Геолокация һүндерелгән — координаталарҙы әйтер өсөн ҡабыҙ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                            // Три разных состояния, и раньше все три выглядели одинаково: экран
+                            // писал «геолокация выключена», пока кнопка бесконечно «обновляла».
+                            Text(
+                                when {
+                                    locating -> appText("Определяем место…", "Урынды билдәләйбеҙ…")
+                                    locFailed -> appText(
+                                        "Место определить не удалось. Продиктуй адрес словами — оператору этого хватит.",
+                                        "Урынды билдәләп булманы. Адресты һүҙ менән әйт — операторға шул етә.",
+                                    )
+                                    else -> appText("Геолокация выключена — включи, чтобы продиктовать координаты.", "Геолокация һүндерелгән — координаталарҙы әйтер өсөн ҡабыҙ.")
+                                },
+                                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                            )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
@@ -564,7 +614,14 @@ internal fun SosContent(
                             ) {
                                 Icon(Icons.Default.NearMe, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text(if (locating) appText("Обновляю…", "Яңыртам…") else if (coordsText != null) appText("Обновить", "Яңыртыу") else appText("Включить гео", "Геоны ҡабыҙыу"))
+                                Text(
+                                    when {
+                                        locating -> appText("Обновляю…", "Яңыртам…")
+                                        coordsText != null -> appText("Обновить", "Яңыртыу")
+                                        locFailed -> appText("Повторить", "Ҡабатлау")
+                                        else -> appText("Включить гео", "Геоны ҡабыҙыу")
+                                    }
+                                )
                             }
                             if (description.isNotBlank() || coordsText != null) {
                                 OutlinedButton(
@@ -955,7 +1012,7 @@ internal fun VerifyDriverContent(
                 Button(
                     onClick = onSubmit,
                     enabled = canSubmit,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {

@@ -62,7 +62,7 @@ internal fun SeasonalBanner(
         // Подзаголовок: дата (нейтральна к языку) + пометка события, если есть.
         val whenStr =
             if (event.active) appText("идёт сейчас", "хәҙер бара")
-            else shortDate(event.startsAt)
+            else shortDayMonth(event.startsAt)
         val note = appText(event.noteRu, event.noteBa)
         val subtitle = listOf(whenStr, note).filter { it.isNotBlank() }.joinToString(" · ")
 
@@ -118,8 +118,10 @@ internal fun SeasonalBanner(
     }
 }
 
-/** ISO «2026-03-20» → «20.03» (нейтрально к языку, без названий месяцев). */
-private fun shortDate(iso: String): String {
+/** ISO «2026-03-20» → «20.03» (нейтрально к языку, без названий месяцев).
+ *  Имя не `shortDate`: та даёт «дд.мм.гггг», и одинаковое имя для двух разных форматов
+ *  читалось как одна и та же функция. */
+private fun shortDayMonth(iso: String): String {
     val p = iso.split("-")
     return if (p.size == 3) "${p[2]}.${p[1]}" else ""
 }

@@ -563,7 +563,10 @@ internal fun LoginFormContent(
             Text(
                 text = appTextFor(
                     currentLanguage,
-                    "Используйте Telegram для быстрого и безопасного входа",
+                    // «Используйте» было единственным «вы» на первом экране приложения — при том,
+                    // что двумя строками ниже уже «Входя, ты подтверждаешь», а башкирский рядом
+                    // с самого начала на «ты» («ҡуллан»).
+                    "Заходи через Telegram — быстро и безопасно",
                     "Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡуллан"
                 ),
                 color = CanonMuted,
@@ -1191,7 +1194,7 @@ internal fun SafetyFooter(currentLanguage: AppLanguage, modifier: Modifier = Mod
             )
         }
         Text(
-            text = appTextFor(currentLanguage, "Юлдаш заботится о вас", "Юлдаш һеҙҙең хаҡта хәстәрләй"),
+            text = appTextFor(currentLanguage, "Юлдаш заботится о тебе", "Юлдаш һинең хаҡта хәстәрләй"),
             color = CanonMuted,
             fontSize = LoginCaption,
             lineHeight = 20.sp,

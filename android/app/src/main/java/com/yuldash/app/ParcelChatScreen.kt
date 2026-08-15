@@ -180,7 +180,7 @@ internal fun ParcelChatScreen(
                 .onFailure {
                     messages = messages.filter { it.id != tempId }   // честно: не ушло — не показываем
                     input = text
-                    Toast.makeText(context, sendFailMsg, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, serverSaid(it, sendFailMsg), Toast.LENGTH_LONG).show()
                 }
             sending = false
         }

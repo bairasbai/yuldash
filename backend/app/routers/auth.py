@@ -18,9 +18,13 @@ from ..config import _phone_key, settings
 from ..db import engine, get_session
 from ..errors import herr
 from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, TgAuth, User, UserRole
-from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
+from ..security import (
+    current_user, gen_otp, is_placeholder_phone, issue_tokens, normalize_phone,
+    revoke_all_refresh, rotate_refresh,
+)
 from ..services import (
-    public_media_url, send_push, send_sms, set_driver_docs_verdict, set_user_gender, user_rating,
+    find_user_by_phone, public_media_url, send_push, send_sms, set_driver_docs_verdict,
+    set_user_gender, user_rating,
 )
 from ..safety_logic import GENDERS
 from ..trust_service import record_login_consents
@@ -69,9 +73,18 @@ def _is_owner_telegram(frm: dict) -> bool:
 
 
 def _norm_phone(raw: str) -> str:
-    """Нормализуем номер из Telegram-контакта: только цифры, ведущий +."""
-    d = "".join(c for c in (raw or "") if c.isdigit())
-    return ("+" + d) if d else ""
+    """Номер из Telegram-контакта — тем же правилом, что и везде (`normalize_phone`).
+
+    Своя реализация тут была не просто лишней, а неверной: она оставляла только цифры и
+    ведущий плюс, поэтому номер, которым человек поделился в виде «89991234567», становился
+    «+89991234567» — несуществующий код страны 8. С таким номером он не совпадал сам с собой,
+    введённым как «+7…», и получал второй аккаунт. Третья копия одного правила (были ещё
+    `config._phone_key` и `security.normalize_phone`) — и именно копия ошибалась.
+
+    `config._phone_key` остаётся отдельно осознанно: он делает другую работу — ключ для
+    СРАВНЕНИЯ с номерами из .env, а не канонический вид для хранения.
+    """
+    return normalize_phone(raw)
 
 
 def _name_flag(name: str, user_id: Optional[int] = None) -> str:
@@ -145,17 +158,27 @@ def _clean_avatar_url(raw: str) -> str:
 def _review_login_active(phone: str) -> bool:
     """Тестовый аккаунт модерации сторов (B9b-4). Активен ТОЛЬКО когда в env заданы ОБА
     review_phone и review_code — иначе номер живёт обычной SMS-жизнью. Код не логируем."""
+    # Сравниваем ПРИВЕДЁННЫЕ номера: во `verify` номер уже приведён, а в .env его могли
+    # записать как угодно — иначе тестовый режим просто перестал бы включаться.
     return bool(settings.review_phone and settings.review_code
-                and phone == settings.review_phone)
+                and normalize_phone(phone) == normalize_phone(settings.review_phone))
 
 
 def _set_user_phone(session: Session, user: User, phone: str) -> None:
     """Сохранить реальный номер юзеру. Не перезаписываем, если номер уже занят
-    другим юзером (User.phone unique) — тогда тихо оставляем как есть."""
+    другим юзером (User.phone unique) — тогда тихо оставляем как есть.
+
+    Вторая дверь к тому же полю, что и вход (Telegram делится номером). Без приведения к
+    одному виду она пускала мимо проверки: у одного «+79991234567», второй сохраняет
+    «89991234567» — строки разные, `clash` пуст, UNIQUE молчит, и получаются два аккаунта
+    на один номер. Ровно та дыра, что во входе; чинить надо ОБЕ двери, иначе правило
+    держится там, где о нём вспомнили.
+    """
+    phone = normalize_phone(phone)
     if not phone or user.phone == phone:
         return
-    clash = session.exec(select(User).where(User.phone == phone, User.id != user.id)).first()
-    if clash:
+    clash = find_user_by_phone(session, phone)
+    if clash is not None and clash.id != user.id:
         return
     user.phone = phone
     session.add(user)
@@ -179,6 +202,9 @@ def request_code(body: PhoneIn, session: Session = Depends(get_session),
     # Анти-фрод (B8-1): забаненное устройство не регистрируется даже новым номером
     # (гейт до отправки SMS — не тратим деньги на код мошеннику).
     guard_device_not_banned(session, x_device_id)
+    # Один номер — одна запись: код кладём под ПРИВЕДЁННЫМ видом, иначе «код на 8-ку» не
+    # находится при вводе «+7» и человек получает второй аккаунт (см. normalize_phone).
+    body.phone = normalize_phone(body.phone)
     # Тестовый аккаунт модерации сторов (B9b-4): реальную SMS не шлём и OTP не создаём —
     # verify примет ТОЛЬКО фикс-код из env. Ответ обычный (dev_code не утекает).
     if _review_login_active(body.phone):
@@ -211,13 +237,14 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
     # Анти-фрод (B8-1): забаненное устройство → 403. Барьер от «нового номера на том же
     # телефоне»; заголовок клиентский, целевой обход сменой X-Device-Id возможен (Play Integrity — бэклог).
     guard_device_not_banned(session, x_device_id)
+    body.phone = normalize_phone(body.phone)   # ищем и создаём человека по одному виду номера
     # Тестовый аккаунт модерации сторов (B9b-4): для review_phone работает ТОЛЬКО фикс-код
     # из env (даже случайно созданные OTP этого номера игнорируются). Ошибка — тот же текст,
     # что у обычного кода (не раскрываем существование режима). Код не логируем.
     if _review_login_active(body.phone):
         if not hmac.compare_digest(settings.review_code, body.code or ""):
             raise herr(400, "Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
-        user = session.exec(select(User).where(User.phone == body.phone)).first()
+        user = find_user_by_phone(session, body.phone)
         if not user:
             user = User(phone=body.phone, name=body.name or "Проверка стора",
                         is_reviewer=True)   # B1: ревьюер = L0, verified только через модерацию
@@ -258,7 +285,7 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
     # Код одноразовый: гасим сразу после успеха, иначе перехваченный код реюзабелен все 5 минут TTL.
     session.delete(otp)
     session.commit()
-    user = session.exec(select(User).where(User.phone == body.phone)).first()
+    user = find_user_by_phone(session, body.phone)
     if not user:
         # Имя при регистрации — то же публичное поле, что и в /me/update: проверяем так же,
         # иначе телефон в имени просто въезжает через вход вместо правки профиля.
@@ -558,7 +585,10 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
         raise herr(400, "Неверный код", "Код дөрөҫ түгел")
     user = session.exec(select(User).where(User.telegram_id == row.telegram_id)).first()
     if not user and row.shared_phone:
-        existing_by_phone = session.exec(select(User).where(User.phone == row.shared_phone)).first()
+        # Через дверь: номер из Telegram приходит в своём написании («79991234567»), а в базе
+        # тот же человек мог быть заведён как «+79991234567». Прямое сравнение их не склеивало,
+        # и Telegram-вход заводил ВТОРОЙ аккаунт тому же человеку.
+        existing_by_phone = find_user_by_phone(session, row.shared_phone)
         if existing_by_phone and not existing_by_phone.telegram_id:
             existing_by_phone.telegram_id = row.telegram_id
             # B1: НЕ выставляем verified при входе — это только результат модерации документов.

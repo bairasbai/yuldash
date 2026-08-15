@@ -286,7 +286,10 @@ internal fun RidesScreen(
     onBoost: () -> Unit,
     onCreateRequest: () -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
-    onAdClick: (PartnerAd) -> Unit
+    onAdClick: (PartnerAd) -> Unit,
+    // Список показывает только БРОНИ — то, куда человек едет сам. Опубликованные им маршруты
+    // живут в кабинете водителя, и пустой экран обязан уметь туда отправить.
+    onDriverCabinet: () -> Unit = {},
 ) {
     var selectedStatus by remember { mutableStateOf("active") }
     val activeLabel = appText("Активные", "Актив")
@@ -322,6 +325,15 @@ internal fun RidesScreen(
     }
     val activeStatuses = listOf("pending", "confirmed", "onboard")
     val historyStatuses = listOf("done", "cancelled")
+    // Сколько у человека своих опубликованных маршрутов. Спрашиваем только когда список
+    // броней пуст: это единственное место, где ответ на что-то влияет, а лишний запрос
+    // на каждом открытии вкладки не нужен.
+    var myDriverRides by remember { mutableStateOf(0) }
+    LaunchedEffect(bookings, bookingsLoading) {
+        if (!bookingsLoading && bookings.isEmpty() && ApiClient.isLoggedIn()) {
+            ApiClient.getDriverRides().onSuccess { myDriverRides = it.size }
+        }
+    }
     // contentWindowInsets = 0: вкладки живут ВНУТРИ общего Scaffold в YuldashApp, он уже отдал
     // отступ под статус-бар. Свой Scaffold добавлял его второй раз — заголовок «Мои поездки»
     // висел на 70dp от верха, а соседние «Мои заявки» на 33dp. Разнобой между вкладками одного
@@ -374,13 +386,34 @@ internal fun RidesScreen(
                     )
                 }
                 visibleBookings.isEmpty() -> item {
-                    EmptyStateCard(
-                        title = appText("Поездок пока нет", "Әлегә сәфәрҙәр юҡ"),
-                        text = appText("Создай заявку или опубликуй маршрут водителя.", "Заявка булдыр йәки йөрөтөүсе маршрутын баҫтыр."),
-                        icon = Icons.Default.Route,
-                        action = appText("Создать заявку", "Заявка булдырыу"),
-                        onAction = onCreateRequest
-                    )
+                    // Здесь только брони. Прежний текст обещал, что тут появится и «маршрут
+                    // водителя», — водитель с опубликованным рейсом видел «поездок пока нет»
+                    // и решал, что рейс пропал (живая проверка 2026-08-12). Говорим правду
+                    // и, если маршруты есть, отправляем туда, где они лежат.
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        EmptyStateCard(
+                            title = appText("Ты пока никуда не едешь", "Әлегә бер ҡайҙа ла бармайһың"),
+                            text = appText(
+                                "Здесь появятся поездки, на которые ты забронировал место.",
+                                "Бында һин урын алған сәфәрҙәр күренәсәк.",
+                            ),
+                            icon = Icons.Default.Route,
+                            action = appText("Создать заявку", "Заявка булдырыу"),
+                            onAction = onCreateRequest
+                        )
+                        if (myDriverRides > 0) {
+                            EmptyStateCard(
+                                title = appText("Твои маршруты — в кабинете водителя", "Һинең маршруттар — йөрөтөүсе кабинетында"),
+                                text = appText(
+                                    "Опубликованных маршрутов: $myDriverRides. Там же брони пассажиров и «поднять».",
+                                    "Баҫтырылған маршруттар: $myDriverRides. Пассажир брондары ла, «күтәреү» ҙә шунда.",
+                                ),
+                                icon = Icons.Default.DirectionsCar,
+                                action = appText("Кабинет водителя", "Йөрөтөүсе кабинеты"),
+                                onAction = onDriverCabinet
+                            )
+                        }
+                    }
                 }
                 else -> {
                     itemsIndexed(visibleBookings, key = { _, b -> b.id }) { i, b ->
@@ -535,7 +568,7 @@ internal fun MyTripCard(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
                     onClick = onPrimary,
-                    modifier = Modifier.weight(1f).height(44.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
@@ -544,7 +577,7 @@ internal fun MyTripCard(
                 if (secondaryAction.isNotBlank()) {
                     FilledTonalButton(
                         onClick = onSecondary,
-                        modifier = Modifier.weight(1.1f).height(44.dp),
+                        modifier = Modifier.weight(1.1f).heightIn(min = 44.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonMint, contentColor = CanonGreen2)
                     ) {
@@ -674,7 +707,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
                 Spacer(Modifier.weight(1f))
                 Button(
                     onClick = onOpen,
-                    modifier = Modifier.height(36.dp),
+                    modifier = Modifier.heightIn(min = 36.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                     contentPadding = PaddingValues(horizontal = 12.dp)
@@ -940,7 +973,7 @@ internal fun RideCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = onBook,
-                        modifier = Modifier.weight(1f).height(48.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         shape = RoundedCornerShape(14.dp)
                     ) {
                         Text(appText("Подробнее", "Ентекле"))
@@ -948,7 +981,7 @@ internal fun RideCard(
                     Button(
                         onClick = onBook,
                         enabled = hasSeats,
-                        modifier = Modifier.weight(1f).height(48.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                     ) {
@@ -967,7 +1000,7 @@ internal fun RideCard(
                     Button(
                         onClick = onBook,
                         enabled = hasSeats,
-                        modifier = Modifier.weight(1f).height(48.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         shape = RoundedCornerShape(14.dp)
                     ) {
                         Text(if (hasSeats) appText("Забронировать", "Бронләү") else noSeatsText)
@@ -1345,7 +1378,7 @@ internal fun MyRequestsScreen(
 private fun CreateRequestButton(onCreateNew: () -> Unit) {
     Button(
         onClick = onCreateNew,
-        modifier = Modifier.fillMaxWidth().height(56.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
         shape = CanonFieldShape,
         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
     ) {
@@ -1401,7 +1434,7 @@ internal fun RequestSummaryCard(
             Box(Modifier.fillMaxWidth().height(1.dp).background(CanonBorder))
             OutlinedButton(
                 onClick = onAction,
-                modifier = Modifier.fillMaxWidth().height(44.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
                 shape = RoundedCornerShape(14.dp),
                 border = BorderStroke(1.dp, CanonGreen2)
             ) {
@@ -1414,14 +1447,14 @@ internal fun RequestSummaryCard(
             if (onEdit != null || onCancel != null) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     onEdit?.let { doEdit ->
-                        TextButton(onClick = doEdit, modifier = Modifier.weight(1f).height(44.dp)) {
+                        TextButton(onClick = doEdit, modifier = Modifier.weight(1f).heightIn(min = 44.dp)) {
                             Icon(Icons.Default.Edit, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(appText("Редактировать", "Үҙгәртеү"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
                     onCancel?.let { doCancel ->
-                        TextButton(onClick = doCancel, modifier = Modifier.weight(1f).height(44.dp)) {
+                        TextButton(onClick = doCancel, modifier = Modifier.weight(1f).heightIn(min = 44.dp)) {
                             Icon(Icons.Default.Close, contentDescription = null, tint = CanonRed, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(appText("Отменить заявку", "Заявканы кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -1628,7 +1661,7 @@ private fun FullRideCard(
             ) {
                 OutlinedButton(
                     onClick = onBook,
-                    modifier = Modifier.weight(1f).height(42.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 42.dp),
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.dp, CanonBorder)
                 ) {
@@ -1637,7 +1670,7 @@ private fun FullRideCard(
                 Button(
                     onClick = onBook,
                     enabled = hasSeats,
-                    modifier = Modifier.weight(1f).height(42.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 42.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
@@ -1702,7 +1735,8 @@ internal fun ChatScreen(
         item {
             Text(appText("Чат", "Чат"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             Text(
-                appText("Общайтесь по активным поездкам и заявкам", "Актив сәфәрҙәр һәм заявкалар буйынса аралаш"),
+                // Тон Юлдаша — на «ты», и башкирский тут уже был на «ты» («аралаш»).
+                appText("Общайся по активным поездкам и заявкам", "Актив сәфәрҙәр һәм заявкалар буйынса аралаш"),
                 color = CanonMuted,
                 fontSize = 14.sp,
                 lineHeight = 20.sp
@@ -1721,7 +1755,7 @@ internal fun ChatScreen(
                             onClick = {
                                 if (key == "system") onNotifications() else selected = key
                             },
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                             shape = RoundedCornerShape(14.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
@@ -2186,7 +2220,7 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
                     scope.launch {
                         ApiClient.respondToRequest(rid, p, c)
                             .onSuccess { responding = false; target = null; price = ""; comment = ""; Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show(); reload() }
-                            .onFailure { responding = false; Toast.makeText(ctx, respondErr, Toast.LENGTH_LONG).show() }
+                            .onFailure { responding = false; Toast.makeText(ctx, serverSaid(it, respondErr), Toast.LENGTH_LONG).show() }
                     }
                 }) { Text(if (responding) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Отправить", "Ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },
@@ -2325,7 +2359,7 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
                 scope.launch {
                     ApiClient.acceptResponse(id)
                         .onSuccess { bid -> onAccepted(bid) }
-                        .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show(); accepting = false }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show(); accepting = false }
                 }
             },
             // Торг: своя цена и «не договорились». Ошибку сервера показываем как есть — она
@@ -2729,7 +2763,8 @@ internal fun ChatEmptyState() {
             )
             Text(
                 appText(
-                    "Найдите поездку и забронируйте место — после брони откроется чат с водителем или пассажиром.",
+                    // Русский был на «вы», башкирский рядом — на «ты» («бронла»). Тон один.
+                    "Найди поездку и забронируй место — после брони откроется чат с водителем или пассажиром.",
                     "Сәфәр табып, урын бронла — бронынан һуң йөрөтөүсе йәки пассажир менән чат асыла."
                 ),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center

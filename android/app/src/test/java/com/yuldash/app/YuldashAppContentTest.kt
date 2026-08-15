@@ -138,7 +138,7 @@ class YuldashAppContentTest {
             }
         }
         // На башкирском contentDescription стрелки = «Кире».
-        composeRule.onNodeWithContentDescription("Кире").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Артҡа").assertIsDisplayed()
     }
 
     // --- OnboardingLangChip: чип переключения языка (текст + клик) ---
@@ -246,7 +246,7 @@ class YuldashAppContentTest {
             }
         }
         composeRule.onNodeWithText("Мин пассажир").assertIsDisplayed()
-        composeRule.onNodeWithText("Мин водитель").assertIsDisplayed()
+        composeRule.onNodeWithText("Мин йөрөтөүсе").assertIsDisplayed()
     }
 
     @Test

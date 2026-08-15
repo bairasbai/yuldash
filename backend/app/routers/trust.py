@@ -6,6 +6,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -104,14 +105,30 @@ def redeem_invite(body: RedeemIn, user: User = Depends(current_user), session: S
     row = session.exec(select(Trust).where(Trust.user_id == user.id)).first()
     if row and row.level >= INSIDER_LEVEL:
         raise herr(400, "Ты уже в кругу своих", "Һин инде үҙебеҙҙекеләр араһында")
-    inv.uses_left -= 1
+    # Использование СПИСЫВАЕМ атомарно: условие «осталось больше нуля» живёт внутри UPDATE.
+    #
+    # Блокировка строки выше (`with_for_update`) закрывает гонку на PostgreSQL — но SQLite её
+    # игнорирует, а на SQLite работают тесты, локальная разработка и демо-база. Там `uses_left -= 1`
+    # оставалось обычной парой «прочитал — записал»: двое активируют последнее использование
+    # одновременно, оба проходят проверку, счётчик уходит в минус и в круг «своих» попадает
+    # лишний человек. Круг своих — это доступ к поездкам «только для проверенных»,
+    # то есть обещание безопасности, а не украшение.
+    # Важнее другое: саму защиту не проверял ни один тест — на SQLite блокировка пустая,
+    # и её удаление при рефакторинге прошло бы незамеченным.
+    claimed = session.execute(
+        update(InviteCode)
+        .where(InviteCode.code == inv.code, InviteCode.uses_left > 0)
+        .values(uses_left=InviteCode.uses_left - 1)
+    )
+    if claimed.rowcount == 0:
+        session.rollback()
+        raise herr(400, "Код уже использован", "Код ҡулланылған инде")
     if row:
         row.level = INSIDER_LEVEL
         row.invited_by = inv.owner_id
         row.updated_at = utcnow()
     else:
         row = Trust(user_id=user.id, level=INSIDER_LEVEL, invited_by=inv.owner_id)
-    session.add(inv)
     session.add(row)
     session.commit()
     return {"ok": True, "level": INSIDER_LEVEL, "invited_by": inv.owner_id}

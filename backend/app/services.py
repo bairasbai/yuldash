@@ -10,6 +10,7 @@ from collections import deque
 from datetime import timedelta
 import base64
 import json
+import re
 import math
 import os
 import threading
@@ -208,6 +209,47 @@ def blocked_user_ids(session: Session, uid: int) -> set[int]:
     return {(r.blocked_user_id if r.user_id == uid else r.user_id) for r in rows}
 
 
+# ----------------------------- Телефон: один номер — один человек -----------------------------
+def find_user_by_phone(session: Session, raw: str):
+    """ЕДИНСТВЕННАЯ дверь «найти человека по номеру». Возвращает `User` или None.
+
+    Ищет по приведённому виду (`normalize_phone`), а если не нашёл — по написаниям, которые
+    могли попасть в базу раньше: «8XXXXXXXXXX», «7XXXXXXXXXX», без плюса, как ввели. Найдя
+    старое написание, ЧИНИТ строку — записывает приведённый вид. Так база выправляется сама,
+    по одному человеку за вход, без разовой миграции и без риска потерять чужие номера.
+
+    Почему не «просто сравнивать нормализованные»: `User.phone` — обычная колонка, сравнение
+    по функции не использовало бы индекс, а список кандидатов даёт то же самое за 2–3 запроса.
+    """
+    from .security import normalize_phone
+
+    s = (raw or "").strip()
+    if not s:
+        return None
+    norm = normalize_phone(s)
+    candidates = [norm, s]
+    digits = re.sub(r"\D", "", s)
+    if len(digits) == 11 and digits[0] in ("7", "8"):
+        candidates += ["+7" + digits[1:], "7" + digits[1:], "8" + digits[1:], digits]
+    elif len(digits) == 10 and digits[0] == "9":
+        candidates += ["+7" + digits, "7" + digits, "8" + digits, digits]
+    seen: set[str] = set()
+    for cand in candidates:
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
+        user = session.exec(select(User).where(User.phone == cand)).first()
+        if user is None:
+            continue
+        if user.phone != norm:
+            user.phone = norm      # самолечение: дальше этот человек ищется по одному виду
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+        return user
+    return None
+
+
 # ----------------------------- Пол (F9, безопасность женщин) -----------------------------
 def set_user_gender(session: Session, user: User, gender: str) -> None:
     """ЕДИНСТВЕННОЕ место, где меняется пол. Пишет `User.gender` и гасит подтверждение.
@@ -350,11 +392,25 @@ def push_notification(
             title, body = (title_ba or title_ru), (body_ba or body_ru)
         else:
             title, body = title_ru, body_ru
-        # data — опциональный payload для клиентского роутинга (канал/deep-link), напр.
-        # {"type": "chat", "id": booking_id} у чат-пушей. Без data зовём по-старому
-        # (4 позиционных): тест-двойники и старые обёртки send_push не ломаются.
+        # data — payload для клиентского роутинга: по нему приложение открывает НУЖНЫЙ экран.
+        #
+        # Раньше его передавали руками, и передавали не везде: из 37 уведомлений с известным
+        # адресатом (`ref_kind` + `ref_id`) адрес несли 18, а 34 приходили пустыми. Тап по
+        # такому пушу открывал просто приложение. «Поддержка Юлдаш ответила» — и ищи свой
+        # тикет сам; «Заявку приняли» — и ищи поездку сам. Для посылок и такси это уже чинили
+        # отдельными заходами (см. комментарии в FcmService.kt), для попуток, поддержки,
+        # споров и долга — нет.
+        #
+        # Чинить 34 места по одному незачем: сервер УЖЕ знает и вид, и номер — он кладёт их
+        # в ленту уведомлений строкой выше. Значит адрес можно собрать здесь, один раз.
+        # Явный `data` (чаты) по-прежнему главнее: там свой тип канала.
+        if not data and ref_kind and ref_id:
+            data = {"type": ref_kind, "id": str(ref_id)}
+        # `data` передаём ПО ИМЕНИ, а не пятым позиционным: тест-двойники и старые обёртки
+        # объявлены как `lambda s, uid, title, body, **kw` — лишний позиционный их ломает.
+        # (Сломал и починил тут же: полный прогон поймал `test_confirm_only_by_driver`.)
         if data:
-            send_push(session, user_id, title, body, data)
+            send_push(session, user_id, title, body, data=data)
         else:
             send_push(session, user_id, title, body)
 
@@ -409,8 +465,6 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
                 continue
             if w.user_id in blocked:
                 continue
-            if ride.only_trusted and trust_level(session, session.get(User, w.user_id)) < INSIDER_LEVEL:
-                continue
             w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
             forward = (w_from == r_from and w_to == r_to)
             backward = (w.direction == "both" and w_from == r_to and w_to == r_from)
@@ -421,6 +475,17 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
                 continue
             # Анти-спам: 1 пуш на подписку в сутки.
             if w.last_notified_at is not None and (now - w.last_notified_at) < timedelta(hours=24):
+                continue
+            # Проверка доверия стоит ПОСЛЕ дешёвых отсевов, и это не косметика.
+            #
+            # Она единственная здесь ходит в базу — по два запроса на подписчика. Стояла первой,
+            # то есть у поездки «только для своих» доверие проверялось у КАЖДОГО подписчика ленты,
+            # включая тех, чья подписка вообще про другой маршрут. При пятистах подписках и трёх
+            # подходящих это тысяча запросов вместо шести — и растёт вместе с числом пользователей.
+            #
+            # Порядок проверок на результат не влияет: все они одинаково отсеивают подписчика,
+            # и от перестановки набор получивших уведомление не меняется — меняется только цена.
+            if ride.only_trusted and trust_level(session, session.get(User, w.user_id)) < INSIDER_LEVEL:
                 continue
             route = f"{ride.from_city} → {ride.to_city}"   # города — как есть (имена собственные)
             # Строку в Центре уведомлений пишем СИНХРОННО (лента должна отдаться сразу), а FCM-пуш
@@ -673,7 +738,7 @@ def send_sms(phone: str, code: str) -> None:
     else:
         if settings.is_prod:
             # SMS заморожен в проде — основной вход через мессенджеры. Понятный ответ вместо 500.
-            raise HTTPException(503, "SMS-вход временно недоступен. Войдите через мессенджер.")
+            raise HTTPException(503, "SMS-вход временно недоступен. Войди через мессенджер.")
         log.info(f"[OTP] {mp} -> {code}")  # мок/dev — код в логе
 
 

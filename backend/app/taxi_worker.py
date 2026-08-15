@@ -35,6 +35,7 @@ from datetime import timedelta
 from sqlmodel import Session, select
 
 from . import instant_service as isv
+from . import promo_ride
 from .config import settings
 from .db import engine
 from .logs import log
@@ -129,6 +130,9 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
                     pass
         except Exception as e:  # noqa: BLE001
             log.warning(f"[TAXI-WORKER] закрытие зависшего #{o.id}: {type(e).__name__}: {e}")
+    # Поездки не было → промокод возвращаем. Он даётся раз в жизни аккаунта, и сжигать его
+    # за заказ, который закрыла сама система, нечестно (то же правило, что при отмене).
+    promo_ride.release_ids(closed)
     return closed
 
 
@@ -211,6 +215,9 @@ def finish_expired_waits(session: Session, dry_run: bool = False) -> list:
                 pass
         except Exception as e:  # noqa: BLE001
             log.warning(f"[TAXI-WORKER] закрытие ожидания #{o.id}: {type(e).__name__}: {e}")
+    # Ждали до конца и машины так и не нашлось — скидку возвращаем: человек не виноват,
+    # что рядом никого. Обещано в шапке `promo_ride`, а звалось только при отмене.
+    promo_ride.release_ids(finished)
     return finished
 
 
@@ -320,9 +327,9 @@ def close_stuck_parcels(session: Session, dry_run: bool = False) -> list:
             else:
                 title = ("Доставка закрыта", "Доставка ябылды")
                 body_sender = (f"{route} · долго не было связи, доставку закрыли автоматически. "
-                               "Свяжитесь напрямую или напишите в поддержку.",
+                               "Свяжись напрямую или напиши в поддержку.",
                                f"{route} · оҙаҡ бәйләнеш булманы, доставка автоматик ябылды. "
-                               "Туранан-тура бәйләнегеҙ йәки ярҙамға яҙығыҙ.")
+                               "Туранан-тура бәйлән йәки ярҙамға яҙ.")
                 body_courier = body_sender
             for uid, body in ((fresh.sender_id, body_sender), (prev_courier, body_courier)):
                 if not uid:

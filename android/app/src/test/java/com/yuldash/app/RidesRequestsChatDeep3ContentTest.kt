@@ -414,9 +414,9 @@ class RidesRequestsChatDeep3ContentTest {
                 )
             }
         }
-        // Башкирские подписи: «Тауыш хәбәр: <имя>» и «Водитель өсөн текст».
+        // Башкирские подписи: «Тауыш хәбәр: <имя>» и «Йөрөтөүсе өсөн текст».
         composeRule.onNodeWithText("Тауыш хәбәр: Азат").assertIsDisplayed()
-        composeRule.onNodeWithText("Водитель өсөн текст").assertIsDisplayed()
+        composeRule.onNodeWithText("Йөрөтөүсе өсөн текст").assertIsDisplayed()
     }
 
     @Test

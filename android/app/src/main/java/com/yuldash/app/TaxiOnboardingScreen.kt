@@ -1078,13 +1078,17 @@ private fun TaxiClassRow(title: String, cls: DriverClassDto, enabled: Boolean, o
                     // Первому в районе — статус, а не ноль. «Набралось 0 из 3» демотивирует.
                     cls.first -> Text(
                         appText("Ты будешь первым здесь", "Һин бында беренсе булаһың"),
-                        color = CanonTaxi, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                        // Не CanonTaxi: жёлтый акцент как ЦВЕТ ТЕКСТА на светлой карточке даёт
+                        // 2.19:1 — надпись видно только под углом. CanonWarn — тот же тёплый
+                        // тон, но затемнённый под норму (5.1:1).
+                        color = CanonWarn, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
                         fontWeight = FontWeight.Bold,
                     )
                     !cls.open -> Text(
                         appText("Нас ${cls.driversHave} из ${cls.driversNeed} — позови знакомого, и класс откроется",
                             "Беҙ ${cls.driversHave}/${cls.driversNeed} — танышыңды саҡыр, класс асыла"),
-                        color = CanonTaxi, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                        // Та же причина, что строкой выше: жёлтым по белому — 2.19:1.
+                        color = CanonWarn, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
                     )
                     on -> Text(
                         appText("Заказы приходят", "Заказдар килә"),

@@ -329,11 +329,16 @@ internal fun YuldashApp() {
         languagePersistenceReady = true
     }
     // Сессия протухла на сервере (refresh мёртв) → не оставляем пустые экраны: говорим и уводим на вход.
-    val sessionExpiredMsg = appText("Сессия истекла. Войди снова.", "Сессия тамамланды. Ҡабат кер.")
+    // `rememberUpdatedState`, а не просто val: `LaunchedEffect(Unit)` запускается ОДИН раз и
+    // запоминает то, что было в момент запуска. Язык к этому моменту ещё не восстановлен из
+    // настроек (это делает эффект строкой выше), поэтому у человека с башкирским интерфейсом
+    // сообщение выходило по-русски — проверено на эмуляторе. Теперь эффект читает актуальное
+    // значение и при смене языка тоже.
+    val sessionExpiredMsg = rememberUpdatedState(appText("Сессия истекла. Войди снова.", "Сессия тамамланды. Ҡабат кер."))
     LaunchedEffect(Unit) {
         ApiClient.sessionExpired.collect { expired ->
             if (expired) {
-                Toast.makeText(context, sessionExpiredMsg, Toast.LENGTH_LONG).show()
+                Toast.makeText(context, sessionExpiredMsg.value, Toast.LENGTH_LONG).show()
                 screen = Screen.Login
                 ApiClient.sessionExpired.value = false
             }
@@ -540,6 +545,30 @@ internal fun YuldashApp() {
     // Тап по пушу «новое сообщение» в попутке → бронь с чатом (аудит 2026-08-06: раньше
     // открывалась просто карта, а переписку человек искал сам). Экран брони сам догружает
     // детали по id — здесь достаточно самого номера. Не вошёл — сначала вход.
+    // Пуши поддержки и споров теперь несут адрес — открываем нужный экран, а не «просто
+    // приложение». Тот же приём и те же оговорки, что у брони ниже: ждём конца сплэша,
+    // гасим сигнал одноразово, без входа — сначала вход.
+    LaunchedEffect(DeepLink.pendingSupport.value, screen) {
+        if (!DeepLink.pendingSupport.value) return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        DeepLink.pendingSupport.value = false
+        screen = if (ApiClient.isLoggedIn()) Screen.Support else Screen.Login
+    }
+    LaunchedEffect(DeepLink.pendingFairness.value, screen) {
+        if (!DeepLink.pendingFairness.value) return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        DeepLink.pendingFairness.value = false
+        screen = if (ApiClient.isLoggedIn()) Screen.FairnessCenter else Screen.Login
+    }
+    // «Водитель откликнулся на твою заявку» — открываем отклики именно этой заявки.
+    LaunchedEffect(DeepLink.pendingRequestResponsesId.value, screen) {
+        val rid = DeepLink.pendingRequestResponsesId.value ?: return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        DeepLink.pendingRequestResponsesId.value = null
+        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
+        responsesRequestId = rid
+        screen = Screen.RequestResponses
+    }
     LaunchedEffect(DeepLink.pendingBookingChatId.value, screen) {
         val bid = DeepLink.pendingBookingChatId.value ?: return@LaunchedEffect
         // P3: ждём, пока сплэш/интро/онбординг отработают — иначе они перезапишут screen, а сигнал
@@ -1094,6 +1123,18 @@ internal fun YuldashApp() {
                         screen = Screen.ActiveTrip
                     } else {
                         val rid = selectedRide?.id?.toIntOrNull()
+                        // Демо-поездка (id не число) сюда не доходит: бронировать пример нельзя,
+                        // и молчать об этом тоже нельзя — иначе кнопка просто «не работает».
+                        if (rid == null) {
+                            Toast.makeText(
+                                context,
+                                if (language == AppLanguage.Ba)
+                                    "Был — өлгө сәфәр. Ысын сәфәрҙәр бәйләнеш ҡайтҡас күренер."
+                                else
+                                    "Это пример поездки. Настоящие появятся, когда вернётся связь.",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
                         // Защита от двойного нажатия. Кнопка «Забронировать» гасла только по
                         // bookingId, а он приходит уже ПОСЛЕ ответа сервера — то есть всё время
                         // запроса кнопка оставалась живой. На медленной сети второй тап уходил
@@ -1667,7 +1708,7 @@ internal fun OnboardingContent(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(58.dp),
+                        .heightIn(min = 58.dp),
                     shape = RoundedCornerShape(22.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
@@ -2232,7 +2273,8 @@ internal fun HomeScreen(
                     onBoost = onBoost,
                     onCreateRequest = { selectTab(HomeTab.Request) },
                     onAdImpression = onAdImpression,
-                    onAdClick = onAdClick
+                    onAdClick = onAdClick,
+                    onDriverCabinet = onDriverCabinet,
                 )
                 HomeTab.Request -> MyRequestsScreen(
                     requests = requests,

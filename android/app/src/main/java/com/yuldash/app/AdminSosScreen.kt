@@ -158,6 +158,12 @@ internal fun AdminSosScreen(onBack: () -> Unit) {
                 }
             }
 
+            // Самый дорогой случай молчания во всём приложении: список сигналов не обновился,
+            // на экране остались прежние, и новое ЧП просто не появилось. Дежурный видит
+            // «тишину» и не знает, что связи с сервером нет.
+            if (error && list.isNotEmpty()) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload++ }) }
+            }
             when {
                 loading && list.isEmpty() ->
                     item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }

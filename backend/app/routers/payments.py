@@ -183,7 +183,7 @@ def boost_free(body: BoostFreeIn, user: User = Depends(current_user), session: S
     """Поднять СВОЮ поездку бесплатно за реферальный бонус (1 бонус = 24ч поднятия)."""
     ride = session.get(Ride, body.ride_id)
     if not ride or ride.driver_id != user.id:
-        raise herr(403, "Это не ваша поездка", "Был һинең сәфәрең түгел")
+        raise herr(403, "Это не твоя поездка", "Был һинең сәфәрең түгел")
     # Списание бонуса под row-lock (как book()): два параллельных free-boost не потратят
     # один и тот же бонус дважды (иначе гонка read-modify-write → 2 бесплатных подъёма, кредиты в минус).
     locked = session.exec(select(User).where(User.id == user.id).with_for_update()).one()

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -150,6 +151,11 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                         CourierFilterChip(appText("Все", "Барыһы"), filter == "all") { filter = "all" }
                     }
                 }
+                // Заявки не обновились, прежние остались: свежая заявка курьера не появилась,
+                // а экран сделал вид, что всё разобрано.
+                if (error != null && apps.isNotEmpty()) {
+                    item(key = "stale") { AppStaleStrip(onRetry = { reload() }) }
+                }
                 item(key = "state") {
                     AnimatedContent(
                         targetState = phase,
@@ -220,7 +226,7 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                                                     }
                                                 },
                                                 enabled = !busy,
-                                                modifier = Modifier.weight(1f).height(48.dp),
+                                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                                 shape = RoundedCornerShape(14.dp),
                                                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                                             ) { Text(appText("Одобрить", "Раҫлау"), fontWeight = FontWeight.Bold) }
@@ -229,7 +235,7 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                                                     if (rejectingId == a.id) { rejectingId = null } else { rejectingId = a.id; rejectReason = "" }
                                                 },
                                                 enabled = !busy,
-                                                modifier = Modifier.weight(1f).height(48.dp),
+                                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                                 shape = RoundedCornerShape(14.dp),
                                             ) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
                                         }
@@ -255,7 +261,7 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                                                         }
                                                     },
                                                     enabled = rejectReason.isNotBlank() && !busy,
-                                                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                                     shape = RoundedCornerShape(14.dp),
                                                     colors = ButtonDefaults.buttonColors(containerColor = CanonRed),
                                                 ) { Text(appText("Отклонить с причиной", "Сәбәп менән кире ҡағыу"), fontWeight = FontWeight.Bold) }

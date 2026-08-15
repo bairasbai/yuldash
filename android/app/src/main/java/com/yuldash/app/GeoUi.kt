@@ -336,7 +336,7 @@ internal fun DriverZoneSheet(
                 },
                 enabled = !saving && baseFilled,
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2, contentColor = Color.White),
+                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2, contentColor = CanonOnFilled),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
             ) {
                 if (saving) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)

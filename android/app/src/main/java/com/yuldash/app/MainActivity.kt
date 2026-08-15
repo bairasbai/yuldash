@@ -268,6 +268,16 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("yuldash_theme", MODE_PRIVATE)
         if (prefs.contains("dark_override")) ThemePrefs.darkOverride = prefs.getBoolean("dark_override", false)
         FontScalePrefs.load(this)   // «Крупный шрифт»: восстановить выбранный размер текста (yuldash_prefs)
+        // «Удалить анимации» в спец.возможностях Android — это не каприз: вестибулярные
+        // нарушения, мигрень, укачивание. Читаем системный выключатель ОДИН раз при старте
+        // и гасим длительности во всём приложении (CanonMotion). Ноль означает «сразу
+        // конечное состояние»: карточки и экраны не перестают появляться, появляются мгновенно.
+        // Настройку меняют редко и с перезапуском — читать её на каждый кадр незачем.
+        CanonMotion.enabled = runCatching {
+            android.provider.Settings.Global.getFloat(
+                contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f,
+            ) > 0f
+        }.getOrDefault(true)
         handleNavIntent(intent)   // холодный старт из полноэкранного оффера такси (B7a-2)
         handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
         setContent {
@@ -340,6 +350,20 @@ class MainActivity : ComponentActivity() {
         when (type) {
             "chat" -> DeepLink.pendingBookingChatId.value = id        // чат попутки → экран брони
             "order_chat" -> NavSignals.openInstantChat.value = id     // чат такси-заказа
+            // Сервер теперь кладёт адрес в КАЖДОЕ уведомление, у которого он есть
+            // (см. services.push_notification). Разбираем то, что умеем открыть точно:
+            "booking" -> DeepLink.pendingBookingChatId.value = id     // бронь попутки → её экран
+            "support" -> DeepLink.pendingSupport.value = true         // ответ поддержки → «Поддержка»
+            "incident" -> DeepLink.pendingFairness.value = true       // решение по спору
+            // Лента уведомлений внутри приложения разбирает ДЕСЯТЬ видов, а тап по пушу —
+            // разбирал пять. Одно и то же событие вело в разные места в зависимости от того,
+            // прочитал человек его в шторке или в ленте. Достраиваем до того же списка;
+            // назначения уже есть, новых экранов не нужно.
+            "ride" -> DeepLink.pendingRideId.value = id               // событие по моему рейсу
+            "parcel" -> DeepLink.pendingParcels.value = true          // ход посылки → «Посылки»
+            "debt" -> NavSignals.openDriverCabinet.value = true       // долг по комиссии виден в кабинете
+            "instant" -> NavSignals.openInstantOrder.value = true     // заказ такси
+            "request" -> DeepLink.pendingRequestResponsesId.value = id  // отклики на мою заявку
             else -> return
         }
         i.removeExtra(FcmService.EXTRA_PUSH_TYPE)   // не сработать повторно при пересоздании
@@ -367,6 +391,23 @@ internal object DeepLink {
     val pendingRideId = mutableStateOf<Int?>(null)
     /** Тап по пушу о посылке → открыть «Посылки». Сбрасывается тем, кто открыл (одноразовый сигнал). */
     val pendingParcels = mutableStateOf(false)
+
+    /**
+     * Тап по пушу поддержки → открыть «Поддержку».
+     *
+     * До этого «Поддержка Юлдаш ответила» открывала просто приложение: человек, который писал
+     * за помощью, должен был сам вспомнить, где эта поддержка лежит, и найти свой тикет.
+     */
+    val pendingSupport = mutableStateOf(false)
+
+    /** Тап по пушу о споре → «Центр справедливости». Тот же довод, что у поддержки. */
+    val pendingFairness = mutableStateOf(false)
+
+    /**
+     * Тап по пушу «водитель откликнулся» → отклики ИМЕННО этой заявки (id заявки).
+     * Из ленты уведомлений это открывалось с самого начала, из шторки — нет.
+     */
+    val pendingRequestResponsesId = mutableStateOf<Int?>(null)
 
     /**
      * Тап по пушу «новое сообщение» в попутке → бронь с чатом (id брони). `null` = сигнала нет.
@@ -867,7 +908,7 @@ internal fun SbpTransferSheet(amountKop: Int, onPaid: () -> Unit, onDismiss: () 
                     clipboard.setText(AnnotatedString(phone))
                     Toast.makeText(context, copied, Toast.LENGTH_SHORT).show()
                 },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {
@@ -875,7 +916,7 @@ internal fun SbpTransferSheet(amountKop: Int, onPaid: () -> Unit, onDismiss: () 
             }
             // Быстрая оплата: QR + кнопка «Оплатить в Сбербанке» (открывает перевод по номеру).
             SberPayBlock(phone)
-            OutlinedButton(onClick = onPaid, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp)) {
+            OutlinedButton(onClick = onPaid, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp), shape = RoundedCornerShape(14.dp)) {
                 Text(appText("Я перевёл", "Күсерҙем"))
             }
         }
@@ -927,7 +968,7 @@ internal fun SberPayBlock(phone: String, modifier: Modifier = Modifier) {
                 }.isSuccess
                 if (!ok) Toast.makeText(context, noAppMsg, Toast.LENGTH_LONG).show()
             },
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
         ) {

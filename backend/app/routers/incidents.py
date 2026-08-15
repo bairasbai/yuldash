@@ -225,7 +225,7 @@ def create_incident(
     # (там уже есть доступ к объекту и его правилам приватности).
     has_context = booking_id is not None or parcel_id is not None or order_id is not None
     if not has_context and type not in SEVERE_TYPES:
-        raise herr(400, "Жалоба привязывается к вашей совместной поездке или доставке", "Ялыу бергә барған сәфәргә йәки илтеүгә бәйләнә")
+        raise herr(400, "Жалоба привязывается к твоей совместной поездке или доставке", "Ялыу бергә барған сәфәргә йәки илтеүгә бәйләнә")
     if booking_id is not None:
         booking, ride = booking_and_ride_for_user(session, booking_id, reporter)  # 403/404 если не участник
         if not reporter_role:

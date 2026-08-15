@@ -161,6 +161,13 @@ internal fun ClinicRidesScreen(onBack: () -> Unit, onBookRide: (Ride) -> Unit) {
                 }
             }
 
+            // Обновить не вышло, а список на экране остался. Молчание тут дорого стоит: человек
+            // едет к врачу ко времени и видит попутку, которую уже отменили.
+            if ((partnersError && partners.isNotEmpty()) || (ridesError && rides.isNotEmpty())) {
+                item(key = "stale") {
+                    AppStaleStrip(onRetry = { partnersReload++; ridesReload++ })
+                }
+            }
             when {
                 // Клиники грузятся.
                 partnersLoading && partners.isEmpty() -> item { AppLoading(appText("Загружаем клиники", "Клиникалар йөкләнә")) }

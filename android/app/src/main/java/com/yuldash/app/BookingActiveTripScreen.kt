@@ -498,7 +498,7 @@ internal fun BookingScreen(
                                     val uri = android.net.Uri.parse("geo:$la,$ln?q=$la,$ln(" + android.net.Uri.encode(meet) + ")")
                                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
                                 },
-                                modifier = Modifier.fillMaxWidth().height(46.dp),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 border = BorderStroke(1.dp, CanonGreen2)
                             ) {
@@ -585,7 +585,7 @@ internal fun BookingScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(
                                 onClick = onMessage,
-                                modifier = Modifier.weight(1f).height(54.dp),
+                                modifier = Modifier.weight(1f).heightIn(min = 54.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 border = BorderStroke(1.dp, CanonGreen2)
                             ) {
@@ -596,7 +596,7 @@ internal fun BookingScreen(
                             Button(
                                 onClick = { onConfirmRide(payMethod, payAmountText.trim().toIntOrNull(), minorPassenger, guardianName.trim(), guardianPhone.trim()) },
                                 enabled = bookingId == null || canOpenActiveTrip,
-                                modifier = Modifier.weight(1.15f).height(54.dp),
+                                modifier = Modifier.weight(1.15f).heightIn(min = 54.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = CanonGreen2,
@@ -1372,7 +1372,7 @@ internal fun ActiveTripScreen(
                                                             // Play сам решит, показывать ли; не чаще раза в 30 дней; без Play — no-op.
                                                             if (n == 5 && !isDriver) maybeRequestStoreReview(context)
                                                         }
-                                                        .onFailure { rating = false; myStars = prev; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }   // откат: не показываем «оценено», если не сохранилось
+                                                        .onFailure { rating = false; myStars = prev; Toast.makeText(context, serverSaid(it, rateFailMsg), Toast.LENGTH_LONG).show() }   // откат: не показываем «оценено», если не сохранилось
                                                 }
                                             }
                                         },
@@ -1489,12 +1489,12 @@ internal fun ActiveTripScreen(
                                         voiceScope.launch {
                                             ApiClient.rateBooking(id, myStars, reviewText, pickedTags.toList())
                                                 .onSuccess { rating = false; reviewSent = true; Toast.makeText(context, reviewSentMsg, Toast.LENGTH_SHORT).show() }
-                                                .onFailure { rating = false; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }
+                                                .onFailure { rating = false; Toast.makeText(context, serverSaid(it, rateFailMsg), Toast.LENGTH_LONG).show() }
                                         }
                                     }
                                 },
                                 enabled = !rating && reviewText.isNotBlank(),
-                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                             ) {
@@ -1589,7 +1589,7 @@ internal fun ActiveTripScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     OutlinedButton(
                         onClick = { showCancel = true },
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                         shape = RoundedCornerShape(14.dp),
                         border = BorderStroke(1.dp, CanonRed)
                     ) {
@@ -1649,7 +1649,7 @@ internal fun ActiveTripScreen(
                                                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                                 onTripEnd()
                                             }
-                                            .onFailure { Toast.makeText(context, cancelFailMsg, Toast.LENGTH_SHORT).show() }
+                                            .onFailure { Toast.makeText(context, serverSaid(it, cancelFailMsg), Toast.LENGTH_LONG).show() }
                                     }
                                 } ?: onTripEnd()
                             }) { Text(appText("Да, отменить", "Эйе, кире алырға"), color = CanonRed, fontWeight = FontWeight.Bold) }
@@ -1742,7 +1742,7 @@ internal fun ActiveTripScreen(
                         if (bookingId != null) voiceScope.launch {
                             ApiClient.deleteMessage(bookingId, m.id, scope)
                                 .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                .onFailure { Toast.makeText(context, chatActionFailMsg, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
                         }
                     },
                 )
@@ -1776,7 +1776,7 @@ internal fun ActiveTripScreen(
                                 voiceScope.launch {
                                     ApiClient.editMessage(bookingId, eid, t)
                                         .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, chatActionFailMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
                                 }
                                 editingId = null
                             } else {
@@ -1793,9 +1793,9 @@ internal fun ActiveTripScreen(
                                 .onSuccess { url ->
                                     ApiClient.sendVoiceMessage(bookingId, url)   // результат больше НЕ выброшен: сбой = «не отправилось», не молчим
                                         .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
                                 }
-                                .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
                         }
                     },
                     onPhotoPicked = { bytes ->
@@ -1804,9 +1804,9 @@ internal fun ActiveTripScreen(
                                 .onSuccess { url ->
                                     ApiClient.sendPhotoMessage(bookingId, url)   // результат больше НЕ выброшен
                                         .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
                                 }
-                                .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
                         }
                     },
                     onQuickSend = { phrase -> sendText(phrase) }   // готовая фраза — тот же надёжный путь (WS→REST)
@@ -1825,7 +1825,7 @@ internal fun ActiveTripScreen(
             item {
                 Button(
                     onClick = onSos,
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
                 ) {
@@ -1882,7 +1882,7 @@ internal fun ActiveTripScreen(
                                     if (activeShares.isEmpty()) showContacts = true
                                     Toast.makeText(context, shareRevokedMsg, Toast.LENGTH_SHORT).show()
                                 }
-                                .onFailure { Toast.makeText(context, shareErrMsg, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(context, serverSaid(it, shareErrMsg), Toast.LENGTH_LONG).show() }
                         }
                     }
                     Spacer(Modifier.height(12.dp))
@@ -1915,7 +1915,7 @@ internal fun ActiveTripScreen(
                                     }
                                     .onFailure {
                                         showShare = false
-                                        Toast.makeText(context, shareErrMsg, Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, serverSaid(it, shareErrMsg), Toast.LENGTH_LONG).show()
                                     }
                             } else showShare = false
                         }.padding(vertical = 12.dp),
@@ -2036,7 +2036,7 @@ internal fun RoadsideHelpButton(sending: Boolean, sent: Boolean, onClick: () -> 
     OutlinedButton(
         onClick = onClick,
         enabled = !sending && !sent,
-        modifier = modifier.fillMaxWidth().height(50.dp),
+        modifier = modifier.fillMaxWidth().heightIn(min = 50.dp),
         shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.outlinedButtonColors(containerColor = CanonWarnBg, contentColor = CanonWarn),
         border = BorderStroke(1.dp, CanonWarn),

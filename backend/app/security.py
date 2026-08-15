@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from .config import settings
@@ -26,6 +27,39 @@ _TG_PLACEHOLDER_RE = re.compile(r"^tg\d+$")
 def is_placeholder_phone(phone) -> bool:
     """True, если номер ещё не задан или это Telegram-плейсхолдер tg<id> (не реальный)."""
     return not phone or bool(_TG_PLACEHOLDER_RE.match(phone))
+
+
+def normalize_phone(raw) -> str:
+    """Один номер — одна запись, как бы человек его ни набрал.
+
+    Зачем. Вход искал пользователя по строке ТОЧНО как введено: `User.phone == body.phone`.
+    Значит «+79991234567», «79991234567», «89991234567» и «+7 999 123-45-67» — четыре РАЗНЫХ
+    аккаунта одного человека. У каждого своя история поездок, свой рейтинг, свои документы
+    водителя, свой кошелёк и свои доверенные контакты. Заметить это человек может только по
+    тому, что «всё пропало», а восстановить — никак: он не знает, каким написанием заходил.
+
+    Хуже того, это обходило наказания: водителю поставили паузу в «Справедливости» — он
+    заходит с восьмёрки вместо плюс-семи и получает чистый аккаунт. Барьер по устройству
+    (`guard_device_not_banned`) остаётся, но он про устройство, а не про человека.
+
+    Правила (Россия/Башкортостан — наши номера):
+      8XXXXXXXXXX и 7XXXXXXXXXX → +7XXXXXXXXXX,  9XXXXXXXXX → +79XXXXXXXXX.
+    Иностранные номера не трогаем сверх очистки: угадывать чужой план нумерации нельзя.
+    Telegram-плейсхолдер `tg<id>` и пустое значение возвращаем как есть — это не телефон.
+    """
+    s = (raw or "").strip()
+    if not s or _TG_PLACEHOLDER_RE.match(s):
+        return s
+    plus = s.startswith("+")
+    digits = re.sub(r"\D", "", s)
+    if not digits:
+        return s
+    if len(digits) == 11 and digits[0] in ("7", "8"):
+        return "+7" + digits[1:]
+    if len(digits) == 10 and digits[0] == "9":
+        return "+7" + digits
+    # Всё остальное — только чистим разделители, форму сохраняем.
+    return ("+" if plus else "") + digits
 
 
 def make_token(user_id: int) -> str:
@@ -75,8 +109,24 @@ def rotate_refresh(session: Session, raw: str) -> dict:
     ).first()
     if not rt or rt.revoked or rt.expires_at < utcnow():
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
-    rt.revoked = True                       # ротация: старый refresh больше не работает
-    session.add(rt)
+    # Гасим токен АТОМАРНО: условие «он ещё не погашен» живёт внутри UPDATE.
+    #
+    # Блокировка строки выше закрывает гонку на PostgreSQL, но SQLite её игнорирует — а на нём
+    # тесты, локальная разработка и демо-база. Там два параллельных /auth/refresh с ОДНИМ
+    # токеном проходили проверку оба и получали по свежей паре. Смысл одноразового refresh
+    # ровно в обратном: если токен утёк, второе его использование должно провалиться — по этому
+    # признаку и ловят кражу. Пока условие проверялось отдельно от записи, укравший работал
+    # наравне с хозяином, и следа не оставалось.
+    #
+    # И как везде: саму защиту не проверял ни один тест — на SQLite блокировка пустая операция.
+    burned = session.execute(
+        update(RefreshToken)
+        .where(RefreshToken.id == rt.id, RefreshToken.revoked == False)   # noqa: E712 — SQL IS FALSE
+        .values(revoked=True)
+    )
+    if burned.rowcount == 0:
+        session.rollback()
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
     session.commit()
     return issue_tokens(session, rt.user_id)
 

@@ -87,6 +87,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -1424,9 +1425,11 @@ private fun InstantDestinationPicker(
     // Пришёл ли хоть один УСПЕШНЫЙ ответ. Без этого «машин рядом нет» и «ещё не спросили»
     // выглядят одинаково — пустым местом, и мы молча врём человеку, что рядом пусто.
     var nearbyLoaded by remember { mutableStateOf(false) }
-    LaunchedEffect(effFrom, toPoint) {
-        if (toPoint != null) { nearbyDrivers = emptyList(); return@LaunchedEffect }
-        val f = effFrom ?: return@LaunchedEffect
+    // Пока экран перед глазами — переспрашиваем, какие машины рядом. Свернул приложение →
+    // опрос засыпает: искать машины для человека, который сейчас не выбирает поездку, незачем.
+    RepeatWhileVisible(effFrom, toPoint) {
+        if (toPoint != null) { nearbyDrivers = emptyList(); return@RepeatWhileVisible }
+        val f = effFrom ?: return@RepeatWhileVisible
         var fails = 0
         while (isActive) {
             ApiClient.getNearbyDrivers(f.latitude, f.longitude)
@@ -2829,6 +2832,10 @@ internal fun InstantDriverEnRouteCard(
                     }
                     // «Написать» (B7b-1): чат заказа — не звоня, уточнить подъезд/этаж/ориентир.
                     Surface(
+                        // Тач-цель 48dp (CLAUDE.md §4.5): иконка 20dp с отступом 12dp даёт 44dp.
+                        // Пассажир жмёт это на улице, водитель — за рулём; шесть пикселей тут
+                        // не косметика. Модификатор расширяет ОБЛАСТЬ НАЖАТИЯ, не меняя вид.
+                        modifier = Modifier.minimumInteractiveComponentSize(),
                         onClick = { NavSignals.openInstantChat.value = order.id },
                         shape = CircleShape, color = CanonMint,
                     ) {
@@ -2838,6 +2845,7 @@ internal fun InstantDriverEnRouteCard(
                     // Телефон — ТОЛЬКО после accept (сервер отдаёт его непустым).
                     if (order.driverPhone.isNotBlank()) {
                         Surface(
+                            modifier = Modifier.minimumInteractiveComponentSize(),   // тач-цель 48dp, см. выше
                             onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${order.driverPhone}"))) } },
                             shape = CircleShape, color = CanonGreen2,
                         ) {
@@ -3221,7 +3229,7 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                                                 }
                                                 .onFailure {
                                                     onDismiss()
-                                                    Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show()
                                                 }
                                         }
                                     }
@@ -3256,7 +3264,7 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                                             activeShares = activeShares.filterNot { it.id == share.id }
                                             Toast.makeText(ctx, revokedMsg, Toast.LENGTH_SHORT).show()
                                         }
-                                        .onFailure { Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show() }
                                 }
                             }, modifier = Modifier.heightIn(min = 44.dp)) {
                                 Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -3566,7 +3574,7 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
                                 scope.launch {
                                     ApiClient.rateInstantOrder(order.id, n)
                                         .onSuccess { if (!rated) { rated = true; Toast.makeText(ctx, thanksMsg, Toast.LENGTH_SHORT).show() } }
-                                        .onFailure { Toast.makeText(ctx, rateFail, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(ctx, serverSaid(it, rateFail), Toast.LENGTH_LONG).show() }
                                 }
                             },
                         contentAlignment = Alignment.Center,
@@ -3604,7 +3612,7 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
                 scope.launch {
                     ApiClient.reportUser(reason = details, category = category, orderId = order.id)
                         .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
-                        .onFailure { Toast.makeText(ctx, sendFail, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, sendFail), Toast.LENGTH_LONG).show() }
                 }
             },
         )
@@ -3667,7 +3675,7 @@ internal fun UnpaidReportButton(orderId: Int? = null, bookingId: Int? = null, mo
                 scope.launch {
                     ApiClient.reportUser(category = "unpaid", orderId = orderId, bookingId = bookingId)
                         .onSuccess { sent = true }
-                        .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
                     sending = false
                 }
             },
@@ -3712,7 +3720,7 @@ internal fun NoShowButton(bookingId: Int, modifier: Modifier = Modifier) {
                 scope.launch {
                     ApiClient.markNoShow(bookingId)
                         .onSuccess { sent = true }
-                        .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
                     sending = false
                 }
             },
@@ -3852,7 +3860,7 @@ private fun TaxiComingSoonCard(
                         Button(
                             onClick = { submit() },
                             enabled = phone.isNotBlank() && !sending,
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                         ) {
@@ -3883,7 +3891,7 @@ private fun TaxiComingSoonCard(
                         }
                         // Такси уже включено (глобально), просто не в этом городе → проверку 580-ФЗ можно пройти заранее.
                         if (availability.reason == "city_off") {
-                            TextButton(onClick = onTaxiOnboarding, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                            TextButton(onClick = onTaxiOnboarding, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                                 Text(
                                     appText("Пройти проверку таксиста заранее →", "Таксист тикшереүен алдан үтергә →"),
                                     color = CanonTaxiText, fontSize = 14.sp, fontWeight = FontWeight.Bold,
@@ -3898,7 +3906,7 @@ private fun TaxiComingSoonCard(
         Spacer(Modifier.height(16.dp))
         Button(
             onClick = onBackToPooling,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
         ) {
@@ -3961,6 +3969,13 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
 
     // Presence-heartbeat (координаты не логируем). Следим за связью: если heartbeat не долетает,
     // водитель невидим серверу — честно показываем это чипом, а не делаем вид, что он «на линии».
+    //
+    // НАМЕРЕННО работает и со свёрнутым приложением (в отличие от соседних опросов на этом
+    // экране). Это не обновление картинки, а сигнал «я на линии, шлите заказы»: пропал сигнал —
+    // сервер через ~45 секунд забывает водителя, и тот стоит на трассе без заказов, думая что
+    // просто нет спроса. Обычно в фоне сигнал шлёт сервис линии, но если он не поднялся или его
+    // прибила система, этот цикл остаётся единственным. Дублирование раз в 12 секунд стоит
+    // копейки, пустой рабочий день водителя — нет.
     LaunchedEffect(online) {
         if (!online) { presenceFails = 0; return@LaunchedEffect }
         while (isActive) {
@@ -3972,9 +3987,11 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
             delay(12_000)
         }
     }
-    // Поллинг входящего оффера (пока нет активного на экране).
-    LaunchedEffect(online) {
-        if (!online) { offer = null; return@LaunchedEffect }
+    // Поллинг входящего оффера (пока нет активного на экране) — только пока экран перед глазами.
+    // Со свёрнутым приложением офферы ловит фоновый сервис линии и показывает полноэкранное
+    // уведомление: это водителю полезнее, чем обновлённый экран, которого он не видит.
+    RepeatWhileVisible(online) {
+        if (!online) { offer = null; return@RepeatWhileVisible }
         while (isActive) {
             if (offer == null) {
                 val incoming = ApiClient.getDriverOffer().getOrNull()
@@ -4421,10 +4438,20 @@ internal fun InstantDriverTripScreen(
             .onSuccess { order = it }
             .onFailure { e -> loadError = (e as? ApiException)?.status?.let { it >= 500 } ?: true }
         loading = false
+    }
+
+    // Дальше статус заказа переспрашиваем каждые 5 секунд — но ТОЛЬКО пока экран перед глазами.
+    // Свернул приложение — опрос засыпает вместе с ним: про смену статуса и так придёт пуш, а
+    // будить телефон каждые пять секунд ради экрана, на который никто не смотрит, незачем.
+    // Вернулся — опрос просыпается сразу, до первой паузы, поэтому свежее видно мгновенно.
+    // Первичная загрузка осталась выше отдельно: иначе при каждом возврате мигал бы спиннер.
+    RepeatWhileVisible(orderId, reloadTick, observeRemote) {
+        if (!observeRemote) return@RepeatWhileVisible
+        ApiClient.getInstantOrder(orderId).onSuccess { order = it }
         while (isActive) {
+            if (order?.status == "done" || order?.status == "cancelled" || order?.status == "expired") break
             delay(5_000)
             ApiClient.getInstantOrder(orderId).onSuccess { order = it }
-            if (order?.status == "done" || order?.status == "cancelled" || order?.status == "expired") break
         }
     }
 
@@ -4571,12 +4598,12 @@ internal fun InstantDriverTripScreen(
                                     Text("${current.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${current.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}", color = CanonMuted, fontSize = 14.sp, maxLines = 1)
                                 }
                                 // «Написать» (B7b-1): чат заказа — водителю удобнее коротким текстом на месте.
-                                Surface(onClick = { NavSignals.openInstantChat.value = current.id }, shape = CircleShape, color = CanonMint) {
+                                Surface(modifier = Modifier.minimumInteractiveComponentSize(), onClick = { NavSignals.openInstantChat.value = current.id }, shape = CircleShape, color = CanonMint) {
                                     Icon(Icons.Default.ChatBubble, contentDescription = appText("Написать пассажиру", "Пассажирға яҙырға"), tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(20.dp))
                                 }
                                 Spacer(Modifier.width(8.dp))
                                 if (current.passengerPhone.isNotBlank()) {
-                                    Surface(onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${current.passengerPhone}"))) } }, shape = CircleShape, color = CanonGreen2) {
+                                    Surface(modifier = Modifier.minimumInteractiveComponentSize(), onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${current.passengerPhone}"))) } }, shape = CircleShape, color = CanonGreen2) {
                                         Icon(Icons.Default.Phone, contentDescription = appText("Позвонить пассажиру", "Пассажирға шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(12.dp).size(20.dp))
                                     }
                                 }
@@ -4636,7 +4663,7 @@ internal fun InstantDriverTripScreen(
                                         if (toDest) current.toLng else current.fromLng,
                                     )
                                 },
-                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                 shape = RoundedCornerShape(14.dp),
                             ) {
                                 Icon(Icons.Default.Navigation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))

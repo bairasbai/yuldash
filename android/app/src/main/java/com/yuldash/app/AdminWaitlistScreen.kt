@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -143,10 +144,17 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
                 }
             }
             // ---------- Состояния: загрузка / ошибка / пусто / список ----------
-            if (loading) {
+            // `.isNullOrEmpty()` в двух первых ветках — чтобы уже загруженный список не исчезал
+            // при каждом обновлении: раньше жест сверху вниз сначала прятал строки за скелетоном,
+            // а при сбое подменял их карточкой ошибки. Список был, а на экране его не было.
+            val loaded = data?.items.orEmpty()
+            if (error != null && loaded.isNotEmpty()) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload() }) }
+            }
+            if (loading && loaded.isEmpty()) {
                 item { SkeletonCard(lines = 3) }
                 item { SkeletonCard(lines = 3) }
-            } else if (error != null) {
+            } else if (error != null && loaded.isEmpty()) {
                 item { ListedError(error ?: "") { reload() } }
             } else if (data?.items.isNullOrEmpty()) {
                 item {
@@ -208,7 +216,7 @@ internal fun AdminWaitlistScreen(onBack: () -> Unit) {
                                 }
                             },
                             enabled = !inviting,
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                         ) {

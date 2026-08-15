@@ -94,7 +94,11 @@ class LoginDeepContentTest {
     fun header_russian_showsTitleAndSubtitle() {
         form(tgMode = false, language = AppLanguage.Ru)
         composeRule.onNodeWithText("Войти в Юлдаш").assertIsDisplayed()
-        composeRule.onNodeWithText("Используйте Telegram для быстрого и безопасного входа").assertIsDisplayed()
+        // Было «Используйте Telegram…» — единственное «вы» на первом экране приложения, при том
+        // что двумя строками ниже уже «Входя, ты подтверждаешь», а башкирский рядом с самого
+        // начала на «ты» («ҡуллан»). Сторож тона это пропускал: он знал список глаголов, а не
+        // правило (исправлено 2026-08-13, ToneSourceGuardTest).
+        composeRule.onNodeWithText("Заходи через Telegram — быстро и безопасно").assertIsDisplayed()
     }
 
     @Test

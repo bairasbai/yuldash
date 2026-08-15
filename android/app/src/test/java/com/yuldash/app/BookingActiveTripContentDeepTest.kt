@@ -92,7 +92,7 @@ class BookingActiveTripContentDeepTest {
                 DriverApproachingBanner(arriving = true)
             }
         }
-        composeRule.onNodeWithText("Водитель яҡынлаша").assertIsDisplayed()
+        composeRule.onNodeWithText("Йөрөтөүсе яҡынлаша").assertIsDisplayed()
     }
 
     /**

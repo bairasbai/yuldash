@@ -105,19 +105,18 @@ def driver_online(body: OnlineIn, user: User = Depends(current_user), session: S
     dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
     if not dp:
         dp = DriverProfile(user_id=user.id, online=body.online)
+    if body.online:
+        dp.online = True
+        session.add(dp)
     else:
-        dp.online = body.online
-    session.add(dp)
+        # Снял тумблер — вместе с флагом убираем координаты из Redis: у GEO-множества нет
+        # срока жизни (в отличие от heartbeat), и точка человека лежала бы там вечно
+        # (аудит 2026-08-08, волна 12). Общая дверь — чтобы то же самое делали и те, кто
+        # снимает водителя принудительно (просроченные документы).
+        from ..instant_service import driver_go_offline
+        driver_go_offline(session, dp)
     session.commit()
     session.refresh(dp)
-    if not body.online:
-        # Снял тумблер — убираем координаты из Redis. Функция `presence_offline` была написана
-        # ровно для этого, но её не звал НИКТО: точка водителя оставалась в GEO-множестве
-        # навсегда (у GEO нет срока жизни, в отличие от heartbeat). Матчер её игнорировал, так
-        # что поломки не было видно, — а последнее местоположение человека лежало вечно
-        # (аудит 2026-08-08, волна 12).
-        from ..instant_service import presence_offline
-        presence_offline(user.id)
     return dp
 
 

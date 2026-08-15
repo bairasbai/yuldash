@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -178,7 +179,7 @@ internal fun AppReviewFormContent(
             enabled = canSubmit,
             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg),
             shape = CanonCardShape,
-            modifier = Modifier.fillMaxWidth().height(54.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
         ) {
             if (sending) {
                 CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
@@ -260,7 +261,7 @@ internal fun ReviewThanksCard(onDone: () -> Unit) {
                 onClick = onDone,
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg),
                 shape = CanonCardShape,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
             ) {
                 Text(appText("Готово", "Әҙер"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }

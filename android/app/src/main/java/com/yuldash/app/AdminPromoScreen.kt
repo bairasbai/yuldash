@@ -123,6 +123,11 @@ private fun AdminPromoList(onBack: () -> Unit, onCreate: () -> Unit) {
                     icon = Icons.Default.Add,
                 )
             }
+            // Коды не обновились, прежние остались: счётчик применений старый, и решение
+            // «работает акция или нет» принимается по вчерашним цифрам.
+            if (error != null && list.isNotEmpty()) {
+                item(key = "stale") { AppStaleStrip(onRetry = { reload() }) }
+            }
             when {
                 loading && list.isEmpty() -> {
                     item { SkeletonCard(lines = 3) }

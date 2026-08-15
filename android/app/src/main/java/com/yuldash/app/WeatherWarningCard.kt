@@ -66,9 +66,18 @@ private fun weatherIcon(kind: String): ImageVector = when (kind) {
  */
 @Composable
 internal fun WeatherWarningCard(weather: RouteWeatherDto?, modifier: Modifier = Modifier) {
-    val warnings = weather?.warnings.orEmpty()
+    val fresh = weather?.warnings.orEmpty()
+    // Внимание: `AnimatedVisibility` держит содержимое в композиции ВСЮ анимацию ухода.
+    // Гололёд заканчивается → список предупреждений пустеет → `visible` становится false,
+    // но карточка ещё уезжает, и содержимое пересобирается уже с пустым списком.
+    // Внутри стоял `warnings.first()` — приложение падало ровно в тот момент, когда
+    // погода улучшилась. Держим последний НЕпустой набор: падать нечему, и уезжает
+    // с экрана именно то, что человек читал, а не пустая рамка.
+    val shown = remember { mutableStateOf(fresh) }
+    if (fresh.isNotEmpty() && fresh != shown.value) shown.value = fresh
+    val warnings = shown.value
     AnimatedVisibility(
-        visible = weather?.available == true && warnings.isNotEmpty(),
+        visible = weather?.available == true && fresh.isNotEmpty(),
         enter = expandVertically(tween(CanonMotion.NORMAL)) + fadeIn(tween(CanonMotion.NORMAL)),
         exit = shrinkVertically(tween(CanonMotion.QUICK)) + fadeOut(tween(CanonMotion.QUICK)),
         modifier = modifier,
@@ -86,7 +95,9 @@ internal fun WeatherWarningCard(weather: RouteWeatherDto?, modifier: Modifier = 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(color = CanonSurface, shape = CircleShape) {
                         Icon(
-                            weatherIcon(warnings.first().kind),
+                            // `firstOrNull` вторым рубежом: даже если список когда-нибудь
+                            // окажется пустым, экран не должен падать из-за иконки.
+                            weatherIcon(warnings.firstOrNull()?.kind.orEmpty()),
                             contentDescription = null,
                             tint = if (severe) CanonRed else CanonWarn,
                             modifier = Modifier.padding(8.dp).size(20.dp),

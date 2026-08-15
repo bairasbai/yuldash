@@ -981,6 +981,17 @@ object ApiClient {
             auth = true,
         ).onSuccess { invalidate("contacts") }.map { }   // добавили контакт → следующий getContacts тянет свежий список
 
+    /**
+     * Убрать доверенный контакт. Сервер умел это с самого начала, а приложение не звало:
+     * контакт удалялся ТОЛЬКО на экране и возвращался после перезапуска. То есть человек,
+     * которому уходит твоя геопозиция в поездке и SOS-сигнал ночью, оставался в списке
+     * навсегда — хотя отношения меняются: бывший, поссорились, ошиблись номером.
+     * Сервер сначала гасит шаринги этого контакта, потом сам контакт.
+     */
+    suspend fun deleteContact(contactId: Int): Result<Unit> =
+        call("DELETE", "/trusted-contacts/$contactId", null, auth = true)
+            .onSuccess { invalidate("contacts") }.map { }
+
     suspend fun getContacts(): Result<List<ContactDto>> = cachedGet("contacts", TTL_PERSONAL) {
         call("GET", "/trusted-contacts", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
@@ -3011,6 +3022,24 @@ object ApiClient {
                         sessionExpired.value = true   // сигнал UI: показать «войди снова» и уйти на Login (не молчать пустыми экранами)
                         Result.failure(ApiException(401, genericByStatus(401, langBa)))
                     }
+                } else if (code == 401 && auth) {
+                    // Токен мёртв, а обновить его НЕЧЕМ: refresh пуст (сессия из старой версии,
+                    // не сохранился, вычищен) либо повтор после обновления снова дал 401.
+                    //
+                    // Раньше этот случай уходил в обычную ошибку — и человек «залипал» намертво.
+                    // Поймано вживую (2026-08-13, прокси между приложением и сервером): 401 шёл
+                    // на КАЖДЫЙ авторизованный запрос — /me, /requests/mine, /trusted-contacts,
+                    // /push/register. При этом приложение считало себя залогиненным: профиль
+                    // показывал имя из кэша, а экраны без кэша писали «Не удалось загрузить.
+                    // Проверь интернет» — при живом интернете. Выйти и войти заново было НЕЛЬЗЯ:
+                    // кнопки выхода на таком экране нет, а сессия сама не заканчивалась никогда.
+                    // Единственным лечением была переустановка приложения.
+                    //
+                    // Условие «есть refresh-токен» описывало ЧАСТЫЙ случай, а не ВСЕ. Мёртвая
+                    // сессия — это всегда конец сессии, независимо от того, чем её пытались лечить.
+                    logout()
+                    sessionExpired.value = true
+                    Result.failure(ApiException(401, genericByStatus(401, langBa)))
                 } else {
                     Result.failure(ApiException(code, errorMessage(code, text)))
                 }

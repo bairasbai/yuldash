@@ -240,6 +240,30 @@ def release(session: Session, order: InstantOrder) -> bool:
     return True
 
 
+def release_ids(order_ids) -> int:
+    """Вернуть скидку по списку заказов, закончившихся без поездки. Своя сессия.
+
+    Возврат обещан в шапке модуля — «поездка не состоялась → скидка возвращается», — но
+    звала `release` ровно одна дверь: отмена человеком. А заказ заканчивается без поездки
+    ещё тремя путями: система закрыла зависший (`taxi_worker.close_stuck_orders`), кончилась
+    очередь «подожду машину», ночная чистка закрыла забытый (`cleanup.close_stale_orders`).
+    По ним промокод, который даётся раз в жизни аккаунта, сгорал за поездку, которой не было.
+
+    Возвращает, сколько скидок реально снято (идемпотентно: повтор вернёт 0).
+    """
+    ids = [int(i) for i in (order_ids or []) if i is not None]
+    if not ids:
+        return 0
+    from .db import engine
+    freed = 0
+    with Session(engine) as session:
+        for oid in ids:
+            order = session.get(InstantOrder, oid)
+            if order is not None and release(session, order):
+                freed += 1
+    return freed
+
+
 def reclamp(session: Session, order: InstantOrder) -> int:
     """Пересчитать потолок «доля от цены» после того, как цена заказа изменилась.
 
