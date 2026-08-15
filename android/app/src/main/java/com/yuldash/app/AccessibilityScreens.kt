@@ -568,7 +568,7 @@ internal fun VoiceRequestScreen(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
             putExtra(RecognizerIntent.EXTRA_PROMPT, vrPrompt)
         }
-        runCatching { sttLauncher.launch(intent) }.onFailure { Toast.makeText(context, vrNoStt, Toast.LENGTH_SHORT).show() }
+        runCatching { sttLauncher.launch(intent) }.onFailure { Toast.makeText(context, serverSaid(it, vrNoStt), Toast.LENGTH_LONG).show() }
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Голосовая заявка", "Тауыш заявкаһы"), onBack) }) { padding ->
         LazyColumn(
@@ -1303,7 +1303,7 @@ internal fun TrustedContactsScreen(
                         if (victim.id > 0) {
                             ApiClient.deleteContact(victim.id).onFailure {
                                 removedPhones.remove(phone)   // не получилось — контакт возвращается на экран
-                                Toast.makeText(ctx, deleteFailed, Toast.LENGTH_SHORT).show()
+                                Toast.makeText(ctx, serverSaid(it, deleteFailed), Toast.LENGTH_LONG).show()
                             }
                         }
                     }

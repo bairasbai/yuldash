@@ -3227,7 +3227,7 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                                                 }
                                                 .onFailure {
                                                     onDismiss()
-                                                    Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show()
                                                 }
                                         }
                                     }
@@ -3262,7 +3262,7 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                                             activeShares = activeShares.filterNot { it.id == share.id }
                                             Toast.makeText(ctx, revokedMsg, Toast.LENGTH_SHORT).show()
                                         }
-                                        .onFailure { Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show() }
                                 }
                             }, modifier = Modifier.heightIn(min = 44.dp)) {
                                 Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -3572,7 +3572,7 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
                                 scope.launch {
                                     ApiClient.rateInstantOrder(order.id, n)
                                         .onSuccess { if (!rated) { rated = true; Toast.makeText(ctx, thanksMsg, Toast.LENGTH_SHORT).show() } }
-                                        .onFailure { Toast.makeText(ctx, rateFail, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(ctx, serverSaid(it, rateFail), Toast.LENGTH_LONG).show() }
                                 }
                             },
                         contentAlignment = Alignment.Center,
@@ -3610,7 +3610,7 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
                 scope.launch {
                     ApiClient.reportUser(reason = details, category = category, orderId = order.id)
                         .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
-                        .onFailure { Toast.makeText(ctx, sendFail, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, sendFail), Toast.LENGTH_LONG).show() }
                 }
             },
         )
@@ -3673,7 +3673,7 @@ internal fun UnpaidReportButton(orderId: Int? = null, bookingId: Int? = null, mo
                 scope.launch {
                     ApiClient.reportUser(category = "unpaid", orderId = orderId, bookingId = bookingId)
                         .onSuccess { sent = true }
-                        .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
                     sending = false
                 }
             },
@@ -3718,7 +3718,7 @@ internal fun NoShowButton(bookingId: Int, modifier: Modifier = Modifier) {
                 scope.launch {
                     ApiClient.markNoShow(bookingId)
                         .onSuccess { sent = true }
-                        .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
                     sending = false
                 }
             },

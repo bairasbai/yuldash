@@ -2220,7 +2220,7 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
                     scope.launch {
                         ApiClient.respondToRequest(rid, p, c)
                             .onSuccess { responding = false; target = null; price = ""; comment = ""; Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show(); reload() }
-                            .onFailure { responding = false; Toast.makeText(ctx, respondErr, Toast.LENGTH_LONG).show() }
+                            .onFailure { responding = false; Toast.makeText(ctx, serverSaid(it, respondErr), Toast.LENGTH_LONG).show() }
                     }
                 }) { Text(if (responding) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Отправить", "Ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },
@@ -2359,7 +2359,7 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
                 scope.launch {
                     ApiClient.acceptResponse(id)
                         .onSuccess { bid -> onAccepted(bid) }
-                        .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show(); accepting = false }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show(); accepting = false }
                 }
             },
             // Торг: своя цена и «не договорились». Ошибку сервера показываем как есть — она

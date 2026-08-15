@@ -1372,7 +1372,7 @@ internal fun ActiveTripScreen(
                                                             // Play сам решит, показывать ли; не чаще раза в 30 дней; без Play — no-op.
                                                             if (n == 5 && !isDriver) maybeRequestStoreReview(context)
                                                         }
-                                                        .onFailure { rating = false; myStars = prev; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }   // откат: не показываем «оценено», если не сохранилось
+                                                        .onFailure { rating = false; myStars = prev; Toast.makeText(context, serverSaid(it, rateFailMsg), Toast.LENGTH_LONG).show() }   // откат: не показываем «оценено», если не сохранилось
                                                 }
                                             }
                                         },
@@ -1489,7 +1489,7 @@ internal fun ActiveTripScreen(
                                         voiceScope.launch {
                                             ApiClient.rateBooking(id, myStars, reviewText, pickedTags.toList())
                                                 .onSuccess { rating = false; reviewSent = true; Toast.makeText(context, reviewSentMsg, Toast.LENGTH_SHORT).show() }
-                                                .onFailure { rating = false; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }
+                                                .onFailure { rating = false; Toast.makeText(context, serverSaid(it, rateFailMsg), Toast.LENGTH_LONG).show() }
                                         }
                                     }
                                 },
@@ -1649,7 +1649,7 @@ internal fun ActiveTripScreen(
                                                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                                 onTripEnd()
                                             }
-                                            .onFailure { Toast.makeText(context, cancelFailMsg, Toast.LENGTH_SHORT).show() }
+                                            .onFailure { Toast.makeText(context, serverSaid(it, cancelFailMsg), Toast.LENGTH_LONG).show() }
                                     }
                                 } ?: onTripEnd()
                             }) { Text(appText("Да, отменить", "Эйе, кире алырға"), color = CanonRed, fontWeight = FontWeight.Bold) }
@@ -1742,7 +1742,7 @@ internal fun ActiveTripScreen(
                         if (bookingId != null) voiceScope.launch {
                             ApiClient.deleteMessage(bookingId, m.id, scope)
                                 .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                .onFailure { Toast.makeText(context, chatActionFailMsg, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
                         }
                     },
                 )
@@ -1776,7 +1776,7 @@ internal fun ActiveTripScreen(
                                 voiceScope.launch {
                                     ApiClient.editMessage(bookingId, eid, t)
                                         .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, chatActionFailMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
                                 }
                                 editingId = null
                             } else {
@@ -1793,9 +1793,9 @@ internal fun ActiveTripScreen(
                                 .onSuccess { url ->
                                     ApiClient.sendVoiceMessage(bookingId, url)   // результат больше НЕ выброшен: сбой = «не отправилось», не молчим
                                         .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
                                 }
-                                .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
                         }
                     },
                     onPhotoPicked = { bytes ->
@@ -1804,9 +1804,9 @@ internal fun ActiveTripScreen(
                                 .onSuccess { url ->
                                     ApiClient.sendPhotoMessage(bookingId, url)   // результат больше НЕ выброшен
                                         .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
                                 }
-                                .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
                         }
                     },
                     onQuickSend = { phrase -> sendText(phrase) }   // готовая фраза — тот же надёжный путь (WS→REST)
@@ -1882,7 +1882,7 @@ internal fun ActiveTripScreen(
                                     if (activeShares.isEmpty()) showContacts = true
                                     Toast.makeText(context, shareRevokedMsg, Toast.LENGTH_SHORT).show()
                                 }
-                                .onFailure { Toast.makeText(context, shareErrMsg, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(context, serverSaid(it, shareErrMsg), Toast.LENGTH_LONG).show() }
                         }
                     }
                     Spacer(Modifier.height(12.dp))
@@ -1915,7 +1915,7 @@ internal fun ActiveTripScreen(
                                     }
                                     .onFailure {
                                         showShare = false
-                                        Toast.makeText(context, shareErrMsg, Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, serverSaid(it, shareErrMsg), Toast.LENGTH_LONG).show()
                                     }
                             } else showShare = false
                         }.padding(vertical = 12.dp),

@@ -609,7 +609,7 @@ internal fun RouteWatchesScreen(
                                         }
                                         .onFailure {
                                             val m = (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg
-                                            Toast.makeText(ctx, m, Toast.LENGTH_LONG).show()
+                                            Toast.makeText(ctx, serverSaid(it, m), Toast.LENGTH_LONG).show()
                                         }
                                     submitting = false
                                 }
@@ -641,7 +641,7 @@ internal fun RouteWatchesScreen(
                             scope.launch {
                                 ApiClient.deleteRouteWatch(w.id)
                                     .onSuccess { watches = watches.filterNot { it.id == w.id }; Toast.makeText(ctx, removedMsg, Toast.LENGTH_SHORT).show() }
-                                    .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                                    .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
                             }
                         }
                     )
@@ -1346,8 +1346,8 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
             drivers = list,
             token = token,
             onRetry = { reload() },
-            onApprove = { d, genderOk -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, true, genderOk).onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } },
-            onReject = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, false).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } },
+            onApprove = { d, genderOk -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, true, genderOk).onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() } } },
+            onReject = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, false).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() } } },
             modifier = Modifier.padding(padding),
         )
     }
@@ -1478,7 +1478,7 @@ internal fun AdminReportsScreen(onBack: () -> Unit) {
     fun act(block: suspend () -> Result<Unit>) {
         scope.launch {
             block().onSuccess { Toast.makeText(ctx, doneMsg, Toast.LENGTH_SHORT).show(); reload() }
-                .onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() }
+                .onFailure { Toast.makeText(ctx, serverSaid(it, actionErr), Toast.LENGTH_LONG).show() }
         }
     }
     LaunchedEffect(Unit) { reload() }
@@ -1730,8 +1730,8 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                             Text((g.driverName.ifBlank { noName }) + (if (g.driverPhone.isNotBlank()) " · ${g.driverPhone}" else ""), color = CanonMuted, fontSize = 14.sp)
                             if (g.weeks.isNotEmpty()) Text(appText("Недели: ", "Аҙналар: ") + g.weeks.joinToString(", "), color = CanonMuted, fontSize = 12.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { val id = g.debtId; val k = "debt-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmDebt(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }; busy.remove(k) } }, enabled = "debt-ok-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
-                                OutlinedButton(onClick = { val id = g.debtId; val k = "debt-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectDebt(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }; busy.remove(k) } }, enabled = "debt-no-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                                Button(onClick = { val id = g.debtId; val k = "debt-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmDebt(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-ok-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                                OutlinedButton(onClick = { val id = g.debtId; val k = "debt-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectDebt(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-no-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
                             }
                         }
                     }
@@ -1763,8 +1763,8 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                             if (p.note.isNotBlank()) Text(p.note, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             if (p.createdAt.length >= 10) Text(p.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { val id = p.paymentId; val k = "pay-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmPayment(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }; busy.remove(k) } }, enabled = "pay-ok-${p.paymentId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
-                                OutlinedButton(onClick = { val id = p.paymentId; val k = "pay-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectPayment(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }; busy.remove(k) } }, enabled = "pay-no-${p.paymentId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                                Button(onClick = { val id = p.paymentId; val k = "pay-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmPayment(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "pay-ok-${p.paymentId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                                OutlinedButton(onClick = { val id = p.paymentId; val k = "pay-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectPayment(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "pay-no-${p.paymentId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
                             }
                         }
                     }
@@ -1814,7 +1814,7 @@ internal fun AdminRequestScreen(onBack: () -> Unit) {
                         scope.launch {
                             ApiClient.adminRequestForPhone(phone.trim(), name.trim(), from.trim(), to.trim(), s, comment.trim())
                                 .onSuccess { Toast.makeText(ctx, okMsg, Toast.LENGTH_SHORT).show(); onBack() }
-                                .onFailure { Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show(); sending = false }
+                                .onFailure { Toast.makeText(ctx, serverSaid(it, errMsg), Toast.LENGTH_LONG).show(); sending = false }
                         }
                     },
                     enabled = !sending,
@@ -1846,7 +1846,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
         scope.launch {
             ApiClient.getRequestResponses(id)
                 .onSuccess { resps = it; loading = false; if (it.isEmpty()) Toast.makeText(ctx, noResp, Toast.LENGTH_SHORT).show() }
-                .onFailure { loading = false; Toast.makeText(ctx, noResp, Toast.LENGTH_SHORT).show() }
+                .onFailure { loading = false; Toast.makeText(ctx, serverSaid(it, noResp), Toast.LENGTH_LONG).show() }
         }
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики по заявке", "Заявка буйынса яуаптар"), onBack) }) { padding ->
@@ -1885,7 +1885,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
                                     if (accepting.add(id)) scope.launch {
                                         ApiClient.acceptResponse(id)
                                             .onSuccess { Toast.makeText(ctx, acceptedMsg, Toast.LENGTH_LONG).show(); load() }
-                                            .onFailure { Toast.makeText(ctx, acceptErr, Toast.LENGTH_SHORT).show() }
+                                            .onFailure { Toast.makeText(ctx, serverSaid(it, acceptErr), Toast.LENGTH_LONG).show() }
                                         accepting.remove(id)
                                     }
                                 },
@@ -1932,8 +1932,8 @@ internal fun BlocklistScreen(onBack: () -> Unit) {
             blocks = blocks,
             addable = addable,
             onRetry = { reload() },
-            onUnblock = { id -> scope.launch { ApiClient.unblockUser(id).onSuccess { reload() }.onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() } } },
-            onBlock = { id -> scope.launch { ApiClient.blockUser(id).onSuccess { reload(); Toast.makeText(ctx, blockedMsg, Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() } } },
+            onUnblock = { id -> scope.launch { ApiClient.unblockUser(id).onSuccess { reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErr), Toast.LENGTH_LONG).show() } } },
+            onBlock = { id -> scope.launch { ApiClient.blockUser(id).onSuccess { reload(); Toast.makeText(ctx, blockedMsg, Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErr), Toast.LENGTH_LONG).show() } } },
             modifier = Modifier.padding(padding),
         )
     }
@@ -2016,7 +2016,7 @@ internal fun ReportScreen(onBack: () -> Unit) {
                 scope.launch {
                     ApiClient.reportUser(targetUserId = id, reason = details, category = category)
                         .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
-                        .onFailure { Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, errMsg), Toast.LENGTH_LONG).show() }
                 }
                 target = null
             },
@@ -2298,7 +2298,7 @@ internal fun HelpScreen(
                         scope.launch {
                             ApiClient.requestCallback("Поддержка из раздела «Помощь»")
                                 .onSuccess { Toast.makeText(ctx, supportSent, Toast.LENGTH_SHORT).show() }
-                                .onFailure { Toast.makeText(ctx, supportErr, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(ctx, serverSaid(it, supportErr), Toast.LENGTH_LONG).show() }
                         }
                     })
                     // Доп. вариант — Telegram (кому привычнее). Основной путь — внутренний чат выше.

@@ -149,7 +149,7 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
             ApiClient.activateScheduledOrder(id)
                 .onSuccess { onActivated() }
                 .onFailure {
-                    Toast.makeText(ctx, actionError, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, serverSaid(it, actionError), Toast.LENGTH_LONG).show()
                     reload++   // гонка (уже активирован/отменён) → обновим список
                 }
             busyId = 0
@@ -164,7 +164,7 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                     data = data.copy(scheduled = data.scheduled.filterNot { it.id == id })
                 }
                 .onFailure {
-                    Toast.makeText(ctx, actionError, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, serverSaid(it, actionError), Toast.LENGTH_LONG).show()
                     reload++
                 }
             busyId = 0

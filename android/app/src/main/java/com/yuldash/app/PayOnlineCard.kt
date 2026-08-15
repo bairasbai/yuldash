@@ -136,7 +136,7 @@ internal fun PayOnlineCard(
                     if (st.status == "succeeded") stage = PayOnlineStage.Paid
                     else Toast.makeText(context, notYetMsg, Toast.LENGTH_SHORT).show()
                 }
-                .onFailure { busy = false; Toast.makeText(context, errMsg, Toast.LENGTH_SHORT).show() }
+                .onFailure { busy = false; Toast.makeText(context, serverSaid(it, errMsg), Toast.LENGTH_LONG).show() }
         }
     }
 

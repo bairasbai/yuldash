@@ -429,9 +429,9 @@ internal fun ProfileScreen(
                     .onSuccess { url ->
                         ApiClient.updateAvatar(url)
                             .onSuccess { avatarUrl = url; Toast.makeText(editCtx, avatarSavedMsg, Toast.LENGTH_SHORT).show() }
-                            .onFailure { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show() }
+                            .onFailure { Toast.makeText(editCtx, serverSaid(it, saveErrMsg), Toast.LENGTH_LONG).show() }
                     }
-                    .onFailure { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show() }
+                    .onFailure { Toast.makeText(editCtx, serverSaid(it, saveErrMsg), Toast.LENGTH_LONG).show() }
                 avatarUploading = false
             }
         }
@@ -452,7 +452,7 @@ internal fun ProfileScreen(
                         editScope.launch {
                             ApiClient.updateName(n)
                                 .onSuccess { displayName = n; Toast.makeText(editCtx, nameSavedMsg, Toast.LENGTH_SHORT).show() }
-                                .onFailure { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(editCtx, serverSaid(it, saveErrMsg), Toast.LENGTH_LONG).show() }
                         }
                         showEditName = false
                     }
@@ -522,7 +522,7 @@ internal fun ProfileScreen(
                     editScope.launch {
                         ApiClient.updateCity(c)
                             .onSuccess { city = c; Toast.makeText(editCtx, citySavedMsg, Toast.LENGTH_SHORT).show() }
-                            .onFailure { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show() }
+                            .onFailure { Toast.makeText(editCtx, serverSaid(it, saveErrMsg), Toast.LENGTH_LONG).show() }
                     }
                     showEditCity = false
                 }) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
@@ -567,7 +567,7 @@ internal fun ProfileScreen(
                                             .onSuccess { Toast.makeText(editCtx, genderSavedMsg, Toast.LENGTH_SHORT).show() }
                                             .onFailure {
                                                 gender = prev
-                                                Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(editCtx, serverSaid(it, saveErrMsg), Toast.LENGTH_LONG).show()
                                             }
                                     }
                                 }
@@ -628,7 +628,7 @@ internal fun ProfileScreen(
                                 }
                                 .onFailure {
                                     deletingAccount = false
-                                    Toast.makeText(editCtx, deleteErrMsg, Toast.LENGTH_LONG).show()
+                                    Toast.makeText(editCtx, serverSaid(it, deleteErrMsg), Toast.LENGTH_LONG).show()
                                 }
                         }
                     },
@@ -1480,7 +1480,7 @@ internal fun DriverCabinetScreen(
             }
             ApiClient.setOnline(true).onFailure {
                 online = prev
-                Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, serverSaid(it, onlineErrMsg), Toast.LENGTH_LONG).show()
             }
         }
         if (zone?.workZone == null) showZoneSheet = true
@@ -1518,7 +1518,7 @@ internal fun DriverCabinetScreen(
         rateScope.launch {
             ApiClient.setDriverGender(if (v) "female" else "").onFailure {
                 isWomanDriver = prev
-                Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, serverSaid(it, onlineErrMsg), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -1567,7 +1567,7 @@ internal fun DriverCabinetScreen(
                             // СБП «на доверии» / уже succeeded — прежнее поведение.
                             Toast.makeText(ctx, debtPaidMsg, Toast.LENGTH_LONG).show(); reloadDebt()
                         }
-                        .onFailure { Toast.makeText(ctx, debtPaidErrMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, debtPaidErrMsg), Toast.LENGTH_LONG).show() }
                     } finally { debtPaying = false }
                 }
             },
@@ -1594,7 +1594,7 @@ internal fun DriverCabinetScreen(
                     rateScope.launch {
                         ApiClient.setOnline(false).onFailure {
                             online = prev
-                            Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
+                            Toast.makeText(ctx, serverSaid(it, onlineErrMsg), Toast.LENGTH_LONG).show()
                         }
                     }
                     return@onToggleOnline
@@ -1622,7 +1622,7 @@ internal fun DriverCabinetScreen(
                             bookingsReload++
                         }
                         .onFailure {
-                            Toast.makeText(ctx, rateFailMsg, Toast.LENGTH_SHORT).show()
+                            Toast.makeText(ctx, serverSaid(it, rateFailMsg), Toast.LENGTH_LONG).show()
                             onDone(false)
                         }
                 }
@@ -1641,7 +1641,7 @@ internal fun DriverCabinetScreen(
                 rateScope.launch {
                     ApiClient.confirmBooking(bookingId)
                         .onSuccess { Toast.makeText(ctx, bookingConfirmedMsg, Toast.LENGTH_LONG).show(); bookingsReload++ }
-                        .onFailure { Toast.makeText(ctx, bookingActionFailMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, bookingActionFailMsg), Toast.LENGTH_LONG).show() }
                 }
             },
             onRejectBooking = { bookingId ->
@@ -1655,7 +1655,7 @@ internal fun DriverCabinetScreen(
                             Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
                             bookingsReload++
                         }
-                        .onFailure { Toast.makeText(ctx, bookingActionFailMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, bookingActionFailMsg), Toast.LENGTH_LONG).show() }
                 }
             },
             // F1: отмена/завершение рейса — ждём сервер, потом обновляем список (bump ridesReload).
@@ -1663,14 +1663,14 @@ internal fun DriverCabinetScreen(
                 rateScope.launch {
                     ApiClient.cancelRide(rideId)
                         .onSuccess { Toast.makeText(ctx, rideCancelledMsg, Toast.LENGTH_LONG).show(); ridesReload++ }
-                        .onFailure { Toast.makeText(ctx, rideActionFailMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, rideActionFailMsg), Toast.LENGTH_LONG).show() }
                 }
             },
             onCompleteRide = { rideId ->
                 rateScope.launch {
                     ApiClient.completeRide(rideId)
                         .onSuccess { Toast.makeText(ctx, rideDoneMsg, Toast.LENGTH_LONG).show(); ridesReload++ }
-                        .onFailure { Toast.makeText(ctx, rideActionFailMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, rideActionFailMsg), Toast.LENGTH_LONG).show() }
                 }
             },
             onEditRide = { rideId, price, comment ->
@@ -1969,7 +1969,7 @@ internal fun RestrictionsCard(data: com.yuldash.app.data.RestrictionsDto) {
                     scope.launch {
                         ApiClient.requestCallback(supportPrefix + supportText.trim())
                             .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_LONG).show(); showSupport = false; supportText = "" }
-                            .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                            .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
                         sending = false
                     }
                 }) { Text(appText("Отправить", "Ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
@@ -3195,7 +3195,7 @@ internal fun DriverScheduleSection() {
                                 scope.launch {
                                     ApiClient.deleteDriverSchedule(s.id).onFailure {
                                         schedules = prev
-                                        Toast.makeText(ctx, delFailMsg, Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(ctx, serverSaid(it, delFailMsg), Toast.LENGTH_LONG).show()
                                     }
                                 }
                             },
@@ -3336,7 +3336,7 @@ private fun AddScheduleDialog(onDismiss: () -> Unit, onSaved: (DriverScheduleDto
                     scope.launch {
                         ApiClient.createDriverSchedule(from.trim(), to.trim(), days, time.trim(), comment.trim())
                             .onSuccess { saving = false; onSaved(it) }
-                            .onFailure { saving = false; Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show() }
+                            .onFailure { saving = false; Toast.makeText(ctx, serverSaid(it, errMsg), Toast.LENGTH_LONG).show() }
                     }
                 },
             ) { Text(appText("Сохранить", "Һаҡлау"), color = if (canSave) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold) }
@@ -3432,7 +3432,7 @@ internal fun AdsCabinetScreen(
                         .onSuccess { submittingId = null; reloadKey++ }
                         .onFailure {
                             submittingId = null
-                            Toast.makeText(ctx, errSubmit, Toast.LENGTH_SHORT).show()
+                            Toast.makeText(ctx, serverSaid(it, errSubmit), Toast.LENGTH_LONG).show()
                         }
                 }
             },
@@ -3440,7 +3440,7 @@ internal fun AdsCabinetScreen(
                 scope.launch {
                     ApiClient.payAd(ad.id)
                         .onSuccess { payingAd = ad }
-                        .onFailure { Toast.makeText(ctx, errPay, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, errPay), Toast.LENGTH_LONG).show() }
                 }
             },
             // Продление: тот же СБП-перевод «на доверии», что и первичная оплата (админ продлит срок вручную).
@@ -3749,9 +3749,9 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
                 if (submit) {
                     ApiClient.submitMyAd(saved.id)
                         .onSuccess { busy = false; onSaved() }
-                        .onFailure { busy = false; Toast.makeText(ctx, errNet, Toast.LENGTH_SHORT).show() }
+                        .onFailure { busy = false; Toast.makeText(ctx, serverSaid(it, errNet), Toast.LENGTH_LONG).show() }
                 } else { busy = false; onSaved() }
-            }.onFailure { busy = false; Toast.makeText(ctx, errNet, Toast.LENGTH_SHORT).show() }
+            }.onFailure { busy = false; Toast.makeText(ctx, serverSaid(it, errNet), Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -3983,7 +3983,7 @@ internal fun openAdTarget(context: Context, ad: PartnerAd, label: String) {
                 context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phoneDigits")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             else -> Toast.makeText(context, label, Toast.LENGTH_SHORT).show()
         }
-    }.onFailure { Toast.makeText(context, label, Toast.LENGTH_SHORT).show() }
+    }.onFailure { Toast.makeText(context, serverSaid(it, label), Toast.LENGTH_LONG).show() }
 }
 
 // «Маршрут» до партнёра: дорога на авто (Яндекс.Карты; нет приложения → откроется в браузере).
@@ -3995,7 +3995,7 @@ internal fun routeToAd(context: Context, ad: PartnerAd, label: String) {
         Uri.parse("https://yandex.ru/maps/?text=" + Uri.encode(ad.address))   // нет координат → поиск по адресу
     runCatching {
         context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    }.onFailure { Toast.makeText(context, label, Toast.LENGTH_SHORT).show() }
+    }.onFailure { Toast.makeText(context, serverSaid(it, label), Toast.LENGTH_LONG).show() }
 }
 
 @Composable

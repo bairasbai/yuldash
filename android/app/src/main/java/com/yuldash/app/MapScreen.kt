@@ -1963,7 +1963,7 @@ internal fun RequestPreviewCard(
                     scope.launch {
                         ApiClient.respondToRequest(rid, p, c)
                             .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
-                            .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                            .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
                     }
                     respondOpen = false; onClose()
                 }) { Text(appText("Отправить", "Ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
