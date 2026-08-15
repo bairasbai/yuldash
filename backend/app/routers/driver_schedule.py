@@ -18,8 +18,9 @@ from sqlmodel import Session, select
 from ..antifraud import moderate_open_text
 from ..db import get_session
 from ..errors import herr
+from ..visibility import visible_schedules
 from ..models import DriverSchedule, User
-from ..security import current_user
+from ..security import current_user, current_user_optional
 
 router = APIRouter(tags=["driver-schedule"])
 
@@ -131,14 +132,21 @@ def my_schedules(user: User = Depends(current_user), session: Session = Depends(
 
 
 @router.get("/drivers/{driver_id}/schedule", response_model=List[PublicScheduleOut])
-def public_schedules(driver_id: int, session: Session = Depends(get_session)):
-    """Публичные регулярные маршруты водителя (только active) — профиль/поиск, без auth."""
+def public_schedules(driver_id: int, session: Session = Depends(get_session),
+                     user: Optional[User] = Depends(current_user_optional)):
+    """Публичные регулярные маршруты водителя (только active) — профиль/поиск, без auth.
+
+    Видимость спрашиваем у общей точки, а не решаем здесь (волна 113): расписание — это
+    недельный график передвижений человека, и правила «кому его показывать» те же, что
+    у поездок. Заблокированный больше не видит, снятый с линии больше не рекламируется.
+    """
     rows = session.exec(
         select(DriverSchedule)
         .where(DriverSchedule.driver_id == driver_id)
         .where(DriverSchedule.active == True)  # noqa: E712
         .order_by(DriverSchedule.time)
     ).all()
+    rows = visible_schedules(rows, user, session)
     return [
         PublicScheduleOut(
             id=r.id, driver_id=r.driver_id, from_city=r.from_city, to_city=r.to_city,
