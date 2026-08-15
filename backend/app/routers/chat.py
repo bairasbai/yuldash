@@ -417,6 +417,12 @@ def send_order_message(order_id: int, body: MessageIn, user: User = Depends(curr
     if is_blocked(session, user.id, other_id):
         raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
     _guard_chat_burst(session, user.id, Message.order_id == order_id)
+    # Пустое сообщение (или одни пробелы) не отправляем: собеседник получал пуш «Новое
+    # сообщение» и открывал пустой пузырь (аудит 2026-08-08, волна 108). Правка сообщения
+    # такую проверку делала с самого начала — при отправке её просто не было.
+    if not (body.text or "").strip() and not body.voice_url and not getattr(body, "photo_url", ""):
+        raise herr(400, "Сообщение пустое — напиши текст или запиши голосовое",
+                   "Хәбәр буш — яҙып ебәр йәки тауыш яҙмаһы яҙ")
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
         raise herr(422, "Недопустимая ссылка на медиа", "Ярамаған медиа һылтанмаһы")
     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
@@ -561,6 +567,12 @@ def send_parcel_message(parcel_id: int, body: MessageIn, user: User = Depends(cu
     if is_blocked(session, user.id, other_id):
         raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
     _guard_chat_burst(session, user.id, Message.parcel_id == parcel_id)
+    # Пустое сообщение (или одни пробелы) не отправляем: собеседник получал пуш «Новое
+    # сообщение» и открывал пустой пузырь (аудит 2026-08-08, волна 108). Правка сообщения
+    # такую проверку делала с самого начала — при отправке её просто не было.
+    if not (body.text or "").strip() and not body.voice_url and not getattr(body, "photo_url", ""):
+        raise herr(400, "Сообщение пустое — напиши текст или запиши голосовое",
+                   "Хәбәр буш — яҙып ебәр йәки тауыш яҙмаһы яҙ")
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
         raise herr(422, "Недопустимая ссылка на медиа", "Ярамаған медиа һылтанмаһы")
     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
@@ -623,6 +635,12 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
         raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
     _guard_booking_chat_open(booking, ride)
     _guard_chat_burst(session, user.id, Message.booking_id == booking_id)
+    # Пустое сообщение (или одни пробелы) не отправляем: собеседник получал пуш «Новое
+    # сообщение» и открывал пустой пузырь (аудит 2026-08-08, волна 108). Правка сообщения
+    # такую проверку делала с самого начала — при отправке её просто не было.
+    if not (body.text or "").strip() and not body.voice_url and not getattr(body, "photo_url", ""):
+        raise herr(400, "Сообщение пустое — напиши текст или запиши голосовое",
+                   "Хәбәр буш — яҙып ебәр йәки тауыш яҙмаһы яҙ")
     # voice_url — ТОЛЬКО наш медиа-URL (из /upload-voice). Иначе участник подсунул бы внешнюю ссылку,
     # и приложение собеседника её подгрузило бы (утечка IP / трекинг / чужой контент).
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):

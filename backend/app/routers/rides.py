@@ -1,5 +1,6 @@
 """Поездки: публикация (вкл. регулярные серии), поиск, ценовой ориентир,
 ближайшие по маршруту+гео, карточка поездки."""
+import re
 from datetime import date as date_type, datetime, timedelta
 from functools import lru_cache
 from typing import List, Optional
@@ -70,6 +71,25 @@ def _city_match(column, session, city: str):
         return None
     conds = [column.contains(v) for v in variants]
     return conds[0] if len(conds) == 1 else or_(*conds)
+
+
+def _guard_route_cities(from_city: str, to_city: str) -> None:
+    """Маршрут должен быть похож на маршрут: два РАЗНЫХ места, и у каждого есть название.
+
+    Проверка стояла в расписании водителя и не стояла при публикации поездки, хотя ошибается
+    человек одинаково: выбрал один и тот же город в обоих полях или вставил в поле смайлики.
+    Первое отправляет пассажира «из Сибая в Сибай», второе засоряет ленту всему району
+    (аудит 2026-08-08, волна 108).
+    """
+    from ..geo import bare_name, fold   # локальный импорт: geo тянет services на верхнем уровне
+    frm = bare_name((from_city or "").strip())
+    to = bare_name((to_city or "").strip())
+    if not re.search(r"[^\W\d_]", frm, re.UNICODE) or not re.search(r"[^\W\d_]", to, re.UNICODE):
+        raise herr(400, "Название города — буквами, пожалуйста",
+                   "Ҡала исемен хәрефтәр менән яҙ, зинһар")
+    if fold(frm) == fold(to):
+        raise herr(400, "Откуда и куда — разные места. Проверь маршрут",
+                   "Ҡайҙан һәм ҡайҙа — төрлө урын. Юлды ҡара")
 
 def _date_bounds(date: Optional[date_type]):
     """F4: границы суток для фильтра «когда едем» (date=YYYY-MM-DD → [00:00, +1день)).
@@ -163,6 +183,9 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     # Заявка пассажира проверялась, объявление водителя — нет (аудит 2026-08-06), хотя это
     # ровно тот же текст с другой стороны. check_contact=False: у попуток обмен номерами —
     # норма и суть «между своими», комиссии тут нет. Ловим мат и фишинг («переведи предоплату»).
+    # Города проверяем так же, как в расписании водителя: «Сибай → Сибай» — это опечатка,
+    # а название без единой буквы («🚗🚗», «...») превращает ленту в мусор (волна 108).
+    _guard_route_cities(body.from_city, body.to_city)
     moderate_open_text(body.comment, user.id, check_contact=False, place="ride_comment", session=session)
     # «Где встречаемся» — такое же открытое поле, как комментарий, и его тоже видит весь
     # район. Проверки тут не было вовсе. Правила те же, что у комментария попутки:
