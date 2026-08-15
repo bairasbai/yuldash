@@ -145,3 +145,110 @@ def test_напоминание_оценить_не_ходит_в_базу_на_
         "на 3 завершённых поездках напоминание сделало %d запросов, на 8 — уже %d. "
         "Значит ходит в базу на каждую бронь." % (мало, много)
     )
+
+
+def test_рассылка_подписок_не_проверяет_доверие_у_чужих_маршрутов(client, user_factory):
+    """У поездки «только для своих» доверие проверяется лишь у совпавших по маршруту.
+
+    Проверка доверия — единственная в рассылке, что ходит в базу: два запроса на подписчика.
+    Стояла она первой, до дешёвых отсевов, — то есть платили за неё и те, кто подписан совсем
+    на другой маршрут. При пятистах подписках и трёх подходящих это тысяча запросов вместо шести.
+
+    Считаем походы в таблицу пользователей: подписчиков на чужой маршрут тут двадцать, и рост
+    числа запросов вместе с ними означает, что проверка снова уехала наверх.
+    """
+    from datetime import timedelta
+
+    from app.models import Ride, RideStatus, RouteWatch, UserRole
+    from app.services import notify_route_watchers
+    from app.timeutil import utcnow
+
+    drv = user_factory("Водитель для своих", role=UserRole.driver)
+
+    def _чужих_подписок(n: int) -> None:
+        with Session(engine) as s:
+            for i in range(n):
+                u = user_factory(f"Мимо {i}")
+                s.add(RouteWatch(
+                    user_id=u["id"], from_city="Учалы", to_city="Белорецк",   # другой маршрут
+                    expires_at=utcnow() + timedelta(days=7), watch_kind="both",
+                ))
+            s.commit()
+
+    def _запросов_на_рассылку() -> int:
+        with Session(engine) as s:
+            ride = Ride(
+                driver_id=drv["id"], from_city="Баймак", to_city="Сибай",
+                depart_at=utcnow() + timedelta(hours=5), seats=4, seats_left=4, price=300,
+                status=RideStatus.active, only_trusted=True,
+            )
+            s.add(ride)
+            s.commit()
+            s.refresh(ride)
+            with _Counter(table="user") as c:
+                notify_route_watchers(s, ride)
+        return c.n
+
+    _чужих_подписок(3)
+    мало = _запросов_на_рассылку()
+    _чужих_подписок(17)          # стало 20 подписок на посторонний маршрут
+    много = _запросов_на_рассылку()
+
+    assert много <= мало, (
+        "при 3 посторонних подписках рассылка сделала %d запросов к пользователям, при 20 — уже "
+        "%d. Значит проверка доверия снова стоит до отсева по маршруту и платится за каждого "
+        "подписчика ленты." % (мало, много)
+    )
+
+
+def test_лента_курьера_не_ищет_город_заново_на_каждую_посылку(client, user_factory):
+    """Одинаковый маршрут у всех посылок — справочник городов спрашиваем один раз.
+
+    Лента доступных заказов отбирает посылки по зоне курьера, а города в посылке хранятся
+    текстом («Уфа», «Берёзовка (Иглинский р-н)»). Перевод названия в справочник ходит в базу,
+    и делался он на каждую строку ленты — хотя городов в районе десяток, а посылок сотни.
+
+    Считаем походы в справочник населённых пунктов: он не должен расти вместе с лентой.
+    """
+    from app.config import settings
+    from test_courier import _make_courier, _order
+
+    # Режим курьера включаем явно: авто-фикстура, которая делает это в test_courier.py,
+    # действует только внутри своего файла.
+    было = settings.courier_enabled
+    settings.courier_enabled = True
+    try:
+        _проверить_ленту(client, user_factory, _make_courier, _order)
+    finally:
+        settings.courier_enabled = было
+
+
+def _проверить_ленту(client, user_factory, _make_courier, _order):
+    courier = _make_courier(client, user_factory)
+    sender = user_factory("Отправитель лент")
+
+    номер = [0]
+
+    def _посылок(n: int) -> None:
+        # Одинаковые заказы сервер считает повтором и схлопывает в один — делаем разные.
+        for _ in range(n):
+            номер[0] += 1
+            r = _order(client, sender, description=f"Документы {номер[0]}")
+            assert r.status_code == 200, r.text
+
+    def _запросов_на_ленту() -> int:
+        with _Counter(table="settlement") as c:
+            r = client.get("/courier/available", headers=courier["auth"])
+            assert r.status_code == 200, r.text
+        assert len(r.json()) >= 2, "лента пустая — сторож ничего не проверяет"
+        return c.n
+
+    _посылок(2)
+    мало = _запросов_на_ленту()
+    _посылок(8)                  # стало 10 посылок по тому же маршруту
+    много = _запросов_на_ленту()
+
+    assert много <= мало, (
+        "на 2 посылках лента сходила в справочник городов %d раз, на 10 — уже %d. Значит "
+        "название города переводится заново на каждую строку." % (мало, много)
+    )

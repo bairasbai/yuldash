@@ -465,8 +465,6 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
                 continue
             if w.user_id in blocked:
                 continue
-            if ride.only_trusted and trust_level(session, session.get(User, w.user_id)) < INSIDER_LEVEL:
-                continue
             w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
             forward = (w_from == r_from and w_to == r_to)
             backward = (w.direction == "both" and w_from == r_to and w_to == r_from)
@@ -477,6 +475,17 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
                 continue
             # Анти-спам: 1 пуш на подписку в сутки.
             if w.last_notified_at is not None and (now - w.last_notified_at) < timedelta(hours=24):
+                continue
+            # Проверка доверия стоит ПОСЛЕ дешёвых отсевов, и это не косметика.
+            #
+            # Она единственная здесь ходит в базу — по два запроса на подписчика. Стояла первой,
+            # то есть у поездки «только для своих» доверие проверялось у КАЖДОГО подписчика ленты,
+            # включая тех, чья подписка вообще про другой маршрут. При пятистах подписках и трёх
+            # подходящих это тысяча запросов вместо шести — и растёт вместе с числом пользователей.
+            #
+            # Порядок проверок на результат не влияет: все они одинаково отсеивают подписчика,
+            # и от перестановки набор получивших уведомление не меняется — меняется только цена.
+            if ride.only_trusted and trust_level(session, session.get(User, w.user_id)) < INSIDER_LEVEL:
                 continue
             route = f"{ride.from_city} → {ride.to_city}"   # города — как есть (имена собственные)
             # Строку в Центре уведомлений пишем СИНХРОННО (лента должна отдаться сразу), а FCM-пуш
