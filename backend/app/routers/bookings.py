@@ -133,7 +133,11 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     # FOR UPDATE: блокируем строку поездки на время транзакции → нет овербукинга при гонке.
     ride = session.exec(select(Ride).where(Ride.id == body.ride_id).with_for_update()).first()
     if not ride or ride.status != RideStatus.active:
-        raise herr(400, "Поездка недоступна", "Сәфәр хәҙер юҡ")
+        # Тут скрывать нечего (в отличие от отказа по блокировке — см. test_block_stays_a_secret):
+        # поездку отменили или она уже уехала. Человек смотрит на карточку, которую открыл
+        # десять минут назад, и сухое «недоступна» оставляет его гадать (волна 107).
+        raise herr(400, "Поездку уже отменили или она уехала — посмотри другие в ленте",
+                   "Сәфәр кире алынған йәки киткән — таҫмала башҡаларын ҡара")
     if ride.driver_id == user.id:
         raise herr(400, "Нельзя бронировать собственную поездку", "Үҙ сәфәреңде бронларға ярамай")
     if is_blocked(session, user.id, ride.driver_id):
