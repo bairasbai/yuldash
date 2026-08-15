@@ -19,6 +19,7 @@ import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconCar, IconChevron, IconReceipt } from "../components/Icons";
 import { kopExactLabel } from "../utils/format";
+import { serverDate } from "../utils/serverTime";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -26,8 +27,8 @@ type Status = "loading" | "error" | "soon" | "ready";
  *  показалась бы вчерашним днём, и человек не нашёл бы её там, где ищет. */
 function tripDayLabel(iso: string | null, fallback: string): string {
   if (!iso) return fallback;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return fallback;
+  const d = serverDate(iso);
+  if (!d) return fallback;
   const date = d.toLocaleDateString("ru-RU", {
     day: "2-digit",
     month: "2-digit",
@@ -102,7 +103,7 @@ export default function MyTaxiTripsScreen() {
           </div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}

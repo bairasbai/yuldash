@@ -175,7 +175,7 @@ export default function SavedPlacesScreen() {
                     type="button"
                     className="icon-btn"
                     onClick={() => remove(p.id)}
-                    aria-label={appText("Удалить", "Юйырға")}
+                    aria-label={appText("Удалить", "Юйыу")}
                   >
                     <IconTrash size={20} />
                   </button>

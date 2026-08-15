@@ -38,6 +38,7 @@ export default function ParcelRate({
 
   async function send(n: number) {
     if (busy) return;
+    const prev = stars;
     setStars(n);
     setBusy(true);
     setError(null);
@@ -45,6 +46,10 @@ export default function ParcelRate({
       await rateParcel(parcelId, n, text.trim());
       setDone(true);
     } catch {
+      // Возвращаем звёзды: они показывают, что стоит НА СЕРВЕРЕ, а не что
+      // человек нажал. Иначе он уйдёт с экрана, вернётся и увидит оценку,
+      // которой нет.
+      setStars(prev);
       setError(
         appText("Не получилось сохранить оценку. Проверь сеть.", "Баһаны һаҡлап булманы. Селтәрҙе тикшер.")
       );

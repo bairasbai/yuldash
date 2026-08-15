@@ -19,6 +19,7 @@ import CreateRequestScreen from "./screens/CreateRequestScreen";
 import BookingScreen from "./screens/BookingScreen";
 import ActiveTripScreen from "./screens/ActiveTripScreen";
 import UpdateBanner from "./components/UpdateBanner";
+import { watchOutbox } from "./utils/outbox";
 import InstantOrderScreen from "./screens/InstantOrderScreen";
 import InstantDriverTripScreen from "./screens/InstantDriverTripScreen";
 import InstantChatScreen from "./screens/InstantChatScreen";
@@ -71,6 +72,7 @@ const IncomeCalculatorScreen = lazyScreen(() => import("./screens/IncomeCalculat
 const InvitesScreen = lazyScreen(() => import("./screens/InvitesScreen"));
 const MyStatsScreen = lazyScreen(() => import("./screens/MyStatsScreen"));
 const PartnerCabinetScreen = lazyScreen(() => import("./screens/PartnerCabinetScreen"));
+const PayDoneScreen = lazyScreen(() => import("./screens/PayDoneScreen"));
 const PaymentInfoScreen = lazyScreen(() => import("./screens/PaymentInfoScreen"));
 const PretripCheckScreen = lazyScreen(() => import("./screens/PretripCheckScreen"));
 const PricingInfoScreen = lazyScreen(() => import("./screens/PricingInfoScreen"));
@@ -148,6 +150,10 @@ export default function App() {
   useEffect(() => {
     clearChunkReloadFlag();
   }, []);
+
+  // Накопленные без сети «выехал»/«доехал» и сообщения досылаем на СТАРТЕ, а не
+  // только на экране поездки: человек мог закрыть его и больше не открывать.
+  useEffect(() => watchOutbox(() => {}), []);
 
   return (
     <Suspense fallback={<div className="app-main"><LoadingList count={2} /></div>}>
@@ -602,6 +608,9 @@ export default function App() {
         {/* «Скидки по пути» и «Как оплатить» — публичные витрины */}
         <Route path="/coupons" element={<CouponsScreen />} />
         <Route path="/payment-info" element={<PaymentInfoScreen />} />
+        {/* Сюда банк возвращает после оплаты картой (payment_return_url на сервере).
+            Роута не было — человек попадал на заставку и не знал, прошла ли оплата. */}
+        <Route path="/pay/done" element={<PayDoneScreen />} />
         {/* «Честно о цене» — публичная витрина (паритет с android PricingInfo) */}
         <Route path="/pricing" element={<PricingInfoScreen />} />
         <Route

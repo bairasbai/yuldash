@@ -27,7 +27,14 @@ export function supportsVoiceRecording(): boolean {
 type Rec = "idle" | "recording" | "sending";
 
 /** Кнопка записи: нажал — говоришь, нажал ещё — ушло. Без «удержания»: с ним промахиваются. */
-export function ChatVoiceButton({ onSend }: { onSend: (voiceUrl: string) => void }) {
+export function ChatVoiceButton({
+  onSend,
+  onProblem,
+}: {
+  onSend: (voiceUrl: string) => void;
+  /** Экран покажет это человеку: молчащая кнопка выглядит поломкой. */
+  onProblem?: (message: string) => void;
+}) {
   const { appText } = useLang();
   const [rec, setRec] = useState<Rec>("idle");
   const [seconds, setSeconds] = useState(0);
@@ -68,7 +75,11 @@ export function ChatVoiceButton({ onSend }: { onSend: (voiceUrl: string) => void
           const { url } = await uploadVoice(blob, "voice.webm");
           if (url) onSend(url);
         } catch {
-          /* не загрузилось — человек нажмёт ещё раз, чат не ломаем */
+          // Запись сделана, но не ушла (сеть моргнула). Молчать нельзя: человек
+          // уверен, что его услышали.
+          onProblem?.(
+            appText("Голосовое не ушло. Запиши ещё раз.", "Тауыш китмәне. Тағы яҙып ҡара.")
+          );
         } finally {
           setRec("idle");
         }
@@ -77,9 +88,17 @@ export function ChatVoiceButton({ onSend }: { onSend: (voiceUrl: string) => void
       mr.start();
       setSeconds(0);
       setRec("recording");
+      onProblem?.("");
       timerRef.current = window.setInterval(() => setSeconds((s) => s + 1), 1000);
     } catch {
-      /* нет разрешения на микрофон — кнопка просто ничего не делает */
+      // Раньше кнопка просто ничего не делала: человек жал, тишина, и понять,
+      // что телефон запретил микрофон, было неоткуда.
+      onProblem?.(
+        appText(
+          "Нет доступа к микрофону. Разреши его в настройках браузера — тогда сможешь записывать голосовые.",
+          "Микрофонға рөхсәт юҡ. Браузер көйләүҙәрендә рөхсәт бир — шунда тауыш яҙа алырһың."
+        )
+      );
     }
   }
 

@@ -104,6 +104,7 @@ export default function DriverResponsesScreen() {
   }
 
   async function refuse(r: ResponseItem) {
+    if (busyId) return; // по этому отклику уже идёт другое действие (торг) — не гоняемся
     const prev = rows;
     setRows(rows.filter((x) => x.id !== r.id)); // оптимистично
     try {
@@ -163,7 +164,7 @@ export default function DriverResponsesScreen() {
           </div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}
@@ -217,7 +218,11 @@ export default function DriverResponsesScreen() {
                     </p>
                   )}
 
-                  <BargainTrail history={parseBargainHistory(r.bargain_history)} mine="driver" />
+                  <BargainTrail
+                    history={parseBargainHistory(r.bargain_history)}
+                    mine="driver"
+                    rounds={r.bargain_rounds}
+                  />
 
                   {live && (r.can_accept || r.can_counter) && (
                     <span className="bargain-turn bargain-turn--mine">
@@ -263,7 +268,7 @@ export default function DriverResponsesScreen() {
                             setPrice("");
                           }}
                         >
-                          {appText("Отмена", "Кире алыу")}
+                          {appText("Отмена", "Баш тартыу")}
                         </button>
                       </div>
                     </div>

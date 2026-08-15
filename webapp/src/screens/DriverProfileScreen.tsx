@@ -14,7 +14,9 @@ import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow, IconCalendar, IconFlag, IconCheck, IconChat } from "../components/Icons";
 import { YuStar } from "../components/BrandIcons";
+import { serverDate } from "../utils/serverTime";
 
+import { dayMonthShort, pluralRu } from "../utils/format";
 type Status = "loading" | "error" | "ready";
 
 interface PublicSchedule {
@@ -53,9 +55,9 @@ function plural(n: number, one: string, few: string, many: string): string {
 }
 
 function timeAgo(iso: string, ru: boolean): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  return d.toLocaleDateString(ru ? "ru-RU" : "ru-RU", { day: "numeric", month: "short", year: "numeric" });
+  const d = serverDate(iso);
+  if (!d) return "";
+  return `${dayMonthShort(d, ru)} ${d.getFullYear()}`;
 }
 
 export default function DriverProfileScreen() {
@@ -109,7 +111,7 @@ export default function DriverProfileScreen() {
   return (
     <>
       <SubHeader
-        title={appText("Профиль водителя", "Водитель профиле")}
+        title={appText("Профиль водителя", "Йөрөтөүсе профиле")}
         onBack={() => navigate(-1)}
       />
 
@@ -138,7 +140,10 @@ export default function DriverProfileScreen() {
                   <YuStar size={16} className="star" /> {driver.rating.toFixed(1)}
                   <span className="dprofile-rating__count">
                     {" "}
-                    · {appText(`${driver.rating_count} оценок`, `${driver.rating_count} баһа`)}
+                    · {appText(
+                      `${driver.rating_count} ${pluralRu(driver.rating_count, "оценка", "оценки", "оценок")}`,
+                      `${driver.rating_count} баһа`
+                    )}
                   </span>
                 </span>
               ) : (
@@ -241,7 +246,7 @@ export default function DriverProfileScreen() {
             }
           >
             <IconFlag size={17} />
-            {appText("Пожаловаться на водителя", "Водителгә зарланырға")}
+            {appText("Пожаловаться на водителя", "Йөрөтөүсегә зарланырға")}
           </button>
         </>
       )}

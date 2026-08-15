@@ -149,6 +149,7 @@ export default function EditProfileScreen() {
           className="field__input"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          autoComplete="name"
           maxLength={120}
           placeholder={appText("Как тебя зовут", "Исемең")}
         />
@@ -226,7 +227,7 @@ export default function EditProfileScreen() {
           appText("Сохраняем…", "Һаҡлайбыҙ…")
         ) : (
           <>
-            <IconCheck size={18} /> {appText("Сохранить", "Һаҡларға")}
+            <IconCheck size={18} /> {appText("Сохранить", "Һаҡлау")}
           </>
         )}
       </button>

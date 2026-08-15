@@ -33,7 +33,7 @@ import {
   setParcelStatus,
   type Parcel,
 } from "../api/parcels";
-import { rubLabel, formatWhen } from "../utils/format";
+import { formatWhen, pluralRu, rubLabel } from "../utils/format";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList, ErrorState } from "../components/States";
 import { AvailableParcelCard, CarryParcelCard, CodeDialog } from "../components/parcelUi";
@@ -42,6 +42,8 @@ import ParcelPhoto from "../components/ParcelPhoto";
 import CityField from "../components/CityField";
 import { IconStar, IconCheck, IconCopy, IconBox, IconTrend } from "../components/Icons";
 import { YuCourierWalk } from "../components/BrandIcons";
+import { serverMs } from "../utils/serverTime";
+import { rememberPayment } from "../utils/pendingPayment";
 
 type Boot = "loading" | "error" | "soon" | "need-approval" | "ready";
 type Tab = "available" | "carry" | "cabinet";
@@ -64,6 +66,8 @@ export default function CourierScreen() {
   // Город работы: по нему сервер отбирает заказы. Без него курьеру сыпалось всё подряд.
   const [workCity, setWorkCity] = useState("");
   const [cityDirty, setCityDirty] = useState(false);
+  /** Смена зоны не дошла до сервера — сказать, иначе чип врёт. */
+  const [zoneNote, setZoneNote] = useState("");
 
   const load = useCallback((signal?: AbortSignal) => {
     setBoot("loading");
@@ -89,7 +93,7 @@ export default function CourierScreen() {
   }, [load]);
 
   const online = !!me?.profile?.online;
-  const paused = !!me?.paused_until && new Date(me.paused_until).getTime() > Date.now();
+  const paused = !!me?.paused_until && serverMs(me.paused_until) > Date.now();
 
   async function toggleOnline() {
     if (onlineBusy || !me) return;
@@ -109,13 +113,24 @@ export default function CourierScreen() {
 
   async function changeZone(z: CourierZone) {
     if (z === zone) return;
+    const prev = zone;
     setZone(z);
+    setZoneNote("");
     if (online && me) {
       try {
         const prof = await courierOnline({ zone: z, work_city: workCity.trim() });
         setMe({ ...me, profile: prof });
       } catch {
-        /* оставим локальную зону — список всё равно пере-запросится */
+        // Зону отбирает СЕРВЕР. Если он не принял новую, а чип остался
+        // переключённым, курьер думает, что работает по республике,
+        // а заказы приходят по-старому. Возвращаем как было и говорим.
+        setZone(prev);
+        setZoneNote(
+          appText(
+            "Не получилось сменить зону. Проверь связь и попробуй ещё раз.",
+            "Зонаны алмаштырып булманы. Бәйләнеште тикшереп ҡабатла."
+          )
+        );
       }
     }
   }
@@ -268,6 +283,12 @@ export default function CourierScreen() {
         ))}
       </div>
 
+      {zoneNote && (
+        <div className="notice" role="status">
+          {zoneNote}
+        </div>
+      )}
+
       {/* Вкладки */}
       <div className="taxi-when parcel-tabs" style={{ marginTop: 16 }}>
         <button type="button" className={"taxi-when__tab" + (tab === "available" ? " is-active" : "")} onClick={() => setTab("available")}>
@@ -281,7 +302,7 @@ export default function CourierScreen() {
         </button>
       </div>
 
-      {tab === "available" && <AvailableOrders zone={zone} />}
+      {tab === "available" && <AvailableOrders zone={zone} online={online} onGoOnline={toggleOnline} />}
       {tab === "carry" && <CarryOrders />}
       {tab === "cabinet" && me && (
         <>
@@ -302,7 +323,16 @@ export default function CourierScreen() {
 }
 
 // ============================ Доступные заказы ============================
-function AvailableOrders({ zone }: { zone: CourierZone }) {
+function AvailableOrders({
+  zone,
+  online,
+  onGoOnline,
+}: {
+  zone: CourierZone;
+  /** На линии ли курьер: без линии курьерских заказов не показываем. */
+  online: boolean;
+  onGoOnline: () => void;
+}) {
   const { appText } = useLang();
   const [boot, setBoot] = useState<"loading" | "error" | "ready">("loading");
   const [items, setItems] = useState<Parcel[]>([]);
@@ -380,22 +410,36 @@ function AvailableOrders({ zone }: { zone: CourierZone }) {
           <IconBox size={34} />
         </div>
         <h2>
-          {dir.trim()
-            ? appText("По этому направлению пусто", "Был йүнәлештә буш")
-            : appText("Пока нет заказов", "Әле заказдар юҡ")}
+          {!online
+            ? appText("Сначала включи линию", "Тәүҙә линияны ҡабыҙ")
+            : dir.trim()
+              ? appText("По этому направлению пусто", "Был йүнәлештә буш")
+              : appText("Пока нет заказов", "Әле заказдар юҡ")}
         </h2>
+        {/* Пусто по трём разным причинам — и человеку нужно знать, по какой:
+            выключенная линия чинится одним нажатием, а «в зоне никого» — нет. */}
         <p>
-          {dir.trim()
+          {!online
             ? appText(
-                "Убери фильтр направления — возможно, заказы есть в другую сторону.",
-                "Йүнәлеш фильтрын алып ташла — башҡа яҡта заказдар булыуы мөмкин."
+                "Курьерские заказы появятся только на линии — так никто не возьмёт заказ случайно. Заказы «по пути» можно смотреть и без линии.",
+                "Курьер заказдары тик линияла күренә — шулай заказды осраҡлы алып булмай. «Юл ыңғайы» заказдарын линияһыҙ ҙа ҡарарға була."
               )
-            : appText(
-                "В твоей зоне сейчас пусто. Оставайся на линии — заказ появится со временем.",
-                "Зонаңда хәҙер буш. Линияла ҡал — заказ ваҡыт менән сыға."
-              )}
+            : dir.trim()
+              ? appText(
+                  "Убери фильтр направления — возможно, заказы есть в другую сторону.",
+                  "Йүнәлеш фильтрын алып ташла — башҡа яҡта заказдар булыуы мөмкин."
+                )
+              : appText(
+                  "В твоей зоне сейчас пусто. Оставайся на линии — заказ появится со временем.",
+                  "Зонаңда хәҙер буш. Линияла ҡал — заказ ваҡыт менән сыға."
+                )}
         </p>
-        {dir.trim() && (
+        {!online && (
+          <button type="button" className="btn-primary" onClick={onGoOnline}>
+            {appText("Включить линию", "Линияны ҡабыҙыу")}
+          </button>
+        )}
+        {online && dir.trim() && (
           <button type="button" className="btn-soft" onClick={() => setDir("")}>
             {appText("Любое направление", "Теләһә ниндәй йүнәлеш")}
           </button>
@@ -570,6 +614,7 @@ function Cabinet({ me, onReload }: { me: CourierMe; onReload: () => void }) {
         setMsg({ ru: "Комиссия оплачена. Спасибо! 💚", ba: "Комиссия түләнде. Рәхмәт! 💚" });
         onReload();
       } else if (r.method === "yookassa" && r.confirmation_url) {
+        rememberPayment(r.payment_id, "commission", "/courier");
         window.location.href = r.confirmation_url;
       } else {
         setPay(r); // sbp_manual — реквизиты
@@ -646,7 +691,10 @@ function Cabinet({ me, onReload }: { me: CourierMe; onReload: () => void }) {
         </div>
         <div className="courier-rating__meta">
           {me.rating.count > 0
-            ? appText(`${me.rating.count} оценок доставки`, `${me.rating.count} доставка баһаһы`)
+            ? appText(
+                `${me.rating.count} ${pluralRu(me.rating.count, "оценка", "оценки", "оценок")} доставки`,
+                `${me.rating.count} доставка баһаһы`
+              )
             : appText("Пока нет оценок", "Әле баһа юҡ")}
         </div>
       </div>
@@ -659,6 +707,15 @@ function Cabinet({ me, onReload }: { me: CourierMe; onReload: () => void }) {
         </div>
         <span className="badge badge--mint">{appText(tier.ru, tier.ba)}</span>
       </div>
+
+      {/* За что берём процент. Без этой строки «комиссия» читается как штраф,
+          а не как плата за то, что заказы вообще нашлись. */}
+      <p className="courier-fee__why">
+        {appText(
+          `Это сбор Юлдаша (${s.current_fee_percent}%) за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.`,
+          `Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы (${s.current_fee_percent}%). Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш.`
+        )}
+      </p>
 
       {/* Выписка */}
       <div className="info-list">

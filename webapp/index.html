@@ -6,11 +6,11 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
 
-    <!-- viewport-fit=cover — контент под «чёлку», отступы через env(safe-area-inset-*) -->
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"
-    />
+    <!-- viewport-fit=cover — контент под «чёлку», отступы через env(safe-area-inset-*).
+         maximum-scale НЕ ставим: он запрещает увеличивать страницу пальцами, а у нас
+         много пожилых пассажиров в сёлах. Автозум Safari при касании поля лечится
+         иначе — размером текста в полях не меньше 16px (см. ui.css). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 
     <!-- iOS: работать как отдельное приложение с экрана «Домой» -->
     <meta name="apple-mobile-web-app-capable" content="yes" />

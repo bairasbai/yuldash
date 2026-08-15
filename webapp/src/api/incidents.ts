@@ -84,7 +84,8 @@ export function withdrawIncident(id: number): Promise<Incident> {
 
 /** Открыть спор: по брони попутки, по такси-заказу или по посылке (respondent_id обязателен). */
 export function createIncident(body: {
-  respondent_id: number;
+  /** Вторая сторона спора: пока её не назначили, сервер шлёт пусто. */
+  respondent_id: number | null;
   type: string;
   description?: string;
   booking_id?: number;

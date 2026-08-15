@@ -88,7 +88,7 @@ export default function AdminDebtsScreen() {
     <>
       <SubHeader
         title={appText("Долги по комиссии", "Комиссия бурыстары")}
-        subtitle={appText("Водители заявили оплату", "Водителдәр түләүҙе белдерҙе")}
+        subtitle={appText("Водители заявили оплату", "Йөрөтөүселәр түләүҙе белдерҙе")}
         onBack={() => navigate(-1)}
       />
 
@@ -104,7 +104,7 @@ export default function AdminDebtsScreen() {
           <p>
             {appText(
               "Как только водитель отметит оплату комиссии — она появится здесь.",
-              "Водитель комиссия түләүен билдәләү менән — бында күренәсәк."
+              "Йөрөтөүсе комиссия түләүен билдәләү менән — бында күренәсәк."
             )}
           </p>
         </div>
@@ -117,7 +117,7 @@ export default function AdminDebtsScreen() {
             <div className="money-total__value">{rubLabel(total)}</div>
             <div className="money-total__rows">
               <div className="info-row">
-                <span className="info-row__k">{appText("Водителей", "Водитель")}</span>
+                <span className="info-row__k">{appText("Водителей", "Йөрөтөүсе")}</span>
                 <span className="info-row__v">{rows.length}</span>
               </div>
             </div>
@@ -128,7 +128,7 @@ export default function AdminDebtsScreen() {
               <div key={d.debt_id} className="admin-card">
                 <div className="admin-card__head">
                   <div className="admin-card__title">
-                    <IconWallet size={16} /> {d.driver_name || appText("Водитель", "Водитель")}
+                    <IconWallet size={16} /> {d.driver_name || appText("Водитель", "Йөрөтөүсе")}
                   </div>
                   <span className="badge badge--gold">{rubLabel(d.amount_kop)}</span>
                 </div>
@@ -159,7 +159,7 @@ export default function AdminDebtsScreen() {
                   <>
                     <label className="field" style={{ marginTop: 10 }}>
                       <span className="field__label">
-                        {appText("Почему списываем (увидит водитель)", "Ниңә алып ташлайбыҙ (водитель күрәсәк)")}
+                        {appText("Почему списываем (увидит водитель)", "Ниңә алып ташлайбыҙ (йөрөтөүсе күрәсәк)")}
                       </span>
                       <input
                         className="field__input"
@@ -195,7 +195,7 @@ export default function AdminDebtsScreen() {
                           setReason("");
                         }}
                       >
-                        {appText("Отмена", "Кире алыу")}
+                        {appText("Отмена", "Баш тартыу")}
                       </button>
                     </div>
                   </>

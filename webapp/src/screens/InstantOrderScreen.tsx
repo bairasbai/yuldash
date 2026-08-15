@@ -59,6 +59,8 @@ import {
 } from "../components/Icons";
 import { YuMoon, YuQuiet, YuWomenOnly } from "../components/BrandIcons";
 import { priceLabel } from "../utils/format";
+import { serverMs } from "../utils/serverTime";
+import { minDateTimeNow, maxDateTimeInDays } from "../utils/dateInput";
 
 /** Класс машины человеческой строкой (подписи живут в клиенте, коды — на сервере). */
 function categoryLabel(cat: string, appText: (ru: string, ba: string) => string): string {
@@ -80,6 +82,8 @@ type Point = { lat: number; lng: number; text: string };
 type View = "boot" | "gate" | "compose" | "tracking";
 
 const POLL_MS = 3500;
+/** Насколько вперёд сервер принимает предзаказ (`scheduled_max_days` в конфиге). */
+const SCHEDULE_MAX_DAYS = 7;
 
 export default function InstantOrderScreen() {
   const { appText, lang } = useLang();
@@ -191,9 +195,17 @@ export default function InstantOrderScreen() {
             {gateMsg
               ? (ru ? gateMsg.ru : gateMsg.ba)
               : appText(
-                  "Мы уже готовим быстрый заказ у вас. Загляни чуть позже — а пока попутки ждут на карте.",
+                  "Мы уже готовим быстрый заказ в твоём городе. Загляни чуть позже — а пока попутки ждут на карте.",
                   "Тиҙ заказды әҙерләйбеҙ. Аҙыраҡ һуңынан кил — әлегә юлдаштар картала көтә."
                 )}
+          </p>
+          {/* Почему именно тут пусто. Иначе выглядит как «до нас не дошли руки»,
+              а причина обратная: пускаем город, только когда машины реально рядом. */}
+          <p className="demand__quiet">
+            {appText(
+              "Мы подключаем города по очереди, чтобы машины точно были рядом. А попутка уже работает по всей республике.",
+              "Ҡалаларҙы сиратлап тоташтырабыҙ — машиналар яҡында булһын өсөн. Ә юлдаш инде бөтә республикала эшләй."
+            )}
           </p>
           <button type="button" className="btn-primary" onClick={() => navigate("/map")}>
             {appText("К попуткам", "Юлдаштарға")}
@@ -252,6 +264,8 @@ function ComposeView({
   const ru = lang !== "ba";
   const navigate = useNavigate();
 
+  /** Место не дали — без точки А машину не вызвать, и это надо сказать словами. */
+  const [geoNote, setGeoNote] = useState("");
   const [category, setCategory] = useState<TaxiCategory>("standard");
   const [estimate, setEstimate] = useState<EstimateResult | null>(null);
   const [estimating, setEstimating] = useState(false);
@@ -425,17 +439,37 @@ function ComposeView({
               ? undefined
               : () => {
                   if (!navigator.geolocation) return;
-                  navigator.geolocation.getCurrentPosition((p) =>
-                    setFrom({
-                      lat: p.coords.latitude,
-                      lng: p.coords.longitude,
-                      text: appText("Моё место", "Урыным"),
-                    })
+                  navigator.geolocation.getCurrentPosition(
+                    (p) => {
+                      setGeoNote("");
+                      setFrom({
+                        lat: p.coords.latitude,
+                        lng: p.coords.longitude,
+                        text: appText("Моё место", "Урыным"),
+                      });
+                    },
+                    // Раньше отказ проходил молча: человек жал «моё место»,
+                    // ничего не менялось, а кнопка «Вызвать» оставалась серой —
+                    // и было непонятно, что вообще не так.
+                    () =>
+                      setGeoNote(
+                        appText(
+                          "Не видим твоё место. Разреши геолокацию в настройках браузера или укажи точку подачи на карте.",
+                          "Урыныңды күрмәйбеҙ. Браузер көйләүҙәрендә геолокацияға рөхсәт бир йәки килеү нөктәһен картала күрһәт."
+                        )
+                      ),
+                    { timeout: 8000, maximumAge: 60000 }
                   );
                 }
           }
         />
       </div>
+
+      {geoNote && (
+        <div className="notice" role="status">
+          {geoNote}
+        </div>
+      )}
 
       {/* Классы с ценами */}
       {to && (
@@ -505,7 +539,7 @@ function ComposeView({
                 : estimate.promo_note.ba
               : appText(
                   "Скидку оплачивает Юлдаш из своей комиссии — водитель получит своё полностью.",
-                  "Ташламаны Юлдаш үҙ комиссияһынан түләй — водитель үҙенекен тулыһынса ала."
+                  "Ташламаны Юлдаш үҙ комиссияһынан түләй — йөрөтөүсе үҙенекен тулыһынса ала."
                 )}
           </p>
         </div>
@@ -592,6 +626,8 @@ function ComposeView({
               <input
                 className="field__input"
                 type="datetime-local"
+                min={minDateTimeNow()}
+                max={maxDateTimeInDays(SCHEDULE_MAX_DAYS)}
                 value={schedAt}
                 onChange={(e) => setSchedAt(e.target.value)}
               />
@@ -613,12 +649,12 @@ function ComposeView({
           <span className="taxi-women__main">
             <span className="taxi-women__title">
               <YuWomenOnly size={16} className="amenity-ic" />{" "}
-              {appText("Только женщина за рулём", "Тик ҡатын-ҡыҙ водитель")}
+              {appText("Только женщина за рулём", "Тик ҡатын-ҡыҙ йөрөтөүсе")}
             </span>
             <span className="taxi-women__sub">
               {appText(
                 "Заказ увидят только женщины-водители. Их меньше — машину можно ждать дольше или не дождаться.",
-                "Заказды тик ҡатын-ҡыҙ водителдәр күрә. Улар аҙыраҡ — машинаны оҙағыраҡ көтөргә йәки көтөп алмаҫҡа мөмкин."
+                "Заказды тик ҡатын-ҡыҙ йөрөтөүселәр күрә. Улар аҙыраҡ — машинаны оҙағыраҡ көтөргә йәки көтөп алмаҫҡа мөмкин."
               )}
             </span>
           </span>
@@ -665,7 +701,7 @@ function ComposeView({
               </label>
 
               <label className="field">
-                <span className="field__label">{appText("Комментарий водителю", "Водителгә иҫкәрмә")}</span>
+                <span className="field__label">{appText("Комментарий водителю", "Йөрөтөүсегә иҫкәрмә")}</span>
                 <input
                   className="field__input"
                   value={comment}
@@ -684,7 +720,7 @@ function ComposeView({
                 <span>{appText("Заказ для другого человека", "Башҡа кеше өсөн заказ")}</span>
               </label>
               <div className="taxi-details__note">
-                {appText("Водитель будет звонить ему, а не тебе", "Водитель уға шылтырата, һиңә түгел")}
+                {appText("Водитель будет звонить ему, а не тебе", "Йөрөтөүсе уға шылтырата, һиңә түгел")}
               </div>
 
               {forOther && (
@@ -712,7 +748,7 @@ function ComposeView({
                   <div className="taxi-details__note">
                     {appText(
                       "Телефон увидит только водитель и только после того, как примет заказ.",
-                      "Телефонды тик водитель, тик заказды алғандан һуң күрә."
+                      "Телефонды тик йөрөтөүсе, тик заказды алғандан һуң күрә."
                     )}
                   </div>
                 </>
@@ -985,26 +1021,48 @@ function TrackingView({
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState<string | null>(null);
 
+  /** Отмена не прошла из-за связи — уходить с экрана нельзя, заказ живёт. */
+  const [cancelNote, setCancelNote] = useState("");
+
   async function cancel(reason: string) {
     if (busy) return;
     setBusy(true);
+    setCancelNote("");
     try {
       await cancelInstantOrder(order.id, reason);
-    } catch {
-      /* уже отменён/завершён — всё равно выходим */
+    } catch (e) {
+      // Сервер ответил (заказ уже завершён/отменён) — выходим, это нормально.
+      // А вот при обрыве связи выходить НЕЛЬЗЯ: раньше экран закрывался, будто
+      // отмена прошла, — водитель ехал, а пассажир был уверен, что отменил.
+      if (e instanceof ApiError && e.status === 0) {
+        setBusy(false);
+        setCancelNote(
+          appText(
+            "Не получилось отменить — нет связи. Заказ ещё активен, попробуй ещё раз.",
+            "Кире алып булманы — бәйләнеш юҡ. Заказ әле әүҙем, тағы ҡабатла."
+          )
+        );
+        return;
+      }
     }
     setBusy(false);
     setCancelOpen(false);
     onCancelled();
   }
 
+  /** Оценка не ушла — «спасибо» показывать нельзя, человек решит, что оценил. */
+  const [rateNote, setRateNote] = useState("");
+
   async function rate(stars: number) {
     try {
       await rateInstantOrder(order.id, stars);
+      setRateNote("");
+      setRated(true);
     } catch {
-      /* тихо */
+      setRateNote(
+        appText("Оценка не отправилась. Попробуй ещё раз.", "Баһа китмәне. Тағы ҡабатла.")
+      );
     }
-    setRated(true);
   }
 
   // --- Поиск машины ---
@@ -1020,7 +1078,7 @@ function TrackingView({
           <p>
             {appText(
               "Подбираем ближайшего водителя. Обычно это меньше минуты.",
-              "Иң яҡын водительды табабыҙ. Ғәҙәттә бер минуттан кәм."
+              "Иң яҡын йөрөтөүсене табабыҙ. Ғәҙәттә бер минуттан кәм."
             )}
           </p>
           <div className="taxi-fare-line">
@@ -1075,6 +1133,11 @@ function TrackingView({
 
         {/* Во время поиска отмена бесплатна — но «почему» спрашиваем так же:
             «долго ждать» на этой фазе и есть самый ценный ответ. */}
+        {cancelNote && (
+          <div className="notice" role="status">
+            {cancelNote}
+          </div>
+        )}
         {cancelOpen && (
           <CancelSheet
             feeRub={0}
@@ -1097,11 +1160,19 @@ function TrackingView({
         <div className="state" style={{ paddingTop: 40 }}>
           <div className="state__icon"><YuMoon size={34} /></div>
           <h2>{appText("Рядом пока никого", "Яҡында әлегә бер кем юҡ")}</h2>
+          {/* Выбор «только женщина за рулём» сужает круг машин, и человек имеет право
+              знать, что дело в этом, а не в поломке. Молча подставить мужчину нельзя:
+              тогда галочка ничего не значила бы — а её ставят ради безопасности. */}
           <p>
-            {appText(
-              "Свободных машин рядом не нашлось. Попробуй ещё раз через пару минут.",
-              "Яҡында буш машина табылманы. Бер-ике минуттан ҡабат ҡара."
-            )}
+            {order.women_only
+              ? appText(
+                  "Свободных женщин-водителей рядом не нашли. Мы не подставим вместо них другого водителя — ты просила именно женщину. Можем подождать: как только кто-то освободится, пришлём уведомление.",
+                  "Яҡында буш ҡатын-ҡыҙ йөрөтөүсе табылманы. Уның урынына башҡа йөрөтөүсене тәҡдим итмәйбеҙ — һин нәҡ ҡатын-ҡыҙ һораның. Көтә алабыҙ: берәйһе бушаныу менән хәбәр итәбеҙ."
+                )
+              : appText(
+                  "Свободных машин рядом не нашлось. Попробуй ещё раз через пару минут.",
+                  "Яҡында буш машина табылманы. Бер-ике минуттан ҡабат ҡара."
+                )}
           </p>
           <button type="button" className="btn-primary" onClick={onNewOrder}>
             {appText("Попробовать снова", "Ҡабат ҡарау")}
@@ -1124,7 +1195,7 @@ function TrackingView({
         <SubHeader title={appText("Заказ отменён", "Заказ кире алынды")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
           <div className="state__icon"><YuQuiet size={34} /></div>
-          <h2>{byDriver ? appText("Водитель отменил заказ", "Водитель заказды кире алды") : appText("Заказ отменён", "Заказ кире алынды")}</h2>
+          <h2>{byDriver ? appText("Водитель отменил заказ", "Йөрөтөүсе заказды кире алды") : appText("Заказ отменён", "Заказ кире алынды")}</h2>
           <p>
             {appText(
               "Бывает. Давай вызовем другую машину — рядом наверняка есть свободные.",
@@ -1151,7 +1222,7 @@ function TrackingView({
             <b>{priceLabel(order.price_final ?? order.price_estimate, ru)}</b>
           </div>
           <p className="taxi-done__hint">
-            {appText("Оплата напрямую водителю — как договорились.", "Түләү тура водителгә — килешкәнсә.")}
+            {appText("Оплата напрямую водителю — как договорились.", "Түләү тура йөрөтөүсегә — килешкәнсә.")}
           </p>
         </div>
         {!rated ? (
@@ -1170,6 +1241,11 @@ function TrackingView({
                 </button>
               ))}
             </div>
+            {rateNote && (
+              <div className="notice" role="status">
+                {rateNote}
+              </div>
+            )}
           </div>
         ) : (
           <div className="consents__status ok" style={{ marginTop: 14 }}>
@@ -1194,7 +1270,7 @@ function TrackingView({
 
   // --- Водитель едет / в пути ---
   const phaseTitle = enRoute
-    ? appText("Водитель едет к тебе", "Водитель һиңә килә")
+    ? appText("Водитель едет к тебе", "Йөрөтөүсе һиңә килә")
     : appText("В пути", "Юлда");
 
   return (
@@ -1223,7 +1299,7 @@ function TrackingView({
           </div>
           <div className="taxi-driver__info">
             <div className="taxi-driver__name">
-              {order.driver_name || appText("Водитель", "Водитель")}
+              {order.driver_name || appText("Водитель", "Йөрөтөүсе")}
               {order.driver_verified && (
                 <span className="badge badge--mint" style={{ marginLeft: 8 }}>
                   {appText("Проверен", "Тикшерелгән")}
@@ -1244,7 +1320,7 @@ function TrackingView({
               type="button"
               className="taxi-icon-btn"
               onClick={onOpenChat}
-              aria-label={appText("Чат с водителем", "Водитель менән чат")}
+              aria-label={appText("Чат с водителем", "Йөрөтөүсе менән чат")}
             >
               <IconChat size={20} />
             </button>
@@ -1252,7 +1328,7 @@ function TrackingView({
               <a
                 className="taxi-icon-btn taxi-icon-btn--call"
                 href={`tel:${order.driver_phone}`}
-                aria-label={appText("Позвонить водителю", "Водителгә шылтыратыу")}
+                aria-label={appText("Позвонить водителю", "Йөрөтөүсегә шылтыратыу")}
               >
                 <IconPhone size={20} />
               </a>
@@ -1264,7 +1340,7 @@ function TrackingView({
       {/* Маршрут + цена */}
       <div className="info-list">
         <div className="info-row">
-          <span className="info-row__k">{appText("Маршрут", "Маршрут")}</span>
+          <span className="info-row__k">{appText("Маршрут", "Юл")}</span>
           <span className="info-row__v">
             {order.from_text || appText("Точка А", "А нөктә")} → {order.to_text || appText("Точка Б", "Б нөктә")}
           </span>
@@ -1319,7 +1395,7 @@ function TrackingView({
       <p className="taxi-note">
         {appText(
           "Юлдаш — такси между своими. Береги водителя, води себя по-доброму 🤝",
-          "Юлдаш — үҙебеҙ араһында такси. Водителгә иғтибарлы бул 🤝"
+          "Юлдаш — үҙебеҙ араһында такси. Йөрөтөүсегә иғтибарлы бул 🤝"
         )}
       </p>
     </>
@@ -1339,7 +1415,7 @@ function WaitCounter({ order }: { order: InstantOrder }) {
   const { appText } = useLang();
   const [now, setNow] = useState(() => Date.now());
 
-  const startedMs = order.waiting_started_at ? Date.parse(order.waiting_started_at) : NaN;
+  const startedMs = serverMs(order.waiting_started_at);
   const running = !Number.isNaN(startedMs);
 
   useEffect(() => {

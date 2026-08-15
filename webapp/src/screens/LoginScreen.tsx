@@ -195,7 +195,7 @@ export default function LoginScreen() {
 
       <img
         className="auth__hero"
-        src="/login_salavat_yulaev_hero.png"
+        src="/login_salavat_yulaev_hero.webp"
         alt=""
         aria-hidden
       />
@@ -259,9 +259,13 @@ export default function LoginScreen() {
                   </>
                 ) : (
                   <>
+                    {/* one-time-code — айфон сам предложит код прямо над клавиатурой.
+                        Без этого человек запоминает цифры, уходит в сообщения
+                        и возвращается вписывать их руками. */}
                     <input
                       className="field__input"
                       inputMode="numeric"
+                      autoComplete="one-time-code"
                       value={smsCode}
                       onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, ""))}
                       placeholder={appText("Код из SMS", "SMS коды")}
@@ -270,6 +274,7 @@ export default function LoginScreen() {
                     <input
                       className="field__input"
                       style={{ marginTop: 8 }}
+                      autoComplete="name"
                       value={smsName}
                       onChange={(e) => setSmsName(e.target.value)}
                       placeholder={appText("Как тебя зовут", "Исемең")}

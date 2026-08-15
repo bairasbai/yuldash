@@ -9,6 +9,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { fetchReceipt, type TripReceipt } from "../api/bookings";
+import { thankBooking, fetchBookingTip, type TipInfo } from "../api/family";
+import SbpPay from "../components/SbpPay";
+import PayTripCard from "../components/PayTripCard";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow, IconReceipt, IconHeart, IconCheck, IconShare } from "../components/Icons";
@@ -63,6 +66,35 @@ export default function TripReceiptScreen() {
    * человек часто пересылает её в рабочий чат, а там лишние глаза.
    */
   const [shared, setShared] = useState(false);
+  // Чем поблагодарить водителя попутки. null = чаевые выключены или ручки нет.
+  const [tip, setTip] = useState<TipInfo | null>(null);
+  const [thanked, setThanked] = useState(false);
+  const [thanksBusy, setThanksBusy] = useState(false);
+
+  useEffect(() => {
+    if (!bookingId) return;
+    const ac = new AbortController();
+    fetchBookingTip(bookingId, ac.signal)
+      .then((t) => {
+        setTip(t);
+        if (t.already_thanked) setThanked(true);
+      })
+      .catch(() => setTip(null));
+    return () => ac.abort();
+  }, [bookingId]);
+
+  async function sayThanks() {
+    if (thanksBusy) return;
+    setThanksBusy(true);
+    try {
+      await thankBooking(bookingId);
+      setThanked(true);
+    } catch {
+      /* не отправилось — кнопка остаётся, человек повторит */
+    } finally {
+      setThanksBusy(false);
+    }
+  }
 
   async function shareReceipt() {
     if (state.kind !== "ready") return;
@@ -140,7 +172,7 @@ ${priceLabel(r.amount, false)}`
 
           <div className="receipt__rows">
             <div className="info-row">
-              <span className="info-row__k">{appText("Водитель", "Водитель")}</span>
+              <span className="info-row__k">{appText("Водитель", "Йөрөтөүсе")}</span>
               <span className="info-row__v">
                 {state.r.driver_name}
                 {state.r.driver_verified && (
@@ -184,6 +216,57 @@ ${priceLabel(r.amount, false)}`
               ? appText("Скопировано", "Күсерелде")
               : appText("Поделиться квитанцией", "Квитанция менән бүлешеү")}
           </button>
+
+          {/* Неоплаченная поездка — способ рассчитаться. Оплачено: блока нет. */}
+          {!state.r.paid && (
+            <PayTripCard
+              kind="booking"
+              id={bookingId}
+              amountLabel={priceLabel(state.r.amount, ru)}
+              onPaid={() => load()}
+            />
+          )}
+
+          {/* «Рәхмәт» и придумали для попуток: сосед подвёз бесплатно и заслуживает
+              спасибо не меньше таксиста. Кнопка была только в чеке такси, а обе
+              серверные ручки годами никто не звал. */}
+          <div className="act-card" style={{ marginTop: 14 }}>
+            <div className="act-card__title">
+              <IconHeart size={18} />{" "}
+              {thanked
+                ? appText("Рәхмәт сказан 💚", "Рәхмәт әйтелде 💚")
+                : appText("Сказать рәхмәт", "Рәхмәт әйтеү")}
+            </div>
+            <p className="act-card__text">
+              {appText(
+                "Тёплое спасибо водителю — без денег и без оценок.",
+                "Йөрөтөүсегә йылы рәхмәт — аҡсаһыҙ һәм баһаһыҙ."
+              )}
+            </p>
+            {!thanked && (
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ width: "100%" }}
+                onClick={() => void sayThanks()}
+                disabled={thanksBusy}
+              >
+                {thanksBusy
+                  ? appText("Отправляем…", "Ебәрәбеҙ…")
+                  : appText("Сказать рәхмәт", "Рәхмәт әйтеү")}
+              </button>
+            )}
+
+            {/* Деньгами — только если водитель сам включил и оставил номер СБП */}
+            {tip?.money && (
+              <div className="tip-money">
+                <div className="tip-money__label">
+                  {appText("Можно и деньгами — по желанию", "Аҡса менән дә була — теләк буйынса")}
+                </div>
+                <SbpPay phone={tip.money.sbp} name={tip.money.name} />
+              </div>
+            )}
+          </div>
 
           <p className="receipt__foot">
             {appText(

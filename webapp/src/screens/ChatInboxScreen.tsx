@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
+import { useAuth } from "../auth/AuthProvider";
 import { ApiError } from "../api/client";
 import { fetchConversations, type Conversation } from "../api/chat";
 import { LoadingList } from "../components/States";
@@ -18,17 +19,24 @@ import { IconCheck, IconChevron } from "../components/Icons";
 import { YuChat } from "../components/BrandIcons";
 import { formatWhen } from "../utils/format";
 
-type Status = "loading" | "error" | "soon" | "ready";
+type Status = "loading" | "error" | "soon" | "ready" | "guest";
 
 export default function ChatInboxScreen() {
   const { appText, lang, t } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
+  const { isAuthed } = useAuth();
 
   const [status, setStatus] = useState<Status>("loading");
   const [rows, setRows] = useState<Conversation[]>([]);
 
   const load = useCallback((signal?: AbortSignal) => {
+    // Вкладка «Чаты» видна и гостю. Раньше он получал от сервера отказ и читал
+    // «Ошибка» — как будто сайт сломался. «Сначала войди» — совсем другое дело.
+    if (!isAuthed) {
+      setStatus("guest");
+      return;
+    }
     setStatus("loading");
     fetchConversations(signal)
       .then((list) => {
@@ -40,7 +48,7 @@ export default function ChatInboxScreen() {
         // 401 разберёт слой авторизации; 404 = эндпоинта ещё нет → мягко «скоро».
         setStatus(e instanceof ApiError && e.status === 404 ? "soon" : "error");
       });
-  }, []);
+  }, [isAuthed]); // вошёл прямо отсюда — экран должен сам перезагрузиться
 
   useEffect(() => {
     const ac = new AbortController();
@@ -56,6 +64,24 @@ export default function ChatInboxScreen() {
       />
 
       {status === "loading" && <LoadingList count={3} />}
+
+      {status === "guest" && (
+        <div className="state" style={{ paddingTop: 32 }}>
+          <div className="state__icon">
+            <YuChat size={36} />
+          </div>
+          <h2>{appText("Войди, чтобы переписываться", "Яҙышыр өсөн ин")}</h2>
+          <p>
+            {appText(
+              "Здесь появятся переписки с попутчиками — по каждой поездке своя.",
+              "Бында юлдаштар менән яҙышыу күренәсәк — һәр сәфәр буйынса үҙенеке."
+            )}
+          </p>
+          <button type="button" className="btn-primary" onClick={() => navigate("/login")}>
+            {appText("Войти", "Инеү")}
+          </button>
+        </div>
+      )}
 
       {status === "soon" && (
         <div className="state" style={{ paddingTop: 32 }}>
@@ -74,7 +100,7 @@ export default function ChatInboxScreen() {
           </div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}
@@ -89,7 +115,7 @@ export default function ChatInboxScreen() {
             <p>
               {appText(
                 "Забронируй поездку — и здесь появится чат с водителем.",
-                "Сәфәр бронла — бында водитель менән чат күренәсәк."
+                "Сәфәр бронла — бында йөрөтөүсе менән чат күренәсәк."
               )}
             </p>
             <button type="button" className="btn-primary" onClick={() => navigate("/rides")}>

@@ -9,7 +9,7 @@ import { Link } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import type { Parcel, ParcelSize } from "../api/parcels";
 import { isCarrying } from "../api/parcels";
-import { rubLabel } from "../utils/format";
+import { dayMonthLong, rubLabel } from "../utils/format";
 import { IconArrow, IconPhone, IconCheck, IconChat } from "./Icons";
 import ParcelPhoto from "./ParcelPhoto";
 
@@ -68,10 +68,7 @@ export function ParcelRoute({ p }: { p: Parcel }) {
       {p.deliver_by && (
         <div className="parcel-card__desc">
           {appText("Нужно не позже: ", "Ошо көндән һуң түгел: ")}
-          {new Date(p.deliver_by + "T00:00:00").toLocaleDateString("ru-RU", {
-            day: "numeric",
-            month: "long",
-          })}
+          {dayMonthLong(new Date(p.deliver_by + "T00:00:00"), ru)}
         </div>
       )}
       {p.description && <div className="parcel-card__desc">{p.description}</div>}
@@ -227,7 +224,7 @@ export function CarryParcelCard({
               onClick={() => onGoodsCost(Number(goods) * 100)}
               disabled={busy || !goods}
             >
-              {appText("Сохранить", "Һаҡларға")}
+              {appText("Сохранить", "Һаҡлау")}
             </button>
           </div>
           <p className="parcel-card__desc" style={{ marginTop: 6 }}>

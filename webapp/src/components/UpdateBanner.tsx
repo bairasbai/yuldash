@@ -53,7 +53,7 @@ export default function UpdateBanner() {
           {appText("Позже", "Һуңыраҡ")}
         </button>
         <button type="button" className="update-banner__go" onClick={() => apply?.()}>
-          {appText("Обновить", "Яңыртырға")}
+          {appText("Обновить", "Яңыртыу")}
         </button>
       </span>
     </div>

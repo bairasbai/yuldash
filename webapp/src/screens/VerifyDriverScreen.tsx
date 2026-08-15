@@ -182,12 +182,12 @@ export default function VerifyDriverScreen() {
     const verified = docs === "verified";
     return (
       <>
-        <SubHeader title={appText("Проверка водителя", "Водитель тикшереүе")} onBack={() => navigate("/driver")} />
+        <SubHeader title={appText("Проверка водителя", "Йөрөтөүсе тикшереүе")} onBack={() => navigate("/driver")} />
         <div className="state">
           <div className="state__icon">{verified ? <IconCheck size={34} /> : <IconClock size={34} />}</div>
           <h2>
             {verified
-              ? appText("Ты проверенный водитель", "Һин тикшерелгән водитель")
+              ? appText("Ты проверенный водитель", "Һин тикшерелгән йөрөтөүсе")
               : appText("Документы на проверке", "Документтар тикшереүҙә")}
           </h2>
           <p>
@@ -202,7 +202,7 @@ export default function VerifyDriverScreen() {
                 )}
           </p>
           <button type="button" className="btn-primary" onClick={() => navigate("/driver")}>
-            {appText("В кабинет водителя", "Водитель кабинетына")}
+            {appText("В кабинет водителя", "Йөрөтөүсе кабинетына")}
           </button>
         </div>
       </>
@@ -212,7 +212,7 @@ export default function VerifyDriverScreen() {
   return (
     <>
       <SubHeader
-        title={appText("Стать водителем", "Водитель булыу")}
+        title={appText("Стать водителем", "Йөрөтөүсе булыу")}
         subtitle={appText("Проверка — это доверие «между своими»", "Тикшереү — был «үҙебеҙ араһында» ышаныс")}
         onBack={() => navigate(-1)}
       />
@@ -224,7 +224,7 @@ export default function VerifyDriverScreen() {
           <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}
@@ -237,6 +237,14 @@ export default function VerifyDriverScreen() {
                 "Прошлая проверка не пройдена. Проверь, что фото чёткие, и отправь снова.",
                 "Үткән тикшереү үтмәне. Фото асыҡ булһын, ҡабат ебәр."
               )}
+              {/* Отказ без совета — тупик: человек шлёт то же самое фото по второму
+                  разу и снова получает отказ. Говорим, что именно проверить. */}
+              <p className="verify-hint">
+                {appText(
+                  "Сделай фото прав чётким: хорошо освещено, без бликов, номер и срок читаются.",
+                  "Права фотоһын асыҡ яһа: яҡшы яҡтыртылған, ялтырауһыҙ, номер һәм ваҡыт уҡыла."
+                )}
+              </p>
             </div>
           )}
 
@@ -247,7 +255,7 @@ export default function VerifyDriverScreen() {
               {appText("Что нужно", "Ни кәрәк")}
             </div>
             <ul>
-              <li>{appText("Действующие водительские права", "Ғәмәлдәге водитель таныҡлығы")}</li>
+              <li>{appText("Действующие водительские права", "Ғәмәлдәге йөрөтөүсе таныҡлығы")}</li>
               <li>{appText("Фото автомобиля целиком", "Автомобилдең тулы фотоһы")}</li>
               <li>{appText("Данные совпадают с документами", "Мәғлүмәт документтарға тап килә")}</li>
             </ul>
@@ -261,7 +269,7 @@ export default function VerifyDriverScreen() {
 
           {/* Загрузка фото */}
           <PhotoSlot
-            title={appText("Водительские права", "Водитель таныҡлығы")}
+            title={appText("Водительские права", "Водитель праваһы")}
             hint={appText("Нажми, чтобы выбрать фото", "Фото һайлар өсөн баҫ")}
             url={licenseUrl}
             uploading={uploadingLic}

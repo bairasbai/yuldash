@@ -22,6 +22,7 @@ import {
 import { SubHeader } from "./ConsentsScreen";
 import SbpPay from "../components/SbpPay";
 import { IconHeart } from "../components/Icons";
+import { rememberPayment } from "../utils/pendingPayment";
 
 export default function SupportYuldashScreen() {
   const { appText } = useLang();
@@ -45,6 +46,7 @@ export default function SupportYuldashScreen() {
       const r = await supportDonate(effective);
       // ЮKassa вернула ссылку — уводим на неё, дальше платит банк.
       if (r.confirmation_url) {
+        rememberPayment(r.payment_id, "donate", "/support-yuldash");
         window.location.href = r.confirmation_url;
         return;
       }

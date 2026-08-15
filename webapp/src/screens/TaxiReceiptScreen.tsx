@@ -17,11 +17,13 @@ import { ApiError } from "../api/client";
 import {
   fetchTaxiReceipt,
   markCashReceived,
-  rateInstantOrder,
   reportLostItem,
   type TaxiReceipt,
 } from "../api/instant";
+import { thankOrder, fetchOrderTip, type TipInfo } from "../api/family";
 import { LoadingList, ErrorState } from "../components/States";
+import SbpPay from "../components/SbpPay";
+import PayTripCard from "../components/PayTripCard";
 import { SubHeader } from "./ConsentsScreen";
 import {
   IconArrow,
@@ -55,6 +57,9 @@ export default function TaxiReceiptScreen() {
   const [busy, setBusy] = useState<"cash" | "lost" | "thanks" | null>(null);
   const [lostOpened, setLostOpened] = useState(false);
   const [note, setNote] = useState<string>("");
+  // Чем поблагодарить: тёплое «рәхмәт» всегда, деньги — только если водитель
+  // сам их включил. null = сервер ещё не ответил или чаевые выключены.
+  const [tip, setTip] = useState<TipInfo | null>(null);
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -83,11 +88,30 @@ export default function TaxiReceiptScreen() {
     return () => ac.abort();
   }, [load]);
 
+  // Чаевые — отдельным запросом: их отсутствие не должно ломать чек.
+  useEffect(() => {
+    if (!id) return;
+    const ac = new AbortController();
+    fetchOrderTip(id, ac.signal)
+      .then((t) => {
+        setTip(t);
+        if (t.already_thanked) setThanked(true);
+      })
+      .catch(() => setTip(null));
+    return () => ac.abort();
+  }, [id]);
+
+  /**
+   * «Рәхмәт» — это НЕ оценка. Раньше кнопка ставила пятёрку: она подменяла
+   * мнение человека (сказать спасибо можно и после тройки) и портила рейтинг
+   * водителя чужими баллами. У сервера для этого своя ручка — тёплый жест
+   * без цифр, идемпотентный.
+   */
   async function sayThanks() {
     if (busy) return;
     setBusy("thanks");
     try {
-      await rateInstantOrder(id, 5);
+      await thankOrder(id);
       setThanked(true);
     } catch {
       setNote(appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла."));
@@ -271,6 +295,16 @@ export default function TaxiReceiptScreen() {
             </button>
           </div>
 
+          {/* Пассажир, поездка не оплачена — способ рассчитаться */}
+          {state.r.role === "passenger" && !state.r.paid && (
+            <PayTripCard
+              kind="order"
+              id={id}
+              amountLabel={priceLabel(state.r.amount, ru)}
+              onPaid={() => load()}
+            />
+          )}
+
           {/* Пассажир: тёплое спасибо водителю — без денег */}
           {state.r.role === "passenger" && (
             <div className="act-card" style={{ marginTop: 14 }}>
@@ -281,7 +315,7 @@ export default function TaxiReceiptScreen() {
                   : appText("Сказать рәхмәт", "Рәхмәт әйтеү")}
               </div>
               <p className="act-card__text">
-                {appText("Тёплое спасибо водителю — без денег.", "Водителгә йылы рәхмәт — аҡсаһыҙ.")}
+                {appText("Тёплое спасибо водителю — без денег.", "Йөрөтөүсегә йылы рәхмәт — аҡсаһыҙ.")}
               </p>
               {!thanked && (
                 <button
@@ -295,6 +329,19 @@ export default function TaxiReceiptScreen() {
                     ? appText("Отправляем…", "Ебәрәбеҙ…")
                     : appText("Сказать рәхмәт", "Рәхмәт әйтеү")}
                 </button>
+              )}
+
+              {/* Деньгами — только если водитель сам включил чаевые и оставил номер.
+                  Его телефон до этого наружу не идёт вовсе. Кнопки «дать чаевые»
+                  по умолчанию нет: у нас скидываются на бензин, а не доплачивают
+                  сверху, и превращать спасибо в обязанность мы не хотим. */}
+              {tip?.money && (
+                <div className="tip-money">
+                  <div className="tip-money__label">
+                    {appText("Можно и деньгами — по желанию", "Аҡса менән дә була — теләк буйынса")}
+                  </div>
+                  <SbpPay phone={tip.money.sbp} name={tip.money.name} />
+                </div>
               )}
             </div>
           )}

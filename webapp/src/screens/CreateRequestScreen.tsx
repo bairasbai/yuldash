@@ -15,6 +15,7 @@ import { IconCheck, IconBolt, IconHospital, IconUsers } from "../components/Icon
 import { YuModeRideshare } from "../components/BrandIcons";
 import { AmenityIcon } from "../components/amenityIcons";
 import CityField from "../components/CityField";
+import { minDateTimeNow } from "../utils/dateInput";
 
 type Opt =
   | "baggage"
@@ -110,7 +111,7 @@ export default function CreateRequestScreen() {
         />
         <div className="state">
           <div className="state__icon"><IconCheck size={34} /></div>
-          <h2>{appText("Готово! Ищем водителя", "Әҙер! Водитель эҙләйбеҙ")}</h2>
+          <h2>{appText("Готово! Ищем водителя", "Әҙер! Йөрөтөүсе эҙләйбеҙ")}</h2>
           <p>
             {appText(
               "Как только кто-то откликнется — покажем предложения. Загляни во «Мои заявки».",
@@ -143,7 +144,7 @@ export default function CreateRequestScreen() {
     <>
       <SubHeader
         title={appText("Куда едем?", "Ҡайҙа барабыҙ?")}
-        subtitle={appText("Оставь заявку — водители откликнутся", "Заявка ҡалдыр — водителдәр яуап бирер")}
+        subtitle={appText("Оставь заявку — водители откликнутся", "Заявка ҡалдыр — йөрөтөүселәр яуап бирер")}
         onBack={() => navigate(-1)}
       />
 
@@ -169,6 +170,7 @@ export default function CreateRequestScreen() {
           <input
             className="field__input"
             type="datetime-local"
+            min={minDateTimeNow()}
             value={when}
             onChange={(e) => setWhen(e.target.value)}
           />
@@ -201,6 +203,8 @@ export default function CreateRequestScreen() {
               className="field__input"
               type="number"
               inputMode="numeric"
+              min={0}
+              max={1000000}
               value={maxPrice}
               onChange={(e) => setMaxPrice(e.target.value)}
               placeholder={appText("не важно", "мөһим түгел")}
@@ -296,7 +300,7 @@ export default function CreateRequestScreen() {
           onClick={submit}
           disabled={!canSubmit}
         >
-          {busy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Найти водителя", "Водитель табырға")}
+          {busy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Найти водителя", "Йөрөтөүсе табырға")}
         </button>
       </div>
     </>

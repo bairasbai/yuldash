@@ -19,6 +19,8 @@ import { AmenityIcon } from "../components/amenityIcons";
 import CityField from "../components/CityField";
 import PickupChips from "../components/PickupChips";
 import { priceLabel, rubLabel } from "../utils/format";
+import { useDraftSync, clearDraft } from "../utils/formDraft";
+import { minDateTimeNow } from "../utils/dateInput";
 
 type Amenity =
   | "baggage"
@@ -30,6 +32,9 @@ type Amenity =
   | "quiet";
 
 type Recur = "none" | "daily" | "weekdays" | "weekly";
+
+/** Ключ черновика формы «Опубликовать поездку». */
+const RIDE_DRAFT = "create-ride";
 
 export default function CreateRideScreen() {
   const { appText, lang } = useLang();
@@ -92,6 +97,26 @@ export default function CreateRideScreen() {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Форма длинная: маршрут, время, цена, удобства, комментарий. Отвлёкся на звонок,
+  // айфон выгрузил вкладку — и всё заново. Черновик держит заполненное до публикации.
+  useDraftSync(
+    RIDE_DRAFT,
+    { from, to, when, seats, price, category, amen, onlyTrusted, recurrence, comment, pickup },
+    (d) => {
+      if (d.from) setFrom(d.from);
+      if (d.to) setTo(d.to);
+      if (d.when) setWhen(d.when);
+      if (d.seats) setSeats(d.seats);
+      if (d.price) setPrice(d.price);
+      if (d.category) setCategory(d.category);
+      if (d.amen) setAmen((prev) => ({ ...prev, ...d.amen }));
+      if (d.onlyTrusted) setOnlyTrusted(d.onlyTrusted);
+      if (d.recurrence) setRecurrence(d.recurrence);
+      if (d.comment) setComment(d.comment);
+      if (d.pickup) setPickup(d.pickup);
+    }
+  );
   const [done, setDone] = useState(false);
   const [createdId, setCreatedId] = useState<number | null>(null);
 
@@ -163,6 +188,7 @@ export default function CreateRideScreen() {
       const ride = await publishRide(body);
       setCreatedId(ride.id);
       setDone(true);
+      clearDraft(RIDE_DRAFT); // опубликовано — черновик больше не нужен
     } catch (e) {
       setError(
         e instanceof ApiError && e.message
@@ -209,7 +235,7 @@ export default function CreateRideScreen() {
             style={{ marginTop: 10 }}
             onClick={() => navigate("/driver")}
           >
-            {appText("В кабинет водителя", "Водитель кабинетына")}
+            {appText("В кабинет водителя", "Йөрөтөүсе кабинетына")}
           </button>
         </div>
       </>
@@ -252,6 +278,7 @@ export default function CreateRideScreen() {
           <input
             className="field__input"
             type="datetime-local"
+            min={minDateTimeNow()}
             value={when}
             onChange={(e) => setWhen(e.target.value)}
           />
@@ -280,10 +307,14 @@ export default function CreateRideScreen() {
           </div>
           <label className="field" style={{ flex: 1 }}>
             <span className="field__label">{appText("Цена с места, ₽", "Урын хаҡы, ₽")}</span>
+            {/* Границы те же, что у сервера (0…100 000 ₽): лучше не дать ввести
+                лишний ноль, чем показать отказ после отправки формы. */}
             <input
               className="field__input"
               type="number"
               inputMode="numeric"
+              min={0}
+              max={100000}
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               placeholder={appText("0 — договорная", "0 — килешеү")}

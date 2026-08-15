@@ -103,13 +103,13 @@ export default function AdminCabinetScreen() {
       to: "/admin/responses",
       icon: <IconChat size={22} />,
       title: appText("Принять отклик за юзера", "Юзер өсөн яуап ҡабул итеү"),
-      sub: appText("Выбрать водителя по заявке", "Заявка буйынса водитель һайлау"),
+      sub: appText("Выбрать водителя по заявке", "Заявка буйынса йөрөтөүсе һайлау"),
     },
     {
       key: "drivers",
       to: "/admin/drivers",
       icon: <IconWheel size={22} />,
-      title: appText("Модерация водителей", "Водителдәрҙе тикшереү"),
+      title: appText("Модерация водителей", "Йөрөтөүселәрҙе тикшереү"),
       sub: appText("Права, авто — одобрить/отклонить", "Права, авто — раҫлау/кире ҡағыу"),
     },
     {
@@ -131,7 +131,7 @@ export default function AdminCabinetScreen() {
       key: "reviews",
       to: "/admin/reviews",
       icon: <IconStar size={22} />,
-      title: appText("Отзывы", "Фекерҙәр"),
+      title: appText("Отзывы", "Кире бәйләнеш"),
       sub: appText("Модерация отзывов", "Фекер текстарын тикшереү"),
     },
     {

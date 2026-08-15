@@ -14,6 +14,7 @@ import { fetchDriverDebt, declareDebtPaid, type DriverDebt } from "../api/driver
 import { kopExactLabel, formatWhen } from "../utils/format";
 import { IconWarn } from "./Icons";
 import SbpPay from "./SbpPay";
+import { rememberPayment } from "../utils/pendingPayment";
 
 export default function DebtCard() {
   const { appText, lang } = useLang();
@@ -48,6 +49,7 @@ export default function DebtCard() {
       const r = await declareDebtPaid();
       // Карта — уводим в банк; СБП — долг ушёл на подтверждение.
       if (r.confirmation_url) {
+        if (r.payment_id) rememberPayment(r.payment_id, "debt", "/taxi-drive");
         window.location.href = r.confirmation_url;
         return;
       }

@@ -60,7 +60,9 @@
 .lang-toggle button {
   position: relative;
   min-width: 44px;
-  height: 34px;
+  /* Тач-цель: 44px — минимум, ниже которого палец промахивается.
+     Переключателем языка пользуются при каждом заходе. */
+  height: 44px;
   padding: 0 12px;
   border: 0;
   border-radius: var(--radius-pill);
@@ -1113,7 +1115,9 @@ button.list-row:active {
   margin: 0 auto;
   border-radius: 50%;
   background: var(--canon-gold-soft);
-  color: #7a5200;
+  /* Было числом — и в тёмной теме оставалось тёмным на тёмном (контраст 1.59).
+     Переменная меняется вместе с фоном: 5.52 в светлой, 8.79 в тёмной. */
+  color: var(--canon-gold-ink);
   display: grid;
   place-items: center;
 }
@@ -1149,6 +1153,12 @@ button.list-row:active {
   font-weight: 600;
   transition: transform var(--motion-quick) ease;
 }
+/* «Показать ещё» под лентой: на всю ширину, с воздухом от последней карточки. */
+.show-more {
+  width: 100%;
+  margin: var(--space-md) 0 var(--space-lg);
+}
+
 .btn-soft:active {
   transform: scale(0.98);
 }
@@ -1395,7 +1405,8 @@ button.list-row:active {
   margin-top: 12px;
 }
 .chip {
-  min-height: 40px;
+  /* Фильтры и зоны нажимают на ходу, часто одной рукой — 44px минимум. */
+  min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
@@ -3183,6 +3194,55 @@ button.list-row:active {
   font-size: var(--font-caption);
   color: var(--muted);
 }
+/* Почему заказ не взялся — за рулём нужно понять это с одного взгляда. */
+.offer-card__note {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--canon-gold-soft);
+  color: var(--warn);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: 600;
+}
+
+/* Оффер уже закрылся («взял другой»), но объяснение должно догнать водителя. */
+.offer-note {
+  position: fixed;
+  left: 50%;
+  /* та же высота нижней навигации, что у остальных плавающих плашек */
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(92vw, 420px);
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-pill);
+  background: var(--canon-gold-soft);
+  color: var(--warn);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  text-align: center;
+  box-shadow: var(--depth-card);
+  /* 4 секунды — это не длительность движения (те берём со шкалы --motion-*),
+     а время, за которое человек за рулём успевает прочитать короткую фразу. */
+  animation: offerNoteLife 4s ease-out forwards;
+}
+@keyframes offerNoteLife {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  10%,
+  85% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
 .offer-card__actions {
   margin-top: 18px;
   display: flex;
@@ -3241,6 +3301,31 @@ button.list-row:active {
   color: var(--muted);
   border-top: 1px solid var(--border);
 }
+
+/* Спокойная плашка «так вышло»: не ошибка и не успех, а объяснение —
+   сообщение ждёт сети, место не дали, отмена не прошла. Тёплый тон, не красный:
+   человек ничего не сломал, ему просто нужно знать, что происходит. */
+.notice,
+.chat__queued {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: 10px 14px;
+  font-size: var(--font-caption);
+  color: var(--warn);
+  background: var(--canon-gold-soft);
+  border-top: 1px solid var(--border);
+  animation: fadeUp var(--motion-normal) ease-out both;
+}
+
+/* Вне чата плашка живёт среди карточек — ей нужно скругление, а не полоса. */
+.notice {
+  margin-top: var(--space-md);
+  border-top: 0;
+  border-radius: var(--radius-field);
+}
+
 
 /* ============================================================
    Волна 5 — Курьер и посылки
@@ -3988,8 +4073,8 @@ button.list-row:active {
   padding: 0 22px;
   border: 0;
   border-radius: var(--radius-field);
-  background: var(--danger);
-  color: #fff;
+  background: var(--danger-btn);
+  color: var(--on-accent);
   font-weight: 700;
   transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
 }
@@ -6107,16 +6192,18 @@ select.field__input {
 .bubble__edit input {
   flex: 1;
   min-width: 140px;
-  min-height: 44px;
+  min-height: 48px;
   padding: 0 var(--space-sm);
   border: 1px solid var(--border);
   border-radius: var(--radius-tiny);
   background: var(--surface);
   color: var(--text);
-  font-size: var(--font-caption);
+  /* Не мельче 16px: Safari на айфоне зумит страницу при касании поля с мелким
+     текстом и обратно не отзумливает — человек остаётся в увеличенной вёрстке. */
+  font-size: var(--font-body);
 }
 .bubble__edit button {
-  min-height: 44px;
+  min-height: 48px;
   padding: 0 var(--space-sm);
   border: 0;
   border-radius: var(--radius-tiny);
@@ -6909,4 +6996,224 @@ select.field__input {
   color: var(--muted);
   font-size: var(--font-micro);
   line-height: var(--line-micro);
+}
+
+/* Предупреждение в карточке посылки: отмена уже стоит кому-то денег */
+.parcel-card__warn {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Сколько ходов осталось в торге: он конечен, и знать об этом надо заранее */
+.bargain__left {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+  border-radius: var(--radius-tiny);
+  background: var(--surface-2);
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.bargain__left--last {
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-weight: 700;
+}
+
+/* Что делать после ввода промокода — ничего, и это надо сказать */
+.promo-applied__discount {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.promo-applied__discount b {
+  display: block;
+  font-size: var(--font-caption);
+}
+.promo-applied__discount p {
+  margin: var(--space-xs) 0 0;
+}
+
+/* За что курьер платит процент: без этого «комиссия» читается как штраф */
+.courier-fee__why {
+  margin: var(--space-sm) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Совет после отказа проверки: без него человек шлёт то же фото повторно */
+.verify-hint {
+  margin: var(--space-sm) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Промокод пассажира в оффере: водитель должен знать сумму на руки заранее */
+.offer-card__promo {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: 700;
+}
+
+/* Ожидания от доставки: везёт сосед, а не служба со страховкой */
+.parcel-expect {
+  margin: var(--space-md) 0 0;
+  padding: var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Размещение рекламы на исходе: сказать до того, как показы встали */
+.biz-item__ending {
+  margin: var(--space-sm) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* Денежные чаевые: только если водитель сам их включил */
+.tip-money {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+.tip-money__label {
+  color: var(--muted);
+  font-size: var(--font-micro);
+}
+
+/* ---- Оплата состоявшейся поездки ---- */
+.pay-trip {
+  margin-top: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.pay-trip__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  color: var(--text);
+  font-size: var(--font-caption);
+}
+.pay-trip__head b {
+  margin-left: auto;
+  font-size: var(--font-heading);
+  font-variant-numeric: tabular-nums;
+}
+.pay-trip__note {
+  margin: var(--space-sm) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- Чаевые водителя: номер СБП по желанию ---- */
+.tips-sbp {
+  margin-top: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  overflow: hidden;
+}
+.tips-sbp__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-md);
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.tips-sbp__head > span:first-child {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tips-sbp__head b {
+  color: var(--text);
+  font-size: var(--font-caption);
+}
+.tips-sbp__head > span:first-child > span {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.tips-sbp__body {
+  padding: 0 var(--space-md) var(--space-md);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+
+/* ---- «Как получить больше заявок»: подсказка, а не упрёк ---- */
+.ride-tips {
+  flex-basis: 100%;
+  margin-top: var(--space-sm);
+}
+.ride-tips__head {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-micro);
+  font-weight: 700;
+  text-align: left;
+}
+.ride-tips__list {
+  margin: var(--space-xs) 0 0;
+  padding-left: var(--space-lg);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.ride-tips__list li {
+  margin-top: var(--space-xs);
+}
+
+/* ============================================================
+   Длинный текст в карточках: перенос, а не выезд за край.
+   Города, имена и описания приходят от людей и от справочника,
+   и в башкирском они заметно длиннее русских. Общая страховка
+   стоит на body, здесь — там, где текст лежит в узкой колонке
+   рядом с иконкой или ценой и обязан ужиматься.
+   ============================================================ */
+.ride-card__route,
+.list-row__title,
+.list-row__sub,
+.dprofile-name,
+.parcel-card__desc,
+.review-card__author,
+.sched-card__when,
+.city-field__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }

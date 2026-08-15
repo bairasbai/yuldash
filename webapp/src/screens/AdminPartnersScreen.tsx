@@ -289,7 +289,7 @@ function PartnerCard({
               onClick={() => setRejecting(false)}
               disabled={busy !== null}
             >
-              {appText("Назад", "Кире")}
+              {appText("Назад", "Артҡа")}
             </button>
             <button
               type="button"

@@ -158,7 +158,7 @@ export default function ParcelProblemActions({
               {busy ? appText("Отмечаем…", "Билдәләйбеҙ…") : appText("Отметить", "Билдәләү")}
             </button>
             <button type="button" className="btn-ghost" onClick={() => setSheet("none")}>
-              {appText("Отмена", "Кире алыу")}
+              {appText("Отмена", "Баш тартыу")}
             </button>
           </div>
         </div>
@@ -200,7 +200,7 @@ export default function ParcelProblemActions({
               {busy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Начать возврат", "Кире ҡайтарыуҙы башлау")}
             </button>
             <button type="button" className="btn-ghost" onClick={() => setSheet("none")}>
-              {appText("Отмена", "Кире алыу")}
+              {appText("Отмена", "Баш тартыу")}
             </button>
           </div>
         </div>
@@ -240,6 +240,21 @@ export default function ParcelProblemActions({
               placeholder={appText("Что случилось — спокойно и по делу", "Нимә булды — тыныс һәм эш буйынса")}
             />
           </label>
+
+          {/* От чего будут считать. Без объявленной ценности разбор упирается
+              в «она стоила дорого» против «она ничего не стоила» — и решать
+              приходится вслепую. Говорим об этом до того, как спор открыт. */}
+          <p className="act-card__text" style={{ marginTop: 6 }}>
+            {(parcel.declared_value_kop ?? 0) > 0
+              ? appText(
+                  `Ориентир при споре — объявленная ценность: ${Math.round((parcel.declared_value_kop ?? 0) / 100)} ₽.`,
+                  `Бәхәстә ориентир — иғлан ителгән хаҡ: ${Math.round((parcel.declared_value_kop ?? 0) / 100)} һум.`
+                )
+              : appText(
+                  "Ценность не объявлена — решаем по договорённости между своими.",
+                  "Хаҡ иғлан ителмәгән — үҙ-ара килешеү буйынса хәл итәбеҙ."
+                )}
+          </p>
           <div className="act-card__actions" style={{ marginTop: 10 }}>
             <button
               type="button"
@@ -255,7 +270,7 @@ export default function ParcelProblemActions({
               {busy ? appText("Открываем…", "Асабыҙ…") : appText("Открыть спор", "Бәхәс асыу")}
             </button>
             <button type="button" className="btn-ghost" onClick={() => setSheet("none")}>
-              {appText("Отмена", "Кире алыу")}
+              {appText("Отмена", "Баш тартыу")}
             </button>
           </div>
         </div>

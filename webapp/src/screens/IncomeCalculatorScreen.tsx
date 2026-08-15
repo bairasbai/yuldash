@@ -70,7 +70,7 @@ export default function IncomeCalculatorScreen() {
           {appText("Из чего доход", "Килем нимәнән")}
         </div>
         <Breakdown label={appText("Купоны и реклама бизнеса", "Купондар һәм бизнес рекламаһы")} value={rub(calc.couponsIncome * routes)} />
-        <Breakdown label={appText("Boost водителей", "Водителдәр Boost'ы")} value={rub(calc.boostIncome * routes)} />
+        <Breakdown label={appText("Boost водителей", "Йөрөтөүселәр Boost'ы")} value={rub(calc.boostIncome * routes)} />
         {taxiOn && <Breakdown label={appText("Комиссия такси", "Такси комиссияһы")} value={rub(calc.taxiIncome * routes)} />}
       </div>
 

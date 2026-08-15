@@ -88,7 +88,7 @@ export default function AdminSupportScreen() {
           [
             ["open", appText("Открытые", "Асыҡ")],
             ["closed", appText("Закрытые", "Ябыҡ")],
-            ["all", appText("Все", "Бөтәһе")],
+            ["all", appText("Все", "Барыһы")],
           ] as [Filter, string][]
         ).map(([k, label]) => (
           <button
@@ -246,7 +246,7 @@ function TicketThreadView({
             placeholder={appText("Ответ человеку…", "Кешегә яуап…")}
             aria-label={appText("Ответ", "Яуап")}
           />
-          <button type="button" onClick={() => void send()} disabled={busy} aria-label={appText("Отправить", "Ебәрергә")}>
+          <button type="button" onClick={() => void send()} disabled={busy} aria-label={appText("Отправить", "Ебәреү")}>
             <IconChat size={20} />
           </button>
         </div>

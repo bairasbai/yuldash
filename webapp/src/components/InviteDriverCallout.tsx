@@ -35,7 +35,7 @@ export default function InviteDriverCallout() {
       )
     : appText(
         "Юлдаш — попутки между своими по Башкортостану. Становись водителем: публикуй поездки и вози соседей. Скачать: https://yulbash.ru",
-        "Юлдаш — Башҡортостан буйлап үҙебеҙ араһында юлдаштар. Водитель бул: сәфәрҙәр ҡуй һәм күршеләрҙе йөрөт. Йөкләү: https://yulbash.ru"
+        "Юлдаш — Башҡортостан буйлап үҙебеҙ араһында юлдаштар. Йөрөтөүсе бул: сәфәрҙәр ҡуй һәм күршеләрҙе йөрөт. Йөкләү: https://yulbash.ru"
       );
 
   async function invite() {
@@ -64,7 +64,7 @@ export default function InviteDriverCallout() {
         </span>
         <div>
           <div className="invite-driver__title">
-            {appText("Никто не едет? Позови водителя", "Бер кем дә бармаймы? Водитель саҡыр")}
+            {appText("Никто не едет? Позови водителя", "Бер кем дә бармаймы? Йөрөтөүсе саҡыр")}
           </div>
           <p className="invite-driver__sub">
             {appText(
@@ -77,7 +77,7 @@ export default function InviteDriverCallout() {
       <button type="button" className="btn-primary" onClick={invite}>
         {done
           ? appText("Ссылка скопирована", "Һылтанма күсерелде")
-          : appText("Пригласить водителя", "Водитель саҡырыу")}
+          : appText("Пригласить водителя", "Йөрөтөүсе саҡырыу")}
       </button>
     </section>
   );

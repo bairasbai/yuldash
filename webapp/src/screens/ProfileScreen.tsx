@@ -119,7 +119,7 @@ export default function ProfileScreen() {
       key: "driver",
       to: "/driver",
       icon: <IconWheel size={22} />,
-      title: appText("Я водитель", "Мин водитель"),
+      title: appText("Я водитель", "Мин йөрөтөүсе"),
       sub: appText("Публикация поездок, заявки, заработок", "Сәфәр баҫтырыу, заявкалар, табыш"),
       authed: true,
     },

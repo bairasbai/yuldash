@@ -124,7 +124,7 @@ export default function IncidentDetailScreen() {
           <h2>{appText("Не получилось открыть разбор", "Ҡарауҙы асып булманы")}</h2>
           <p>{appText("Проверь сеть и попробуй снова.", "Селтәрҙе тикшереп ҡабат ҡара.")}</p>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}
@@ -379,7 +379,7 @@ export default function IncidentDetailScreen() {
                     setErr("");
                   }}
                 >
-                  {appText("Отмена", "Кире алыу")}
+                  {appText("Отмена", "Баш тартыу")}
                 </button>
               </div>
             </div>
@@ -407,7 +407,7 @@ export default function IncidentDetailScreen() {
                   {busy ? appText("Закрываем…", "Ябабыҙ…") : appText("Да, решили миром", "Эйе, килештек")}
                 </button>
                 <button type="button" className="btn-ghost" onClick={() => setSheet("none")}>
-                  {appText("Отмена", "Кире алыу")}
+                  {appText("Отмена", "Баш тартыу")}
                 </button>
               </div>
             </div>

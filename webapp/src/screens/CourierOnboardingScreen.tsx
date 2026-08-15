@@ -24,8 +24,12 @@ import {
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
 import { IconCheck, IconCamera, IconShield, IconBox, IconCar, IconClock, IconWarn } from "../components/Icons";
+import { useDraftSync, clearDraft } from "../utils/formDraft";
 
 type Boot = "loading" | "error" | "ready";
+
+/** Ключ черновика анкеты курьера. */
+const COURIER_DRAFT = "courier-application";
 
 export default function CourierOnboardingScreen() {
   const { appText } = useLang();
@@ -46,6 +50,20 @@ export default function CourierOnboardingScreen() {
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // За селфи человек уходит в камеру, и вкладка на айфоне может выгрузиться.
+  // Черновик держит анкету на месте, пока она не отправлена.
+  useDraftSync(
+    COURIER_DRAFT,
+    { transport, selfieUrl, fullName, carPlate, rulesOk },
+    (d) => {
+      if (d.transport) setTransport(d.transport);
+      if (d.selfieUrl) setSelfieUrl(d.selfieUrl);
+      if (d.fullName) setFullName(d.fullName);
+      if (d.carPlate) setCarPlate(d.carPlate);
+      if (d.rulesOk) setRulesOk(d.rulesOk);
+    }
+  );
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback((signal?: AbortSignal) => {
@@ -105,6 +123,7 @@ export default function CourierOnboardingScreen() {
       });
       setApp(a);
       setEditing(false);
+      clearDraft(COURIER_DRAFT); // отправлено — черновик больше не нужен
     } catch (e) {
       setError(
         e instanceof ApiError && e.message
@@ -134,7 +153,7 @@ export default function CourierOnboardingScreen() {
           <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       </>

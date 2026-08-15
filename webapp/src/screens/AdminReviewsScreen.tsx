@@ -199,7 +199,7 @@ export default function AdminReviewsScreen() {
                       disabled={busyId !== null}
                     >
                       {busyId === r.id ? appText("…", "…") : (
-                        <><IconCheck size={18} /> {appText("Опубликовать", "Баҫтырыу")}</>
+                        <><IconCheck size={18} /> {appText("Опубликовать", "Баҫтырырға")}</>
                       )}
                     </button>
                     {/* Щит рейтинга: одна месть-оценка не должна рушить рейтинг честного. */}
@@ -236,7 +236,7 @@ export default function AdminReviewsScreen() {
                     disabled={busyId !== null}
                   >
                     {busyId === r.id ? appText("…", "…") : (
-                      <><IconCheck size={18} /> {appText("Опубликовать", "Баҫтырыу")}</>
+                      <><IconCheck size={18} /> {appText("Опубликовать", "Баҫтырырға")}</>
                     )}
                   </button>
                 </div>

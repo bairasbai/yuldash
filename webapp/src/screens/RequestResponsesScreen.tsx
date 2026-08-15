@@ -141,7 +141,7 @@ export default function RequestResponsesScreen() {
   return (
     <>
       <SubHeader
-        title={appText("Отклики водителей", "Водителдәр яуабы")}
+        title={appText("Отклики водителей", "Йөрөтөүселәр яуабы")}
         subtitle={appText("Выбери, с кем поедешь", "Кем менән барырыңды һайла")}
         onBack={() => navigate(-1)}
       />
@@ -152,7 +152,7 @@ export default function RequestResponsesScreen() {
         style={{ marginTop: 10 }}
         onClick={() => navigate(`/requests/${requestId}/edit`)}
       >
-        <IconPencil size={17} /> {appText("Редактировать заявку", "Заявканы үҙгәртергә")}
+        <IconPencil size={17} /> {appText("Редактировать заявку", "Заявканы үҙгәртеү")}
       </button>
 
       {status === "loading" && <LoadingList count={3} />}
@@ -162,7 +162,7 @@ export default function RequestResponsesScreen() {
           <div className="state">
             <div className="state__icon"><IconClock size={34} /></div>
             <h2>{appText("Пока нет откликов", "Әле яуап юҡ")}</h2>
-            <p>{appText("Водители ещё думают. Мы сообщим, как только кто-то предложит поездку.", "Водителдәр уйлай әле. Кемдер тәҡдим итһә, хәбәр итәбеҙ.")}</p>
+            <p>{appText("Водители ещё думают. Мы сообщим, как только кто-то предложит поездку.", "Йөрөтөүселәр уйлай әле. Кемдер тәҡдим итһә, хәбәр итәбеҙ.")}</p>
           </div>
         ) : (
           <div className="list">
@@ -190,7 +190,11 @@ export default function RequestResponsesScreen() {
                   {r.comment && <p className="offer-card__comment">{r.comment}</p>}
 
                   {/* Торг: дорожка ходов + чей сейчас ход. Один ход — дорожка не рисуется. */}
-                  <BargainTrail history={parseBargainHistory(r.bargain_history)} mine="passenger" />
+                  <BargainTrail
+                    history={parseBargainHistory(r.bargain_history)}
+                    mine="passenger"
+                    rounds={r.bargain_rounds}
+                  />
                   {!isAccepted && r.status === "offered" && (
                     <span
                       className={"bargain-turn" + (r.can_accept || r.can_counter ? " bargain-turn--mine" : "")}
@@ -200,7 +204,7 @@ export default function RequestResponsesScreen() {
                           <IconBolt size={14} /> {appText("Твой ход", "Һинең сират")}
                         </>
                       ) : (
-                        appText("Ход водителя — ждём ответа", "Водитель сираты — яуап көтәбеҙ")
+                        appText("Ход водителя — ждём ответа", "Йөрөтөүсе сираты — яуап көтәбеҙ")
                       )}
                     </span>
                   )}
@@ -242,7 +246,7 @@ export default function RequestResponsesScreen() {
                             setCounterPrice("");
                           }}
                         >
-                          {appText("Отмена", "Кире алыу")}
+                          {appText("Отмена", "Баш тартыу")}
                         </button>
                       </div>
                     </div>

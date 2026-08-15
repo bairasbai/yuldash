@@ -12,6 +12,7 @@ import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconShare, IconCheck, IconHeart } from "../components/Icons";
 
+import { pluralRu } from "../utils/format";
 type Status = "loading" | "error" | "ready";
 
 export default function MyStatsScreen() {
@@ -57,7 +58,7 @@ export default function MyStatsScreen() {
     if (!stats) return;
     const rank = appText(stats.rank.title_ru, stats.rank.title_ba);
     const text = appText(
-      `Мой Юлдаш: ${stats.trips} поездок, ${stats.km} км вместе, сэкономил ${stats.saved_rub.toLocaleString("ru-RU")} ₽ и ${stats.co2_saved_kg} кг CO₂. Звание: ${rank}. Попутки между своими 🌿`,
+      `Мой Юлдаш: ${stats.trips} ${pluralRu(stats.trips, "поездка", "поездки", "поездок")}, ${stats.km} км вместе, сэкономил ${stats.saved_rub.toLocaleString("ru-RU")} ₽ и ${stats.co2_saved_kg} кг CO₂. Звание: ${rank}. Попутки между своими 🌿`,
       `Минең Юлдаш: ${stats.trips} сәфәр, ${stats.km} км бергә, ${stats.saved_rub.toLocaleString("ru-RU")} ₽ һәм ${stats.co2_saved_kg} кг CO₂ янға ҡалдырҙым. Исем: ${rank}. Үҙебеҙ араһында юлдаштар 🌿`
     );
     try {
@@ -117,7 +118,7 @@ export default function MyStatsScreen() {
                 </div>
                 <p className="trust-hero__next">
                   {appText(
-                    `Ещё ${stats.rank.to_next} поездок до звания «${stats.rank.next_title_ru}»`,
+                    `Ещё ${stats.rank.to_next} ${pluralRu(stats.rank.to_next, "поездка", "поездки", "поездок")} до звания «${stats.rank.next_title_ru}»`,
                     `«${stats.rank.next_title_ba}» исеменә тиклем тағы ${stats.rank.to_next} сәфәр`
                   )}
                 </p>

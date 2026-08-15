@@ -82,13 +82,23 @@ export default function CouponsScreen() {
       await reportCoupon(couponId, reportReason.trim());
       setReportFor(null);
       setReportSent(true);
+      setReportError("");
     } catch {
-      /* не ушло — человек повторит, экран не ломаем */
+      // Человек сообщает о проблеме с купоном — он должен знать, дошло ли.
+      // Иначе решит, что пожаловался, и будет ждать ответа, которого не будет.
+      setReportError(
+        appText(
+          "Жалоба не отправилась. Проверь связь и попробуй ещё раз.",
+          "Шикәйәт китмәне. Бәйләнеште тикшереп ҡабатла."
+        )
+      );
     } finally {
       setReportBusy(false);
     }
   }
 
+  /** Жалоба не ушла — сказать: человек ждёт разбирательства. */
+  const [reportError, setReportError] = useState("");
   const [actError, setActError] = useState<string | null>(null);
 
   // ---- Витрина «рядом» ----
@@ -259,7 +269,7 @@ export default function CouponsScreen() {
                   {reportBusy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Отправить", "Ебәреү")}
                 </button>
                 <button type="button" className="btn-ghost" onClick={() => setReportFor(null)}>
-                  {appText("Отмена", "Кире алыу")}
+                  {appText("Отмена", "Баш тартыу")}
                 </button>
               </div>
             </div>
@@ -278,6 +288,11 @@ export default function CouponsScreen() {
                 : appText("Тут что-то не так — сообщить", "Бында нимәлер дөрөҫ түгел — хәбәр итеү")}
             </button>
           ))}
+          {reportError && (
+            <div className="notice" role="status">
+              {reportError}
+            </div>
+          )}
         </div>
       </>
     );
@@ -325,7 +340,7 @@ export default function CouponsScreen() {
               <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
               <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
               <button type="button" className="btn-primary" onClick={() => loadNear()}>
-                {appText("Повторить", "Ҡабатларға")}
+                {appText("Повторить", "Ҡабатлау")}
               </button>
             </div>
           )}
@@ -379,7 +394,7 @@ export default function CouponsScreen() {
                         </span>
                         <div className="coupon-card__partner">
                           <div className="coupon-card__name">
-                            {c.partner?.name || appText("Заведение", "Заведение")}
+                            {c.partner?.name || appText("Заведение", "Урын")}
                             {c.premium && <span className="badge badge--gold coupon-card__pro">PREMIUM</span>}
                           </div>
                           {(c.partner?.city || c.partner?.address) && (
@@ -458,7 +473,7 @@ export default function CouponsScreen() {
                   </h2>
                   {mineStatus === "error" && (
                     <button type="button" className="btn-primary" onClick={() => loadMine()}>
-                      {appText("Повторить", "Ҡабатларға")}
+                      {appText("Повторить", "Ҡабатлау")}
                     </button>
                   )}
                 </div>

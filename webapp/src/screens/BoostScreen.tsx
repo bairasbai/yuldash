@@ -25,6 +25,7 @@ import { SubHeader } from "./ConsentsScreen";
 import SbpPay from "../components/SbpPay";
 import { formatWhen } from "../utils/format";
 import { IconArrow, IconRocket, IconCheck, IconClock, IconWarn, IconCar } from "../components/Icons";
+import { rememberPayment } from "../utils/pendingPayment";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -87,6 +88,8 @@ export default function BoostScreen() {
       setResult(res);
       // ЮKassa: уводим в браузерную оплату.
       if (res.status === "pending" && res.method === "yookassa" && res.confirmation_url) {
+        // Уходим в банк целиком — номер платежа в памяти не переживёт возврата.
+        rememberPayment(res.payment_id, "boost", "/driver");
         window.location.href = res.confirmation_url;
         return;
       }
@@ -131,7 +134,7 @@ export default function BoostScreen() {
             )}
           </p>
           <button type="button" className="btn-primary" onClick={() => navigate("/driver")}>
-            {appText("В кабинет водителя", "Водитель кабинетына")}
+            {appText("В кабинет водителя", "Йөрөтөүсе кабинетына")}
           </button>
         </div>
       </>
@@ -216,7 +219,7 @@ export default function BoostScreen() {
           <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}

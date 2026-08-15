@@ -159,7 +159,7 @@ export default function AdminModerationScreen() {
                             setReason("");
                           }}
                         >
-                          {appText("Отмена", "Кире алыу")}
+                          {appText("Отмена", "Баш тартыу")}
                         </button>
                       </div>
                     </>
@@ -171,7 +171,7 @@ export default function AdminModerationScreen() {
                         onClick={() => act(key, () => approvePartner(p.id))}
                         disabled={busyId === key}
                       >
-                        <IconCheck size={18} /> {appText("Одобрить", "Хуплау")}
+                        <IconCheck size={18} /> {appText("Одобрить", "Раҫлау")}
                       </button>
                       <button
                         type="button"
@@ -261,7 +261,7 @@ export default function AdminModerationScreen() {
                             setReason("");
                           }}
                         >
-                          {appText("Отмена", "Кире алыу")}
+                          {appText("Отмена", "Баш тартыу")}
                         </button>
                       </div>
                     </>
@@ -273,7 +273,7 @@ export default function AdminModerationScreen() {
                         onClick={() => act(key, () => approveCoupon(c.id))}
                         disabled={busyId === key}
                       >
-                        <IconCheck size={18} /> {appText("Всё в порядке", "Бөтәһе лә яҡшы")}
+                        <IconCheck size={18} /> {appText("Всё в порядке", "Бөтәһе лә тәртиптә")}
                       </button>
                       <button
                         type="button"

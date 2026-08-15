@@ -148,7 +148,7 @@ export default function WorkZoneCard() {
           <span className="workzone__sub">{summary}</span>
         </span>
         <span className="workzone__action">
-          {saved ? <IconCheck size={18} /> : open ? appText("Скрыть", "Йәшерергә") : appText("Изменить", "Үҙгәртеү")}
+          {saved ? <IconCheck size={18} /> : open ? appText("Скрыть", "Йәшереү") : appText("Изменить", "Үҙгәртеү")}
         </span>
       </button>
 

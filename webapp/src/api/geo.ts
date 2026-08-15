@@ -15,10 +15,10 @@ import { apiGet } from "./client";
 export interface Settlement {
   id: number;
   name_ru: string;
-  name_ba: string;
+  name_ba: string | null;
   region: string;
   kind: string; // city | district_center | village | neighbor
-  district: string;
+  district: string | null;
   lat: number | null;
   lng: number | null;
 }

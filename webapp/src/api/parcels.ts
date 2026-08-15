@@ -69,6 +69,14 @@ export interface Parcel {
   delivery_type: DeliveryType | string;
   urgency: ParcelUrgency | string;
   declared_value_kop: number;
+  /**
+   * Компенсация курьеру, если отменить сейчас. Курьер мог уже выехать и проехать
+   * 40 км — за время и дорогу платят ему напрямую, мимо платформы.
+   * preview — сколько это будет; cancel_fee_kop — сколько уже зафиксировано.
+   * Сумму называем ДО решения: соглашаться на деньги вслепую человек не должен.
+   */
+  cancel_fee_kop?: number;
+  cancel_fee_preview_kop?: number;
   cod_amount_kop: number;
   commission_kop: number;
   price_kop: number; // цена доставки (courier/buy_bring); 0 для poputka

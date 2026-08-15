@@ -10,11 +10,15 @@ import { IconFilter, IconSearch } from "../components/Icons";
 import { track } from "../analytics";
 import InviteDriverCallout from "../components/InviteDriverCallout";
 import PartnerAdCard, { usePartnerAds } from "../components/PartnerAd";
+import { useScrollMemory } from "../utils/useScrollMemory";
 
 type State =
   | { kind: "loading" }
   | { kind: "error" }
   | { kind: "ready"; rides: Ride[] };
+
+/** По сколько карточек добавляем за раз («Показать ещё»). */
+const PAGE = 30;
 
 /**
  * Первый живой экран — лента поездок.
@@ -32,6 +36,12 @@ export default function RidesScreen() {
   const prefs = useMemo(() => loadFilters(), []);
   const filterOn = isFilterActive(prefs);
   const [state, setState] = useState<State>({ kind: "loading" });
+  /** Сколько карточек показано сейчас — растёт по кнопке «Показать ещё». */
+  const [shown, setShown] = useState(PAGE);
+
+  // Пролистал ленту, открыл поездку, вернулся — список должен остаться там же,
+  // а не отматываться в начало.
+  useScrollMemory("rides", state.kind === "ready");
 
   // Реклама партнёра в ленте. Маршрутная (тариф «Маршрут») важнее общей:
   // за неё платят дороже, и она ближе к тому, куда человек едет.
@@ -125,9 +135,13 @@ export default function RidesScreen() {
               </>
             );
           }
+          // Сервер отдаёт до 200 поездок за раз. Рисовать все сразу — значит
+          // подвесить дешёвый телефон на первом же открытии ленты: 200 карточек
+          // в разметке он строит секундами. Показываем частями.
+          const visible = rides.slice(0, shown);
           return (
             <div>
-              {rides.map((ride, i) => (
+              {visible.map((ride, i) => (
                 <div key={ride.id}>
                   <RideCard ride={ride} index={i} />
                   {/* Реклама после третьей карточки: видно, но не в лицо с первого экрана */}
@@ -136,6 +150,19 @@ export default function RidesScreen() {
               ))}
               {/* Список короче трёх — рекламу показываем в конце, иначе партнёр не получит показ */}
               {inlineAd && rides.length <= 2 && <PartnerAdCard ad={inlineAd} label={adLabel} />}
+
+              {rides.length > visible.length && (
+                <button
+                  type="button"
+                  className="btn-soft show-more"
+                  onClick={() => setShown((n) => n + PAGE)}
+                >
+                  {appText(
+                    `Показать ещё · осталось ${rides.length - visible.length}`,
+                    `Тағы күрһәтергә · ${rides.length - visible.length} ҡалды`
+                  )}
+                </button>
+              )}
             </div>
           );
         })()}

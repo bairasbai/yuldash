@@ -344,7 +344,7 @@ function AdCard({
               onClick={() => setRejecting(false)}
               disabled={busy !== null}
             >
-              {appText("Назад", "Кире")}
+              {appText("Назад", "Артҡа")}
             </button>
             <button
               type="button"
@@ -369,7 +369,7 @@ function AdCard({
               onClick={() => status("paused")}
               disabled={busy !== null}
             >
-              {busy === "paused" ? appText("…", "…") : appText("Пауза", "Пауза")}
+              {busy === "paused" ? appText("…", "…") : appText("Пауза", "Туҡтатылған")}
             </button>
           ) : (
             <button

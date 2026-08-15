@@ -448,7 +448,7 @@ export default function AdminIncidentsScreen() {
                           setErr("");
                         }}
                       >
-                        {appText("Отмена", "Кире алыу")}
+                        {appText("Отмена", "Баш тартыу")}
                       </button>
                     </div>
                   </>

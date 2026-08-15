@@ -15,13 +15,14 @@ import { fetchCourierEarnings, type CourierEarnings } from "../api/courier";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconBox, IconTrend } from "../components/Icons";
-import { rubLabel } from "../utils/format";
+import { dayMonthShort, rubLabel } from "../utils/format";
 
 type Status = "loading" | "error" | "soon" | "ready";
 type Period = "week" | "month" | "all";
 
 export default function CourierEarningsScreen() {
-  const { appText } = useLang();
+  const { appText, lang } = useLang();
+  const ru = lang !== "ba";
   const navigate = useNavigate();
 
   const [period, setPeriod] = useState<Period>("week");
@@ -56,10 +57,10 @@ export default function CourierEarningsScreen() {
 
   const maxNet = data ? Math.max(1, ...data.by_day.map((d) => d.net_kop)) : 1;
 
-  function dayLabel(iso: string): string {
+  function dayLabel(iso: string, ru: boolean): string {
     const d = new Date(iso + "T00:00:00");
     if (isNaN(d.getTime())) return iso;
-    return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+    return dayMonthShort(d, ru);
   }
 
   function emptyTitle(): string {
@@ -167,7 +168,7 @@ export default function CourierEarningsScreen() {
                         style={{ height: `${Math.max(6, Math.round((d.net_kop / maxNet) * 100))}%` }}
                       />
                     </div>
-                    <div className="earn-bar__label">{dayLabel(d.date)}</div>
+                    <div className="earn-bar__label">{dayLabel(d.date, ru)}</div>
                     <div className="earn-bar__trips">
                       {d.deliveries} {appText("д.", "и.")}
                     </div>

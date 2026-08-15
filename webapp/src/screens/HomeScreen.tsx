@@ -21,6 +21,7 @@ import { IconRequest, IconRides, IconShield, IconGift, IconFilter, IconPin, Icon
 import { YuModeTaxi } from "../components/BrandIcons";
 import { PartnerAdSlot } from "../components/PartnerAd";
 import { fetchPopularRoutes, type PopularRoute } from "../api/geo";
+import { useVisibleInterval } from "../utils/useVisibleInterval";
 
 type Status = "loading" | "error" | "ready";
 
@@ -56,6 +57,8 @@ export default function HomeScreen() {
   const [rides, setRides] = useState<Ride[]>([]);
   const [reqs, setReqs] = useState<NearRequest[]>([]);
   const [me, setMe] = useState<GeoPoint | null>(null);
+  /** Место не дали — говорим об этом словами, иначе кнопка выглядит сломанной. */
+  const [geoNote, setGeoNote] = useState("");
   const [nearOnly, setNearOnly] = useState(false);
   const [sheet, setSheet] = useState<Ride | null>(null);
   // Фильтры по умолчанию (локальные) — применяем к списку поездок рядом.
@@ -64,8 +67,10 @@ export default function HomeScreen() {
   const shownRides = useMemo(() => applyRideFilters(rides, prefs), [rides, prefs]);
 
   const load = useCallback(
-    (signal?: AbortSignal, coords?: GeoPoint | null) => {
-      setStatus("loading");
+    (signal?: AbortSignal, coords?: GeoPoint | null, quiet = false) => {
+      // Тихое обновление — для авто-перезагрузки: карта не должна моргать
+      // скелетоном каждые полминуты у человека на глазах.
+      if (!quiet) setStatus("loading");
       const ridesP = fetchRidesNear(
         coords ? { lat: coords.lat, lng: coords.lng, radius_km: 200 } : {},
         signal
@@ -86,6 +91,9 @@ export default function HomeScreen() {
         })
         .catch((e) => {
           if (signal?.aborted || e?.name === "AbortError") return;
+          // Тихая перезагрузка не должна стирать уже показанную карту: сеть моргнула —
+          // человек продолжает видеть поездки, а не экран ошибки.
+          if (quiet) return;
           setStatus("error");
         });
     },
@@ -112,6 +120,13 @@ export default function HomeScreen() {
     return () => ac.abort();
   }, [load]);
 
+  // Карта — живой экран: поездки появляются и уезжают, пока человек смотрит.
+  // Раньше сайт показывал снимок на момент открытия: уехавшие висели, новые не
+  // приходили. Приложение обновляет пины раз в ~25 секунд и молчит в фоне.
+  useVisibleInterval(25000, () => {
+    if (status !== "loading") load(undefined, me, true);
+  });
+
   // Фильтр «Ближайшие» — просим геолокацию и перегружаем по координатам.
   function toggleNear() {
     if (nearOnly) {
@@ -126,11 +141,19 @@ export default function HomeScreen() {
         const c = { lat: p.coords.latitude, lng: p.coords.longitude };
         setMe(c);
         setNearOnly(true);
+        setGeoNote("");
         load(undefined, c);
       },
       () => {
-        // Отказ в гео — не падаем, просто оставляем общий список.
+        // Отказ в гео — не падаем и НЕ молчим: человек нажал кнопку, она не
+        // включилась, и без объяснения это выглядит поломкой, а не запретом.
         setNearOnly(false);
+        setGeoNote(
+          appText(
+            "Не видим твоё место. Разреши доступ к геолокации в настройках браузера — покажем поездки рядом.",
+            "Урыныңды күрмәйбеҙ. Браузер көйләүҙәрендә геолокацияға рөхсәт бир — яҡындағы сәфәрҙәрҙе күрһәтербеҙ."
+          )
+        );
       },
       { timeout: 8000, maximumAge: 60000 }
     );
@@ -224,6 +247,12 @@ export default function HomeScreen() {
           <IconFilter size={16} /> {appText("Фильтры", "Фильтрҙар")}
         </button>
       </div>
+
+      {geoNote && (
+        <div className="notice" role="status">
+          {geoNote}
+        </div>
+      )}
 
       <div className="quick-row" role="list">
         {quick.map((q) => (
@@ -335,7 +364,7 @@ export default function HomeScreen() {
                   )
                 : appText(
                     "Оставь заявку — водители увидят её и откликнутся.",
-                    "Заявка ҡалдыр — водителдәр күреп яуап бирер."
+                    "Заявка ҡалдыр — йөрөтөүселәр күреп яуап бирер."
                   )}
             </p>
             <button

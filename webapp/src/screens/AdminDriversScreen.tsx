@@ -52,7 +52,7 @@ function autocheckDetails(dataJson: string): { num: string; expiry: string } {
 }
 
 /** Защищённое фото документа: тянем с токеном → objectURL, чистим при размонтировании. */
-function SecureImage({ url, alt }: { url: string; alt: string }) {
+function SecureImage({ url, alt }: { url: string | null; alt: string }) {
   const { appText } = useLang();
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -160,7 +160,7 @@ export default function AdminDriversScreen() {
   return (
     <>
       <SubHeader
-        title={appText("Модерация водителей", "Водителдәрҙе тикшереү")}
+        title={appText("Модерация водителей", "Йөрөтөүселәрҙе тикшереү")}
         subtitle={appText("Права и авто на проверке", "Права һәм авто тикшереүҙә")}
         onBack={() => navigate(-1)}
       />
@@ -172,7 +172,7 @@ export default function AdminDriversScreen() {
         <div className="state" style={{ paddingTop: 24 }}>
           <div className="state__icon"><IconCheck size={34} /></div>
           <h2>{appText("Очередь пуста", "Сират буш")}</h2>
-          <p>{appText("Все заявки водителей проверены.", "Бар водитель заявкалары тикшерелгән.")}</p>
+          <p>{appText("Все заявки водителей проверены.", "Бар йөрөтөүсе заявкалары тикшерелгән.")}</p>
         </div>
       )}
 

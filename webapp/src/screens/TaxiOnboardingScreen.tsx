@@ -23,8 +23,12 @@ import {
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
 import { IconCheck, IconCamera, IconShield, IconWarn, IconCar, IconClock, IconIdCard } from "../components/Icons";
+import { useDraftSync, clearDraft } from "../utils/formDraft";
 
 type Boot = "loading" | "error" | "gate" | "ready";
+
+/** Ключ черновика анкеты таксиста. */
+const TAXI_DRAFT = "taxi-application";
 
 /** Слот загрузки документа (переиспользуем паттерн проверки водителя). */
 function DocSlot({
@@ -95,9 +99,31 @@ export default function TaxiOnboardingScreen() {
   const [permitUrl, setPermitUrl] = useState("");
   const [osagoUrl, setOsagoUrl] = useState("");
   const [selfieUrl, setSelfieUrl] = useState("");
-  const [uploading, setUploading] = useState<"" | "permit" | "osago" | "selfie">("");
+  const [uploading, setUploading] = useState<"" | "permit" | "osago" | "selfie" | "criminal">("");
+  // Справка о несудимости — необязательна, но её видит модератор, и с ней
+  // заявку одобряют увереннее: соседи доверяют человеку, а не бумаге.
+  const [criminalUrl, setCriminalUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Из этой анкеты УХОДИТЬ приходится: сфотографировать разрешение, найти ОСАГО
+  // в галерее. На айфоне вкладка в фоне выгружается — раньше человек возвращался
+  // к пустой форме и начинал заново. Теперь заполненное ждёт его на месте.
+  useDraftSync(
+    TAXI_DRAFT,
+    { inn, permit, birth, licenseYear, carClass, permitUrl, osagoUrl, selfieUrl, criminalUrl },
+    (d) => {
+      if (d.inn) setInn(d.inn);
+      if (d.permit) setPermit(d.permit);
+      if (d.birth) setBirth(d.birth);
+      if (d.licenseYear) setLicenseYear(d.licenseYear);
+      if (d.carClass) setCarClass(d.carClass);
+      if (d.permitUrl) setPermitUrl(d.permitUrl);
+      if (d.osagoUrl) setOsagoUrl(d.osagoUrl);
+      if (d.selfieUrl) setSelfieUrl(d.selfieUrl);
+      if (d.criminalUrl) setCriminalUrl(d.criminalUrl);
+    }
+  );
 
   const load = useCallback((signal?: AbortSignal) => {
     setBoot("loading");
@@ -144,13 +170,14 @@ export default function TaxiOnboardingScreen() {
     return () => ac.abort();
   }, [load]);
 
-  async function pick(kind: "permit" | "osago" | "selfie", f: File) {
+  async function pick(kind: "permit" | "osago" | "selfie" | "criminal", f: File) {
     setUploading(kind);
     setError(null);
     try {
       const { url } = await uploadDoc(f);
       if (kind === "permit") setPermitUrl(url);
       else if (kind === "osago") setOsagoUrl(url);
+      else if (kind === "criminal") setCriminalUrl(url);
       else setSelfieUrl(url);
     } catch (e) {
       setError(
@@ -179,10 +206,12 @@ export default function TaxiOnboardingScreen() {
         permit_photo_url: permitUrl,
         osago_url: osagoUrl,
         selfie_url: selfieUrl,
+        criminal_record_url: criminalUrl || undefined,
         car_class: carClass,
       });
       setApp(a);
       setEditing(false);
+      clearDraft(TAXI_DRAFT); // отправлено — черновик больше не нужен
     } catch (e) {
       setError(
         e instanceof ApiError && e.message
@@ -198,7 +227,7 @@ export default function TaxiOnboardingScreen() {
   if (boot === "loading") {
     return (
       <>
-        <SubHeader title={appText("Стать таксистом Юлдаша", "Таксист булыу")} onBack={() => navigate(-1)} />
+        <SubHeader title={appText("Стать таксистом Юлдаша", "Юлдаш таксисы булыу")} onBack={() => navigate(-1)} />
         <LoadingList count={2} />
       </>
     );
@@ -207,12 +236,12 @@ export default function TaxiOnboardingScreen() {
   if (boot === "error") {
     return (
       <>
-        <SubHeader title={appText("Стать таксистом Юлдаша", "Таксист булыу")} onBack={() => navigate(-1)} />
+        <SubHeader title={appText("Стать таксистом Юлдаша", "Юлдаш таксисы булыу")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
           <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       </>
@@ -235,7 +264,7 @@ export default function TaxiOnboardingScreen() {
                 )}
           </p>
           <button type="button" className="btn-primary" onClick={() => navigate("/driver")}>
-            {appText("В кабинет водителя", "Водитель кабинетына")}
+            {appText("В кабинет водителя", "Йөрөтөүсе кабинетына")}
           </button>
         </div>
       </>
@@ -310,7 +339,7 @@ export default function TaxiOnboardingScreen() {
             </button>
           ) : (
             <button type="button" className="btn-soft" onClick={() => navigate("/driver")}>
-              {appText("В кабинет водителя", "Водитель кабинетына")}
+              {appText("В кабинет водителя", "Йөрөтөүсе кабинетына")}
             </button>
           )}
         </div>
@@ -505,6 +534,16 @@ export default function TaxiOnboardingScreen() {
         url={selfieUrl}
         uploading={uploading === "selfie"}
         onPick={(f) => pick("selfie", f)}
+      />
+      <DocSlot
+        title={appText("Справка о несудимости", "Судимлек юҡлығы белешмәһе")}
+        hint={appText(
+          "С Госуслуг. По желанию, но повышает доверие соседей.",
+          "Госуслугиҙан. Теләк буйынса, әммә күршеләр ышанысын арттыра."
+        )}
+        url={criminalUrl}
+        uploading={uploading === "criminal"}
+        onPick={(f) => pick("criminal", f)}
       />
 
       {error && <div className="auth__error">{error}</div>}

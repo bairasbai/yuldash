@@ -29,7 +29,7 @@ export default function PaymentInfoScreen() {
       {/* Главная мысль: с пассажиров денег не берём */}
       <div className="biz-banner">
         <div className="biz-banner__emoji"><IconShield size={30} /></div>
-        <h2>{appText("Попутка — бесплатна", "Юлдаштар — бушлай")}</h2>
+        <h2>{appText("Попутка — бесплатна", "Юлдаш — бушлай")}</h2>
         <p>
           {appText(
             "Юлдаш не берёт денег с пассажиров за поездки между своими. Платят только бизнесы — за рекламу, подписку и услуги платформы.",

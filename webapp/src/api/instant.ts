@@ -75,6 +75,12 @@ export interface InstantOrder {
   driver_phone: string;
   passenger_name: string;
   passenger_phone: string;
+  /**
+   * Заказ искали только среди женщин за рулём. Нужно на экране «никого рядом»:
+   * человек имеет право знать, что машин нет ИЗ-ЗА фильтра, а не потому,
+   * что приложение сломалось.
+   */
+  women_only?: boolean;
 }
 
 /** Тело оценки/заказа — сервер считает цену сам, клиенту не верит. */
@@ -309,13 +315,13 @@ export interface TaxiApplication {
   status: TaxiAppStatus;
   inn: string;
   permit_number: string;
-  permit_photo_url: string;
-  osago_url: string;
-  selfie_url: string;
-  criminal_record_url: string;
+  permit_photo_url: string | null;
+  osago_url: string | null;
+  selfie_url: string | null;
+  criminal_record_url: string | null;
   birth_date: string; // YYYY-MM-DD
   license_since_year: number;
-  comment: string; // причина отказа
+  comment: string | null; // причина отказа
   created_at: string;
   reviewed_at: string | null;
   // --- сроки документов (_doc_dates на сервере; клиент даты сам не считает) ---

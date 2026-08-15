@@ -19,6 +19,7 @@ import { IconArrow, IconPhone, IconPin, IconCheck, IconLock } from "../component
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { PartnerAdSlot } from "../components/PartnerAd";
 
+import { ApiError } from "../api/client";
 export default function BookingScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
@@ -29,6 +30,8 @@ export default function BookingScreen() {
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [d, setD] = useState<BookingDetails | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  /** Отмена не прошла — сказать обязательно: иначе место так и числится занятым. */
+  const [cancelNote, setCancelNote] = useState("");
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -60,11 +63,22 @@ export default function BookingScreen() {
     if (!bookingId || cancelling) return;
     if (!window.confirm(appText("Отменить бронь?", "Бронды кире алырғамы?"))) return;
     setCancelling(true);
+    setCancelNote("");
     try {
       await cancelBooking(bookingId);
       load();
-    } catch {
-      /* покажем при перезагрузке */
+    } catch (e) {
+      // Раньше тут было «покажем при перезагрузке» — но перезагрузка идёт только
+      // при успехе. Человек видел ту же бронь и не понимал: отменилась или нет.
+      // А водитель тем временем держит для него место.
+      setCancelNote(
+        e instanceof ApiError && e.message
+          ? e.message
+          : appText(
+              "Не получилось отменить бронь. Проверь связь и попробуй ещё раз.",
+              "Бронды кире алып булманы. Бәйләнеште тикшереп ҡабатла."
+            )
+      );
     } finally {
       setCancelling(false);
     }
@@ -111,7 +125,7 @@ export default function BookingScreen() {
 
           <div className="info-list">
             <div className="info-row">
-              <span className="info-row__k">{appText("Водитель", "Водитель")}</span>
+              <span className="info-row__k">{appText("Водитель", "Йөрөтөүсе")}</span>
               <span className="info-row__v">
                 {d.driver_name}
                 {d.driver_verified && (
@@ -150,7 +164,7 @@ export default function BookingScreen() {
             <div className="unlock-card">
               {d.driver_phone && (
                 <a className="btn-primary" href={`tel:${d.driver_phone}`} style={{ display: "flex", width: "100%", gap: 8 }}>
-                  <IconPhone size={18} /> {appText("Позвонить водителю", "Водителгә шылтыратырға")}
+                  <IconPhone size={18} /> {appText("Позвонить водителю", "Йөрөтөүсегә шылтыратыу")}
                 </a>
               )}
               {d.pickup && (
@@ -164,7 +178,7 @@ export default function BookingScreen() {
               <IconLock size={15} />{" "}
               {appText(
                 "Телефон и точное место встречи откроются, как только водитель подтвердит поездку.",
-                "Телефон һәм осрашыу урыны водитель сәфәрҙе раҫлағас асыла."
+                "Телефон һәм осрашыу урыны йөрөтөүсе сәфәрҙе раҫлағас асыла."
               )}
             </div>
           )}
@@ -186,6 +200,11 @@ export default function BookingScreen() {
               >
                 {cancelling ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить бронь", "Бронды кире алырға")}
               </button>
+              {cancelNote && (
+                <div className="notice" role="status">
+                  {cancelNote}
+                </div>
+              )}
             </>
           )}
 

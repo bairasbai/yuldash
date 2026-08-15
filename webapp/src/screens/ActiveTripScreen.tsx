@@ -52,6 +52,9 @@ import { ChatPhotoButton, ChatMessageBody } from "../components/ChatPhoto";
 import { ChatVoiceButton, VoiceBubble } from "../components/ChatVoice";
 import { IconArrow, IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
+import { serverMs } from "../utils/serverTime";
+import { enqueue, outboxCount, subscribeOutbox, watchOutbox } from "../utils/outbox";
+import { useVisibleInterval } from "../utils/useVisibleInterval";
 
 // ---- Зимняя проверка «доехал?» ----
 const WINTER_ASKED_KEY = (id: number) => `yuldash.winterAsk.${id}`;
@@ -73,7 +76,7 @@ function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): nu
 
 /** Когда пора мягко спросить «доехал?» (мс epoch) — ETA + запас; без координат — фолбэк. */
 function winterDueAt(d: BookingDetails): number {
-  const depart = new Date(d.depart_at).getTime();
+  const depart = serverMs(d.depart_at);
   if (isNaN(depart)) return Number.POSITIVE_INFINITY;
   if (d.from_lat != null && d.from_lng != null && d.to_lat != null && d.to_lng != null) {
     const km = haversineKm(d.from_lat, d.from_lng, d.to_lat, d.to_lng);
@@ -140,26 +143,24 @@ export default function ActiveTripScreen() {
     setPayAmount(details.pay_amount != null ? String(details.pay_amount) : "");
   }, [details]);
 
-  // ---- Поллинг live-статуса каждые 10 сек ----
-  useEffect(() => {
+  // ---- Живой статус поездки: раз в 10 сек, пока экран виден ----
+  // В фоне телефон таймеры всё равно морозит, а тут ещё и трафик экономим.
+  // Главное — при ВОЗВРАЩЕНИИ статус обновляется сразу: свернул на десять минут,
+  // открыл — и видишь, что водитель уже выехал, а не то, что было при уходе.
+  const tickTrip = useCallback(() => {
     if (!bookingId) return;
-    let alive = true;
-    const tick = () => {
-      fetchTripState(bookingId)
-        .then((s) => {
-          if (alive) setTrip(s);
-        })
-        .catch(() => {
-          /* сеть моргнула — попробуем в следующий тик */
-        });
-    };
-    tick();
-    const iv = window.setInterval(tick, 10000);
-    return () => {
-      alive = false;
-      window.clearInterval(iv);
-    };
+    fetchTripState(bookingId)
+      .then(setTrip)
+      .catch(() => {
+        /* сеть моргнула — попробуем в следующий тик */
+      });
   }, [bookingId]);
+
+  useEffect(() => {
+    tickTrip();
+  }, [tickTrip]);
+
+  useVisibleInterval(10000, tickTrip, !!bookingId);
 
   const st = trip?.status ?? details?.status;
   const active = st === "confirmed" || st === "onboard";
@@ -274,11 +275,17 @@ export default function ActiveTripScreen() {
       setTrip(fresh);
       if (phase === "done") setPhaseNote(appText("Поездка завершена", "Сәфәр тамамланды"));
     } catch (e) {
-      setPhaseNote(
-        e instanceof ApiError && e.message
-          ? e.message
-          : appText("Не получилось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер.")
-      );
+      if (e instanceof ApiError && e.status === 0) {
+        // Трасса без связи: отметка не пропадает — уйдёт сама, когда сеть вернётся.
+        enqueue(bookingId, "driver_status", phase);
+        setPhaseNote(appText("Нет сети — отправим позже", "Селтәр юҡ — һуңыраҡ ебәрербеҙ"));
+      } else {
+        setPhaseNote(
+          e instanceof ApiError && e.message
+            ? e.message
+            : appText("Не получилось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер.")
+        );
+      }
     } finally {
       setPhaseBusy(false);
     }
@@ -366,7 +373,7 @@ export default function ActiveTripScreen() {
         <StatusPill status={(trip?.status ?? details.status) as BookingDetails["status"]} phase={trip?.driver_phase} arrivalVerified={trip?.arrival_verified} />
         {st === "pending" && (
           <span className="trip-banner__hint">
-            {appText("Ждём, пока водитель подтвердит.", "Водитель раҫлағанды көтәбеҙ.")}
+            {appText("Ждём, пока водитель подтвердит.", "Йөрөтөүсе раҫлағанды көтәбеҙ.")}
           </span>
         )}
       </div>
@@ -414,7 +421,7 @@ export default function ActiveTripScreen() {
           </div>
           <div className="code-card__value">{code}</div>
           <div className="code-card__hint">
-            {appText("Назови его водителю при посадке", "Ултырғанда водителгә әйт")}
+            {appText("Назови его водителю при посадке", "Ултырғанда йөрөтөүсегә әйт")}
           </div>
         </div>
       )}
@@ -431,9 +438,9 @@ export default function ActiveTripScreen() {
         </div>
         {details.contact_unlocked && details.driver_phone && (
           <a className="info-row info-row--link" href={`tel:${details.driver_phone}`}>
-            <span className="info-row__k">{appText("Водитель", "Водитель")}</span>
+            <span className="info-row__k">{appText("Водитель", "Йөрөтөүсе")}</span>
             <span className="info-row__v" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <IconPhone size={16} /> {appText("Позвонить", "Шылтыратырға")}
+              <IconPhone size={16} /> {appText("Позвонить", "Шылтыратыу")}
             </span>
           </a>
         )}
@@ -468,7 +475,7 @@ export default function ActiveTripScreen() {
                 onClick={() => setPayMethod(m)}
               >
                 {m === "cash"
-                  ? appText("Наличными", "Аҡса менән")
+                  ? appText("Наличными", "Наличный менән")
                   : m === "sbp"
                     ? appText("Перевод по СБП", "СБП аша күсереү")
                     : appText("Договоримся", "Килешербеҙ")}
@@ -634,6 +641,15 @@ export default function ActiveTripScreen() {
   );
 }
 
+/** «1 сообщение ждёт» / «2 сообщения ждут» / «5 сообщений ждут». */
+function queuedWordRu(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return "сообщение ждёт";
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "сообщения ждут";
+  return "сообщений ждут";
+}
+
 // ---- Чат: REST-история + живой WS, поллинг как фолбэк ----
 function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
   const { appText } = useLang();
@@ -649,6 +665,11 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
   const [editId, setEditId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
+
+  /** Сколько сообщений ждёт сети (плашка «отправим, когда появится связь»). */
+  const [queued, setQueued] = useState(() => outboxCount(bookingId));
+  /** Вложение (голосовое или фото) не ушло — говорим об этом человеку. */
+  const [attachNote, setAttachNote] = useState("");
 
   const upsert = useCallback((m: ChatMessage) => {
     setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
@@ -686,6 +707,22 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
     };
   }, [bookingId, upsert]);
 
+  // Сеть вернулась → досылаем накопленное и забираем историю с сервера (она авторитетная).
+  useEffect(() => {
+    if (!bookingId) return;
+    const stop = watchOutbox(() => {
+      setQueued(outboxCount(bookingId));
+      fetchMessages(bookingId)
+        .then(setMessages)
+        .catch(() => {});
+    });
+    const unsub = subscribeOutbox(() => setQueued(outboxCount(bookingId)));
+    return () => {
+      stop();
+      unsub();
+    };
+  }, [bookingId]);
+
   // Поллинг-фолбэк, когда живого WS нет.
   useEffect(() => {
     if (live || !loaded) return;
@@ -710,7 +747,13 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
         const m = await sendMessageRest(bookingId, t);
         upsert(m);
       } catch (e) {
-        if (e instanceof ApiError) setText(t); // вернём текст, чтобы не потерять
+        if (e instanceof ApiError && e.status === 0) {
+          // Сети нет (трасса) — не теряем: отправим сами, когда связь вернётся.
+          enqueue(bookingId, "message", t);
+          setQueued(outboxCount(bookingId));
+        } else if (e instanceof ApiError) {
+          setText(t); // сервер отказал — вернём текст, решать человеку
+        }
       }
     }
   }
@@ -720,8 +763,14 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
     try {
       const m = await sendMessageRest(bookingId, "", voiceUrl);
       upsert(m);
+      setAttachNote("");
     } catch {
-      /* не отправилось — человек запишет заново, чат не ломаем */
+      // Раньше голосовое пропадало молча: человек говорил в трубку, отпускал —
+      // и не знал, что записи никто не получил. В очередь его не положить
+      // (запись живёт на сервере ограниченно), поэтому честно просим повторить.
+      setAttachNote(
+        appText("Голосовое не ушло. Запиши ещё раз.", "Тауыш китмәне. Тағы яҙып ҡара.")
+      );
     }
   }
 
@@ -737,7 +786,11 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
       replace(await editMessage(bookingId, id, t));
       setEditId(null);
     } catch {
-      /* не сохранилось — оставляем поле открытым, текст человек не потеряет */
+      // Поле остаётся открытым — текст не потерян. Но человек не знает, что
+      // правка не ушла: он видит своё новое сообщение и думает, что сохранил.
+      setAttachNote(
+        appText("Правка не сохранилась. Попробуй ещё раз.", "Төҙәтеү һаҡланманы. Тағы ҡабатла.")
+      );
     } finally {
       setBusyId(null);
     }
@@ -754,7 +807,11 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
       if (scope === "me") setMessages((prev) => prev.filter((x) => x.id !== id));
       else replace(m);
     } catch {
-      /* не получилось — сообщение остаётся как было */
+      // Сообщение осталось на месте — но человек нажал «удалить» и ждёт,
+      // что оно исчезнет. Молчание он прочитает как «кнопка не работает».
+      setAttachNote(
+        appText("Не получилось удалить. Попробуй ещё раз.", "Юйып булманы. Тағы ҡабатла.")
+      );
     } finally {
       setBusyId(null);
     }
@@ -769,7 +826,7 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
 
   return (
     <div className="chat">
-      <div className="chat__title">{appText("Чат с водителем", "Водитель менән чат")}</div>
+      <div className="chat__title">{appText("Чат с водителем", "Йөрөтөүсе менән чат")}</div>
       <div className="chat__body">
         <ChatSafetyDisclaimer />
         {!loaded && (
@@ -817,7 +874,7 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
                     {appText("Сохранить", "Һаҡлау")}
                   </button>
                   <button type="button" onClick={() => setEditId(null)}>
-                    {appText("Отмена", "Кире алыу")}
+                    {appText("Отмена", "Баш тартыу")}
                   </button>
                 </div>
               ) : (
@@ -878,6 +935,20 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
         })}
         <div ref={endRef} />
       </div>
+      {/* Написал на трассе без связи — сообщение не пропало, ждёт сети */}
+      {queued > 0 && (
+        <div className="chat__queued" role="status">
+          {appText(
+            `${queued} ${queuedWordRu(queued)} сети — отправим сами`,
+            `${queued} хат селтәрҙе көтә — үҙебеҙ ебәрербеҙ`
+          )}
+        </div>
+      )}
+      {attachNote && (
+        <div className="chat__queued" role="status">
+          {attachNote}
+        </div>
+      )}
       {/* Быстрые ответы — один тап отправляет готовую фразу */}
       <QuickReplies onPick={(t) => void sendText(t)} />
       <div className="chat__input">
@@ -888,11 +959,12 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
             if (e.key === "Enter") send();
           }}
           placeholder={appText("Сообщение…", "Хат…")}
-          aria-label={appText("Сообщение", "Хат")}
+          maxLength={4000}
+          aria-label={appText("Сообщение", "Хәбәр")}
         />
-        <ChatPhotoButton onReady={(t) => void sendText(t)} />
-                <ChatVoiceButton onSend={(u) => void sendVoice(u)} />
-        <button type="button" onClick={send} aria-label={appText("Отправить", "Ебәрергә")}>
+        <ChatPhotoButton onReady={(t) => void sendText(t)} onProblem={setAttachNote} />
+                <ChatVoiceButton onSend={(u) => void sendVoice(u)} onProblem={setAttachNote} />
+        <button type="button" onClick={send} aria-label={appText("Отправить", "Ебәреү")}>
           <IconArrow size={20} />
         </button>
       </div>

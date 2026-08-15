@@ -72,6 +72,20 @@ export function setDriverOnline(online: boolean): Promise<{ online: boolean }> {
   return apiPost<{ online: boolean }>("/driver/online", { online });
 }
 
+/**
+ * POST /driver/gender — водитель по желанию указывает пол.
+ *
+ * Это ЗАЯВКА, а не подтверждение: бейдж «женщина за рулём» и женские заказы
+ * такси включает модератор, сверив с фото прав. Иначе любой мог бы назваться
+ * женщиной и попасть в выдачу — а этот фильтр женщины включают ради безопасности.
+ *
+ * Наружу раскрывается только полезный сигнал «female»; «male» и пустое
+ * значение никому не показываются.
+ */
+export function setDriverGender(gender: "female" | "male" | ""): Promise<DriverStatus> {
+  return apiPost<DriverStatus>("/driver/gender", { gender });
+}
+
 // ----------------------------- Мои поездки / архив -----------------------------
 export type DriverRidesStatus = "active" | "all" | "done" | "cancelled";
 
@@ -328,9 +342,50 @@ export interface DebtPaidResult {
   status?: string;
   amount_kop?: number;
   confirmation_url?: string;
+  /** Номер платежа — по нему проверяем оплату после возврата из банка. */
+  payment_id?: number;
 }
 
 /** «Я оплатил» — долг уходит на подтверждение админу (или открывается оплата картой). */
 export function declareDebtPaid(): Promise<DebtPaidResult> {
   return apiPost<DebtPaidResult>("/driver/debt/paid");
+}
+
+// ----------------------------- Денежные чаевые (opt-in) -----------------------------
+/**
+ * POST /me/tips-sbp — водитель включает или выключает денежные чаевые,
+ * указав свой номер СБП. Пустая строка = выключить.
+ *
+ * Номер показывается пассажиру ТОЛЬКО после завершённой поездки и только
+ * если водитель сам его оставил: телефон — личное, отдаём по согласию
+ * и минимально. Без этого «дать чаевые» у пассажира просто не появится.
+ */
+export function setTipsSbp(sbp: string): Promise<{ tips_sbp: string; accepting: boolean }> {
+  return apiPost<{ tips_sbp: string; accepting: boolean }>("/me/tips-sbp", { sbp });
+}
+
+// ----------------------------- «Как получить больше заявок» -----------------------------
+/**
+ * GET /rides/{id}/tips — добрые советы по конкретной поездке: нет фото профиля,
+ * не пройдена проверка, цена выше средней по маршруту, нет описания.
+ *
+ * Это не упрёк и не рейтинг: пусто (`all_good`) значит «всё выглядит хорошо».
+ * Только своя поездка — чужие сервер не раскрывает.
+ */
+export interface RideTip {
+  code: string;
+  ru: string;
+  ba: string;
+}
+
+export interface RideTips {
+  ride_id: number;
+  tips: RideTip[];
+  all_good: boolean;
+  route_avg_price: number | null;
+  route_sample: number;
+}
+
+export function fetchRideTips(rideId: number, signal?: AbortSignal): Promise<RideTips> {
+  return apiGet<RideTips>(`/rides/${rideId}/tips`, { signal });
 }

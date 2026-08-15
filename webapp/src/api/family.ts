@@ -116,3 +116,39 @@ export function createParcelTrackLink(parcelId: number): Promise<TripShare> {
 export function revokeParcelTrackLink(parcelId: number): Promise<{ ok: boolean }> {
   return apiDelete<{ ok: boolean }>(`/parcels/${parcelId}/track-link`);
 }
+
+// ------------------------------- «Сказать рәхмәт» -------------------------------
+/**
+ * Чем поблагодарить водителя после поездки (GET /bookings/{id}/tip,
+ * GET /instant/orders/{id}/tip).
+ *
+ * Бесплатное «рәхмәт» доступно всегда. Денежные чаевые — только если водитель
+ * сам включил их и оставил номер СБП: телефон до этого наружу не идёт.
+ *
+ * Важно: «рәхмәт» — это НЕ оценка. Оценка меняет рейтинг и ставится один раз,
+ * а спасибо можно сказать и после тройки: это про тепло, а не про статистику.
+ */
+export interface TipInfo {
+  driver_name: string;
+  already_thanked: boolean;
+  /** null = водитель денежные чаевые не включил. Тогда только тёплое спасибо. */
+  money: { sbp: string; name: string } | null;
+}
+
+export function fetchBookingTip(bookingId: number, signal?: AbortSignal): Promise<TipInfo> {
+  return apiGet<TipInfo>(`/bookings/${bookingId}/tip`, { signal });
+}
+
+export function fetchOrderTip(orderId: number, signal?: AbortSignal): Promise<TipInfo> {
+  return apiGet<TipInfo>(`/instant/orders/${orderId}/tip`, { signal });
+}
+
+/** Тёплое спасибо водителю попутки. Идемпотентно: повтор второй пуш не шлёт. */
+export function thankBooking(bookingId: number): Promise<{ ok: boolean; already?: boolean }> {
+  return apiPost(`/bookings/${bookingId}/thanks`);
+}
+
+/** То же для такси. */
+export function thankOrder(orderId: number): Promise<{ ok: boolean; already?: boolean }> {
+  return apiPost(`/instant/orders/${orderId}/thanks`);
+}

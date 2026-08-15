@@ -279,7 +279,7 @@ function ParcelAdminCard({
                   setReason("");
                 }}
               >
-                {appText("Отмена", "Кире алыу")}
+                {appText("Отмена", "Баш тартыу")}
               </button>
             </div>
           </>
@@ -310,7 +310,7 @@ function ParcelAdminCard({
             <div className="seg" style={{ marginTop: 6 }}>
               {(
                 [
-                  ["canceled", appText("Отменена", "Кире алынды")],
+                  ["canceled", appText("Отменена", "Кире алынған")],
                   ["returned", appText("Вернулась отправителю", "Ебәреүсегә ҡайтты")],
                   ["delivered", appText("Всё-таки доставлена", "Барыбер тапшырылды")],
                 ] as ["canceled" | "returned" | "delivered", string][]
@@ -363,7 +363,7 @@ function ParcelAdminCard({
                   setReason("");
                 }}
               >
-                {appText("Отмена", "Кире алыу")}
+                {appText("Отмена", "Баш тартыу")}
               </button>
             </div>
           </>

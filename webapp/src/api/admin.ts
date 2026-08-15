@@ -324,13 +324,13 @@ export interface TaxiApplication {
   status: string; // pending | approved | rejected
   inn: string;
   permit_number: string;
-  permit_photo_url: string;
-  osago_url: string;
-  selfie_url: string;
-  criminal_record_url: string;
+  permit_photo_url: string | null;
+  osago_url: string | null;
+  selfie_url: string | null;
+  criminal_record_url: string | null;
   birth_date: string;
   license_since_year: number;
-  comment: string;
+  comment: string | null;
   created_at: string;
   reviewed_at: string | null;
   user_id: number;
@@ -406,7 +406,7 @@ export function fetchTaxiPulse(signal?: AbortSignal): Promise<TaxiPulse> {
 export interface WaitlistEntry {
   id: number;
   phone: string;
-  city: string;
+  city: string | null;
   role: string; // passenger | driver
   created_at: string;
   invited_at: string | null;
@@ -565,7 +565,7 @@ export interface AdminCourierApplication {
   id: number;
   transport: string; // car | cargo
   status: string; // pending | approved | rejected
-  selfie_url: string; // защищённое фото (fetchSecureDoc)
+  selfie_url: string | null; // защищённое фото (fetchSecureDoc)
   invited_by: number | null;
   reject_reason: string;
   created_at: string | null;

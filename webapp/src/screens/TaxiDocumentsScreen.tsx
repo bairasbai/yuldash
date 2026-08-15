@@ -168,7 +168,7 @@ export default function TaxiDocumentsScreen() {
           </div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}
@@ -272,7 +272,7 @@ export default function TaxiDocumentsScreen() {
                         onClick={() => save(d.key)}
                         disabled={busy || !draft}
                       >
-                        {busy ? appText("Сохраняем…", "Һаҡлайбыҙ…") : appText("Сохранить", "Һаҡларға")}
+                        {busy ? appText("Сохраняем…", "Һаҡлайбыҙ…") : appText("Сохранить", "Һаҡлау")}
                       </button>
                       <button
                         type="button"
@@ -282,7 +282,7 @@ export default function TaxiDocumentsScreen() {
                           setDraft("");
                         }}
                       >
-                        {appText("Отмена", "Кире алыу")}
+                        {appText("Отмена", "Баш тартыу")}
                       </button>
                     </div>
                   </div>

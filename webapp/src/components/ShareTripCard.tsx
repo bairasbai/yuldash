@@ -195,7 +195,7 @@ export default function ShareTripCard({
             </button>
           ))}
           <button type="button" className="btn-ghost" onClick={() => setOpen(false)}>
-            {appText("Отмена", "Кире алыу")}
+            {appText("Отмена", "Баш тартыу")}
           </button>
         </div>
       ) : (

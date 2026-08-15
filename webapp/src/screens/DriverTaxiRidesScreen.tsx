@@ -16,6 +16,7 @@ import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconCar, IconCheck, IconChevron, IconWallet } from "../components/Icons";
 import { kopExactLabel, priceLabel, rubLabel } from "../utils/format";
+import { serverDate } from "../utils/serverTime";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -42,8 +43,8 @@ function feeBadge(
 /** ISO → «03.08, 23:10». Пусто → прочерк, чтобы строка не «прыгала». */
 function shortWhen(iso: string | null): string {
   if (!iso) return "—";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "—";
+  const d = serverDate(iso);
+  if (!d) return "—";
   const date = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
   const time = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
   return `${date}, ${time}`;
@@ -111,7 +112,7 @@ export default function DriverTaxiRidesScreen() {
           </div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатларға")}
+            {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>
       )}
@@ -121,7 +122,7 @@ export default function DriverTaxiRidesScreen() {
           <div className="state__icon">
             <IconCar size={34} />
           </div>
-          <h2>{appText("Поездок пока нет", "Әлегә сәфәр юҡ")}</h2>
+          <h2>{appText("Поездок пока нет", "Сәфәрҙәр әлегә юҡ")}</h2>
           <p>
             {appText(
               "Как только завершишь первый заказ — здесь появится расчёт до копейки.",
