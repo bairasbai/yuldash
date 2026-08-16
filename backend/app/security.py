@@ -88,8 +88,13 @@ def issue_tokens(session: Session, user_id: int) -> dict:
     предыдущий logout (часы дают одинаковое значение для соседних вызовов —
     особенно на Windows), мог бы оказаться «отозванным» сразу после входа."""
     user = session.get(User, user_id)
-    if user and user.tokens_valid_from is not None:
-        user.tokens_valid_from = None
+    if user:
+        # Отметка «человек жив»: пишется при каждой выдаче пары ключей, то есть у активного —
+        # минимум раз в 12 часов. По ней отличаем «уехал на сезон» от «номер перешёл к другому»
+        # (волна 139). Отдельного запроса не стоит: строка уже в сессии и всё равно сохраняется.
+        user.last_seen_at = utcnow()
+        if user.tokens_valid_from is not None:
+            user.tokens_valid_from = None
         session.add(user)
     raw = secrets.token_urlsafe(48)
     session.add(RefreshToken(

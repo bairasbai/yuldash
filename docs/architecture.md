@@ -2028,6 +2028,16 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 
 Защита от мошенников с обеих сторон (водитель и пассажир), прагматичный v1 без ML. **Принцип: автоматика только ПОМЕЧАЕТ (флаги/сигналы/счётчики админу), жёстко банит человек.** От `feat/trip-live-link` (вершина B7c). Миграция `w2_antifraud` (down=`w2_livelink`, идемпотентная, оба пути): таблицы `deviceban`, `referralbonus`; `user.last_device_id`; `message.flag`, `message.from_admin`; `booking/instantorder.unpaid_reported + contact_then_cancel`; `booking.cancelled_at`. Ядро — `app/antifraud.py` 🆕, админ-ручки — `routers/antifraud.py` 🆕.
 
+**⓪ Номер сменил владельца (волна 139).** Вход у нас по телефону, а номер человеку не
+принадлежит: оператор забирает неиспользуемый и через полгода-год продаёт другому — тот входит
+по SMS и получает чужой аккаунт (имя, история, переписка, доверенные контакты). `User.last_seen_at`
+пишется при каждой выдаче ключей (`security.issue_tokens`, значит и при refresh). Если аккаунт
+молчал > `PHONE_RECYCLE_DAYS` (180) **и** вход с другого устройства — `antifraud.release_phone`
+откручивает номер (`phone` → `released:<номер>:<id>`, `phone_released_at`), и заводится чистый
+новый аккаунт. Данные прежнего владельца целы, ему запись в Центр уведомлений (без SMS/пуша —
+номер уже у другого). Старый клиент без `X-Device-Id` не наказывается. Миграция
+`al_user_last_seen`. Тесты — `test_a_recycled_number_is_a_new_person.py`.
+
 **① Бан устройства (обход бана новым номером).** Android шлёт стабильный `X-Device-Id` (ANDROID_ID) со ВСЕМИ запросами (`ApiClient.call/callMultipart/logout`). Логин/регистрация (`/auth/request-code`, `/auth/verify`, `/auth/tg/verify`) фиксируют `last_device_id` и режутся 403 «Аккаунт заблокирован — напиши в поддержку», если устройство в `DeviceBan`. Админ: `POST /admin/bans/device {device_id|user_id, reason}` (по user_id баним его последнее устройство — «блокируешь юзера → баним и устройство»), `DELETE /admin/bans/device/{device_id}`, `GET /admin/bans`. Старый клиент без заголовка не наказывается. device_id наружу/в логи не отдаётся.
 
 **② Сигнал нового устройства.** Вход с device_id ≠ последнего → push + SMS «Вход в Юлдаш с нового устройства. Это не ты — смени номер и напиши в поддержку» (`antifraud.remember_login_device`). Не блокируем — только сигнал; первый вход тишина.

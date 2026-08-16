@@ -12,7 +12,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..account import delete_user_account, guard_can_delete
-from ..antifraud import MESSAGE_FLAG_CONTACT, guard_device_not_banned, moderate_open_text, remember_login_device
+from ..antifraud import (MESSAGE_FLAG_CONTACT, guard_device_not_banned, moderate_open_text,
+                         phone_looks_recycled, release_phone, remember_login_device)
 from ..config import _phone_key, settings
 from ..db import engine, get_session
 from ..errors import herr
@@ -275,6 +276,13 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
     session.delete(otp)
     session.commit()
     user = find_user_by_phone(session, body.phone)
+    # Номер мог перейти к ДРУГОМУ человеку: оператор забирает неиспользуемый номер и через
+    # полгода-год продаёт (волна 139). Тогда аккаунт прежнего хозяина отвязываем от номера,
+    # и дальше по коду заводится чистый новый — вошедший не получает чужую историю, переписку
+    # и доверенные контакты. Данные прежнего владельца целы, доступ вернёт поддержка.
+    if user and phone_looks_recycled(user, x_device_id):
+        release_phone(session, user)
+        user = None
     if not user:
         # Имя при регистрации — то же публичное поле, что и в /me/update: проверяем так же,
         # иначе телефон в имени просто въезжает через вход вместо правки профиля.
