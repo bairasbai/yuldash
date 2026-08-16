@@ -17,7 +17,7 @@ from ..models import (
 )
 from ..safety_logic import have_met
 from ..security import current_user
-from ..services import (booking_and_ride_for_user, notify_admin_telegram,
+from ..services import (booking_and_ride_for_user, notify_admin_telegram, pick_lang, sms_lang_of,
                         push_notification, send_push, send_text)
 from ..timeutil import utcnow
 from .. import quality
@@ -40,6 +40,19 @@ def _send_sos_sms(phones: list, text: str) -> None:
     for ph in phones:
         if ph:
             send_text(ph, text)
+
+
+def _sos_text(session: Session, user_id: int, ru: str, ba: str) -> str:
+    """Текст беды на языке того, кто её отправляет (аудит 2026-08-08, волна 121).
+
+    Спокойные сообщения близким давно двуязычные (волна 95), а единственное срочное — «SOS,
+    место, машина» — уходило всегда по-русски. Получалось наоборот: про «сел в машину» мама
+    читала по-башкирски, а про беду — на чужом языке, и в тот момент, когда разбираться
+    некогда.
+
+    Язык берём у того, кто завёл контакт: про язык его мамы мы ничего не знаем, а он знает.
+    """
+    return pick_lang(sms_lang_of(session, user_id), ru, ba)
 
 
 class SosIn(BaseModel):
@@ -133,7 +146,11 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
         # Ссылка на карту — главное в этом SMS: без неё родные знают, что беда, но не знают куда ехать.
         background.add_task(
             _send_sos_sms, phones,
-            f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.{where}{car_text}",
+            _sos_text(
+                session, user.id,
+                f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.{where}{car_text}",
+                f"SOS! {who} ашығыс ярҙам һорай (Юлдаш). Тиҙерәк бәйләнешкә сыҡ.{where}{car_text}",
+            ),
         )
     else:
         log.info(f"[SOS] user={user.id} SMS подавлены (кеп {SOS_SMS_PER_HOUR}/час), событие записано")
@@ -852,7 +869,11 @@ def _roadside(session: Session, background: BackgroundTasks, user: User, body: "
         contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
         phones = [c.phone for c in contacts if c.phone]
         who = user.name or user.phone
-        msg = f"Юлдаш: {who} застрял на трассе, нужна помощь.{where}".strip()
+        msg = _sos_text(
+            session, user.id,
+            f"Юлдаш: {who} застрял на трассе, нужна помощь.{where}",
+            f"Юлдаш: {who} юлда ҡалған, ярҙам кәрәк.{where}",
+        ).strip()
         background.add_task(_send_sos_sms, phones, msg)
     else:
         log.info(f"[ROADSIDE] user={user.id} SMS подавлены (кеп {SOS_SMS_PER_HOUR}/час), событие записано")

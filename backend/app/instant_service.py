@@ -1471,7 +1471,10 @@ def _notify_order_shares(session: Session, order: InstantOrder, share_status: st
         share.last_status = share_status
         session.add(share)
         contact = session.get(TrustedContact, share.contact_id)
-        if contact and contact.phone:
+        # Пометка «Только SOS» действует и в такси (волна 121). В попутке её учли (волна 81),
+        # а здесь нет: та же мама, которую человек пометил «тревожить только при беде»,
+        # получала SMS на каждый шаг такси-заказа. Одно обещание — две двери, закрыта была одна.
+        if contact and contact.phone and contact.notify_by_default:
             # Общий суточный потолок SMS близким (волна 48). Тихо: статус едет автоматом
             # по ходу заказа, ошибку тут показывать некому и незачем.
             if may_send_family_sms(session, order.passenger_id, "status"):
