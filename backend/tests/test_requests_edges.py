@@ -269,7 +269,10 @@ def test_automatch_picks_best_response_for_no_app_passenger(client, user_factory
     assert (request["id"], resp_hi) in matched
     with Session(engine) as s:
         assert s.get(RequestResponse, resp_hi).status == "accepted"
-        assert s.get(RequestResponse, resp_lo).status == "offered"
+        # Проигравший отклик теперь ЗАКРЫВАЕТСЯ, а водителю уходит «Заявку закрыли»
+        # (волна 118): раньше он оставался «offered», и человек держал это время
+        # под пассажира, который уже уехал с другим.
+        assert s.get(RequestResponse, resp_lo).status == "closed"
         assert s.get(RideRequest, request["id"]).status == "matched"
         assert s.exec(select(Booking).where(Booking.passenger_id == passenger["id"])).first() is not None
 

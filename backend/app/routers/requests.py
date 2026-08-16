@@ -353,6 +353,27 @@ def edit_request(request_id: int, body: RequestEditIn, user: User = Depends(curr
         raise herr(403, "Можно править только свою заявку", "Тик үҙ заявкаңды ғына төҙәтеп була")
     if req.status != "active":
         raise herr(400, "Править можно только активную заявку", "Тик актив заявканы ғына төҙәтеп була")
+    # У поездки эта планка стоит давно: с живыми бронями нельзя менять время, число мест
+    # и поднимать цену. У заявки её не было вовсе (волна 118) — и выходило вот что: водитель
+    # назвал 400 ₽ за «Баймак → Сибай завтра в 8», пассажир тихо переписал заявку на
+    # «Магнитогорск через час, 4 места» и нажал «Принять». Водитель оказывался связан сделкой,
+    # которой не называл, а отказаться — значит получить удар по «Надёжности» за позднюю отмену.
+    живые = session.exec(select(RequestResponse).where(
+        RequestResponse.request_id == req.id,
+        RequestResponse.status.in_(LIVE_RESPONSE_STATUSES),
+    ).limit(1)).first()
+    if живые:
+        существенное = ("from_city", "to_city", "desired_at", "seats")
+        меняют = [f for f in существенное
+                  if getattr(body, f) is not None and getattr(body, f) != getattr(req, f)]
+        # Цену вверх тоже нельзя: водитель торговался за другую сумму.
+        if body.max_price is not None and req.max_price is not None and body.max_price > req.max_price:
+            меняют.append("max_price")
+        if меняют:
+            raise herr(409, "На заявку уже откликнулись — маршрут, время, места и цену менять поздно. "
+                            "Отмени заявку и создай новую.",
+                       "Заявкаға инде яуап биргәндәр — юлды, ваҡытты, урындарҙы һәм хаҡты үҙгәртергә һуң. "
+                       "Заявканы кире алып, яңыһын төҙө.")
     changed = False
     body.desired_at = client_dt_to_utc(body.desired_at)   # правка времени — то же соглашение, что и создание
     moderate_open_text(body.comment, req.passenger_id, place="request", ref_id=req.id, session=session)   # правка — тот же путь, что создание
@@ -399,6 +420,9 @@ def cancel_request(request_id: int, user: User = Depends(current_user), session:
     session.add(req)
     session.commit()
     session.refresh(req)
+    # Водители, которые откликнулись, должны узнать: они держат это время под пассажира,
+    # который уже никуда не едет (волна 118).
+    close_open_responses(session, req, kept_id=None, reason="cancelled")
     notify_map_changed()   # оранжевый маркер заявки уходит с карты live
     return req
 
@@ -828,6 +852,51 @@ def decline_response(response_id: int, user: User = Depends(current_user), sessi
     return {"ok": True}
 
 
+LIVE_RESPONSE_STATUSES = ("offered", "countered")
+
+
+def close_open_responses(session: Session, req: RideRequest, *, kept_id: int | None, reason: str) -> int:
+    """Погасить чужие открытые отклики на заявке и СКАЗАТЬ об этом водителям (волна 118).
+
+    Раньше отклики просто оставались висеть в «offered». Пассажир принял другого или отменил
+    заявку — а четверо водителей об этом не узнавали никогда: держали утро свободным, ждали
+    ответа и решали, что их игнорируют. В районе, где все друг друга знают, это не мелочь.
+
+    Одна функция на обе двери — принятие и отмену: два таких места разошлись бы текстами
+    и правилами, как уже расходились чат и кнопка «застрял».
+    """
+    rows = session.exec(select(RequestResponse).where(
+        RequestResponse.request_id == req.id,
+        RequestResponse.status.in_(LIVE_RESPONSE_STATUSES),
+    )).all()
+    route = f"{req.from_city} → {req.to_city}"
+    закрыто = 0
+    for r in rows:
+        if kept_id is not None and r.id == kept_id:
+            continue
+        r.status = "closed"
+        session.add(r)
+        закрыто += 1
+        if reason == "accepted":
+            ru = ("Пассажир поехал с другим водителем. Спасибо, что откликнулся — "
+                  "освободи это время под другие заказы.")
+            ba = ("Пассажир башҡа водитель менән китте. Яуап биргәнең өсөн рәхмәт — "
+                  "был ваҡытты башҡа заказдарға бушат.")
+            title_ru, title_ba = "Заявку закрыли", "Заявка ябылды"
+        else:
+            ru = "Пассажир отменил заявку. Это время снова свободно."
+            ba = "Пассажир заявканы кире алды. Был ваҡыт тағы буш."
+            title_ru, title_ba = "Заявку отменили", "Заявка кире алынды"
+        push_notification(
+            session, r.driver_id, "ride", title_ru, title_ba,
+            f"{route}. {ru}", f"{route}. {ba}",
+            ref_kind="request", ref_id=req.id,
+        )
+    if закрыто:
+        session.commit()
+    return закрыто
+
+
 def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
     """Принять отклик водителя: Ride+Booking одной транзакцией, заявка → matched, водителю push.
     Общая логика для приложения (пассажир/админ), автоподбора и Telegram-кнопки ✅ у админа —
@@ -908,6 +977,9 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
         f"{pax_name}: {route}", f"{pax_name}: {route}",
         ref_kind="booking", ref_id=booking.id,
     )
+    # Остальные откликнувшиеся держат это время под пассажира, который уже уехал с другим.
+    # Сказать им — не вежливость, а их рабочий вечер (волна 118).
+    close_open_responses(session, req, kept_id=resp.id, reason="accepted")
     return booking
 
 
