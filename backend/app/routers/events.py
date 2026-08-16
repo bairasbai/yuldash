@@ -111,10 +111,14 @@ async def ingest_event(request: Request, session: Session = Depends(get_session)
     if not isinstance(raw, dict):
         return Response(status_code=204)
 
-    event = str(raw.get("event") or "").strip()[:_MAX_EVENT]
+    # Скраб нужен и САМОМУ ИМЕНИ события, не только props. Правило чистки было применено
+    # частично: значения мылись, а название — нет, и телефон в названии («звонок +7 999…»)
+    # ложился в базу дословно (аудит 2026-08-08, волна 136). Имя события задаёт клиент,
+    # значит там может оказаться что угодно — в том числе подставленное чужой рукой.
+    event = scrub_text(str(raw.get("event") or "").strip())[:_MAX_EVENT]
     if not event:
         return Response(status_code=204)   # без имени события писать нечего
-    client_id = str(raw.get("client_id") or "").strip()[:_MAX_CLIENT_ID]
+    client_id = scrub_text(str(raw.get("client_id") or "").strip())[:_MAX_CLIENT_ID]
 
     ts = raw.get("ts")
     ts_val = ts if isinstance(ts, int) and not isinstance(ts, bool) else None
