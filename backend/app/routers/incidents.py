@@ -234,6 +234,28 @@ def create_incident(
         if respondent_id not in (ride.driver_id, booking.passenger_id):
             raise herr(400, "Обвинённый не участвует в этой поездке", "Ғәйепләнеүсе был сәфәрҙә ҡатнашмай")
 
+    # Повторное нажатие — то же самое обращение, а не новое (аудит 2026-08-08, волна 135).
+    #
+    # В деревне связь рвётся посреди отправки: человек жмёт «Пожаловаться», ответа не видит,
+    # жмёт ещё раз. Раньше каждое нажатие заводило ОТДЕЛЬНОЕ дело: админ разбирал три
+    # одинаковых обращения, а счётчик подтверждённых жалоб считал их как три разных случая —
+    # то есть водитель мог получить паузу за одну ситуацию, просто потому что у пассажира
+    # плохо ловило.
+    #
+    # Пока прежнее обращение ещё не разобрано, отдаём его же. Это не мешает пожаловаться
+    # СНОВА, когда первое дело закрыто: новая ситуация — новое дело.
+    открытое = session.exec(select(Incident).where(
+        Incident.reporter_id == reporter.id,
+        Incident.respondent_id == respondent_id,
+        Incident.type == type,
+        Incident.booking_id == booking_id,
+        Incident.parcel_id == parcel_id,
+        Incident.order_id == order_id,
+        Incident.status.in_(("open", "awaiting_response", "under_review")),
+    ).limit(1)).first()
+    if открытое:
+        return открытое
+
     severe = type in SEVERE_TYPES
     inc = Incident(
         booking_id=booking_id, parcel_id=parcel_id, order_id=order_id,

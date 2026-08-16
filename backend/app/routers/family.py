@@ -70,6 +70,25 @@ def add_contact(body: ContactIn, user: User = Depends(current_user), session: Se
     phone = (body.phone or "").strip()
     if phone and not _PHONE_RE.match(phone.replace(" ", "").replace("-", "")):
         raise herr(400, "Неверный номер телефона", "Телефон номеры дөрөҫ түгел")
+    # Тот же номер второй раз — то же самое добавление (аудит 2026-08-08, волна 135).
+    #
+    # В деревне связь рвётся: человек жмёт «Добавить», ответа не видит, жмёт ещё раз. Раньше
+    # в списке появлялись два одинаковых контакта — и маме приходили ДВА SMS на каждое
+    # событие поездки, а при беде — два сигнала SOS. Тревожное сообщение, пришедшее дважды,
+    # пугает сильнее и выглядит как ошибка приложения.
+    if phone:
+        уже = session.exec(select(TrustedContact).where(
+            TrustedContact.user_id == user.id, TrustedContact.phone == phone,
+        ).limit(1)).first()
+        if уже:
+            # Имя могло поменяться («Мама» → «Мама Гульнара») — обновим, дублей не заводим.
+            новое_имя = (body.name or "").strip()
+            if новое_имя and новое_имя != уже.name:
+                уже.name = новое_имя
+                session.add(уже)
+                session.commit()
+                session.refresh(уже)
+            return уже
     count = len(session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all())
     if count >= MAX_TRUSTED_CONTACTS:
         raise herr(400, f"Больше {MAX_TRUSTED_CONTACTS} доверенных близких не добавить",
