@@ -89,6 +89,13 @@ log "git fetch + reset на origin/${BRANCH}"
 git fetch --quiet origin "$BRANCH"
 git reset --hard "origin/${BRANCH}"
 chown -R "$RUN_USER:$RUN_USER" "$APP_DIR" 2>/dev/null || true
+# Файлы с секретами читает ТОЛЬКО владелец (аудит 2026-08-08, волна 130). `chown` ставит
+# хозяина, но не права: если .env создали обычным способом, он получается 644 — то есть
+# любой пользователь сервера (и любой процесс от его имени) читает ключи ЮKassa, Firebase,
+# Telegram и JWT-секрет. Тот же довод, что и с бэкапом: секреты не должны лежать открыто.
+for _secret in "$APP_DIR/.env" "$APP_DIR/.backup.env" "$APP_DIR/.backup-s3.env"; do
+  [ -f "$_secret" ] && chmod 600 "$_secret" 2>/dev/null || true
+done
 
 # 2) Зависимости (тихо; если requirements не менялись — pip быстроно-оп)
 log "pip install -r requirements.txt"

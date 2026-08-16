@@ -81,7 +81,18 @@ psql_adm "CREATE DATABASE \"$TMPDB\";" >/dev/null || fail "не смог соз�
 # ON_ERROR_STOP=1 — падаем на первой же реальной ошибке SQL (битый дамп/несовместимость).
 # Возможные безобидные NOTICE про роли/владельцев не считаются ошибками.
 echo "[verify] восстанавливаю дамп во временную базу…"
-if ! gunzip -c "$BACKUP" | $PSQL_AS psql -q -v ON_ERROR_STOP=1 -d "$TMPDB" >/dev/null; then
+# Дамп из облака зашифрован (волна 130): там персональные данные всего района, и в чужое
+# хранилище он уходит только под шифром. Расшифровываем на лету тем же ключом, что и шифровали.
+# Локальные дампы лежат как есть — они на нашем сервере, под правами yuldash.
+if [ "${BACKUP##*.}" = "enc" ]; then
+  if [ -z "${BACKUP_ENCRYPT_PASSPHRASE:-}" ]; then
+    fail "дамп зашифрован, а BACKUP_ENCRYPT_PASSPHRASE не задан — расшифровать нечем.
+       Ключ хранится ОТДЕЛЬНО от бэкапов (менеджер паролей), это и есть смысл шифрования."
+  fi
+  if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:BACKUP_ENCRYPT_PASSPHRASE        -in "$BACKUP" | gunzip -c | $PSQL_AS psql -q -v ON_ERROR_STOP=1 -d "$TMPDB" >/dev/null; then
+    fail "не удалось расшифровать или применить дамп — проверь ключ и целость файла"
+  fi
+elif ! gunzip -c "$BACKUP" | $PSQL_AS psql -q -v ON_ERROR_STOP=1 -d "$TMPDB" >/dev/null; then
   fail "psql не смог применить дамп (см. вывод выше) — бэкап негоден"
 fi
 

@@ -7,4 +7,20 @@ Type=oneshot
 User=yuldash
 WorkingDirectory=/opt/yuldash
 ExecStart=/opt/yuldash/.venv/bin/python -m app.automatch
+# Ограждение (аудит 2026-08-08, волна 130). Эти задачи ходят в интернет (Яндекс, Firebase,
+# Telegram, ЮKassa) и разбирают чужие данные. Если через них однажды получится выполнить чужой
+# код, он не должен мочь ничего, кроме своей работы:
+#   NoNewPrivileges  — нельзя повысить права даже через suid-программы;
+#   ProtectSystem    — /usr и /etc только на чтение;
+#   ProtectHome      — домашних каталогов людей для него не существует;
+#   PrivateTmp       — свой /tmp, чужие временные файлы не видны;
+#   ReadWritePaths   — писать можно только в свой каталог (медиа, приватные файлы, логи).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=/opt/yuldash
 Nice=10

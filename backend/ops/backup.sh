@@ -82,16 +82,44 @@ find "$BACKUP_DIR" -maxdepth 1 -name "${DB_NAME}-*.sql.gz" -type f -mtime "+${KE
 #   S3_BUCKET=yuldash-backups
 #   AWS_ACCESS_KEY_ID=...
 #   AWS_SECRET_ACCESS_KEY=...
+#
+# ШИФРОВАНИЕ ПЕРЕД ОТПРАВКОЙ (аудит 2026-08-08, волна 130).
+# В дампе — весь район: имена, телефоны, адреса, координаты поездок, переписка, ссылки
+# на документы водителей. Раньше он уходил в чужое облако КАК ЕСТЬ: один утёкший ключ S3
+# (или ошибка в правах бакета) = вся база у постороннего, и никто об этом даже не узнает.
+# Поэтому в облако едет только зашифрованный файл, а без ключа мы туда просто не идём —
+# локальная копия при этом остаётся, её никто не отменяет.
+#
+# Ключ — длинная случайная строка в BACKUP_ENV_FILE (НЕ в git и НЕ в облаке):
+#   BACKUP_ENCRYPT_PASSPHRASE=...
+# Хранить его надо ОТДЕЛЬНО от бэкапов (иначе смысла нет): например, в менеджере паролей.
+# Без него расшифровать дамп будет нельзя — это цена настоящего шифрования.
 S3_ENV_FILE="${S3_ENV_FILE:-/opt/yuldash/.backup-s3.env}"
 if [ -f "$S3_ENV_FILE" ]; then
   # shellcheck disable=SC1090
   . "$S3_ENV_FILE"
-  if command -v aws >/dev/null 2>&1 && [ -n "${S3_BUCKET:-}" ]; then
-    export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
-    if aws --endpoint-url "${S3_ENDPOINT:-}" s3 cp "$FILE" "s3://$S3_BUCKET/$(basename "$FILE")" >/dev/null 2>&1; then
-      echo "[backup] s3 ok: s3://$S3_BUCKET/$(basename "$FILE")"
+  if [ -z "${BACKUP_ENCRYPT_PASSPHRASE:-}" ]; then
+    echo "[backup] s3 ПРОПУЩЕН: не задан BACKUP_ENCRYPT_PASSPHRASE." >&2
+    echo "[backup] В дампе персональные данные всего района — в облако он уходит только" >&2
+    echo "[backup] зашифрованным. Заведи длинную случайную строку в $BACKUP_ENV_FILE" >&2
+    echo "[backup] и храни её ОТДЕЛЬНО от бэкапов. Локальная копия уже сделана." >&2
+  elif ! command -v openssl >/dev/null 2>&1; then
+    echo "[backup] s3 ПРОПУЩЕН: нет openssl, шифровать нечем (локальная копия цела)" >&2
+  elif command -v aws >/dev/null 2>&1 && [ -n "${S3_BUCKET:-}" ]; then
+    ENC_FILE="${FILE}.enc"
+    # AES-256 с нормальным выводом ключа из пароля (pbkdf2 + соль). Пароль передаём
+    # через переменную окружения, а не аргументом: аргументы видны в списке процессов.
+    if BACKUP_ENCRYPT_PASSPHRASE="$BACKUP_ENCRYPT_PASSPHRASE" openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt          -in "$FILE" -out "$ENC_FILE" -pass env:BACKUP_ENCRYPT_PASSPHRASE 2>/dev/null; then
+      export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+      if aws --endpoint-url "${S3_ENDPOINT:-}" s3 cp "$ENC_FILE" "s3://$S3_BUCKET/$(basename "$ENC_FILE")" >/dev/null 2>&1; then
+        echo "[backup] s3 ok (зашифровано): s3://$S3_BUCKET/$(basename "$ENC_FILE")"
+      else
+        echo "[backup] s3 FAILED (локальный бэкап цел — проверь $S3_ENV_FILE / aws-cli)" >&2
+      fi
+      rm -f "$ENC_FILE"          # шифрованную копию на диске не держим: в облаке она уже есть
     else
-      echo "[backup] s3 FAILED (локальный бэкап цел — проверь $S3_ENV_FILE / aws-cli)" >&2
+      echo "[backup] s3 ПРОПУЩЕН: не удалось зашифровать дамп (локальная копия цела)" >&2
+      rm -f "$ENC_FILE"
     fi
   else
     echo "[backup] s3 skip: нет aws-cli или не задан S3_BUCKET в $S3_ENV_FILE"
