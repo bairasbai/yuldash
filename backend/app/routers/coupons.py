@@ -543,10 +543,15 @@ def partner_subscribe(body: SubscribeIn, user: User = Depends(current_user), ses
         raise herr(422, "Неизвестный тариф", "Билдәһеҙ тариф")
     if partner.status != "active":
         raise herr(409, "Бизнес ещё на проверке", "Бизнес әле тикшереүҙә")
-    # Идемпотентность: повторное нажатие «Оплатить» не плодит заявки.
+    # Идемпотентность: повторное нажатие «Оплатить» не плодит заявки. Но старый счёт годится
+    # ТОЛЬКО если тариф тот же (волна 125). Раньше сравнения не было: хозяйка кафе ткнула
+    # «Базовый 990 ₽», передумала на «Премиум 2 990 ₽» — и приложение снова просило 990,
+    # а после оплаты включался базовый. В обратную сторону было злее: с премиума на базовый
+    # она навсегда видела счёт на 2 990 без кнопки «отменить».
     existing = session.exec(
         select(Payment).where(
-            Payment.purpose == "partner_sub", Payment.partner_id == partner.id, Payment.status == "pending"
+            Payment.purpose == "partner_sub", Payment.partner_id == partner.id,
+            Payment.status == "pending", Payment.tier == plan_code,
         )
     ).first()
     if existing:

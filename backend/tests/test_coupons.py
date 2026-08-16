@@ -248,9 +248,14 @@ def test_subscribe_idempotent_pending(client, user_factory):
     pid = client.post("/partner", headers=owner["auth"], json={"name": "Магазин", "city": "Уфа"}).json()["id"]
     client.post(f"/admin/partners/{pid}/approve", headers=admin["auth"])
     p1 = client.post("/partner/subscribe", headers=owner["auth"], json={"plan": "basic"}).json()
+    # Тот же тариф — тот же счёт: двойной тап не плодит заявок.
+    p1b = client.post("/partner/subscribe", headers=owner["auth"], json={"plan": "basic"}).json()
+    assert p1["payment_id"] == p1b["payment_id"]
+    # А смена тарифа выставляет НОВЫЙ счёт (волна 125). Раньше возвращался старый: человек
+    # выбирал «Стандарт», приложение просило цену «Базового», и после оплаты включался базовый.
     p2 = client.post("/partner/subscribe", headers=owner["auth"], json={"plan": "standard"}).json()
-    # второй вызов возвращает тот же pending-платёж (не плодит)
-    assert p1["payment_id"] == p2["payment_id"]
+    assert p1["payment_id"] != p2["payment_id"]
+    assert p2["plan"] == "standard" and p2["amount_kop"] > p1["amount_kop"]
 
 
 def test_premium_flag_only_on_premium_plan(client, user_factory):

@@ -178,4 +178,7 @@ def test_run_once_is_safe_on_empty_and_dry_run(client, user_factory):
                          "waits_finished", "offers_advanced", "parcels_handled",
                          # Зимний протокол переехал в робота (волна 114): помощь молчащему
                          # человеку больше не зависит от того, открыл ли он приложение.
-                         "sos_escalated", "winter_escalated"}
+                         "sos_escalated", "winter_escalated",
+                         # Реклама с вышедшим сроком (волна 125): гасим статус и говорим
+                         # владельцу, иначе в кабинете вечно «Оплачено · показывается».
+                         "ads_expired"}

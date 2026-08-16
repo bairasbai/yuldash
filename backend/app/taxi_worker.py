@@ -35,7 +35,7 @@ from datetime import timedelta
 from sqlmodel import Session, select
 
 from . import instant_service as isv
-from . import promo_ride, sos_escalate, winter_escalate
+from . import ads_expire, promo_ride, sos_escalate, winter_escalate
 from .config import settings
 from .db import engine
 from .logs import log
@@ -380,6 +380,10 @@ def run_once(session: Session, dry_run: bool = False) -> dict:
         # открыл приложение, — уходила. Безопасность не может зависеть от того,
         # открыт ли у человека экран.
         "winter_escalated": 0 if dry_run else winter_escalate.escalate_silent(session),
+        # Реклама с вышедшим сроком (волна 125): показы прекращались сами, а в кабинете
+        # горело «Оплачено · показывается» и уведомления не было — человек шёл
+        # в поддержку с обвинением.
+        "ads_expired": ads_expire.expire_finished_ads(session, dry_run),
     }
 
 

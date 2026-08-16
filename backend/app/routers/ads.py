@@ -24,6 +24,28 @@ from ..timeutil import utcnow
 router = APIRouter(tags=["ads"])
 
 
+def notify_ad_expired(session, ad) -> None:
+    """Сказать владельцу, что оплаченный срок вышел (волна 125).
+
+    Раньше показы просто прекращались, а в кабинете горело «Оплачено · показывается».
+    Человек видел, что рекламы в приложении нет, и шёл в поддержку с обвинением — по-своему
+    справедливо: ему никто ничего не сказал. Теперь говорим и сразу подсказываем путь:
+    продлить размещение (волна 116 сделала это возможным).
+    """
+    from ..services import push_notification
+    if not ad.owner_id:
+        return
+    push_notification(
+        session, ad.owner_id, "ads",
+        "Размещение закончилось", "Урынлаштырыу тамамланды",
+        f"«{ad.title}»: оплаченный срок вышел, показы остановлены. Продли размещение, "
+        "чтобы объявление снова увидели.",
+        f"«{ad.title}»: түләнгән ваҡыт бөттө, күрһәтеү туҡтаны. Иғлан яңынан күренһен "
+        "өсөн урынлаштырыуҙы оҙайт.",
+        ref_kind="ad", ref_id=ad.id,
+    )
+
+
 def notify_ad_decision(session, ad, *, approved: bool) -> None:
     """Сказать владельцу рекламы, что решили по его объявлению. Одна точка на два входа:
     решение приходит и из админки, и кнопкой в Telegram (`routers/auth.py`), а раньше в каждом
@@ -440,9 +462,12 @@ def ad_pay(ad_id: int, user: User = Depends(current_user), session: Session = De
         raise herr(422, "У объявления не выбран тариф", "Иғландың тарифы һайланмаған")
     if _is_paid(session, ad.id):
         raise herr(409, "Уже оплачено", "Түләнгән инде")
-    # Идемпотентность: повторное нажатие «Оплатить» не плодит заявки — возвращаем существующую pending.
+    # Идемпотентность: повторное нажатие «Оплатить» не плодит заявки — возвращаем существующую
+    # pending. Но только если сумма совпадает с текущим тарифом (волна 125): человек мог
+    # сменить пакет между нажатиями, и счёт на 1 000 ₽ оставался привязан к пакету за 8 000.
     existing = session.exec(
-        select(Payment).where(Payment.purpose == "ad", Payment.ad_id == ad.id, Payment.status == "pending")
+        select(Payment).where(Payment.purpose == "ad", Payment.ad_id == ad.id,
+                              Payment.status == "pending", Payment.amount_kop == ad.budget_kop)
     ).first()
     if existing:
         return {"payment_id": existing.id, "amount_kop": existing.amount_kop, "status": "pending"}
