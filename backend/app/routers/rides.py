@@ -34,7 +34,7 @@ from .bookings import DONE_EARLY_GRACE
 _CONFIRM_GRACE = timedelta(minutes=30)
 from ..workday import local_now
 from ..visibility import (FEED_MAX, hide_blocked, hide_health_hint, hide_suspended,
-                               hide_trusted_only, visible_rides)
+                          hide_trusted_only, may_see_ride_by_id, visible_rides)
 from ..services import (
     CITY_COORDS, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
     geocode_city, haversine_km, notify_map_changed, notify_route_watchers, public_ride_payload,
@@ -307,6 +307,13 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
             raise herr(409, "С активными бронями цену можно только снижать", "Актив брондар менән хаҡты кәметергә генә була")
         ride.price = body.price
         changed.append("цена")
+        # Скидку доводим до тех, кому она сделана (волна 119). Раньше правка меняла только
+        # цену объявления: водитель по-соседски снижал с 500 до 300, пассажирке приходил пуш
+        # «цена изменена», а в её брони и в квитанции оставалось 500. У подъезда спор,
+        # и единственная запись, заведённая ради таких споров, показывала старую цифру.
+        for b in live:
+            b.price = body.price * b.seats
+            session.add(b)
     if body.comment is not None and body.comment != ride.comment:
         moderate_open_text(body.comment, user.id, check_contact=False, place="ride_comment", ref_id=ride.id, session=session)   # правка — тот же путь, что публикация
         ride.comment = body.comment
@@ -814,6 +821,10 @@ def get_ride(ride_id: int, user: Optional[User] = Depends(current_user_optional)
              session: Session = Depends(get_session)):
     ride = session.get(Ride, ride_id)
     if not ride:
+        raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
+    # История (отменённые и завершённые) — только участникам. Номера идут подряд, и без этого
+    # посторонний собирал перебором архив передвижений человека за месяцы (волна 119).
+    if not may_see_ride_by_id(ride, user, session):
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     out = public_ride_payload(ride_out(ride, session))
     # V5: те же фильтры, что в ленте — «только для своих» скрыта от не-L3, поездка в связке

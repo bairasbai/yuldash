@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from .models import RideCategory, User
 from .safety_logic import suspended_user_ids
@@ -125,6 +125,35 @@ def visible_rides(items, user: Optional[User], session: Session):
     out = hide_suspended(out, user, session)
     out = hide_trusted_only(out, user, session)
     return hide_health_hint(out, user)
+
+
+def may_see_ride_by_id(ride, user: Optional[User], session: Session) -> bool:
+    """Видна ли ОДНА поездка по прямому номеру (волна 119).
+
+    Живую поездку видят все — это витрина: по ней человек и находит попутку. А вот историю
+    (отменённые и завершённые рейсы) — только те, кто в ней участвовал.
+
+    Зачем. Номера поездок идут подряд, и без этого правила посторонний перебирал их и собирал
+    архив передвижений любого водителя за месяцы: дата, час, маршрут, комментарий вроде
+    «забираю у школы», имя, машина. От анонимного перебора мы прячем закрытые поездки
+    и точные координаты заявок — а тут отдавали больше и бесплатно. Соседняя публичная
+    страница `/r/{id}` закрыта так же (волна 112).
+
+    Участник — водитель или тот, у кого есть бронь на этот рейс (включая отменённую: человеку
+    нужны и своя история, и квитанция).
+    """
+    from .models import Booking, RideStatus
+
+    if ride.status == RideStatus.active:
+        return True
+    if user is None:
+        return False
+    if ride.driver_id == user.id:
+        return True
+    свой = session.exec(select(Booking.id).where(
+        Booking.ride_id == ride.id, Booking.passenger_id == user.id,
+    ).limit(1)).first()
+    return свой is not None
 
 
 def visible_schedules(items, user: Optional[User], session: Session):
