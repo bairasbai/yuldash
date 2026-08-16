@@ -635,6 +635,13 @@ def _notify_couriers_new_parcel(session: Session, parcel: ParcelDelivery) -> int
         from .courier import _commission_owed_kop
         from ..config import settings as _cfg
         punished = suspended_user_ids(session)
+        # И те, от кого отправитель закрылся (волна 129). Блокировка — обещание «мы больше
+        # не пересекаемся», а рассылка звала заблокированного на заказ: у него звенел телефон
+        # «Новая доставка рядом», он открывал список — пусто, пробовал взять по ссылке —
+        # «нельзя». Для него это либо поломка приложения, либо подсказка «кто-то тут от меня
+        # прячется»; оба варианта плохие. Список считаем ОДИН раз на рассылку, как наказанных.
+        from ..services import blocked_user_ids
+        закрылись = set(blocked_user_ids(session, parcel.sender_id))
         sent = 0
         from .. import geo as geo_mod
         from ..config import settings as _settings
@@ -645,6 +652,8 @@ def _notify_couriers_new_parcel(session: Session, parcel: ParcelDelivery) -> int
                 continue                       # свою же посылку курьеру не предлагаем
             if prof.user_id in punished:
                 continue                       # отстранён разбором (§2)
+            if prof.user_id in закрылись:
+                continue                       # блокировка в любую сторону (волна 129)
             if prof.paused_until and prof.paused_until > utcnow():
                 continue                       # мягкая пауза по качеству
             if _commission_owed_kop(session, prof.user_id) >= _cfg.courier_debt_block_threshold_kop:

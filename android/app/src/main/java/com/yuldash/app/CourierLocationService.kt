@@ -195,7 +195,13 @@ class CourierLocationService : Service() {
         private const val KEY_PARCELS = "last_parcels"
         private const val KEY_LANG = "last_lang"
         private const val CHANNEL = "courier_location"
-        private const val NOTIF_ID = 4712          // ≠ NOTIF_ID поездки: сервисы могут жить одновременно
+        // У каждого фонового GPS-сервиса СВОЙ номер (волна 129). Было 4712 — как у линии
+        // такси: у Марата, который и таксует, и возит посылки по пути, плашка «Ты на линии 🚕»
+        // подменялась на «доставка идёт» и назад не возвращалась. Дальше он не видел ни линию,
+        // ни предупреждение «сервер тебя не видит — заказы не придут», ради которого плашку
+        // и делали: стоял час и не понимал, почему тишина.
+        // Занятые номера: 4711 — поездка, 4712 — линия такси, 4713 — доставка.
+        private const val NOTIF_ID = 4713
         private const val MIN_INTERVAL_MS = 10_000L
         private const val MAX_LIFETIME_MS = 12 * 3600_000L   // дольше любой реальной смены курьера
 
