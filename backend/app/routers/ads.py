@@ -472,6 +472,66 @@ def ad_pay(ad_id: int, user: User = Depends(current_user), session: Session = De
     return {"payment_id": payment.id, "amount_kop": ad.budget_kop, "status": "pending"}
 
 
+@router.post("/ads/{ad_id}/renew")
+def ad_renew(ad_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Продлить размещение своей рекламы ещё на один период (аудит 2026-08-08, волна 116).
+
+    Чего тут не было. Кнопка «Продлить размещение» в приложении сразу показывала QR для СБП,
+    НЕ сказав серверу ни слова. Человек переводил деньги, жал «Я перевёл» — и на сервере
+    не появлялось ничего: ни заявки, ни сообщения Александру. Через несколько дней реклама
+    гасла по сроку, а человек был уверен, что заплатил и его обманули.
+
+    Обычная оплата для этого не годилась: она отвечает «Уже оплачено» (и правильно —
+    иначе повторное нажатие плодило бы заявки на первую же оплату).
+
+    Помечаем платёж `tier="renew"`: по этой метке подтверждение оплаты добавляет период
+    К ОСТАТКУ, а не отсчитывает срок заново — иначе продление «про запас» съедало бы
+    оплаченные дни.
+    """
+    ad = session.get(Ad, ad_id)
+    if not ad or ad.owner_id != user.id:
+        raise herr(404, "Объявление не найдено", "Иғлан табылманы")
+    if ad.status != "active":
+        raise herr(409, "Продлить можно только показывающееся объявление",
+                   "Тик күрһәтелгән иғланды оҙайтырға мөмкин")
+    if ad.budget_kop <= 0:
+        raise herr(422, "У объявления не выбран тариф", "Иғландың тарифы һайланмаған")
+    if not _is_paid(session, ad.id):
+        raise herr(409, "Сначала оплати размещение", "Тәүҙә урынлаштырыуҙы түлә")
+    # Идемпотентность: повторное нажатие не плодит заявки — отдаём уже созданную.
+    existing = session.exec(
+        select(Payment).where(Payment.purpose == "ad", Payment.ad_id == ad.id,
+                              Payment.status == "pending", Payment.tier == "renew")
+    ).first()
+    if existing:
+        return {"payment_id": existing.id, "amount_kop": existing.amount_kop, "status": "pending"}
+    payment = Payment(user_id=user.id, purpose="ad", ad_id=ad.id,
+                      amount_kop=ad.budget_kop, status="pending", tier="renew")
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+    try:
+        notify_admin_telegram(
+            (
+                f"🔁 Продление рекламы СБП\n"
+                f"ID платежа: {payment.id}\n"
+                f"Реклама: «{ad.title}»\n"
+                f"Сумма: {ad.budget_kop // 100} ₽\n"
+                f"От: {user.name or 'партнёра'}\n\n"
+                "Сначала проверь поступление в банке, потом подтверди здесь."
+            ),
+            reply_markup={
+                "inline_keyboard": [[
+                    {"text": "✅ Подтвердить", "callback_data": f"pay:ok:{payment.id}"},
+                    {"text": "❌ Отклонить", "callback_data": f"pay:no:{payment.id}"},
+                ]]
+            },
+        )
+    except Exception:
+        pass
+    return {"payment_id": payment.id, "amount_kop": ad.budget_kop, "status": "pending"}
+
+
 # ---------- Админ ----------
 
 def _require_admin(user: User) -> None:

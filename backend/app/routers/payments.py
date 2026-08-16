@@ -206,8 +206,15 @@ def _activate_payment(session: Session, payment: Payment) -> None:
             # партнёр получает полный оплаченный период, даже если оплатил не сразу
             # (и если окно от одобрения успело истечь — оплата даёт свежий период).
             if ad.period_days > 0:
-                ad.starts_at = utcnow()
-                ad.ends_at = utcnow() + timedelta(days=ad.period_days)
+                now = utcnow()
+                # Продление (волна 116) добавляет период К ОСТАТКУ — как у подписки бизнеса.
+                # Иначе человек, оплативший заранее, терял бы недоиспользованные дни: заплатил
+                # за месяц, продлил за неделю до конца — и остаток сгорел.
+                if payment.tier == "renew" and ad.ends_at and ad.ends_at > now:
+                    ad.ends_at = ad.ends_at + timedelta(days=ad.period_days)
+                else:
+                    ad.starts_at = now
+                    ad.ends_at = now + timedelta(days=ad.period_days)
             session.add(ad)
     elif payment.purpose == "partner_sub" and payment.partner_id is not None:
         # Подписка бизнеса «Скидки по пути» (M1). Продление добавляет период к остатку

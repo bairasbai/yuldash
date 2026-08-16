@@ -3443,8 +3443,17 @@ internal fun AdsCabinetScreen(
                         .onFailure { Toast.makeText(ctx, serverSaid(it, errPay), Toast.LENGTH_LONG).show() }
                 }
             },
-            // Продление: тот же СБП-перевод «на доверии», что и первичная оплата (админ продлит срок вручную).
-            onRenewAd = { ad -> payingAd = ad },
+            // Продление: сначала СЕРВЕР (заявка + сигнал Александру), и только потом QR.
+            // Раньше кнопка сразу показывала QR: человек переводил деньги, а на сервере
+            // не появлялось ничего — реклама гасла по сроку, и он считал, что его обманули
+            // (аудит 2026-08-08, волна 116).
+            onRenewAd = { ad ->
+                scope.launch {
+                    ApiClient.renewAd(ad.id)
+                        .onSuccess { payingAd = ad }
+                        .onFailure { Toast.makeText(ctx, serverSaid(it, errPay), Toast.LENGTH_LONG).show() }
+                }
+            },
             modifier = Modifier.padding(padding),
         )
     }
