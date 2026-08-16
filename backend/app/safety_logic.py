@@ -14,7 +14,8 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .errors import herr
-from .models import Booking, BookingStatus, DriverProfile, Incident, Rating, Ride, SafetyProfile
+from .models import (Booking, BookingStatus, DriverProfile, Incident, Rating, Ride, RideStatus,
+                     SafetyProfile)
 from .services import is_blocked, user_rating
 from .timeutil import utcnow
 
@@ -384,6 +385,103 @@ def reliability_for(session: Session, user_id: int) -> int:
     return 100 if denom == 0 else round(100 * completed / denom)
 
 
+def cancel_upcoming_after_suspension(session: Session, user_id: int) -> int:
+    """Пауза снимает УЖЕ назначенные будущие поездки, а не только запрещает новые.
+
+    Зачем. Без этого наказание работало наполовину, и промах был на стороне пассажира.
+    Проверено настоящим сценарием (аудит 2026-08-08, волна 137): жалоба на опасное вождение →
+    админ ставит водителю паузу 30 дней → его поездка на завтра остаётся `active`, бронь
+    женщины — `confirmed`, и ей НЕ говорят ни слова. Ленту от него закрыли, автоматч закрыли,
+    новую бронь закрыли — а та, что уже есть, живёт. Завтра она садится в машину к человеку,
+    которого сервис в этот самый момент признал опасным.
+
+    Что делаем:
+      • его будущие поездки как водителя → отменены, живые брони пассажиров → отменены;
+      • его живые брони как пассажира на чужие будущие поездки → отменены;
+      • каждому задетому человеку — запись в Центр уведомлений и пуш на двух языках.
+
+    Чего НЕ делаем — и это важно:
+      • поездку, которая уже началась (время выезда прошло), не рвём: люди могут быть в дороге,
+        и оставить их посреди трассы опаснее, чем довезти;
+      • брони со статусом `onboard` не трогаем по той же причине — человек уже в машине;
+      • `cancelled_by` оставляем пустым. Отменил не человек, а решение разбора; запиши мы туда
+        его id — «Надёжность» посчитала бы это поздней отменой и наказала бы вторым наказанием
+        за тот же спор. Пассажиров это тоже бережёт: отмена не их вина.
+
+    Возвращает число разосланных предупреждений. Вызывается там же, где ставится пауза, —
+    чтобы не появилось второго места, где паузу «забыли» довести до конца.
+    """
+    from .services import push_notification   # локальный импорт: services тянет safety_logic
+
+    now = utcnow()
+    задето = 0
+
+    def _снять_бронь(b: Booking) -> None:
+        b.status = BookingStatus.cancelled
+        b.cancelled_at = now
+        b.cancelled_by = None          # решение разбора, а не человек (см. док-строку)
+        b.cancel_reason = "safety"
+        session.add(b)
+
+    # 1) Он за рулём: будущие рейсы снимаем целиком.
+    рейсы = session.exec(select(Ride).where(
+        Ride.driver_id == user_id,
+        Ride.status == RideStatus.active,
+        Ride.depart_at > now,
+    )).all()
+    пассажирам: list[tuple[int, str, int]] = []
+    for ride in рейсы:
+        ride.status = RideStatus.cancelled
+        session.add(ride)
+        for b in session.exec(select(Booking).where(
+            Booking.ride_id == ride.id,
+            Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed]),
+        )).all():
+            _снять_бронь(b)
+            пассажирам.append((b.passenger_id, f"{ride.from_city} → {ride.to_city}", b.id))
+
+    # 2) Он пассажир: его места в чужих будущих рейсах освобождаем — иначе «пауза» означала бы
+    #    только «нельзя забронировать новое», и водитель ждал бы отстранённого на остановке.
+    водителям: list[tuple[int, str, int]] = []
+    мои_брони = session.exec(select(Booking).where(
+        Booking.passenger_id == user_id,
+        Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed]),
+    )).all()
+    for b in мои_брони:
+        ride = session.get(Ride, b.ride_id)
+        if not ride or ride.status != RideStatus.active or not ride.depart_at or ride.depart_at <= now:
+            continue
+        _снять_бронь(b)
+        водителям.append((ride.driver_id, f"{ride.from_city} → {ride.to_city}", b.id))
+
+    if not пассажирам and not водителям:
+        return 0
+    session.commit()                   # атомарно: поездки и брони одной транзакцией
+
+    # Уведомления — ПОСЛЕ commit: сбой отправки не должен откатывать отмену.
+    for uid, маршрут, bid in пассажирам:
+        push_notification(
+            session, uid, "booking",
+            "Поездка отменена", "Сәфәр кире алынды",
+            f"{маршрут}: водитель на паузе по решению разбора. "
+            "Мы отменили бронь — посмотри другие поездки рядом.",
+            f"{маршрут}: водитель тикшереү ҡарары буйынса паузала. "
+            "Броняны кире алдыҡ — яҡындағы башҡа сәфәрҙәрҙе ҡара.",
+            ref_kind="booking", ref_id=bid,
+        )
+        задето += 1
+    for uid, маршрут, bid in водителям:
+        push_notification(
+            session, uid, "booking",
+            "Бронь отменена", "Броня кире алынды",
+            f"{маршрут}: пассажир на паузе по решению разбора. Место снова свободно.",
+            f"{маршрут}: юлсы тикшереү ҡарары буйынса паузала. Урын тағы буш.",
+            ref_kind="booking", ref_id=bid,
+        )
+        задето += 1
+    return задето
+
+
 # ----------------------------- Применение решения админа -----------------------------
 def _escalation_days(session: Session, respondent_id: int, exclude_incident_id: Optional[int]) -> int:
     """Длина паузы по лестнице §2: 1-я → 3д, 2-я → 7д, 3-я и далее → 30д. Считаем прошлые
@@ -529,6 +627,11 @@ def apply_incident_resolution(
     session.refresh(incident)
     if not gone:                  # заглушки нет в сессии — refresh по ней упал бы
         session.refresh(prof)
+    # Пауза доводится до конца ЗДЕСЬ, в том же месте, где ставится: уже назначенные будущие
+    # поездки снимаются, задетые люди предупреждаются. Иначе наказание закрывает только
+    # «новое», а женщина с бронью на завтра узнаёт обо всём у обочины (волна 137).
+    if days and days > 0 and not gone:
+        cancel_upcoming_after_suspension(session, incident.respondent_id)
     return incident, prof
 
 
