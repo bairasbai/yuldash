@@ -167,11 +167,23 @@ internal fun openFullScreenIntentSettings(ctx: Context) {
 }
 
 /**
- * Дойдёт ли уведомление вообще. Одна проверка на оба случая: отказ в POST_NOTIFICATIONS
- * (Android 13+) и выключенные уведомления приложения в системных настройках.
+ * Дойдёт ли уведомление вообще. Одна проверка на ВСЕ выключатели, которых три:
+ * отказ в POST_NOTIFICATIONS (Android 13+), выключенные уведомления приложения в системных
+ * настройках и наш собственный тумблер «Уведомления» в настройках Юлдаша.
+ *
+ * Третий забыли (аудит 2026-08-08, волна 117), и вышло вот что: водитель выключил тумблер,
+ * а экран линии всё равно писал зелёным «Ты на линии — заказы придут сюда, экран можно
+ * погасить». Заказы приходили и молча выбрасывались. Человек стоял вечер на трассе впустую
+ * и уходил из приложения, решив, что заказов в районе просто нет.
  */
 internal fun notificationsAllowed(ctx: Context): Boolean =
-    runCatching { NotificationManagerCompat.from(ctx).areNotificationsEnabled() }.getOrDefault(true)
+    AppPrefs.notifications(ctx) &&
+        runCatching { NotificationManagerCompat.from(ctx).areNotificationsEnabled() }.getOrDefault(true)
+
+/** Выключен ли ИМЕННО наш тумблер (системное разрешение при этом на месте). */
+internal fun notificationsOffInApp(ctx: Context): Boolean =
+    !AppPrefs.notifications(ctx) &&
+        runCatching { NotificationManagerCompat.from(ctx).areNotificationsEnabled() }.getOrDefault(true)
 
 /**
  * Можно ли поднять карточку заказа поверх погасшего экрана. С Android 14 это отдельное

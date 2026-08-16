@@ -1795,6 +1795,10 @@ private fun DriverOnlineHint(online: Boolean) {
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
     val notifOk = remember(permTick, online) { notificationsAllowed(ctx) }
+    // Выключено может быть в двух разных местах, и лечится это тоже по-разному: наш тумблер
+    // включается одним тапом прямо тут, а системный запрет — только в настройках телефона.
+    // Вести человека в системные настройки, где всё разрешено, — тупик (волна 117).
+    val offInApp = remember(permTick, online) { notificationsOffInApp(ctx) }
     val fullScreenOk = remember(permTick, online) { fullScreenOfferAllowed(ctx) }
     // Порядок = по тяжести: без геолокации заказов не будет вообще, без уведомлений они не
     // дойдут на погасший экран, без «поверх всего» дойдут, но тише.
@@ -1847,7 +1851,10 @@ private fun DriverOnlineHint(online: Boolean) {
                         "Без неё тебя не видно на линии — заказы уходят другим. Включи «Точное местоположение».",
                         "Унһыҙ һин линияла күренмәйһең — заказдар башҡаларға китә. «Теүәл урын»ды ҡабыҙ.",
                     )
-                    "notif" -> appText(
+                    "notif" -> if (offInApp) appText(
+                        "Ты сам выключил уведомления в настройках Юлдаша. На погашенном экране заказ приходит только так — включи обратно.",
+                        "Һин Юлдаш көйләүҙәрендә хәбәрҙәрҙе һүндергәнһең. Һүнгән экранда заказ тик шулай килә — кире ҡабыҙ.",
+                    ) else appText(
                         "На погашенном экране заказ приходит уведомлением. Пока они выключены, ты его не увидишь.",
                         "Һүнгән экранда заказ хәбәр менән килә. Улар һүнгәндә һин уны күрмәйәсәкһең.",
                     )
@@ -1880,9 +1887,15 @@ private fun DriverOnlineHint(online: Boolean) {
                                 // Сюда попадают, когда разрешение уже отклонили (иначе тумблер
                                 // на линию не пустил бы), поэтому ведём сразу в настройки —
                                 // системный диалог в этом состоянии уже не появится.
-                                when (s) {
-                                    "geo" -> openAppSettings(ctx)
-                                    "notif" -> openNotificationSettings(ctx)
+                                when {
+                                    s == "geo" -> openAppSettings(ctx)
+                                    // Наш тумблер включаем прямо тут: одним тапом, без блужданий
+                                    // по системным настройкам, где и так всё разрешено.
+                                    s == "notif" && offInApp -> {
+                                        AppPrefs.setNotifications(ctx, true)
+                                        permTick++
+                                    }
+                                    s == "notif" -> openNotificationSettings(ctx)
                                     else -> openFullScreenIntentSettings(ctx)
                                 }
                             },
