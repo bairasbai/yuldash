@@ -156,6 +156,31 @@ def may_see_ride_by_id(ride, user: Optional[User], session: Session) -> bool:
     return свой is not None
 
 
+def is_ride_insider(ride, user: Optional[User], session: Session) -> bool:
+    """Свой ли человек в этой поездке: водитель или пассажир с живой бронью.
+
+    Отличается от `may_see_ride_by_id` намеренно. Тот отвечает «показывать ли карточку вообще»
+    (живую поездку видят все — это витрина). Этот отвечает «показывать ли то, что сказано
+    для СВОИХ»: комментарий водителя с ориентиром у дома и его телефоном.
+
+    Отменённая бронь сюда не входит: человек передумал ехать, и адрес водителя ему больше
+    не нужен — а вот собрать чужие адреса, забронировав и сразу отменив, было бы слишком легко.
+    """
+    from .models import Booking, BookingStatus
+
+    if user is None:
+        return False
+    if ride.driver_id == user.id:
+        return True
+    живая = session.exec(select(Booking.id).where(
+        Booking.ride_id == ride.id,
+        Booking.passenger_id == user.id,
+        Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed,
+                            BookingStatus.onboard, BookingStatus.done]),
+    ).limit(1)).first()
+    return живая is not None
+
+
 def visible_schedules(items, user: Optional[User], session: Session):
     """Регулярные маршруты водителя — по тем же правилам, что и поездки (волна 113).
 

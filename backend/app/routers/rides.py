@@ -34,7 +34,7 @@ from .bookings import DONE_EARLY_GRACE
 _CONFIRM_GRACE = timedelta(minutes=30)
 from ..workday import local_now
 from ..visibility import (FEED_MAX, hide_blocked, hide_health_hint, hide_suspended,
-                          hide_trusted_only, may_see_ride_by_id, visible_rides)
+                          hide_trusted_only, is_ride_insider, may_see_ride_by_id, visible_rides)
 from ..services import (
     CITY_COORDS, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
     geocode_city, haversine_km, notify_map_changed, notify_route_watchers, public_ride_payload,
@@ -336,7 +336,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
         ride.seats_left = body.seats_total - booked_seats   # броней нет → просто новое число мест
         changed.append("места")
     if not changed:
-        return public_ride_payload(ride_out(ride, session))   # нечего менять — no-op
+        return public_ride_payload(ride_out(ride, session), full=True)   # нечего менять; свой рейс — свой текст
     session.add(ride)
     session.commit()
     session.refresh(ride)
@@ -344,7 +344,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     for b in live:         # пуши после commit
         send_push(session, b.passenger_id, "Поездка обновлена",
                   f"{ride.from_city} → {ride.to_city}: изменено — {', '.join(changed)}. Загляни в детали.")
-    return public_ride_payload(ride_out(ride, session))
+    return public_ride_payload(ride_out(ride, session), full=True)  # свой рейс — свой текст
 
 
 @router.get("/rides", response_model=List[RideOut])
@@ -702,7 +702,7 @@ def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Sessi
     Идемпотентно: повторная отмена — no-op. Завершённую отменить нельзя."""
     ride = _ride_owned(session, ride_id, user)
     if ride.status == RideStatus.cancelled:
-        return public_ride_payload(ride_out(ride, session))   # идемпотентно (двойной тап)
+        return public_ride_payload(ride_out(ride, session), full=True)   # идемпотентно (двойной тап); свой рейс — свой текст
     if ride.status == RideStatus.done:
         raise herr(400, "Поездка уже завершена", "Сәфәр инде тамамланған")
     affected = _live_bookings(session, ride_id)
@@ -744,7 +744,7 @@ def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Sessi
             f"{route}: водитель кире алды. Яҡындағы башҡа сәфәрҙәрҙе ҡара.",
             ref_kind="booking", ref_id=b.id,
         )
-    return public_ride_payload(ride_out(ride, session))
+    return public_ride_payload(ride_out(ride, session), full=True)  # свой рейс — свой текст
 
 
 @router.post("/rides/{ride_id}/complete", response_model=RideOut)
@@ -754,7 +754,7 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
     Идемпотентно: повторное завершение — no-op."""
     ride = _ride_owned(session, ride_id, user)
     if ride.status == RideStatus.done:
-        return public_ride_payload(ride_out(ride, session))   # идемпотентно
+        return public_ride_payload(ride_out(ride, session), full=True)   # идемпотентно; свой рейс — свой текст
     if ride.status == RideStatus.cancelled:
         raise herr(400, "Поездка отменена — завершать нечего", "Сәфәр кире алынған — тамамлар нәмә юҡ")
     # Третья дверь к «поездка состоялась» (независимая проверка аудита 2026-08-07). Планку
@@ -820,7 +820,7 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
             f"{route}: бергә барғаныңа рәхмәт! Сәфәрҙе баһала.",
             ref_kind="ride", ref_id=ride.id,
         )
-    return public_ride_payload(ride_out(ride, session))
+    return public_ride_payload(ride_out(ride, session), full=True)  # свой рейс — свой текст
 
 
 @router.get("/rides/{ride_id}", response_model=RideOut)
@@ -833,7 +833,9 @@ def get_ride(ride_id: int, user: Optional[User] = Depends(current_user_optional)
     # посторонний собирал перебором архив передвижений человека за месяцы (волна 119).
     if not may_see_ride_by_id(ride, user, session):
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
-    out = public_ride_payload(ride_out(ride, session))
+    # Комментарий с ориентиром у дома и телефоном — только своим: водителю и тому, у кого есть
+    # живая бронь. Постороннему и гостю он приходит с замазанным личным (волна 138).
+    out = public_ride_payload(ride_out(ride, session), full=is_ride_insider(ride, user, session))
     # V5: те же фильтры, что в ленте — «только для своих» скрыта от не-L3, поездка в связке
     # блокировки не отдаётся по прямому id (иначе обход only_trusted/blocked + анонимный скрейпинг).
     visible = visible_rides([out], user, session)

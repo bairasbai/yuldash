@@ -27,6 +27,7 @@ from .errors import herr
 from .db import engine
 from .imagemeta import shrink_image, strip_image_metadata
 from .logs import log
+from .observability import scrub_text
 from .models import (
     Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, Notification, PickupPoint,
     Rating, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent, User, UserRole,
@@ -1150,22 +1151,39 @@ def ride_out(ride: Ride, session: Session) -> RideOut:
     return rides_out([ride], session)[0]
 
 
-def public_ride_payload(item):
+def public_ride_payload(item, *, full: bool = False):
     """Публичная витрина поездки без точного места встречи.
 
     Телефон и точная точка сбора раскрываются только участникам подтверждённой
     брони через `/bookings/{id}/details`.
+
+    СВОБОДНЫЙ КОММЕНТАРИЙ тоже чистим (аудит 2026-08-08, волна 138). Точку сбора и координаты
+    прятали с самого начала — а рядом лежало поле, куда водитель своими руками пишет то же самое:
+    «заберу у дома, Баймак ул. Ленина 12, звони +7 999 111-22-33». Оно уходило В ЛЕНТЕ и БЕЗ
+    ВХОДА: любой человек в интернете, не заводя аккаунта, читал адреса и телефоны водителей
+    всего района. Дверь была заперта, окно рядом — открыто.
+
+    Маскируем не весь текст, а только личное: телефон, номер дома, координаты (общая мойка
+    `scrub_text`). Смысл объявления остаётся — «еду через Сибай, заберу у автовокзала»
+    не трогается вовсе.
+
+    `full=True` — для своих: водителя и пассажира с живой бронью. Им ориентир у дома и телефон
+    как раз и написаны.
     """
     patch = {"pickup": "", "pickup_lat": None, "pickup_lng": None}
     if isinstance(item, RideOut):
+        if not full:
+            patch["comment"] = scrub_text(item.comment or "")
         return item.model_copy(update=patch)
     data = dict(item)
+    if not full:
+        patch["comment"] = scrub_text(data.get("comment") or "")
     data.update(patch)
     return data
 
 
-def public_rides_payload(items: list):
-    return [public_ride_payload(item) for item in items]
+def public_rides_payload(items: list, *, full: bool = False):
+    return [public_ride_payload(item, full=full) for item in items]
 
 
 def boost_then_depart_order():

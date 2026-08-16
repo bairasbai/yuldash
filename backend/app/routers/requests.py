@@ -18,6 +18,7 @@ from ..models import (
     RideRequest, RideStatus, User, UserRole,
 )
 from ..visibility import FEED_MAX, hidden_author_ids, visible_rides
+from ..observability import scrub_text
 from ..schemas import RideOut
 from ..security import current_user, gen_otp
 from ..services import (
@@ -531,7 +532,12 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
             id=r.id, passenger_name=(p.name if p and p.name else "Пассажир"),
             passenger_avatar=(p.avatar_url if p else ""),
             from_city=r.from_city, to_city=r.to_city, desired_at=r.desired_at,
-            seats=r.seats, comment=r.comment, responded=(r.id in mine),
+            # Свободный комментарий заявки чистим той же мойкой, что и объявления поездок
+            # (волна 138): женщина пишет «жду у дома, ул. Ленина 12, звони +7 999…», и это
+            # читали ВСЕ зарегистрированные — двести заявок на экране, адреса и телефоны
+            # подряд. Ориентир «жду у дома» остаётся, номер дома и телефон — нет: их водитель
+            # получает, когда пассажирка приняла именно его отклик.
+            seats=r.seats, comment=scrub_text(r.comment), responded=(r.id in mine),
             my_response_id=mine.get(r.id),
             prefs=request_prefs(r),
             detour_km=_detour_km(r, my_rides),

@@ -114,11 +114,18 @@ def test_ordinary_booking_stores_no_guardian_data(client, user_factory):
 
 
 def test_no_minors_flag_visible_in_ride_listing(client, user_factory):
-    """Условие видно в выдаче — пассажир поймёт, почему бронь за подростка недоступна."""
+    """Условие видно в выдаче — пассажир поймёт, почему бронь за подростка недоступна.
+
+    Маршрут у поездки свой, необщий: в полном прогоне «Баймак → Сибай» публикуют десятки
+    тестов, а у выдачи есть потолок — своя поездка просто не доезжала до страницы, и тест
+    краснел от чужих данных, а не от ошибки (тот же урок, что в волне 92).
+    """
     drv = user_factory("NoMinorDrv3", role=UserRole.driver)
-    ride = _ride(client, drv, no_minors=True)
-    rows = client.get("/rides", params={"from_city": "Баймак"}).json()
-    assert next(r for r in rows if r["id"] == ride["id"])["no_minors"] is True
+    ride = _ride(client, drv, no_minors=True, from_city="Акъяр", to_city="Зилаир")
+    rows = client.get("/rides", params={"from_city": "Акъяр"}).json()
+    свои = [r for r in rows if r["id"] == ride["id"]]
+    assert свои, "поездка не попала в выдачу по своему же городу"
+    assert свои[0]["no_minors"] is True
 
 
 # ------------------- ② остался один на один с водителем -------------------
