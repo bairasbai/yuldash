@@ -190,7 +190,12 @@ async def upload_voice(request: Request, user: User = Depends(current_user), ses
     """Загрузка голосового (multipart `file` ИЛИ base64 — обратная совместимость) → media → публичный URL."""
     enforce_upload_quota(session, user.id)
     data, ext = await read_upload(request, settings.audio_ext_set, "m4a", "аудио")
-    name = f"{uuid.uuid4().hex}.{ext}"
+    # Имя НАЧИНАЕТСЯ с id владельца — как у документов и доказательств (волна 127).
+    # Удаление аккаунта ищет файлы человека именно по этому префиксу. Раньше имя было
+    # просто случайным, и голосовые, которые человек записал и передумал отправлять,
+    # найти по владельцу было нельзя: они переживали удаление аккаунта и лежали на диске
+    # до ночной чистки — дольше срока, который обещан в законе о персональных данных.
+    name = f"{user.id}_{uuid.uuid4().hex}.{ext}"
     # save() синхронный (диск/boto3.put_object) → в async-хендлере оборачиваем в threadpool,
     # иначе заливка МБ (или зависший S3) морозит event-loop воркера (все запросы+WS встают).
     await run_in_threadpool(get_storage().save, f"voice/{name}", data)
@@ -203,7 +208,7 @@ async def upload_chat_photo(request: Request, user: User = Depends(current_user)
     Отдельно от документов водителя (/secure/docs): те приватны, фото чата видит собеседник."""
     enforce_upload_quota(session, user.id)
     data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
-    name = f"{uuid.uuid4().hex}.{ext}"
+    name = f"{user.id}_{uuid.uuid4().hex}.{ext}"   # с id владельца — см. upload_voice (волна 127)
     await run_in_threadpool(get_storage().save, f"chat/{name}", data)   # см. upload_voice
     return {"url": public_media_url(f"chat/{name}")}
 

@@ -793,6 +793,13 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
         session.add(b)
     session.commit()
     session.refresh(ride)
+    # Бонус пригласившему — четвёртая дверь к «поездка состоялась» (волна 127). Три другие
+    # (бронь у водителя, семейный контроль, такси) начисляли его давно, а эта кнопка —
+    # самая частая у водителя — нет. Сосед позвал человека в Юлдаш, тот раскатался,
+    # а бонус не приходил никогда: просто потому, что рейсы он закрывал не той кнопкой.
+    if done_ids:
+        from .referral import reward_driver_referral
+        reward_driver_referral(session, ride.driver_id)
     notify_map_changed()
     # Как и отмена (см. cancel_ride): запись в Центре уведомлений + два языка. Здесь это ещё
     # и приглашение оценить поездку — без следа оно живёт ровно до пропущенного пуша.
