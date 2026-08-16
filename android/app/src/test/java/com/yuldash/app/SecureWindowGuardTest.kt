@@ -19,8 +19,18 @@ import java.io.File
  */
 class SecureWindowGuardTest {
 
-    /** Признаки того, что файл РИСУЕТ приватный документ (а не просто упоминает поле). */
-    private val docRenderers = listOf("DocImage(", "TaxiDocImage(", "CourierDocImage(")
+    /**
+     * Признак приватной картинки — не имя компонента, а СПОСОБ загрузки.
+     *
+     * Первая версия сторожа перечисляла имена рисовальщиков («DocImage», «TaxiDocImage»,
+     * «CourierDocImage») и потому видела только документы. Мимо неё спокойно прошли фото
+     * из разбора спора и снимки посылки: они грузятся так же — с токеном, через
+     * `authedImageRequest`, — но называются иначе (волна 123).
+     *
+     * Имя выбирает автор экрана и не обязан знать про этот тест. Способ загрузки — не выбирает:
+     * приватную картинку иначе просто не получить.
+     */
+    private val privateImageLoad = "authedImageRequest("
 
     private fun sourceFiles(): List<File> {
         val root = File("src/main/java/com/yuldash/app")
@@ -29,23 +39,36 @@ class SecureWindowGuardTest {
     }
 
     @Test
-    fun `экраны с чужими документами закрыты от скриншота`() {
+    fun `экраны с чужими документами и фото закрыты от скриншота`() {
         val offenders = sourceFiles().filter { file ->
+            // Файл, где `authedImageRequest` ОБЪЯВЛЕН, сам ничего не рисует.
+            if (file.name == "SecureImageRequest.kt") return@filter false
             val src = file.readText()
-            // Считаем только ВЫЗОВЫ рисовальщика, а не его объявление: компонент часто лежит
-            // в том же файле, что и экран, и по одному лишь имени эти два случая неразличимы.
-            // Первая версия этого теста именно на этом и ослепла: файл с объявлением целиком
-            // выпадал из проверки, и снятая защита прошла мимо (мутация волны 30).
-            val callsRenderer = docRenderers.any { token ->
-                Regex("(?<!fun )" + Regex.escape(token)).containsMatchIn(src)
-            }
-            callsRenderer && !src.contains("SecureWindow()")
+            src.contains(privateImageLoad) && !src.contains("SecureWindow()")
         }
         assertTrue(
-            "эти экраны показывают чужие документы, но не защищены от скриншота — " +
-                "добавь SecureWindow() в начало экрана: ${offenders.map { it.name }}",
+            "эти экраны показывают чужие документы или фото, но не защищены от скриншота — " +
+                "добавь SecureWindow() в начало экрана: ${offenders.map { it.name }}. " +
+                "Речь не только про паспорта: в разборе спора человек прикладывает снимок " +
+                "своего лица и ссадины, и уносить его в сельский чат нельзя тем более.",
             offenders.isEmpty(),
         )
+    }
+
+    @Test
+    fun `сторож видит не только документы`() {
+        // Проверка зрения самого сторожа (приём волны 109). Ослабить признак — значит сделать
+        // тест зелёным: чем меньше файлов он считает приватными, тем меньше «нарушителей».
+        val приватные = sourceFiles().filter {
+            it.name != "SecureImageRequest.kt" && it.readText().contains(privateImageLoad)
+        }.map { it.name }.toSet()
+        for (экран in listOf("FairnessScreens.kt", "ParcelsScreen.kt")) {
+            assertTrue(
+                "сторож перестал считать $экран экраном с приватными картинками — " +
+                    "значит снятую защиту он там не заметит",
+                экран in приватные,
+            )
+        }
     }
 
     @Test

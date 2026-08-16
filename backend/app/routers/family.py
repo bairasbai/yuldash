@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
+from ..routers.parcels import _FINAL_STATUSES as PARCEL_FINAL_STATUSES
 from ..models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, ParcelDelivery, Ride,
     TripShare, TrustedContact, User,
@@ -241,7 +242,9 @@ def parcel_track_link(parcel_id: int, user: User = Depends(current_user),
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel or parcel.sender_id != user.id:
         raise herr(404, "Посылка не найдена", "Бандероль табылманы")
-    if parcel.status in ("delivered", "canceled"):
+    # Тот же общий список финалов (волна 124): на возвращённую посылку выпускалась новая
+    # ссылка слежения — с кодом вручения внутри, хотя вручать уже нечего.
+    if parcel.status in PARCEL_FINAL_STATUSES:
         raise herr(409, "Посылка уже завершена", "Бандероль тамамланған инде")
     existing = session.exec(
         select(TripShare).where(TripShare.parcel_id == parcel_id).order_by(TripShare.id.desc())

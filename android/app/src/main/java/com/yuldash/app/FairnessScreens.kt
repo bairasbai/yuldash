@@ -1178,6 +1178,11 @@ private fun EvidenceThumb(url: String, index: Int, total: Int, onClick: () -> Un
  *  Тема разбора тяжёлая — никаких зумов и жестов, только «посмотреть и закрыть». */
 @Composable
 private fun EvidenceViewer(photos: List<String>, startAt: Int, onClose: () -> Unit) {
+    // Фото из разбора — чужая беда: женщина прикладывает снимок своего лица и ссадины.
+    // Обвинённый разворачивал его во весь экран, делал скриншот и уносил в сельский чат;
+    // снимок ещё и всплывал в списке недавних приложений, когда он давал телефон жене
+    // (аудит 2026-08-08, волна 123). Защита стояла на экранах модерации, а сюда не доехала.
+    SecureWindow()
     val ctx = LocalContext.current
     val token = remember { ApiClient.currentToken() ?: "" }
     var at by remember(startAt) { mutableIntStateOf(startAt.coerceIn(0, photos.lastIndex)) }

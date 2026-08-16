@@ -27,6 +27,7 @@ from datetime import datetime, timedelta, timezone
 
 from ..config import settings
 from ..db import get_session
+from ..routers.parcels import _FINAL_STATUSES as PARCEL_FINAL_STATUSES
 from ..visibility import visible_rides
 from ..errors import herr
 from ..livepos import livepos_get
@@ -95,6 +96,10 @@ _PARCEL_PHASES = {
     "accepted":  {"ru": "Курьер принял заказ", "ba": "Курьер заказды алды"},
     "onway":     {"ru": "Посылка в пути", "ba": "Бандероль юлда"},
     "finished":  {"ru": "Посылка доставлена ✅", "ba": "Бандероль еткерелде ✅"},
+    # Финал бывает не только счастливым (волна 124). Раньше сюда попадал ровно один текст,
+    # и человек, чью коробку курьер привёз обратно, читал «Посылка доставлена ✅».
+    "returned":  {"ru": "Посылку вернули отправителю", "ba": "Бандероль ебәреүсегә ҡайтарылды"},
+    "canceled":  {"ru": "Доставка отменена", "ba": "Илтеү кире алынды"},
 }
 # Позицию курьера показываем получателю, пока он назначен и едет (accepted/in_transit —
 # ровно когда курьер стримит гео, PARCEL_LOC_ACTIVE в location.py). До этого машины нет.
@@ -203,8 +208,15 @@ def _parcel_state(session: Session, share: TripShare) -> dict:
     if not parcel:
         raise herr(404, "Ссылка не найдена", "Һылтанма табылманы")
     name = _first_name_of(parcel.receiver_name)      # имя получателя (первое слово) или ""
-    if parcel.status in ("delivered", "canceled"):
-        return _finished(name, kind="parcel", phases=_PARCEL_PHASES)
+    # Финал у доставки — ТРИ статуса, и «returned» (курьер привёз коробку обратно) один из них.
+    # Здесь их знали два (волна 124): получатель по ссылке из SMS читал «Ищем курьера…»
+    # и продолжал ждать посылку, которая уже вернулась отправителю. Список берём из общего
+    # места, чтобы четвёртый статус доехал сюда сам.
+    if parcel.status in PARCEL_FINAL_STATUSES:
+        фаза = {"returned": "returned", "canceled": "canceled"}.get(parcel.status, "finished")
+        out = _finished(name, kind="parcel", phases=_PARCEL_PHASES)
+        out["phase_text"] = _PARCEL_PHASES[фаза]
+        return out
     phase = _PARCEL_STATUS_PHASE.get(parcel.status, "searching")
     car = livepos_get("parcel", parcel.id) if parcel.status in _PARCEL_LIVE_CAR else None
     out = _live(name, phase,

@@ -529,6 +529,9 @@ private fun ParcelRouteRow(from: String, to: String) {
  */
 @Composable
 internal fun ParcelPhotoStrip(pickupUrl: String, deliveryUrl: String) {
+    // Снимки посылки показывают содержимое чужой коробки и двор получателя. Тот же довод,
+    // что у документов и доказательств спора (волна 123).
+    SecureWindow()
     val shots = remember(pickupUrl, deliveryUrl) {
         buildList {
             if (pickupUrl.isNotBlank()) add(pickupUrl to true)
