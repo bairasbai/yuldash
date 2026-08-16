@@ -150,16 +150,43 @@ class SessionKeysGuardTest {
 
     @Test
     fun `живой GPS гасится весь, а не только у поездки`() {
-        val all = sources().joinToString("\n")
-        val services = Regex("""(\w*LocationService)\.stop\(""")
-            .findAll(all).map { it.groupValues[1] }.toSet()
+        // Ищем по ПРИЗНАКУ, а не по имени. Первая версия сторожа искала классы, чьё имя
+        // кончается на «LocationService», — и пропустила TaxiLineService, который назван
+        // иначе, но льёт GPS так же (волна 115). Имя выбирает автор класса, признак — нет.
+        val root = File("src/main/java/com/yuldash/app")
+        val текут = root.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .filter { f ->
+                val t = f.readText()
+                t.contains("requestLocationUpdates") && t.contains(": Service()")
+            }
+            .map { it.nameWithoutExtension }
+            .toList()
+        assertTrue("не нашёл ни одного сервиса, который льёт GPS — сторож ослеп", текут.isNotEmpty())
+
         val stopper = File("src/main/java/com/yuldash/app/YuldashApp.kt").readText()
             .substringAfter("internal fun stopLiveTracking").substringBefore("\n}")
-        val missed = services.filterNot { stopper.contains(it + ".stop(") }
+        val missed = текут.filterNot { stopper.contains("$it.stop(") }
         assertTrue(
             "эти сервисы льют GPS, но выход из аккаунта их не глушит: $missed. Телефон нового " +
                 "владельца продолжит светить дорогу за прошлого — сервис умеет воскресать сам.",
             missed.isEmpty(),
         )
+    }
+
+    @Test
+    fun `конец сессии убирает за собой, каким бы он ни был`() {
+        // Дверей три: кнопка «Выйти», удаление аккаунта и «сессия истекла». Третья убирала
+        // за собой хуже всех — не гасила GPS и не чистила память (волна 115).
+        val app = File("src/main/java/com/yuldash/app/YuldashApp.kt").readText()
+        val ветка = app.substringAfter("ApiClient.sessionExpired.collect").substringBefore("\n        }")
+        assertTrue(
+            "«сессия истекла» снова просто уводит на экран входа: живой GPS продолжает идти, " +
+                "а в памяти остаются чужие доверенные контакты с телефонами",
+            ветка.contains("endSession("),
+        )
+        val точка = app.substringAfter("internal fun endSession").substringBefore("\n}")
+        assertTrue("конец сессии перестал гасить живой GPS", точка.contains("stopLiveTracking("))
+        assertTrue("конец сессии перестал чистить чужое из памяти", точка.contains("clearUserData("))
     }
 }

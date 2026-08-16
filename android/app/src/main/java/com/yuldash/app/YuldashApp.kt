@@ -291,6 +291,24 @@ private fun adPlacementOf(code: String): AdPlacement? = when (code.trim().lowerc
 internal fun stopLiveTracking(context: android.content.Context) {
     TripLocationService.stop(context)
     CourierLocationService.stop(context)
+    // Линия такси — третий сервис, который льёт GPS (волна 115). Волна 109 собрала гашение
+    // в одну строку, но нашла соседей по имени «…LocationService», а этот назван иначе —
+    // и остался жить: после выхода телефон продолжал слать координаты до двенадцати часов,
+    // уже у нового владельца.
+    TaxiLineService.stop(context)
+}
+
+/**
+ * Конец сессии — что бы его ни вызвало.
+ *
+ * Дверей три: кнопка «Выйти», удаление аккаунта и «сессия истекла» (сервер разлогинил,
+ * продлить не удалось). Первые две убирали за собой, третья — нет (волна 115): человека
+ * просто выкидывало на экран входа, а живой GPS продолжал идти, и в памяти оставались
+ * чужие доверенные контакты с телефонами. Следующий вошедший на этом телефоне видел их.
+ */
+internal fun endSession(context: android.content.Context, vm: YuldashViewModel) {
+    stopLiveTracking(context)
+    vm.clearUserData()
 }
 
 @Composable
@@ -354,6 +372,9 @@ internal fun YuldashApp() {
         ApiClient.sessionExpired.collect { expired ->
             if (expired) {
                 Toast.makeText(context, sessionExpiredMsg.value, Toast.LENGTH_LONG).show()
+                // Сессия кончилась не по кнопке, а сама — но убрать за собой надо так же:
+                // погасить живой GPS и стереть чужое из памяти (волна 115).
+                endSession(context, vm)
                 screen = Screen.Login
                 ApiClient.sessionExpired.value = false
             }
@@ -1111,8 +1132,7 @@ internal fun YuldashApp() {
                     language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                 },
                 onAccountDeleted = {
-                    stopLiveTracking(context)           // приватность: глушим весь live-GPS (поездка + доставка)
-                    vm.clearUserData()                  // чистим PII из памяти (сервер уже удалил аккаунт)
+                    endSession(context, vm)             // гасим весь live-GPS и чистим PII из памяти
                     isAdmin = false
                     startHomeTab = HomeTab.Map
                     screen = Screen.Login
@@ -1282,8 +1302,7 @@ internal fun YuldashApp() {
                 onAdminCabinet = { screen = Screen.AdminCabinet },
                 onLogout = {
                     ApiClient.logout()
-                    stopLiveTracking(context)           // приватность: глушим весь live-GPS вместе с сессией (даже если выход посреди поездки)
-                    vm.clearUserData()                  // стираем контакты/заявки/поездки из памяти — иначе их увидит следующий вошедший
+                    endSession(context, vm)             // гасим весь live-GPS и стираем чужое из памяти
                     screen = Screen.Login
                 }
             )
