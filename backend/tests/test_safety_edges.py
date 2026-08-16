@@ -94,7 +94,10 @@ def test_blocks_are_idempotent_listed_and_removable(client, user_factory):
 
     listed = client.get("/blocks", headers=user["auth"])
     assert listed.status_code == 200
-    assert any(row["blocked_user_id"] == target["id"] and row["name"] == "BlockTarget" for row in listed.json())
+    # Имя в списке видно ТОЛЬКО знакомым (волна 120): эти двое вместе не ездили, поэтому
+    # вместо имени — «Пользователь». Иначе перебором «заблокировать 1, 2, 3…» выгружался
+    # справочник «номер → имя» всего района. Сама блокировка по-прежнему проходит.
+    assert any(row["blocked_user_id"] == target["id"] and row["name"] == "Пользователь" for row in listed.json())
 
     assert client.delete(f"/blocks/{target['id']}", headers=user["auth"]).status_code == 200
     assert all(row["blocked_user_id"] != target["id"] for row in client.get("/blocks", headers=user["auth"]).json())

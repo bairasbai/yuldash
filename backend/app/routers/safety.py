@@ -15,6 +15,7 @@ from ..models import (
     Block, Booking, BookingStatus, DriverProfile, InstantOrder, Report, Ride, SosEvent,
     TripShare, TrustedContact, User, UserRole,
 )
+from ..safety_logic import have_met
 from ..security import current_user
 from ..services import (booking_and_ride_for_user, notify_admin_telegram,
                         push_notification, send_push, send_text)
@@ -632,6 +633,8 @@ class BlockIn(BaseModel):
 def create_block(body: BlockIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     if body.blocked_user_id == user.id:
         raise herr(400, "Нельзя заблокировать себя", "Үҙеңде блоклап булмай")
+    # Закрыться человек вправе от кого угодно — в том числе заранее, от соседа, с которым
+    # ещё не ездил. Ограничивать это нельзя: кнопка «Заблокировать» и есть его защита.
     if not session.get(User, body.blocked_user_id):
         raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
     existing = session.exec(
@@ -657,13 +660,24 @@ def list_blocks(user: User = Depends(current_user), session: Session = Depends(g
     blocks = session.exec(select(Block).where(Block.user_id == user.id)).all()
     ids = {b.blocked_user_id for b in blocks}
     users = {u.id: u for u in session.exec(select(User).where(User.id.in_(ids))).all()} if ids else {}
-    return [
-        BlockOut(
+    out = []
+    for b in blocks:
+        u = users.get(b.blocked_user_id)
+        # Имя показываем ТОЛЬКО если эти двое действительно пересекались (волна 120).
+        #
+        # Раньше имя отдавалось всегда, а заблокировать можно любого по номеру. Значит цикл
+        # «заблокировать 1, 2, 3…» плюс чтение своего же списка выгружал справочник
+        # «номер → имя» всех, кто есть в приложении района. Незаметно: человек не узнаёт,
+        # что его заблокировали (и это правильно, волна 107).
+        #
+        # Саму блокировку не ограничиваем: закрыться заранее — право человека. Отбираем
+        # ровно то, ради чего перебор и затевался, — чужие имена.
+        знакомы = u is not None and have_met(session, user.id, b.blocked_user_id)
+        out.append(BlockOut(
             blocked_user_id=b.blocked_user_id,
-            name=(users[b.blocked_user_id].name if users.get(b.blocked_user_id) and users[b.blocked_user_id].name else "Пользователь"),
-        )
-        for b in blocks
-    ]
+            name=(u.name if (знакомы and u.name) else "Пользователь"),
+        ))
+    return out
 
 
 @router.delete("/blocks/{blocked_user_id}")

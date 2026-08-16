@@ -607,3 +607,70 @@ def guard_women_only(user, *, msg: tuple[str, str]) -> None:
     if not g:
         raise herr(403, MSG_GENDER_UNKNOWN[0], MSG_GENDER_UNKNOWN[1])
     raise herr(403, msg[0], msg[1])
+
+
+def have_met(session: Session, a_id: int, b_id: int) -> bool:
+    """Пересекались ли эти двое хоть в одной сделке (аудит 2026-08-08, волна 120).
+
+    Зачем это понадобилось. Заблокировать можно было ЛЮБОГО по номеру, а список «кого я
+    заблокировал» отдаётся с именами. Значит перебором «заблокировать 1, 2, 3…» за час
+    выгружался справочник «номер → имя» всех, кто вообще есть в приложении района. Следа
+    при этом не оставалось ни у кого: человек не узнаёт, что его заблокировали.
+
+    Кнопка «Заблокировать» существует ради одного: закрыться от того, с кем УЖЕ столкнулся.
+    Поэтому и разрешаем её ровно в этом случае.
+
+    Считаем пересечением любую сделку в любом статусе — даже отменённую и незавершённую:
+    нахамить в чате можно и по поездке, которая не состоялась, и закрыться от такого человека
+    надо тем более.
+    """
+    from .models import Booking, InstantOrder, ParcelDelivery, RequestResponse, Ride, RideRequest
+
+    # Попутка: пассажир ↔ водитель (в обе стороны).
+    поездка = session.exec(
+        select(Booking.id).join(Ride, Booking.ride_id == Ride.id).where(
+            or_(
+                (Booking.passenger_id == a_id) & (Ride.driver_id == b_id),
+                (Booking.passenger_id == b_id) & (Ride.driver_id == a_id),
+            )
+        ).limit(1)
+    ).first()
+    if поездка:
+        return True
+
+    # Такси.
+    заказ = session.exec(
+        select(InstantOrder.id).where(
+            or_(
+                (InstantOrder.passenger_id == a_id) & (InstantOrder.driver_id == b_id),
+                (InstantOrder.passenger_id == b_id) & (InstantOrder.driver_id == a_id),
+            )
+        ).limit(1)
+    ).first()
+    if заказ:
+        return True
+
+    # Доставка: отправитель ↔ курьер.
+    посылка = session.exec(
+        select(ParcelDelivery.id).where(
+            or_(
+                (ParcelDelivery.sender_id == a_id) & (ParcelDelivery.courier_id == b_id),
+                (ParcelDelivery.sender_id == b_id) & (ParcelDelivery.courier_id == a_id),
+            )
+        ).limit(1)
+    ).first()
+    if посылка:
+        return True
+
+    # Отклик на заявку: торг — это уже разговор, и он бывает неприятным.
+    отклик = session.exec(
+        select(RequestResponse.id).join(
+            RideRequest, RequestResponse.request_id == RideRequest.id
+        ).where(
+            or_(
+                (RequestResponse.driver_id == a_id) & (RideRequest.passenger_id == b_id),
+                (RequestResponse.driver_id == b_id) & (RideRequest.passenger_id == a_id),
+            )
+        ).limit(1)
+    ).first()
+    return отклик is not None
