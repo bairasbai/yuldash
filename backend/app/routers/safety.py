@@ -757,7 +757,7 @@ class StuckIn(BaseModel):
     note: str = Field("", max_length=500)
 
 
-@router.post("/bookings/{booking_id}/stuck", response_model=SosEvent)
+@router.post("/bookings/{booking_id}/stuck")
 def roadside_help(
     booking_id: int,
     body: StuckIn,
@@ -771,7 +771,7 @@ def roadside_help(
     return _roadside(session, background, user, body, booking_id=booking_id)
 
 
-@router.post("/instant/orders/{order_id}/stuck", response_model=SosEvent)
+@router.post("/instant/orders/{order_id}/stuck")
 def roadside_help_order(
     order_id: int,
     body: StuckIn,
@@ -786,7 +786,7 @@ def roadside_help_order(
     return _roadside(session, background, user, body, order_id=order_id)
 
 
-@router.post("/parcels/{parcel_id}/stuck", response_model=SosEvent)
+@router.post("/parcels/{parcel_id}/stuck")
 def roadside_help_parcel(
     parcel_id: int,
     body: StuckIn,
@@ -887,7 +887,13 @@ def _roadside(session: Session, background: BackgroundTasks, user: User, body: "
     )
     log.info(f"[ROADSIDE] user={user.id} booking={booking_id} order={order_id} "
              f"contacts_notified={len(phones)}")
-    return event
+    # Сколько человек реально предупреждено — это должен знать тот, кто нажал (волна 122).
+    # Экран писал «близкие и поддержка получили твои координаты» ВСЕГДА, даже когда доверенных
+    # контактов человек не заводил и SMS не ушло никому. Курьер на трассе в минус двадцать
+    # читал это и переставал звонить сам.
+    payload = event.model_dump()
+    payload["contacts_notified"] = len(phones)
+    return payload
 
 
 

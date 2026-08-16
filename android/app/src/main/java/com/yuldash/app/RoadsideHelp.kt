@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,13 +39,15 @@ import kotlinx.coroutines.launch
 fun RoadsideHelpAction(
     key: Any?,
     modifier: Modifier = Modifier,
-    send: suspend (Double?, Double?) -> Result<Unit>,
+    send: suspend (Double?, Double?) -> Result<Int>,
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var confirm by remember(key) { mutableStateOf(false) }
     var busy by remember(key) { mutableStateOf(false) }
     var sent by remember(key) { mutableStateOf(false) }
+    // Скольким близким реально ушло SMS. -1 = ещё не отправляли.
+    var notified by remember(key) { mutableIntStateOf(-1) }
     val failMsg = appText(
         "Сигнал не отправлен. Проверь связь и повтори.",
         "Сигнал ебәрелмәне. Бәйләнеште тикшереп ҡабатла.",
@@ -55,9 +58,18 @@ fun RoadsideHelpAction(
     if (sent) {
         Surface(color = CanonWarnBg, shape = CanonItemShape, modifier = modifier) {
             Text(
-                appText(
+                // Текст по факту, а не по замыслу (волна 122). Раньше здесь всегда стояло
+                // «близкие получили твои координаты» — даже когда доверенных контактов человек
+                // не заводил и SMS не ушло НИКОМУ. Курьер на трассе в минус двадцать читал это
+                // и переставал звонить сам.
+                if (notified > 0) appText(
                     "Помощь вызвана: близкие и поддержка получили твои координаты.",
                     "Ярҙам саҡырылды: яҡындар һәм ярҙам хеҙмәте координаталарыңды алды.",
+                ) else appText(
+                    "Поддержка получила твои координаты. Близких в списке нет — добавь их " +
+                        "в «Доверенных», чтобы в следующий раз им тоже ушло SMS.",
+                    "Ярҙам хеҙмәте координаталарыңды алды. Яҡындар исемлектә юҡ — уларҙы " +
+                        "«Ышаныслы кешеләр»гә өҫтә, киләһе юлы SMS уларға ла китһен.",
                 ),
                 color = CanonWarn,
                 style = CanonCaption,
@@ -98,7 +110,7 @@ fun RoadsideHelpAction(
                     busy = true
                     scope.launch {
                         send(LocationPrefs.lastLat, LocationPrefs.lastLng)
-                            .onSuccess { sent = true; confirm = false }
+                            .onSuccess { n -> notified = n; sent = true; confirm = false }
                             .onFailure {
                                 android.widget.Toast
                                     .makeText(ctx, serverSaid(it, failMsg), android.widget.Toast.LENGTH_LONG)

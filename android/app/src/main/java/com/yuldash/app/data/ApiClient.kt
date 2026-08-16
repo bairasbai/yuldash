@@ -1090,10 +1090,12 @@ object ApiClient {
 
     /** F12 «Застрял на трассе»: координаты уходят доверенным контактам + запись в SOS-ленту админа.
      *  Уровень мягче паники SOS. Координаты необязательны (шлём хотя бы сигнал о помощи). */
-    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String): Result<Unit> {
+    /** Возвращает, СКОЛЬКИМ близким реально ушло SMS (волна 122): экран обещал помощь даже
+     *  тому, кто доверенных контактов не заводил. */
+    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String): Result<Int> {
         val body = JSONObject().put("note", note)
         if (lat != null && lng != null) body.put("lat", lat).put("lng", lng)
-        return call("POST", "/bookings/$bookingId/stuck", body, auth = true).map { }.onSuccess { Analytics.log("roadside_help") }
+        return call("POST", "/bookings/$bookingId/stuck", body, auth = true).map { it.optInt("contacts_notified") }.onSuccess { Analytics.log("roadside_help") }
     }
 
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
@@ -4224,21 +4226,21 @@ object ApiClient {
 
     /** «Застрял на трассе» в ТАКСИ-заказе: координаты доверенным + сигнал админу.
      *  Зимний протокол работал только для попуток, хотя четыре часа трассы зимой — это такси. */
-    suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = ""): Result<Unit> {
+    suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = ""): Result<Int> {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true).map { }
+        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true).map { it.optInt("contacts_notified") }
     }
 
     /** «Застрял на трассе» в ДОСТАВКЕ. Курьер едет по той же зимней трассе и вдобавок один:
      *  рядом нет пассажира, который заметит беду. Сервер принимал сигнал с 2026-08-06,
      *  но в приложении нажать было негде (аудит 2026-08-06). */
-    suspend fun parcelRoadsideHelp(parcelId: Int, lat: Double?, lng: Double?, note: String = ""): Result<Unit> {
+    suspend fun parcelRoadsideHelp(parcelId: Int, lat: Double?, lng: Double?, note: String = ""): Result<Int> {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/parcels/$parcelId/stuck", body, auth = true).map { }
+        return call("POST", "/parcels/$parcelId/stuck", body, auth = true).map { it.optInt("contacts_notified") }
             .onSuccess { Analytics.log("roadside_help_parcel") }
     }
 
