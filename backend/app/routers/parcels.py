@@ -401,6 +401,32 @@ def _parcel_available(p: ParcelDelivery) -> dict:
     return out
 
 
+def parcel_contacts_open(p: ParcelDelivery, now=None) -> bool:
+    """Открыты ли ПРЯМО СЕЙЧАС телефоны и адреса сторон доставки (волна 128).
+
+    В такси это правило есть давно: после поездки связь живёт 48 часов, потом закрывается —
+    иначе водитель вечно видел бы имя и номер пассажирки, которую вёз год назад
+    (`instant_service.phones_open`). В доставке такого правила не было вовсе.
+
+    Что из этого выходило. Айгуль из Темясово Юлдашем не пользуется — её имя, телефон и адрес
+    «дом 7, синие ворота» вписал отправитель. Доставка закончилась месяц назад, а курьер
+    открывает «Что я везу», листает до завершённых — и там по-прежнему её телефон и точный
+    адрес, в один тап, у человека, который к ней домой уже приезжал.
+
+    Пока доставка живая — открыто. После закрытия — то же короткое окно, что и в такси:
+    забытая вещь, недовоз, «а куда вы это оставили» случаются именно в первые часы.
+    """
+    from ..instant_service import CONTACTS_AFTER_DONE
+
+    if p.status in ("created", "accepted", "in_transit", "returning"):
+        return True
+    now = now or utcnow()
+    # Отсчитываем от вручения; у отменённой и возвращённой отдельной отметки времени нет,
+    # поэтому берём создание — такие доставки и так закрываются в тот же день.
+    since = p.delivered_at or p.created_at
+    return since is None or (now - since) <= CONTACTS_AFTER_DONE
+
+
 def _parcel_for_courier(p: ParcelDelivery, session: Optional[Session] = None) -> dict:
     """Для принявшего курьера: базовое + телефоны ОБЕИХ сторон (открыты после accept). Код вручения
     курьер НЕ видит заранее — его называет получатель при передаче (иначе подтверждение бессмысленно).
@@ -412,11 +438,22 @@ def _parcel_for_courier(p: ParcelDelivery, session: Optional[Session] = None) ->
     from_address/to_address — по той же логике: «куда именно» нужно только тому, кто уже везёт."""
     out = _parcel_base(p)
     out.update(_photos(p))
-    out.update(_addresses(p))
-    out["receiver_phone"] = p.receiver_phone
-    sender = session.get(User, p.sender_id) if (session is not None and p.sender_id) else None
-    out["sender_phone"] = (sender.phone or "") if sender else ""
-    out["sender_name"] = (sender.name or "") if sender else ""
+    открыто = parcel_contacts_open(p)
+    if открыто:
+        out.update(_addresses(p))
+        out["receiver_phone"] = p.receiver_phone
+        sender = session.get(User, p.sender_id) if (session is not None and p.sender_id) else None
+        out["sender_phone"] = (sender.phone or "") if sender else ""
+        out["sender_name"] = (sender.name or "") if sender else ""
+    else:
+        # Доставка давно закрыта: телефоны и точные адреса гаснут — как в такси (волна 128).
+        # Города и статус остаются: курьеру нужна своя история заработка, а получателю —
+        # чтобы её адрес не лежал вечно в чужом телефоне.
+        out["from_address"] = ""
+        out["to_address"] = ""
+        out["receiver_phone"] = ""
+        out["sender_phone"] = ""
+        out["sender_name"] = ""
     return out
 
 

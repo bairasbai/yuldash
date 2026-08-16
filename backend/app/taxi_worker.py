@@ -120,6 +120,16 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
             session.add(fresh)
             session.commit()
             closed.append(fresh.id)
+            # Близкие, с которыми пассажир поделился поездкой, должны узнать о финале —
+            # особенно об ЭТОМ финале (волна 128). Зухра едет ночью Сибай — Уфа, мама получила
+            # SMS «села в такси». У водителя сел телефон, «Завершена» никто не нажал, и через
+            # шесть часов робот закрывает заказ. Пассажиру и водителю мы пишем, а маме — нет:
+            # для неё последняя новость так и остаётся «села в такси», семь часов назад.
+            # Функция «поделиться поездкой» существует ровно ради случая «что-то пошло не так».
+            try:
+                isv._notify_order_shares(session, fresh, "cancelled")
+            except Exception:  # noqa: BLE001 — SMS вторичны, закрытие заказа важнее
+                pass
             for uid in {fresh.passenger_id, fresh.driver_id} - {None}:
                 try:
                     push_notification(

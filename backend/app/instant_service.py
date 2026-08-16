@@ -1415,9 +1415,15 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
     net_rub, net_coins = divmod(net_kop, 100)
     net_text = f"{net_rub} ₽" if net_coins == 0 else f"{net_rub},{net_coins:02d} ₽"
 
+    # Адрес назначения режем ТАК ЖЕ, как в карточке заказа (волна 128). Карточка честно
+    # прячет номер дома, пока водитель не согласился везти, — потому что отказаться можно
+    # бесплатно и сколько угодно раз, и адреса ночных пассажирок иначе собирались бы отказами.
+    # А пуш выдавал «Гагарина, 5к2» целиком, да ещё поверх погасшего экрана: его читает
+    # не только водитель, но и любой, кто стоит рядом с телефоном на стоянке.
+    to_shown = street_only(order.to_text) if order.to_text else ""
     send_push(
         session, driver_id, "Новый заказ",
-        f"{order.from_text or 'Точка А'} → {order.to_text or 'Точка Б'} · чистыми {net_text}",
+        f"{order.from_text or 'Точка А'} → {to_shown or 'Точка Б'} · чистыми {net_text}",
         data={
             "type": "instant_offer",
             "order_id": str(order.id),
@@ -1428,7 +1434,7 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
             "net_kop": str(net_kop),
             "fee_percent": str(fee_percent),
             "from": order.from_text or "",
-            "to": order.to_text or "",
+            "to": to_shown,          # без номера дома — см. выше
             "ttl_sec": str(settings.instant_offer_ttl_sec),
             # Рейтинг/опыт пассажира (B7a-4): "" = новичок без оценок.
             "passenger_rating": "" if p_rating is None else str(p_rating),
