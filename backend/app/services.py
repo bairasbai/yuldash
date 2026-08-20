@@ -787,24 +787,32 @@ def _smsdar_send(phone: str, text: str) -> tuple[bool, str]:
     return ok, f"{r.status_code} {str(r.text)[:80]}"
 
 
-def notify_admin_telegram(text: str, reply_markup: dict | None = None) -> None:
+def notify_admin_telegram(text: str, reply_markup: dict | None = None) -> bool:
     """Уведомление администратору (Александру) в Telegram через бот: запрос звонка и пр.
-    Тихо ничего не делает, если бот/chat_id не настроены."""
+    Тихо ничего не делает, если бот/chat_id не настроены.
+
+    Возвращает True, только если сообщение РЕАЛЬНО принято Telegram. Раньше функция всегда
+    возвращала None и глотала ошибку внутри — то есть вызывающий не мог отличить «доставлено»
+    от «не ушло никуда». Для обычного уведомления это неважно, а для повтора по непринятому
+    SOS оказалось важно: эскалация помечала сигнал как «напомнили», хотя не напомнила никому
+    (аудит 2026-08-08, волна 140)."""
     if not settings.telegram_bot_token or not settings.admin_telegram_chat_id:
         log.info("[ADMIN_TG] не настроено (нет токена/chat_id) — пропуск")
-        return
+        return False
     try:
         import httpx
         payload = {"chat_id": settings.admin_telegram_chat_id, "text": text}
         if reply_markup:
             payload["reply_markup"] = reply_markup
-        httpx.post(
+        r = httpx.post(
             f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
             json=payload,
             timeout=8,
         )
+        return 200 <= r.status_code < 300
     except Exception as e:  # noqa: BLE001 — уведомление не должно ронять запрос
         log.warning(f"[ADMIN_TG] error {e}")
+        return False
 
 
 # ------------------- Алерт при всплеске 5xx (наблюдаемость) -------------------
@@ -851,8 +859,12 @@ def record_server_error(path: str = "") -> None:
         log.warning(f"[ERR_ALERT] record failed: {e}")
 
 
-def send_text(phone: str, text: str) -> None:
-    """Отправка произвольного SMS (SOS, статусы близким). smsru → реально; иначе/фоллбэк — в лог."""
+def send_text(phone: str, text: str) -> bool:
+    """Отправка произвольного SMS (SOS, статусы близким). smsru → реально; иначе/фоллбэк — в лог.
+
+    Возвращает True, только если провайдер ПОДТВЕРДИЛ отправку. Мок-режим и сбой шлюза дают
+    False: вызывающему важно знать, ушло сообщение или только легло в лог. Понадобилось для
+    повтора по непринятому SOS — он помечал сигнал доставленным вслепую (волна 140)."""
     mp = mask_phone(phone)
     if settings.sms_provider == "smsru" and settings.sms_ru_api_id:
         try:
@@ -866,20 +878,24 @@ def send_text(phone: str, text: str) -> None:
             log.info(f"[SMS] {mp}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
             if not ok and not settings.is_prod:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
+            return bool(ok)
         except Exception as e:  # noqa: BLE001
             log.warning(f"[SMS] {mp}: smsru error {e}")
             if not settings.is_prod:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
+            return False
     elif settings.sms_provider == "smsdar" and settings.smsdar_id and settings.smsdar_password:
         try:
             ok, info = _smsdar_send(phone, text)
             log.info(f"[SMS] {mp}: smsdar sent={ok} ({info})")
             if not ok and not settings.is_prod:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
+            return bool(ok)
         except Exception as e:  # noqa: BLE001
             log.warning(f"[SMS] {mp}: smsdar error {e}")
             if not settings.is_prod:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
+            return False
     else:
         # Мок-провайдер разрешён и в проде (SMS заморожен, вход через Telegram). Тело может содержать
         # имя и live-ссылку /t/{token} (capability-URL на живую гео) — в проде тело НЕ логируем.
@@ -887,6 +903,7 @@ def send_text(phone: str, text: str) -> None:
             log.info(f"[SMS-MOCK] {mp}: (тело скрыто в проде)")
         else:
             log.info(f"[SMS-MOCK] {mp}: {text}")
+        return False        # мок — это запись в лог, а не доставленное человеку сообщение
 
 
 # Сколько SMS близким человек может отправить за счёт платформы за сутки. Число взято тем же,
