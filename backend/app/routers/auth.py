@@ -13,10 +13,12 @@ from sqlmodel import Session, select
 
 from ..account import delete_user_account, guard_can_delete
 from ..antifraud import (MESSAGE_FLAG_CONTACT, guard_device_not_banned, moderate_open_text,
-                         phone_looks_recycled, release_phone, remember_login_device)
+                         normalize_device_id, phone_looks_recycled, release_phone,
+                         remember_login_device)
 from ..config import _phone_key, settings
 from ..db import engine, get_session
 from ..errors import herr
+from ..logs import log
 from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, TgAuth, User, UserRole
 from ..security import (
     current_user, gen_otp, is_placeholder_phone, issue_tokens, normalize_phone,
@@ -721,11 +723,24 @@ def delete_me(user: User = Depends(current_user), session: Session = Depends(get
 
 @router.post("/auth/logout")
 def logout(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Выход со всех устройств: гасим access (метка tokens_valid_from) и все refresh-токены."""
+    """Выход со всех устройств: гасим access, все refresh-токены И приём уведомлений.
+
+    Про уведомления (аудит 2026-08-08, волна 147). Раньше выход гасил ключи входа, но запись
+    устройства не трогал: сервер продолжал считать трубку принадлежащей этому человеку и слал
+    туда его уведомления. Отвязка жила в отдельной ручке, которую клиент должен позвать
+    по доброй воле и при живой сети — то есть когда телефон отобрали, она не сработает.
+
+    Деревенский сценарий проще: общий телефон, отец вышел, зашёл сын. Сервер по-прежнему считал
+    трубку отцовской и слал его уведомления на экран, который теперь смотрит сын. А кнопка
+    называется «Выйти со всех устройств» — значит должна выходить и здесь.
+    """
     user.tokens_valid_from = utcnow()
     session.add(user)
     session.commit()
     revoke_all_refresh(session, user.id)
+    for строка in session.exec(select(DeviceToken).where(DeviceToken.user_id == user.id)).all():
+        session.delete(строка)
+    session.commit()
     return {"ok": True}
 
 
@@ -734,20 +749,43 @@ class PushTokenIn(BaseModel):
 
 
 @router.post("/push/register")
-def push_register(body: PushTokenIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def push_register(body: PushTokenIn, user: User = Depends(current_user),
+                  session: Session = Depends(get_session),
+                  x_device_id: str = Header(default="", alias="X-Device-Id")):
     """Регистрация/перепривязка FCM-токена устройства к текущему пользователю."""
     if not body.token.strip():
         raise HTTPException(400, "Пустой токен")
+    did = normalize_device_id(x_device_id)
     existing = session.exec(select(DeviceToken).where(DeviceToken.token == body.token)).first()
     if existing:
+        # Перепривязка нужна по-настоящему: общий телефон в семье, отец вышел — зашёл сын,
+        # и уведомления должны идти тому, кто сейчас в приложении. Но раньше её мог сделать
+        # КТО УГОДНО, зная строку токена (аудит 2026-08-08, волна 147): жертва оставалась
+        # без единого устройства и переставала получать всё — сообщения, «водитель подъехал»,
+        # даже напоминание по сигналу SOS. Тихо: приложение выглядит рабочим, просто
+        # уведомления «почему-то не приходят».
+        #
+        # Различаем по устройству: забрать чужую запись можно только с того самого телефона,
+        # на котором она живёт. Старый клиент без отметки устройства не наказываем — иначе
+        # смена человека на общем телефоне сломается у тех, кто не обновился.
+        чужое_устройство = bool(existing.device_id and did and existing.device_id != did)
+        if чужое_устройство:
+            log.warning("[PUSH] попытка забрать чужую запись устройства: user_id=%s, владелец=%s",
+                        user.id, existing.user_id)
+            raise herr(409,
+                       "Это устройство привязано к другому аккаунту. Выйди из него на этом "
+                       "телефоне и войди заново.",
+                       "Был ҡоролма башҡа иҫәпкә бәйләнгән. Ошо телефондан унан сыҡ та яңынан ин.")
         existing.user_id = user.id
+        if did:
+            existing.device_id = did
         session.add(existing)
         session.commit()
         return {"ok": True}
     # Нового токена ещё нет — вставляем. Клиент шлёт токен из 2 мест на старте (сохранённый + свежий FCM),
     # оба запроса могут попасть на разные воркеры и одновременно пройти select-пусто → гонка на unique(token).
     try:
-        session.add(DeviceToken(user_id=user.id, token=body.token))
+        session.add(DeviceToken(user_id=user.id, token=body.token, device_id=did))
         session.commit()
     except IntegrityError:
         # Параллельный запрос успел вставить тот же токен между select и commit → перепривязываем к текущему юзеру.
@@ -755,6 +793,8 @@ def push_register(body: PushTokenIn, user: User = Depends(current_user), session
         row = session.exec(select(DeviceToken).where(DeviceToken.token == body.token)).first()
         if row:
             row.user_id = user.id
+            if did:
+                row.device_id = did
             session.add(row)
             session.commit()
     return {"ok": True}

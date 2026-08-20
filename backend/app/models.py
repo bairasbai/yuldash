@@ -142,6 +142,11 @@ class DeviceToken(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
     token: str = Field(index=True, unique=True)
+    # С какого телефона эта запись. Нужна, чтобы отличить законную смену человека на общем
+    # телефоне от попытки забрать чужой приём уведомлений (аудит 2026-08-08, волна 147):
+    # раньше перепривязать запись мог кто угодно, знающий строку токена, и жертва переставала
+    # получать всё — сообщения, «водитель подъехал», напоминание по сигналу SOS.
+    device_id: str = Field(default="", index=True)
     created_at: datetime = Field(default_factory=utcnow)
 
 
