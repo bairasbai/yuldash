@@ -488,7 +488,7 @@ def _preview_dict(ride: Ride, session: Session) -> dict:
     }
 
 
-def _shareable(ride: Ride, session: Session) -> bool:
+def _shareable(ride: Ride, session: Session):
     """Публичную OG/preview-витрину показываем только для «живой» поездки и НЕ «только для своих».
     История (done/cancelled) и «круг своих» (only_trusted) по прямому /r/{id} не раскрываем — иначе
     перебор ride_id даёт анонимный скрейпинг графа поездок (кто/куда/когда возит). Паритет с /rides/{id}.
@@ -502,20 +502,31 @@ def _shareable(ride: Ride, session: Session) -> bool:
     Смотрим глазами АНОНИМА (`user=None`): по этой ссылке заходят из мессенджера, без входа.
     """
     if ride.status != RideStatus.active:
-        return False
+        return None
     # «Только для своих» тут отдельной строкой НЕ проверяем: `visible_rides` прячет такие
     # поездки от анонима сама. Дубль был бы вторым местом, где живёт то же правило, — ровно
     # с этого и начинается расхождение дверей.
-    return bool(visible_rides([ride], None, session))
+    #
+    # Возвращаем не «да/нет», а САМУ обезличенную копию (волна 160). Раньше результат
+    # использовался только как признак, а в витрину уходил исходный `ride` — и вместе с ним
+    # связка с клиникой: `GET /r/{id}/preview` без входа отдавал `category: "hospital"` рядом
+    # с именем водителя, датой и маршрутом. Четыре другие двери эту связку прячут, эта одна
+    # раскрывала. Номера поездок идут подряд, так что за вечер собирается список, кто из района
+    # и когда ездит в больницу.
+    видимые = visible_rides([ride], None, session)
+    return видимые[0] if видимые else None
 
 
 @router.get("/r/{ride_id}/preview")
 def ride_preview(ride_id: int, session: Session = Depends(get_session)) -> dict:
     """Публичные данные поездки для веб-превью и deep-link. Без ПДн."""
     ride = session.get(Ride, ride_id)
-    if not ride or not _shareable(ride, session):
+    показываемая = _shareable(ride, session) if ride else None
+    if показываемая is None:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
-    return _preview_dict(ride, session)
+    # Витрину строим по обезличенной копии, а не по исходной поездке: в копии уже стёрта
+    # связка с клиникой (волна 160).
+    return _preview_dict(показываемая, session)
 
 
 def _t(lang: str, ru: str, ba: str) -> str:

@@ -1016,8 +1016,18 @@ def winter_check_ack(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
-    """Участник ответил «всё в порядке» — гасит эскалацию близким."""
-    booking, _ = booking_and_ride_for_user(session, booking_id, user)
+    """Пассажир ответил «всё в порядке» — гасит эскалацию близким.
+
+    Нажать может ТОЛЬКО тот, кого ждут дома (волна 160). Раньше кнопку жал любой участник —
+    то есть и водитель, тот самый человек, от которого эта защита и стоит. Одним запросом,
+    за пассажирку, навсегда: отметка ставится один раз, и ни ручка, ни ночной робот больше
+    никогда не позовут её маму. У третьей двери того же протокола — доставки — проверка стояла;
+    в двух, где человек едет один с незнакомцем, её не было.
+    """
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    if user.id != booking.passenger_id:
+        raise herr(403, "Отметить «я доехала» может только пассажир",
+                   "«Мин барып еттем» тип тик юлсы ғына билдәләй ала")
     return _winter_ack(session, booking)
 
 
@@ -1058,7 +1068,11 @@ def winter_check_order_ack(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
+    """Пассажир такси ответил «всё в порядке». Только он — см. пояснение у брони (волна 160)."""
     order = _order_for_participant(session, order_id, user)
+    if user.id != order.passenger_id:
+        raise herr(403, "Отметить «я доехал» может только пассажир",
+                   "«Мин барып еттем» тип тик юлсы ғына билдәләй ала")
     return _winter_ack(session, order)
 
 
