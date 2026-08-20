@@ -419,6 +419,23 @@ def void_debt_for_order(session: Session, order_id: int, note: str = "") -> bool
 WALLET_PAID_NOTE = "Оплачен из кошелька"
 
 
+def taxi_owed_kop(session: Session, driver_id: Optional[int]) -> int:
+    """Сколько водитель ещё должен платформе за такси (unpaid + pending), копейки.
+
+    Лёгкая сумма для денежных проверок: `debt_summary` тянет разбивку по неделям и реквизиты,
+    а здесь нужно одно число.
+    """
+    if driver_id is None:
+        return 0
+    total = session.exec(
+        select(func.coalesce(func.sum(CommissionDebt.amount_kop), 0)).where(
+            CommissionDebt.driver_id == driver_id,
+            CommissionDebt.status != DebtStatus.paid,
+        )
+    ).one()
+    return max(int(total or 0), 0)
+
+
 def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
                             now: Optional[datetime] = None) -> int:
     """Погасить долг по комиссии тем, что уже лежит у водителя в кошельке. Возврат — копейки.
