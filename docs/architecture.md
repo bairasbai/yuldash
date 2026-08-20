@@ -1779,7 +1779,7 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 Реализация D3 (v1, БЕЗ hold/capture — это v2). Пассажир платит за **завершённую** поездку картой/СБП через СУЩЕСТВУЮЩУЮ ЮKassa-инфру (`payments.py` create/fetch/webhook); водителю начисляется через **append-only ledger** (кошелёк). Полный статус — в [payments-ledger-backend.md](payments-ledger-backend.md).
 
 **Новые файлы:**
-- `backend/app/ledger.py` — деньги: `fee_kop_for` (комиссия, целые копейки, ROUND_HALF_UP), `driver_balance` (= SUM), `settle_instant_order`/`settle_booking` (идемпотентно, под row-lock), `reconcile` (сверка за период).
+- `backend/app/ledger.py` — деньги: `fee_kop_for` (комиссия, целые копейки, ROUND_HALF_UP), `driver_balance` (= SUM), `settle_instant_order`/`settle_booking` (идемпотентно, под row-lock), `reconcile` (сверка за период). ⚠️ **Ставки разные:** такси — лесенка `driver_fee_percent` (3/5/8% + промо запуска), **попутка — своя `settings.ride_service_fee_percent`, по умолчанию 0%** (решение Александра, волна 154: попутка приводит людей, зарабатываем на такси). Без явной ставки бронь получала плоские 8% — картой водитель получал меньше, чем наличными.
 - `backend/app/routers/wallet.py` — эндпоинты оплаты/кошелька/сверки, зарегистрирован в `routers/__init__.py`.
 - `backend/alembic/versions/p3_ledger.py` — миграция (rev `p3_ledger`, down `p2_instant_order`), идемпотентна: свежая БД create_all → no-op; прод создаёт `ledgerentry` c 5 индексами и добавляет колонки в `payment`/`instantorder`/`booking`.
 - `backend/tests/test_ledger.py` — 19 тестов (комиссия/начисление/только-done/наличные/идемпотентность webhook/append-only/сверка/IDOR/бронь).
@@ -1803,7 +1803,7 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 **Суть:** за завершённый ТАКСИ-заказ (instant) водитель получает деньги напрямую (нал/прямой СБП), а комиссию 8% ДОЛЖЕН платформе. Раз в неделю переводит долг Александру по СБП → «Я оплатил» → админ подтверждает. Не оплатил в срок → режим ТАКСИ блокируется. **ПОПУТКА (плановые Ride/Booking) этим НЕ блокируется** — отдельный поток.
 
 Новые файлы:
-- `backend/app/debt.py` — логика: `order_commission_kop` (8% с цены, int-копейки), `accrue_for_order` (начисление в done, идемпотентно по order_id), `taxi_block_reason` (просрочка / сумма unpaid > порога), `debt_summary`, `declare_paid`, `admin_confirm`, `admin_reject`.
+- `backend/app/debt.py` — логика: `order_commission_kop` (8% с цены, int-копейки), `accrue_for_order` (начисление в done, идемпотентно по order_id), `taxi_block_reason` (просрочка / сумма unpaid > порога), `debt_summary`, `declare_paid`, `admin_confirm`, `admin_reject`, **`settle_debt_from_wallet`** (волна 154: деньги платформы в кошельке водителя гасят его долг платформе — FIFO, только целиком, только по **оплаченному** заказу, со списанием записью `fee`; зовётся из `accrue_for_order` и обеих ручек `/driver/debt`).
 - `backend/app/routers/debt.py` — эндпоинты, зарегистрирован в `routers/__init__.py`.
 - `backend/alembic/versions/p3_debt.py` — миграция (rev `p3_debt`, down `p3_ledger`), идемпотентна (baseline create_all no-op / прод create_table `commissiondebt` c 5 индексами).
 - `backend/tests/test_debt.py` — **16 тестов** (начисление/идемпотентность/блок presence·offer·accept/ПОПУТКА-не-блокируется/цикл оплаты→confirm→разблок/reject→снова-блок/анти-IDOR/границы).

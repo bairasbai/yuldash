@@ -334,8 +334,13 @@ def settle_booking(session: Session, booking_id: int, method: str, amount_kop: i
     booking.payment_method = method
     session.add(booking)
     if method in _CASHLESS:
+        # Ставка попутки — СВОЯ (ride_service_fee_percent, по умолчанию 0%), не общая.
+        # Без явного процента сюда подставлялся плоский service_fee_percent: наличными
+        # водитель получал всю тысячу, картой — 920 ₽, и разницу ему нигде не объясняли
+        # (аудит 2026-08-08, волна 154). Попутка бесплатна и в оферте, и в коде.
         _post_earn_and_fee(session, ride.driver_id, amount_kop,
-                           booking_id=booking.id, note=f"Бронь #{booking.id}")
+                           booking_id=booking.id, note=f"Бронь #{booking.id}",
+                           percent=settings.ride_service_fee_percent)
     session.commit()
     return "settled"
 

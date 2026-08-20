@@ -26,7 +26,7 @@ from sqlmodel import Session, select
 
 from . import promo_ride
 from .config import settings
-from .ledger import fee_kop_for, post_promo_compensation, promo_comp_ext_id
+from .ledger import driver_balance, fee_kop_for, post_promo_compensation, promo_comp_ext_id
 from .models import (
     CommissionDebt, DebtStatus, InstantOrder, InstantOrderStatus, LedgerEntry, LedgerKind,
     TaxiApplication, TaxiApplicationStatus,
@@ -352,6 +352,9 @@ def accrue_for_order(session: Session, order: InstantOrder) -> Optional[Commissi
     if comp > 0:
         post_promo_compensation(session, order.driver_id, order.id, comp)   # идемпотентно по ext_id
     if amount <= 0:
+        # Долга по этому заказу нет, но компенсация могла пополнить кошелёк — и ею закрывается
+        # долг за прошлые поездки (волна 154).
+        settle_debt_from_wallet(session, order.driver_id, now)
         return None                           # нулевая комиссия (промо 0% / грошовый заказ) — долг не заводим
     debt = CommissionDebt(
         driver_id=order.driver_id,
@@ -372,6 +375,9 @@ def accrue_for_order(session: Session, order: InstantOrder) -> Optional[Commissi
         return session.exec(
             select(CommissionDebt).where(CommissionDebt.order_id == order.id)
         ).first()
+    # Деньги платформы, уже лежащие у водителя в кошельке (компенсация промо-скидки), гасят
+    # свежий долг сразу — иначе он видит недоступную сумму и одновременно долг за ту же поездку.
+    settle_debt_from_wallet(session, order.driver_id, now)
     session.refresh(debt)
     return debt
 
@@ -401,6 +407,75 @@ def void_debt_for_order(session: Session, order_id: int, note: str = "") -> bool
         debt.note = note or f"{WRITTEN_OFF_PREFIX}: снят по разбору"
     session.add(debt)
     return True
+
+
+# Причина, по которой долг стал paid без перевода по СБП: его закрыли деньгами, которые уже
+# лежали у водителя в кошельке. Комиссию тут ВЗЯЛИ (записью fee), поэтому приставка намеренно
+# не WRITTEN_OFF_PREFIX — иначе расшифровка заработка спрятала бы её и завысила «чистыми».
+WALLET_PAID_NOTE = "Оплачен из кошелька"
+
+
+def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
+                            now: Optional[datetime] = None) -> int:
+    """Погасить долг по комиссии тем, что уже лежит у водителя в кошельке. Возврат — копейки.
+
+    Зачем (решение Александра, аудит 2026-08-08, волна 154). Компенсацию промо-скидки платформа
+    кладёт водителю в кошелёк (post_promo_compensation), но вывести её нельзя — выплаты на карту
+    выключены до оформления ИП. Получалось смешное: пассажир поехал по промокоду, водитель видит
+    «281,40 ₽» и не может их тронуть, и при этом ДОЛЖЕН платформе 18,60 ₽ комиссии за ту же
+    поездку. Деньги платформы у водителя и долг водителя платформе гасят друг друга — так это
+    и должно работать, без банковских договоров.
+
+    Правила:
+      • Гасим строго по старшинству (FIFO, старые долги первыми) и ТОЛЬКО целиком: суммы долга
+        не переписываем — долг append-запись на заказ, у него меняется статус, а не цифра.
+        Не хватило на самый старый — останавливаемся, деньги ждут. Иначе свежий мелкий долг
+        погасился бы, а старый просроченный продолжал блокировать такси.
+      • Списание из кошелька — отдельная запись fee (−сумма). Без неё долг исчезал бы, а число
+        в кошельке оставалось прежним, то есть деньги брались бы из воздуха.
+      • Идемпотентно: paid-долги не трогаем, повторный вызов при пустом балансе возвращает 0.
+      • Только по ОПЛАЧЕННОМУ заказу. Долг заводится в момент «Завершил», а способ оплаты
+        выясняется позже: если пассажир потом заплатит картой, комиссия удержится записью fee,
+        а долг Модели А снимется как фиктивный (void_debt_for_order). Погаси мы его кошельком
+        раньше — водитель заплатил бы комиссию дважды: один раз из кошелька, второй при оплате.
+        Ровно это и поймал прогон на промо-заказе. Пока заказ не оплачен, долг не окончателен.
+    """
+    if driver_id is None:
+        return 0
+    balance = driver_balance(session, driver_id)
+    if balance <= 0:
+        return 0
+    rows = session.exec(
+        select(CommissionDebt).join(
+            InstantOrder, InstantOrder.id == CommissionDebt.order_id
+        ).where(
+            CommissionDebt.driver_id == driver_id,
+            CommissionDebt.status != DebtStatus.paid,
+            InstantOrder.paid == True,          # noqa: E712 — способ оплаты уже известен
+        ).order_by(CommissionDebt.created_at, CommissionDebt.id)
+    ).all()
+    now = now or utcnow()
+    total = 0
+    for d in rows:
+        amount = max(int(d.amount_kop or 0), 0)
+        if amount == 0:
+            continue
+        if total + amount > balance:
+            break                              # на старейший долг не хватило — дальше не идём
+        d.status = DebtStatus.paid
+        d.confirmed_at = now
+        if not d.note:                         # свой note (напр. админское «простить») не трогаем
+            d.note = WALLET_PAID_NOTE
+        session.add(d)
+        total += amount
+    if total <= 0:
+        return 0
+    session.add(LedgerEntry(
+        driver_id=driver_id, kind=LedgerKind.fee, amount_kop=-total,
+        note="Комиссия за такси удержана из кошелька",
+    ))
+    session.commit()
+    return total
 
 
 def _unpaid(session: Session, driver_id: int) -> list[CommissionDebt]:

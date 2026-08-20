@@ -37,6 +37,10 @@ def _require_admin(user: User) -> None:
 @router.get("/driver/debt")
 def my_debt(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Долг водителя по комиссии за такси: сумма, срок, реквизиты СБП, блок. По СВОЕМУ токену."""
+    # Сначала зачитываем кошелёк: деньги платформы, лежащие у водителя (компенсация промо-скидки),
+    # гасят его долг платформе. Иначе экран показал бы «должен 18,60 ₽» человеку, у которого тут
+    # же в кошельке лежит 281,40 ₽ (аудит 2026-08-08, волна 154).
+    debt_mod.settle_debt_from_wallet(session, user.id)
     return debt_mod.debt_summary(session, user.id)
 
 
@@ -52,6 +56,10 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
 
     if settings.is_prod and settings.payments_provider == "mock":
         raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
+
+    # Кошелёк гасит долг раньше карты: платить картой то, что уже покрыто своими деньгами,
+    # человек не должен (волна 154).
+    debt_mod.settle_debt_from_wallet(session, user.id)
 
     if settings.payments_provider == "yookassa":
         summary = debt_mod.debt_summary(session, user.id)

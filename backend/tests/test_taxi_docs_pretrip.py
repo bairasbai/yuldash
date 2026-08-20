@@ -17,9 +17,9 @@ from app import doc_check, pretrip
 from app.config import settings
 from app.db import engine
 from app.models import (
-    DriverProfile, PreTripCheck, TaxiApplication, TaxiApplicationStatus, UserRole,
+    DriverProfile, PreTripCheck, TaxiApplication, UserRole,
 )
-from app.timeutil import utcnow
+from app.timeutil import local_date, utcnow
 
 
 @pytest.fixture(autouse=True)
@@ -29,7 +29,12 @@ def _quiet(monkeypatch):
 
 
 def _today() -> date:
-    return utcnow().date()
+    """«Сегодня» по Уфе — как считает сервер.
+
+    Стояло `utcnow().date()`: с 19:00 UTC (полночь в Уфе) тест жил уже во вчерашнем дне и
+    «до истечения 200 дней» превращалось в 199. Прогон краснел вечером и был зелёным утром —
+    хуже, чем просто красный: в такой тест перестают верить (аудит 2026-08-08, волна 154)."""
+    return local_date(utcnow())
 
 
 def _app_of(uid: int) -> TaxiApplication:
