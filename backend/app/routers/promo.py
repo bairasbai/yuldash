@@ -128,7 +128,7 @@ def _promo_counts(session: Session, promo: PromoCode) -> tuple[int, int]:
     return applied, active
 
 
-def _apply_message(promo: PromoCode) -> tuple[str, str]:
+def _apply_message(promo: PromoCode, credited: int | None = None) -> tuple[str, str]:
     """Дружелюбное двуязычное сообщение об активации (бонус/приветствие)."""
     disc_kop = promo_ride.granted_kop(promo)
     if disc_kop > 0:
@@ -138,9 +138,19 @@ def _apply_message(promo: PromoCode) -> tuple[str, str]:
             f"Код ҡабул ителде — таксиға {rub} һум ташлама 🚕 Заказ биргәндә үҙе эшләй.",
         )
     if promo.kind == "boost" and promo.perk_value > 0:
+        # Говорим, сколько начислили НА САМОМ ДЕЛЕ (аудит 2026-08-08, волна 153). У бонусов есть
+        # потолок: человеку с 18 поднятиями код «на 20» добавит два, а сообщение обещало двадцать.
+        # Для водителя это разница в 900 ₽ по прайсу — и он узнает о ней, только пересчитав
+        # поднятия сам.
+        сколько = promo.perk_value if credited is None else credited
+        if сколько <= 0:
+            return (
+                "Код принят, но бесплатные поднятия у тебя уже на максимуме 🙂",
+                "Код ҡабул ителде, ләкин бушлай күтәреүҙәр иң күп һанда инде 🙂",
+            )
         return (
-            f"Код принят — тебе начислено {promo.perk_value} бесплатных поднятий поездки 🎉",
-            f"Код ҡабул ителде — һиңә {promo.perk_value} бушлай күтәреү өҫтәлде 🎉",
+            f"Код принят — тебе начислено {сколько} бесплатных поднятий поездки 🎉",
+            f"Код ҡабул ителде — һиңә {сколько} бушлай күтәреү өҫтәлде 🎉",
         )
     return (
         "Код принят — добро пожаловать в Юлдаш! 🚗",
@@ -206,8 +216,11 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user),
     # taxi_ride → скидка на поездку в такси (сумма фиксируется здесь и живёт на PromoRedemption,
     # чтобы правка кампании задним числом не меняла уже данное человеку обещание);
     # welcome → чистая атрибуция.
+    начислено = None
     if promo.kind == "boost" and promo.perk_value > 0:
+        было = user.referral_credits
         user.referral_credits = min(user.referral_credits + promo.perk_value, MAX_REFERRAL_CREDITS)
+        начислено = user.referral_credits - было      # сколько реально влезло под потолок
         session.add(user)
     discount_kop = promo_ride.granted_kop(promo)
     # Счётчик кампании увеличиваем АТОМАРНО: условие «лимит ещё не выбран» живёт внутри UPDATE.
@@ -240,7 +253,7 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user),
         session.rollback()
         raise herr(409, "Ты уже активировал промокод", "Һин промокодты активлаштырҙың инде")
 
-    msg_ru, msg_ba = _apply_message(promo)
+    msg_ru, msg_ba = _apply_message(promo, начислено)
     return {
         "ok": True,
         "kind": promo.kind,

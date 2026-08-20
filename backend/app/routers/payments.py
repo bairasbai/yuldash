@@ -372,14 +372,24 @@ def boost_free(body: BoostFreeIn, user: User = Depends(current_user), session: S
     ride = session.get(Ride, body.ride_id)
     if not ride or ride.driver_id != user.id:
         raise herr(403, "Это не твоя поездка", "Был һинең сәфәрең түгел")
+    # Поднимать можно только живую поездку (аудит 2026-08-08, волна 153). Платный путь это
+    # проверял, бесплатный — нет: бонус (по прайсу 50 ₽) сгорал на отменённой поездке, которую
+    # всё равно никто не увидит. Человек тратил награду за приведённого друга в пустоту.
+    if ride.status != RideStatus.active:
+        raise herr(400, "Поездка неактивна", "Сәфәр әүҙем түгел")
     # Списание бонуса под row-lock (как book()): два параллельных free-boost не потратят
     # один и тот же бонус дважды (иначе гонка read-modify-write → 2 бесплатных подъёма, кредиты в минус).
     locked = session.exec(select(User).where(User.id == user.id).with_for_update()).one()
     if locked.referral_credits < 1:
         raise herr(400, "Нет бонусов", "Бонус юҡ")
     locked.referral_credits -= 1
-    ride.boosted_until = utcnow() + timedelta(hours=24)
-    ride.boost_tier = "free"
+    # Как и у платного поднятия — добавляем к остатку, а не обрезаем (волна 151).
+    сейчас = utcnow()
+    основа = (ride.boosted_until
+              if (ride.boosted_until and ride.boosted_until > сейчас) else сейчас)
+    ride.boosted_until = основа + timedelta(hours=24)
+    if not ride.boost_tier:
+        ride.boost_tier = "free"
     session.add(ride)
     session.add(locked)
     session.commit()
