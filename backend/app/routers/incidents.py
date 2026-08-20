@@ -575,7 +575,15 @@ def resolve_incident(incident_id: int, body: ResolveIn,
         raise herr(422, "Неизвестная сторона вины", "Ғәйеп яғы билдәһеҙ")
     # Футган: карательные побочки ложатся ТОЛЬКО на обвинённого. «Виноват заявитель» + strike
     # наказал бы невиновного. Наказание лживого заявителя — встречным спором, где он respondent.
-    if body.fault == "reporter" and (body.strike or body.resolution in ("warning", "strike", "suspend", "ban")):
+    # Поле «дней паузы» тоже карательное — и идёт по более приоритетной ветке, чем слово решения
+    # (явные дни от админа > ban > лестница). Без него в условии разбор «жалоба не подтвердилась,
+    # наговорил заявитель» с непочищенным числом в форме отключал ОПРАВДАННОГО на 30 дней и снимал
+    # его завтрашние рейсы с извинениями пассажирам (волна 158). След в журнале при этом честный —
+    # и потому особенно обидный: видно, что наказан не тот.
+    if body.fault == "reporter" and (
+        body.strike or body.suspend_days
+        or body.resolution in ("warning", "strike", "suspend", "ban")
+    ):
         raise HTTPException(422, "Вина на заявителе: наказание легло бы на обвинённого — заведи встречный спор")
     inc, prof = apply_incident_resolution(
         session, inc, resolution=body.resolution, fault=body.fault, note=body.note,

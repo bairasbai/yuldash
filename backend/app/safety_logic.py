@@ -250,6 +250,46 @@ def suspended_user_ids(session: Session) -> set[int]:
     return {int(r) for r in rows}
 
 
+def trip_really_happened(session: Session, *, booking_id=None, order_id=None,
+                         parcel_id=None) -> bool:
+    """Стороны действительно имели дело друг с другом? (аудит 2026-08-08, волна 158)
+
+    Тяжёлая жалоба снимает человека с линии сразу, до разбора у админа, — и правильно: ждать
+    сутки, когда речь о домогательстве, нельзя. Доказательством встречи служила привязка
+    к поездке: есть номер брони — значит ехали вместе.
+
+    Номер брони получает КТО УГОДНО в один тап: кнопка «Забронировать» открыта всем, водителя
+    никто не спрашивает. Проба: конкурент из соседнего села забронировал чужую поездку,
+    пожаловался на опасное вождение, отменил бронь — водитель снят с линии до ручного разбора
+    (пауза до 2036 года). Ехать никуда не надо, десять водителей за час.
+
+    Поэтому спрашиваем не «есть ли номер», а «был ли встречный шаг другой стороны»:
+      • попутка — водитель ПОДТВЕРДИЛ бронь (confirmed_at). Односторонний тап не считается;
+      • такси — водитель назначен на заказ (без него заказ ещё никого не касается);
+      • посылка — курьер её принял.
+
+    Жаловаться это не мешает: жалоба на постороннего по-прежнему уходит админу, живому человеку.
+    Не срабатывает только АВТОМАТИКА, которая наказывает без доказательства.
+    """
+    if booking_id is not None:
+        b = session.get(Booking, booking_id)
+        if b is None:
+            return False
+        # confirmed_at пуст у старых броней, переживших деплой без обратной заливки, —
+        # для них статус остаётся честным признаком: до confirmed бронь туда не попадала.
+        return bool(b.confirmed_at) or b.status in (
+            BookingStatus.confirmed, BookingStatus.onboard, BookingStatus.done)
+    if order_id is not None:
+        from .models import InstantOrder
+        o = session.get(InstantOrder, order_id)
+        return bool(o and o.driver_id)
+    if parcel_id is not None:
+        from .models import ParcelDelivery
+        p = session.get(ParcelDelivery, parcel_id)
+        return bool(p and p.courier_id)
+    return False
+
+
 def ensure_active(session: Session, user_id: int) -> None:
     """Гейт лестницы (§2): приостановленный аккаунт не совершает активных действий — жалобы,
     брони, публикации поездок/заявок, отклики на заявки, торг о цене, такси-заказы и предзаказы,

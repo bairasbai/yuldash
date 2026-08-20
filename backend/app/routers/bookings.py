@@ -606,6 +606,7 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     if is_blocked(session, user.id, booking.passenger_id):
         raise herr(403, "Недоступно", "Мөмкин түгел")
     booking.status = BookingStatus.confirmed
+    booking.confirmed_at = utcnow()   # доказательство встречи сторон (волна 158)
     session.add(booking)
     session.commit()
     session.refresh(booking)
