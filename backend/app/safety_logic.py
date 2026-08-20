@@ -510,11 +510,21 @@ def _exclude_linked_ratings(session: Session, incident: Incident) -> None:
     Снимаем обе: когда дело дошло до разбора, оценки по этой поездке уже не про поездку,
     а про конфликт. Кто прав, решает разбор, а не звёзды.
     """
-    if not incident.booking_id:
+    # Спор живёт на трёх видах поездок: попутка, такси и доставка. Щит раньше искал оценки
+    # ТОЛЬКО по попутке (аудит 2026-08-08, волна 146) — в такси и доставке кнопка «защитить»
+    # не делала ничего, и об этом никто не сообщал. Админ разобрал жалобу, признал водителя
+    # виноватым, нажал щит — а единица-месть так и висела на честном человеке.
+    поле, значение = None, None
+    for имя in ("booking_id", "order_id", "parcel_id"):
+        v = getattr(incident, имя, None)
+        if v:
+            поле, значение = имя, v
+            break
+    if поле is None:
         return
     pair = (incident.reporter_id, incident.respondent_id)
     ratings = list(session.exec(select(Rating).where(
-        Rating.booking_id == incident.booking_id,
+        getattr(Rating, поле) == значение,
         Rating.rater_id.in_(pair),
         Rating.ratee_id.in_(pair),
     )).all())
@@ -522,6 +532,11 @@ def _exclude_linked_ratings(session: Session, incident: Incident) -> None:
     for r in ratings:
         if not r.excluded:
             r.excluded = True
+            # Текст снимаем вместе со звёздами. Раньше щит убирал оценку из среднего, а слова
+            # оставлял на публичной странице: «оценок нет» и прямо под этим «этот водитель
+            # ворует и хамит» — любому, даже без входа в приложение. Разбор признал отзыв
+            # клеветой; значит клеветы на витрине быть не должно (волна 146).
+            r.text_published = False
             session.add(r)
             affected.add(r.ratee_id)
     session.flush()

@@ -22,7 +22,7 @@ from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, 
 from ..security import current_user
 from ..services import (
     DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url,
-    set_driver_docs_verdict, set_user_gender, user_rating,
+    set_driver_docs_verdict, set_user_gender, short_name, user_rating,
 )
 from ..storage import get_storage
 from ..timeutil import utcnow
@@ -442,17 +442,36 @@ def driver_public(driver_id: int, limit: int = 5, session: Session = Depends(get
     avg, cnt = user_rating(session, driver_id)
 
     # Последние текстовые отзывы, прошедшие модерацию (text_published=True), новые сверху.
+    #
+    # Снятые разбором (`excluded`) не показываем даже если текст когда-то был опубликован
+    # (аудит 2026-08-08, волна 146). Щит убирал звёзды из среднего, а слова оставлял: страница
+    # водителя показывала «оценок нет» и прямо под этим «этот водитель ворует и хамит» — любому,
+    # даже без входа. Разбор признал отзыв клеветой, значит на витрине его быть не должно.
+    #
+    # Второе условие оставлено намеренно: страховка на случай, если оценку снимут в обход
+    # общего щита — тогда текст всё равно не выйдет наружу.
     rows = session.exec(
         select(Rating)
-        .where(Rating.ratee_id == driver_id, Rating.text_published == True, Rating.text != "")  # noqa: E712
+        .where(Rating.ratee_id == driver_id, Rating.text_published == True,  # noqa: E712
+               Rating.excluded == False, Rating.text != "")  # noqa: E712
         .order_by(Rating.created_at.desc())
         .limit(limit)
     ).all()
+    # Автора отзыва показываем ТОЛЬКО именем-инициалом: «Гульнара А.» вместо «Гульнара
+    # Ахметова» (аудит 2026-08-08, волна 146).
+    #
+    # Страница водителя открыта без входа, а оценка в самом коде объявлена анонимной. При этом
+    # опубликованный текст нёс полное имя автора из профиля — и посторонний мог по одной ссылке
+    # собрать поимённый список тех, кто с этим водителем ездит. В районе, где все друг друга
+    # знают, это готовый ответ на вопрос «с кем она ездит».
+    #
+    # Полностью прятать не стали: отзыв без человека читается как накрутка, а доверие в Юлдаше
+    # и держится на том, что за словами стоит сосед, а не аноним.
     author_ids = {r.rater_id for r in rows}
     authors = {a.id: a for a in session.exec(select(User).where(User.id.in_(author_ids))).all()} if author_ids else {}
     reviews = [
         PublicReviewOut(
-            author=((authors.get(r.rater_id).name if authors.get(r.rater_id) else "") or "Аноним"),
+            author=short_name((authors.get(r.rater_id).name if authors.get(r.rater_id) else "")),
             stars=r.stars, text=r.text, created_at=r.created_at,
         )
         for r in rows
