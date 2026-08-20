@@ -1620,9 +1620,17 @@ object ApiClient {
             (0 until arr.length()).map { i -> arr.getJSONObject(i).toDriverScheduleDto() }
         }
 
-    /** Публичные регулярные маршруты водителя (для профиля/поиска, без auth). */
+    /**
+     * Публичные регулярные маршруты водителя (для профиля/поиска).
+     *
+     * Ключ входа шлём ОБЯЗАТЕЛЬНО (аудит 2026-08-08, волна 143). Раньше запрос уходил без него,
+     * и сервер видел не человека, а гостя — значит фильтр «заблокированный не видит расписание»
+     * (волна 113) не срабатывал НИ РАЗУ через приложение. Женщина закрывалась от навязчивого
+     * пассажира, а он продолжал открывать её недельный график: дни, время и ориентир из
+     * комментария. Гостю сервер теперь отдаёт только маршрут и дни недели.
+     */
     suspend fun getPublicDriverSchedules(driverId: Int): Result<List<DriverScheduleDto>> =
-        call("GET", "/drivers/$driverId/schedule", null, auth = false).map { obj ->
+        call("GET", "/drivers/$driverId/schedule", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i -> arr.getJSONObject(i).toDriverScheduleDto() }
         }

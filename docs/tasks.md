@@ -11717,6 +11717,31 @@ grep -rn "client_max_body_size" /etc/nginx/
 
 ---
 
+# 📱 Экраны приложения без единого теста — список на будущее (2026-08-16)
+
+Посчитал: из 48 экранов приложения **31 не покрыт ни одним тестом**. Это не значит, что они
+сломаны, — значит, никто не заметит, если они сломаются. Список (по убыванию важности для
+человека):
+
+**Личное и деньги** — сюда смотреть первым делом:
+`SavedPlacesScreen` (сохранённые места — там домашний адрес), `TripReceiptScreen`
+и `TaxiReceiptScreen` (чеки: маршрут, сумма, кто вёз), `DriverEarningsScreen`,
+`CourierEarningsScreen`, `MyStatsScreen`, `IncomeCalculatorScreen`, `PromoCodeScreen`.
+
+**Переписка:** `SupportChatScreen`, `InstantChatScreen`, `ParcelChatScreen`.
+
+**Работа водителя и курьера:** `DriverProfileScreen`, `DriverResponsesScreen`,
+`DriverTaxiRidesScreen`, `MyTaxiTripsScreen`, `ScheduledOrdersScreen`, `CourierOnboardingScreen`,
+`ClinicRidesScreen`, `SupportBoostScreen`.
+
+**Админские (их видишь только ты):** двенадцать экранов `Admin*`.
+
+Отдельной задачей это делать не срочно: экраны рабочие, и аудит сейчас идёт по серверу, где
+цена дыры выше. Но когда дойдут руки — начинать надо с первой группы: чек и сохранённые места
+показывают адрес человека, и именно там ошибка видна не сразу.
+
+---
+
 # 🔑 Отвязка номера: что делать, когда человек напишет «не могу войти» (волна 139)
 
 Появилась защита от подмены владельца номера: если аккаунт молчал больше полугода и вход идёт
