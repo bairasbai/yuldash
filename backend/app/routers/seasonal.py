@@ -28,7 +28,7 @@ from typing import Optional
 
 from fastapi import APIRouter
 
-from ..timeutil import utcnow
+from ..timeutil import local_date, utcnow
 
 router = APIRouter(tags=["seasonal"])
 
@@ -233,4 +233,4 @@ def seasonal_events(days: Optional[int] = None):
 
     Ответ — {"items": [...]} (единый контракт списков клиента: `optJSONArray("items")`)."""
     window = _LOOKAHEAD_DAYS if not days else max(1, min(days, _MAX_WINDOW))
-    return {"items": active_events(utcnow().date(), window)}
+    return {"items": active_events(local_date(utcnow()), window)}

@@ -17,6 +17,7 @@ from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, 
 from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused, ensure_active,
                             guard_women_only)
 from ..security import current_user, gen_otp
+from ..visibility import booking_contacts_open
 from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
 from ..trust_service import INSIDER_LEVEL, trust_level
@@ -277,7 +278,7 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
     driver = session.get(User, ride.driver_id)
     profile = session.exec(select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)).first()
     driver_car = f"{profile.car_make} {profile.car_model}".strip() if profile else ""
-    unlocked = booking.status in (BookingStatus.confirmed, BookingStatus.onboard, BookingStatus.done)
+    unlocked = booking_contacts_open(booking, ride)
     is_driver = ride.driver_id == user.id
     # Контакты взрослого за подростка — водителю, пока бронь ЖИВАЯ. Отменённая ничего не
     # открывает: см. комментарий у полей ниже.

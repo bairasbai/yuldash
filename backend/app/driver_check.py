@@ -16,7 +16,7 @@ from datetime import date
 from .config import settings
 from .services import DOC_DIR
 from .storage import get_storage
-from .timeutil import utcnow
+from .timeutil import local_date, utcnow
 
 # Расширение → mimeType Yandex OCR. webp и прочее OCR не поддерживает → пропускаем OCR.
 _OCR_MIME = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "pdf": "PDF"}
@@ -168,7 +168,7 @@ def check_driver_docs(license_url: str, car_photo_url: str,
     has_text = len(text.strip()) >= 20
     has_number = bool(parsed["license_number"])
     has_dates = bool(parsed["dates_found"])
-    today = utcnow().date()
+    today = local_date(utcnow())
     expired = bool(expiry and expiry < today)
     future_ok = bool(expiry and expiry >= today)
 

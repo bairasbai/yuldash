@@ -279,3 +279,37 @@ def may_be_notified(session: Session, watcher_id: int, author_id: int,
 # Пока объявлений мало, разницы не видно. Она появится ровно тогда, когда сервис вырастет,
 # и проявится хуже всего у тех, у кого слабый телефон и дорогой интернет, — то есть у наших.
 FEED_MAX = 200
+
+
+# Сколько телефон второй стороны остаётся видимым после поездки — ОДНО правило на попутку.
+#
+# У такси такое окно есть с аудита 2026-08-07 (`instant_service.phones_open`, 48 часов) с прямым
+# доводом: «водитель вечно видел имя и номер пассажирки, которую вёз год назад». У попутки —
+# самого старого сценария сервиса — окна не было вовсе (аудит 2026-08-08, волна 144). Проверено
+# пробой: поездка 400 дней назад, а телефон водителя открыт как в день выезда.
+#
+# В райцентре, где все друг друга знают, это не строчка в базе: один раз проехал — номер
+# человека остался у тебя навсегда.
+#
+# Срок берём тот же, что у чата после поездки (`chat_after_trip_hours`): держать два разных
+# окна для связи по одной поездке — значит однажды их рассинхронизировать.
+def booking_contacts_open(booking, ride, now=None) -> bool:
+    """Открыт ли ПРЯМО СЕЙЧАС телефон второй стороны по этой брони."""
+    from datetime import timedelta
+
+    from .config import settings
+    from .timeutil import utcnow
+
+    статус = booking.status.value if hasattr(booking.status, "value") else booking.status
+    if статус not in ("confirmed", "onboard", "done"):
+        return False
+    if статус != "done":
+        return True                     # едем прямо сейчас — связь нужна
+    сейчас = now or utcnow()
+    # «Забыл вещь» продлевает связь: пока идёт поиск, номер нужен обеим сторонам.
+    до = getattr(booking, "lost_item_until", None)
+    if до is not None and сейчас <= до:
+        return True
+    if ride is None or ride.depart_at is None:
+        return True                     # времени выезда нет — закрывать не по чему
+    return сейчас <= ride.depart_at + timedelta(hours=settings.chat_after_trip_hours)

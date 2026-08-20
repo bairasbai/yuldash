@@ -24,7 +24,7 @@ from ..models import (
 )
 from ..security import current_user
 from ..services import notify_admin_telegram, push_notification
-from ..timeutil import utcnow
+from ..timeutil import local_date, utcnow
 from .. import antifraud as af_mod
 from .. import car_class as cc
 from .. import class_rollout
@@ -175,11 +175,19 @@ def license_start_date(license_since_date: Optional[date], license_since_year: i
 
 
 def _validate_apply(body: TaxiApplyIn) -> None:
-    """Валидация требований 580-ФЗ/бизнес-правил. Ошибки — понятной русской строкой."""
+    """Валидация требований 580-ФЗ/бизнес-правил. Ошибки — понятной русской строкой.
+
+    «Сегодня» здесь — по Уфе, а не по мировому времени (аудит 2026-08-08, волна 144). Ночная
+    задача снимает таксиста с линии за просроченный полис по МЕСТНОМУ дню, а эта дверь раньше
+    считала по мировому — и с полуночи до пяти утра дни расходились. Водитель, у которого полис
+    кончился в местную полночь, открывал профиль, жал «Сохранить» с той же старой датой,
+    и сервер возвращал его на линию. Ровно те пять часов ночной смены, ради которых проверка
+    документов и делалась.
+    """
     inn = body.inn.strip()
     if not (inn.isdigit() and 10 <= len(inn) <= 12):
         raise herr(400, "ИНН должен состоять из 10–12 цифр", "ИНН 10–12 һандан торорға тейеш")
-    today = utcnow().date()
+    today = local_date(utcnow())
     if _full_years_since(body.birth_date, today) < MIN_AGE_YEARS:
         raise herr(400, f"Возить такси можно с {MIN_AGE_YEARS} лет", f"Такси йөрөтөргә {MIN_AGE_YEARS} йәштән мөмкин")
     if body.license_since_year > today.year:
@@ -194,7 +202,7 @@ def _validate_apply(body: TaxiApplyIn) -> None:
     # Сроки документов: если указаны — только в будущем. Просроченный документ в момент подачи
     # это не «почти готов», это отказ; лучше сказать сразу, чем одобрить и снять допуск назавтра.
     _validate_doc_dates(body.osago_until, body.permit_until, body.inspection_until)
-    if body.osgop_until is not None and body.osgop_until <= utcnow().date():
+    if body.osgop_until is not None and body.osgop_until <= local_date(utcnow()):
         raise herr(400, "Срок ОСГОП уже истёк", "ОСГОП ваҡыты үткән инде")
     # Мест больше восьми — это уже не легковое такси, а автобус: водителю нужна категория D,
     # а службе заказа лицензия на перевозки. Пропустить такого — подставить обоих.
@@ -215,7 +223,7 @@ def _validate_apply(body: TaxiApplyIn) -> None:
 
 def _validate_doc_dates(osago: Optional[date], permit: Optional[date], inspection: Optional[date]) -> None:
     """Общая проверка сроков (подача заявки и обновление документов — одно правило)."""
-    today = utcnow().date()
+    today = local_date(utcnow())
     for value, ru, ba in (
         (osago, "ОСАГО", "ОСАГО"),
         (permit, "разрешения на такси", "такси рөхсәтенең"),
@@ -233,7 +241,7 @@ def _validate_doc_dates(osago: Optional[date], permit: Optional[date], inspectio
 
 def _doc_dates(app: TaxiApplication) -> dict:
     """Сроки документов + производные флаги для экрана (клиент не считает даты сам)."""
-    today = utcnow().date()
+    today = local_date(utcnow())
     dates = {
         "osago_until": getattr(app, "osago_until", None),
         "permit_until": getattr(app, "permit_until", None),
@@ -388,7 +396,7 @@ def update_taxi_documents(body: TaxiDocsIn, user: User = Depends(current_user),
         app.osago_url = _ensure_owned_doc_url(body.osago_url, user, None)
     if body.permit_photo_url is not None and body.permit_photo_url.strip():
         app.permit_photo_url = _ensure_owned_doc_url(body.permit_photo_url, user, None)
-    today = utcnow().date()
+    today = local_date(utcnow())
     dates = [d for d in (app.osago_until, app.permit_until, app.inspection_until) if d is not None]
     if app.docs_expired and dates and all(d >= today for d in dates):
         app.docs_expired = False
