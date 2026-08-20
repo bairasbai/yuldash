@@ -15,10 +15,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 
+from .bodyguard import BodySizeLimitMiddleware
 from .config import settings
 from .db import engine, init_db
 from .digest import DailyDigestMiddleware
@@ -27,12 +29,33 @@ from .middleware import (
     unhandled_exception_handler,
 )
 from .observability import init_sentry
+
 from .routers import all_routers
 from .routers.health import API_VERSION
 from .services import MEDIA_DIR, init_chat_redis, seed_demo, seed_pickup_points
 from .storage import StorageError, get_storage
 
 API_V1_PREFIX = "/api/v1"
+
+
+async def _validation_without_echo(request, exc):   # noqa: ANN001
+    """Ответ на незаполненную форму — без пересказа присланного тела.
+
+    Стандартный ответ FastAPI вкладывает в каждую ошибку кусок входных данных. Для формы
+    с двумя обязательными полями это удваивает объём ответа, то есть превращает наш сервер
+    в усилитель чужого трафика (волна 148). Человеку от этого пересказа пользы нет: ему важно,
+    ЧТО заполнить, а не увидеть свои же байты обратно.
+    """
+    поля = []
+    for e in exc.errors():
+        путь = ".".join(str(p) for p in e.get("loc", ()) if p not in ("body", "query"))
+        if путь:
+            поля.append(путь[:60])
+    return JSONResponse(status_code=422, content={"detail": {
+        "ru": "Проверь заполнение полей: " + (", ".join(поля[:8]) or "форма заполнена неверно"),
+        "ba": "Ҡырҙарҙы тикшер: " + (", ".join(поля[:8]) or "форма дөрөҫ тултырылмаған"),
+    }})
+
 
 
 def _say(line: str) -> None:
@@ -107,7 +130,15 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type"],
     )
     app.add_middleware(RateLimitMiddleware)
+    # Самый внешний слой: отсечь непомерный запрос ДО того, как тело попадёт в память
+    # (волна 148). Раньше десять параллельных запросов по 20 МБ от человека без аккаунта
+    # поднимали память процесса втрое и подвешивали сервер почти на две секунды.
+    app.add_middleware(BodySizeLimitMiddleware)
     app.add_exception_handler(Exception, unhandled_exception_handler)
+    # Ответ «заполни поля» не должен возвращать присланное тело обратно (волна 148): у формы
+    # входа два обязательных поля, и ответ выходил ровно вдвое больше запроса — то есть
+    # усиливал трафик атакующего вместо того, чтобы его гасить.
+    app.add_exception_handler(RequestValidationError, _validation_without_echo)
 
     # Хранилище медиа недоступно (S3 отвалился) → мягкая двуязычная 503, а не 500 «краш».
     async def _storage_unavailable(request, exc):   # noqa: ANN001
