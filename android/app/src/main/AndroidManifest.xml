@@ -45,7 +45,6 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="yulbash.ru" android:pathPrefix="/r/" />
-                <data android:scheme="http" android:host="yulbash.ru" android:pathPrefix="/r/" />
             </intent-filter>
         </activity>
 
