@@ -53,6 +53,24 @@ router = APIRouter(tags=["courier"])
 # ---------------------------------------------------------------------------
 COURIER_COD_CAP_KOP = 500_000          # потолок наложки/стоимости товара для buy_bring = 5000 ₽
 
+# Насколько курьер может превысить сумму, на которую согласился заказчик (аудит 2026-08-08,
+# волна 157). Раньше проверялся только общий потолок: заказчик просил купить лекарств на 1000 ₽,
+# курьер вводил 5000 ₽, и получателю приходил счёт в пять раз больше — а тот стоит в дверях
+# с пакетом и решает за секунду. Совсем без запаса тоже нельзя: цена в магазине не совпадает
+# с ожиданием почти никогда. Берём БОЛЬШЕЕ из процента и фикса — иначе на заказе в 200 ₽ запас
+# был бы тридцать рублей.
+COURIER_GOODS_OVERRUN_PERCENT = 15     # запас к согласованной сумме, %
+COURIER_GOODS_OVERRUN_MIN_KOP = 10000  # но не меньше 100 ₽ — для маленьких заказов
+
+
+def goods_limit_kop(agreed_kop: int) -> int:
+    """Потолок фактической стоимости товара: согласованная сумма плюс разумный запас."""
+    agreed = max(int(agreed_kop or 0), 0)
+    if agreed <= 0:
+        return COURIER_COD_CAP_KOP     # сумма не согласована — держит только общий потолок
+    запас = max(agreed * COURIER_GOODS_OVERRUN_PERCENT // 100, COURIER_GOODS_OVERRUN_MIN_KOP)
+    return min(agreed + запас, COURIER_COD_CAP_KOP)
+
 COURIER_TARIFF = {
     "base_kop": 10000,                 # подача курьера — 100 ₽
     "per_km_kop": 2000,                # 20 ₽ за км дороги
@@ -979,11 +997,69 @@ def courier_goods_cost(order_id: int, body: GoodsCostIn, user: User = Depends(cu
     if actual_kop > COURIER_COD_CAP_KOP:
         raise herr(422, f"Сумма покупки слишком большая (лимит {COURIER_COD_CAP_KOP // 100} ₽)",
                    f"Һатып алыу суммаһы бик ҙур (сик {COURIER_COD_CAP_KOP // 100} һ)")
+    # Главный потолок — не общий лимит, а то, на что согласился ЗАКАЗЧИК (волна 157). Запас
+    # на разницу цен в магазине есть, но пятикратный счёт получателю выставить нельзя: он стоит
+    # в дверях с пакетом и решает за секунду. Больше запаса — пусть заказчик поднимет сумму сам
+    # (эндпоинт ниже), это его деньги и его решение.
+    предел = goods_limit_kop(getattr(parcel, "cod_amount_kop", 0) or 0)
+    if actual_kop > предел:
+        raise herr(
+            422,
+            f"Заказчик согласился на {(parcel.cod_amount_kop or 0) // 100} ₽ "
+            f"(с запасом — до {предел // 100} ₽). Свяжись с ним: он поднимет сумму в заказе",
+            f"Заказ биреүсе {(parcel.cod_amount_kop or 0) // 100} һумға ризалашҡан "
+            f"(запас менән — {предел // 100} һумға тиклем). Уның менән бәйләнеш: ул заказҙа "
+            "сумманы арттырыр",
+        )
     parcel.goods_actual_kop = actual_kop
     session.add(parcel)
     session.commit()
     session.refresh(parcel)
     return {"id": parcel.id, "settlement": parcels_mod._settlement(parcel)}
+
+
+class RaiseBudgetIn(BaseModel):
+    cod_amount_kop: int = 0   # новая сумма, на которую согласен заказчик
+
+
+@router.post("/courier/orders/{order_id}/raise-budget")
+def courier_raise_budget(order_id: int, body: RaiseBudgetIn, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)):
+    """Заказчик поднимает сумму, на которую согласен («в аптеке дороже — ладно, бери»).
+
+    Без этой двери отказ курьеру («сумма выше согласованной») был бы тупиком: товар уже куплен,
+    провести расчёт нельзя, и оба остаются в подвешенном состоянии. Поднимать может ТОЛЬКО
+    заказчик и только вверх — курьер сумму своего же счёта не двигает. До вручения.
+    """
+    parcel = session.get(ParcelDelivery, order_id)
+    if not parcel or parcel.sender_id != user.id:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "buy_bring":
+        raise herr(409, "Только для «купи и привези»", "Тик «һатып ал да килтер» өсөн")
+    if parcel.status in _FINAL_STATUSES:
+        raise herr(409, "Заказ уже завершён", "Заказ инде тамамланған")
+    новая = int(body.cod_amount_kop or 0)
+    прежняя = int(parcel.cod_amount_kop or 0)
+    if новая <= прежняя:
+        raise herr(422, "Новая сумма должна быть больше прежней",
+                   "Яңы сумма элеккенән ҙурыраҡ булырға тейеш")
+    if новая > COURIER_COD_CAP_KOP:
+        raise herr(422, f"Сумма покупки слишком большая (лимит {COURIER_COD_CAP_KOP // 100} ₽)",
+                   f"Һатып алыу суммаһы бик ҙур (сик {COURIER_COD_CAP_KOP // 100} һ)")
+    parcel.cod_amount_kop = новая
+    session.add(parcel)
+    session.commit()
+    session.refresh(parcel)
+    if parcel.courier_id:
+        push_notification(
+            session, parcel.courier_id, "parcel",
+            "Заказчик поднял сумму покупки 💰", "Заказ биреүсе һатып алыу сумманы арттырҙы 💰",
+            f"Теперь можно потратить до {goods_limit_kop(новая) // 100} ₽.",
+            f"Хәҙер {goods_limit_kop(новая) // 100} һумға тиклем тотоу мөмкин.",
+            ref_kind="parcel", ref_id=parcel.id,
+        )
+    return {"id": parcel.id, "cod_amount_kop": parcel.cod_amount_kop,
+            "goods_limit_kop": goods_limit_kop(parcel.cod_amount_kop)}
 
 
 # ---------------------------------------------------------------------------

@@ -170,11 +170,18 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         # но ТОЛЬКО те, что вошли в снапшот суммы (delivered_at <= момент создания платежа). Иначе
         # доставки, сделанные в окне между «жму оплатить» и подтверждением, погасились бы бесплатно.
         # Идемпотентно (только ещё неоплаченные). Новые доставки останутся к оплате следующим платежом.
+        # Тип доставки обязателен: сумма к оплате считается ТОЛЬКО по курьерским заказам
+        # (_commission_owed_kop), а гасились раньше все подряд — вместе с попутными. Курьер
+        # платил 50 ₽ своего долга, и заодно списывалась комиссия по попутной доставке на 300 ₽,
+        # которую платформа не получала никогда (аудит 2026-08-08, волна 157). Список типов —
+        # тот же, что у расчёта долга, не копия: две копии одного списка разъедутся.
         from ..models import ParcelDelivery
+        from .courier import _COURIER_TYPES
         rows = session.exec(
             select(ParcelDelivery).where(
                 ParcelDelivery.courier_id == payment.user_id,
                 ParcelDelivery.status == "delivered",
+                ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
                 ParcelDelivery.commission_paid == False,  # noqa: E712
                 ParcelDelivery.delivered_at <= payment.created_at,
             )
