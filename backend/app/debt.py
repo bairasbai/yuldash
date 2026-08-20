@@ -31,7 +31,7 @@ from .models import (
     CommissionDebt, DebtStatus, InstantOrder, InstantOrderStatus, LedgerEntry, LedgerKind,
     TaxiApplication, TaxiApplicationStatus,
 )
-from .timeutil import utcnow
+from .timeutil import local_date, utcnow
 
 
 def _week_key(dt) -> str:
@@ -58,7 +58,11 @@ def _launch_promo_percent(session: Session, driver_id: int, now) -> Optional[flo
     if app is None:
         return None
     approved_at = app.reviewed_at or app.created_at
-    if approved_at is None or approved_at.date() > promo_until:
+    # Дата одобрения — по Уфе, как и дата окончания набора в конфиге. По мировому времени
+    # водитель, одобренный 1 сентября в 2 часа ночи, попадал в августовский набор и получал
+    # 0% комиссии, которого не заслужил: пять часов каждые сутки платформа раздавала промо
+    # опоздавшим (аудит 2026-08-08, волна 155).
+    if approved_at is None or local_date(approved_at) > promo_until:
         return None                     # одобрен после окна набора — промо не для него
     if now > approved_at + timedelta(days=settings.launch_promo_days):
         return None                     # промо-период истёк — дальше обычная лесенка

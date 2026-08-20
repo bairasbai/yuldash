@@ -769,7 +769,7 @@ def test_forced_offline_removes_the_coordinates(client, user_factory, fake_redis
     """
     from datetime import timedelta as _td
     from app import doc_check
-    from app.timeutil import utcnow as _utcnow
+    from app.timeutil import local_date as _local_date, utcnow as _utcnow
     from app.db import engine as _engine
     from app.instant_service import PRESENCE_KEY
     from app.models import TaxiApplication
@@ -786,14 +786,11 @@ def test_forced_offline_removes_the_coordinates(client, user_factory, fake_redis
         app_row = s.exec(_sel(TaxiApplication).where(TaxiApplication.user_id == d["id"])).first()
         if app_row is None:
             app_row = TaxiApplication(user_id=d["id"], status="approved")
-        # Дату берём теми же часами, что и проверяемый код (`expire_overdue` сравнивает с
-        # `utcnow().date()`). Раньше тут стояло `date.today()` — МЕСТНАЯ дата. В Башкортостане
-        # это UTC+5: с местной полуночи до 5 утра местная дата уже завтрашняя, а UTC ещё
-        # вчерашняя, и «вчера» по-местному оказывалось «сегодня» по UTC — срок не считался
-        # просроченным, тест падал. Пять часов в сутки, каждые сутки. Поймано ровно на этом:
-        # прогон перевалил за местную полночь, и зелёный тест покраснел на неизменном коде.
+        # Дату берём теми же часами, что и проверяемый код: `expire_overdue` считает день
+        # по Уфе (местный, волна 80). Комментарий тут годами описывал мировой день — код давно
+        # ушёл вперёд, а объяснение осталось от старой версии и учило неправильному (волна 155).
         # Запас в два дня — чтобы не сидеть на границе ни при каком часовом поясе.
-        app_row.osago_until = _utcnow().date() - _td(days=2)
+        app_row.osago_until = _local_date(_utcnow()) - _td(days=2)
         s.add(app_row)
         s.commit()
     with _S(_engine) as s:

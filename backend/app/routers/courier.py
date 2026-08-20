@@ -39,7 +39,7 @@ from ..security import current_user
 from ..services import (haversine_km, notify_admin_telegram, push_bilingual, push_notification,
                         user_rating)
 from ..visibility import FEED_MAX, visible_parcels
-from ..timeutil import utcnow
+from ..timeutil import local_date, utcnow
 from . import parcels as parcels_mod
 from .. import debt as debt_mod   # переиспользуем _local_day_expr: одна логика «локального дня» на проект
 from .. import geo as geo_mod   # зоны работы: одни правила с такси (geo.zone_allows)
@@ -249,9 +249,12 @@ def _launch_promo_active(session: Session, courier_id: int, now) -> bool:
     except ValueError:
         return False                      # кривая дата в конфиге → промо не применяем, не падаем
     reviewed = _courier_reviewed_at(session, courier_id)
-    if reviewed is None or reviewed.date() > until:
+    # Обе даты — по Уфе, как и `until` из конфига. По мировому времени набор пускал
+    # опоздавших (одобрен 1 сентября ночью → числился августовским), а само промо жило
+    # лишние пять часов после последнего дня (волна 155, та же дыра, что у такси).
+    if reviewed is None or local_date(reviewed) > until:
         return False                      # одобрен после окна набора — промо не для него
-    return now.date() <= until            # окно ещё не закрылось
+    return local_date(now) <= until       # окно ещё не закрылось
 
 
 def courier_fee_tier(session: Session, courier_id: int, now=None) -> Tuple[float, str]:
