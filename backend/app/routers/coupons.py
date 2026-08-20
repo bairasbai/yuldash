@@ -31,7 +31,7 @@ from ..models import Coupon, CouponReport, CouponRedemption, Partner, Payment, U
 from ..safety_logic import ensure_active
 from ..security import current_user
 from ..services import notify_admin_telegram, push_notification
-from ..timeutil import utcnow
+from ..timeutil import client_dt_to_utc, utcnow
 
 router = APIRouter(tags=["coupons"])
 
@@ -669,7 +669,8 @@ def partner_coupon_create(body: CouponIn, user: User = Depends(current_user), se
         partner_id=partner.id, title=title, description=body.description.strip(),
         discount_text=body.discount_text.strip(),
         city=(body.city.strip() or partner.city), route_hint=body.route_hint.strip(),
-        valid_from=body.valid_from, valid_until=body.valid_until,
+        valid_from=client_dt_to_utc(body.valid_from),
+        valid_until=client_dt_to_utc(body.valid_until),
         limit_total=max(0, body.limit_total), limit_per_user=max(1, body.limit_per_user),
         premium=bool(body.premium) and _partner_has_premium(partner),   # premium-метка только на premium-подписке
         status="draft",
@@ -754,8 +755,8 @@ def partner_coupon_update(coupon_id: int, body: CouponIn, user: User = Depends(c
     if body.city.strip():
         coupon.city = body.city.strip()
     coupon.route_hint = body.route_hint.strip()
-    coupon.valid_from = body.valid_from
-    coupon.valid_until = body.valid_until
+    coupon.valid_from = client_dt_to_utc(body.valid_from)
+    coupon.valid_until = client_dt_to_utc(body.valid_until)
     coupon.limit_total = max(0, body.limit_total)
     coupon.limit_per_user = max(1, body.limit_per_user)
     coupon.premium = bool(body.premium) and _partner_has_premium(partner)

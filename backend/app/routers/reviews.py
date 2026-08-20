@@ -19,7 +19,9 @@ from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
 from ..db import get_session
+from ..config import settings
 from ..errors import herr
+from ..flood import TOO_FAST_CREATING, guard_burst
 from ..logs import admin_action
 from ..models import AppReview, Rating, User, UserRole
 from ..security import current_user
@@ -48,16 +50,31 @@ class ReviewPublishIn(BaseModel):
 @router.post("/reviews", response_model=AppReview)
 def create_review(body: AppReviewIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Оставить отзыв о приложении. На лендинг попадёт после модерации (published)."""
+    # Потолок на темп: отзывы о приложении своего ограничения не имели вовсе, и один человек
+    # клал в очередь модерации пятнадцать штук подряд (проба роя, волна 152). Настоящие отзывы
+    # соседей тонут в мусоре, а админ перестаёт открывать очередь — то есть страдают как раз
+    # те, ради кого она заведена.
+    guard_burst(session, AppReview.id, AppReview.created_at, AppReview.user_id == user.id,
+                per_minute=settings.flood_create_per_minute,
+                ru=TOO_FAST_CREATING[0], ba=TOO_FAST_CREATING[1])
     text = (body.text or "").strip()
     if len(text) < 10:
         raise herr(400, "Отзыв слишком короткий", "Баһа артыҡ ҡыҫҡа")
     moderate_open_text(text, getattr(user, "id", None), place="review", session=session)   # отзыв публичный — телефон и грубость помечаем
     if len(text) > 600:
         raise herr(400, "Отзыв слишком длинный", "Баһа артыҡ оҙон")
+    # Город — тоже открытое поле, и его тоже проверяем (аудит 2026-08-08, волна 152).
+    #
+    # Проба роя: `city = "Сибай тел 89991112233"` прошёл насквозь и оказался на публичном
+    # лендинге — без входа, без метки админу. То есть бесплатная рекламная строка с чужим
+    # телефоном на сайте Юлдаша, о которой никто не знает: проверку навесили на текст отзыва
+    # и забыли на соседнее поле. Ровно то же было с именем в профиле (волна 2026-08-07).
+    город = (body.city or "").strip()[:60]
+    moderate_open_text(город, getattr(user, "id", None), place="review_city", session=session)
     review = AppReview(
         user_id=user.id,
         name=(user.name or "").strip(),
-        city=(body.city or "").strip()[:60],
+        city=город,
         stars=max(1, min(5, body.stars)),
         text=text,
         published=False,

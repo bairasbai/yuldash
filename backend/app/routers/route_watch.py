@@ -19,7 +19,7 @@ from ..db import get_session
 from ..errors import herr
 from ..models import RouteWatch, User
 from ..security import current_user
-from ..timeutil import utcnow
+from ..timeutil import client_dt_to_utc, utcnow
 
 router = APIRouter(tags=["route-watch"])
 
@@ -86,7 +86,7 @@ def create_route_watch(
         user_id=user.id,
         from_city=frm,
         to_city=to,
-        watch_date=body.watch_date,
+        watch_date=client_dt_to_utc(body.watch_date),
         direction=body.direction,
         watch_kind=body.watch_kind,
         created_at=now,

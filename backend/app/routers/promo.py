@@ -34,7 +34,7 @@ from ..models import (
     PromoRedemption, Ride, User, UserRole,
 )
 from ..security import current_user
-from ..timeutil import utcnow
+from ..timeutil import client_dt_to_utc, utcnow
 from .referral import LIVE_TRIP_MIN_KM, LIVE_TRIP_MIN_MINUTES, MAX_REFERRAL_CREDITS, _live_driver_trips
 
 router = APIRouter(tags=["promo"])
@@ -384,8 +384,8 @@ def admin_promo_create(body: AdminPromoIn, user: User = Depends(current_user), s
         # и врало: админ ставил «5 на человека», а второй раз код не принимался вовсе
         # (аудит 2026-08-12, волна 27 — «мёртвая настройка выглядит работающей»).
         limit_per_user=1,
-        valid_from=body.valid_from,
-        valid_until=body.valid_until,
+        valid_from=client_dt_to_utc(body.valid_from),
+        valid_until=client_dt_to_utc(body.valid_until),
         active=True,
     )
     session.add(promo)
@@ -437,9 +437,9 @@ def admin_promo_update(promo_id: int, body: AdminPromoEditIn, user: User = Depen
         promo.limit_total = max(0, body.limit_total)
     # `limit_per_user` осознанно НЕ правим: см. создание кампании — на человека код всегда один.
     if body.valid_from is not None:
-        promo.valid_from = body.valid_from
+        promo.valid_from = client_dt_to_utc(body.valid_from)
     if body.valid_until is not None:
-        promo.valid_until = body.valid_until
+        promo.valid_until = client_dt_to_utc(body.valid_until)
     session.add(promo)
     session.commit()
     session.refresh(promo)

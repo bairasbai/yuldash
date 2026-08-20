@@ -21,7 +21,7 @@ from ..models import Ad, AdEvent, Payment, User, UserRole
 from ..safety_logic import ensure_active
 from ..security import current_user
 from ..services import guard_own_media_url, notify_admin_telegram, push_notification
-from ..timeutil import utcnow
+from ..timeutil import client_dt_to_utc, utcnow
 
 router = APIRouter(tags=["ads"])
 
@@ -708,8 +708,8 @@ def admin_create_ad(body: AdIn, user: User = Depends(current_user), session: Ses
         cities=body.cities.strip(),
         founder_lock=(plan == "founder"),
         priority=body.priority,
-        starts_at=body.starts_at or utcnow(),
-        ends_at=None if plan == "founder" else body.ends_at,
+        starts_at=client_dt_to_utc(body.starts_at) or utcnow(),
+        ends_at=None if plan == "founder" else client_dt_to_utc(body.ends_at),
         status="draft",
         created_by=user.id,
     )
@@ -744,8 +744,8 @@ def admin_update_ad(ad_id: int, body: AdIn, user: User = Depends(current_user), 
         ad.plan = body.plan
         ad.founder_lock = body.plan == "founder"
     if body.starts_at:
-        ad.starts_at = body.starts_at
-    ad.ends_at = None if ad.plan == "founder" else body.ends_at
+        ad.starts_at = client_dt_to_utc(body.starts_at)
+    ad.ends_at = None if ad.plan == "founder" else client_dt_to_utc(body.ends_at)
     session.add(ad)
     session.commit()
     session.refresh(ad)
