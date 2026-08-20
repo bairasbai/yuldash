@@ -23,6 +23,11 @@ BOOST_PLANS: dict[str, tuple[str, int, int]] = {
     "urgent": ("Срочная поездка",  7000, 6),     # 70 ₽ / 6 ч
 }
 
+# Насколько «заметный» каждый уровень поднятия — по цене. Нужен, чтобы докупка дешёвого
+# не понижала уже оплаченный дорогой уровень (волна 151): человек, взявший «Срочную поездку»
+# и добавивший два часа «Быстрым», должен остаться срочным, а не наоборот.
+BOOST_WEIGHT: dict[str, int] = {tier: kop for tier, (_t, kop, _h) in BOOST_PLANS.items()}
+
 YOOKASSA_API = "https://api.yookassa.ru/v3/payments"
 YOOKASSA_PAYOUT_API = "https://api.yookassa.ru/v3/payouts"
 

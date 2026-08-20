@@ -16,7 +16,7 @@ from ..db import get_session
 from ..errors import herr
 from ..logs import admin_action, log
 from ..models import Ad, Payment, Ride, RideStatus, User, UserRole
-from ..payments import BOOST_PLANS, create_payment, fetch_payment
+from ..payments import BOOST_PLANS, BOOST_WEIGHT as _BOOST_WEIGHT, create_payment, fetch_payment
 from ..security import current_user
 from ..services import notify_admin_telegram
 from ..timeutil import utcnow
@@ -200,8 +200,24 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         ride = session.get(Ride, payment.ride_id)
         plan = BOOST_PLANS.get(payment.tier)
         if ride and plan:
-            ride.boosted_until = utcnow() + timedelta(hours=plan[2])
-            ride.boost_tier = payment.tier
+            # Второй платёж ДОБАВЛЯЕТ к остатку, а не обрезает его (аудит 2026-08-08, волна 151).
+            #
+            # Раньше срок просто переписывался «сейчас + период». Проверено пробой: человек купил
+            # «День вверху» за 50 ₽ (24 часа), сразу докупил «Быстрое поднятие» за 20 ₽ (2 часа) —
+            # и остался с двумя часами вместо суток. Заплатил 70 ₽ и потерял 22 часа, которые
+            # уже оплатил.
+            #
+            # Рядом, в этом же обработчике, реклама и подписка бизнеса считают именно так —
+            # «период плюс остаток». У поднятия поездки этого просто забыли.
+            сейчас = utcnow()
+            основа = (ride.boosted_until
+                      if (ride.boosted_until and ride.boosted_until > сейчас) else сейчас)
+            ride.boosted_until = основа + timedelta(hours=plan[2])
+            # Уровень оставляем НАИБОЛЕЕ дорогой из действующих: человек, доплативший за более
+            # заметное место, не должен опуститься ниже из-за копеечной докупки.
+            текущий_вес = _BOOST_WEIGHT.get(ride.boost_tier or "", 0)
+            if _BOOST_WEIGHT.get(payment.tier, 0) >= текущий_вес:
+                ride.boost_tier = payment.tier
             session.add(ride)
     elif payment.purpose == "ad" and payment.ad_id is not None:
         ad = session.get(Ad, payment.ad_id)
