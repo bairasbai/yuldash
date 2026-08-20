@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 
 from .errors import herr
 from .db import engine
-from .imagemeta import shrink_image, strip_image_metadata
+from .imagemeta import shrink_image, strip_audio_metadata, strip_image_metadata
 from .logs import log
 from .observability import scrub_text
 from .models import (
@@ -145,6 +145,12 @@ def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sn
         # Сначала ужимаем (волна 97), потом срезаем метаданные: Pillow при пересохранении
         # выбрасывает EXIF сам, но полагаться на это нельзя — исходник мог не пережаться.
         data = strip_image_metadata(shrink_image(data, ext), ext)
+    else:
+        # Голосовые чистим здесь же. У фото метаданные срезаются с волны 21, а голосовые всё
+        # это время сохранялись байт-в-байт — и лежат они по ПУБЛИЧНОЙ ссылке, чтобы собеседник
+        # мог послушать. Проверено пробой (волна 142): файл с местом записи внутри скачивался
+        # гостем без входа. Женщина записала голосовое дома — адрес дома уехал вместе со звуком.
+        data = strip_audio_metadata(data, ext)
     return data, ext
 
 
