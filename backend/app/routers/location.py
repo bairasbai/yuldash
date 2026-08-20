@@ -62,6 +62,41 @@ async def map_feed(websocket: WebSocket):
         manager.disconnect(MAP_FEED_KEY, websocket)
 
 
+def _канал_мой(session: Session, я: int, второй, *, живо: bool) -> bool:
+    """Живой канал координат остаётся открытым, пока верно ВСЁ (аудит 2026-08-08, волна 159).
+
+    Сторож канала спрашивал только «поездка ещё едет?». Этого мало по двум причинам, обе
+    доказаны пробой.
+
+    **Блокировка.** Бронь подтверждена, выезд не начался, женщина ждёт дома. Водитель ведёт себя
+    навязчиво — она жмёт «Заблокировать». Чат закрывается ему мгновенно (403), а её точка
+    продолжает уходить к нему на карту: слово `is_blocked` в этом файле не встречалось ни разу,
+    хотя в чате оно стоит на каждой двери. «Заблокировать» — единственная кнопка, которой человек
+    закрывается от человека, и она обещала больше, чем делала.
+
+    **Смена исполнителя.** Курьер взял посылку, открыл канал, потом снялся («заболел»). Посылку
+    берёт другой курьер. Сторож видит «посылка едет» и пропускает — а точка СНЯТОГО курьера
+    уходит отправителю как «где сейчас моя посылка». В чате той же посылки сверка «курьер всё
+    ещё я?» стояла, в канале координат её не было.
+
+    `второй` — вторая сторона поездки прямо сейчас. None означает, что меня из неё убрали
+    (сняли курьера, отвязали водителя) — канал больше не мой.
+    """
+    if not живо or второй is None or второй == я:
+        return False
+    from ..services import is_blocked
+    return not is_blocked(session, я, второй)
+
+
+def _вторая_сторона(я: int, первый, второй):
+    """Кто на другом конце канала. None — если меня среди сторон уже нет."""
+    if первый is not None and я == первый:
+        return второй
+    if второй is not None and я == второй:
+        return первый
+    return None
+
+
 @router.websocket("/ws/trip/{booking_id}/location")
 async def trip_location(websocket: WebSocket, booking_id: int):
     """Токен — первым сообщением {"type":"auth","token":...} (как в чате; query-string не берём).
@@ -105,9 +140,12 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     # не перепроверялся никогда — вышел из аккаунта, а поток координат шёл дальше.
     страж = await watch_ws_access(
         websocket, token,
-        lambda s2: (lambda b: bool(b) and b.status in (BookingStatus.confirmed,
-                                                       BookingStatus.onboard))(
-            s2.get(Booking, booking_id)),
+        lambda s2: (lambda b, r: _канал_мой(
+            s2, user_id,
+            _вторая_сторона(user_id, b.passenger_id if b else None, r.driver_id if r else None),
+            живо=bool(b) and b.status in (BookingStatus.confirmed, BookingStatus.onboard),
+        ))(s2.get(Booking, booking_id),
+           s2.get(Ride, s2.get(Booking, booking_id).ride_id) if s2.get(Booking, booking_id) else None),
         on_close=lambda: manager.disconnect(recv_key, websocket),
     )
     guard = TrackGuard(user_id)   # анти-телепорт (B8-3): фейковые скачки не ретранслируем
@@ -204,8 +242,11 @@ async def instant_location(websocket: WebSocket, order_id: int):
     # не перепроверялся никогда — вышел из аккаунта, а поток координат шёл дальше.
     страж = await watch_ws_access(
         websocket, token,
-        lambda s2: (lambda o: bool(o) and o.status in INSTANT_LOC_ACTIVE)(
-            s2.get(InstantOrder, order_id)),
+        lambda s2: (lambda o: _канал_мой(
+            s2, user_id,
+            _вторая_сторона(user_id, o.passenger_id if o else None, o.driver_id if o else None),
+            живо=bool(o) and o.status in INSTANT_LOC_ACTIVE,
+        ))(s2.get(InstantOrder, order_id)),
         on_close=lambda: manager.disconnect(recv_key, websocket),
     )
     guard = TrackGuard(user_id)   # анти-телепорт (B8-3): фейковые скачки не ретранслируем
@@ -297,8 +338,11 @@ async def parcel_location(websocket: WebSocket, parcel_id: int):
     # не перепроверялся никогда — вышел из аккаунта, а поток координат шёл дальше.
     страж = await watch_ws_access(
         websocket, token,
-        lambda s2: (lambda pl: bool(pl) and pl.status in PARCEL_LOC_ACTIVE)(
-            s2.get(ParcelDelivery, parcel_id)),
+        lambda s2: (lambda pl: _канал_мой(
+            s2, user_id,
+            _вторая_сторона(user_id, pl.sender_id if pl else None, pl.courier_id if pl else None),
+            живо=bool(pl) and pl.status in PARCEL_LOC_ACTIVE,
+        ))(s2.get(ParcelDelivery, parcel_id)),
         on_close=lambda: manager.disconnect(recv_key, websocket),
     )
     guard = TrackGuard(user_id)   # анти-телепорт: фейковые скачки не ретранслируем
