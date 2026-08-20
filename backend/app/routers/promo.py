@@ -17,18 +17,20 @@ admin через _require_admin (обычный HTTPException-строка). Б�
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .. import promo_ride
+from ..antifraud import normalize_device_id
+from ..config import _phone_key
 from ..db import get_session
 from ..errors import herr
 from ..models import (
-    Booking, BookingStatus, InstantOrder, InstantOrderStatus, PromoCode, PromoRedemption,
-    Ride, User, UserRole,
+    Booking, BookingStatus, InstantOrder, InstantOrderStatus, PromoClaimLog, PromoCode,
+    PromoRedemption, Ride, User, UserRole,
 )
 from ..security import current_user
 from ..timeutil import utcnow
@@ -148,7 +150,9 @@ def _apply_message(promo: PromoCode) -> tuple[str, str]:
 # ---------- Пользователь ----------
 
 @router.post("/promo/apply")
-def promo_apply(body: ApplyIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def promo_apply(body: ApplyIn, user: User = Depends(current_user),
+                session: Session = Depends(get_session),
+                x_device_id: str = Header(default="", alias="X-Device-Id")):
     """Применить промокод. Один код на всю жизнь аккаунта. Отказ ничего не ломает — попутка бесплатна.
 
     Порядок валидации с точными кодами:
@@ -171,6 +175,25 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user), session: Sess
     already = session.exec(select(PromoRedemption).where(PromoRedemption.user_id == user.id)).first()
     if already:
         raise herr(409, "Ты уже активировал промокод", "Һин промокодты активлаштырҙың инде")
+    # ...и по НОМЕРУ ТЕЛЕФОНА тоже — этот след переживает удаление аккаунта (волна 149).
+    #
+    # «Один код на жизнь аккаунта» держал уникальный индекс по человеку, но удаление аккаунта
+    # уносило запись вместе с ним. Проверено пробой: применил код на 300 ₽, съездил, удалил
+    # аккаунт, вошёл с ТЕМ ЖЕ номером и с того же телефона — код принялся заново. Три круга.
+    #
+    # Каждый круг — прямые деньги: скидку оплачивает платформа, водитель получает своё
+    # полностью. С водителем-сообщником это канал обналички с одного номера.
+    ключ = _phone_key(user.phone) if user.phone else ""
+    did = normalize_device_id(x_device_id)
+    условия = [PromoClaimLog.phone_key == ключ] if ключ else []
+    if did:
+        условия.append(PromoClaimLog.device_id == did)
+    if условия:
+        брал = session.exec(select(PromoClaimLog).where(
+            PromoClaimLog.promo_id == promo.id, or_(*условия))).first()
+        if брал:
+            raise herr(409, "Этот промокод уже использовали с твоего номера",
+                       "Был промокод һинең номерың менән ҡулланылған инде")
     # Нельзя активировать свой же код.
     if promo.owner_id is not None and promo.owner_id == user.id:
         raise herr(409, "Свой код активировать нельзя", "Үҙ кодыңды активлаштырып булмай")
@@ -208,6 +231,8 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user), session: Sess
         session.rollback()
         raise herr(409, "Промокод исчерпан", "Промокод бөттө")
     session.add(PromoRedemption(promo_id=promo.id, user_id=user.id, discount_kop=discount_kop))
+    # След по номеру и телефону — он и остановит повтор после удаления аккаунта.
+    session.add(PromoClaimLog(promo_id=promo.id, phone_key=ключ, device_id=did))
     try:
         session.commit()
     except IntegrityError:   # гонка: параллельный запрос уже активировал код у этого юзера (UNIQUE)
