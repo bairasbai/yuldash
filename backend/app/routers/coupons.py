@@ -342,6 +342,14 @@ def coupon_activate(coupon_id: int, user: User = Depends(current_user), session:
         coupon is not None and partner is not None
         and partner.status == "active" and _sub_active(partner, now)
         and coupon.status == "active"
+        # Состояние проверки — тем же правилом, что и витрина (аудит 2026-08-08, волна 145).
+        # Раньше активация его не спрашивала: снятый за обман купон исчезал с полки, но
+        # продолжал выдавать коды по прямой ссылке — из истории, из пересланного другу
+        # сообщения. Человек приходил с этим кодом в кафе, а счётчик погашений рос, и платформа
+        # выставляла бизнесу счёт за скидки, которые он уже отменил.
+        #
+        # «Снять с витрины» должно означать «не работает», а не «спрятана полка».
+        and coupon.review in COUPON_REVIEW_VISIBLE
     )
     if not available:
         raise herr(404, "Купон не найден", "Купон табылманы")

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from ..antifraud import safe_link
 from ..db import get_session
 from ..errors import herr
 from ..middleware import user_over_limit
@@ -372,7 +373,7 @@ def ad_create(body: AdCreateIn, user: User = Depends(current_user), session: Ses
     ad = Ad(
         owner_id=user.id, created_by=user.id, status="draft",
         title=title, text=body.text.strip(), button=body.button.strip(),
-        target=body.target.strip(), cities=body.cities.strip(),
+        target=safe_link(body.target, "ссылку"), cities=body.cities.strip(),
     )
     _apply_package(ad, body.package)
     session.add(ad)
@@ -408,7 +409,7 @@ def ad_update(ad_id: int, body: AdCreateIn, user: User = Depends(current_user), 
         ad.title = body.title.strip()
     ad.text = body.text.strip()
     ad.button = body.button.strip()
-    ad.target = body.target.strip()
+    ad.target = safe_link(body.target, "ссылку")
     ad.cities = body.cities.strip()
     _apply_package(ad, body.package)
     session.add(ad)
@@ -696,7 +697,7 @@ def admin_create_ad(body: AdIn, user: User = Depends(current_user), session: Ses
         title=body.title.strip(),
         text=body.text.strip(),
         button=body.button.strip(),
-        target=body.target.strip(),
+        target=safe_link(body.target, "ссылку"),
         image_url=guard_own_media_url(body.image_url),   # чужой хост = слежка за всеми зрителями
         erid=body.erid.strip(),
         plan=plan,
@@ -727,8 +728,11 @@ def admin_update_ad(ad_id: int, body: AdIn, user: User = Depends(current_user), 
     ad = session.get(Ad, ad_id)
     if not ad:
         raise herr(404, "Объявление не найдено", "Иғлан табылманы")
-    for f in ("partner_name", "partner_contact", "title", "text", "button", "target", "erid", "placements", "cities"):
+    for f in ("partner_name", "partner_contact", "title", "text", "button", "erid", "placements", "cities"):
         setattr(ad, f, (getattr(body, f) or "").strip())
+    # Ссылка перехода — через ту же проверку, что и при создании (волна 145). Раньше этот
+    # цикл переписывал её как обычную строку, и админская правка возвращала любой адрес.
+    ad.target = safe_link(body.target, "ссылку")
     # Картинку — через проверку хоста: она грузится у каждого, кто увидит объявление (волна 39).
     ad.image_url = guard_own_media_url(body.image_url)
     ad.priority = body.priority
