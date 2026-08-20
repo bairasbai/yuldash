@@ -20,6 +20,7 @@ from sqlmodel import Session, select
 from ..antifraud import moderate_open_text
 from ..db import get_session
 from ..errors import herr
+from ..logs import admin_action
 from ..models import AppReview, Rating, User, UserRole
 from ..security import current_user
 
@@ -118,6 +119,7 @@ def publish_review(review_id: int, body: ReviewPublishIn, user: User = Depends(c
     session.add(review)
     session.commit()
     session.refresh(review)
+    admin_action(user.id, "review.publish", review_id=review_id)
     return review
 
 
@@ -184,6 +186,7 @@ def publish_rating(rating_id: int, body: RatingPublishIn, user: User = Depends(c
     session.refresh(r)
     author = session.get(User, r.rater_id)
     ratee = session.get(User, r.ratee_id)
+    admin_action(user.id, "rating.publish", rating_id=rating_id)
     return PendingRatingOut(
         id=r.id, author=((author.name if author else "") or "Аноним"),
         ratee_id=r.ratee_id, ratee=((ratee.name if ratee else "") or "Пользователь"),
@@ -218,4 +221,5 @@ def exclude_rating(rating_id: int, body: RatingExcludeIn, user: User = Depends(c
         prof.rating = round(avg, 1) if cnt > 0 else 5.0
         session.add(prof)
     session.commit()
+    admin_action(user.id, "rating.exclude", rating_id=rating_id)
     return {"id": rating_id, "excluded": r.excluded}

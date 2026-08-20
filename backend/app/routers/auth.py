@@ -18,7 +18,7 @@ from ..antifraud import (MESSAGE_FLAG_CONTACT, guard_device_not_banned, moderate
 from ..config import _phone_key, settings
 from ..db import engine, get_session
 from ..errors import herr
-from ..logs import log
+from ..logs import admin_action, log
 from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, TgAuth, User, UserRole
 from ..security import (
     current_user, gen_otp, is_placeholder_phone, issue_tokens, normalize_phone,
@@ -52,9 +52,28 @@ def _maybe_promote_admin(session: Session, user: User) -> None:
     admin_keys = {_phone_key(p) for p in (settings.admin_phones or "").split(",") if p.strip()}
     by_tg = bool(settings.admin_telegram_chat_id) and user.telegram_id == settings.admin_telegram_chat_id
     by_phone = bool(user.phone) and _phone_key(user.phone) in admin_keys
-    if (by_tg or by_phone) and user.role != UserRole.admin:
+    заслужил = by_tg or by_phone
+    if заслужил and user.role != UserRole.admin:
         user.role = UserRole.admin
         session.add(user)
+        # Выдача прав администратора — самое чувствительное событие в системе: этот человек
+        # увидит сигналы SOS с координатами, паспорта водителей, переписку с поддержкой
+        # и все телефоны. В журнал это не писалось вовсе (аудит 2026-08-08, волна 150).
+        admin_action(user.id, "role.promote", target_user=user.id,
+                     by="telegram" if by_tg else "phone")
+    elif user.role == UserRole.admin and not заслужил and admin_keys:
+        # Обратная сторона, которой не было: права НЕЛЬЗЯ было отобрать. Убрать номер
+        # из настроек недостаточно — роль уже записана в базу и живёт вечно. Когда появится
+        # помощник-модератор, «уволить» его можно было бы только руками в базе, и никто
+        # об этом не вспомнит.
+        #
+        # Теперь вход сверяет роль с настройками в обе стороны: нет в списке — права снимаются
+        # при первом же входе. Условие `admin_keys` намеренно: пустой список означает
+        # «настройка не заполнена», и разжаловать по нему нельзя — иначе один неверно
+        # прочитанный .env оставит сервис без администратора вообще.
+        user.role = UserRole.passenger
+        session.add(user)
+        admin_action(user.id, "role.revoke", target_user=user.id, reason="нет в ADMIN_PHONES")
 
 
 def _is_owner_telegram(frm: dict) -> bool:
@@ -468,6 +487,17 @@ def _handle_admin_callback(callback: dict):
         return {"ok": True}
 
     approve = parts[1] == "ok"
+    # След админского действия — и для этой двери тоже (аудит 2026-08-08, волна 150).
+    #
+    # Кнопки в Telegram делают ровно то же, что ручки админки: одобряют водителя (то есть
+    # допускают чужого человека к пассажирам), публикуют рекламу, ПОДТВЕРЖДАЮТ ПЛАТЁЖ. Через
+    # HTTP каждое из этих действий оставляло запись «кто и что сделал», через кнопку —
+    # ни одной. Журнал при этом выглядел полным: он фиксировал один вход из двух, и по нему
+    # нельзя было понять, что половина решений прошла мимо.
+    #
+    # Владелец у бота один (`_is_owner_telegram` выше), но в этом и смысл следа: он нужен
+    # не чтобы ловить чужого, а чтобы через год можно было ответить, кто и когда решил.
+    admin_action(user_id, f"telegram.{parts[0]}", decision=parts[1], target=user_id, via="telegram")
     # Решение по рекламе приходит и отсюда, и из админки — текст один на оба входа
     # (локальный импорт: роутеры друг друга на старте не тянут).
     from .ads import notify_ad_decision

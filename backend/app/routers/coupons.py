@@ -25,6 +25,7 @@ from sqlmodel import Session, select
 from ..antifraud import moderate_open_text
 from ..db import get_session
 from ..errors import herr
+from ..logs import admin_action
 from ..middleware import user_over_limit
 from ..models import Coupon, CouponReport, CouponRedemption, Partner, Payment, User, UserRole
 from ..safety_logic import ensure_active
@@ -953,6 +954,7 @@ def admin_partner_approve(partner_id: int, user: User = Depends(current_user), s
         f"«{partner.name}» тикшереүҙе үтте. Хәҙер тарифты һайлап, купондарҙы ҡуйырға ҡала.",
         ref_kind="partner", ref_id=partner.id,
     )
+    admin_action(user.id, "partner.approve", partner_id=partner_id)
     return _partner_admin(partner)
 
 
@@ -976,6 +978,7 @@ def admin_partner_reject(partner_id: int, body: RejectIn, user: User = Depends(c
         (partner.reject_reason or "Мәғлүмәттәрҙе тикшереп, яңынан ебәр")[:120],
         ref_kind="partner", ref_id=partner.id,
     )
+    admin_action(user.id, "partner.reject", partner_id=partner_id)
     return _partner_admin(partner)
 
 
@@ -1078,6 +1081,7 @@ def admin_coupon_approve(coupon_id: int, user: User = Depends(current_user),
                 f"«{coupon.title}» тикшерелде һәм витринала күренә.",
                 ref_kind="partner", ref_id=partner.id,
             )
+    admin_action(user.id, "coupon.approve", coupon_id=coupon_id)
     return _coupon_admin(coupon, session.get(Partner, coupon.partner_id))
 
 
@@ -1104,6 +1108,7 @@ def admin_coupon_block(coupon_id: int, body: CouponBlockIn, user: User = Depends
             (coupon.review_note or "Текстты төҙәтеп һаҡла — ул яңынан тикшереүгә китә")[:120],
             ref_kind="partner", ref_id=partner.id,
         )
+    admin_action(user.id, "coupon.block", coupon_id=coupon_id)
     return _coupon_admin(coupon, partner)
 
 

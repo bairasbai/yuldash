@@ -842,6 +842,7 @@ def admin_add_taxi_city(body: TaxiCityIn, user: User = Depends(current_user), se
     session.add(row)
     session.commit()
     session.refresh(row)
+    admin_action(user.id, "taxi_city.add", city=body.city)
     return {"id": row.id, "city": row.city, "enabled": row.enabled, "created_at": row.created_at.isoformat()}
 
 
@@ -853,4 +854,5 @@ def admin_delete_taxi_city(city_id: int, user: User = Depends(current_user), ses
         raise herr(404, "Город не найден", "Ҡала табылманы")
     session.delete(row)
     session.commit()
+    admin_action(user.id, "taxi_city.remove", city_id=city_id)
     return {"ok": True}

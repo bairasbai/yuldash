@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 from ..antifraud import safe_link
 from ..db import get_session
 from ..errors import herr
+from ..logs import admin_action
 from ..middleware import user_over_limit
 from ..models import Ad, AdEvent, Payment, User, UserRole
 from ..safety_logic import ensure_active
@@ -664,6 +665,7 @@ def admin_approve_ad(ad_id: int, body: AdApproveIn, user: User = Depends(current
     session.commit()
     session.refresh(ad)
     notify_ad_decision(session, ad, approved=True)
+    admin_action(user.id, "ads.approve", ad_id=ad_id)
     return ad
 
 
@@ -681,6 +683,7 @@ def admin_reject_ad(ad_id: int, body: AdRejectIn, user: User = Depends(current_u
     session.commit()
     session.refresh(ad)
     notify_ad_decision(session, ad, approved=False)
+    admin_action(user.id, "ads.reject", ad_id=ad_id)
     return ad
 
 
@@ -718,6 +721,7 @@ def admin_create_ad(body: AdIn, user: User = Depends(current_user), session: Ses
     if body.price > 0:
         session.add(Payment(user_id=user.id, purpose="ad", ad_id=ad.id, amount_kop=body.price * 100))
         session.commit()
+    admin_action(user.id, "ads.create", ad_id=ad.id)
     return ad
 
 
@@ -766,6 +770,7 @@ def admin_set_status(ad_id: int, body: AdStatusIn, user: User = Depends(current_
     session.commit()
     session.refresh(ad)
     notify_ad_status_change(session, ad, was)
+    admin_action(user.id, "ads.status", ad_id=ad_id, status=body.status)
     return ad
 
 
@@ -814,4 +819,5 @@ def admin_delete_ad(ad_id: int, user: User = Depends(current_user), session: Ses
     ad.status = "archived"
     session.add(ad)
     session.commit()
+    admin_action(user.id, "ads.delete", ad_id=ad_id)
     return {"ok": True}

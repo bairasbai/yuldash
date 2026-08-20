@@ -583,8 +583,15 @@ def resolve_incident(incident_id: int, body: ResolveIn,
         exclude_rating=body.exclude_rating, shield=body.shield, resolver_id=user.id,
     )
     # Разбор спора решает, кто прав, и может стоить человеку страйка или паузы — след обязателен.
+    # Сумма компенсации, срок паузы и КОГО наказали — в след тоже (волна 150). Раньше строка
+    # говорила «был suspend», но не показывала, что человека отключили на 30 дней и присудили
+    # 5000 ₽. Соседние действия эти цифры пишут (прощение долга — сумму, пауза за качество —
+    # часы), здесь их просто забыли.
     admin_action(user.id, "incident.resolve", incident_id=incident_id, fault=body.fault,
-                 resolution=body.resolution, strike=bool(body.strike))
+                 resolution=body.resolution, strike=bool(body.strike),
+                 target_user=inc.respondent_id,
+                 compensation_kop=int(body.compensation_kop or 0),
+                 suspend_days=int(body.suspend_days or 0))
     # Прозрачность: обе стороны получают решение с человеческим объяснением.
     #
     # Голым пушем это слать нельзя (аудит 2026-08-08, волна 19). Проверено пробой: человека

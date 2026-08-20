@@ -28,6 +28,7 @@ from ..antifraud import normalize_device_id
 from ..config import _phone_key
 from ..db import get_session
 from ..errors import herr
+from ..logs import admin_action
 from ..models import (
     Booking, BookingStatus, InstantOrder, InstantOrderStatus, PromoClaimLog, PromoCode,
     PromoRedemption, Ride, User, UserRole,
@@ -390,6 +391,7 @@ def admin_promo_create(body: AdminPromoIn, user: User = Depends(current_user), s
     session.add(promo)
     session.commit()
     session.refresh(promo)
+    admin_action(user.id, "promo.create", promo_id=promo.id, kind=promo.kind, perk_value=promo.perk_value)
     return _promo_admin(promo, session)
 
 
@@ -412,6 +414,7 @@ def admin_promo_status(promo_id: int, body: StatusIn, user: User = Depends(curre
     session.add(promo)
     session.commit()
     session.refresh(promo)
+    admin_action(user.id, "promo.status", promo_id=promo_id, active=body.active)
     return _promo_admin(promo, session)
 
 
@@ -440,4 +443,5 @@ def admin_promo_update(promo_id: int, body: AdminPromoEditIn, user: User = Depen
     session.add(promo)
     session.commit()
     session.refresh(promo)
+    admin_action(user.id, "promo.edit", promo_id=promo_id)
     return _promo_admin(promo, session)
