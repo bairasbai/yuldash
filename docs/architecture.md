@@ -2028,6 +2028,17 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 
 Защита от мошенников с обеих сторон (водитель и пассажир), прагматичный v1 без ML. **Принцип: автоматика только ПОМЕЧАЕТ (флаги/сигналы/счётчики админу), жёстко банит человек.** От `feat/trip-live-link` (вершина B7c). Миграция `w2_antifraud` (down=`w2_livelink`, идемпотентная, оба пути): таблицы `deviceban`, `referralbonus`; `user.last_device_id`; `message.flag`, `message.from_admin`; `booking/instantorder.unpaid_reported + contact_then_cancel`; `booking.cancelled_at`. Ядро — `app/antifraud.py` 🆕, админ-ручки — `routers/antifraud.py` 🆕.
 
+**⓪⓪ Сторож живых каналов (волна 141).** `app/ws_guard.py` 🆕 — `watch_ws_access(websocket,
+token, still_allowed, on_close)`: фоновая задача на каждое веб-сокет-соединение, раз в
+`RECHECK_SEC` (30 c) сверяет ключ входа (`authenticate_ws`, чтит `tokens_valid_from`) и, если
+передана, проверку «разговор ещё идёт». Нарушено — снимает соединение с раздачи
+(`manager.disconnect`, СРАЗУ: висящий `receive_text` не проснётся сам) и закрывает сокет 1008.
+Стоит во всех шести каналах с личными данными: `chat.py` (бронь, такси, посылка) и `location.py`
+(координаты поездки, такси, посылки); общий фид карты `/ws/map` намеренно без сторожа — там
+обезличенные пины. Отменяется в `finally` рядом с `manager.disconnect`. До этого право
+перепроверялось раз в 15 ОТПРАВЛЕННЫХ кадров, то есть у молчащего слушателя — никогда. Тесты —
+`test_logout_reaches_the_open_window.py`.
+
 **⓪ Номер сменил владельца (волна 139).** Вход у нас по телефону, а номер человеку не
 принадлежит: оператор забирает неиспользуемый и через полгода-год продаёт другому — тот входит
 по SMS и получает чужой аккаунт (имя, история, переписка, доверенные контакты). `User.last_seen_at`

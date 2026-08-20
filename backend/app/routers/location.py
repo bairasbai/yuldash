@@ -15,6 +15,7 @@ from ..db import engine
 from ..livepos import livepos_set
 from ..models import Booking, BookingStatus, InstantOrder, InstantOrderStatus, ParcelDelivery, Ride
 from ..security import authenticate_ws
+from ..ws_guard import watch_ws_access
 from ..services import MAP_FEED_KEY, manager
 
 router = APIRouter(tags=["location"])
@@ -99,6 +100,16 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     recv_key = (-booking_id * 2) if role == "driver" else (-booking_id * 2 - 1)
     send_key = (-booking_id * 2 - 1) if role == "driver" else (-booking_id * 2)
     manager.register(recv_key, websocket)
+    # Сторож открытого канала (волна 141): право читать проверяется по часам, а не по тому,
+    # шлёт ли этот человек кадры. Тот, кто только СЛУШАЕТ чужие координаты, раньше
+    # не перепроверялся никогда — вышел из аккаунта, а поток координат шёл дальше.
+    страж = await watch_ws_access(
+        websocket, token,
+        lambda s2: (lambda b: bool(b) and b.status in (BookingStatus.confirmed,
+                                                       BookingStatus.onboard))(
+            s2.get(Booking, booking_id)),
+        on_close=lambda: manager.disconnect(recv_key, websocket),
+    )
     guard = TrackGuard(user_id)   # анти-телепорт (B8-3): фейковые скачки не ретранслируем
     msgs = 0
     try:
@@ -146,6 +157,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     except WebSocketDisconnect:
         pass
     finally:
+        страж.cancel()          # сторож живёт ровно столько, сколько канал
         manager.disconnect(recv_key, websocket)   # снятие регистрации при любом выходе
 
 
@@ -187,6 +199,15 @@ async def instant_location(websocket: WebSocket, order_id: int):
     recv_key = -(INSTANT_LOC_BASE + order_id * 2) if role == "driver" else -(INSTANT_LOC_BASE + order_id * 2 + 1)
     send_key = -(INSTANT_LOC_BASE + order_id * 2 + 1) if role == "driver" else -(INSTANT_LOC_BASE + order_id * 2)
     manager.register(recv_key, websocket)
+    # Сторож открытого канала (волна 141): право читать проверяется по часам, а не по тому,
+    # шлёт ли этот человек кадры. Тот, кто только СЛУШАЕТ чужие координаты, раньше
+    # не перепроверялся никогда — вышел из аккаунта, а поток координат шёл дальше.
+    страж = await watch_ws_access(
+        websocket, token,
+        lambda s2: (lambda o: bool(o) and o.status in INSTANT_LOC_ACTIVE)(
+            s2.get(InstantOrder, order_id)),
+        on_close=lambda: manager.disconnect(recv_key, websocket),
+    )
     guard = TrackGuard(user_id)   # анти-телепорт (B8-3): фейковые скачки не ретранслируем
     msgs = 0
     try:
@@ -232,6 +253,7 @@ async def instant_location(websocket: WebSocket, order_id: int):
     except WebSocketDisconnect:
         pass
     finally:
+        страж.cancel()          # сторож живёт ровно столько, сколько канал
         manager.disconnect(recv_key, websocket)
 
 
@@ -270,6 +292,15 @@ async def parcel_location(websocket: WebSocket, parcel_id: int):
     recv_key = -(PARCEL_LOC_BASE + parcel_id * 2) if role == "courier" else -(PARCEL_LOC_BASE + parcel_id * 2 + 1)
     send_key = -(PARCEL_LOC_BASE + parcel_id * 2 + 1) if role == "courier" else -(PARCEL_LOC_BASE + parcel_id * 2)
     manager.register(recv_key, websocket)
+    # Сторож открытого канала (волна 141): право читать проверяется по часам, а не по тому,
+    # шлёт ли этот человек кадры. Тот, кто только СЛУШАЕТ чужие координаты, раньше
+    # не перепроверялся никогда — вышел из аккаунта, а поток координат шёл дальше.
+    страж = await watch_ws_access(
+        websocket, token,
+        lambda s2: (lambda pl: bool(pl) and pl.status in PARCEL_LOC_ACTIVE)(
+            s2.get(ParcelDelivery, parcel_id)),
+        on_close=lambda: manager.disconnect(recv_key, websocket),
+    )
     guard = TrackGuard(user_id)   # анти-телепорт: фейковые скачки не ретранслируем
     msgs = 0
     try:
@@ -311,4 +342,5 @@ async def parcel_location(websocket: WebSocket, parcel_id: int):
     except WebSocketDisconnect:
         pass
     finally:
+        страж.cancel()          # сторож живёт ровно столько, сколько канал
         manager.disconnect(recv_key, websocket)

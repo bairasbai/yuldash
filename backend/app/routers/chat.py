@@ -19,6 +19,7 @@ from ..models import (
     User, UserRole,
 )
 from ..security import authenticate_ws, current_user
+from ..ws_guard import watch_ws_access
 from ..services import (
     booking_and_ride_for_user, is_blocked, manager, notify_chat_message,
     public_media_url, push_notification, send_push, user_bookings,
@@ -241,6 +242,12 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
 
     other_id = driver_id if user_id == passenger_id else passenger_id
     manager.register(booking_id, websocket)
+    # Сторож открытого канала (волна 141): раньше токен перепроверялся раз в 15 ОТПРАВЛЕННЫХ
+    # сообщений — то есть у молчащего слушателя не перепроверялся никогда. Вышел из аккаунта,
+    # а чужая переписка продолжала приходить в уже открытое окно.
+    страж = await watch_ws_access(
+        websocket, token,
+        on_close=lambda: manager.disconnect(booking_id, websocket))
     msgs = 0
     try:
         while True:
@@ -310,6 +317,7 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
     except WebSocketDisconnect:
         pass
     finally:
+        страж.cancel()          # сторож живёт ровно столько, сколько канал
         manager.disconnect(booking_id, websocket)   # снятие регистрации при ЛЮБОМ выходе — нет утечки сокета
 
 
@@ -343,6 +351,12 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
     other_id = driver_id if user_id == passenger_id else passenger_id
     key = _order_chat_key(order_id)
     manager.register(key, websocket)
+    # Сторож открытого канала (волна 141): раньше токен перепроверялся раз в 15 ОТПРАВЛЕННЫХ
+    # сообщений — то есть у молчащего слушателя не перепроверялся никогда. Вышел из аккаунта,
+    # а чужая переписка продолжала приходить в уже открытое окно.
+    страж = await watch_ws_access(
+        websocket, token,
+        on_close=lambda: manager.disconnect(key, websocket))
     msgs = 0
     try:
         while True:
@@ -405,6 +419,7 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
     except WebSocketDisconnect:
         pass
     finally:
+        страж.cancel()          # сторож живёт ровно столько, сколько канал
         manager.disconnect(key, websocket)
 
 
@@ -495,6 +510,12 @@ async def parcel_chat_ws(websocket: WebSocket, parcel_id: int):
     other_id = courier_id if user_id == sender_id else sender_id
     key = _parcel_chat_key(parcel_id)
     manager.register(key, websocket)
+    # Сторож открытого канала (волна 141): раньше токен перепроверялся раз в 15 ОТПРАВЛЕННЫХ
+    # сообщений — то есть у молчащего слушателя не перепроверялся никогда. Вышел из аккаунта,
+    # а чужая переписка продолжала приходить в уже открытое окно.
+    страж = await watch_ws_access(
+        websocket, token,
+        on_close=lambda: manager.disconnect(key, websocket))
     msgs = 0
     try:
         while True:
@@ -555,6 +576,7 @@ async def parcel_chat_ws(websocket: WebSocket, parcel_id: int):
     except WebSocketDisconnect:
         pass
     finally:
+        страж.cancel()          # сторож живёт ровно столько, сколько канал
         manager.disconnect(key, websocket)
 
 
