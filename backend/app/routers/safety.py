@@ -108,7 +108,7 @@ def _order_for_participant(session: Session, order_id: int, user: User) -> Insta
     return order
 
 
-@router.post("/sos", response_model=SosEvent)
+@router.post("/sos")
 def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ride = None
     if body.booking_id is not None:
@@ -191,7 +191,32 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
                 f"тел {user.phone or '—'}.{where} Открой админку.",
             )
     log.info(f"[SOS] user={user.id} category={body.category} contacts_notified={notified}")
-    return event
+    # Человек обязан знать, дошёл ли сигнал до РОДНЫХ (аудит 2026-08-08, волна 172).
+    #
+    # Рассылка близким глушится после SOS_SMS_PER_HOUR сигналов за час — правильная защита:
+    # заевшая кнопка в кармане иначе даёт поток платных SMS, и настоящий сигнал тонет среди
+    # сорока одинаковых. Но ответ ручки был просто событием, без единого слова о рассылке.
+    #
+    # Значит седьмое нажатие выглядело для человека ровно как первое: «сигнал отправлен».
+    # Женщина в беде видит успех и ждёт маму, которая ничего не получила. Молчание в такой
+    # момент опаснее самого потолка — потому что вместо «звони сама» человек выбирает ждать.
+    #
+    # Диспетчер узнаёт ВСЕГДА (Telegram намеренно не капится), поэтому и говорим честно:
+    # сигнал приняли, а родным SMS не ушло — позвони им сама.
+    заглушено = notified == 0 and len(recent) >= SOS_SMS_PER_HOUR
+    подсказка_ru = подсказка_ba = ""
+    if заглушено:
+        подсказка_ru = ("Сигнал принят, дежурный уже видит его. Родным SMS сейчас не уходит — "
+                        "слишком много сигналов подряд. Позвони им сама, если можешь.")
+        подсказка_ba = ("Сигнал ҡабул ителде, дежурный уны күрә инде. Яҡындарға SMS хәҙер "
+                        "китмәй — сигналдар артыҡ күп. Мөмкин булһа, үҙең шылтырат.")
+    return {
+        **event.model_dump(),
+        "contacts_notified": notified,      # скольким близким ушло SMS прямо сейчас
+        "sms_suppressed": заглушено,        # рассылка близким заглушена потолком
+        "hint_ru": подсказка_ru,
+        "hint_ba": подсказка_ba,
+    }
 
 
 # ----------------------------- Админ: лента SOS (аудит 2026-07-26) -----------------------------
