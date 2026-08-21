@@ -724,7 +724,18 @@ def parcel_cancel(parcel_id: int, user: User = Depends(current_user), session: S
     prev_courier = parcel.courier_id
     # Курьер уже в пути → фиксируем компенсацию (он потратил время и бензин).
     fee_kop = settings.courier_cancel_fee_kop if (prev_courier and parcel.status in _CANCEL_FEE_STATUSES) else 0
-    parcel.status = "canceled"
+    # Коробка УЖЕ в машине курьера — отмена не может просто закрыть дело (аудит 2026-08-08,
+    # волна 162). Раньше заказ уходил в `canceled`, и курьер оставался с чужой посылкой без
+    # единого пути в приложении: возврат отвечал «возврат доступен, пока посылка у тебя»
+    # (а она у него и есть — просто статус уже не тот), и человеку предлагали открыть спор.
+    # То есть чтобы отдать коробку назад, надо было завести конфликт с тем, кто ничего плохого
+    # не сделал: отправитель имеет полное право передумать.
+    #
+    # Теперь такая отмена переводит доставку в «везу обратно»: дело живое, отправитель ждёт
+    # свою коробку, курьер закрывает её обычным `return-done`. Компенсация за бензин при этом
+    # фиксируется ровно так же.
+    коробка_у_курьера = bool(prev_courier) and parcel.status == "in_transit"
+    parcel.status = "returning" if коробка_у_курьера else "canceled"
     parcel.cancel_fee_kop = fee_kop
     session.add(parcel)
     session.commit()
@@ -732,7 +743,17 @@ def parcel_cancel(parcel_id: int, user: User = Depends(current_user), session: S
     route = f"{parcel.from_city} → {parcel.to_city}"
     if prev_courier:  # курьер уже вёз — предупредим (best-effort), без телефонов
         try:
-            if fee_kop > 0:
+            if коробка_у_курьера:
+                push_notification(
+                    session, prev_courier, "parcel",
+                    "Отправитель отменил — вези обратно", "Ебәреүсе кире алды — кире алып ҡайт",
+                    f"{route} · посылка у тебя. Отвези её обратно и отметь «вернул»."
+                    + (f" Компенсация {fee_kop // 100} ₽ — договоритесь напрямую." if fee_kop else ""),
+                    f"{route} · бандероль һиндә. Уны кире алып ҡайт та «ҡайтарҙым» тип билдәлә."
+                    + (f" Компенсация {fee_kop // 100} һ — үҙ-ара килешегеҙ." if fee_kop else ""),
+                    ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
+                )
+            elif fee_kop > 0:
                 push_notification(
                     session, prev_courier, "parcel",
                     "Доставка отменена", "Доставка кире алынды",
