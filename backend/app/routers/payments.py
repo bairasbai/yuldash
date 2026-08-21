@@ -264,9 +264,19 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         plan = PARTNER_PLANS.get(payment.tier)
         if partner and plan:
             now = utcnow()
-            base = partner.subscription_until if (partner.subscription_until and partner.subscription_until > now) else now
+            активна = bool(partner.subscription_until and partner.subscription_until > now)
+            base = partner.subscription_until if активна else now
             partner.subscription_until = base + timedelta(days=plan["period_days"])
-            partner.subscription_plan = payment.tier
+            # Докупка не понижает тариф, пока действует более дорогой (аудит 2026-08-08,
+            # волна 164). Бизнес на «Премиуме» покупал месяц «Базового» — и терял премиум-место
+            # на витрине немедленно, заплатив за это ещё 990 ₽. То же самое чинили у поднятия
+            # поездки (волна 151): человек доплачивает, чтобы получить больше, а не меньше.
+            # Срок при этом складывается как раньше — оплаченные дни не сгорают.
+            текущий = PARTNER_PLANS.get(partner.subscription_plan or "")
+            дешевле = bool(активна and текущий
+                           and int(plan["amount_kop"]) < int(текущий["amount_kop"]))
+            if not дешевле:
+                partner.subscription_plan = payment.tier
             # Оплата не понижает статус одобренного бизнеса, но и НЕ реанимирует отклонённого,
             # и НЕ публикует непрочитанное (волна 145). Правка текста карточки снимает её
             # с витрины обратно в `pending` — это и есть защита от подмены после проверки.
