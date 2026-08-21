@@ -1117,6 +1117,10 @@ class TaxiApplication(SQLModel, table=True):
     osgop_until: Optional[date_type] = Field(default=None, index=True)
     docs_expired: bool = Field(default=False, index=True)   # допуск снят до обновления документов
     docs_warned_at: Optional[datetime] = None               # когда слали последнее напоминание (анти-спам)
+    # До какого момента водитель работает по СЛОВУ: новую дату документа он вписал сам, фото
+    # не приложил (волна 170). Не принёс до этого срока — ночной робот снимает допуск обратно.
+    # None = подтверждать нечего (фото есть или дата не менялась).
+    docs_photo_due_at: Optional[datetime] = Field(default=None, index=True)
     status: TaxiApplicationStatus = Field(default=TaxiApplicationStatus.pending, index=True)
     comment: Optional[str] = None                  # комментарий админа при отклонении
     created_at: datetime = Field(default_factory=utcnow)

@@ -7,7 +7,7 @@
 ПОПУТКА этим роутером не затрагивается. Фото документов — приватное хранилище
 (/upload/photo → /secure/docs, как license_url водителя). Персональные данные не логируем.
 """
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -401,6 +401,26 @@ def update_taxi_documents(body: TaxiDocsIn, user: User = Depends(current_user),
     if app.docs_expired and dates and all(d >= today for d in dates):
         app.docs_expired = False
         app.docs_warned_at = None
+        # Допуск вернулся по СЛОВУ водителя: даты он вписал сам, фото не приложил
+        # (аудит 2026-08-08, волна 170). Возвращать сразу — правильно и решено давно: продлил
+        # полис в обед, вечером работай, ждать модератора ради этого никто не должен.
+        #
+        # Но дальше слово надо подтвердить бумагой. Раньше этого шага не было вовсе: водитель
+        # с кончившимся ОСАГО вписывал «действует до 2030» и ехал дальше — навсегда, потому что
+        # ночной робот смотрит только на даты, а даты теперь в порядке. Случись авария, пассажир
+        # остаётся без выплаты, а водитель узнаёт о своём «полисе» в ГИБДД.
+        #
+        # Отмечаем момент возврата и даём срок принести фото. Не принёс — ночной робот вернёт
+        # снятие (см. doc_check.expire_unconfirmed_docs). Принёс — отметка снимается ниже.
+        if not (app.osago_url or "").strip():
+            app.docs_photo_due_at = utcnow() + timedelta(days=settings.taxi_doc_photo_grace_days)
+            notify_admin_telegram(
+                "📄 Таксист обновил срок документов без фото\n"
+                f"Заявка #{app.id}. Допуск вернули на {settings.taxi_doc_photo_grace_days} дн. — "
+                "нужно проверить документ."
+            )
+    if (app.osago_url or "").strip() and app.docs_photo_due_at is not None:
+        app.docs_photo_due_at = None      # фото пришло — слово подтверждено бумагой
     session.add(app)
     session.commit()
     session.refresh(app)

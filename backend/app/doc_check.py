@@ -107,6 +107,50 @@ def _warned_today(app: TaxiApplication, now) -> bool:
     return bool(app.docs_warned_at and (now - app.docs_warned_at) < timedelta(hours=20))
 
 
+def expire_unconfirmed_docs(session: Session, dry_run: bool = False) -> list:
+    """Слово не подтвердили бумагой — снимаем допуск обратно (волна 170).
+
+    Водитель, у которого кончился документ, может вписать новую дату сам и работать сразу:
+    ждать модератора ради продлённого полиса никто не должен, это решено давно. Но если фото
+    так и не пришло за отпущенный срок, обещание остаётся словом. Раньше такой водитель ездил
+    дальше бессрочно: ночной робот смотрит на даты, а даты он поправил своей рукой.
+
+    Снимаем так же, как за просроченный документ: допуск, линия, понятное объяснение человеку.
+    Возврат: id заявок, которых коснулись.
+    """
+    now = utcnow()
+    apps = session.exec(
+        select(TaxiApplication).where(
+            TaxiApplication.status == TaxiApplicationStatus.approved,
+            TaxiApplication.docs_expired == False,          # noqa: E712 — SQL IS FALSE
+            TaxiApplication.docs_photo_due_at.is_not(None),
+            TaxiApplication.docs_photo_due_at <= now,
+        )
+    ).all()
+    touched = []
+    for app in apps:
+        touched.append(app.id)
+        if dry_run:
+            continue
+        app.docs_expired = True
+        app.docs_photo_due_at = None
+        session.add(app)
+        dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == app.user_id)).first()
+        if dp and dp.online:
+            from .instant_service import driver_go_offline
+            driver_go_offline(session, dp)
+        session.commit()
+        _push(
+            session, app.user_id,
+            "Нужно фото документа", "Документ фотоһы кәрәк",
+            "Ты обновил срок документа, но фото так и не пришло. Допуск к такси приостановлен: "
+            "пришли фото — и вернём сразу.",
+            "Һин документ ваҡытын яңырттың, әммә фото килмәне. Такси допуск туҡтатылды: "
+            "фотоны ебәр — шунда уҡ кире ҡайтарабыҙ.",
+        )
+    return touched
+
+
 def expire_overdue(session: Session, dry_run: bool = False) -> list:
     """Срок прошёл → снять допуск к такси и с линии. Возврат: id заявок."""
     today = local_date(utcnow())   # местный день (волна 80)
@@ -260,6 +304,9 @@ def run_once(session: Session, dry_run: bool = False) -> dict:
     for name, fn in (
         ("restored", restore_renewed),
         ("expired", expire_overdue),
+        # Слово, не подтверждённое бумагой, тоже снимает допуск (волна 170) — после того,
+        # как обновившимся вернули, и рядом с обычным «срок вышел».
+        ("unconfirmed", expire_unconfirmed_docs),
         ("warned", warn_soon),
         ("reminded", remind_missing),
     ):
