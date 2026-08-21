@@ -409,7 +409,10 @@ def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
     if quality_mod.passenger_pause_until(session, user.id) is not None:
         raise HTTPException(403, isv.strike_pause_message())
     when = _parse_scheduled_at(body.scheduled_at)
-    est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category)
+    # Цену считаем на время ПОДАЧИ, а не нажатия (волна 163): иначе заказ на пять утра,
+    # оформленный днём, уходит по дневной ставке и в мороз за ним никто не едет.
+    est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
+                       body.category, when=when)
     # Предзаказ — та же открытая тройка «комментарий + два адреса», что и обычный заказ.
     moderate_open_text("\n".join(p for p in (body.comment, body.from_text, body.to_text) if p),
                        user.id, place="order_comment", session=session)

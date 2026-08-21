@@ -448,8 +448,20 @@ def _price_factors(route: pricing.RouteMetrics, surge: float, pickup: float,
     return factors
 
 
-def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard") -> dict:
+def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard",
+             when=None) -> dict:
     """Server-owned upfront fare v2.
+
+    `when` — момент, НА КОТОРЫЙ считаем поездку (по умолчанию сейчас). Нужен предзаказу:
+    раньше цена всегда бралась на время нажатия, и заказ «на пять утра», оформленный днём,
+    считался по дневной ставке (аудит 2026-08-08, волна 163). Ночная надбавка существует именно
+    затем, чтобы кто-то поехал в мороз в пять утра, — по дневной цене никто не берёт такой заказ,
+    и человек остаётся на морозе с подтверждённым заказом, за который никто не едет. Обратный
+    случай не лучше: заказ на полдень, оформленный ночью, брал ночную наценку с человека,
+    который едет днём.
+
+    Спрос и погода остаются «на сейчас» намеренно: предсказать пробки и метель на завтра нельзя,
+    а врать точной цифрой хуже, чем показать честную оценку по тарифу.
 
     base = max(min_price, (base + per_km·road_distance + per_min·traffic_eta) · Tariff.k)
     final = base · min(demand × night × weather × pickup, surge_max_k), rounded to 10 ₽.
@@ -468,7 +480,7 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
         raise herr(503, "Такси пока не считает цену. Попробуй позже или поезжай попуткой 🚗",
                    "Такси хәҙергә хаҡты иҫәпләмәй. Һуңғараҡ ҡабатла йәки юлдаш менән бар 🚗")
 
-    now = utcnow()
+    now = when or utcnow()
     surge = surge_k_for(session, frm[0], frm[1])
     nearest = nearby_drivers(frm[0], frm[1], limit=1)
     pickup_eta = int(nearest[0]["eta_min"]) if nearest else None
@@ -669,7 +681,10 @@ def waiting_fee_kop(started, now) -> int:
     за каждую ПОЛНУЮ минуту (неполная минута — в пользу пассажира). Целые копейки."""
     whole_min = int(max((now - started).total_seconds(), 0.0) // 60)
     billable = max(0, whole_min - settings.wait_free_minutes)
-    return billable * settings.wait_fee_rub_per_min * 100
+    # Потолок (волна 163): без него счётчик тикал бесконечно. Водитель нажал «я на месте»
+    # и ушёл по делам — за три часа набегало 875 ₽, больше двух поездок. Пассажир при этом
+    # не может ни остановить счётчик, ни доказать, что машины у подъезда не было.
+    return min(billable * settings.wait_fee_rub_per_min, settings.wait_fee_cap_rub) * 100
 
 
 def _order_base_fee_kop(session: Session, order: InstantOrder) -> int:
