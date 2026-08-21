@@ -682,12 +682,14 @@ def refresh(body: RefreshIn, session: Session = Depends(get_session)):
 #   WA  — WhatsApp Business API с подтверждением номера.
 @router.post("/auth/vk-callback")
 def vk_callback():
-    raise HTTPException(501, "VK-вход ещё не подключён")
+    raise herr(501, "Вход через VK пока не подключён. Войди по номеру телефона.",
+           "VK аша инеү әлегә тоташтырылмаған. Телефон номеры буйынса ин.")
 
 
 @router.post("/auth/whatsapp-callback")
 def whatsapp_callback():
-    raise HTTPException(501, "WhatsApp-вход ещё не подключён")
+    raise herr(501, "Вход через WhatsApp пока не подключён. Войди по номеру телефона.",
+           "WhatsApp аша инеү әлегә тоташтырылмаған. Телефон номеры буйынса ин.")
 
 
 @router.get("/me")
@@ -784,7 +786,8 @@ def push_register(body: PushTokenIn, user: User = Depends(current_user),
                   x_device_id: str = Header(default="", alias="X-Device-Id")):
     """Регистрация/перепривязка FCM-токена устройства к текущему пользователю."""
     if not body.token.strip():
-        raise HTTPException(400, "Пустой токен")
+        raise herr(400, "Не получилось подключить уведомления. Попробуй позже.",
+           "Хәбәрҙәрҙе тоташтырып булманы. Һуңыраҡ ҡабатла.")
     did = normalize_device_id(x_device_id)
     existing = session.exec(select(DeviceToken).where(DeviceToken.token == body.token)).first()
     if existing:
@@ -837,7 +840,8 @@ def push_unregister(body: PushTokenIn, user: User = Depends(current_user), sessi
     клиент удалял токен только локально. Только СВОЙ токен (чужой не отвяжешь). Идемпотентно."""
     token = body.token.strip()
     if not token:
-        raise HTTPException(400, "Пустой токен")
+        raise herr(400, "Не получилось подключить уведомления. Попробуй позже.",
+           "Хәбәрҙәрҙе тоташтырып булманы. Һуңыраҡ ҡабатла.")
     row = session.exec(select(DeviceToken).where(
         DeviceToken.token == token, DeviceToken.user_id == user.id,
     )).first()

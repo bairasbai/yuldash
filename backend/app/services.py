@@ -981,6 +981,25 @@ def may_send_family_sms(session: Session, user_id: int, kind: str) -> bool:
     return True
 
 
+def _sms_failed() -> Exception:
+    """Код входа не ушёл: человек стоит на пороге приложения и не может войти (волна 173).
+
+    Раньше здесь был односторонний русский текст «SMS не отправлено». Это самое неудачное место
+    для одного языка: башкироязычный человек в этот момент вообще ничего не может сделать —
+    ни войти, ни понять, что случилось, ни узнать, куда обращаться. Правило проекта «каждая
+    видимая надпись на двух языках» существует ровно для таких минут, а не для украшения.
+
+    Текст ещё и говорит, ЧТО делать: сбой у оператора связи проходит сам, и «повтори через
+    минуту» полезнее, чем «ошибка 502».
+    """
+    from .errors import herr
+    return herr(
+        502,
+        "Не получилось отправить код. Попробуй ещё раз через минуту.",
+        "Кодты ебәреп булманы. Бер минуттан ҡабатлап ҡара.",
+    )
+
+
 def send_sms(phone: str, code: str) -> None:
     """Отправка OTP. `smsru` — реально через sms.ru; иначе мок (код в лог).
     Если sms.ru НЕ отправил (напр. нет одобренного отправителя) — код падает в лог,
@@ -998,12 +1017,12 @@ def send_sms(phone: str, code: str) -> None:
             log.info(f"[SMS] {mp}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
             if not ok:
                 if settings.is_prod:
-                    raise HTTPException(502, "SMS не отправлено")
+                    raise _sms_failed()
                 log.info(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
         except Exception as e:  # noqa: BLE001
             log.warning(f"[SMS] {mp}: smsru error {e}")
             if settings.is_prod:
-                raise HTTPException(502, "SMS не отправлено")
+                raise _sms_failed()
             log.info(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
     elif settings.sms_provider == "smsdar" and settings.smsdar_id and settings.smsdar_password:
         try:
@@ -1011,14 +1030,14 @@ def send_sms(phone: str, code: str) -> None:
             log.info(f"[SMS] {mp}: smsdar sent={ok} ({info})")
             if not ok:
                 if settings.is_prod:
-                    raise HTTPException(502, "SMS не отправлено")
+                    raise _sms_failed()
                 log.info(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
         except HTTPException:
             raise
         except Exception as e:  # noqa: BLE001
             log.warning(f"[SMS] {mp}: smsdar error {e}")
             if settings.is_prod:
-                raise HTTPException(502, "SMS не отправлено")
+                raise _sms_failed()
             log.info(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
     else:
         if settings.is_prod:
