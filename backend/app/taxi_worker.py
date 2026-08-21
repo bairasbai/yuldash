@@ -34,7 +34,7 @@ from datetime import timedelta
 
 from sqlmodel import Session, select
 
-from . import incident_escalate, instant_service as isv
+from . import declare_remind, incident_escalate, instant_service as isv
 from . import ads_expire, promo_ride, sos_escalate, winter_escalate
 from .config import settings
 from .db import engine
@@ -398,6 +398,9 @@ def run_once(session: Session, dry_run: bool = False) -> dict:
         # Здесь же, а не отдельным таймером, по той же причине, что SOS и зимний протокол:
         # справедливость не должна зависеть от того, открыл ли кто-то экран.
         "incidents_escalated": incident_escalate.escalate_silent_incidents(session, dry_run),
+        # Водитель заявил оплату, а подтверждения нет: предупреждаем ОБЕ стороны за сутки
+        # до того, как доверие кончится и такси закроется (волна 176).
+        "declares_reminded": declare_remind.remind_pending_declares(session, dry_run),
     }
 
 

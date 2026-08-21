@@ -2014,7 +2014,13 @@ private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclare
     val payNow = !debt.blocked && !onlyPending && debt.payNowKop > 0
     val bg = when { debt.blocked -> CanonDangerBg; onlyPending -> CanonMint; else -> CanonWarnBg }
     val accent = when { debt.blocked -> CanonRed; onlyPending -> CanonGreen2; else -> CanonWarn }
+    // Блокировка «перевод заявлен, подтверждения нет» — это НЕ «не заплатил» (волна 176).
+    // Человек деньги отправил, ждёт Александра. Сказать ему «оплати долг» — обвинить того,
+    // кто всё сделал правильно: он либо заплатит второй раз, либо решит, что его обманули.
+    val ждётПодтверждения = debt.blocked &&
+        (debt.blockReason == "declare_stale" || debt.blockReason == "declare_abuse")
     val title = when {
+        ждётПодтверждения -> appText("Перевод не подтверждён", "Күсереү раҫланмаған")
         debt.blocked -> appText("Такси заблокировано", "Такси блокланған")
         onlyPending -> appText("Ждём подтверждения оплаты", "Түләү раҫлауын көтәбеҙ")
         payNow -> appText("Оплати сегодня", "Бөгөн түлә")
@@ -2049,6 +2055,12 @@ private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclare
             }
             // Пояснение по состоянию.
             val explain = when {
+                ждётПодтверждения -> appText(
+                    "Ты сказал, что перевёл, но подтверждения пока нет. Напиши в поддержку " +
+                        "и приложи чек — вернём такси. Попутка работает как обычно.",
+                    "Күсерҙем тинең, әммә раҫлау әле юҡ. Ярҙам хеҙмәтенә яҙ һәм чекты ебәр — " +
+                        "таксины кире ҡайтарабыҙ. Юлдаш ғәҙәттәгесә эшләй."
+                )
                 debt.blocked -> appText(
                     "Оплати долг сервису, чтобы снова возить такси. Попутка (плановые поездки) работает как обычно.",
                     "Такси йөрөтөр өсөн сервисҡа бурысты түлә. Юлдаш (планлы сәфәрҙәр) ғәҙәттәгесә эшләй."
