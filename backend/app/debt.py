@@ -29,7 +29,7 @@ from .config import settings
 from .ledger import driver_balance, fee_kop_for, post_promo_compensation, promo_comp_ext_id
 from .models import (
     CommissionDebt, DebtStatus, InstantOrder, InstantOrderStatus, LedgerEntry, LedgerKind,
-    TaxiApplication, TaxiApplicationStatus,
+    TaxiApplication, TaxiApplicationStatus, User,
 )
 from .timeutil import local_date, utcnow
 
@@ -331,8 +331,67 @@ def order_commission_kop(order: InstantOrder, percent: Optional[float] = None) -
     return fee_kop_for(price_rub * 100, percent)
 
 
-def accrue_for_order(session: Session, order: InstantOrder) -> Optional[CommissionDebt]:
+def _clock_starts(now: datetime) -> datetime:
+    """С какого момента считать часы на оплату: ночью — с утра, днём — прямо сейчас.
+
+    Поездка, законченная в час ночи, деньгами не поможет: банк спит вместе с человеком.
+    Отсчитывать от неё три часа — значит заблокировать такси к четырём утра за то, что
+    водитель не сделал перевод посреди ночи. Границу берём ту же, что у тихих часов пушей,
+    и по башкирскому времени: сервер живёт в UTC, а спит человек по своим часам."""
+    end = int(settings.quiet_hours_to or 0)
+    if end <= 0:
+        return now                       # тихие часы выключены — сдвигать нечего
+    start = int(settings.quiet_hours_from or 0)
+    local = now + timedelta(hours=settings.local_tz_offset_hours)
+    quiet = (local.hour >= start or local.hour < end) if start > end else (start <= local.hour < end)
+    if not quiet:
+        return now
+    morning = local.replace(hour=end, minute=0, second=0, microsecond=0)
+    if local.hour >= end:                # ночь ДО полуночи → утро уже следующего дня
+        morning += timedelta(days=1)
+    return morning - timedelta(hours=settings.local_tz_offset_hours)
+
+
+def _due_at(now: datetime, amount_kop: int, pay_now_allowed: bool = True) -> datetime:
+    """Когда наступает срок оплаты этой комиссии.
+
+    Обычный городской заказ идёт в недельный цикл (debt_due_days). Крупная комиссия —
+    дальний межгород — гасится сразу после поездки: у водителя на руках только что
+    полученные за неё деньги, и просить в этот момент честнее и легче, чем через неделю.
+    Порог и льготные часы — в конфиге, правятся без пересборки.
+
+    `pay_now_allowed=False` — заказ закрыл не водитель, а ночной автомат. Тогда короткий срок
+    ставить нельзя: момент окончания поездки мы не знаем, водитель в этот час спит и пуша не
+    видел, а к утру он был бы уже заблокирован за просрочку, о которой его не предупреждали.
+    Такой долг идёт в обычный недельный цикл."""
+    if not (pay_now_allowed and amount_kop >= settings.debt_now_threshold_kop):
+        return now + timedelta(days=settings.debt_due_days)
+    return _clock_starts(now) + timedelta(hours=settings.debt_now_grace_hours)
+
+
+def is_pay_now(d: CommissionDebt) -> bool:
+    """Это долг «оплатить сразу после поездки», а не из недельного цикла?
+
+    Смотрим на окно самой записи (due_at − created_at), а НЕ на текущий порог в конфиге:
+    иначе смена порога задним числом переписала бы историю и водитель увидел бы «срочно»
+    там, где ему обещали неделю.
+
+    Окно должно быть ПОЛОЖИТЕЛЬНЫМ. Срок, оказавшийся раньше начисления, окна не задаёт —
+    это долг, которому дату сдвинули руками (админка, миграция, тестовая эмуляция просрочки),
+    и «меньше суток» там получается из отрицательного числа. Без этой проверки любой такой
+    долг выглядел бы «оплати сегодня» — а по нему теперь ещё и решается, блокировать ли
+    водителя, который о сроке не знал."""
+    if d.due_at is None or d.created_at is None:
+        return False
+    return timedelta(0) <= (d.due_at - d.created_at) < timedelta(days=1)
+
+
+def accrue_for_order(session: Session, order: InstantOrder,
+                     pay_now_allowed: bool = True) -> Optional[CommissionDebt]:
     """Начислить долг по комиссии за завершённый такси-заказ. Идемпотентно.
+
+    `pay_now_allowed=False` зовёт ночная чистка за водителя, который не нажал «Завершил»:
+    крупную комиссию в этом случае в «оплатить сразу» не переводим (см. `_due_after`).
 
     Вызывать ПОСЛЕ перехода в done. На один order_id заводим не больше одной записи долга —
     повторный тап «done» (идемпотентный переход) не задваивает долг. Нулевая комиссия
@@ -367,7 +426,7 @@ def accrue_for_order(session: Session, order: InstantOrder) -> Optional[Commissi
         week=_week_key(now),
         status=DebtStatus.unpaid,
         created_at=now,
-        due_at=now + timedelta(days=settings.debt_due_days),
+        due_at=_due_at(now, amount, pay_now_allowed),
     )
     session.add(debt)
     try:
@@ -533,6 +592,28 @@ def _pending(session: Session, driver_id: int) -> list[CommissionDebt]:
 DECLARE_TRUST_DAYS = 3
 
 
+def crossed_warn_line(session: Session, driver_id: int, just_added_kop: int) -> Optional[int]:
+    """Долг ЭТИМ заказом дорос до предупредительной линии? Вернёт сумму долга или None.
+
+    Считаем «до» вычитанием только что начисленного, а не отдельным запросом до начисления:
+    так предупреждение уходит РОВНО ОДИН раз — в тот заказ, которым линия пересечена. Иначе
+    водитель получал бы его после каждой следующей поездки, а повторяющееся предупреждение
+    перестают читать ровно к тому моменту, когда оно становится важным.
+
+    Уже перешагнувших порог блокировки не трогаем: у них такси и так закрыто, и «скоро
+    закроется» было бы враньём — им нужен другой разговор, не этот."""
+    if settings.debt_warn_ratio <= 0 or just_added_kop <= 0:
+        return None
+    line = int(settings.debt_block_threshold_kop * settings.debt_warn_ratio)
+    if line <= 0:
+        return None
+    after = sum(d.amount_kop for d in _unpaid(session, driver_id))
+    if after > settings.debt_block_threshold_kop:
+        return None
+    before = after - just_added_kop
+    return after if before < line <= after else None
+
+
 def _stale_declares(pending: list[CommissionDebt], now) -> list[CommissionDebt]:
     """Долги, где «слово» протухло: заявили оплату, а деньги так и не подтвердились.
     Фолбэк на created_at — для строк, где заявления не было (ручной pending из админки/миграции):
@@ -560,10 +641,33 @@ def taxi_block_reason(session: Session, driver_id: int, now=None) -> Optional[st
     unpaid (cleanup.expire_stale_declares), водитель может заявить оплату снова — но уже под
     счётчик, то есть ограниченное число раз."""
     now = now or utcnow()
-    return _reason_from(_unpaid(session, driver_id), _pending(session, driver_id), now)
+    driver = session.get(User, driver_id)
+    return _reason_from(_unpaid(session, driver_id), _pending(session, driver_id), now,
+                        last_seen=getattr(driver, "last_seen_at", None))
 
 
-def _reason_from(unpaid: list, pending: list, now) -> Optional[str]:
+def _had_a_chance_to_know(d: CommissionDebt, last_seen) -> bool:
+    """Мог ли водитель вообще узнать про этот долг: заходил ли он в приложение после начисления.
+
+    Нужно только короткому сроку «дальней поездки». Обычный недельный водитель не пропустит:
+    неделю он в приложение зайдёт. А три часа — пропустит запросто, и виноват в этом будет
+    не он: пуш уходит молча в никуда, если уведомления выключены в системе, если у аккаунта
+    нет ни одного устройства, если Firebase не настроен или если антишторм проглотил событие
+    (services.push_notification: ни одна из этих веток наружу не сообщает).
+
+    Без этой проверки короткий срок стал бы тихой блокировкой: человек возит людей, ничего
+    не видел и не слышал, а через три часа такси у него отключено. Это ровно та ловушка,
+    ради которой ночные поездки и автозакрытие короткого срока не получают (см. `_due_at`);
+    здесь закрыта третья её дверь — «предупреждение не дошло».
+
+    Лазейки не открывает: недельный срок и порог блокировки по сумме остаются в силе, так
+    что «не заходить в приложение» от долга не спасает — только оттягивает до общих правил."""
+    if d.created_at is None:
+        return True                    # нечего сравнивать — ведём себя как раньше
+    return last_seen is not None and last_seen >= d.created_at
+
+
+def _reason_from(unpaid: list, pending: list, now, last_seen=None) -> Optional[str]:
     """Решение по уже собранным долгам одного водителя. Вынесено, чтобы ТОЧНО ТА ЖЕ логика
     работала и в пакетной проверке круга подбора (волна 60) — иначе гейт на ручке и фильтр
     в подборе разъедутся, а разъезжаются такие пары всегда."""
@@ -575,7 +679,10 @@ def _reason_from(unpaid: list, pending: list, now) -> Optional[str]:
         return "declare_stale"        # слово дали, деньги не пришли — доверие на паузе
     if not unpaid:
         return None
-    if any(d.due_at is not None and d.due_at < now for d in unpaid):
+    overdue = [d for d in unpaid if d.due_at is not None and d.due_at < now]
+    # Короткий срок блокирует только того, у кого был шанс о нём узнать (см. выше).
+    overdue = [d for d in overdue if not is_pay_now(d) or _had_a_chance_to_know(d, last_seen)]
+    if overdue:
         return "overdue"
     if sum(d.amount_kop for d in unpaid) > settings.debt_block_threshold_kop:
         return "over_threshold"
@@ -597,11 +704,17 @@ def blocked_driver_ids(session: Session, driver_ids: list, now=None) -> set:
             CommissionDebt.status.in_([DebtStatus.unpaid, DebtStatus.pending]),
         )
     ).all()
+    # «Заходил ли в приложение» — тем же одним запросом на весь круг: `_reason_from` смотрит
+    # на это для короткого срока, и без него пакетная проверка судила бы строже одиночной.
+    seen = dict(session.exec(
+        select(User.id, User.last_seen_at).where(User.id.in_(list(driver_ids)))
+    ).all())
     by_driver: dict = {}
     for d in rows:
         u, p = by_driver.setdefault(d.driver_id, ([], []))
         (u if d.status == DebtStatus.unpaid else p).append(d)
-    return {did for did, (u, p) in by_driver.items() if _reason_from(u, p, now) is not None}
+    return {did for did, (u, p) in by_driver.items()
+            if _reason_from(u, p, now, last_seen=seen.get(did)) is not None}
 
 
 # Понятная ошибка блокировки такси (RU — серверная строка; UI локализует через appText).
@@ -629,6 +742,11 @@ def debt_summary(session: Session, driver_id: int) -> dict:
             w["status"] = DebtStatus.pending.value   # ждёт подтверждения — важнее показать
     weeks = sorted(by_week.values(), key=lambda x: x["week"], reverse=True)
 
+    # Сколько из неоплаченного — «сразу после поездки» (дальний межгород). Клиент по этой
+    # сумме поднимает экран оплаты не дожидаясь, пока водитель сам зайдёт в кабинет.
+    pay_now_kop = sum(d.amount_kop for d in unpaid if is_pay_now(d))
+    pay_now_due = min([d.due_at for d in unpaid if is_pay_now(d) and d.due_at], default=None)
+
     return {
         "unpaid_kop": unpaid_kop,
         "pending_kop": pending_kop,
@@ -639,6 +757,9 @@ def debt_summary(session: Session, driver_id: int) -> dict:
         "threshold_kop": settings.debt_block_threshold_kop,
         "sbp": {"phone": settings.owner_sbp_phone, "name": settings.owner_sbp_name},
         "weeks": weeks,
+        # Аддитивные поля (старый клиент их просто не читает).
+        "pay_now_kop": pay_now_kop,
+        "pay_now_due_at": pay_now_due.isoformat() if pay_now_due else None,
     }
 
 

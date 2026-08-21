@@ -532,6 +532,15 @@ internal fun YuldashApp() {
     // Какую версию человек уже отклонил. Живёт в настройках устройства, а не в памяти:
     // иначе плашка возвращалась бы при каждом запуске, и «позже» ничего не значило.
     var updateDismissedCode by remember { mutableIntStateOf(prefs.getInt(PREF_UPDATE_DISMISSED, 0)) }
+    // Срочная комиссия за дальнюю поездку: спрашиваем на входе, а не только в кабинете.
+    // Иначе водитель, открывший приложение и не заглянувший в профиль, считался бы
+    // предупреждённым (сервер судит по «заходил ли»), ничего при этом не увидев.
+    // Не водитель или ошибка сети — точка просто не горит, экран из-за этого не страдает.
+    LaunchedEffect(screen) {
+        if (!ApiClient.isLoggedIn()) { NavSignals.payNowDebtKop.value = 0; return@LaunchedEffect }
+        if (screen != Screen.Home) return@LaunchedEffect
+        ApiClient.getDriverDebt().onSuccess { NavSignals.payNowDebtKop.value = it.payNowKop }
+    }
     LaunchedEffect(Unit) {
         ApiClient.minAppVersion().onSuccess { o ->
             val min = o.optInt("min_version_code", 0)
@@ -2476,7 +2485,8 @@ internal fun YuldashBottomBar(
                 selected = selectedTab == HomeTab.Profile,
                 label = appText("Профиль", "Профиль"),
                 iconRes = R.drawable.yu_profile,
-                onClick = { onSelect(HomeTab.Profile) }
+                onClick = { onSelect(HomeTab.Profile) },
+                badge = NavSignals.payNowDebtKop.value > 0
             )
         }
     }
@@ -2487,12 +2497,14 @@ private fun RowScope.YuldashBottomItem(
     selected: Boolean,
     label: String,
     iconRes: Int,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    badge: Boolean = false
 ) {
     val pillColor by animateColorAsState(if (selected) CanonGold else Color.Transparent, tween(CanonMotion.NORMAL), label = "navPill")
     val iconTint by animateColorAsState(if (selected) CanonText else CanonMuted, tween(CanonMotion.NORMAL), label = "navTint")
     val labelColor by animateColorAsState(if (selected) CanonGold else CanonMutedStrong, tween(CanonMotion.NORMAL), label = "navLabel")
     val iconScale by animateFloatAsState(if (selected) 1.12f else 1f, tween(CanonMotion.NORMAL), label = "navScale")
+    val badgeScale by animateFloatAsState(if (badge) 1f else 0f, tween(CanonMotion.QUICK), label = "navBadge")
     val interaction = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
@@ -2502,19 +2514,36 @@ private fun RowScope.YuldashBottomItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Surface(
-            color = pillColor,
-            shape = RoundedCornerShape(14.dp)
-        ) {
-            Icon(
-                painterResource(iconRes),
-                contentDescription = label,
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
-                    .size(21.dp)
-                    .graphicsLayer { scaleX = iconScale; scaleY = iconScale },
-                tint = iconTint
-            )
+        Box {
+            Surface(
+                color = pillColor,
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(
+                    painterResource(iconRes),
+                    contentDescription = label,
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .size(21.dp)
+                        .graphicsLayer { scaleX = iconScale; scaleY = iconScale },
+                    tint = iconTint
+                )
+            }
+            // Точка «загляни сюда»: срочный долг за дальнюю поездку. Живёт на вкладке, а не
+            // только в кабинете, потому что пуш может не дойти вовсе — уведомления выключены,
+            // нет устройства, антишторм. Без неё водитель зашёл бы в приложение, не увидел
+            // требования и всё равно считался бы предупреждённым.
+            if (badgeScale > 0.01f) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 2.dp, end = 8.dp)
+                        .size(9.dp)
+                        .graphicsLayer { scaleX = badgeScale; scaleY = badgeScale }
+                        .background(CanonRed, CircleShape)
+                        .border(2.dp, CanonSurface, CircleShape)
+                )
+            }
         }
         Text(
             text = label,

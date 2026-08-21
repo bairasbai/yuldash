@@ -721,7 +721,12 @@ def done(order_id: int, user: User = Depends(current_user), session: Session = D
     водитель получил деньги напрямую, комиссию должен платформе. Идемпотентно (на заказ — раз)."""
     order = isv.transition(session, order_id, isv.Actor.driver, S.done, user.id)
     if order.status == S.done:
-        debt_mod.accrue_for_order(session, order)
+        debt = debt_mod.accrue_for_order(session, order)
+        # Крупная комиссия (дальний межгород) гасится сразу — предупреждаем в тот же момент,
+        # иначе короткий срок сработает как молчаливая блокировка через пару часов.
+        # Не срочная, но долг дорос до предела — предупреждаем ДО блокировки, а не после.
+        # Через `or`: срочный пуш уже зовёт платить, второй следом читался бы как шум.
+        isv.notify_pay_now_debt(session, debt) or isv.notify_debt_near_block(session, debt)
         # B7b-4: мягкое напоминание про чек «Мой налог» (дедуп 1/сутки внутри).
         isv.maybe_receipt_reminder(session, order.driver_id)
         # B8-4: реферальный бонус пригласившему — только когда водитель реально раскатался

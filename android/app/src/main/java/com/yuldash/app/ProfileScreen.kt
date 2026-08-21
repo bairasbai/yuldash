@@ -1376,7 +1376,10 @@ internal fun DriverCabinetScreen(
     var workday by remember { mutableStateOf<com.yuldash.app.data.TaxiWorkdayDto?>(null) }
     // Ограничения качества (§9): пауза такси по жалобам — карточка «Мои ограничения».
     var restrictions by remember { mutableStateOf<com.yuldash.app.data.RestrictionsDto?>(null) }
-    suspend fun reloadDebt() { ApiClient.getDriverDebt().onSuccess { debt = it } }
+    suspend fun reloadDebt() {
+        // Сигнал держим в курсе вместе с экраном: по нему горит точка на вкладке «Профиль».
+        ApiClient.getDriverDebt().onSuccess { debt = it; NavSignals.payNowDebtKop.value = it.payNowKop }
+    }
     // Архив: прошлые поездки водителя (done + cancelled) для раздела «Архив» + счётчиков.
     var archive by remember { mutableStateOf<List<com.yuldash.app.data.RideDto>>(emptyList()) }
     var archiveLoading by remember { mutableStateOf(true) }
@@ -2005,11 +2008,16 @@ internal fun RestrictionsCard(data: com.yuldash.app.data.RestrictionsDto) {
 @Composable
 private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclarePaid: () -> Unit, paying: Boolean = false) {
     val onlyPending = debt.unpaidKop == 0 && debt.pendingKop > 0
+    // Комиссия за дальнюю поездку гасится сразу: деньги за неё у водителя на руках именно
+    // сейчас. Это ОТДЕЛЬНОЕ состояние, а не строчка мелким шрифтом внутри обычного долга —
+    // иначе короткий срок пройдёт незамеченным и такси встанет «ни за что».
+    val payNow = !debt.blocked && !onlyPending && debt.payNowKop > 0
     val bg = when { debt.blocked -> CanonDangerBg; onlyPending -> CanonMint; else -> CanonWarnBg }
     val accent = when { debt.blocked -> CanonRed; onlyPending -> CanonGreen2; else -> CanonWarn }
     val title = when {
         debt.blocked -> appText("Такси заблокировано", "Такси блокланған")
         onlyPending -> appText("Ждём подтверждения оплаты", "Түләү раҫлауын көтәбеҙ")
+        payNow -> appText("Оплати сегодня", "Бөгөн түлә")
         else -> appText("Долг сервису", "Сервисҡа бурыс")
     }
     Surface(color = bg, shape = CanonItemShape, border = BorderStroke(1.dp, accent.copy(alpha = 0.35f))) {
@@ -2049,6 +2057,19 @@ private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclare
                     "Александр проверит перевод и подтвердит. Такси уже работает.",
                     "Александр күсереүҙе тикшереп раҫлар. Такси инде эшләй."
                 )
+                payNow -> {
+                    val till = unlockTimeLabel(debt.payNowDueAt)
+                    val tillRu = if (till != null) ", до $till" else " сегодня"
+                    val tillBa = if (till != null) ", $till-гә тиклем" else " бөгөн"
+                    appText(
+                        "Комиссия за дальнюю поездку — " + kopToRub(debt.payNowKop) +
+                            ". Деньги за неё уже у тебя, поэтому просим сразу" + tillRu +
+                            ". Попутка работает как обычно.",
+                        "Алыҫ сәфәр өсөн комиссия — " + kopToRub(debt.payNowKop) +
+                            ". Уның аҡсаһы инде һиндә, шуға шунда уҡ һорайбыҙ" + tillBa +
+                            ". Юлдаш ғәҙәттәгесә эшләй."
+                    )
+                }
                 debt.dueAt != null -> appText("Оплати до ", "Түлә: ") + debtDueLabel(debt.dueAt!!)
                 else -> appText("Переведи долг по реквизитам ниже.", "Түбәндәге реквизиттар буйынса бурысты күсер.")
             }

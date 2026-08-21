@@ -100,3 +100,36 @@ backend/.coverage.*
 backend/htmlcov/
 # Результаты нагрузочных прогонов (CSV локального запуска)
 backend/loadtest/results/
+
+# --- Разовый мусор ресёрча комиссии (2026-08-21) ---
+# Скачанные отчёты конкурентов, страницы поиска и артефакты кривых перенаправлений.
+# Выводы из них лежат в docs/commission-research-2026-08.md — сами файлы можно удалять.
+/strix-src/
+/strix-venv/
+/2
+/80
+/250
+/2400
+/a16z_sm.xml
+/b.html
+/bvp_sm.xml
+/cdx_nfx.txt
+/ddg1.html
+/err2023.html
+/err2024.html
+/err2025.html
+/gurley.html
+/indrive.wiki
+/lt.html
+/mj.html
+/mo.html
+/nfx_sm.xml
+/q2_2026.pdf
+/rake-table.png
+/t.html
+/u10k20.html
+/uber10k.htm
+/uber_fy2025_10k.txt
+/uber_q4_2024.html
+/uber_sub.json
+/uq423.html
