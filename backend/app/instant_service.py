@@ -1671,6 +1671,7 @@ def notify_pay_now_debt(session: Session, debt) -> bool:
     дальше, а через три часа такси у него закрыто «неизвестно за что». Обычный недельный долг
     пушем не тревожим — про него достаточно кабинета."""
     from . import debt as debt_mod            # локальный импорт: без циклов на старте
+    from .services import push_notification  # там же и запись в Центр уведомлений
     if debt is None or not debt_mod.is_pay_now(debt):
         return False
     rub = debt.amount_kop // 100
@@ -1695,6 +1696,7 @@ def notify_debt_near_block(session: Session, debt) -> bool:
 
     Шлём один раз, тем заказом, которым линия пересечена (см. `debt.crossed_warn_line`)."""
     from . import debt as debt_mod            # локальный импорт: без циклов на старте
+    from .services import push_notification  # там же и запись в Центр уведомлений
     if debt is None or debt.driver_id is None:
         return False
     owed = debt_mod.crossed_warn_line(session, debt.driver_id, debt.amount_kop)
