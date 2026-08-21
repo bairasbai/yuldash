@@ -298,10 +298,57 @@ def last_online_at(session: Session, driver_id: int, now: Optional[datetime] = N
     return max(stamps) if stamps else None
 
 
+def order_seconds_today(session: Session, driver_id: int,
+                        now: Optional[datetime] = None) -> int:
+    """Сколько водитель фактически вёз пассажиров за местный день, по самим заказам.
+
+    Зачем (аудит 2026-08-08, волна 171). Рабочее время копилось ТОЛЬКО из сигналов присутствия,
+    и у каждого сигнала стоит кэп: редкий пинг добавляет не больше минуты. Кэп нужен — иначе
+    один пинг раз в три часа записал бы три часа «работы». Но он же теряет настоящую работу
+    там, где её больше всего.
+
+    Проба: водитель час вёз пассажира по трассе, где связи нет. Пингов не было, вернулась
+    связь — засчиталась **одна минута вместо часа**. Восьмичасовой лимит превращается
+    в двенадцатичасовой ровно там, где усталость опаснее всего: ночная дорога между сёлами,
+    где и сотовой сети нет, и встречный свет слепит.
+
+    Считаем по фактам: заказ принят в 21:40, завершён в 22:50 — значит семьдесят минут человек
+    был за рулём, что бы ни думала об этом сотовая сеть. Берём заказы, ЗАДЕТЫЕ текущим местным
+    днём, и обрезаем их границами дня: рейс через полночь не должен целиком падать в один день.
+    """
+    from .models import InstantOrder, InstantOrderStatus
+    now = now or utcnow()
+    начало_дня = datetime.combine(local_day(now), time_type()) - _tz()
+    конец_дня = начало_дня + timedelta(days=1)
+    заказы = session.exec(
+        select(InstantOrder).where(
+            InstantOrder.driver_id == driver_id,
+            InstantOrder.accepted_at.is_not(None),
+            InstantOrder.accepted_at < конец_дня,
+            InstantOrder.status.in_([InstantOrderStatus.accepted, InstantOrderStatus.arriving,
+                                     InstantOrderStatus.onboard, InstantOrderStatus.done]),
+        )
+    ).all()
+    всего = 0
+    for o in заказы:
+        конец = o.done_at or now                 # заказ ещё идёт — считаем до сих пор
+        с, по = max(o.accepted_at, начало_дня), min(конец, конец_дня, now)
+        if по > с:
+            всего += int((по - с).total_seconds())
+    return всего
+
+
 def shift_seconds(session: Session, driver_id: int, wd: TaxiWorkDay,
                   now: Optional[datetime] = None) -> int:
-    """Сколько водитель за рулём в ТЕКУЩЕЙ смене: сегодня + хвост незаконченной вчерашней."""
-    return int(wd.seconds_online or 0) + carried_over_seconds(session, driver_id, now)
+    """Сколько водитель за рулём в ТЕКУЩЕЙ смене: сегодня + хвост незаконченной вчерашней.
+
+    «Сегодня» — БОЛЬШЕЕ из двух измерений, а не их сумма (волна 171): время присутствия
+    на линии и время фактических поездок. Максимум, потому что эти два числа описывают одно
+    и то же время разными приборами, и складывать их значило бы считать один час дважды.
+    Прибор, который видит больше, и ближе к правде: сеть могла молчать, а руль — нет.
+    """
+    сегодня = max(int(wd.seconds_online or 0), order_seconds_today(session, driver_id, now))
+    return сегодня + carried_over_seconds(session, driver_id, now)
 
 
 def record_heartbeat(session: Session, driver_id: int, now: Optional[datetime] = None) -> TaxiWorkDay:
