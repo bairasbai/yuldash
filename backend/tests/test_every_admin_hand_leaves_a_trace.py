@@ -27,7 +27,7 @@ import re
 from pathlib import Path
 
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.db import engine
 from app.models import Ad, User, UserRole
@@ -101,11 +101,18 @@ def test_в_следе_нет_содержимого_рекламы(client, оп
 
 
 def _молчуны_в(текст: str, имя_файла: str = "образец.py") -> list:
-    """Пишущие админские ручки без следа. Ищем по признаку, а не по списку известных имён."""
+    """Админские ручки без следа: любое изменение данных и любая ВЫГРУЗКА.
+
+    Ищем по признаку, а не по списку известных имён. Выгрузки добавлены волной 167: журнал
+    стерёг изменения и не видел массового чтения — а файл с телефонами живых людей, скачанный
+    из админки, опаснее любой правки, потому что уносится за пределы приложения насовсем.
+    """
     найдено = []
     for кусок in re.split(r"\n@router\.", текст):
         первая = кусок.split("\n", 1)[0]
-        if not re.match(r'(post|delete|patch|put)\("/admin/', первая):
+        меняет = bool(re.match(r'(post|delete|patch|put)\("/admin/', первая))
+        выгружает = bool(re.match(r'get\("/admin/[^"]*\.csv', первая))
+        if not (меняет or выгружает):
             continue
         if "admin_action(" in кусок:
             continue
@@ -157,7 +164,14 @@ def admin_list_things(user: User = Depends(current_user)):
     return session.exec(select(Thing)).all()
 '''
 
+    выгрузка = '''
+@router.get("/admin/things.csv")
+def admin_export_things(user: User = Depends(current_user)):
+    return Response(content=csv_text, media_type="text/csv")
+'''
+
     assert _молчуны_в(дырявый), "сторож не видит пишущую админскую ручку без следа"
+    assert _молчуны_в(выгрузка), "сторож не видит выгрузку данных без следа"
     assert not _молчуны_в(честный), "сторож ругается на ручку, которая след оставляет"
     assert not _молчуны_в(читающий), "сторож требует след от обычного чтения списка"
 
@@ -175,4 +189,64 @@ def test_разжалованный_админ_дверей_не_открыва�
 
     assert ответ.status_code == 403, (
         f"старый токен админа продолжает работать после разжалования (ответ {ответ.status_code})"
+    )
+
+
+@pytest.fixture
+def чистый_список_ожидания():
+    """Лист ожидания общий на всю сессию тестов: что добавили — то и убираем.
+
+    Соседний файл проверяет «в списке ровно одна запись», и мусор из этого теста ронял его.
+    Общая база — общая ответственность.
+    """
+    from app.models import WaitlistEntry
+    with Session(engine) as s:
+        было = {e.id for e in s.exec(select(WaitlistEntry)).all()}
+    yield
+    with Session(engine) as s:
+        for e in s.exec(select(WaitlistEntry)).all():
+            if e.id not in было:
+                s.delete(e)
+        s.commit()
+
+
+def test_выгрузка_телефонов_оставляет_след(client, user_factory, caplog,
+                                           чистый_список_ожидания):
+    """Файл с номерами живых людей уносится из приложения насовсем — это обязан видеть журнал.
+
+    Список ожидания — единственное место, где телефон лежит у человека, который сервисом
+    ещё даже не пользуется: он оставил номер, чтобы его позвали, когда Юлдаш дойдёт до села.
+    """
+    from app.models import WaitlistEntry
+    админ = user_factory("ВыгрузкаАдмин", role=UserRole.admin)
+    with Session(engine) as s:
+        for i in range(5):
+            s.add(WaitlistEntry(phone=f"+7917000{i:04d}", city="Баймак", role="passenger"))
+        s.commit()
+
+    with caplog.at_level(logging.INFO, logger="yuldash"):
+        ответ = client.get("/admin/waitlist.csv", headers=админ["auth"])
+
+    assert ответ.status_code == 200
+    следы = [r.message for r in caplog.records if "[ADMIN]" in r.message]
+    assert any("waitlist.export" in с for с in следы), (
+        f"админ скачал файл с телефонами — и следа нет: {следы}"
+    )
+
+
+def test_в_следе_выгрузки_нет_самих_номеров(client, user_factory, caplog,
+                                            чистый_список_ожидания):
+    """Обратная сторона: журнал не должен сам стать вторым местом утечки (§8)."""
+    from app.models import WaitlistEntry
+    админ = user_factory("ВыгрузкаАдмин2", role=UserRole.admin)
+    with Session(engine) as s:
+        s.add(WaitlistEntry(phone="+79171112233", city="Сибай", role="driver"))
+        s.commit()
+
+    with caplog.at_level(logging.INFO, logger="yuldash"):
+        client.get("/admin/waitlist.csv", headers=админ["auth"])
+
+    следы = " ".join(r.message for r in caplog.records if "[ADMIN]" in r.message)
+    assert "79171112233" not in следы, (
+        f"телефон уехал в журнал: {следы[:200]}"
     )

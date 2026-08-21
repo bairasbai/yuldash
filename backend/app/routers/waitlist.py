@@ -151,6 +151,13 @@ def admin_waitlist_csv(city: Optional[str] = None, role: Optional[str] = None, i
     """CSV-экспорт (те же фильтры, что и список) — для рассылки/таблицы у Александра."""
     _require_admin(user)
     rows = _filtered(session, city, role, invited)
+    # След обязателен (волна 167). Это не просмотр карточки, а вынос файла с телефонами живых
+    # людей за пределы приложения: список ожидания — единственное место, где номер лежит
+    # у человека, который сервисом ещё даже не пользуется. Журнал стерёг изменения данных
+    # и не видел массового чтения, хотя утечка выгрузкой опаснее любой правки.
+    # Пишем сколько и по какому фильтру — самих номеров в журнале быть не должно (§8).
+    admin_action(user.id, "waitlist.export", rows=len(rows), city=city, role=role,
+                 invited=invited)
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["id", "phone", "city", "role", "created_at", "invited_at"])

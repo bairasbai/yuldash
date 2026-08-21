@@ -377,6 +377,38 @@ def _tariff_price(t: Tariff, dist_km: float, eta_min: float, surge: float) -> in
     return max(t.min_price, round_to_10(raw * t.k * surge))
 
 
+def _floor_at_zone_edge(session: Session, zone: str, category: str,
+                        eta_min: float, dist_km: float, surge: float) -> int:
+    """Пол цены для межгорода: столько же, сколько стоила бы поездка ровно до границы зон.
+
+    Зачем (аудит 2026-08-08, волна 167). Тарифы у зон разные: город берёт больше за километр
+    (короткие поездки), межгород — меньше (дальние). На стыке это давало разрыв в другую сторону:
+
+      * 40.0 км по городскому тарифу — 690 ₽;
+      * 40.1 км по межгородскому — 560 ₽.
+
+    Сто метров пути делали поездку на 130 ₽ **дешевле**. Для человека это выглядит как ошибка
+    приложения: сосед доехал дальше и заплатил меньше, объяснить это невозможно. Водителю тоже
+    прямой убыток — согласиться везти на километр дальше значит потерять деньги.
+
+    Чиним не цифрами в базе (их правит Александр и они меняются), а правилом: цена не может
+    падать при росте расстояния. Межгородская поездка стоит минимум столько же, сколько стоила
+    бы поездка ровно до границы по городскому тарифу. Дальше межгородский тариф растёт своим
+    темпом — дешевле за километр, как и задумано.
+    """
+    if zone != "intercity":
+        return 0
+    край = float(settings.instant_intercity_km)
+    if dist_km <= край:
+        return 0
+    городской = active_tariff(session, "city", category)
+    if not городской:
+        return 0
+    # Время на границе оцениваем пропорционально: маршрут тот же, просто короче.
+    eta_на_краю = eta_min * (край / dist_km) if dist_km > 0 else eta_min
+    return _tariff_price(городской, край, eta_на_краю, surge)
+
+
 def _price_factors(route: pricing.RouteMetrics, surge: float, pickup: float,
                    weather: pricing.WeatherMetrics, night: float, dynamic: float) -> list[dict]:
     """Serializable, bilingual explanation of every signal used for the upfront fare."""
@@ -490,6 +522,12 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     dynamic = total_k(t, surge, now, pickup=pickup, weather=weather.k)
     base_price = _tariff_price(t, dist_km, eta_min, 1.0)
     price = _tariff_price(t, dist_km, eta_min, dynamic)
+    # На стыке зон цена не должна падать (волна 167): поездка длиннее не может стоить дешевле.
+    пол = _floor_at_zone_edge(session, zone, category, eta_min, dist_km, dynamic)
+    if пол > price:
+        price = пол
+        base_price = max(base_price,
+                         _floor_at_zone_edge(session, zone, category, eta_min, dist_km, 1.0))
 
     # Классы для витрины. Закрытые (не набралось водителей) отдаём с open=false — клиент
     # покажет их строкой «скоро» с кнопкой «сообщить, когда появится», а не активной кнопкой.
@@ -661,6 +699,17 @@ def add_fallback_category(session: Session, order: InstantOrder, category: str) 
     price = _category_price(session, order, cat)
     if price is not None and price < (order.price_estimate or 0):
         order.price_estimate = price
+        # Цена уехала — значит оффер, который сейчас висит у водителя на экране, врёт
+        # (аудит 2026-08-08, волна 167). Проба: заказ «Комфорт» за 300 ₽ разослан водителю,
+        # пассажир соглашается искать и в «Эконом» — цена падает до 100 ₽, а оффер остаётся
+        # прежним. Водитель смотрит на 300, нажимает «Принять» и везёт за 100.
+        #
+        # Правило простое: изменилась цена — старое предложение недействительно. Снимаем оффер,
+        # заказ снова уходит в рассылку и водители видят настоящую сумму. Потерять секунды
+        # на повторной рассылке не страшно; узнать после поездки, что заплатят втрое меньше
+        # обещанного, — это причина уйти из сервиса навсегда.
+        order.current_offer_driver_id = None
+        order.offer_expires_at = None
     session.add(order)
     session.commit()
     session.refresh(order)
