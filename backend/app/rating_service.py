@@ -26,7 +26,7 @@ from sqlmodel import Session, select
 from .antifraud import moderate_open_text
 from .errors import herr
 from .models import DriverProfile, Rating, User
-from .safety_logic import clean_tags
+from .safety_logic import account_paused, clean_tags
 from .timeutil import utcnow
 
 # Сколько живёт право оценить поездку. Щедро: человек заходит в приложение не каждый день, и
@@ -47,14 +47,54 @@ def guard_rating_window(happened_at: Optional[datetime], now: Optional[datetime]
         raise herr(409, TOO_LATE_RU, TOO_LATE_BA)
 
 
+# Сколько поездка считается «свежей» для оценки на паузе. Ровно столько же, сколько после
+# поездки открыта связь между попутчиками: одно событие — одно окно.
+FRESH_RATING_HOURS = 48
+
+PAUSED_RU = ("Аккаунт на паузе: сейчас можно оценить только свежую поездку. "
+             "Загляни в Центр справедливости — там причина и срок.")
+PAUSED_BA = ("Аккаунт паузала: хәҙер тик яңы сәфәрҙе генә баһалап була. "
+             "Ғәҙеллек үҙәгенә ин — сәбәбе һәм ваҡыты шунда.")
+
+
+def guard_rating_on_pause(session: Session, rater_id: int,
+                          happened_at: Optional[datetime] = None,
+                          now: Optional[datetime] = None) -> None:
+    """Пауза лестницы и оценки: свежую поездку оценить можно, старую — нет (волна 161).
+
+    Тут встретились два правильных правила, и грань между ними тонкая.
+
+    **Пауза не бросает людей на полдороге** (волна 64): наказание может прийти, когда пассажир
+    уже в машине. Человек обязан довести начатое — довезти, закрыть поездку и сказать о ней
+    правду. Молчаливые «пять звёзд» за опасную поездку не нужны никому.
+
+    **Но отстраняют чаще всего именно за поведение с людьми** — нахамил, обманул с ценой,
+    не приехал. Получив паузу, человек шёл по списку своих поездок за два месяца и раздавал
+    единицы всем подряд. Наказание, которое не мешает продолжать поведение, за которое
+    назначено, — декорация.
+
+    Грань проходит по свежести поездки, а не по факту паузы: закончил сегодня — оценивай,
+    это твой голос о том, что было. Пошёл по архиву — нет.
+    """
+    if not account_paused(session, rater_id):
+        return
+    now = now or utcnow()
+    свежая = (happened_at is not None
+              and now - happened_at <= timedelta(hours=FRESH_RATING_HOURS))
+    if not свежая:
+        raise herr(403, PAUSED_RU, PAUSED_BA)
+
+
 def apply_rating(session: Session, rater: User, ratee_id: int, *, stars: int,
                  text: str = "", tags: str = "", booking_id: Optional[int] = None,
-                 order_id: Optional[int] = None, place: str = "rating") -> tuple[float, int]:
+                 order_id: Optional[int] = None, place: str = "rating",
+                 happened_at: Optional[datetime] = None) -> tuple[float, int]:
     """Поставить/обновить оценку и пересчитать витрину. Возвращает (среднее, число оценок).
 
     Текст идёт на модерацию: помечаем (не режем и не рвём сохранение) и публикуем только после
     решения админа. Метки — из закрытого списка, ими не оскорбить, поэтому они видны сразу.
     """
+    guard_rating_on_pause(session, rater.id, happened_at)
     stars = max(1, min(5, int(stars)))
     text = (text or "").strip()[:500]
     tags = clean_tags(tags)

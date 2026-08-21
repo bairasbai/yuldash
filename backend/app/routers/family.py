@@ -488,7 +488,8 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
     # это про день выезда. Оценка через год говорит уже не о поездке (волна 57).
     guard_rating_window(ride.depart_at if ride else None)
     avg, cnt = apply_rating(session, user, ratee_id, stars=body.stars, text=body.text,
-                            tags=body.tags, booking_id=booking_id, place="review")
+                            tags=body.tags, booking_id=booking_id, place="review",
+                            happened_at=(ride.depart_at if ride else None))
     return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
 
 

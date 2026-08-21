@@ -759,7 +759,8 @@ def rate_order(order_id: int, body: RateIn, user: User = Depends(current_user),
     guard_rating_window(order.done_at or order.created_at)
     avg, cnt = rating_service.apply_rating(
         session, user, ratee_id, stars=body.stars, text=body.text, tags=body.tags,
-        order_id=order_id, place="review")
+        order_id=order_id, place="review",
+        happened_at=(order.done_at or order.created_at))
     # Анонимность: rater не раскрываем, отдаём только агрегат оценённого.
     return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
 

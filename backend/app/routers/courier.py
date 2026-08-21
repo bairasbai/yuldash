@@ -25,7 +25,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
-from ..rating_service import guard_rating_window
+from ..rating_service import guard_rating_on_pause, guard_rating_window
 from ..config import settings
 from ..db import get_session
 from ..logs import admin_action
@@ -1213,6 +1213,10 @@ def parcel_rate(parcel_id: int, body: ParcelRateIn, user: User = Depends(current
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if parcel.status != "delivered":
         raise herr(409, "Оценить можно после вручения", "Тапшырғандан һуң баһалап була")
+    # Пауза лестницы и оценки (волна 161): свежую доставку оценить можно — это твой голос
+    # о том, что было; по архиву за два месяца раздавать единицы нельзя. Эта дверь общий шов
+    # не зовёт, поэтому правило берём оттуда же функцией, а не копией.
+    guard_rating_on_pause(session, user.id, parcel.delivered_at or parcel.created_at)
     # Третья дверь к оценке — и в ней те же два пробела, что закрыли у попутки и такси
     # (волна 57): не было срока и не было модерации текста. Считаем от создания доставки:
     # своего «вручено в» у посылки нет, а доставка живёт дни, не месяцы (волна 58).
