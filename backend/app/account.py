@@ -25,12 +25,15 @@
 стираем здесь. Чат-фото/голос и так подметает ретеншен по возрасту.
 """
 import os
+from datetime import timedelta
 from urllib.parse import urlparse
 
 from sqlalchemy import and_, delete, func, or_, update
 from sqlmodel import Session, select
 
+from .config import settings
 from .errors import herr
+from .timeutil import utcnow
 from .models import (
     Ad, AdEvent, AppReview, Block, Booking, BookingStatus, CommissionDebt, Consent, Coupon, OfferDecline,
     CouponRedemption, CouponReport, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
@@ -55,6 +58,27 @@ _LIVE_ORDER_STATUSES = (
 _LIVE_PARCEL_STATUSES = ("accepted", "in_transit", "returning")
 # Договорённость по попутке ещё в силе: люди рассчитывают друг на друга.
 _LIVE_BOOKING_STATUSES = (BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)
+
+
+def _заброшено(момент, now=None) -> bool:
+    """Дело давно не двигалось и больше не должно запирать человека в сервисе (волна 174).
+
+    Проба: посылка сорок дней висит в статусе «курьер везёт обратно». Отправитель отменить
+    её не может (она уже в возврате), а курьер просто пропал — заболел, уехал, удалил
+    приложение. Итог: человек не может уйти из Юлдаша вообще никогда, и всё, что ему говорят, —
+    «дождись доставки».
+
+    Право забрать свои данные и уйти — закон, а не любезность (152-ФЗ). Оно не может зависеть
+    от того, нажмёт ли другой человек кнопку. Живому делу мы даём срок с запасом — две недели,
+    доставка «по пути» живёт дни, — а дальше перестаём держать.
+
+    Момент неизвестен (старые записи без даты) → считаем заброшенным: держать человека
+    на основании пустого поля тем более нельзя.
+    """
+    if момент is None:
+        return True
+    now = now or utcnow()
+    return (now - момент) > timedelta(days=settings.account_delete_stale_days)
 
 
 def guard_can_delete(session: Session, user: User) -> None:
@@ -97,12 +121,14 @@ def guard_can_delete(session: Session, user: User) -> None:
                    "түләгәс аккаунтты юйып була.")
 
     # 3) Живой такси-заказ — хоть пассажиром, хоть водителем.
-    live_order = session.exec(
-        select(InstantOrder.id).where(
+    живые_заказы = session.exec(
+        select(InstantOrder.id, InstantOrder.accepted_at, InstantOrder.created_at).where(
             or_(InstantOrder.passenger_id == user.id, InstantOrder.driver_id == user.id),
             InstantOrder.status.in_(_LIVE_ORDER_STATUSES),
-        ).limit(1)
-    ).first()
+        )
+    ).all()
+    live_order = next((i for i, взят, создан in живые_заказы
+                       if not _заброшено(взят or создан)), None)
     if live_order is not None:
         raise herr(409,
                    "У тебя есть активный заказ такси (или предзаказ). Заверши или отмени его — "
@@ -111,12 +137,16 @@ def guard_can_delete(session: Session, user: User) -> None:
                    "шунан аккаунтты юйырға ҡайт.")
 
     # 4) Посылка в работе: моя (я отправитель) или чужая, которую везу я.
-    live_parcel = session.exec(
-        select(ParcelDelivery.sender_id, ParcelDelivery.courier_id).where(
+    живые_посылки = session.exec(
+        select(ParcelDelivery.sender_id, ParcelDelivery.courier_id,
+               ParcelDelivery.accepted_at, ParcelDelivery.created_at).where(
             or_(ParcelDelivery.sender_id == user.id, ParcelDelivery.courier_id == user.id),
             ParcelDelivery.status.in_(_LIVE_PARCEL_STATUSES),
-        ).limit(1)
-    ).first()
+        )
+    ).all()
+    # Заброшенные дела не запирают: см. `_заброшено` (волна 174).
+    live_parcel = next(((s_, c_) for s_, c_, взято, создано in живые_посылки
+                        if not _заброшено(взято or создано)), None)
     if live_parcel is not None:
         if live_parcel[1] == user.id:
             raise herr(409,
