@@ -2493,14 +2493,17 @@ internal fun WomanDriverBadge() {
     }
 }
 
-/** Кружок-аватар: фото (Coil) или буква имени. Для карточек выбора попутчика. */
+/** Кружок-аватар: фото (Coil) или буква имени. Для карточек выбора попутчика.
+ *  Фото берём, только если оно лежит у нас: аватар — чужая строка, и ссылка на посторонний
+ *  сервер выдала бы его хозяину IP и город каждого, кто открыл карточку (см. `ownImageModel`). */
 @Composable
 internal fun SmallAvatar(url: String, initial: String, size: Int = 44) {
+    val photo = ownImageModel(url)
     Box(Modifier.size(size.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
-        if (url.isBlank()) {
+        if (photo == null) {
             Text(initial.take(1).uppercase().ifBlank { "?" }, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = (size / 2.6f).sp)
         } else {
-            coil.compose.AsyncImage(model = url, contentDescription = null, modifier = Modifier.size(size.dp).clip(CircleShape), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+            coil.compose.AsyncImage(model = photo, contentDescription = null, modifier = Modifier.size(size.dp).clip(CircleShape), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
         }
     }
 }
@@ -2548,11 +2551,13 @@ internal fun ChatCard(initial: String, name: String, subtitle: String, message: 
                     .background(if (support) CanonGreen2 else MaterialTheme.colorScheme.primaryContainer, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                if (avatarUrl.isBlank()) {
+                // Аватар собеседника — чужая строка: грузим, только если она с нашего сервера.
+                val peerPhoto = ownImageModel(avatarUrl)
+                if (peerPhoto == null) {
                     Text(initial, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = if (support) Color.White else MaterialTheme.colorScheme.primary)
                 } else {
                     coil.compose.AsyncImage(
-                        model = avatarUrl,
+                        model = peerPhoto,
                         contentDescription = null,
                         modifier = Modifier.size(58.dp).clip(CircleShape),
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,

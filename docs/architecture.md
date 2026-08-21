@@ -1696,6 +1696,18 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - Дорожная карта (Q3 2026 — Q2 2027+)
 
 Это — ваш blueprint. MainActivity.kt детали → в [architecture.md](architecture.md), стратегия → в [system-design.md](system-design.md).
+## 2026-08-13 — один вход для чужих картинок (Android)
+
+`SecureImageRequest.kt`: `isOwnMediaHost(url)` — «адрес наш?» (хост API + хост сайта, схема и порт),
+`ownImageModel(url)` — адрес для `AsyncImage` или `null` для чужого, `authedImageRequest(...)` —
+приватное фото с Bearer-токеном (чужое не грузит вовсе). Через них проходят: чат поездки
+(`MessageBubble` в `BookingActiveTripScreen.kt` — фото `[img]` и голосовое), аватары
+(`SmallAvatar`, `ChatCard` в `RidesRequestsChatScreens.kt`, шапка `ProfileScreen.kt`),
+документы и улики (`AdminCourierScreen`, `AdminTaxiScreen`, `FairnessScreens`, `ParcelsScreen`,
+`SecondaryScreens`). Чужая ссылка в чате остаётся текстом + подпись «Ссылка ведёт на чужой сайт —
+не открываем». Зачем — `decisions.md` (2026-08-13). Тесты: `SecureImageRequestTest`,
+`BookingActiveTripDeep2ContentTest`.
+
 ## 2026-07-01 — приватные документы водителя
 
 `backend/app/routers/drivers.py`: `/upload/photo` сохраняет приватные документы в `private/docs` с префиксом `user_id_...`; `/secure/docs/{name}` отдаёт файл только админу или владельцу; `/driver/verify` принимает только собственные загруженные файлы. Это закрывает IDOR-сценарий с подстановкой чужого `license_url`/`car_photo_url`.

@@ -2459,6 +2459,33 @@ private fun ActiveSharesList(
     }
 }
 
+/**
+ * Сообщение, в котором фото или голосовое лежит на ЧУЖОМ сервере. Показываем сам адрес
+ * строкой и честно говорим, почему не открыли: содержимое не теряется, но телефон никуда
+ * не ходит — значит, чужой сервер не узнает ни IP, ни город, ни время просмотра.
+ */
+@Composable
+private fun ForeignMediaBubble(link: String, mine: Boolean) {
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Text(
+            link,
+            color = if (mine) Color.White else CanonText,
+            fontSize = 16.sp,
+            maxLines = 3,                 // «адресом» может прийти простыня в 4000 знаков
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            "⚠️ " + appText(
+                "Ссылка ведёт на чужой сайт — не открываем",
+                "Һылтанма ят сайтҡа илтә — асмайбыҙ",
+            ),
+            color = if (mine) Color.White else CanonWarn,
+            fontSize = 12.sp, lineHeight = 17.sp,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun MessageBubble(
@@ -2480,7 +2507,16 @@ internal fun MessageBubble(
 ) {
     var playing by remember { mutableStateOf(false) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
-    DisposableEffect(voiceUrl) { onDispose { runCatching { player.value?.release() }; player.value = null } }
+    // Медиа в сообщении — это ссылка, которую собеседник набирает сам (текст с префиксом
+    // «[img]» и адрес голосового). Открывать её можно, только если она ведёт на наш сервер:
+    // иначе телефон сам сходит на чужой сайт, и его хозяин запишет IP, город и время того,
+    // кто просто открыл чат. Чужую ссылку показываем строкой — сообщение не пропадает,
+    // а перехода не происходит (так же сделано на сайте).
+    val ownVoice = voiceUrl?.takeIf { isOwnMediaHost(it) }
+    val isImage = text.startsWith(ApiClient.IMG_PREFIX)
+    val ownPhoto = if (isImage) ownImageModel(text.removePrefix(ApiClient.IMG_PREFIX)) else null
+    val foreignMedia = (voiceUrl != null && ownVoice == null) || (isImage && ownPhoto == null)
+    DisposableEffect(ownVoice) { onDispose { runCatching { player.value?.release() }; player.value = null } }
     var menu by remember { mutableStateOf(false) }
     val showMenu = !deleted && (canEdit || canDeleteAll || canDeleteMine)
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
@@ -2500,7 +2536,7 @@ internal fun MessageBubble(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     color = CanonMuted, fontSize = 14.sp, fontStyle = FontStyle.Italic
                 )
-            } else if (voiceUrl != null) {
+            } else if (ownVoice != null) {
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = {
@@ -2508,7 +2544,7 @@ internal fun MessageBubble(
                                 runCatching { player.value?.stop(); player.value?.release() }; player.value = null; playing = false
                             } else runCatching {
                                 player.value = MediaPlayer().apply {
-                                    setDataSource(voiceUrl)
+                                    setDataSource(ownVoice)
                                     setOnPreparedListener { it.start() }
                                     setOnCompletionListener { playing = false; runCatching { release() }; player.value = null }
                                     prepareAsync()
@@ -2523,9 +2559,9 @@ internal fun MessageBubble(
                     Spacer(Modifier.width(4.dp))
                     Text(appText("Голосовое", "Тауыш"), modifier = Modifier.padding(end = 8.dp), color = if (mine) Color.White else CanonText, fontSize = 14.sp)
                 }
-            } else if (text.startsWith(ApiClient.IMG_PREFIX)) {
+            } else if (ownPhoto != null) {
                 AsyncImage(
-                    model = text.removePrefix(ApiClient.IMG_PREFIX),
+                    model = ownPhoto,
                     contentDescription = appText("Фото", "Фото"),
                     modifier = Modifier
                         .padding(4.dp)
@@ -2533,6 +2569,8 @@ internal fun MessageBubble(
                         .clip(RoundedCornerShape(14.dp)),
                     contentScale = ContentScale.Fit
                 )
+            } else if (foreignMedia) {
+                ForeignMediaBubble(link = voiceUrl ?: text.removePrefix(ApiClient.IMG_PREFIX), mine = mine)
             } else {
                 Text(
                     text,

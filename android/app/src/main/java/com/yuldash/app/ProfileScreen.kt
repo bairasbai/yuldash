@@ -681,11 +681,14 @@ internal fun ProfileScreen(
                                     .bounceClick { if (!avatarUploading) avatarPicker.launch("image/*") },
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (avatarUrl.isBlank()) {
+                                // Своё фото, но адрес приходит с сервера — правило одно для всех
+                                // экранов: чужой хост не грузим (см. `ownImageModel`).
+                                val myPhoto = ownImageModel(avatarUrl)
+                                if (myPhoto == null) {
                                     Text(displayName.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp)
                                 } else {
                                     coil.compose.AsyncImage(
-                                        model = avatarUrl,
+                                        model = myPhoto,
                                         contentDescription = appText("Фото профиля", "Профиль фотоһы"),
                                         modifier = Modifier.size(70.dp).clip(CircleShape),
                                         contentScale = ContentScale.Crop,
