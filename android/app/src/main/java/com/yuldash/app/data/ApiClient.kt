@@ -2287,6 +2287,8 @@ object ApiClient {
                     val w = wk.getJSONObject(i)
                     DebtWeekDto(w.optString("week"), w.optInt("amount_kop"), w.optString("status"))
                 },
+                payNowKop = o.optInt("pay_now_kop"),
+                payNowDueAt = o.optString("pay_now_due_at").ifBlank { null },
             )
         }
 
@@ -5762,6 +5764,11 @@ data class DriverDebtDto(
     val unpaidKop: Int, val pendingKop: Int, val dueAt: String?, val overdue: Boolean,
     val blocked: Boolean, val blockReason: String?, val thresholdKop: Int,
     val sbpPhone: String, val sbpName: String, val weeks: List<DebtWeekDto>,
+    /** Сколько из долга — «оплатить сразу после поездки» (дальний межгород), копейки.
+     *  0 = обычный недельный цикл. Поля аддитивные: старый сервер их не шлёт → нули. */
+    val payNowKop: Int = 0,
+    /** До какого момента ждём этот срочный перевод (UTC ISO). null — срочного долга нет. */
+    val payNowDueAt: String? = null,
 )
 /** Долг водителя в админ-очереди подтверждения (сгруппирован по водителю). */
 data class AdminDebtDto(

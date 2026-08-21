@@ -671,7 +671,9 @@ def _accrue_auto_done(order_ids: list[int]) -> None:
                 order = session.get(InstantOrder, oid)
                 if order is None:
                     continue
-                d = debt_mod.accrue_for_order(session, order)
+                # pay_now_allowed=False: поездку закрыл автомат ночью. Короткий срок оплаты
+                # тут был бы ловушкой — водитель спит, пуша не видел, а к утру уже в блоке.
+                d = debt_mod.accrue_for_order(session, order, pay_now_allowed=False)
                 if d is not None and not d.note:
                     # След для админа: по этой поездке водитель «Завершил» не нажимал.
                     d.note = "Поездку закрыл автомат (водитель не нажал «Завершил»)"

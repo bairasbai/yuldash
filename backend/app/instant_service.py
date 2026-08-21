@@ -1599,6 +1599,57 @@ def maybe_receipt_reminder(session: Session, driver_id: Optional[int], now=None)
     return True
 
 
+def notify_pay_now_debt(session: Session, debt) -> bool:
+    """Комиссия за дальнюю поездку гасится сразу — сказать об этом сразу, а не молча поставить
+    короткий срок.
+
+    Без этого пуша короткий срок превращается в ловушку: водитель закрыл поездку, поехал
+    дальше, а через три часа такси у него закрыто «неизвестно за что». Обычный недельный долг
+    пушем не тревожим — про него достаточно кабинета."""
+    from . import debt as debt_mod            # локальный импорт: без циклов на старте
+    if debt is None or not debt_mod.is_pay_now(debt):
+        return False
+    rub = debt.amount_kop // 100
+    push_notification(
+        session, debt.driver_id, "money",
+        "Комиссия за дальнюю поездку 💳", "Алыҫ сәфәр өсөн комиссия 💳",
+        f"{rub} ₽ — оплати сегодня. Деньги за поездку уже у тебя: переведи по СБП в кабинете"
+        " и нажми «Я оплатил»",
+        f"{rub} һ — бөгөн түлә. Сәфәр аҡсаһы ҡулыңда: кабинетта СБП аша күсер ҙә"
+        " «Түләнем» тип баҫ",
+        ref_kind="debt", ref_id=debt.id,
+    )
+    return True
+
+
+def notify_debt_near_block(session: Session, debt) -> bool:
+    """Долг подошёл к порогу блокировки — предупредить ДО того, как такси закроется.
+
+    Три админских события про долг («подтверждён», «списан», «оплата не найдена») пуш имеют,
+    а самое частое — долг дорос до порога и такси выключилось — не имело ни одного: водитель
+    упирался в отказ посреди рабочего дня и выяснял причину задним числом.
+
+    Шлём один раз, тем заказом, которым линия пересечена (см. `debt.crossed_warn_line`)."""
+    from . import debt as debt_mod            # локальный импорт: без циклов на старте
+    if debt is None or debt.driver_id is None:
+        return False
+    owed = debt_mod.crossed_warn_line(session, debt.driver_id, debt.amount_kop)
+    if owed is None:
+        return False
+    rub = owed // 100
+    limit_rub = settings.debt_block_threshold_kop // 100
+    push_notification(
+        session, debt.driver_id, "money",
+        "Долг подходит к пределу", "Бурыс сиккә яҡынлаша",
+        f"Неоплаченная комиссия — {rub} ₽ из {limit_rub} ₽. Дойдёт до предела — такси"
+        " закроется. Переведи по СБП в кабинете и нажми «Я оплатил»",
+        f"Түләнмәгән комиссия — {limit_rub} һумдан {rub} һум. Сиккә етһә, такси ябыла."
+        " Кабинетта СБП аша күсер ҙә «Түләнем» тип баҫ",
+        ref_kind="debt", ref_id=debt.id,
+    )
+    return True
+
+
 # Сколько ещё видны телефоны сторон после завершённой поездки. Ровно столько же живёт
 # «забытая вещь» (48 ч, routers/instant.py) — это одна и та же потребность: доехали, а через
 # час нашлась сумка на заднем сиденье.
