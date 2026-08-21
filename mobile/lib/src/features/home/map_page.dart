@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
-import '../../data/mock_rides.dart';
+import '../../data/app_scope.dart';
 import '../rides/widgets/ride_card.dart';
 
 class MapPage extends StatelessWidget {
@@ -8,13 +9,16 @@ class MapPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final rides = state.rides.take(5).toList();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Юлдаш'),
         actions: [
           IconButton(
             tooltip: 'SOS',
-            onPressed: () {},
+            onPressed: () => _showSosDialog(context, state),
             icon: const Icon(Icons.sos),
           ),
         ],
@@ -27,22 +31,125 @@ class MapPage extends StatelessWidget {
               child: _MapPreview(),
             ),
           ),
-          SizedBox(
-            height: 188,
-            child: ListView.separated(
+          if (state.loadingRides)
+            const LinearProgressIndicator(minHeight: 2)
+          else if (state.error != null)
+            Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              scrollDirection: Axis.horizontal,
-              itemBuilder: (context, index) {
-                return SizedBox(
-                  width: 320,
-                  child: RideCard(ride: mockRides[index], compact: true),
-                );
-              },
-              separatorBuilder: (_, __) => const SizedBox(width: 12),
-              itemCount: mockRides.length,
+              child: _InlineMessage(
+                icon: Icons.cloud_off,
+                text: state.error!,
+                action: 'Повторить',
+                onPressed: () => state.refreshRides(),
+              ),
+            )
+          else if (rides.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: _InlineMessage(
+                icon: Icons.route,
+                text: 'Пока нет опубликованных поездок.',
+                action: 'Создать',
+                onPressed: () => context.push('/rides/create'),
+              ),
+            )
+          else
+            SizedBox(
+              height: 188,
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                scrollDirection: Axis.horizontal,
+                itemBuilder: (context, index) {
+                  return SizedBox(
+                    width: 320,
+                    child: RideCard(ride: rides[index], compact: true),
+                  );
+                },
+                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                itemCount: rides.length,
+              ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> _showSosDialog(BuildContext context, AppState state) async {
+  if (!state.isLoggedIn) {
+    context.push('/auth');
+    return;
+  }
+  final noteController = TextEditingController();
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text('SOS'),
+        content: TextField(
+          controller: noteController,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Что случилось?',
+            hintText: 'Коротко опишите ситуацию',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Отправить'),
           ),
         ],
+      );
+    },
+  );
+  final note = noteController.text.trim();
+  noteController.dispose();
+  if (confirmed != true) return;
+  try {
+    await state.sendSos(note: note);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('SOS отправлен в поддержку.')),
+      );
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+}
+
+class _InlineMessage extends StatelessWidget {
+  const _InlineMessage({
+    required this.icon,
+    required this.text,
+    required this.action,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String text;
+  final String action;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Icon(icon),
+            const SizedBox(width: 10),
+            Expanded(child: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis)),
+            TextButton(onPressed: onPressed, child: Text(action)),
+          ],
+        ),
       ),
     );
   }

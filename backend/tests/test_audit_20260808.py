@@ -379,7 +379,31 @@ def test_repeat_tap_on_the_same_report_does_not_eat_the_budget(client, user_fact
 # не было вовсе. Александр выбрал «проверять по-настоящему» — пол переехал на User, и правило
 # стоит у обеих сторон. Эти тесты держат ОБЕЩАНИЕ целиком: за рулём женщина И в салоне женщины.
 
+def _подтвердить_женщину(user_id: int) -> None:
+    """Модератор сверил документы: женщина за рулём (волна 168).
+
+    Без этого отметку «только женщины» поставить нельзя — иначе она была бы приманкой,
+    которую любой выдаёт себе сам.
+    """
+    from sqlmodel import Session as _S, select as _sel
+    from app.db import engine as _eng
+    from app.models import DriverProfile as _DP, User as _U
+    with _S(_eng) as s:
+        u = s.get(_U, user_id)
+        u.gender = "female"
+        s.add(u)
+        p = s.exec(_sel(_DP).where(_DP.user_id == user_id)).first()
+        if p is None:
+            p = _DP(user_id=user_id)
+        p.gender_verified = True
+        s.add(p)
+        s.commit()
+
+
 def _women_ride(client, drv) -> int:
+    # Отметку ставит подтверждённая модератором женщина за рулём (волна 168): раньше хватало
+    # строчки «female» в профиле, которую человек пишет себе сам.
+    _подтвердить_женщину(drv["id"])
     r = client.post("/rides", headers=drv["auth"], json={
         "from_city": "Баймак", "to_city": "Сибай",
         "depart_at": (utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat(),

@@ -20,7 +20,7 @@ from ..logs import log
 from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
                       RideStatus, User, UserRole)
 from .. import workday as workday_mod
-from ..safety_logic import (MSG_WOMEN_ONLY_DRIVER, ensure_active, guard_women_only)
+from ..safety_logic import (ensure_active, guard_women_only_publish)
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
 from ..timeutil import client_dt_to_utc, utcnow
@@ -156,7 +156,10 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     # (решение Александра, 2026-08-08). Пол — по желанию, поэтому «не указан» получает не
     # отказ, а просьбу заполнить профиль (см. guard_women_only).
     if getattr(body, "women_only", False):
-        guard_women_only(user, msg=MSG_WOMEN_ONLY_DRIVER)
+        # Не просто «женщина по профилю», а подтверждённая модератором (волна 168): иначе
+        # отметка становится приманкой — мужчина ставит себе «женщина» и зовёт в машину
+        # только женщин, а они едут, думая, что кто-то это проверил.
+        guard_women_only_publish(session, user)
     # Санити-границы (анти-мусор в ленте): мест 1..8, цена 0..100000 ₽. Клампим, а не падаем.
     body.seats_total = max(1, min(8, body.seats_total))
     body.price = max(0, min(100_000, body.price))
@@ -412,12 +415,16 @@ def search_rides(
         # обязательно — без него любой мужчина ставил себе «женщина» и попадал в эту выдачу,
         # а открывают её именно те, кому небезопасно ехать с незнакомым мужчиной.
         # Лучше пустой список, чем непроверенный водитель.
+        # Обе половины требуют ПОДТВЕРЖДЕНИЯ модератором (волна 168). Раньше первая половина
+        # («у поездки стоит отметка») пропускала без проверки — и мужчина, поставивший себе
+        # «женщина» в профиле, попадал в эту самую выдачу вместе с отметкой. Комментарий рядом
+        # объяснял, почему подтверждение обязательно, но стояло оно только на второй половине.
         q = (
             q.outerjoin(User, User.id == Ride.driver_id)
             .outerjoin(DriverProfile, DriverProfile.user_id == Ride.driver_id)
             .where(
-                (Ride.women_only == True)  # noqa: E712
-                | ((User.gender == "female") & (DriverProfile.gender_verified == True))  # noqa: E712
+                (User.gender == "female")
+                & (DriverProfile.gender_verified == True)  # noqa: E712
             )
         )
     if baggage:

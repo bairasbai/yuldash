@@ -63,6 +63,7 @@ def test_ride_out_shape(client, user_factory):
 def test_ride_filters(client, user_factory):
     # gender="female": отметку «только женщины» ставит женщина за рулём (аудит 2026-08-08).
     drv = user_factory("FiltDrv", role=UserRole.driver, gender="female")
+    _подтвердить_женщину(drv["id"])          # отметку ставит подтверждённая женщина (волна 168)
     _publish(client, drv, frm="Акъяр", to="Сибай", women_only=True)
     assert all(r["women_only"] for r in client.get("/rides", params={"from_city": "Акъяр", "women_only": True}).json())
 
@@ -887,3 +888,24 @@ def test_yookassa_webhook_only_known_payment(client, user_factory, monkeypatch):
         assert s.get(Ride, ride["id"]).boosted_until is not None   # поднято
     # пустое тело / без id — 200, без падения
     assert client.post("/payments/yookassa/webhook", json={}).status_code == 200
+
+
+def _подтвердить_женщину(user_id: int) -> None:
+    """Модератор сверил документы: женщина за рулём (волна 168).
+
+    Без этого отметку «только женщины» поставить нельзя — иначе она была бы приманкой,
+    которую любой выдаёт себе сам.
+    """
+    from sqlmodel import Session as _S, select as _sel
+    from app.db import engine as _eng
+    from app.models import DriverProfile as _DP, User as _U
+    with _S(_eng) as s:
+        u = s.get(_U, user_id)
+        u.gender = "female"
+        s.add(u)
+        p = s.exec(_sel(_DP).where(_DP.user_id == user_id)).first()
+        if p is None:
+            p = _DP(user_id=user_id)
+        p.gender_verified = True
+        s.add(p)
+        s.commit()

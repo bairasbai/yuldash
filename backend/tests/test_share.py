@@ -19,6 +19,7 @@ def _publish(client, drv, frm="Баймак", to="Сибай", seats=3, price=30
 
 def test_preview_shape_public(client, user_factory):
     drv = user_factory("ShareDrv", role=UserRole.driver, gender="female")
+    _подтвердить_женщину(drv["id"])          # отметку ставит подтверждённая женщина (волна 168)
     ride = _publish(client, drv, frm="Темясово", to="Уфа", price=1400, women_only=True)
     r = client.get(f"/r/{ride['id']}/preview")
     assert r.status_code == 200, r.text
@@ -88,3 +89,24 @@ def test_share_page_bashkir(client, user_factory):
     ride = _publish(client, drv)
     body = client.get(f"/r/{ride['id']}?lang=ba").text
     assert 'lang="ba"' in body and "ba_RU" in body
+
+
+def _подтвердить_женщину(user_id: int) -> None:
+    """Модератор сверил документы: женщина за рулём (волна 168).
+
+    Без этого отметку «только женщины» поставить нельзя — иначе она была бы приманкой,
+    которую любой выдаёт себе сам.
+    """
+    from sqlmodel import Session as _S, select as _sel
+    from app.db import engine as _eng
+    from app.models import DriverProfile as _DP, User as _U
+    with _S(_eng) as s:
+        u = s.get(_U, user_id)
+        u.gender = "female"
+        s.add(u)
+        p = s.exec(_sel(_DP).where(_DP.user_id == user_id)).first()
+        if p is None:
+            p = _DP(user_id=user_id)
+        p.gender_verified = True
+        s.add(p)
+        s.commit()
