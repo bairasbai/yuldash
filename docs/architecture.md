@@ -1409,6 +1409,36 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
   - ⚠️ **Параллелим аккуратно (§12 CLAUDE.md):** разные файлы-экраны — можно разом; но `MainActivity.kt` (общий слой) — один писатель.
 - Тема: `android/app/src/main/java/com/yuldash/app/ui/theme/Theme.kt`
 
+### 🗺 Карта экранов Android — актуальные размеры (2026-08-22)
+
+Номера строк в старых разделах ниже устарели после разреза UI на файлы — **ориентируйся
+по именам файлов**, а размеры бери отсюда. Всего в `android/app/src/main/java/com/yuldash/app`: **89 файлов,
+60673 строк**.
+
+| Файл | Строк |
+|---|---|
+| `InstantOrderScreen.kt` | 4863 |
+| `ProfileScreen.kt` | 4387 |
+| `RidesRequestsChatScreens.kt` | 2913 |
+| `ParcelsScreen.kt` | 2821 |
+| `BookingActiveTripScreen.kt` | 2639 |
+| `YuldashApp.kt` | 2558 |
+| `CourierScreen.kt` | 2432 |
+| `SecondaryScreens.kt` | 2370 |
+| `MapScreen.kt` | 2224 |
+| `AccessibilityScreens.kt` | 1789 |
+| `FairnessScreens.kt` | 1576 |
+| `LoginScreen.kt` | 1272 |
+| `SosVerifyScreens.kt` | 1189 |
+| `TaxiOnboardingScreen.kt` | 1128 |
+| `CreateRideScreen.kt` | 1053 |
+
+Перепроверить в любой момент (из корня репозитория):
+
+```
+wc -l android/app/src/main/java/com/yuldash/app/*.kt | sort -rn | head -20
+```
+
 ### 🆕 Новые экраны и поток заявок (2026-06-28, большая сессия)
 > Номера строк по файлам устарели после рефактора — ориентируйся по именам функций (грепай), не по строкам.
 
