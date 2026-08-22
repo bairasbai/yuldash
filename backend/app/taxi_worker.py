@@ -34,7 +34,7 @@ from datetime import timedelta
 
 from sqlmodel import Session, select
 
-from . import declare_remind, incident_escalate, instant_service as isv
+from . import declare_remind, incident_escalate, instant_service as isv, waiting_on_us
 from . import ads_expire, promo_ride, sos_escalate, winter_escalate
 from .config import settings
 from .db import engine
@@ -401,6 +401,9 @@ def run_once(session: Session, dry_run: bool = False) -> dict:
         # Водитель заявил оплату, а подтверждения нет: предупреждаем ОБЕ стороны за сутки
         # до того, как доверие кончится и такси закроется (волна 176).
         "declares_reminded": declare_remind.remind_pending_declares(session, dry_run),
+        # Очереди, которые упираются в Александра: человек ждёт ответа и не знает,
+        # ждут ли его вообще. Пишем ему и даём Александру сводку (волна 178).
+        "people_waiting": waiting_on_us.remind_waiting_people(session, dry_run),
     }
 
 
