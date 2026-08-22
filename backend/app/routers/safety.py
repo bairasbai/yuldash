@@ -18,7 +18,7 @@ from ..models import (
 from ..safety_logic import have_met
 from ..security import current_user
 from ..services import (booking_and_ride_for_user, notify_admin_telegram, pick_lang, sms_lang_of,
-                        push_notification, send_push, send_text)
+                        push_notification, send_push, send_text, sms_will_reach)
 from ..timeutil import utcnow
 from .. import quality
 
@@ -137,12 +137,17 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     car = _car_of(session, ride.driver_id if ride is not None else (order.driver_id if order else None))
     car_text = f" Машина: {car}." if car else ""
     # Телефоны доверенных контактов собираем ПОКА сессия открыта, рассылку SMS — в фон (после ответа).
+    contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
+    phones_all = [c.phone for c in contacts if c.phone]
     notified = 0
     if len(recent) < SOS_SMS_PER_HOUR:
-        contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
         who = user.name or user.phone
-        phones = [c.phone for c in contacts if c.phone]
-        notified = len(phones)
+        phones = phones_all
+        # Скольким SMS РЕАЛЬНО уйдёт, а не скольким мы собирались написать. На проде канал SMS
+        # молчит (`sms_provider=mock`), и раньше здесь стояла длина списка контактов: женщина
+        # в беде читала «двоим близким отправлено» и ждала маму, которая ничего не получила
+        # (волна 184). Правило одно на все ручки — `services.sms_will_reach`.
+        notified = sms_will_reach(phones)
         # Ссылка на карту — главное в этом SMS: без неё родные знают, что беда, но не знают куда ехать.
         background.add_task(
             _send_sos_sms, phones,
@@ -173,7 +178,8 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
         f"Категория: {body.category}\n"
         f"{order_line}"
         f"{ride_line}"
-        f"Контактов уведомлено (SMS): {notified}\n"
+        f"Контактов уведомлено (SMS): {notified}"
+        f"{' — канал SMS молчит, близким никто не написал' if (notified == 0 and phones_all) else ''}\n"
         f"Детали: {body.note or '—'}{where}"
     )
     # 🌙 SMS админу вдобавок к Telegram. Раньше весь ночной контур безопасности сводился к
@@ -204,7 +210,16 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     # Диспетчер узнаёт ВСЕГДА (Telegram намеренно не капится), поэтому и говорим честно:
     # сигнал приняли, а родным SMS не ушло — позвони им сама.
     заглушено = notified == 0 and len(recent) >= SOS_SMS_PER_HOUR
+    # Вторая причина того же молчания: канал SMS выключен целиком (на проде он такой и есть).
+    # Для человека разницы с потолком нет — родные не получат ничего, — а вот текст нужен свой:
+    # «слишком много сигналов» тут было бы неправдой и сбило бы с толку (волна 184).
+    канал_молчит = notified == 0 and not заглушено and bool(phones_all)
     подсказка_ru = подсказка_ba = ""
+    if канал_молчит:
+        подсказка_ru = ("Сигнал принят, дежурный уже видит его. Отправка SMS сейчас не работает — "
+                        "родным сообщение не уйдёт. Позвони им сама, если можешь.")
+        подсказка_ba = ("Сигнал ҡабул ителде, дежурный уны күрә инде. SMS ебәреү хәҙер эшләмәй — "
+                        "яҡындарыңа хәбәр китмәйәсәк. Мөмкин булһа, үҙең шылтырат.")
     if заглушено:
         подсказка_ru = ("Сигнал принят, дежурный уже видит его. Родным SMS сейчас не уходит — "
                         "слишком много сигналов подряд. Позвони им сама, если можешь.")
@@ -212,7 +227,8 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
                         "китмәй — сигналдар артыҡ күп. Мөмкин булһа, үҙең шылтырат.")
     return {
         **event.model_dump(),
-        "contacts_notified": notified,      # скольким близким ушло SMS прямо сейчас
+        "contacts_notified": notified,      # скольким близким SMS реально уйдёт прямо сейчас
+        "contacts_total": len(phones_all),  # сколько доверенных вообще заведено
         "sms_suppressed": заглушено,        # рассылка близким заглушена потолком
         "hint_ru": подсказка_ru,
         "hint_ba": подсказка_ba,
@@ -889,10 +905,11 @@ def _roadside(session: Session, background: BackgroundTasks, user: User, body: "
             SosEvent.user_id == user.id, SosEvent.created_at >= utcnow() - timedelta(hours=1),
         )
     ).all()
+    contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
+    phones_all = [c.phone for c in contacts if c.phone]
     phones = []
     if len(recent) <= SOS_SMS_PER_HOUR:   # <=: только что записанное событие уже в счёте
-        contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
-        phones = [c.phone for c in contacts if c.phone]
+        phones = phones_all
         who = user.name or user.phone
         msg = _sos_text(
             session, user.id,
@@ -907,17 +924,25 @@ def _roadside(session: Session, background: BackgroundTasks, user: User, body: "
         f"🛟 Помощь на трассе (Юлдаш)\n"
         f"От: {user.name or '—'}\n"
         f"Тел: {user.phone or '—'}\n"
-        f"Контактов уведомлено: {len(phones)}\n"
+        f"Контактов уведомлено: {sms_will_reach(phones)}"
+        f"{' — канал SMS молчит, близким никто не написал' if (phones and not sms_will_reach(phones)) else ''}\n"
         f"Детали: {body.note or '—'}{where}"
     )
     log.info(f"[ROADSIDE] user={user.id} booking={booking_id} order={order_id} "
-             f"contacts_notified={len(phones)}")
+             f"contacts_notified={sms_will_reach(phones)}")
     # Сколько человек реально предупреждено — это должен знать тот, кто нажал (волна 122).
     # Экран писал «близкие и поддержка получили твои координаты» ВСЕГДА, даже когда доверенных
     # контактов человек не заводил и SMS не ушло никому. Курьер на трассе в минус двадцать
     # читал это и переставал звонить сам.
+    #
+    # Волна 184. Число тут было длиной списка телефонов — то есть намерением. На проде канал
+    # SMS выключен, и курьер на трассе в минус двадцать читал «близкие получили твои
+    # координаты», хотя не ушло никому: обещание починили в волне 122, а считать продолжали
+    # по-старому. Теперь считаем фактом, а `contacts_total` даёт экрану отличить «звать
+    # некого» от «есть кого, но сообщение не уйдёт» — это разные подсказки человеку.
     payload = event.model_dump()
-    payload["contacts_notified"] = len(phones)
+    payload["contacts_notified"] = sms_will_reach(phones)
+    payload["contacts_total"] = len(phones_all)
     return payload
 
 

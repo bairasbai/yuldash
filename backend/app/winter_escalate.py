@@ -96,7 +96,7 @@ def escalate_now(
     ему ждать нечего.
     """
     from .routers.safety import _send_sos_sms          # локально: safety тянет пол-проекта
-    from .services import notify_admin_telegram, push_notification
+    from .services import notify_admin_telegram, push_notification, sms_will_reach
 
     if not contact_phones:
         # Звать некого: человек не добавил доверенных или не расшарил поездку.
@@ -128,8 +128,12 @@ def escalate_now(
     who_row = session.get(User, watch_user_id)
     who = (who_row.name or who_row.phone) if who_row else "человек"
     sms_text = f"Юлдаш: {who} не отметил(а), что доехал(а). Позвони, проверь, всё ли хорошо."
+    # Скольким SMS реально уйдёт: на проде канал молчит, и «уведомлено: 3» дежурному
+    # означало бы, что близкие уже едут проверять. Не едут — им никто не написал (волна 184).
+    дошло = sms_will_reach(contact_phones)
     admin_text = (f"❄️ Зимний протокол: нет ответа (Юлдаш)\n{kind} #{obj_id}\n"
-                  f"Контактов уведомлено: {len(contact_phones)}")
+                  f"Контактов уведомлено: {дошло}"
+                  f"{' — канал SMS молчит, близким никто не написал' if not дошло else ''}")
     if background is not None:
         background.add_task(_send_sos_sms, contact_phones, sms_text)
         background.add_task(notify_admin_telegram, admin_text)
@@ -138,16 +142,25 @@ def escalate_now(
         notify_admin_telegram(admin_text)
 
     if also_notify_user_id:
+        # Отправителю говорим ровно то, что произошло. «Уже предупредили его близких» при
+        # молчащем канале SMS — обещание за чужой счёт: человек ждёт, что кто-то поехал
+        # проверять курьера, а не поехал никто (волна 184).
         push_notification(
             session, also_notify_user_id, "system",
             "Курьер не выходит на связь", "Курьер бәйләнешкә сыҡмай",
-            "Мы не получили от него подтверждения и уже предупредили его близких.",
-            "Беҙ унан раҫлау алманыҡ һәм яҡындарына хәбәр иттек.",
+            ("Мы не получили от него подтверждения и уже предупредили его близких."
+             if дошло else
+             "Мы не получили от него подтверждения. Предупредить его близких сообщением "
+             "сейчас не получается — мы разбираемся сами."),
+            ("Беҙ унан раҫлау алманыҡ һәм яҡындарына хәбәр иттек."
+             if дошло else
+             "Беҙ унан раҫлау алманыҡ. Яҡындарына хәбәр итеп булмай — үҙебеҙ хәл итәбеҙ."),
             ref_kind=kind, ref_id=obj_id,
         )
-    log.info(f"[WINTER] {kind}={obj_id} escalated contacts={len(contact_phones)}")
+    log.info(f"[WINTER] {kind}={obj_id} escalated contacts={дошло}")
     return {"state": "escalated", "sos_event_id": event.id,
-            "contacts_notified": len(contact_phones)}
+            "contacts_notified": дошло,
+            "contacts_total": len([p for p in contact_phones if p])}
 
 
 def escalate_silent(session: Session) -> int:

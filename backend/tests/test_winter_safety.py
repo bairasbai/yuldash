@@ -10,7 +10,23 @@ from app.db import engine
 from app.models import Booking, Ride, SosEvent, TripShare, TrustedContact
 from app.timeutil import utcnow
 
+import pytest
+
 from test_flows import _trip
+
+
+@pytest.fixture(autouse=True)
+def _оператор_подключён(monkeypatch):
+    """Мир этого файла: канал SMS РАБОТАЕТ, сообщения близким уходят по-настоящему.
+
+    Раньше это подразумевалось молча — и потому не проверялось: на проде канал выключен,
+    а тесты всё равно видели «уведомлено: 2», потому что сервер считал намерение, а не факт
+    (волна 184). Что честный счёт бывает нулём при молчащем канале — проверяет
+    `test_help_counted_is_help_sent.py`.
+    """
+    from app.config import settings as _s
+    monkeypatch.setattr(_s, "sms_provider", "smsru")
+    monkeypatch.setattr(_s, "sms_ru_api_id", "test-id")
 
 
 def _add_contact(client, owner, phone="+79990001122"):

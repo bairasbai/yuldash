@@ -25,6 +25,20 @@ from app.models import TrustedContact
 from app.routers.safety import SOS_SMS_PER_HOUR
 
 
+@pytest.fixture(autouse=True)
+def _оператор_подключён(monkeypatch):
+    """Мир этого файла: канал SMS РАБОТАЕТ, сообщения близким уходят по-настоящему.
+
+    Раньше это подразумевалось молча — и потому не проверялось: на проде канал выключен,
+    а тесты всё равно видели «уведомлено: 2», потому что сервер считал намерение, а не факт
+    (волна 184). Что честный счёт бывает нулём при молчащем канале — проверяет
+    `test_help_counted_is_help_sent.py`.
+    """
+    from app.config import settings as _s
+    monkeypatch.setattr(_s, "sms_provider", "smsru")
+    monkeypatch.setattr(_s, "sms_ru_api_id", "test-id")
+
+
 @pytest.fixture
 def тихие_смс(monkeypatch):
     """Собираем рассылки вместо отправки: проверяем поведение, а не доставку."""

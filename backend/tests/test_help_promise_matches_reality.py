@@ -21,6 +21,20 @@ from test_api import _ride
 from app.models import UserRole
 
 
+@pytest.fixture(autouse=True)
+def _оператор_подключён(monkeypatch):
+    """Мир этого файла: канал SMS РАБОТАЕТ, сообщения близким уходят по-настоящему.
+
+    Раньше это подразумевалось молча — и потому не проверялось: на проде канал выключен,
+    а тесты всё равно видели «уведомлено: 2», потому что сервер считал намерение, а не факт
+    (волна 184). Что честный счёт бывает нулём при молчащем канале — проверяет
+    `test_help_counted_is_help_sent.py`.
+    """
+    from app.config import settings as _s
+    monkeypatch.setattr(_s, "sms_provider", "smsru")
+    monkeypatch.setattr(_s, "sms_ru_api_id", "test-id")
+
+
 @pytest.fixture
 def смс(monkeypatch):
     поймано: list[tuple[str, str]] = []
@@ -101,6 +115,6 @@ def test_все_три_кнопки_помощи_возвращают_число
               "com" / "yuldash" / "app" / "data" / "ApiClient.kt").read_text(encoding="utf-8")
     for имя in ("roadsideHelp", "instantRoadsideHelp", "parcelRoadsideHelp"):
         строка = [ln for ln in клиент.splitlines() if f"suspend fun {имя}(" in ln]
-        assert строка and "Result<Int>" in строка[0], (
+        assert строка and "Result<RoadsideResult>" in строка[0], (
             f"{имя} не сообщает, скольким ушло: на этом экране обещание снова разойдётся с делом"
         )

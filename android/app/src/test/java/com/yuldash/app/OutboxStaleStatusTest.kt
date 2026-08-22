@@ -1,11 +1,13 @@
 package com.yuldash.app
 
 import androidx.test.core.app.ApplicationProvider
+import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.Outbox
 import com.yuldash.app.data.OutboxAction
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,6 +41,23 @@ class OutboxStaleStatusTest {
     fun setUp() {
         Outbox.init(ctx)
         Outbox.clearAll()
+        // Мир этого теста — «связи нет»: очередь копится, потому что отправить некуда.
+        //
+        // Раньше адрес брался из сборки (`http://localhost:8000` в local.properties). Если на
+        // машине разработчика поднят локальный бэкенд — а он поднимается для ручных проверок, —
+        // запрос доходил, сервер отвечал 401, и очередь считала это «сервер отверг, повтор не
+        // поможет» и выбрасывала действие. Тест краснел от того, что рядом работает сервер,
+        // и зеленел, когда его выключали. Ложно-красный прогон опаснее отсутствующего: на него
+        // легко списать настоящую поломку (аудит 2026-08-22, волна 184).
+        //
+        // Порт 1 закрыт на любой машине — соединение не устанавливается, и это ровно та
+        // «нет сети», про которую тест и написан.
+        ApiClient.testBaseUrl = "http://127.0.0.1:1"
+    }
+
+    @After
+    fun tearDown() {
+        ApiClient.testBaseUrl = null
     }
 
     private fun old(kind: String, hoursAgo: Long) = OutboxAction(

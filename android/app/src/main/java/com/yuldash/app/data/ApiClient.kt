@@ -1088,14 +1088,26 @@ object ApiClient {
     private fun liveLinkOrNull(j: JSONObject): String? =
         j.optString("token", "").takeIf { it.isNotBlank() }?.let { "$BASE/t/$it" }
 
+    /** Ответ на «позвать помощь»: скольким близким сообщение реально уйдёт и сколько
+     *  доверенных заведено всего. Старый сервер второго числа не присылает — тогда считаем,
+     *  что доверенных столько же, скольким ушло (текст экрана останется прежним). */
+    data class RoadsideResult(val notified: Int, val contactsTotal: Int)
+
+    private fun roadsideResult(j: JSONObject): RoadsideResult {
+        val ушло = j.optInt("contacts_notified")
+        return RoadsideResult(ушло, j.optInt("contacts_total", ушло))
+    }
+
     /** F12 «Застрял на трассе»: координаты уходят доверенным контактам + запись в SOS-ленту админа.
      *  Уровень мягче паники SOS. Координаты необязательны (шлём хотя бы сигнал о помощи). */
     /** Возвращает, СКОЛЬКИМ близким реально ушло SMS (волна 122): экран обещал помощь даже
-     *  тому, кто доверенных контактов не заводил. */
-    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String): Result<Int> {
+     *  тому, кто доверенных контактов не заводил. Волна 184 добавила второе число — сколько
+     *  доверенных вообще заведено: без него «ушло нулю» и «звать некого» выглядят одинаково,
+     *  а человеку на трассе это разные новости и разные действия. */
+    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String): Result<RoadsideResult> {
         val body = JSONObject().put("note", note)
         if (lat != null && lng != null) body.put("lat", lat).put("lng", lng)
-        return call("POST", "/bookings/$bookingId/stuck", body, auth = true).map { it.optInt("contacts_notified") }.onSuccess { Analytics.log("roadside_help") }
+        return call("POST", "/bookings/$bookingId/stuck", body, auth = true).map { roadsideResult(it) }.onSuccess { Analytics.log("roadside_help") }
     }
 
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
@@ -4236,21 +4248,21 @@ object ApiClient {
 
     /** «Застрял на трассе» в ТАКСИ-заказе: координаты доверенным + сигнал админу.
      *  Зимний протокол работал только для попуток, хотя четыре часа трассы зимой — это такси. */
-    suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = ""): Result<Int> {
+    suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = ""): Result<RoadsideResult> {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true).map { it.optInt("contacts_notified") }
+        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true).map { roadsideResult(it) }
     }
 
     /** «Застрял на трассе» в ДОСТАВКЕ. Курьер едет по той же зимней трассе и вдобавок один:
      *  рядом нет пассажира, который заметит беду. Сервер принимал сигнал с 2026-08-06,
      *  но в приложении нажать было негде (аудит 2026-08-06). */
-    suspend fun parcelRoadsideHelp(parcelId: Int, lat: Double?, lng: Double?, note: String = ""): Result<Int> {
+    suspend fun parcelRoadsideHelp(parcelId: Int, lat: Double?, lng: Double?, note: String = ""): Result<RoadsideResult> {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/parcels/$parcelId/stuck", body, auth = true).map { it.optInt("contacts_notified") }
+        return call("POST", "/parcels/$parcelId/stuck", body, auth = true).map { roadsideResult(it) }
             .onSuccess { Analytics.log("roadside_help_parcel") }
     }
 
