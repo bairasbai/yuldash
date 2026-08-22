@@ -10,6 +10,8 @@
 `DELETE /places/saved/{id}`    — удалить своё (чужое → 404).
 `GET  /places/recent`          — мои недавние точки (свежие сверху, ≤ MAX_RECENT).
 `POST /places/recent`          — добавить недавнюю (вызывается при заказе); дедуп по адресу.
+`DELETE /places/recent/{id}`   — убрать одну свою точку (чужое → 404).
+`DELETE /places/recent`        — очистить весь свой список.
 """
 from typing import Optional
 
@@ -162,3 +164,35 @@ def add_recent(body: RecentPlaceIn, user: User = Depends(current_user),
         session.execute(delete(RecentPlace).where(RecentPlace.id.in_(stale)))
         session.commit()
     return _recent_out(place)
+
+
+@router.delete("/places/recent/{place_id}")
+def delete_recent(place_id: int, user: User = Depends(current_user),
+                  session: Session = Depends(get_session)):
+    """Убрать одну свою недавнюю точку.
+
+    Список копится сам, из каждого заказа, и человек его не выбирал. Значит право убрать
+    оттуда строку — не украшение, а обязательная часть: там оседают адрес больницы, дом
+    бывшего, работа, с которой ушёл.
+
+    Чужое/несуществующее → 404: не подтверждаем существование чужой записи (анти-IDOR).
+    """
+    place = session.get(RecentPlace, place_id)
+    if not place or place.user_id != user.id:
+        raise herr(404, "Адрес не найден", "Адрес табылманы")
+    session.delete(place)
+    session.commit()
+    return {"ok": True}
+
+
+@router.delete("/places/recent")
+def clear_recent(user: User = Depends(current_user),
+                 session: Session = Depends(get_session)):
+    """Очистить весь свой список недавних.
+
+    Нужна отдельно от удаления по одной: когда телефон отдают в чужие руки или просто
+    хотят убрать следы поездок, чистить список по строке — десять жестов вместо одного.
+    """
+    session.execute(delete(RecentPlace).where(RecentPlace.user_id == user.id))
+    session.commit()
+    return {"ok": True}

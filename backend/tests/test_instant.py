@@ -90,7 +90,12 @@ def test_estimate_zone_intercity(client, user_factory):
 
 
 def test_seed_tariff_values_are_new():
-    """Стартовые тарифы засеены новыми числами (город/межгород, ₽): сильно ниже конкурентов."""
+    """Стартовые тарифы засеены актуальными числами (город/межгород, ₽).
+
+    Пересмотр 2026-08-21: минута в городе 3 → 5 ₽ (у Яндекса в Уфе 7,5 ₽ — водитель стоял
+    в пробке почти бесплатно), межгород 9 → 12 ₽/км (у Максима 15 ₽). Ниже конкурентов
+    остаёмся, но уже не в полтора раза.
+    """
     from app.models import Tariff
     from sqlmodel import select
     with Session(engine) as s:
@@ -98,8 +103,8 @@ def test_seed_tariff_values_are_new():
             Tariff.zone == "city", Tariff.category == "standard", Tariff.active == True)).first()  # noqa: E712
         inter = s.exec(select(Tariff).where(
             Tariff.zone == "intercity", Tariff.category == "standard", Tariff.active == True)).first()  # noqa: E712
-    assert (city.base, city.per_km, city.per_min, city.min_price, city.k) == (70, 11.0, 3.0, 100, 1.0)
-    assert (inter.base, inter.per_km, inter.per_min, inter.min_price, inter.k) == (80, 9.0, 2.0, 150, 1.0)
+    assert (city.base, city.per_km, city.per_min, city.min_price, city.k) == (70, 11.5, 5.0, 100, 1.0)
+    assert (inter.base, inter.per_km, inter.per_min, inter.min_price, inter.k) == (80, 24.0, 2.0, 150, 1.0)
 
 
 def test_estimate_matches_new_tariff_formula(client, user_factory):
@@ -110,7 +115,7 @@ def test_estimate_matches_new_tariff_formula(client, user_factory):
     body = client.post("/instant/estimate", headers=pax["auth"], json=_order_body()).json()
     dist = max(haversine_km(ORIG[0], ORIG[1], DEST[0], DEST[1]) * settings.instant_road_k, 0.5)
     eta = dist / settings.instant_avg_speed_kmh * 60
-    expected = max(100, isv.round_to_10((70 + 11.0 * dist + 3.0 * eta) * 1.0))  # город
+    expected = max(100, isv.round_to_10((70 + 11.5 * dist + 5.0 * eta) * 1.0))  # город
     assert body["zone"] == "city"
     assert body["price"] == expected
 

@@ -515,12 +515,17 @@ def test_free_cancels_are_not_strikes(client, user_factory, fake_redis):
 
 # ============================ 4. Классы Эконом/Комфорт ============================
 def test_seed_comfort_tariffs():
-    """Комфорт засеян стартовыми числами (город 90/14/4/130, межгород 100/12/3/200)."""
+    """Комфорт засеян стартовыми числами (город 90/14/6/130, межгород 100/26/3/200).
+
+    Минута и километр подняты вслед за Экономом (пересмотр 2026-08-21): минута Комфорта не
+    может стоить дешевле минуты Эконома, а километр межгорода — сравняться с ним. Пассажир
+    видит разбивку цены, и такая инверсия читалась бы как ошибка в приложении.
+    """
     with Session(engine) as s:
         c = s.exec(select(Tariff).where(Tariff.zone == "city", Tariff.category == "comfort")).first()
         i = s.exec(select(Tariff).where(Tariff.zone == "intercity", Tariff.category == "comfort")).first()
-    assert (c.base, c.per_km, c.per_min, c.min_price, c.k) == (90, 14.0, 4.0, 130, 1.0)
-    assert (i.base, i.per_km, i.per_min, i.min_price, i.k) == (100, 12.0, 3.0, 200, 1.0)
+    assert (c.base, c.per_km, c.per_min, c.min_price, c.k) == (90, 14.0, 6.0, 130, 1.0)
+    assert (i.base, i.per_km, i.per_min, i.min_price, i.k) == (100, 26.0, 3.0, 200, 1.0)
 
 
 def test_estimate_comfort_pricier_with_options(client, user_factory):

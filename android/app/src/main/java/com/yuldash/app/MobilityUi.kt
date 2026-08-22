@@ -235,15 +235,13 @@ internal fun TaxiServiceClassTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Выбранный тариф выделяем ПОДЛОЖКОЙ, а не рамкой (образец — Яндекс). Рамка у каждой
+    // плитки превращала ряд тарифов в таблицу: пять прямоугольников с обводкой, где у одного
+    // обводка вдвое толще. Подложка читается мгновенно и не добавляет линий.
     val bg by animateColorAsState(
-        if (selected) CanonTaxiBg else CanonSurface,
+        if (selected) CanonTaxiBg else CanonBg,
         tween(CanonMotion.QUICK),
         label = "taxiClassBg",
-    )
-    val border by animateColorAsState(
-        if (selected) CanonTaxi else CanonBorder,
-        tween(CanonMotion.QUICK),
-        label = "taxiClassBorder",
     )
     val selectionState = if (selected) appText("Выбрано", "Һайланған")
     else appText("Не выбрано", "Һайланмаған")
@@ -251,40 +249,44 @@ internal fun TaxiServiceClassTile(
         onClick = onClick,
         shape = CanonItemShape,
         color = bg,
-        border = BorderStroke(if (selected) 2.dp else 1.dp, border),
         modifier = modifier
-            .heightIn(min = 94.dp)
+            .heightIn(min = 88.dp)
             .semantics(mergeDescendants = true) {
                 role = Role.RadioButton
                 this.selected = selected
                 stateDescription = selectionState
             },
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (selected) CanonTaxi else CanonBg,
-                ) {
-                    Icon(
-                        Icons.Default.DirectionsCar,
-                        contentDescription = null,
-                        tint = if (selected) CanonTaxiInk else CanonMutedStrong,
-                        modifier = Modifier.padding(8.dp).size(19.dp),
-                    )
-                }
-                Spacer(Modifier.weight(1f))
-                if (selected) {
-                    // CanonTaxiText, а не CanonTaxiInk: подложка выбранного тарифа (CanonTaxiBg)
-                    // в тёмной теме тёмно-коричневая, и тёмный ink на ней даёт контраст 1.05.
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonTaxiText, modifier = Modifier.size(18.dp))
-                }
+        Column(
+            Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.md),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+        ) {
+            // Машина крупно и без кружка: это главный опознавательный знак тарифа.
+            // Кружок вокруг иконки делал её вдвое мельче на той же высоте плитки.
+            Icon(
+                Icons.Default.DirectionsCar,
+                contentDescription = null,
+                tint = if (selected) CanonTaxiText else CanonMutedStrong,
+                modifier = Modifier.size(30.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                title,
+                color = CanonText,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            // Цена — второй строкой, как у Яндекса: сначала «что», потом «сколько».
+            // В одну строку они не помещались и обрезали название длинного тарифа.
+            if (price != null) {
+                Text("$price ₽", color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            } else if (subtitle.isNotBlank()) {
+                // Подпись остаётся ровно для одного случая — «скоро», когда цены ещё нет.
+                Text(subtitle, color = CanonMutedStrong, fontSize = 12.sp,
+                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                if (price != null) Text("$price ₽", color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            }
-            Text(subtitle, color = CanonMutedStrong, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

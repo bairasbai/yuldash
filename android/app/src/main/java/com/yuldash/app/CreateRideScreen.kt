@@ -111,6 +111,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LocalGasStation
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
@@ -821,8 +823,21 @@ internal fun CreateRideFormContent(
 @Composable
 internal fun PrivacyScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         LocationPrefs.sharingEnabled = granted
+    }
+    // Сколько адресов накопилось. Нужно не ради цифры: пустой список чистить не за чем,
+    // и кнопку в этом случае не показываем вовсе — не предлагаем действие, которое ничего
+    // не делает.
+    var recentCount by remember { mutableIntStateOf(0) }
+    var askClear by remember { mutableStateOf(false) }
+    var clearing by remember { mutableStateOf(false) }
+    var reload by remember { mutableIntStateOf(0) }
+    LaunchedEffect(reload) {
+        if (ApiClient.isLoggedIn()) {
+            ApiClient.getRecentPlaces().onSuccess { recentCount = it.size }
+        }
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Конфиденциальность", "Хосусилыҡ"), onBack) }) { padding ->
         Column(
@@ -857,7 +872,97 @@ internal fun PrivacyScreen(onBack: () -> Unit) {
                 text = appText("Точка видна только когда ползунок включён. Точный адрес — лишь после подтверждения поездки.", "Нөктә ползунок ҡабул булғанда ғына күренә. Теүәл адрес — сәфәр раҫланғандан һуң ғына."),
                 icon = Icons.Default.Lock
             )
+            // Недавние адреса — тот же класс данных, что геолокация выше: карта личных мест.
+            // Пусто — карточки нет: не предлагаем действие, которое ничего не сделает.
+            if (recentCount > 0) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CanonSurface),
+                    shape = CanonCardShape,
+                    elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
+                ) {
+                    // Ровно то же устройство, что у «Моей геолокации» сверху: иконка — два
+                    // коротких текста — действие справа. Симметрия здесь не в выравнивании
+                    // внутри коробки, а в том, что все коробки раздела читаются одинаково.
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.History, contentDescription = null, tint = CanonGreen2)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                appText("Недавние адреса", "Һуңғы адрестар"),
+                                color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                            )
+                            // Откуда взялись — сказано, сколько — видно. Больше тут знать нечего.
+                            Text(
+                                appText(
+                                    "$recentCount ${recentWordRu(recentCount)} из заказов",
+                                    "Заказдарҙан $recentCount адрес",
+                                ),
+                                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = { askClear = true },
+                            enabled = !clearing,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text(
+                                appText("Очистить", "Таҙартыу"),
+                                color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
         }
+    }
+    // Спрашиваем прямо: действие необратимое, а кнопка стоит рядом с безобидным ползунком.
+    // И сразу говорим, что будет дальше, — список не исчезнет навсегда, он начнётся заново.
+    if (askClear) {
+        AlertDialog(
+            onDismissRequest = { if (!clearing) askClear = false },
+            title = { Text(appText("Очистить недавние адреса?", "Һуңғы адрестарҙы таҙартырғамы?")) },
+            text = {
+                Text(appText(
+                    "Все $recentCount ${recentWordRu(recentCount)} исчезнут. Вернуть их нельзя — список начнёт копиться заново с первого заказа.",
+                    "Бөтә $recentCount адрес юғаласаҡ. Кире ҡайтарып булмай — исемлек беренсе заказдан яңынан йыйыла башлай.",
+                ))
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !clearing,
+                    onClick = {
+                        clearing = true
+                        scope.launch {
+                            ApiClient.clearRecentPlaces().onSuccess { recentCount = 0 }
+                            clearing = false
+                            askClear = false
+                            reload++
+                        }
+                    },
+                ) {
+                    Text(appText("Очистить", "Таҙартыу"), color = CanonRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = !clearing, onClick = { askClear = false }) {
+                    Text(appText("Отмена", "Кире алыу"), color = CanonMuted)
+                }
+            },
+            containerColor = CanonSurface,
+        )
+    }
+}
+
+/** Счётное слово к числу адресов: 1 адрес, 2 адреса, 5 адресов. */
+private fun recentWordRu(n: Int): String {
+    val t = n % 100
+    if (t in 11..14) return "адресов"
+    return when (n % 10) {
+        1 -> "адрес"
+        2, 3, 4 -> "адреса"
+        else -> "адресов"
     }
 }
 

@@ -5,6 +5,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
@@ -22,8 +23,22 @@ internal object ThemePrefs {
     var darkOverride by mutableStateOf<Boolean?>(null)
 }
 
+/**
+ * Ночная поездка (волна 160): на время поездки экран и карта приглушаются сами, даже если
+ * в телефоне светлая тема. Такси нужнее всего ночью, и белый экран в лицо в половине первого —
+ * это то, за что Яндексу и достаётся.
+ *
+ * Слой, а не подмена [ThemePrefs]: светлую тему человек мог выбрать осознанно, и возвращать
+ * её потом пришлось бы вручную — а если приложение убьют посреди поездки, она осталась бы
+ * перекрученной навсегда. Здесь же значение живёт ровно столько, сколько открыт экран.
+ *
+ * null = слоя нет, решает обычная тема.
+ */
+internal val LocalNightRide = compositionLocalOf<Boolean?> { null }
+
 @Composable
-internal fun appIsDark(): Boolean = ThemePrefs.darkOverride ?: isSystemInDarkTheme()
+internal fun appIsDark(): Boolean =
+    LocalNightRide.current ?: ThemePrefs.darkOverride ?: isSystemInDarkTheme()
 
 /**
  * Крупный шрифт — глобальный тумблер размера ВСЕГО текста (для пожилых и слабовидящих).

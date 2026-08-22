@@ -62,6 +62,12 @@ class PollingSourceGuardTest {
             if (!loop.containsMatchIn(text)) return@forEach
             if (!text.contains("delay(")) return@forEach
             if (text.contains("repeatOnLifecycle")) return@forEach
+            // RepeatWhileVisible — штатная обвязка проекта, внутри она и есть
+            // repeatOnLifecycle(RESUMED) (UiKit.kt). Файл, где опрос идёт ТОЛЬКО через неё,
+            // сторож раньше считал нарушителем: слова repeatOnLifecycle в тексте нет,
+            // а правило соблюдено. Ложная тревога заставляет обходить сторожа вручную —
+            // а обойдённый сторож не ловит уже ничего.
+            if (text.contains("RepeatWhileVisible")) return@forEach
             bad += f.name
         }
         assertTrue(

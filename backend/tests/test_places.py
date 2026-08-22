@@ -88,6 +88,90 @@ def test_recent_idor(client, user_factory):
     assert client.get("/places/recent", headers=other["auth"]).json() == []
 
 
+
+def test_recent_delete_one(client, user_factory):
+    """Свайп по строке убирает ровно её, соседние остаются на месте."""
+    u = user_factory()
+    a = client.post("/places/recent", headers=u["auth"], json={"address": "больница"}).json()
+    client.post("/places/recent", headers=u["auth"], json={"address": "автовокзал"})
+
+    r = client.delete(f"/places/recent/{a['id']}", headers=u["auth"])
+    assert r.status_code == 200
+
+    left = [p["address"] for p in client.get("/places/recent", headers=u["auth"]).json()]
+    assert left == ["автовокзал"]
+
+
+def test_recent_delete_foreign_is_404(client, user_factory):
+    """Чужую строку не удалить, и сам факт её существования не подтверждаем.
+
+    Недавние — это карта личных мест: больница, дом, работа. Ответ «403 запрещено» уже сказал
+    бы «такая запись есть»; отвечаем так же, как на несуществующий id.
+    """
+    owner = user_factory()
+    other = user_factory()
+    mine = client.post("/places/recent", headers=owner["auth"], json={"address": "мой"}).json()
+
+    assert client.delete(f"/places/recent/{mine['id']}", headers=other["auth"]).status_code == 404
+    assert client.delete("/places/recent/999999", headers=other["auth"]).status_code == 404
+    # запись на месте: чужой запрос её не тронул
+    assert [p["address"] for p in client.get("/places/recent", headers=owner["auth"]).json()] == ["мой"]
+
+
+def test_recent_clear_all_touches_only_me(client, user_factory):
+    """Очистка списка стирает только свои строки — соседа по базе не задевает."""
+    me = user_factory()
+    other = user_factory()
+    client.post("/places/recent", headers=me["auth"], json={"address": "мой 1"})
+    client.post("/places/recent", headers=me["auth"], json={"address": "мой 2"})
+    client.post("/places/recent", headers=other["auth"], json={"address": "чужой"})
+
+    assert client.delete("/places/recent", headers=me["auth"]).status_code == 200
+    assert client.get("/places/recent", headers=me["auth"]).json() == []
+    assert [p["address"] for p in client.get("/places/recent", headers=other["auth"]).json()] == ["чужой"]
+
+
+def test_recent_delete_one(client, user_factory):
+    """Свайп по строке убирает ровно её, соседние остаются на месте."""
+    u = user_factory()
+    a = client.post("/places/recent", headers=u["auth"], json={"address": "больница"}).json()
+    client.post("/places/recent", headers=u["auth"], json={"address": "автовокзал"})
+
+    r = client.delete(f"/places/recent/{a['id']}", headers=u["auth"])
+    assert r.status_code == 200
+
+    left = [p["address"] for p in client.get("/places/recent", headers=u["auth"]).json()]
+    assert left == ["автовокзал"]
+
+
+def test_recent_delete_foreign_is_404(client, user_factory):
+    """Чужую строку не удалить, и сам факт её существования не подтверждаем.
+
+    Недавние — это карта личных мест: больница, дом, работа. Ответ «403 запрещено» уже сказал
+    бы «такая запись есть»; отвечаем так же, как на несуществующий id.
+    """
+    owner = user_factory()
+    other = user_factory()
+    mine = client.post("/places/recent", headers=owner["auth"], json={"address": "мой"}).json()
+
+    assert client.delete(f"/places/recent/{mine['id']}", headers=other["auth"]).status_code == 404
+    assert client.delete("/places/recent/999999", headers=other["auth"]).status_code == 404
+    # запись на месте: чужой запрос её не тронул
+    assert [p["address"] for p in client.get("/places/recent", headers=owner["auth"]).json()] == ["мой"]
+
+
+def test_recent_clear_all_touches_only_me(client, user_factory):
+    """Очистка списка стирает только свои строки — соседа по базе не задевает."""
+    me = user_factory()
+    other = user_factory()
+    client.post("/places/recent", headers=me["auth"], json={"address": "мой 1"})
+    client.post("/places/recent", headers=me["auth"], json={"address": "мой 2"})
+    client.post("/places/recent", headers=other["auth"], json={"address": "чужой"})
+
+    assert client.delete("/places/recent", headers=me["auth"]).status_code == 200
+    assert client.get("/places/recent", headers=me["auth"]).json() == []
+    assert [p["address"] for p in client.get("/places/recent", headers=other["auth"]).json()] == ["чужой"]
+
 # ------------------------------ 152-ФЗ: удаление аккаунта ------------------------------
 def test_places_wiped_on_account_delete(client, user_factory):
     u = user_factory()

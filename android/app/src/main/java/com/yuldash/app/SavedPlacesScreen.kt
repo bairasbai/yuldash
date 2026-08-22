@@ -1,5 +1,17 @@
 package com.yuldash.app
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -99,6 +111,8 @@ internal fun QuickPlacesBlock(
     recent: List<RecentPlaceDto>,
     onPick: (address: String, lat: Double, lng: Double) -> Unit,
     modifier: Modifier = Modifier,
+    // Убрать недавний адрес. Пустой по умолчанию: блок показывают и там, где чистить нечего.
+    onDeleteRecent: (Int) -> Unit = {},
 ) {
     val home = saved.firstOrNull { it.kind == "home" }
     val work = saved.firstOrNull { it.kind == "work" }
@@ -120,8 +134,16 @@ internal fun QuickPlacesBlock(
         return
     }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        home?.let { QuickPlaceRow(placeKindIcon("home"), appText("Дом", "Өй"), it.address) { onPick(it.address, it.lat, it.lng) } }
-        work?.let { QuickPlaceRow(placeKindIcon("work"), appText("Работа", "Эш"), it.address) { onPick(it.address, it.lat, it.lng) } }
+        home?.let {
+            QuickPlaceRow(placeKindIcon("home"), appText("Дом", "Өй"), it.address, named = true) {
+                onPick(it.address, it.lat, it.lng)
+            }
+        }
+        work?.let {
+            QuickPlaceRow(placeKindIcon("work"), appText("Работа", "Эш"), it.address, named = true) {
+                onPick(it.address, it.lat, it.lng)
+            }
+        }
         if (recent.isNotEmpty()) {
             Text(
                 appText("Недавние", "Һуңғылар"),
@@ -129,23 +151,48 @@ internal fun QuickPlacesBlock(
                 modifier = Modifier.padding(start = 4.dp, top = 4.dp),
             )
             recent.take(5).forEach { r ->
-                QuickPlaceRow(Icons.Default.History, r.address, null) { onPick(r.address, r.lat, r.lng) }
+                // key по id: без него после удаления Compose переиспользует состояние жеста
+                // соседней строки, и следующая строка приезжает уже наполовину сдвинутой.
+                key(r.id) {
+                    SwipeToDeleteRow(onDelete = { onDeleteRecent(r.id) }) {
+                        QuickPlaceRow(Icons.Default.History, r.address, null) {
+                            onPick(r.address, r.lat, r.lng)
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun QuickPlaceRow(icon: ImageVector, title: String, subtitle: String?, onClick: () -> Unit) {
+private fun QuickPlaceRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String?,
+    named: Boolean = false,
+    onClick: () -> Unit,
+) {
+    // Без рамки. Пять обведённых строк подряд превращают экран в таблицу — это приём
+    // веб-форм. Здесь строку отделяет собственная плоскость с мягкой тенью, между строками
+    // воздух, и список читается как набор карточек, а не как разлинованный бланк.
     Surface(
         shape = CanonItemShape,
         color = CanonSurface,
-        border = BorderStroke(1.dp, CanonBorder),
+        shadowElevation = CanonDepth.card,
         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick),
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CanonMint, shape = CircleShape) {
-                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
+            // Мятная подложка — только у названных мест (Дом, Работа). У недавних она
+            // нейтральная: зелёным выделяем то, что человек назвал сам, а не то, что просто
+            // однажды ввёл. Иначе весь список одинаково «важный», то есть никакой.
+            Surface(color = if (named) CanonMint else CanonBg, shape = CircleShape) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = if (named) CanonGreen2 else CanonMutedStrong,
+                    modifier = Modifier.padding(8.dp).size(20.dp),
+                )
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -438,6 +485,84 @@ private fun DialogKindRow(icon: ImageVector, label: String, onClick: () -> Unit)
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(12.dp))
             Text(label, color = CanonGreen, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+}
+
+/**
+ * Строка, которую можно смахнуть. Влево или вправо — куда рука пошла, туда и тянет.
+ *
+ * Своё, а не Material-обёртка: она тянет собственные фоны и пороги, а нам нужен ровно один
+ * исход (удалить) и один порог. Пишем то же, чем в проекте уже двигают карточки на карте.
+ *
+ * Порог 96 точек не случаен: меньше — список чистится случайным движением пальца при
+ * прокрутке; больше — жест перестаёт быть лёгким и человек его не находит.
+ *
+ * Красная подложка проявляется ПО МЕРЕ движения, а не мигает сразу: пока строка сдвинута
+ * чуть-чуть, это ещё не удаление, и пугать красным рано.
+ */
+@Composable
+private fun SwipeToDeleteRow(
+    onDelete: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val thresholdPx = with(LocalDensity.current) { 96.dp.toPx() }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var gone by remember { mutableStateOf(false) }
+    val shownX by animateFloatAsState(
+        targetValue = offsetX,
+        animationSpec = tween(if (gone) CanonMotion.QUICK else CanonMotion.NORMAL),
+        label = "swipeDelete",
+    )
+    val progress = (kotlin.math.abs(shownX) / thresholdPx).coerceIn(0f, 1f)
+    Box(Modifier.fillMaxWidth()) {
+        // Подложка с корзинами по обоим краям: жест разрешён в любую сторону, и подсказка
+        // должна встречать палец с той стороны, куда он реально пошёл.
+        Surface(
+            color = CanonDangerBg,
+            shape = CanonItemShape,
+            modifier = Modifier.matchParentSize(),
+        ) {
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.DeleteOutline,
+                    contentDescription = appText("Убрать адрес", "Адресты алып ташлау"),
+                    tint = CanonRed.copy(alpha = progress),
+                    modifier = Modifier.size(22.dp),
+                )
+                Icon(
+                    Icons.Default.DeleteOutline,
+                    contentDescription = null,
+                    tint = CanonRed.copy(alpha = progress),
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+        Box(
+            Modifier
+                .offset { IntOffset(shownX.roundToInt(), 0) }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (kotlin.math.abs(offsetX) > thresholdPx) {
+                                // Уводим строку за край, а не гасим на месте: движение
+                                // договаривает то, что начал палец.
+                                gone = true
+                                offsetX = if (offsetX > 0) size.width.toFloat() else -size.width.toFloat()
+                                onDelete()
+                            } else {
+                                offsetX = 0f
+                            }
+                        },
+                        onDragCancel = { offsetX = 0f },
+                    ) { _, drag -> offsetX += drag }
+                },
+        ) {
+            content()
         }
     }
 }

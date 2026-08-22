@@ -410,13 +410,13 @@ private fun TaxiAfterRideActions(
                         icon = Icons.Default.Favorite,
                         iconBg = CanonMint,
                         iconTint = CanonGreen2,
-                        title = if (thanked) appText("Рәхмәт сказан 💚", "Рәхмәт әйтелде 💚")
-                        else appText("Сказать рәхмәт", "Рәхмәт әйтеү"),
+                        title = if (thanked) appText("«Рәхмәт» сказан 💚", "Рәхмәт әйтелде 💚")
+                        else appText("Сказать «рәхмәт»", "Рәхмәт әйтеү"),
                         text = appText("Тёплое спасибо водителю — без денег.", "Йөрөтөүсегә йылы рәхмәт — аҡсаһыҙ."),
                     )
                     if (!thanked) {
                         AppButton(
-                            text = appText("Сказать рәхмәт", "Рәхмәт әйтеү"),
+                            text = appText("Сказать «рәхмәт»", "Рәхмәт әйтеү"),
                             onClick = {
                                 if (thanksBusy) return@AppButton
                                 thanksBusy = true

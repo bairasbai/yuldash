@@ -14,7 +14,8 @@
 на том же Redis (см. docs) — не обязателен для работы, вынесен как следующий шаг.
 """
 import re
-from datetime import timedelta
+import json
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
 
@@ -28,6 +29,7 @@ from .errors import herr
 from . import car_class as cc
 from . import class_rollout
 from . import pricing
+from .livepos import livepos_get
 from . import promo_ride
 from .models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus as S, OfferDecline,
@@ -51,6 +53,12 @@ class Actor(str, Enum):
 # Из терминальных состояний выхода нет.
 TERMINAL = (S.done, S.cancelled, S.expired)
 # Разрешённые ПЕРЕХОДЫ водителя: (из, actor=driver) -> куда.
+# Статусы, на которых пассажир может поменять адрес. До accept водителя нет — меняем свободно;
+# на offered карточка уже висит у водителя, там ручка сначала отзовёт предложение.
+_DESTINATION_CHANGEABLE = (
+    S.created, S.searching, S.offered, S.accepted, S.arriving, S.onboard,
+)
+
 ALLOWED = {
     (S.offered, Actor.driver): S.accepted,
     (S.accepted, Actor.driver): S.arriving,
@@ -377,6 +385,73 @@ def _tariff_price(t: Tariff, dist_km: float, eta_min: float, surge: float) -> in
     return max(t.min_price, round_to_10(raw * t.k * surge))
 
 
+def parse_waypoints(raw: str) -> list[dict]:
+    """Остановки заказа. Битый JSON — пустой список: цена важнее, чем упасть."""
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    out = []
+    for w in data if isinstance(data, list) else []:
+        try:
+            out.append({"lat": float(w["lat"]), "lng": float(w["lng"]),
+                        "text": str(w.get("text", ""))[:200], "done": bool(w.get("done"))})
+        except (KeyError, TypeError, ValueError):
+            continue        # одна кривая точка не должна ронять весь маршрут
+    return out
+
+
+def dump_waypoints(points: list[dict]) -> str:
+    """Обратно в строку. Пустой список — пустая строка, а не «[]»: так проще отличать."""
+    return json.dumps(points, ensure_ascii=False) if points else ""
+
+
+def route_through(frm: tuple, waypoints: list[dict], to: tuple):
+    """Метрики маршрута A → остановки → B: сумма отрезков.
+
+    Считаем по кускам, а не одним запросом с промежуточными точками: наш поставщик маршрутов
+    берёт деньги за запрос, а не за длину, и кусков обычно два-три. Зато каждый отрезок
+    кэшируется отдельно — двигая конечную точку, человек не пересчитывает начало пути.
+    """
+    legs = [frm] + [(w["lat"], w["lng"]) for w in waypoints] + [to]
+    dist = dur = 0.0
+    tolls = False
+    source = "yandex"
+    for a, b in zip(legs, legs[1:]):
+        m = pricing.route_metrics(a, b)
+        dist += m.distance_km
+        dur += m.duration_min
+        tolls = tolls or m.has_tolls
+        if m.source != "yandex":
+            source = m.source
+    return pricing.RouteMetrics(distance_km=dist, duration_min=dur, source=source,
+                                has_tolls=tolls)
+
+def round_trip_available(zone: str) -> bool:
+    """Круговой рейс предлагаем только на межгороде.
+
+    В городе водитель находит следующий заказ за минуты — порожняка нет, и скидка была бы
+    просто подарком. Проблема пустой дороги живёт на дальнем плече: 450 км туда с пассажиром
+    и 450 обратно ни с кем."""
+    return zone == "intercity" and settings.round_trip_discount_percent > 0
+
+
+def round_trip_price(one_way: int, zone: str) -> int:
+    """Цена «туда и обратно»: дорога туда полная, обратная — со скидкой.
+
+    Почему обратная дешевле, а не бесплатна: водитель везёт ту же машину те же километры и
+    жжёт тот же бензин. Скидка — не подарок, а плата за то, что второй конец достался ему
+    без поиска пассажира, а нам — без пустого пробега.
+
+    Зона не межгород → цена не меняется (см. `round_trip_available`)."""
+    if not round_trip_available(zone) or one_way <= 0:
+        return one_way
+    back = one_way * (1 - settings.round_trip_discount_percent / 100.0)
+    return round_to_10(one_way + back)
+
+
 def _price_factors(route: pricing.RouteMetrics, surge: float, pickup: float,
                    weather: pricing.WeatherMetrics, night: float, dynamic: float) -> list[dict]:
     """Serializable, bilingual explanation of every signal used for the upfront fare."""
@@ -448,7 +523,8 @@ def _price_factors(route: pricing.RouteMetrics, surge: float, pickup: float,
     return factors
 
 
-def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard") -> dict:
+def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard",
+             round_trip: bool = False, waypoints: Optional[list] = None) -> dict:
     """Server-owned upfront fare v2.
 
     base = max(min_price, (base + per_km·road_distance + per_min·traffic_eta) · Tariff.k)
@@ -457,7 +533,10 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     Route/weather providers are optional and failure-safe. The response includes a bilingual
     factor breakdown; no price or coefficient is accepted from the client.
     """
-    route = pricing.route_metrics(frm, to)
+    # Остановки входят в маршрут: смысл остановки в том, что за неё платят. Без этого
+    # водитель везёт лишние километры даром, а пассажир не понимает, почему цена та же.
+    stops = waypoints or []
+    route = route_through(frm, stops, to) if stops else pricing.route_metrics(frm, to)
     dist_km = max(route.distance_km, 0.5)
     eta_min = max(route.duration_min, 0.1)
     zone = zone_for_km(dist_km)
@@ -478,6 +557,12 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     dynamic = total_k(t, surge, now, pickup=pickup, weather=weather.k)
     base_price = _tariff_price(t, dist_km, eta_min, 1.0)
     price = _tariff_price(t, dist_km, eta_min, dynamic)
+    # Круговой рейс: цену считаем от УЖЕ посчитанной односторонней, чтобы обратная дорога
+    # ехала по тем же коэффициентам. Пассажир видит обе цифры и сам решает.
+    rt_available = round_trip_available(zone)
+    rt_price = round_trip_price(price, zone)
+    if round_trip and rt_available:
+        price = rt_price
 
     # Классы для витрины. Закрытые (не набралось водителей) отдаём с open=false — клиент
     # покажет их строкой «скоро» с кнопкой «сообщить, когда появится», а не активной кнопкой.
@@ -502,9 +587,11 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
         ct = tariffs.get(cat)
         if ct:
             ct_dynamic = total_k(ct, surge, now, pickup=pickup, weather=weather.k)
+            cat_price = _tariff_price(ct, dist_km, eta_min, ct_dynamic)
             options.append({
                 "category": cat,
-                "price": _tariff_price(ct, dist_km, eta_min, ct_dynamic),
+                "price": round_trip_price(cat_price, zone) if round_trip else cat_price,
+                "one_way_price": cat_price,
                 "base_price": _tariff_price(ct, dist_km, eta_min, 1.0),
                 "dynamic_k": ct_dynamic,
                 "open": cat in opened,
@@ -513,6 +600,14 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     return {
         "price": price,
         "base_price": base_price,
+        # Аддитивные поля (старый клиент их просто не читает).
+        "round_trip_available": rt_available,
+        "round_trip_price": rt_price if rt_available else None,
+        "round_trip_discount_percent": settings.round_trip_discount_percent if rt_available else 0,
+        "round_trip_max_wait_hours": settings.round_trip_max_wait_hours,
+        "round_trip": bool(round_trip and rt_available),
+        # Сколько остановок учтено в цене — человек должен видеть, за что платит.
+        "waypoints_count": len(stops),
         "distance_km": round(dist_km, 2),
         "eta_min": round(eta_min, 1),
         "pickup_eta_min": pickup_eta,
@@ -521,6 +616,9 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
         "tariff_id": t.id,
         # Backward-compatible field: demand/supply only. The full product is dynamic_k.
         "surge_k": surge,
+        # Полный множитель, по которому посчитана цена. Его и надо класть на заказ:
+        # пересчитывать потом по одному лишь `surge_k` значит терять ночь, погоду и подачу.
+        "pricing_k": dynamic,
         "surge_note": surge_note(surge),
         "night": nk > 1.0,
         "night_k": nk,
@@ -540,25 +638,99 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     }
 
 
+# ------------------------------ пересмотр тарифа 2026-08-21 ------------------------------
+# Наш тариф был ниже рынка не «слегка», а в местах, где это бьёт по водителю:
+#   • минута в городе — 3 ₽ против 7,5 ₽ у Яндекса в Уфе. Водитель стоял в пробке почти
+#     бесплатно, хотя именно там уходит его время;
+#   • межгород — 9 ₽/км против 15 ₽ у Максима. Дальняя поездка занимает у человека весь день,
+#     а платили за неё в полтора раза меньше конкурента.
+# Километр в городе (11 против 11,5) был в рынке — его почти не трогаем.
+#
+# Верхние классы правим ТОЛЬКО там, где иначе ломается порядок: минута Комфорта не может
+# стоить дешевле минуты Эконома, а километр межгорода Комфорта — сравняться с Экономом.
+# Своих данных по Комфорту/Бизнесу/Минивэну нет, это по-прежнему стартовые цифры.
+#
+# Обновляем ТОЛЬКО строки, которые всё ещё несут прежнее стартовое значение. Отличается —
+# значит цену правили руками из админки, и наше «улучшение» затёрло бы чужое решение.
+_RETARIFF_2026_08_21 = (
+    # (zone, category, {поле: допустимые «было»}, {поле: «стало»})
+    ("city", "standard", {"per_km": (11.0,), "per_min": (3.0,)}, {"per_km": 11.5, "per_min": 5.0}),
+    ("city", "comfort", {"per_min": (4.0,)}, {"per_min": 6.0}),
+    ("city", "minivan", {"per_min": (5.0,)}, {"per_min": 7.0}),
+    ("city", "business", {"per_min": (7.0,)}, {"per_min": 9.0}),
+    # --- межгород: к рынку ---
+    # Замер 21.08.2026 показал, чего стоит дальняя поездка на самом деле. Действующая
+    # межгородная служба из Уфы: Сибай 12 000 ₽ (420 км), Магнитогорск 10 000 (350),
+    # Белорецк 8 000 (270), Стерлитамак 4 000 (140) — везде ровно 28–30 ₽/км
+    # (taxi24online.ru/tarify-mezhgorod/ufa). Яндекс при высоком спросе — 15 468 ₽.
+    #
+    # Мы брали 9, потом 12. При бензине 64–65 ₽/л (Башстат, август 2026), расходе 7 л/100 км
+    # и износе ~3,5 ₽/км водитель на Уфа→Сибай с пустым возвратом терял 2 249 ₽ СВОИХ денег
+    # за 11,5 часов работы. Он сделает такую поездку один раз.
+    #
+    # 24 ₽/км → чек 11 570 ₽: на 3,6% дешевле рынка, а водитель наконец в плюсе.
+    ("intercity", "standard", {"per_km": (9.0, 12.0)}, {"per_km": 24.0}),
+    # Шаг между классами взят с рынка, а не из головы. У Яндекса на межгороде
+    # Эконом → Комфорт всего +11%, Комфорт → Комфорт+ +5%: на пятичасовой трассе платят
+    # за километры, а не за салон. Прежние наши 28% были вдвое круче рыночного.
+    # Минивэн и Бизнес чуть шире шаг (+17% и +24%) — там платят за вместимость и класс,
+    # но данных по конкурентам на эти классы НЕТ, цифры остаются оценкой.
+    ("intercity", "comfort", {"per_km": (12.0, 15.0)}, {"per_km": 26.0}),
+    ("intercity", "minivan", {"per_km": (16.0, 19.0)}, {"per_km": 30.0}),
+    ("intercity", "business", {"per_km": (22.0, 26.0)}, {"per_km": 37.0}),
+)
+
+
+def _retariff(session: Session) -> int:
+    """Поднять тариф в уже работающей базе. Возврат — сколько строк тронули."""
+    changed = 0
+    for zone, category, was, now in _RETARIFF_2026_08_21:
+        row = session.exec(
+            select(Tariff).where(Tariff.zone == zone, Tariff.category == category)
+        ).first()
+        if row is None:
+            continue
+        # Допуск, а не ==: значение хранится дробным, и точное сравнение здесь читалось бы
+        # как «работает», пока однажды не перестанет.
+        #
+        # «Было» — НАБОР допустимых значений, а не одно. Волн повышения уже две, и база
+        # могла остановиться на любой из них: свежая несёт стартовое, вчерашняя — значение
+        # первой волны. Обе для нас «нетронутая рукой» строка. Значение вне набора трогать
+        # нельзя: его поставил человек.
+        ok = all(
+            any(abs(float(getattr(row, f, 0.0)) - v) <= 0.001 for v in vals)
+            for f, vals in was.items()
+        )
+        if not ok:
+            continue                      # цену правили руками — не наше дело
+        for f, v in now.items():
+            setattr(row, f, v)
+        session.add(row)
+        changed += 1
+    if changed:
+        session.commit()
+    return changed
+
+
 def seed_tariffs(session: Session) -> None:
     """Базовые тарифы город/межгород × Эконом/Комфорт. Нужны в проде (в отличие от
     seed_demo), поэтому сеются идемпотентно ПО СТРОКАМ: недостающая пара (zone, category)
     досеивается и в непустой БД (так прод получил Комфорт без ручного SQL).
     Значения — стартовые, правятся в БД без пересборки."""
     defaults = (
-        # Эконом — СИЛЬНО ниже конкурентов.
-        dict(zone="city", category="standard", base=70, per_km=11.0, per_min=3.0, min_price=100),
-        dict(zone="intercity", category="standard", base=80, per_km=9.0, per_min=2.0, min_price=150),
+        # Эконом — ниже конкурентов, но не в убыток водителю (пересмотр 2026-08-21, см. ниже).
+        dict(zone="city", category="standard", base=70, per_km=11.5, per_min=5.0, min_price=100),
+        dict(zone="intercity", category="standard", base=80, per_km=24.0, per_min=2.0, min_price=150),
         # Комфорт (§6): авто новее/чище, немного дороже.
-        dict(zone="city", category="comfort", base=90, per_km=14.0, per_min=4.0, min_price=130),
-        dict(zone="intercity", category="comfort", base=100, per_km=12.0, per_min=3.0, min_price=200),
+        dict(zone="city", category="comfort", base=90, per_km=14.0, per_min=6.0, min_price=130),
+        dict(zone="intercity", category="comfort", base=100, per_km=26.0, per_min=3.0, min_price=200),
         # ⚠️ СТАРТОВЫЕ ЦИФРЫ, УТОЧНИТ АЛЕКСАНДР (docs/taxi-classes-2026-08.md §8).
         # Бизнес — премиум-седан, очный допуск водителя; ориентир ×2 к Комфорту.
-        dict(zone="city", category="business", base=150, per_km=25.0, per_min=7.0, min_price=300),
-        dict(zone="intercity", category="business", base=200, per_km=22.0, per_min=5.0, min_price=500),
+        dict(zone="city", category="business", base=150, per_km=25.0, per_min=9.0, min_price=300),
+        dict(zone="intercity", category="business", base=200, per_km=37.0, per_min=5.0, min_price=500),
         # Минивэн — это про вместимость (6–8 мест), а не про люкс: между Комфортом и Бизнесом.
-        dict(zone="city", category="minivan", base=120, per_km=18.0, per_min=5.0, min_price=200),
-        dict(zone="intercity", category="minivan", base=150, per_km=16.0, per_min=4.0, min_price=350),
+        dict(zone="city", category="minivan", base=120, per_km=18.0, per_min=7.0, min_price=200),
+        dict(zone="intercity", category="minivan", base=150, per_km=30.0, per_min=4.0, min_price=350),
     )
     added = False
     for d in defaults:
@@ -570,6 +742,9 @@ def seed_tariffs(session: Session) -> None:
             added = True
     if added:
         session.commit()
+    # Свежая БД получила новые цифры из defaults выше; работающей нужен отдельный проход —
+    # существующие строки досев не трогает (в этом и была его задача).
+    _retariff(session)
 
 
 # ============================ Фолбэк класса: «в Комфорте никого» ============================
@@ -593,6 +768,375 @@ _FALLBACK_ALLOWED: dict = {
 }
 
 
+# ------------------------------ смена адреса назначения ------------------------------
+# Правила (решение Александра, допрос 2026-08-21):
+#   • меняет ПАССАЖИР сам, без спроса — кроме двух случаев ниже;
+#   • цена = уже проеденное + остаток до нового адреса. Не «новая поездка от текущей точки»:
+#     крюк, который водитель успел сделать, тогда пропал бы бесплатно;
+#   • цена может и УПАСТЬ, если новый адрес ближе — платим за проеденное, а не за обещанное;
+#   • наценка и промокод остаются те, что были при заказе: человек менял адрес, а не
+#     соглашался на новые условия;
+#   • спрашиваем водителя, если поездка стала межгородной ИЛИ цена выросла втрое — это уже
+#     не «поменял адрес», а другая работа.
+
+# Насколько должна вырасти цена, чтобы спросить водителя. Втрое — простой признак, понятный
+# без объяснений: «было 300, стало 900» человек оценивает сразу.
+DESTINATION_ASK_DRIVER_RATIO = 3.0
+# Ближе этого к финишу менять адрес поздно: это уже новая поездка, честнее заказать заново.
+DESTINATION_LOCK_KM = 0.7
+# Не чаще одной смены в эти секунды. Не про поведение человека, а про двойные нажатия
+# и заедающую сеть.
+DESTINATION_MIN_GAP_SEC = 15
+
+
+def _driven_km_so_far(order: InstantOrder) -> float:
+    """Сколько машина реально прошла с пассажиром, км.
+
+    Основа — накопленный след (`driven_km`). Но связь в дороге рвётся, и след бывает дырявым:
+    тогда берём БОЛЬШЕЕ из следа и прямой линии с поправкой на извилистость дорог. Занижать
+    водителю из-за нашей же потерянной сети нельзя — он эти километры проехал.
+    """
+    tracked = float(order.driven_km or 0.0)
+    pos = livepos_get("order", order.id) if order.id else None
+    straight = 0.0
+    if pos and order.from_lat and order.from_lng:
+        straight = haversine_km(order.from_lat, order.from_lng,
+                                float(pos["lat"]), float(pos["lng"])) * settings.instant_road_k
+    return max(tracked, straight)
+
+
+def _minutes_on_board(order: InstantOrder, now: datetime) -> float:
+    """Сколько минут пассажир уже едет. Время — половина цены, терять его нельзя."""
+    if order.onboard_at is None:
+        return 0.0
+    return max((now - order.onboard_at).total_seconds() / 60.0, 0.0)
+
+
+def destination_quote(session: Session, order: InstantOrder, new_to: tuple,
+                      now: Optional[datetime] = None,
+                      waypoints_override: Optional[list] = None) -> dict:
+    """Во что обойдётся смена адреса на `new_to`. НИЧЕГО не меняет — только считает.
+
+    До посадки пассажира считаем как обычную поездку от точки А: водитель ещё едет за ним,
+    проеденного «с пассажиром» нет, и подача уже заложена в тариф.
+    """
+    now = now or utcnow()
+    on_board = order.status == S.onboard
+    if on_board:
+        pos = livepos_get("order", order.id) if order.id else None
+        start = (float(pos["lat"]), float(pos["lng"])) if pos else (order.from_lat, order.from_lng)
+        driven_km = _driven_km_so_far(order)
+        driven_min = _minutes_on_board(order, now)
+    else:
+        start = (order.from_lat, order.from_lng)
+        driven_km = driven_min = 0.0
+
+    # Остановки, до которых ещё не доехали, остаются: человек едет в другое место, но
+    # заехать за ребёнком ему всё ещё надо. Проеденные в остаток не считаем — они уже
+    # в `driven_km`.
+    source = waypoints_override if waypoints_override is not None else parse_waypoints(order.waypoints_json)
+    ahead = [w for w in source if not w.get("done")]
+    rest = route_through(start, ahead, new_to) if ahead else pricing.route_metrics(start, new_to)
+    total_km = max(driven_km + rest.distance_km, 0.5)
+    total_min = max(driven_min + rest.duration_min, 0.1)
+
+    zone = zone_for_km(total_km)
+    t = active_tariff(session, zone, order.category or "standard")
+    if t is None:
+        return {"ok": False, "reason": "no_tariff"}
+
+    k = order_pricing_k(order)
+    price = _tariff_price(t, total_km, total_min, k)
+    old_price = int(order.price_estimate or 0)
+    old_zone = zone_for_km(float(order.distance_km or 0.0))
+
+    # Спрашиваем водителя: другая зона или цена выросла втрое.
+    zone_jump = zone != old_zone
+    price_jump = old_price > 0 and price >= old_price * DESTINATION_ASK_DRIVER_RATIO
+    return {
+        "ok": True,
+        "price": price,
+        "old_price": old_price,
+        "driven_km": round(driven_km, 2),
+        "rest_km": round(rest.distance_km, 2),
+        "distance_km": round(total_km, 2),
+        "eta_min": round(total_min, 1),
+        "zone": zone,
+        "tariff_id": t.id,
+        "needs_driver_ok": bool(zone_jump or price_jump),
+        "ask_reason": "zone" if zone_jump else ("price" if price_jump else ""),
+    }
+
+
+def apply_destination(session: Session, order: InstantOrder, new_to: tuple, to_text: str,
+                      quote: dict, now: Optional[datetime] = None) -> InstantOrder:
+    """Переписать адрес и цену заказа. Вызывать только с уже посчитанным `quote`.
+
+    Цена может и упасть — так и задумано: платим за проеденное, а не за обещанное. Водителя
+    от этого защищает право отказаться («Не смогу»), а не удержание денег за непроеденное.
+    """
+    now = now or utcnow()
+    order.to_lat, order.to_lng = float(new_to[0]), float(new_to[1])
+    if to_text:
+        order.to_text = to_text[:200]
+    order.price_estimate = int(quote["price"])
+    order.distance_km = float(quote["distance_km"])
+    order.eta_min = float(quote["eta_min"])
+    if quote.get("tariff_id"):
+        order.tariff_id = int(quote["tariff_id"])
+    order.destination_changed_at = now
+    order.destination_changes = int(order.destination_changes or 0) + 1
+    # Новый адрес — новое подтверждение. Прошлое «Понял» относилось к прошлому адресу.
+    order.destination_ack_at = None
+    _clear_pending_destination(order)
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return order
+
+
+def apply_waypoints(session: Session, order: InstantOrder, points: list[dict],
+                    quote: dict, now: Optional[datetime] = None) -> InstantOrder:
+    """Записать новый набор остановок и пересчитанную цену."""
+    now = now or utcnow()
+    order.waypoints_json = dump_waypoints(points)
+    order.price_estimate = int(quote["price"])
+    order.distance_km = float(quote["distance_km"])
+    order.eta_min = float(quote["eta_min"])
+    order.destination_changed_at = now
+    # Маршрут изменился — прежнее «Понял» относилось к прежнему маршруту.
+    order.destination_ack_at = None
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return order
+
+
+def toggle_stop(session: Session, order: InstantOrder,
+                now: Optional[datetime] = None) -> InstantOrder:
+    """«Стоим» ↔ «Поехали». Ожидание на остановке считается по общим правилам подачи.
+
+    Тронулись — накопленное за эту стоянку уходит в общий счётчик ожидания заказа. Так
+    человек видит одну понятную сумму, а не отдельный счёт за каждую остановку.
+    """
+    now = now or utcnow()
+    if order.stop_started_at is None:
+        order.stop_started_at = now
+    else:
+        order.waiting_fee_kop = int(order.waiting_fee_kop or 0) + waiting_fee_kop(
+            order.stop_started_at, now)
+        order.stop_started_at = None
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return order
+
+
+def _clear_pending_destination(order: InstantOrder) -> None:
+    """Стереть предложение, которое ждало водителя."""
+    order.pending_to_lat = order.pending_to_lng = None
+    order.pending_to_text = ""
+    order.pending_price = None
+    order.pending_asked_at = None
+    order.pending_reason = ""
+
+
+def offer_destination_to_driver(session: Session, order: InstantOrder, new_to: tuple,
+                                to_text: str, quote: dict,
+                                now: Optional[datetime] = None) -> InstantOrder:
+    """Отложить смену до согласия водителя (межгород или тройной рост цены).
+
+    Адрес пока НЕ меняется: пассажир видит «ждём ответа водителя», водитель — вопрос.
+    Молча превратить трёхсотрублёвую поездку в двенадцатитысячную нельзя ни для кого из них.
+    """
+    now = now or utcnow()
+    order.pending_to_lat, order.pending_to_lng = float(new_to[0]), float(new_to[1])
+    order.pending_to_text = (to_text or "")[:200]
+    order.pending_price = int(quote["price"])
+    order.pending_asked_at = now
+    order.pending_reason = quote.get("ask_reason") or "price"
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return order
+
+
+def notify_driver_destination(session: Session, order: InstantOrder, quote: dict,
+                              pending: bool = False) -> bool:
+    """Сказать водителю, что адрес изменился (или что его об этом спрашивают).
+
+    Это ПЕРВОЕ уведомление, которое водитель вообще получает по ходу заказа: до сих пор пуши
+    по заказу шли только пассажиру, а водитель узнавал новости, переспрашивая сервер раз в
+    пять секунд — и только пока держал экран открытым. За рулём он его не держит.
+
+    Без этого пуша смена адреса превращается в ловушку: пассажир поменял, машина едет по
+    старому маршруту во внешнем навигаторе, и никто не понимает, что происходит.
+    """
+    from .services import push_notification   # локальный импорт: в шапке был бы цикл
+    if not order.driver_id:
+        return False
+    price = int(quote.get("price") or 0)
+    to_text = (order.pending_to_text if pending else order.to_text) or ""
+    where = f" — {to_text}" if to_text else ""
+    if pending:
+        reason_ru = ("Поездка станет междугородной" if quote.get("ask_reason") == "zone"
+                     else "Цена вырастет втрое")
+        reason_ba = ("Сәфәр ҡалалар-ара була" if quote.get("ask_reason") == "zone"
+                     else "Хаҡ өс тапҡырға арта")
+        push_notification(
+            session, order.driver_id, "ride",
+            "Пассажир просит изменить маршрут", "Юлсы маршрутты үҙгәртеүҙе һорай",
+            f"{reason_ru}{where}. Станет {price} ₽. Согласиться или отказаться — в заказе",
+            f"{reason_ba}{where}. {price} һум була. Ризалашырға йәки баш тартырға — заказда",
+            ref_kind="instant", ref_id=order.id,
+        )
+        return True
+    push_notification(
+        session, order.driver_id, "ride",
+        "Адрес изменился", "Адрес үҙгәрҙе",
+        f"Новый адрес{where}. Цена — {price} ₽. Открой заказ и подтверди, что видел",
+        f"Яңы адрес{where}. Хаҡ — {price} һум. Заказды ас та күргәнеңде раҫла",
+        ref_kind="instant", ref_id=order.id,
+    )
+    return True
+
+
+def ack_destination(session: Session, order: InstantOrder,
+                    now: Optional[datetime] = None) -> InstantOrder:
+    """Водитель нажал «Понял». С этого момента пассажир перестаёт видеть «он ещё не видел»."""
+    order.destination_ack_at = now or utcnow()
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return order
+
+
+def decline_pending_destination(session: Session, order: InstantOrder, reason: str = "",
+                                now: Optional[datetime] = None) -> InstantOrder:
+    """Водитель отказался от предложенной смены. Поездка идёт по СТАРОМУ адресу.
+
+    Отказ от нового маршрута не должен рвать тот, на который человек соглашался: пассажир
+    просто едет туда, куда заказывал изначально, по изначальной цене.
+    """
+    from .services import push_notification   # локальный импорт: в шапке был бы цикл
+    _clear_pending_destination(order)
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    if order.passenger_id:
+        push_notification(
+            session, order.passenger_id, "ride",
+            "Водитель не может изменить маршрут", "Йөрөтөүсе маршрутты үҙгәртә алмай",
+            "Едем по прежнему адресу и за прежнюю цену.",
+            "Элекке адрес буйынса һәм элекке хаҡҡа барабыҙ.",
+            ref_kind="instant", ref_id=order.id,
+        )
+    return order
+
+
+# Причины, по которым водитель может сойти с маршрута. Список закрытый: свободный текст тут
+# никто не читает, а выбор из четырёх — это данные. Если половина отказов «далеко от зоны»,
+# значит мы плохо спрашиваем зону при выходе на линию, и чинить надо там.
+EARLY_FINISH_REASONS = ("shift_end", "out_of_zone", "no_fuel", "other")
+
+EARLY_FINISH_TEXT = {
+    "shift_end": ("у водителя заканчивается смена", "йөрөтөүсенең сменаһы бөтә"),
+    "out_of_zone": ("новый адрес далеко от его зоны работы", "яңы адрес уның эш зонаһынан алыҫ"),
+    "no_fuel": ("не хватит топлива до нового адреса", "яңы адреҫҡа тиклем яғыулыҡ етмәй"),
+    "other": ("водитель не может ехать дальше", "йөрөтөүсе артабан бара алмай"),
+}
+
+
+def finish_early(session: Session, order: InstantOrder, reason: str = "other",
+                 now: Optional[datetime] = None) -> InstantOrder:
+    """Завершить поездку там, где стоит машина. Пассажир платит за проеденное.
+
+    Это ЗАВЕРШЕНИЕ, а не отмена. Работа сделана: человека везли, километры накрутили, деньги
+    за них причитаются, и комиссию с них водитель платит как обычно. Иначе появился бы способ
+    возить бесплатно — «поменяй адрес, я откажусь, поездки как будто не было».
+    """
+    from .services import push_notification   # локальный импорт: в шапке был бы цикл
+    now = now or utcnow()
+    reason = reason if reason in EARLY_FINISH_REASONS else "other"
+
+    # Цена по факту: сколько реально проехали и сколько это заняло.
+    driven_km = max(_driven_km_so_far(order), 0.5)
+    driven_min = max(_minutes_on_board(order, now), 0.1)
+    t = session.get(Tariff, order.tariff_id) if order.tariff_id else None
+    if t is None:
+        t = active_tariff(session, zone_for_km(driven_km), order.category or "standard")
+    price = (_tariff_price(t, driven_km, driven_min, order_pricing_k(order))
+             if t is not None else int(order.price_estimate or 0))
+
+    order.status = S.done
+    order.done_at = now
+    order.price_final = int(price) + int(order.waiting_fee_kop or 0) // 100
+    order.distance_km = round(driven_km, 2)
+    order.early_finish_reason = reason
+    _clear_pending_destination(order)
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+
+    ru, ba = EARLY_FINISH_TEXT[reason]
+    if order.passenger_id:
+        push_notification(
+            session, order.passenger_id, "ride",
+            "Поездка завершена раньше", "Сәфәр иртәрәк тамамланды",
+            f"Дальше не поехали: {ru}. К оплате {order.price_final} ₽ за проеденное — "
+            "вызови новую машину, адрес уже подставлен.",
+            f"Артабан барманыҡ: {ba}. Үтелгән юл өсөн {order.price_final} һум — "
+            "яңы машина саҡыр, адрес ҡуйылған.",
+            ref_kind="instant", ref_id=order.id,
+        )
+    return order
+
+
+# Сколько ждём «Понял», прежде чем сказать пассажиру «позвони водителю». Минута — столько
+# человек готов смотреть на экран, не понимая, дошло ли.
+DESTINATION_ACK_WAIT_SEC = 60
+
+
+def destination_ack_overdue(order: InstantOrder, now: Optional[datetime] = None) -> bool:
+    """Пора ли предложить пассажиру позвонить: адрес сменили, а водитель молчит."""
+    if order.destination_ack_at is not None or order.destination_changed_at is None:
+        return False
+    if not order.driver_id:
+        return False        # водителя ещё нет — некому и подтверждать
+    now = now or utcnow()
+    return (now - order.destination_changed_at).total_seconds() >= DESTINATION_ACK_WAIT_SEC
+
+
+def can_change_destination(order: InstantOrder, now: Optional[datetime] = None) -> Optional[str]:
+    """Можно ли сейчас менять адрес. None = можно, иначе код причины отказа."""
+    now = now or utcnow()
+    if order.status not in _DESTINATION_CHANGEABLE:
+        return "status"
+    # Слишком часто — почти всегда двойной тап или подвисшая сеть.
+    if order.destination_changed_at is not None:
+        if (now - order.destination_changed_at).total_seconds() < DESTINATION_MIN_GAP_SEC:
+            return "too_often"
+    # Почти доехали: менять поздно, это уже другая поездка.
+    if order.status == S.onboard and order.id:
+        pos = livepos_get("order", order.id)
+        if pos and order.to_lat and order.to_lng:
+            left = haversine_km(float(pos["lat"]), float(pos["lng"]), order.to_lat, order.to_lng)
+            if left <= DESTINATION_LOCK_KM:
+                return "almost_there"
+    return None
+
+
+def order_pricing_k(order: InstantOrder) -> float:
+    """Множитель, по которому считалась цена этого заказа. Единая точка для любых пересчётов.
+
+    Старые заказы поля не имеют (или там 0/1) — падаем на `surge_k`: он хотя бы про спрос,
+    и это ровно то поведение, что было до появления `pricing_k`. Хуже не станет."""
+    k = float(getattr(order, "pricing_k", 0.0) or 0.0)
+    if k > 1.0:
+        return k
+    return float(order.surge_k or 1.0)
+
+
 def _category_price(session: Session, order: InstantOrder, category: str) -> Optional[int]:
     """Цена этого же маршрута по другой категории. Сурж берём ЗАФИКСИРОВАННЫЙ на заказе,
     чтобы альтернатива не «уехала» вверх, пока человек читает предложение."""
@@ -601,7 +1145,7 @@ def _category_price(session: Session, order: InstantOrder, category: str) -> Opt
     if not t:
         return None
     return _tariff_price(t, max(order.distance_km or 0.5, 0.5),
-                         max(order.eta_min or 0.1, 0.1), order.surge_k or 1.0)
+                         max(order.eta_min or 0.1, 0.1), order_pricing_k(order))
 
 
 def fallback_options(session: Session, order: InstantOrder) -> list:
@@ -1289,7 +1833,8 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     session.execute(
         update(InstantOrder).where(InstantOrder.id == order.id, InstantOrder.status == S.scheduled)
         .values(price_estimate=est["price"], distance_km=est["distance_km"],
-                eta_min=est["eta_min"], tariff_id=est["tariff_id"], surge_k=est["surge_k"])
+                eta_min=est["eta_min"], tariff_id=est["tariff_id"], surge_k=est["surge_k"],
+                pricing_k=est.get("pricing_k", est["surge_k"]))
     )
     session.commit()
     order = session.get(InstantOrder, order.id)
@@ -1818,6 +2363,24 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         "women_only": bool(getattr(order, "women_only", False)),
         "price_estimate": order.price_estimate,
         "price_final": order.price_final,
+        # --- смена адреса (аддитивно: старый клиент этих полей не читает) ---
+        # Сколько раз меняли адрес — чтобы в чеке было видно, почему цена не та, что при заказе.
+        "destination_changes": int(order.destination_changes or 0),
+        # Водитель подтвердил, что видел новый адрес. Пока нет — пассажиру через минуту
+        # покажем «он ещё не видел, позвони».
+        "destination_ack": order.destination_ack_at is not None,
+        "destination_ack_overdue": destination_ack_overdue(order),
+        # Предложение, которое ждёт слова водителя (межгород / тройная цена).
+        "pending_destination": ({
+            "to_text": order.pending_to_text or "",
+            "price": int(order.pending_price or 0),
+            "reason": order.pending_reason or "",
+        } if order.pending_to_lat is not None else None),
+        # Поездку завершил водитель досрочно и почему — пассажир должен видеть причину словами.
+        "early_finish_reason": order.early_finish_reason or "",
+        # Остановки: пассажир видит свой маршрут, водитель — куда заезжать.
+        "stops": parse_waypoints(order.waypoints_json),
+        "standing": order.stop_started_at is not None,
         # Промокод: скидку оплачивает платформа, но ЗНАТЬ о ней должны обе стороны — иначе
         # водитель попросит полную сумму, а пассажир будет уверен, что платит со скидкой.
         # passenger_price_kop — сколько человек реально отдаёт водителю (цена минус скидка).
@@ -1881,6 +2444,23 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         "driver_plate": ((prof.car_plate or "") if (unlocked and prof) else ""),
         "driver_verified": (bool(driver.verified) if (unlocked and driver) else False),
         "driver_rating": (prof.rating if (unlocked and prof) else 0.0),
+        # ДОВЕРИЕ (волна 160). В попутке эти три вещи показываются давно, а в такси о водителе
+        # знали только имя, рейтинг и марку. Человек садится в чужую машину, часто ночью и
+        # часто в райцентре, где такси одно на весь город: лицо, стаж и «свой» говорят ему
+        # больше, чем звёздочка. Отдаём ТОЛЬКО пассажиру и только после accept — в обратную
+        # сторону фото не идёт: водителю оно не нужно для безопасности, зато открывает дорогу
+        # к «за этой не поеду».
+        "driver_avatar": ((driver.avatar_url or "")
+                          if (unlocked and driver and role == "passenger") else ""),
+        "driver_trips": (int(getattr(prof, "trips_count", 0) or 0)
+                         if (unlocked and prof and role == "passenger") else 0),
+        "driver_since": (driver.created_at.strftime("%Y-%m")
+                         if (unlocked and driver and role == "passenger"
+                             and getattr(driver, "created_at", None)) else ""),
+        # Землячество — то, чего у федеральной службы быть не может. Берём рабочую географию
+        # водителя: город, а если он работает по району — район.
+        "driver_from": (((prof.work_city or prof.work_district or "").strip())
+                        if (unlocked and prof and role == "passenger") else ""),
         # Телефон водителя — только пассажиру после accept; телефон пассажира — только водителю.
         # И только пока телефон вообще открыт (`phones`): после поездки окно закрывается.
         "driver_phone": (driver.phone if (phones and driver and role == "passenger") else ""),

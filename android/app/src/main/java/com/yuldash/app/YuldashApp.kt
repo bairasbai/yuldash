@@ -2414,16 +2414,32 @@ internal fun HomeShell(
         selectedTab = HomeTab.Map
     }
 
+    // Волна 160: пока человек едет, экран принадлежит поездке — нижнее меню прячется.
+    // Он уже в машине, переключаться между разделами ему не нужно, а пятая часть экрана
+    // на карту и статус нужна.
+    val tripOnScreen = NavSignals.taxiTripOnScreen.value
     Scaffold(
         containerColor = CanonBg,
         bottomBar = {
-            YuldashBottomBar(
-                selectedTab = selectedTab,
-                onSelect = { selectedTab = it }
-            )
+            AnimatedVisibility(
+                visible = !tripOnScreen,
+                enter = fadeIn(tween(CanonMotion.NORMAL)),
+                exit = fadeOut(tween(CanonMotion.QUICK)),
+            ) {
+                YuldashBottomBar(
+                    selectedTab = selectedTab,
+                    onSelect = { selectedTab = it }
+                )
+            }
         }
     ) { padding ->
-        Box(Modifier.padding(padding)) {
+        Column(Modifier.padding(padding)) {
+            // Полоска стоит НАД содержимым, а не поверх него: наложенная, она закрывала
+            // переключатель сервисов, и тот торчал из-под неё краями.
+            ActiveTripBar(onOpen = {
+                selectedTab = HomeTab.Map
+                NavSignals.openInstantOrder.value = true
+            })
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {

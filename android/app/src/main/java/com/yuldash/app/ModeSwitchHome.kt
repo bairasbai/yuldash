@@ -17,6 +17,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -42,6 +44,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Button
@@ -128,8 +132,13 @@ internal fun PassengerModeHome(
     var mode by rememberSaveable {
         mutableStateOf(rideModeFromPref(prefs.getString(MODE_LAST_PREF, null)))
     }
-    // Подсказка при ПЕРВОМ входе — один раз (флаг в prefs). Ссылка «Чем отличается?» открывает её повторно.
+    // Подсказка при ПЕРВОМ входе — один раз (флаг в prefs).
     var showHint by remember { mutableStateOf(!prefs.getBoolean(MODE_HINT_PREF, false)) }
+    // Тот же флаг решает и судьбу знака вопроса в контроле: пока подсказку не прочитали —
+    // знак есть, прочитали — уходит и контрол становится тремя ровными сегментами.
+    // Повторно то же объяснение лежит в «Помощи» — оно не теряется, просто перестаёт
+    // занимать место на главном экране.
+    var hintSeen by remember { mutableStateOf(prefs.getBoolean(MODE_HINT_PREF, false)) }
 
     // Запоминаем выбор режима одним швом — и для кнопки, и для аппаратной «Назад».
     val selectMode: (RideMode) -> Unit = { picked ->
@@ -140,13 +149,23 @@ internal fun PassengerModeHome(
     // Аппаратная «Назад» из любого не-основного режима → возвращаемся к попутке (а не выходим из приложения).
     BackHandler(enabled = mode != RideMode.Pooling) { selectMode(RideMode.Pooling) }
 
+    // Волна 160: пока идёт поездка, переключатель сервисов прячется. Человек уже в машине —
+    // выбор между попуткой, такси и курьером он сделал, а место на экране нужнее статусу.
+    val tripOnScreen = NavSignals.taxiTripOnScreen.value
     Column(Modifier.fillMaxSize()) {
-        ModeSwitchBar(
-            mode = mode,
-            onSelect = selectMode,
-            onExplain = { showHint = true },
-            onCourierMode = onCourierMode,
-        )
+        AnimatedVisibility(
+            visible = !tripOnScreen,
+            enter = fadeIn(tween(CanonMotion.NORMAL)),
+            exit = fadeOut(tween(CanonMotion.QUICK)),
+        ) {
+            ModeSwitchBar(
+                mode = mode,
+                onSelect = selectMode,
+                onExplain = { showHint = true },
+                showExplain = !hintSeen,
+                onCourierMode = onCourierMode,
+            )
+        }
         Box(Modifier.fillMaxWidth().weight(1f)) {
             AnimatedContent(
                 targetState = mode,
@@ -197,6 +216,7 @@ internal fun PassengerModeHome(
     if (showHint) {
         ModeHintSheet(onDismiss = {
             showHint = false
+            hintSeen = true
             prefs.edit().putBoolean(MODE_HINT_PREF, true).apply()
         })
     }
@@ -220,6 +240,7 @@ private fun ModeSwitchBar(
     mode: RideMode,
     onSelect: (RideMode) -> Unit,
     onExplain: () -> Unit,
+    showExplain: Boolean,
     onCourierMode: () -> Unit = {},
 ) {
     val items = listOf(
@@ -243,14 +264,18 @@ private fun ModeSwitchBar(
         RideMode.Taxi -> appText("машина сейчас", "машина хәҙер")
         RideMode.Courier -> appText("отправить посылку", "бандероль ебәреү")
     }
-    Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp)) {
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = CanonSurface,
-            border = BorderStroke(1.dp, CanonBorder),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            BoxWithConstraints(Modifier.padding(4.dp)) {
+    val explainCd = appText("Чем отличается?", "Айырмаһы нимәлә?")
+    // Пауза снизу, а не только сверху: переключатель — отдельная вещь, и содержимое вкладки
+    // не должно начинаться впритык к нему. Отступ здесь, а не в каждой вкладке: иначе три
+    // экрана разойдутся по воздуху, и это будет видно при переключении.
+    Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 12.dp)) {
+      Surface(
+          shape = RoundedCornerShape(14.dp),
+          color = CanonSurface,
+          modifier = Modifier.fillMaxWidth(),
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BoxWithConstraints(Modifier.weight(1f)) {
                 // Ширина одного сегмента известна только здесь — от неё считается сдвиг пилюли.
                 val segW = maxWidth / items.size
                 val offset by animateDpAsState(segW * index, tween(CanonMotion.NORMAL), label = "mode_pill")
@@ -267,7 +292,6 @@ private fun ModeSwitchBar(
                         .height(MODE_SEG_HEIGHT)
                         .clip(RoundedCornerShape(14.dp))
                         .background(activeBg)
-                        .border(1.dp, accent.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
                 )
                 Row(Modifier.fillMaxWidth()) {
                     items.forEachIndexed { i, (m, iconRes, title) ->
@@ -288,7 +312,7 @@ private fun ModeSwitchBar(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(painterResource(iconRes), contentDescription = null,
-                                tint = tint, modifier = Modifier.size(18.dp))
+                                tint = tint, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 title,
@@ -302,42 +326,53 @@ private fun ModeSwitchBar(
                     }
                 }
             }
-        }
-        // Подпись выбранного режима + ссылки — ОДНОЙ строкой. Раньше подписи стояли в каждой
-        // плитке (три штуки разом), а ссылки жили отдельной строкой ниже: две строки там,
-        // где хватает одной.
-        Row(
-            Modifier.fillMaxWidth().padding(top = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AnimatedContent(
-                targetState = subtitle,
-                transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
-                label = "mode_subtitle",
-                modifier = Modifier.weight(1f),
-            ) { text ->
-                // maxLines = 2, а не 1: в режиме «Курьер» строку делят три надписи, и на
-                // башкирском «бандероль ебәреү» обрезалось до «бандерол…» — по-русски
-                // «отправить посылку» влезало, поэтому в тестах и на глаз это не всплывало.
-                // Двум языкам нужна разная ширина, значит одна строка тут не гарантия.
-                Text(text, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 4.dp))
-            }
-            // Вторая сторона курьера — сама работа. Дверь к ней стоит там же, где человек выбрал
-            // «Курьер», а не в глубине профиля: иначе курьер свою работу просто не найдёт.
-            AnimatedVisibility(visible = mode == RideMode.Courier) {
-                TextButton(onClick = onCourierMode, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text(appText("Хочу возить", "Йөрөтөргә теләйем"),
-                        color = CanonCourier, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            // «Чем отличается?» — знаком вопроса, и только пока подсказку не прочитали.
+            //
+            // Подсказка открывается сама при первом входе. После неё знак — хвост справа:
+            // симметрию трёх сегментов он ломает каждый день, а нажимают его почти никогда.
+            // Прочитал — уходит, и контрол становится ровной пилюлей. То же объяснение
+            // остаётся в «Помощи», так что дверь назад есть.
+            //
+            // Уезжает вместе с шириной, а не просто гаснет: иначе на его месте осталась бы
+            // дыра, и сегменты дёрнулись бы скачком.
+            AnimatedVisibility(
+                visible = showExplain,
+                enter = fadeIn(tween(CanonMotion.NORMAL)) + expandHorizontally(tween(CanonMotion.NORMAL)),
+                exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkHorizontally(tween(CanonMotion.NORMAL)),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Тонкая черта отделяет справку от выбора режима: это разные по смыслу
+                    // вещи, и без неё вопрос выглядел бы четвёртым режимом.
+                    Box(
+                        Modifier
+                            .width(1.dp)
+                            .height(20.dp)
+                            .background(CanonBorder)
+                    )
+                    Box(
+                        Modifier
+                            .minimumInteractiveComponentSize()
+                            .size(MODE_SEG_HEIGHT)
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable(onClickLabel = explainCd) { onExplain() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("?", color = CanonMuted, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
-            TextButton(onClick = onExplain, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Text(appText("Чем отличается?", "Айырмаһы нимәлә?"),
-                    color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            }
         }
+      }
+      // Вторая сторона курьера — сама работа. Дверь к ней стоит там же, где человек выбрал
+      // «Курьер», а не в глубине профиля: иначе курьер свою работу просто не найдёт.
+      AnimatedVisibility(visible = mode == RideMode.Courier) {
+          Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+              TextButton(onClick = onCourierMode, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                  Text(appText("Хочу возить", "Йөрөтөргә теләйем"),
+                      color = CanonCourier, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+              }
+          }
+      }
     }
 }
 

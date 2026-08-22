@@ -2333,14 +2333,26 @@ object ApiClient {
     // Отдельный поток от плановых поездок (Ride/Booking) — те не трогаем. Приватность: телефоны/имя
     // стороны сервер отдаёт пустыми до accept. Координаты heartbeat НЕ логируем.
 
+    /** Остановки в тело запроса. Пустой список не шлём — лишний шум. */
+    private fun stopsArray(stops: List<TaxiStop>): JSONArray = JSONArray().apply {
+        stops.forEach { put(JSONObject().put("lat", it.lat).put("lng", it.lng).put("text", it.text)) }
+    }
+
     private fun instantBody(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
         fromText: String, toText: String, category: String,
+        roundTrip: Boolean = false, returnWaitMin: Int = 0,
+        stops: List<TaxiStop> = emptyList(),
     ): JSONObject = JSONObject()
         .put("from_lat", fromLat).put("from_lng", fromLng)
         .put("to_lat", toLat).put("to_lng", toLng)
         .put("from_text", fromText).put("to_text", toText)
         .put("category", category)
+        // Круговой рейс: водитель везёт туда, ждёт и везёт обратно. Решает сервер — он же
+        // проверяет, что это межгород; в городе флаг просто ничего не меняет.
+        .put("round_trip", roundTrip)
+        .also { if (stops.isNotEmpty()) it.put("waypoints", stopsArray(stops)) }
+        .put("return_wait_min", returnWaitMin.coerceIn(0, 24 * 60))
 
     /** Водитель «на линии» шлёт координаты (heartbeat ~раз в 12с) → Redis GEO. Координаты не логируем.
      *  ok=false, если Redis на сервере недоступен (заказ тогда «рядом никого», но запрос не падает). */
@@ -2398,8 +2410,12 @@ object ApiClient {
     suspend fun instantEstimate(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
         fromText: String = "", toText: String = "", category: String = "standard",
+        roundTrip: Boolean = false, returnWaitMin: Int = 0,
+        stops: List<TaxiStop> = emptyList(),
     ): Result<InstantEstimateDto> =
-        call("POST", "/instant/estimate", instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category), auth = true).map { o ->
+        call("POST", "/instant/estimate",
+            instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
+                roundTrip, returnWaitMin, stops), auth = true).map { o ->
             val note = o.optJSONObject("surge_note")
             val promoNote = o.optJSONObject("promo_note")   // null, когда скидки нет
             val optArr = o.optJSONArray("options") ?: JSONArray()
@@ -2458,6 +2474,11 @@ object ApiClient {
                 priceWithDiscount = o.optInt("price_with_discount", o.optInt("price")),
                 promoNoteRu = promoNote?.optString("ru") ?: "",
                 promoNoteBa = promoNote?.optString("ba") ?: "",
+                roundTripAvailable = o.optBoolean("round_trip_available", false),
+                roundTripPrice = o.optInt("round_trip_price", 0),
+                roundTripDiscountPercent = o.optDouble("round_trip_discount_percent", 0.0).toInt(),
+                roundTripMaxWaitHours = o.optInt("round_trip_max_wait_hours", 4),
+                roundTrip = o.optBoolean("round_trip", false),
             )
         }
 
@@ -2472,8 +2493,11 @@ object ApiClient {
         comment: String = "", entrance: String = "", forName: String = "", forPhone: String = "",
         womenOnly: Boolean = false,
         options: List<String> = emptyList(),
+        roundTrip: Boolean = false, returnWaitMin: Int = 0,
+        stops: List<TaxiStop> = emptyList(),
     ): Result<InstantOrderDto> {
-        val body = instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category)
+        val body = instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
+            roundTrip, returnWaitMin, stops)
         // Опции салона (детское кресло по возрасту, коляска, собака-проводник, животное,
         // большой багаж). Фильтр на сервере жёсткий: машину без кресла к такому заказу
         // не подберут вообще — это и есть смысл галочки.
@@ -2489,6 +2513,86 @@ object ApiClient {
         return call("POST", "/instant/orders", body, auth = true)
             .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_create") }
     }
+
+    /** Посчитать смену адреса, ничего не меняя. Человек должен увидеть цену ДО согласия. */
+    suspend fun previewDestination(orderId: Int, lat: Double, lng: Double, text: String = ""):
+        Result<DestinationQuoteDto> = changeDestination(orderId, lat, lng, text, preview = true)
+
+    /** Сменить адрес назначения. Цену считает сервер — из клиента она не принимается.
+     *
+     *  Сеть отвалилась → ошибка наружу, и экран честно скажет «не получилось». Запоминать
+     *  «на потом» нельзя: человек будет уверен, что адрес сменился, а машина поедет по старому,
+     *  и смена прилетит водителю через десять минут, когда он уже почти на месте. */
+    suspend fun changeDestination(
+        orderId: Int, lat: Double, lng: Double, text: String = "", preview: Boolean = false,
+    ): Result<DestinationQuoteDto> {
+        val body = JSONObject()
+            .put("to_lat", lat).put("to_lng", lng)
+            .put("to_text", text.take(200))
+            .put("preview", preview)
+        return call("POST", "/instant/orders/$orderId/destination", body, auth = true).map { o ->
+            DestinationQuoteDto(
+                price = o.optInt("price"),
+                oldPrice = o.optInt("old_price"),
+                drivenKm = o.optDouble("driven_km", 0.0),
+                restKm = o.optDouble("rest_km", 0.0),
+                distanceKm = o.optDouble("distance_km", 0.0),
+                needsDriverOk = o.optBoolean("needs_driver_ok", false),
+                askReason = o.optString("ask_reason"),
+                applied = o.optBoolean("applied", false),
+                waitingDriver = o.optBoolean("waiting_driver", false),
+            )
+        }
+    }
+
+    /** Заменить набор остановок уже в поездке.
+     *
+     *  Проеденные сервер сохранит сам — их не передаём и убрать нельзя: уже проехали.
+     *  Порядок задаём тем, в каком идут точки; переставлять на ходу нельзя (водитель уже
+     *  едет к первой, и навигатор ведёт туда же). */
+    suspend fun setWaypoints(orderId: Int, stops: List<TaxiStop>): Result<DestinationQuoteDto> =
+        call("POST", "/instant/orders/$orderId/waypoints",
+            JSONObject().put("waypoints", stopsArray(stops)), auth = true).map { o ->
+            DestinationQuoteDto(
+                price = o.optInt("price"),
+                oldPrice = o.optInt("old_price"),
+                drivenKm = o.optDouble("driven_km", 0.0),
+                restKm = o.optDouble("rest_km", 0.0),
+                distanceKm = o.optDouble("distance_km", 0.0),
+                needsDriverOk = o.optBoolean("needs_driver_ok", false),
+                askReason = o.optString("ask_reason"),
+                applied = o.optBoolean("applied", false),
+                waitingDriver = false,
+            )
+        }
+
+    /** Водитель отмечает «Стоим» на остановке и «Поехали», когда тронулся.
+     *
+     *  Кнопкой, а не автоматом по координатам: машина, застрявшая в пробке у светофора рядом
+     *  с остановкой, начала бы «зарабатывать» сама. */
+    suspend fun toggleStop(orderId: Int): Result<Boolean> =
+        call("POST", "/instant/orders/$orderId/stop", null, auth = true)
+            .map { it.optBoolean("standing", false) }
+
+    /** Водитель: «Понял, вижу новый адрес». Снимает с пассажира тревогу «а он вообще знает?». */
+    suspend fun ackDestination(orderId: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$orderId/destination/ack", null, auth = true)
+            .map { it.toInstantOrderDto() }
+
+    /** Водитель согласился на крупную смену (межгород / тройная цена). */
+    suspend fun acceptDestination(orderId: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$orderId/destination/accept", null, auth = true)
+            .map { it.toInstantOrderDto() }
+
+    /** Водитель не может ехать дальше.
+     *
+     *  Ждали согласия на крупную смену → поездка продолжается по старому адресу.
+     *  Иначе поездка ЗАВЕРШАЕТСЯ там, где стоит машина: пассажир платит за проеденное,
+     *  водитель получает деньги. Это не отмена — работа сделана. */
+    suspend fun declineDestination(orderId: Int, reason: String = "other"): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$orderId/destination/decline",
+            JSONObject().put("reason", reason), auth = true)
+            .map { it.toInstantOrderDto() }
 
     /** Что предложить, если в выбранном классе никого нет.
      *
@@ -4211,6 +4315,19 @@ object ApiClient {
         call("POST", "/places/recent", JSONObject()
             .put("address", address).put("lat", lat).put("lng", lng), auth = true).map { }
 
+    /**
+     * Убрать один недавний адрес (чужое/нет → 404).
+     *
+     * Список копится сам, из каждого заказа: там оседают больница, дом бывшего, старая
+     * работа. Право убрать оттуда строку — часть приватности, а не удобство.
+     */
+    suspend fun deleteRecentPlace(id: Int): Result<Unit> =
+        call("DELETE", "/places/recent/$id", null, auth = true).map { }
+
+    /** Очистить весь список недавних одним действием (телефон уходит в чужие руки). */
+    suspend fun clearRecentPlaces(): Result<Unit> =
+        call("DELETE", "/places/recent", null, auth = true).map { }
+
     /** Квитанция завершённой поездки (только участник; незавершённая → 409; посторонний → 403). */
     suspend fun getTripReceipt(bookingId: Int): Result<TripReceiptDto> =
         call("GET", "/trips/$bookingId/receipt", null, auth = true).map { o ->
@@ -4236,6 +4353,16 @@ object ApiClient {
 
     /** «Застрял на трассе» в ТАКСИ-заказе: координаты доверенным + сигнал админу.
      *  Зимний протокол работал только для попуток, хотя четыре часа трассы зимой — это такси. */
+    /** «Уже выхожу» (волна 160): пассажир спускается, водитель это видит.
+     *
+     *  Раньше водитель, приехав, знал только одно — тикает бесплатное ожидание. Человек мог
+     *  быть уже в лифте, а мог не выйти вовсе, и разницы на экране не было никакой. Одна
+     *  кнопка снимает и лишний звонок, и половину поводов для спора о простое.
+     */
+    suspend fun instantImComing(orderId: Int): Result<Boolean> =
+        call("POST", "/instant/orders/$orderId/im-coming", JSONObject(), auth = true)
+            .map { it.optBoolean("ok", true) }
+
     suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = ""): Result<Int> {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
@@ -4749,6 +4876,13 @@ data class InstantEstimateDto(
     // promo_note приходит объектом {ru, ba} (как surge_note) — надпись обязана быть на двух языках.
     val promoNoteRu: String = "",
     val promoNoteBa: String = "",
+    // Круговой рейс. Всё считает сервер: доступен ли (только межгород), сколько стоит и
+    // какая скидка. Старый сервер полей не шлёт → false и нули, переключатель не появится.
+    val roundTripAvailable: Boolean = false,
+    val roundTripPrice: Int = 0,
+    val roundTripDiscountPercent: Int = 0,
+    val roundTripMaxWaitHours: Int = 4,
+    val roundTrip: Boolean = false,
 ) {
     /** Скидка реально есть и её видно человеку. Всё остальное — «скидки нет», без пустых плашек. */
     val hasPromoDiscount: Boolean get() = promoDiscountKop > 0
@@ -4756,6 +4890,26 @@ data class InstantEstimateDto(
     /** Цена, которую человек реально заплатит: со скидкой, если она есть. */
     val priceToPay: Int get() = if (hasPromoDiscount) priceWithDiscount.coerceAtLeast(0) else price
 }
+
+/** Что будет, если сменить адрес: цена и из чего она сложилась.
+ *
+ *  `applied=false` + `waitingDriver=true` — крупная смена (межгород или тройная цена),
+ *  ждём слова водителя. `applied=false` без него — это превью, заказ не тронут. */
+/** Остановка по пути. С координатами: по ним строится маршрут и считается цена.
+ *  `done` — уже проехали (её нельзя убрать, спорить не о чем). */
+data class TaxiStop(val lat: Double, val lng: Double, val text: String, val done: Boolean = false)
+
+data class DestinationQuoteDto(
+    val price: Int,
+    val oldPrice: Int,
+    val drivenKm: Double,          // сколько уже проехали — за это платят в любом случае
+    val restKm: Double,            // сколько осталось до нового адреса
+    val distanceKm: Double,
+    val needsDriverOk: Boolean,
+    val askReason: String,         // zone | price | ""
+    val applied: Boolean,
+    val waitingDriver: Boolean,
+)
 
 /** Быстрый заказ (такси-режим) с сервера. Имя/телефон стороны приходят пустыми до accept (приватность). */
 // «Пульс такси» (B7b-3): живая сводка для админа.
@@ -4820,6 +4974,14 @@ data class InstantOrderDto(
     val scheduledAt: String? = null,
     // --- закрытие пробелов такси (аудит 2026-07-26). Значения по умолчанию = поведение старого
     // сервера: клиент новее бэкенда не падает, просто не показывает новое.
+    // ДОВЕРИЕ (волна 160). Раньше в такси о водителе знали только имя, рейтинг и марку —
+    // в попутке те же данные показываются давно, а до такси не доезжали. Человек садится
+    // в чужую машину ночью: лицо, стаж и «свой» решают больше, чем звёздочка.
+    // Умолчания пустые: клиент новее сервера просто не покажет новое, а не упадёт.
+    val driverAvatar: String = "",     // фото водителя (публичный media-URL). Пассажиру — да, обратно — нет
+    val driverTrips: Int = 0,          // завершённых поездок: «312 поездок»
+    val driverSince: String = "",      // месяц регистрации "YYYY-MM" → «с нами с марта»
+    val driverFrom: String = "",       // город или район водителя: «из Баймака» — то, чего у федералов нет
     val driverPlate: String = "",      // госномер — по нему узнают машину во дворе, «белая Гранта» не помогает
     val comment: String = "",          // «за магазином, синие ворота» — как найти пассажира
     val entrance: String = "",         // подъезд / квартира / этаж
@@ -4843,6 +5005,21 @@ data class InstantOrderDto(
     // сумму, а пассажир будет уверен, что платит со скидкой.
     val promoDiscountKop: Int = 0,
     val passengerPriceKop: Int = 0,
+    // --- смена адреса (аддитивно: старый сервер этих полей не шлёт) ---
+    val destinationChanges: Int = 0,
+    // Водитель подтвердил, что видел новый адрес.
+    val destinationAck: Boolean = false,
+    // Минуту молчит — пассажиру пора предложить позвонить, а не крутить спиннер.
+    val destinationAckOverdue: Boolean = false,
+    // Крупная смена ждёт слова водителя: текст адреса, цена, причина (zone|price).
+    val pendingToText: String = "",
+    val pendingPrice: Int = 0,
+    val pendingReason: String = "",
+    // Водитель завершил поездку досрочно и почему: shift_end|out_of_zone|no_fuel|other.
+    val earlyFinishReason: String = "",
+    // Остановки по пути и признак «сейчас стоим на остановке» (тикает ожидание).
+    val stops: List<TaxiStop> = emptyList(),
+    val standing: Boolean = false,
 ) {
     /** Полная цена поездки в копейках: фактическая, а до завершения — оценка. */
     val fullPriceKop: Int get() = (priceFinal ?: priceEstimate).coerceAtLeast(0) * 100
@@ -4920,6 +5097,10 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     passengerPhone = optString("passenger_phone"),
     scheduledAt = if (isNull("scheduled_at")) null else optString("scheduled_at").ifBlank { null },
     driverPlate = optString("driver_plate"),
+    driverAvatar = optString("driver_avatar"),
+    driverTrips = optInt("driver_trips"),
+    driverSince = optString("driver_since"),
+    driverFrom = optString("driver_from"),
     comment = optString("comment"),
     entrance = optString("entrance"),
     forOther = optBoolean("for_other"),
@@ -4934,6 +5115,23 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     searchingAt = if (isNull("searching_at")) null else optString("searching_at").ifBlank { null },
     promoDiscountKop = optInt("promo_discount_kop"),
     passengerPriceKop = optInt("passenger_price_kop"),
+    // --- смена адреса ---
+    destinationChanges = optInt("destination_changes"),
+    destinationAck = optBoolean("destination_ack", false),
+    destinationAckOverdue = optBoolean("destination_ack_overdue", false),
+    pendingToText = optJSONObject("pending_destination")?.optString("to_text") ?: "",
+    pendingPrice = optJSONObject("pending_destination")?.optInt("price") ?: 0,
+    pendingReason = optJSONObject("pending_destination")?.optString("reason") ?: "",
+    earlyFinishReason = optString("early_finish_reason"),
+    stops = optJSONArray("stops")?.let { arr ->
+        (0 until arr.length()).mapNotNull { i ->
+            arr.optJSONObject(i)?.let {
+                TaxiStop(it.optDouble("lat"), it.optDouble("lng"),
+                         it.optString("text"), it.optBoolean("done", false))
+            }
+        }
+    } ?: emptyList(),
+    standing = optBoolean("standing", false),
 )
 
 /** Мои предзаказы «на время»: ещё ждут (scheduled) + активированные ко времени (activated). */

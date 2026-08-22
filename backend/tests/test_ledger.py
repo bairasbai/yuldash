@@ -88,13 +88,18 @@ def test_fee_kop_round_half_up():
     assert ledger.fee_kop_for(100, 12.5) == 13
 
 
-def test_default_service_fee_is_8_percent():
-    """Дефолтная комиссия платформы = 8% (втрое ниже Яндекса ~24–30%); правится без пересборки."""
+def test_default_service_fee_matches_the_config():
+    """Комиссия такси = 15% (решение Александра 21.08.2026); правится без пересборки.
+
+    Почему 15, а не 8: Яндекс берёт 10–20% плюс парк сверху, Drivee ~13%, Bolt в Европе 15%,
+    и даже НЕКОММЕРЧЕСКИЙ кооператив водителей Нью-Йорка — тоже 15%. Последнее и решило:
+    столько стоит держать платформу живой даже без инвесторов и прибыли.
+    """
     from app.config import settings
-    assert settings.service_fee_percent == 8.0
-    # По дефолту (percent=None → берёт из конфига): 20000 коп · 8% = 1600.
-    assert ledger.fee_kop_for(20000) == 1600
-    assert ledger.fee_kop_for(30000) == 2400
+    assert settings.service_fee_percent == 15.0
+    # По дефолту (percent=None → берёт из конфига): 20000 коп · 15% = 3000.
+    assert ledger.fee_kop_for(20000) == 3000
+    assert ledger.fee_kop_for(30000) == 4500
 
 
 # ============================ Начисление за поездку ============================

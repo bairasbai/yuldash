@@ -229,6 +229,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Circle
+import com.yandex.mapkit.ScreenPoint
+import androidx.compose.ui.platform.LocalDensity
 import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.geometry.Polyline
 import com.yandex.mapkit.map.CameraPosition
@@ -780,11 +782,15 @@ private fun MapHero(
                 modifier = Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 48.dp, end = 12.dp),
             )
             // Подсказка-маршрут плавает в нижней части карты: свайп вправо → язычок, тап → назад.
+            //
+            // Снизу 8dp, а не 12: карточка садится ниже и добирает воздуха у кнопок масштаба
+            // над ней (замечание Александра 2026-08-22 — «прилипли»). Меньше 8 нельзя: угол
+            // карты скруглён, и карточка начнёт вылезать за скругление.
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(12.dp)
+                    .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     AnimatedVisibility(
@@ -1736,11 +1742,23 @@ private fun YandexMapCard(
         // накрывала «где я» на 34dp и перехватывала касания. Растить карту обратно нельзя:
         // ради этих 72dp её и ужимали, чтобы поездки поднялись над сгибом.
         // В строке высота блока = высота самого большого элемента, то есть 97dp вместо 169dp.
-        // 16 + 97 + зазор + 146 = 267 < 280 — помещается с запасом 13dp.
         // Заодно честнее по смыслу: «где я» и масштаб — соседние по частоте действия,
         // держать их рядом привычнее, чем разносить по вертикали (так у 2ГИС).
+        //
+        // ОТСТУПЫ (замечание Александра 2026-08-22: «прилипли»). Считаем по низу блока:
+        //   кнопки    8 (сверху) + 97 (стек 48+1+48)  → низ  на 105dp
+        //   карточка  8 (снизу)  + 146 (её высота)    → верх на 126dp
+        //   зазор                                        21dp по расчёту, ~14dp на глаз
+        // (расчёт и замер расходятся: реальная высота карточки чуть больше 146dp за счёт тени)
+        // Было 16dp сверху — зазор всего 9dp, и кнопка «−» слипалась с углом карточки.
+        // Прежний комментарий обещал ~30dp воздуха и был прав в своё время: карточка тогда
+        // занимала ~125dp. Потом в неё добавили строку, она выросла до 146dp и съела запас.
+        // Числа тут держим сверенными с реальностью — по ним считает следующий.
+        //
+        // Правый край: у карточки отступ 12dp, поэтому и здесь 12dp, а не 16 — иначе колонка
+        // кнопок стоит на 4dp левее её края, и вертикаль не читается.
         Row(
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp).zIndex(6f),
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp).zIndex(6f),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.Top
         ) {
@@ -2007,7 +2025,10 @@ private suspend fun roadRoutePoints(from: Point, to: Point): Pair<List<Point>, D
 internal fun PickupPickerOverlay(
     initial: Point?,
     onConfirm: (Double, Double) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    // Своя подсказка на каждую точку маршрута. По умолчанию — место встречи (подача):
+    // так пикер зовут из создания поездки, и там это правда.
+    hint: String? = null,
 ) {
     val ctx = LocalContext.current
     val mapView = remember {
@@ -2020,15 +2041,26 @@ internal fun PickupPickerOverlay(
         MapKitFactory.getInstance().onStart(); mapView.onStart()
         onDispose { mapView.onStop(); MapKitFactory.getInstance().onStop() }
     }
+    // Насколько кончик пина выше середины экрана. Свободной карты в середине нет: сверху
+    // подсказка и «назад», снизу кнопка «Готово» и панель вкладок. Полоса, по которой человек
+    // целится, смещена вверх, и её оптический центр — примерно здесь.
+    val pinLift = 48.dp
+    val pinLiftPx = with(LocalDensity.current) { pinLift.toPx() }
     Box(Modifier.fillMaxSize().background(CanonBg)) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
-        // фикс-пин в центре (кончик смотрит на центр карты)
+        // Фикс-пин: кончик смотрит на точку, которая и уйдёт в заказ (см. кнопку ниже).
+        // -24dp — половина иконки, чтобы на точку смотрел именно кончик, а не середина.
         Icon(
             Icons.Default.LocationOn, contentDescription = null, tint = CanonRed,
-            modifier = Modifier.align(Alignment.Center).size(48.dp).offset(y = (-24).dp)
+            modifier = Modifier.align(Alignment.Center).size(48.dp).offset(y = (-24).dp - pinLift)
         )
+        // Без statusBarsPadding: он отмеряет отступ от верха ОКНА, а пикер живёт под
+        // переключателем сервисов — системного бара над ним нет, и отступ под него уходил
+        // в пустоту, опуская подсказку почти на треть экрана вниз.
+        // Пауза сверху остаётся своя, 16 точек: подсказка не должна лежать на самом краю карты.
         Row(
-            Modifier.align(Alignment.TopStart).fillMaxWidth().statusBarsPadding().padding(12.dp),
+            Modifier.align(Alignment.TopStart).fillMaxWidth()
+                .padding(horizontal = CanonSpace.md, vertical = CanonSpace.lg),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(modifier = Modifier.minimumInteractiveComponentSize(), onClick = onDismiss, shape = CircleShape, color = CanonSurface, shadowElevation = CanonDepth.raised) {
@@ -2036,13 +2068,24 @@ internal fun PickupPickerOverlay(
             }
             Spacer(Modifier.width(8.dp))
             Surface(shape = RoundedCornerShape(14.dp), color = CanonSurface, shadowElevation = CanonDepth.raised) {
-                Text(appText("Двигай карту — пин на месте встречи", "Картаны күсер — пин осрашыу урынында"), Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = CanonText, fontSize = 14.sp)
+                Text(
+                    hint ?: appText("Двигай карту — пин на месте встречи", "Картаны күсер — пин осрашыу урынында"),
+                    Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    color = CanonText, fontSize = 14.sp,
+                )
             }
         }
         Button(
             onClick = {
-                val t = mapView.mapWindow.map.cameraPosition.target
-                onConfirm(t.latitude, t.longitude)
+                // Берём точку ОТТУДА, ГДЕ НАРИСОВАН КОНЧИК ПИНА, а не из центра камеры.
+                // Пин поднят над центром экрана; если бы координату по-прежнему брали из
+                // `cameraPosition.target`, человек видел бы пин на своём доме, а машина
+                // приезжала бы на полквартала ниже — и никто бы не понял, почему.
+                val w = mapView.mapWindow
+                val picked = runCatching {
+                    w.screenToWorld(ScreenPoint(w.width() / 2f, w.height() / 2f - pinLiftPx))
+                }.getOrNull() ?: mapView.mapWindow.map.cameraPosition.target
+                onConfirm(picked.latitude, picked.longitude)
             },
             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(16.dp).heightIn(min = 54.dp),
             shape = RoundedCornerShape(14.dp),
