@@ -271,7 +271,7 @@ def _settlement(p: ParcelDelivery) -> Optional[dict]:
     }
 
 
-def owed_to_courier_kop(p: ParcelDelivery) -> int:
+def owed_to_courier_kop(p: ParcelDelivery, session: Optional[Session] = None) -> int:
     """Сколько отправитель остался должен курьеру, когда доставка закрылась. ОДНО правило.
 
     Случай ровно один, но денежный: «купи и привези», курьер сходил в магазин на СВОИ деньги,
@@ -290,11 +290,18 @@ def owed_to_courier_kop(p: ParcelDelivery) -> int:
     Ноль во всех остальных случаях: при вручении получатель рассчитался на месте
     (`settled`), в обычной доставке своих денег курьер не тратит.
     """
-    if (getattr(p, "delivery_type", "poputka") or "poputka") != "buy_bring":
-        return 0
-    if p.status != "returned":
-        return 0
-    return max(int(getattr(p, "goods_actual_kop", 0) or 0), 0)
+    товар = max(int(getattr(p, "goods_actual_kop", 0) or 0), 0)
+    тип = getattr(p, "delivery_type", "poputka") or "poputka"
+    if p.status == "returned":
+        return товар if тип == "buy_bring" else 0
+    # Второй случай (волна 191): доставку ВРУЧИЛИ, а денег курьеру не отдали, и разбор это
+    # подтвердил. Тогда отправитель должен и за товар (это деньги курьера из магазина),
+    # и за саму доставку: услуга-то оказана, коробка у получателя.
+    if p.status == "delivered" and session is not None and p.courier_id:
+        from ..debt import unpaid_confirmed_parcel_ids
+        if p.id in unpaid_confirmed_parcel_ids(session, p.courier_id):
+            return товар + max(int(getattr(p, "delivery_price_kop", 0) or 0), 0)
+    return 0
 
 
 def _parcel_base(p: ParcelDelivery, blur_coords: bool = False) -> dict:
@@ -1603,7 +1610,7 @@ def parcel_receipt(parcel_id: int, user: User = Depends(current_user),
     # зафиксирована; иначе — заявленную при заказе.
     goods_kop = int(parcel.goods_actual_kop or 0) or int(parcel.cod_amount_kop or 0)
     delivery_kop = int(parcel.delivery_price_kop or 0)
-    долг_курьеру = owed_to_courier_kop(parcel)
+    долг_курьеру = owed_to_courier_kop(parcel, session)
     # «Итого» — это сумма, которую кто-то кому-то действительно должен СЕЙЧАС.
     #
     # У доставленной посылки это доставка плюс товар: получатель рассчитался на месте.
@@ -1611,7 +1618,8 @@ def parcel_receipt(parcel_id: int, user: User = Depends(current_user),
     # не берём. Раньше чек и там складывал доставку с товаром, и отправитель, которому
     # курьер привёз коробку обратно, видел «Итого 5 094 ₽» — счёт за то, чего не было
     # (волна 185). Число в чеке читают как решение спора, а не как справку.
-    total_kop = долг_курьеру if parcel.status == "returned" else delivery_kop + goods_kop
+    total_kop = долг_курьеру if долг_курьеру else (
+        0 if parcel.status == "returned" else delivery_kop + goods_kop)
     return {
         "parcel_id": parcel.id,
         "role": "courier" if parcel.courier_id == user.id else "sender",

@@ -337,6 +337,10 @@ class ReportIn(BaseModel):
     category: ReportCategory = "other"         # закрытый перечень §9 (default — совместимость)
     order_id: Optional[int] = None             # привязка к быстрому заказу
     booking_id: Optional[int] = None           # привязка к брони попутки
+    # Привязка к доставке (волна 191). Поля не было вовсе: курьер, которому не заплатили,
+    # физически не мог указать, о какой доставке речь, — жалоба уходила без привязки,
+    # а разбор такую не обрабатывает. У такси и попутки привязка есть с самого начала.
+    parcel_id: Optional[int] = None            # привязка к доставке курьера
 
 
 class ReportCreatedOut(BaseModel):
@@ -381,6 +385,21 @@ def _report_counterparty(session: Session, user: User, body: ReportIn) -> int:
         if other is None:
             raise herr(409, "У заказа нет второй стороны", "Заказдың икенсе яғы юҡ")
         return other
+    if body.parcel_id is not None:
+        # Вторая сторона доставки (волна 191). Получатель посылки аккаунта не имеет —
+        # он человек отправителя, и отвечает за расчёт именно отправитель: это он заказал
+        # «купи и привези» и это ему курьер вернёт покупку, если дело дойдёт до разбора.
+        from ..models import ParcelDelivery
+        p = session.get(ParcelDelivery, body.parcel_id)
+        if not p:
+            raise herr(404, "Доставка не найдена", "Илтеү табылманы")
+        if p.courier_id is not None and user.id == p.courier_id:
+            return p.sender_id
+        if user.id == p.sender_id:
+            if p.courier_id is None:
+                raise herr(409, "У доставки ещё нет курьера", "Илтеүҙең әле курьеры юҡ")
+            return p.courier_id
+        raise herr(403, "Ты не участник этой доставки", "Һин был илтеүҙә ҡатнашмайһың")
     if body.booking_id is not None:
         b = session.get(Booking, body.booking_id)
         ride = session.get(Ride, b.ride_id) if b else None
@@ -438,7 +457,31 @@ def _guard_unpaid_report(session: Session, user: User, body: ReportIn) -> Option
     """B8-7 «Пассажир не заплатил» одним тапом. Правила для category=unpaid с привязкой:
     жалуется ТОЛЬКО водитель, поездка ЗАВЕРШЕНА (done), одна жалоба на заказ/бронь (дедуп —
     повтор возвращает существующую). Возврат: существующая жалоба (дедуп) или None (создаём)."""
-    if body.category != "unpaid" or (body.order_id is None and body.booking_id is None):
+    if body.category != "unpaid" or (body.order_id is None and body.booking_id is None
+                                     and body.parcel_id is None):
+        return None
+    if body.parcel_id is not None and body.order_id is None and body.booking_id is None:
+        # Третья дверь у того же правила (волна 191). У водителя такси кнопка «пассажир
+        # не заплатил» есть с самого начала, у водителя попутки тоже, а у курьера её не было —
+        # при том что рискует он больше всех: в «купи и привези» он оставляет в магазине СВОИ
+        # деньги. Жалоба с привязкой к доставке создавалась (общий путь её пропускал), но
+        # правилами не обрастала и разбором не обрабатывалась: комиссию с курьера не снимали,
+        # в заработке доставка оставалась, а сама она числилась «получатель рассчитался».
+        from ..models import ParcelDelivery
+        parcel = session.get(ParcelDelivery, body.parcel_id)
+        if parcel is None:
+            raise herr(404, "Доставка не найдена", "Илтеү табылманы")
+        if parcel.courier_id != user.id:
+            raise herr(403, "«Не заплатили» отмечает курьер доставки",
+                       "«Түләмәнеләр» тип илтеү курьеры билдәләй")
+        if parcel.status != "delivered":
+            raise herr(409, "Отметить можно только вручённую доставку",
+                       "Тик тапшырылған илтеүҙе билдәләп була")
+        dup = session.exec(select(Report).where(
+            Report.parcel_id == body.parcel_id, Report.category == "unpaid",
+        )).first()
+        if dup:
+            return dup
         return None
     if body.order_id is not None:
         order = session.get(InstantOrder, body.order_id)   # существование проверено в _report_counterparty
@@ -531,6 +574,7 @@ def create_report(body: ReportIn,
     report = Report(
         reporter_id=user.id, target_user_id=target_id, reason=body.reason,
         category=body.category, order_id=body.order_id, booking_id=body.booking_id,
+        parcel_id=body.parcel_id,          # привязка к доставке (волна 191)
     )
     session.add(report)
     session.commit()
@@ -568,6 +612,11 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
     session.add(r)
     session.commit()
     session.refresh(r)
+    # След в журнале пишем СРАЗУ после решения, до побочных эффектов (списание комиссии,
+    # паузы, письма). Так запись точно останется, даже если побочка упадёт, — и сторож
+    # «каждое админское действие оставляет след» видит её рядом с ручкой (волна 191).
+    admin_action(user.id, "report.resolve", report_id=report_id,
+                 target_user=r.target_user_id, category=r.category)
     if r.category in quality.SEVERE_CATEGORIES and r.target_user_id is not None:
         if body.keep_pause:
             # Оставить: «до разбора» → честная таймерная пауза (не вечная).
@@ -599,12 +648,32 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
                     )
         except Exception as e:  # noqa: BLE001 — разбор жалобы важнее, чем побочка со списанием
             log.warning(f"[DEBT] списание долга по заказу {r.order_id}: {type(e).__name__}: {e}")
+    # 💸 То же для доставки (волна 191): подтвердили «не заплатили» → снимаем с курьера
+    # комиссию за эту доставку и снимаем отметку «получатель рассчитался». Отметку ставит
+    # вручение, а вручение — это код от получателя, а не деньги в руке.
+    if r.category == "unpaid" and getattr(r, "parcel_id", None):
+        from ..models import ParcelDelivery
+        try:
+            parcel = session.get(ParcelDelivery, r.parcel_id)
+            if parcel is not None and parcel.courier_id:
+                parcel.commission_kop = 0
+                parcel.commission_paid = True      # в «к оплате» она попасть не должна
+                parcel.settled = False             # получатель НЕ рассчитался
+                session.add(parcel)
+                session.commit()
+                push_notification(
+                    session, parcel.courier_id, "money",
+                    "Комиссия за доставку списана", "Илтеү комиссияһы алып ташланды",
+                    "Жалоба «не заплатили» подтверждена — комиссию за эту доставку с тебя сняли.",
+                    "«Түләмәнеләр» ялыуы раҫланды — был илтеү өсөн комиссия һинән алып ташланды.",
+                    ref_kind="parcel", ref_id=parcel.id,
+                )
+        except Exception as e:  # noqa: BLE001 — разбор важнее побочки со списанием
+            log.warning(f"[DEBT] списание комиссии по доставке {r.parcel_id}: {type(e).__name__}: {e}")
     # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).
     if r.target_user_id is not None:      # аккаунт обвиняемого удалён — наказывать некого
         quality.apply_ladder_after_resolve(session, r.target_user_id)
     quality.tell_report_decision(session, r, confirmed=True)   # автор узнаёт исход (волна 85)
-    admin_action(user.id, "report.resolve", report_id=report_id,
-                 target_user=r.target_user_id, category=r.category)
     return _admin_report_out(session, r)
 
 

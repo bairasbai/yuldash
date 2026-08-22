@@ -245,6 +245,24 @@ def unpaid_confirmed_order_ids(session: Session, driver_id: int) -> set:
     return {int(r) for r in rows if r}
 
 
+def unpaid_confirmed_parcel_ids(session: Session, courier_id: int) -> set:
+    """Доставки этого курьера, по которым РАЗБОР подтвердил, что ему не заплатили.
+
+    Пара к `unpaid_confirmed_order_ids` (такси). Правило одно, наборы разные: там заказы,
+    здесь доставки. Держим рядом, чтобы не разъехались, — у курьера цена ошибки выше:
+    в «купи и привези» он тратит на товар СВОИ деньги (волна 191).
+    """
+    rows = session.exec(
+        select(Report.parcel_id).where(
+            Report.category == "unpaid",
+            Report.status == "resolved",
+            Report.parcel_id.is_not(None),
+            Report.reporter_id == courier_id,
+        )
+    ).all()
+    return {int(r) for r in rows if r}
+
+
 def driver_earnings(session: Session, driver_id: int, period: str = "week",
                     now: Optional[datetime] = None) -> dict:
     """История заработка водителя за период (week|month|all): суммарно + разбивка по дням.

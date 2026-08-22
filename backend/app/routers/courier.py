@@ -1214,6 +1214,11 @@ def courier_earnings(period: str = "week", user: User = Depends(current_user),
 
     # В БД цена доставки — delivery_price_kop (в API она отдаётся как price_kop);
     # берём поле модели, а не имя из JSON, иначе агрегат молча считал бы не то.
+    # Доставки, по которым разбор признал, что курьеру не заплатили, в заработок не идут —
+    # но и не исчезают: их сумма называется отдельно (волна 191, по образцу волны 190).
+    не_заплатили = debt_mod.unpaid_confirmed_parcel_ids(session, user.id)
+    if не_заплатили:
+        conds.append(ParcelDelivery.id.not_in(не_заплатили))
     net_expr = (func.coalesce(ParcelDelivery.delivery_price_kop, 0)
                 - func.coalesce(ParcelDelivery.commission_kop, 0))
     total_row = session.exec(
@@ -1226,12 +1231,22 @@ def courier_earnings(period: str = "week", user: User = Depends(current_user),
         select(day_expr.label("day"), func.coalesce(func.sum(net_expr), 0), func.count())
         .where(*conds).group_by(day_expr).order_by(day_expr)
     ).all()
+    неоплачено = (0, 0)
+    if не_заплатили:
+        неоплачено = session.exec(
+            select(func.coalesce(func.sum(net_expr), 0), func.count()).where(
+                *[c for c in conds if c is not conds[-1]],
+                ParcelDelivery.id.in_(не_заплатили))
+        ).one()
     return {
         "period": period,
         "net_kop": int(total_row[0] or 0),          # чистыми курьеру, копейки
         "commission_kop": int(total_row[1] or 0),   # комиссия платформы за тот же период
         "deliveries": int(total_row[2] or 0),
         "by_day": [{"date": str(r[0]), "net_kop": int(r[1] or 0), "deliveries": int(r[2] or 0)} for r in rows],
+        # Разбор подтвердил, что по этим доставкам не заплатили (волна 191).
+        "unpaid_net_kop": int(неоплачено[0] or 0),
+        "unpaid_deliveries": int(неоплачено[1] or 0),
     }
 
 
