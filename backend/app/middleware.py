@@ -37,6 +37,14 @@ _STRICT_PREFIXES = (
 #
 # Спам SOS всё равно ограничиваем — но своим счётчиком, куда посторонний трафик не попадает.
 # Порог заметно выше: человек в беде жмёт кнопку несколько раз подряд, и это нормально.
+#
+# Волна 179: тогда закрыли только половину. SOS отделили от `/auth`, но ОБЩИЙ бюджет он
+# продолжал делить со всеми. Проба: сосед по сети оператора обычной работой (открыл ленту
+# уведомлений три десятка раз) выбирает общий лимит — и «красная кнопка» отвечает 429.
+# Логины тут ни при чём, хватает любого трафика с того же адреса.
+#
+# Поэтому у SOS теперь бюджет ВМЕСТО общего, а не в дополнение к нему. Свой счётчик
+# остаётся: он и защищает от спама, просто чужой трафик в него не попадает.
 _SOS_PREFIXES = ("/sos", "/api/v1/sos")
 
 # Оценка цены — САМЫЙ дорогой для нас запрос: каждый вызов может уйти в платные Yandex Routing
@@ -166,6 +174,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 if not over and sos:
                     over, retry_after = await self._over_redis(client, f"rl:sos:{ip}",
                                                                settings.rate_limit_sos_per_min)
+                    # Свой бюджет ВМЕСТО общего: чужой трафик с того же адреса не должен
+                    # закрывать красную кнопку (волна 179).
+                    return await self._ответ(over, retry_after, request, call_next)
                 if not over and estimate:
                     over, retry_after = await self._over_redis(client, f"rl:e:{ip}",
                                                                settings.rate_limit_estimate_per_min)
@@ -185,6 +196,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if not over and sos:
                 over, retry_after = self._over_mem(self._hits_sos, ip,
                                                    settings.rate_limit_sos_per_min, now)
+                return await self._ответ(over, retry_after, request, call_next)
             if not over and estimate:
                 over, retry_after = self._over_mem(self._hits_estimate, ip,
                                                    settings.rate_limit_estimate_per_min, now)
@@ -193,14 +205,26 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                                                    settings.rate_limit_events_per_min, now)
             if not over:
                 over, retry_after = self._over_mem(self._hits, ip, settings.rate_limit_per_min, now)
-        if over:
-            retry_after = retry_after or _WINDOW_SEC
-            return JSONResponse(
-                {"detail": "Слишком много запросов. Подожди немного.", "retry_after": retry_after},
-                status_code=429,
-                headers={"Retry-After": str(retry_after)},
-            )
-        return await call_next(request)
+        return await self._ответ(over, retry_after, request, call_next)
+
+    async def _ответ(self, over: bool, retry_after: int, request: Request, call_next):
+        """Пропустить запрос или вернуть 429 — на двух языках.
+
+        Раньше `detail` был русской строкой. Приложение, увидев одноязычный отказ,
+        показывает башкироязычному общую заглушку по коду (волна 177) — то есть человек
+        в момент, когда что-то не работает, читает не наш текст. Здесь это особенно обидно:
+        429 приходит там, где ничего не сломалось, и человеку важно понять, что делать.
+        """
+        if not over:
+            return await call_next(request)
+        retry_after = retry_after or _WINDOW_SEC
+        return JSONResponse(
+            {"detail": {"ru": "Слишком много запросов. Подожди немного.",
+                        "ba": "Артыҡ күп һорау. Бер аҙ көт."},
+             "retry_after": retry_after},
+            status_code=429,
+            headers={"Retry-After": str(retry_after)},
+        )
 
 
 # ----------------------------- Лимит НА ПОЛЬЗОВАТЕЛЯ -----------------------------
