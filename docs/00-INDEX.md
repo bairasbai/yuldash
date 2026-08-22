@@ -12,7 +12,7 @@
 > человеческий тест → мутации (включая обратные) → полный прогон. Детали каждой волны —
 > [audit-security-2026-08-08.md](audit-security-2026-08-08.md), уроки — [lessons.md](lessons.md).
 >
-> **Проверено:** бэкенд **3658 тестов зелёные** (волны 184–191), `ruff check app/ --select F` чист,
+> **Проверено:** бэкенд **3672 теста зелёные** (волны 184–193), `ruff check app/ --select F` чист,
 > alembic — одна голова (`ar_declare_reminded`, откат проверен), Android `assembleDebug`
 > и `testDebugUnitTest` — **BUILD SUCCESSFUL**.
 >
