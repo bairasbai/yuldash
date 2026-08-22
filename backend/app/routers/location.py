@@ -53,12 +53,19 @@ async def map_feed(websocket: WebSocket):
             await websocket.close(code=1008, reason="Invalid token")
             return
     manager.register(MAP_FEED_KEY, websocket)
+    # Живой страж, как у остальных шести каналов (волна 180). Данных этот канал не отдаёт —
+    # только сигнал «обнови список», — но открытое окно живёт часами: человек вышел из аккаунта
+    # или его заблокировали, а подписка продолжает висеть до закрытия приложения. Проверки
+    # участника тут нет по смыслу (карта общая), поэтому страж следит только за токеном.
+    страж = await watch_ws_access(websocket, token,
+                                  on_close=lambda: manager.disconnect(MAP_FEED_KEY, websocket))
     try:
         while True:
             await websocket.receive_text()   # клиент осмысленного не шлёт; держим соединение до закрытия
     except WebSocketDisconnect:
         pass
     finally:
+        страж.cancel()
         manager.disconnect(MAP_FEED_KEY, websocket)
 
 
