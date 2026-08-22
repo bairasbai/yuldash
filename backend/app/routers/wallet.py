@@ -219,6 +219,7 @@ def admin_ledger_reconcile(days: int = 1, date_from: str = "", date_to: str = ""
 # ГОТОВНОСТЬ. Режим доступен, только когда Александр оформит ИП + бизнес-ЮKassa + ключи выплат
 # и выставит PAYOUTS_ENABLED=true. Выключено → «Выплаты скоро» (не 500), Модель А остаётся рабочей.
 _PAYOUT_SOON = "Выплаты на карту скоро будут доступны"
+_PAYOUT_SOON_BA = "Картаға түләүҙәр тиҙҙән эшләй башлай"
 
 
 def _payout_profile(session: Session, user_id: int) -> DriverProfile | None:
@@ -285,7 +286,7 @@ def wallet_payout(body: PayoutIn, user: User = Depends(current_user), session: S
     payouts_ready=False → 503 «Выплаты скоро» (не падаем). Иначе: нужны сохранённые реквизиты,
     сумма в границах и ≤ баланса; списание идёт в ledger записью payout (−сумма), идемпотентно."""
     if not settings.payouts_ready:                          # выключено → мягко «скоро», не 500
-        raise HTTPException(503, _PAYOUT_SOON)
+        raise herr(503, _PAYOUT_SOON, _PAYOUT_SOON_BA)
     dp = _payout_profile(session, user.id)
     if not dp or not dp.payout_card_last4:
         raise herr(400, "Сначала добавь карту для вывода", "Башта сығарыу өсөн карта өҫтә")

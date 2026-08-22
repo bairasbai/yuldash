@@ -204,7 +204,7 @@ def test_overdue_blocks_presence(client, user_factory, fake_redis):
     assert r["blocked"] is True and r["overdue"] is True
     resp = _heartbeat(client, d)
     assert resp.status_code == 403
-    assert "долг" in resp.json()["detail"].lower()
+    assert "долг" in resp.json()["detail"]["ru"].lower()
 
 
 def test_overdue_blocks_accept(client, user_factory, fake_redis):
@@ -226,7 +226,7 @@ def test_overdue_blocks_accept(client, user_factory, fake_redis):
         s.commit()
     resp = client.post(f"/instant/orders/{oid}/accept", headers=d["auth"])
     assert resp.status_code == 403
-    assert "долг" in resp.json()["detail"].lower()
+    assert "долг" in resp.json()["detail"]["ru"].lower()
 
 
 def test_overdue_blocks_offer_poll(client, user_factory, fake_redis):

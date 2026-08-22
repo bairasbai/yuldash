@@ -40,7 +40,7 @@ def _guard_taxi_not_blocked(session: Session, driver_id: int) -> None:
     """Долг по комиссии просрочен / выше порога → водитель НЕ может возить такси.
     ПОПУТКА (плановые Ride/Booking) этим не затрагивается — там своего долга нет."""
     if debt_mod.taxi_block_reason(session, driver_id) is not None:
-        raise HTTPException(403, debt_mod.TAXI_BLOCKED_MSG)
+        raise herr(403, debt_mod.TAXI_BLOCKED_MSG, debt_mod.TAXI_BLOCKED_MSG_BA)
 
 
 def _guard_taxi_available(session: Session, lat: float | None = None, lng: float | None = None) -> None:
@@ -68,7 +68,7 @@ def _guard_taxi_driver(session: Session, driver_id: int, lat: float | None = Non
         # Разный текст важен: первый обвиняет человека, второй объясняет, что делать.
         if taxi_mod.taxi_docs_expired(session, driver_id):
             raise herr(403, taxi_mod.MSG_DOCS_EXPIRED["ru"], taxi_mod.MSG_DOCS_EXPIRED["ba"])
-        raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
+        raise herr(403, taxi_mod.TAXI_NOT_APPROVED_MSG, taxi_mod.TAXI_NOT_APPROVED_MSG_BA)
     _guard_taxi_not_blocked(session, driver_id)
     pretrip_mod.guard_pretrip(session, driver_id)   # 580-ФЗ: подтверждение готовности на сегодня
     workday_mod.guard_taxi_rested(session, driver_id)
@@ -190,7 +190,7 @@ def set_zone(body: ZoneIn, user: User = Depends(current_user), session: Session 
     if not dp:
         raise herr(409, "Сначала стань водителем (профиль водителя не найден)", "Башта йөрөтөүсе бул (йөрөтөүсе профиле табылманы)")
     if not taxi_mod.is_approved_taxi_driver(session, user.id):
-        raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
+        raise herr(403, taxi_mod.TAXI_NOT_APPROVED_MSG, taxi_mod.TAXI_NOT_APPROVED_MSG_BA)
     base, city, district, intercity, regions, direction_id = normalize_zone(body)
     if direction_id is not None and session.get(Settlement, direction_id) is None:
         raise herr(404, "Направление не найдено в справочнике", "Йүнәлеш белешмәлектә табылманы")
@@ -239,7 +239,7 @@ def instant_demand(city: Optional[str] = None, user: User = Depends(current_user
     Доступ — одобренный таксист (роль водителя). Такси выключено в зоне → зона в ответ
     не попадает; выключенный город → пустой zones + честный updated_at."""
     if not taxi_mod.is_approved_taxi_driver(session, user.id):
-        raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
+        raise herr(403, taxi_mod.TAXI_NOT_APPROVED_MSG, taxi_mod.TAXI_NOT_APPROVED_MSG_BA)
     return isv.demand_zones(session, city)
 
 

@@ -718,7 +718,10 @@ def blocked_driver_ids(session: Session, driver_ids: list, now=None) -> set:
 
 
 # Понятная ошибка блокировки такси (RU — серверная строка; UI локализует через appText).
+# Оба языка (волна 177): башкироязычный водитель видел «нет доступа» вместо причины —
+# и не понимал, что дело в долге и что с этим делать.
 TAXI_BLOCKED_MSG = "Оплати долг сервису, чтобы возить такси"
+TAXI_BLOCKED_MSG_BA = "Такси йөрөтөр өсөн сервисҡа бурысты түлә"
 
 
 def debt_summary(session: Session, driver_id: int) -> dict:

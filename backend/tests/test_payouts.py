@@ -67,7 +67,7 @@ def test_payout_disabled_by_default(client, user_factory):
     drv = user_factory("PoOffDrv", role=UserRole.driver)
     r = client.post("/wallet/payout", headers=drv["auth"], json={"amount_kop": 10000})
     assert r.status_code == 503, r.text
-    assert "скоро" in r.json()["detail"].lower()
+    assert "скоро" in r.json()["detail"]["ru"].lower()
 
 
 def test_status_disabled_by_default(client, user_factory):
