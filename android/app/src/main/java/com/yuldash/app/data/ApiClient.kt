@@ -4318,6 +4318,7 @@ object ApiClient {
                 commissionKop = o.optInt("commission_kop"),
                 commissionPaid = o.optBoolean("commission_paid"),
                 cancelFeeKop = o.optInt("cancel_fee_kop"),
+                owedToCourierKop = o.optInt("owed_to_courier_kop"),
                 settled = o.optBoolean("settled"),
                 declaredValueKop = o.optInt("declared_value_kop"),
                 courierName = o.optString("courier_name"),
@@ -5877,6 +5878,9 @@ data class ParcelReceiptDto(
     val commissionKop: Int, val commissionPaid: Boolean,
     val cancelFeeKop: Int, val settled: Boolean, val declaredValueKop: Int,
     val courierName: String, val courierVerified: Boolean,
+    // Сколько отправитель возвращает курьеру за товар, купленный курьером на свои (волна 185).
+    // Старый сервер поля не присылает → 0, и чек выглядит как прежде.
+    val owedToCourierKop: Int = 0,
 )
 
 /** «Сказать рәхмәт»: имя водителя, сказали ли уже, и (если включены денежные чаевые

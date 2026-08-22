@@ -83,11 +83,32 @@ fun ParcelReceiptDialog(parcelId: Int?, onDismiss: () -> Unit) {
                     if (r.goodsKop > 0) {
                         ReceiptRow(appText("Товар", "Тауар"), rublesOf(r.goodsKop))
                     }
-                    ReceiptRow(
-                        appText("Итого", "Барыһы"),
-                        rublesOf(r.totalKop),
-                        strong = true,
-                    )
+                    // Вернувшаяся покупка — это не «итого за услугу», а чужие деньги,
+                    // которые надо отдать. Раньше здесь стояло «Итого 5 094 ₽» — счёт за
+                    // доставку, которой не было, плюс товар: отправитель читал число как
+                    // решение спора и не понимал, что должен курьеру (волна 185).
+                    if (r.owedToCourierKop > 0) {
+                        ReceiptRow(
+                            appText("Вернуть курьеру за товар", "Тауар өсөн курьерға ҡайтарырға"),
+                            rublesOf(r.owedToCourierKop),
+                            strong = true,
+                        )
+                        Text(
+                            appText(
+                                "Курьер купил на свои деньги, а получателя не оказалось — " +
+                                    "покупка у тебя. Не сошлись — открой спор в доставке.",
+                                "Курьер үҙ аҡсаһына һатып алған, ә алыусы табылманы — " +
+                                    "һатып алыу һиндә. Килешмәһәгеҙ — илтеүҙә бәхәс ас.",
+                            ),
+                            color = CanonMuted, style = CanonCaption,
+                        )
+                    } else {
+                        ReceiptRow(
+                            appText("Итого", "Барыһы"),
+                            rublesOf(r.totalKop),
+                            strong = true,
+                        )
+                    }
                     if (r.commissionKop > 0) {
                         ReceiptRow(
                             appText("Комиссия Юлдаша", "Юлдаш комиссияһы"),
