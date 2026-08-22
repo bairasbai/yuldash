@@ -4393,6 +4393,7 @@ object ApiClient {
                         feeKop = r.optInt("fee_kop"),
                         netKop = r.optInt("net_kop"),
                         paid = r.optBoolean("paid"),
+                        unpaidConfirmed = r.optBoolean("unpaid_confirmed"),
                         paymentMethod = r.optString("payment_method"),
                         feeStatus = r.optString("fee_status"),
                     )
@@ -5893,6 +5894,9 @@ data class DriverTaxiRideDto(
     val orderId: Int, val doneAt: String, val from: String, val to: String,
     val priceRub: Int, val feeKop: Int, val netKop: Int,
     val paid: Boolean, val paymentMethod: String, val feeStatus: String,
+    // Разбор подтвердил: по этой поездке пассажир не заплатил (волна 190). Старый сервер
+    // поля не присылает → false, и строка выглядит как прежде.
+    val unpaidConfirmed: Boolean = false,
 )
 
 /** Список поездок водителя + итоги (GET /driver/taxi-rides). */
