@@ -76,7 +76,7 @@ def test_declare_count_grows_and_survives_reject(client, user_factory):
 def test_confirmed_unpaid_report_voids_commission(client, user_factory, monkeypatch):
     """Водитель отметил «пассажир не заплатил», админ подтвердил → долг по ЭТОЙ поездке снят.
     Раньше жалоба ставила только пометку, и водитель оставался должен за поездку, где его кинули."""
-    monkeypatch.setattr("app.routers.safety.send_push", lambda *a, **k: None)
+    monkeypatch.setattr("app.routers.safety.push_bilingual", lambda *a, **k: None)
     drv = user_factory("UnpaidDrv", role=UserRole.driver)
     pax = user_factory("UnpaidPax")
     admin = user_factory("UnpaidAdmin", role=UserRole.admin)

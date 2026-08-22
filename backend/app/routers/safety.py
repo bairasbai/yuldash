@@ -17,8 +17,8 @@ from ..models import (
 )
 from ..safety_logic import have_met
 from ..security import current_user
-from ..services import (booking_and_ride_for_user, notify_admin_telegram, pick_lang, sms_lang_of,
-                        push_notification, send_push, send_text, sms_will_reach)
+from ..services import (booking_and_ride_for_user, notify_admin_telegram, pick_lang, push_bilingual,
+                        sms_lang_of, push_notification, send_text, sms_will_reach)
 from ..timeutil import utcnow
 from .. import quality
 
@@ -108,6 +108,101 @@ def _order_for_participant(session: Session, order_id: int, user: User) -> Insta
     return order
 
 
+def _кто_в_беде(order, нажал: User) -> str:
+    """Чьё имя уйдёт близким. Обычно — того, кто нажал; в заказе «для другого» — того, кого везут.
+
+    Сын из Уфы вызывает такси маме в Баймаке — это рабочий сценарий, поле `for_name` для него
+    и заведено. Мама звонит: «везут не туда», сын жмёт SOS. Близкие получали «СЫН просит
+    срочной помощи», хотя сын дома и в безопасности, а в машине мама (волна 192).
+    """
+    если_везут_другого = (getattr(order, "for_name", "") or "").strip() if order else ""
+    return если_везут_другого or (нажал.name or нажал.phone or "")
+
+
+def _место_беды(order, booking_id, нажал_lat, нажал_lng) -> tuple:
+    """Где человек, которому нужна помощь. Возврат: (lat, lng) или (None, None).
+
+    Раньше брали координаты ТОГО ТЕЛЕФОНА, ЧТО НАЖАЛ. Для обычной поездки это правильно —
+    человек в машине сам и жмёт. А в заказе «для другого» нажимает тот, кто остался дома:
+    близкие получали ссылку на Уфу, пока мама ехала под Баймаком, и ехали за триста
+    километров не туда (волна 192).
+
+    Место берём у МАШИНЫ (её позицию сервер знает по живому треку поездки). Нет свежей
+    позиции — не пишем НИЧЕГО: сигнал без места честнее сигнала с чужим местом.
+    """
+    from ..livepos import livepos_get
+    везут_другого = bool(order and ((order.for_name or "").strip() or (order.for_phone or "").strip()))
+    if везут_другого and order is not None:
+        поз = livepos_get("order", order.id)
+        return (поз.get("lat"), поз.get("lng")) if поз else (None, None)
+    if нажал_lat is not None and нажал_lng is not None:
+        return (нажал_lat, нажал_lng)
+    # Своих координат нет (GPS не схватился) — машина лучше, чем ничего.
+    if order is not None:
+        поз = livepos_get("order", order.id)
+        if поз:
+            return (поз.get("lat"), поз.get("lng"))
+    if booking_id is not None:
+        поз = livepos_get("booking", booking_id)
+        if поз:
+            return (поз.get("lat"), поз.get("lng"))
+    return (None, None)
+
+
+def _телефон_в_беде(order, нажал: User) -> str:
+    """Номер того, кому надо звонить, — ТОЛЬКО в заказе «для другого».
+
+    Свой номер близкие знают наизусть, писать его им незачем. А номер мамы, которую везут,
+    они видят впервые: его вписал сын при заказе, и без него «свяжитесь скорее» — совет
+    без адреса.
+    """
+    if order is None:
+        return ""
+    чужой = (getattr(order, "for_phone", "") or "").strip()
+    return чужой if чужой and чужой != (нажал.phone or "") else ""
+
+
+def _текст_сигнала(*, кто: str, время: str, телефон: str, машина: str, место: str,
+                   по_русски: bool) -> str:
+    """SMS близким. Порядок строк = порядок действий человека, который её читает.
+
+    Прежний текст был написан для системы, а не для человека в панике: «SOS! Имя просит
+    срочной помощи (Юлдаш). Свяжитесь скорее. Место: <ссылка> Машина: …» — одним абзацем,
+    без времени, без номера («связаться» — с кем?) и без запасного хода. Ночью, спросонья,
+    из такого текста не выцепить главное.
+
+    Теперь по строкам, в том порядке, в каком человек действует:
+        1. что случилось и когда — понять, свежий ли сигнал (SMS приходят с задержкой);
+        2. кому звонить — первое действие;
+        3. что делать, если не отвечает, — 112, а не растерянность;
+        4. приметы машины — по ним ищут и их называют полиции;
+        5. где искать — ссылка последней: она длинная, и глаз об неё спотыкается.
+
+    Машина и номер стоят ДО ссылки намеренно: на кнопочном телефоне ссылка не откроется,
+    и человек должен суметь действовать вообще без интернета.
+    """
+    строки = []
+    if по_русски:
+        строки.append(f"SOS · Юлдаш, {время}")
+        строки.append(f"{кто}: нужна срочная помощь.")
+        строки.append(f"Звони: {телефон}. Не отвечает — 112." if телефон
+                      else "Свяжись скорее. Не получается — звони 112.")
+        if машина:
+            строки.append(f"Машина: {машина}")
+        if место:
+            строки.append(f"Где искать: {место}")
+    else:
+        строки.append(f"SOS · Юлдаш, {время}")
+        строки.append(f"{кто}: ашығыс ярҙам кәрәк.")
+        строки.append(f"Шылтырат: {телефон}. Яуап бирмәһә — 112." if телефон
+                      else "Тиҙерәк бәйләнешкә сыҡ. Булмаһа — 112-гә шылтырат.")
+        if машина:
+            строки.append(f"Машина: {машина}")
+        if место:
+            строки.append(f"Ҡайҙа эҙләргә: {место}")
+    return chr(10).join(строки)
+
+
 @router.post("/sos")
 def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ride = None
@@ -122,7 +217,8 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     ).all()
     # Место кладём в ТЕКСТ события (как у «застрял»): отдельной колонки под координаты нет,
     # а заводить её ради ссылки — миграция ради ссылки. В stdout координаты НЕ пишем (152-ФЗ).
-    link = _maps_link(body.lat, body.lng)
+    место_lat, место_lng = _место_беды(order, body.booking_id, body.lat, body.lng)
+    link = _maps_link(место_lat, место_lng)
     where = f" Место: {link}" if link else ""
     fields = body.model_dump(exclude={"lat", "lng"})
     fields["note"] = (fields.get("note") or "").strip() + where
@@ -135,13 +231,12 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     # А123БВ102» — помогает, и это же первое, что спросит полиция (решение 2026-08-06).
     # Имя и телефон водителя сюда НЕ идут: родным они не нужны, это уже данные из анкеты.
     car = _car_of(session, ride.driver_id if ride is not None else (order.driver_id if order else None))
-    car_text = f" Машина: {car}." if car else ""
     # Телефоны доверенных контактов собираем ПОКА сессия открыта, рассылку SMS — в фон (после ответа).
     contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
     phones_all = [c.phone for c in contacts if c.phone]
     notified = 0
     if len(recent) < SOS_SMS_PER_HOUR:
-        who = user.name or user.phone
+        who = _кто_в_беде(order, user)
         phones = phones_all
         # Скольким SMS РЕАЛЬНО уйдёт, а не скольким мы собирались написать. На проде канал SMS
         # молчит (`sms_provider=mock`), и раньше здесь стояла длина списка контактов: женщина
@@ -149,12 +244,17 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
         # (волна 184). Правило одно на все ручки — `services.sms_will_reach`.
         notified = sms_will_reach(phones)
         # Ссылка на карту — главное в этом SMS: без неё родные знают, что беда, но не знают куда ехать.
+        # Время сигнала — местное (Уфа UTC+5): «21:40» человек сверяет со своими часами.
+        местное = (utcnow() + timedelta(hours=settings.local_tz_offset_hours)).strftime("%H:%M")
+        звонить = _телефон_в_беде(order, user)
         background.add_task(
             _send_sos_sms, phones,
             _sos_text(
                 session, user.id,
-                f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.{where}{car_text}",
-                f"SOS! {who} ашығыс ярҙам һорай (Юлдаш). Тиҙерәк бәйләнешкә сыҡ.{where}{car_text}",
+                _текст_сигнала(кто=who, время=местное, телефон=звонить,
+                               машина=car, место=link, по_русски=True),
+                _текст_сигнала(кто=who, время=местное, телефон=звонить,
+                               машина=car, место=link, по_русски=False),
             ),
         )
     else:
@@ -172,8 +272,12 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     ride_line = _ride_context_line(session, ride)
     background.add_task(
         notify_admin_telegram,
-        f"🆘 SOS (Юлдаш)\n"
+        f"🆘 SOS (Юлдаш) — {(utcnow() + timedelta(hours=settings.local_tz_offset_hours)).strftime('%H:%M')} по Уфе\n"
         f"От: {user.name or '—'}\n"
+        + (f"⚠️ В машине НЕ заказчик: {_кто_в_беде(order, user)}"
+           f"{(', тел ' + _телефон_в_беде(order, user)) if _телефон_в_беде(order, user) else ''}\n"
+           if _кто_в_беде(order, user) != (user.name or user.phone or "") else "")
+        + 
         f"Тел: {user.phone or '—'}\n"
         f"Категория: {body.category}\n"
         f"{order_line}"
@@ -857,7 +961,10 @@ def _maps_link(lat: Optional[float], lng: Optional[float]) -> str:
     """Ссылка на точку в Яндекс.Картах для доверенного контакта (найти человека на трассе)."""
     if lat is None or lng is None:
         return ""
-    return f"https://yandex.ru/maps/?ll={lng},{lat}&z=16&pt={lng},{lat}"
+    # Один параметр вместо двух: `pt` и ставит метку, и центрирует карту (проверено —
+    # открывается та же точка в том же масштабе). Экономия 16 знаков решает, уйдёт SOS
+    # тремя SMS или четырьмя, а кириллица в SMS — это 67 знаков на часть.
+    return f"https://yandex.ru/maps/?pt={lng},{lat}&z=16"
 
 
 class StuckIn(BaseModel):
@@ -1031,6 +1138,12 @@ def _roadside(session: Session, background: BackgroundTasks, user: User, body: "
 WINTER_TITLE = "Юлдаш"
 WINTER_ASK_RU = "Всё в порядке? Отметь, что доехал(а)."
 WINTER_ASK_BA = "Бөтәһе лә яҡшымы? Барып еткәнеңде билдәлә."
+# Заказ «для другого»: в машине мама, приложение у сына. Спрашивать его «ты доехал?»
+# бессмысленно — он никуда не ехал, а его «да» гасит тревогу за человека, о котором он
+# ничего не знает (волна 193). Поэтому вопрос называет ТОГО, КОГО ВЕЗУТ, и говорит,
+# что сделать, прежде чем отвечать: позвонить.
+WINTER_ASK_FOR_RU = "{кто} доехал(а)? Позвони и отметь."
+WINTER_ASK_FOR_BA = "{кто} барып еттеме? Шылтырат та билдәлә."
 
 
 def _winter_contacts_for(session: Session, user_id: int) -> list:
@@ -1050,6 +1163,7 @@ def _winter_run(
     closed: bool,             # поездка/доставка уже закрыта — спрашивать нечего
     too_early: bool,          # ещё не выехали — спрашивать рано
     ask_user_ids: list,       # кого спрашиваем «всё в порядке?»
+    ask_for_name: str = "",   # заказ «для другого»: имя того, КОГО ВЕЗУТ (иначе пусто)
     watch_user_id: int,       # чьи близкие получат звонок, если ответа нет
     contact_phones: list,     # уже собранные телефоны (пусто → эскалировать некому)
     also_notify_user_id=None,  # кого ещё предупредить в приложении (напр. отправителя посылки)
@@ -1070,8 +1184,15 @@ def _winter_run(
         session.add(obj)
         session.commit()
         for uid in ask_user_ids:
-            if uid:
-                send_push(session, uid, WINTER_TITLE, WINTER_ASK_RU)
+            if not uid:
+                continue
+            # На языке человека. Перевод `WINTER_ASK_BA` был написан и лежал рядом, но
+            # вызов слал только русский: башкироязычный получал вопрос безопасности
+            # на чужом языке — ровно там, где правило двух языков важнее всего (волна 193).
+            за_другого = bool(ask_for_name) and uid == watch_user_id
+            body_ru = WINTER_ASK_FOR_RU.format(кто=ask_for_name) if за_другого else WINTER_ASK_RU
+            body_ba = WINTER_ASK_FOR_BA.format(кто=ask_for_name) if за_другого else WINTER_ASK_BA
+            push_bilingual(session, uid, WINTER_TITLE, WINTER_TITLE, body_ru, body_ba)
         return {"state": "check_sent"}
 
     waited_min = (now - obj.winter_check_sent_at).total_seconds() / 60.0
@@ -1178,6 +1299,8 @@ def winter_check_order(
         ask_user_ids=[order.passenger_id, order.driver_id],
         watch_user_id=order.passenger_id,
         contact_phones=phones,
+        # Кого везём, если это заказ для другого человека (сын вызвал маме).
+        ask_for_name=(order.for_name or "").strip(),
     )
 
 
