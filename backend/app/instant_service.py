@@ -513,7 +513,7 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     #
     # Текст читает пассажир в момент, когда он уверен, что всё правильно, — значит он должен
     # подсказать, что делать: посмотреть точку на карте, а не гадать, почему «ошибка».
-    if dist_km > max(float(settings.instant_max_km), 1.0):
+    if dist_km > max(float(settings.max_trip_km), 1.0):
         raise herr(
             422,
             "Это слишком далеко для такси. Проверь точку назначения на карте 🗺",

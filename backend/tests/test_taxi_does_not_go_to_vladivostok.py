@@ -159,7 +159,7 @@ def test_дальний_межгород_по_республике_разреш�
 def test_потолок_живёт_в_настройке_а_не_в_коде(client, user_factory, fake_redis, monkeypatch):
     """Число должно правиться конфигом: границы районов и планы меняются без пересборки."""
     пассажир = user_factory("Пасс187Настройка")
-    monkeypatch.setattr(settings, "instant_max_km", 10.0)
+    monkeypatch.setattr(settings, "max_trip_km", 10.0)
 
     r = _оценка(client, пассажир, СИБАЙ)      # 28 км — теперь за потолком
 
