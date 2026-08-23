@@ -439,6 +439,14 @@ class SavedPlace(SQLModel, table=True):
     lat: Optional[float] = None
     lng: Optional[float] = None
     created_at: datetime = Field(default_factory=utcnow)
+    # Когда этим адресом воспользовались в последний раз. По нему сортируется быстрый список
+    # в форме заказа: наверху то, куда ездят, а не то, что завели последним. У нового места
+    # равно моменту создания — человек завёл адрес, значит, скорее всего, сейчас туда и поедет.
+    used_at: datetime = Field(default_factory=utcnow, index=True)
+    # Когда этим адресом воспользовались в последний раз. По нему сортируется быстрый список
+    # в форме заказа: наверху то, куда ездят, а не то, что завели последним. У нового места
+    # равно моменту создания — человек завёл адрес, значит, скорее всего, сейчас туда и поедет.
+    used_at: datetime = Field(default_factory=utcnow, index=True)
 
 
 class RecentPlace(SQLModel, table=True):

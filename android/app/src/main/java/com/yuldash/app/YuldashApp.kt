@@ -1077,6 +1077,7 @@ internal fun YuldashApp() {
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
                 onOpenScheduled = { screen = Screen.ScheduledOrders },
+                onSavedPlaces = { if (ApiClient.isLoggedIn()) screen = Screen.SavedPlaces else screen = Screen.Login },
                 onCourierMode = { if (ApiClient.isLoggedIn()) screen = Screen.Courier else screen = Screen.Login },
                 onNotifications = { screen = Screen.Notifications },
                 onRouteWatch = { from, to ->
@@ -2286,6 +2287,7 @@ internal fun HomeScreen(
     onInstantLogin: () -> Unit = {},
     onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Такси скоро» водитель уходит в онбординг
     onOpenScheduled: () -> Unit = {},    // «На время»: предзаказ создан из встроенного такси → «Мои предзаказы»
+    onSavedPlaces: () -> Unit = {},      // «Мои адреса»: дом, работа и свои места — из шторки заказа
     onCourierMode: () -> Unit = {},      // из режима «Курьер» — к работе курьера (заказы, линия, заработок)
     onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → создать поездку с датой-шаблоном
     onTabChange: (HomeTab) -> Unit = {}
@@ -2320,6 +2322,7 @@ internal fun HomeScreen(
                     onClinicRides = onClinicRides,
                     onRouteWatch = onRouteWatch,
                     onOpenScheduled = onOpenScheduled,
+                    onSavedPlaces = onSavedPlaces,
                     onCourierMode = onCourierMode,
                     onSeasonalPublish = onSeasonalPublish,   // F15: баннер «на праздник» → создать поездку (с датой-шаблоном)
                 )

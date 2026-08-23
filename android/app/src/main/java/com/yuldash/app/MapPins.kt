@@ -5,7 +5,9 @@ package com.yuldash.app
 // → вызовы из MapScreen (userPuckBitmap() и т.д.) резолвятся без импортов. Кеши постоянных иконок —
 // рисуем один раз на процесс (GPS шлёт апдейты часто, без кеша = лишние аллокации Bitmap+Paint и GC).
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
@@ -18,6 +20,22 @@ import android.graphics.Typeface
 // в запас `pad` по краям битмапа, иначе тень обрежется краем картинки.
 private fun Paint.softShadow(radius: Float = 3f, dy: Float = 2f) = apply {
     setShadowLayer(radius, 0f, dy, 0x40000000)
+}
+
+internal enum class MapVehicleIcon { Taxi, Courier }
+
+private val mapVehicleCache = HashMap<MapVehicleIcon, Bitmap>()
+
+internal fun mapVehicleBitmap(context: Context, icon: MapVehicleIcon = MapVehicleIcon.Taxi): Bitmap {
+    mapVehicleCache[icon]?.let { return it }
+    val resId = when (icon) {
+        MapVehicleIcon.Taxi -> R.drawable.yuldash_map_car_top
+        MapVehicleIcon.Courier -> R.drawable.yuldash_map_courier_top
+    }
+    val raw = BitmapFactory.decodeResource(context.resources, resId)
+    val marker = Bitmap.createScaledBitmap(raw, 72, 72, true)
+    if (raw !== marker) raw.recycle()
+    return marker.also { mapVehicleCache[icon] = it }
 }
 
 // Маркер-«ценник» (стиль Яндекс/Airbnb): белая пилюля с ценой, цветная рамка, остриё вниз.

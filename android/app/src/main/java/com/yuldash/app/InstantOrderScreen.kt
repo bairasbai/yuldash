@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -74,6 +75,8 @@ import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Redeem
+import androidx.compose.material.icons.filled.NearMe
+import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Shield
@@ -105,6 +108,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -712,23 +716,114 @@ internal fun InstantRouteMap(
         }
     }
     // «Честные машины рядом»: показываем ТОЛЬКО до выбора адреса (to == null), чтобы не мешать
-    // маршруту. Каждая машинка — реальная точка из presence + ≈ETA (без цены и без личности).
-    DisposableEffect(nearbyDrivers, to, etaMinWord) {
+    // маршруту. Каждая машинка — реальная точка из presence (без цены и без личности).
+    //
+    // Зум карты держим в состоянии: от него зависит, сливать ли соседние машины в один
+    // кружок. Слушатель камеры срабатывает на каждый кадр движения, поэтому записываем
+    // только заметные изменения — иначе перерисовка идёт на каждый пиксель жеста.
+    var mapZoom by remember { mutableFloatStateOf(mapView.mapWindow.map.cameraPosition.zoom) }
+    DisposableEffect(Unit) {
+        val listener = com.yandex.mapkit.map.CameraListener { _, pos, _, _ ->
+            if (kotlin.math.abs(pos.zoom - mapZoom) > 0.4f) mapZoom = pos.zoom
+        }
+        mapView.mapWindow.map.addCameraListener(listener)
+        onDispose { runCatching { mapView.mapWindow.map.removeCameraListener(listener) } }
+    }
+    // Куда машины ехали в прошлый раз — чтобы новое положение не «телепортировалось».
+    val prevCars = remember { mutableStateOf<List<Point>>(emptyList()) }
+    val carShown = remember { mutableStateOf<List<Point>>(emptyList()) }
+    LaunchedEffect(nearbyDrivers, to) {
+        val target = if (to == null) nearbyDrivers.map { Point(it.lat, it.lng) } else emptyList()
+        val from = matchByProximity(prevCars.value, target)
+        prevCars.value = target
+        if (from.isEmpty() || target.isEmpty()) { carShown.value = target; return@LaunchedEffect }
+        // Ход в 12 кадров: этого хватает, чтобы движение читалось глазом, и мало,
+        // чтобы карта не работала анимацией вместо карты.
+        val steps = 12
+        for (i in 1..steps) {
+            val k = i.toFloat() / steps
+            carShown.value = target.mapIndexed { idx, t ->
+                val f = from.getOrNull(idx) ?: t
+                Point(f.latitude + (t.latitude - f.latitude) * k,
+                      f.longitude + (t.longitude - f.longitude) * k)
+            }
+            kotlinx.coroutines.delay(60)
+        }
+        carShown.value = target
+    }
+    DisposableEffect(carShown.value, mapZoom, to) {
         val map = mapView.mapWindow.map
         val carObjs = mutableListOf<com.yandex.mapkit.map.MapObject>()
-        if (to == null) {
-            nearbyDrivers.forEach { d ->
-                runCatching {
-                    carObjs += map.mapObjects.addPlacemark(Point(d.lat, d.lng)).apply {
-                        setIcon(ImageProvider.fromBitmap(carEtaBitmap("≈${d.etaMin} $etaMinWord")))
-                        setIconStyle(IconStyle().setAnchor(PointF(0.5f, 1f)))
-                    }
+        // Ячейка сетки в градусах: чем дальше камера, тем крупнее клетка и тем охотнее
+        // соседние машины собираются в одну метку. На близком зуме клетка меньше дома,
+        // и группировка не срабатывает вовсе — видно каждую машину отдельно.
+        val cell = 0.6 / Math.pow(2.0, mapZoom.toDouble() - 4.0)
+        groupPoints(carShown.value, cell).forEach { (center, count) ->
+            runCatching {
+                carObjs += map.mapObjects.addPlacemark(center).apply {
+                    setIcon(
+                        if (count > 1) ImageProvider.fromBitmap(carClusterBitmap(count))
+                        else ImageProvider.fromBitmap(mapVehicleBitmap(ctx, MapVehicleIcon.Taxi)),
+                    )
+                    setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0.5f)))
                 }
             }
         }
         onDispose { carObjs.forEach { runCatching { map.mapObjects.remove(it) } } }
     }
     AndroidView(factory = { mapView }, modifier = modifier)
+}
+
+/**
+ * Сопоставить прошлые положения машин с новыми — по близости.
+ *
+ * У машин на карте НЕТ идентификатора: сервер отдаёт только координаты, чтобы по ним нельзя
+ * было проследить путь конкретного водителя. Поэтому «та же самая машина» определяется
+ * единственным доступным способом — какая из прошлых точек ближе всего к новой.
+ *
+ * Дальше километра не сопоставляем: это уже не та машина уехала, а другая появилась.
+ * Ошибка здесь стоит дёшево — машины анонимны и взаимозаменяемы, а движение выглядит живым.
+ */
+internal fun matchByProximity(prev: List<Point>, target: List<Point>): List<Point> {
+    if (prev.isEmpty() || target.isEmpty()) return emptyList()
+    val free = prev.toMutableList()
+    return target.map { t ->
+        val best = free.minByOrNull { p ->
+            val dLat = p.latitude - t.latitude
+            val dLng = (p.longitude - t.longitude) * Math.cos(Math.toRadians(t.latitude))
+            dLat * dLat + dLng * dLng
+        }
+        // ~0.01 градуса ≈ километр. Дальше — считаем, что машина новая, и ставим сразу на место.
+        if (best != null && Math.abs(best.latitude - t.latitude) < 0.01 &&
+            Math.abs(best.longitude - t.longitude) < 0.02
+        ) {
+            free.remove(best); best
+        } else t
+    }
+}
+
+/**
+ * Собрать точки, попавшие в одну клетку сетки, в одну метку с числом.
+ *
+ * Восемь машин в квартале на отдалённой карте — каша, за которой не видно ни улиц, ни
+ * маршрута. Клетка задаётся вызывающим по зуму: на близком масштабе она меньше дома
+ * и ничего не склеивает, на дальнем — собирает целый район в один кружок.
+ */
+internal fun groupPoints(points: List<Point>, cell: Double): List<Pair<Point, Int>> {
+    if (points.isEmpty()) return emptyList()
+    if (cell <= 0.0) return points.map { it to 1 }
+    val buckets = LinkedHashMap<Pair<Long, Long>, MutableList<Point>>()
+    points.forEach { p ->
+        val key = Math.round(p.latitude / cell) to Math.round(p.longitude / cell)
+        buckets.getOrPut(key) { mutableListOf() }.add(p)
+    }
+    return buckets.values.map { group ->
+        // Метка встаёт в середину своей группы, а не в угол клетки: иначе кружок
+        // повисает на пустом месте рядом с машинами, которые он изображает.
+        val lat = group.sumOf { it.latitude } / group.size
+        val lng = group.sumOf { it.longitude } / group.size
+        Point(lat, lng) to group.size
+    }
 }
 
 // ==================================== ПАССАЖИР ====================================
@@ -753,6 +848,9 @@ internal fun InstantOrderScreen(
     embedded: Boolean = false,
     onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Скоро» водитель может уйти в онбординг таксиста
     onOpenScheduled: () -> Unit = {},    // «На время»: предзаказ создан → «Мои предзаказы»
+    // «Мои адреса»: дом, работа и свои места. Из шторки заказа туда ведёт постоянная строка —
+    // без неё завести второй адрес неоткуда (решение Александра, Q2).
+    onSavedPlaces: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val loggedIn = ApiClient.isLoggedIn()
@@ -985,6 +1083,7 @@ internal fun InstantOrderScreen(
                     }
                     "picker" -> InstantDestinationPicker(
                         onOrderCreated = { order = it },
+                        onSavedPlaces = onSavedPlaces,
                         onScheduled = { scheduled ->
                             scheduledConfirmId = scheduled.id
                             scheduledConfirmAt = scheduled.scheduledAt
@@ -1191,6 +1290,18 @@ private fun InstantRetryCard(onRetry: () -> Unit, onBack: () -> Unit) {
 /** Русское склонение: «1 машина», «2 машины», «5 машин». Раньше всегда было «N машин рядом»,
  *  и при одной свободной машине бейдж читался как опечатка. В башкирском счётное слово
  *  остаётся в единственном числе — там менять нечего. */
+/** Счётное слово к минутам: 1 минута, 2 минуты, 5 минут. В башкирском форма одна. */
+private fun minutesWordRu(n: Int): String {
+    val h = n % 100
+    val t = n % 10
+    return when {
+        h in 11..14 -> "минут"
+        t == 1 -> "минуту"
+        t in 2..4 -> "минуты"
+        else -> "минут"
+    }
+}
+
 private fun carsWordRu(n: Int): String {
     val h = n % 100
     val t = n % 10
@@ -1222,6 +1333,8 @@ private fun InstantNearbyBadge(
     loaded: Boolean,
     routeSet: Boolean,
     modifier: Modifier = Modifier,
+    // Через сколько минут приедет ближайшая. 0 — не знаем (машин нет или ещё грузим).
+    etaMin: Int = 0,
 ) {
     AnimatedVisibility(
         visible = loaded && (count > 0 || routeSet),
@@ -1240,10 +1353,16 @@ private fun InstantNearbyBadge(
                     tint = if (count > 0) CanonTaxi else CanonMuted, modifier = Modifier.size(16.dp),
                 )
                 Spacer(Modifier.width(4.dp))
-                AnimatedContent(targetState = count, label = "nearbyCount") { n ->
+                // Отвечаем на вопрос «когда за мной приедут», а не «сколько машин вокруг».
+                // Счётчик машин человеку ничего не решает: одна в двух минутах лучше пяти
+                // в пятнадцати. Число оставляем только когда минут ещё не знаем.
+                AnimatedContent(targetState = count to etaMin, label = "nearbyEta") { (n, eta) ->
                     Text(
-                        if (n > 0) appText("$n ${carsWordRu(n)} рядом", "$n машина яҡында")
-                        else appText("Рядом машин нет — поищем дальше", "Яҡында машина юҡ — арыраҡ ҡарайбыҙ"),
+                        when {
+                            n > 0 && eta > 0 -> appText("Машина за $eta ${minutesWordRu(eta)}", "Машина $eta минутта")
+                            n > 0 -> appText("$n ${carsWordRu(n)} рядом", "$n машина яҡында")
+                            else -> appText("Рядом машин нет — поищем дальше", "Яҡында машина юҡ — арыраҡ ҡарайбыҙ")
+                        },
                         color = if (n > 0) CanonText else CanonMuted,
                         fontSize = TxCaption, lineHeight = LhCaption, fontWeight = FontWeight.Bold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -1341,6 +1460,7 @@ private fun InstantAddressResults(
 private fun InstantDestinationPicker(
     onOrderCreated: (InstantOrderDto) -> Unit,
     onScheduled: (InstantOrderDto) -> Unit = {},
+    onSavedPlaces: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1433,6 +1553,9 @@ private fun InstantDestinationPicker(
     val createFailMsg = appText("Не удалось создать заказ. Повтори.", "Заказ булманы. Ҡабатла.")
     val myPosText = appText("Моя позиция", "Минең урын")
     val mapPointText = appText("Точка на карте", "Картала нөктә")
+    // Пока геокодер отвечает. Показываем не пустоту и не «Точка на карте»: человек должен
+    // видеть, что адрес сейчас появится, иначе решит, что так и останется.
+    val resolvingText = appText("Определяем адрес…", "Адресты билдәләйбеҙ…")
 
     // Единый путь запроса (Permissions.kt): объясняем зачем → просим → если система больше
     // не спрашивает, ведём в настройки. Раньше был голый launch(): после двух отказов кнопка
@@ -1509,6 +1632,9 @@ private fun InstantDestinationPicker(
     // Стало: карта во весь рост; свёрнутая шторка показывает откуда и куда, средняя — тарифы,
     // цену и кнопку, полная — всё остальное. Пока маршрут не задан, шторка открыта: там поле
     // адреса и быстрый выбор, ради которых человек сюда и пришёл.
+    // Счётчик «наведи камеру заново». Растёт по кнопке возврата; сама карта по нему решает,
+    // показать маршрут целиком или вернуться к одной точке.
+    var mapRecenterTick by remember { mutableIntStateOf(0) }
     var sheetStop by remember { mutableStateOf(TaxiSheetStop.Full) }
     var sheetTouched by remember { mutableStateOf(false) }
     // Выбрал адрес — сама съезжает к тарифам и кнопке. Пока он их не трогал руками.
@@ -1527,38 +1653,106 @@ private fun InstantDestinationPicker(
                     from = effFrom,
                     to = toPoint,
                     nearbyDrivers = nearbyDrivers,
+                    recenterTick = mapRecenterTick,
                     modifier = Modifier.fillMaxSize(),
                 )
                 InstantNearbyBadge(
                     count = nearbyDrivers.size,
                     loaded = nearbyLoaded,
                     routeSet = toPoint != null,
+                    // Ближайшая из тех, кто на линии. Не среднее и не «примерно»: человек
+                    // планирует по самому раннему сроку, а не по среднему по больнице.
+                    etaMin = nearbyDrivers.minOfOrNull { it.etaMin } ?: 0,
                     modifier = Modifier.align(Alignment.TopStart).padding(CanonSpace.md),
                 )
+                // Вернуть карту. Одна кнопка на два случая: маршрут не задан — ведёт к тебе,
+                // задан — показывает всю поездку целиком. Механизм внутри карты сам разбирает,
+                // какой случай; кнопке остаётся его позвать.
+                val hasRoute = toPoint != null
+                Surface(
+                    onClick = {
+                        // Ровно как в попутке: выключена — включаем (спросив разрешение),
+                        // включена — ведём карту. Выключить кнопкой нельзя намеренно:
+                        // её жмут, чтобы найти себя, а не чтобы потеряться. Выключение —
+                        // в Профиль → Конфиденциальность, где оно осознанное.
+                        when {
+                            LocationPrefs.sharingEnabled -> mapRecenterTick++
+                            hasLocPerm -> LocationPrefs.sharingEnabled = true
+                            else -> askMyLocation()
+                        }
+                    },
+                    shape = CircleShape,
+                    color = CanonSurface,
+                    shadowElevation = CanonDepth.raised,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(CanonSpace.md)
+                        .size(48.dp),   // тач-цель 48dp (a11y §4.5)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            if (hasRoute) Icons.Default.ZoomOutMap else Icons.Default.NearMe,
+                            contentDescription = if (hasRoute)
+                                appText("Показать весь путь", "Бөтә юлды күрһәтеү")
+                            else appText("Где я", "Мин ҡайҙа"),
+                            tint = CanonGreen2,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
             }
         },
         header = {
-            // Точка А — строкой, а не карточкой: подпись «Откуда» убрана, её роль играет
-            // иконка. Раньше на две точки маршрута уходило четыре яруса текста и ~140dp
-            // в шапке, которая видна всегда.
-            OrderPointRow(
-                icon = Icons.Default.MyLocation,
-                tint = CanonGreen2,
-                text = when {
-                    fromManual && fromText.isNotBlank() -> fromText
-                    effFrom != null -> appText("Моя позиция", "Минең урын")
-                    hasLocPerm -> appText("Определяем…", "Билдәләйбеҙ…")
-                    else -> appText("Включи геолокацию", "Геолокацияны ҡабыҙ")
-                },
-                actionLabel = if (!hasLocPerm && !fromManual) appText("Включить", "Ҡабыҙ")
-                              else appText("На карте", "Картала"),
-                onAction = { if (!hasLocPerm && !fromManual) askMyLocation() else pickFromOnMap = true },
-            )
-            if (toPoint != null) {
-                OrderDestinationRow(
-                    text = toText.ifBlank { appText("Точка на карте", "Картала нөктә") },
-                    onEdit = { toPoint = null; query = ""; estimate = null },
-                )
+            // Обе точки — в ОДНОЙ карточке. Маршрут это одна вещь, «откуда и куда»; двумя
+            // отдельными плашками с зазором он читался как два независимых вопроса.
+            // Строки разделяет черта, начинающаяся под текстом, а не от края: приём списков,
+            // он и говорит, что строки принадлежат одному объекту.
+            Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) {
+                    OrderPointRow(
+                        icon = Icons.Default.MyLocation,
+                        tint = CanonGreen2,
+                        text = when {
+                            fromManual && fromText.isNotBlank() -> fromText
+                            effFrom != null -> appText("Моя позиция", "Минең урын")
+                            hasLocPerm -> appText("Определяем…", "Билдәләйбеҙ…")
+                            else -> appText("Включи геолокацию", "Геолокацияны ҡабыҙ")
+                        },
+                        actionLabel = if (!hasLocPerm && !fromManual) appText("Включить", "Ҡабыҙ")
+                                      else appText("На карте", "Картала"),
+                        onAction = { if (!hasLocPerm && !fromManual) askMyLocation() else pickFromOnMap = true },
+                    )
+                    // Отступ слева равен ширине иконки с полями: черта идёт под текстом,
+                    // а не под точкой маршрута — иначе она разрезала бы сам маршрут пополам.
+                    Box(
+                        Modifier
+                            .padding(start = 50.dp)
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(CanonBorder),
+                    )
+                    if (toPoint != null) {
+                        OrderDestinationRow(
+                            text = toText.ifBlank { appText("Точка на карте", "Картала нөктә") },
+                            onEdit = { toPoint = null; query = ""; estimate = null },
+                        )
+                    } else {
+                        // Поле «куда» — в шапке, а не в прокрутке. Шапка видна в любом положении
+                        // шторки, и свёрнутая шторка остаётся рабочей: карта во весь рост, а задать
+                        // адрес по-прежнему можно, не разворачивая список.
+                        InstantWhereField(
+                            value = query,
+                            onValueChange = { q ->
+                                query = q
+                                if (q.isBlank()) { toPoint = null; estimate = null }
+                                // Начал печатать — раскрываем: подсказки живут ниже, и в свёрнутом
+                                // виде человек писал бы вслепую.
+                                else if (sheetStop != TaxiSheetStop.Full) { sheetTouched = true; sheetStop = TaxiSheetStop.Full }
+                            },
+                            onMap = { pickOnMap = true },
+                        )
+                    }
+                }
             }
         },
         body = {
@@ -1568,25 +1762,18 @@ private fun InstantDestinationPicker(
                 // наоборот: человек, у которого нужного адреса в списке нет (а это каждый раз,
                 // когда едешь в новое место), сначала просматривал чужие строки и только потом
                 // добирался до строки ввода. Главное действие экрана не может стоять вторым.
-                // Точка Б: поиск + «на карте». Без обрамляющей карточки — поле само себе
-                // подложка, а коробка в коробке читалась как форма из веба.
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
-                    InstantWhereField(
-                        value = if (toPoint != null && query.isBlank()) toText else query,
-                        onValueChange = { query = it; if (it.isBlank()) { toPoint = null; estimate = null } },
-                        onMap = { pickOnMap = true },
-                    )
-                    InstantAddressResults(
-                        query = query,
-                        searching = searchingAddr,
-                        failed = searchFailed,
-                        hits = suggestions,
-                        onPick = { hit ->
-                            toPoint = Point(hit.lat, hit.lon); toText = hit.title; query = ""; suggestions = emptyList()
-                        },
-                        onRetry = { searchTick++ },
-                    )
-                }
+                // Само поле уехало в шапку (видно в любом положении шторки), здесь остаются
+                // только подсказки: их бывает шесть, и место им в прокрутке.
+                InstantAddressResults(
+                    query = query,
+                    searching = searchingAddr,
+                    failed = searchFailed,
+                    hits = suggestions,
+                    onPick = { hit ->
+                        toPoint = Point(hit.lat, hit.lon); toText = hit.title; query = ""; suggestions = emptyList()
+                    },
+                    onRetry = { searchTick++ },
+                )
                 if (toPoint == null) {
                     // Ничего не загрузилось и была ошибка → честно говорим об этом. Загрузилась хотя бы
                     // часть — показываем её и не пугаем: адреса на месте, просто связь моргнула.
@@ -1611,6 +1798,15 @@ private fun InstantDestinationPicker(
                                 recentPlaces = recentPlaces.filterNot { it.id == id }
                                 scope.launch {
                                     ApiClient.deleteRecentPlace(id).onFailure { placesReload++ }
+                                }
+                            },
+                            onOpenSavedPlaces = onSavedPlaces,
+                            // Убрали именованное место — список перечитываем с сервера:
+                            // порядок там свой, локально его не воспроизвести честно.
+                            onDeleteSaved = { place ->
+                                savedPlaces = savedPlaces.filterNot { it.id == place.id }
+                                scope.launch {
+                                    ApiClient.deleteSavedPlace(place.id).onFailure { placesReload++ }
                                 }
                             },
                         )
@@ -2053,7 +2249,16 @@ private fun InstantDestinationPicker(
     if (pickOnMap) {
         PickupPickerOverlay(
             initial = toPoint ?: effFrom,
-            onConfirm = { lat, lng -> toPoint = Point(lat, lng); toText = mapPointText; query = ""; suggestions = emptyList(); pickOnMap = false },
+            onConfirm = { lat, lng ->
+                toPoint = Point(lat, lng); toText = resolvingText
+                query = ""; suggestions = emptyList(); pickOnMap = false
+                // Спрашиваем, как называется это место. Не дождались — остаётся «Точка
+                // на карте»: координаты у водителя есть, заказ из-за адреса не ломаем.
+                scope.launch {
+                    val addr = GeocoderClient.addressAt(lat, lng)
+                    toText = if (addr.isNotBlank()) addr else mapPointText
+                }
+            },
             onDismiss = { pickOnMap = false },
             // Не «место встречи»: туда едут, а не встречаются.
             hint = appText("Двигай карту — пин там, куда едешь", "Картаны күсер — пин барасаҡ урында"),
@@ -2062,7 +2267,14 @@ private fun InstantDestinationPicker(
     if (pickFromOnMap) {
         PickupPickerOverlay(
             initial = effFrom,
-            onConfirm = { lat, lng -> fromPoint = Point(lat, lng); fromText = mapPointText; fromManual = true; pickFromOnMap = false },
+            onConfirm = { lat, lng ->
+                fromPoint = Point(lat, lng); fromText = resolvingText
+                fromManual = true; pickFromOnMap = false
+                scope.launch {
+                    val addr = GeocoderClient.addressAt(lat, lng)
+                    fromText = if (addr.isNotBlank()) addr else mapPointText
+                }
+            },
             onDismiss = { pickFromOnMap = false },
             hint = appText("Двигай карту — пин там, откуда поедешь", "Картаны күсер — пин сығасаҡ урында"),
         )
@@ -5757,25 +5969,30 @@ private fun OrderPointRow(
     actionLabel: String,
     onAction: () -> Unit,
 ) {
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(CanonSpace.md))
-        // «Определяем…» → «Моя позиция» приходило рывком, будто экран моргнул.
-        AnimatedContent(targetState = text, label = "orderPoint") { value ->
-            Text(
-                value,
-                style = CanonBodyStrong,
-                color = CanonText,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        TextButton(onClick = onAction, modifier = Modifier.heightIn(min = 48.dp)) {
-            Text(actionLabel, style = CanonBody, color = CanonGreen2, maxLines = 1)
+    // Без собственной подложки и без обёртки: строка живёт внутри общей карточки маршрута.
+    // Своя заливка резала бы карточку на куски, а лишний контейнер растягивался на всю
+    // доступную высоту и раздувал шапку на весь экран.
+    // «Готово» от «жду ввода» отличает сам текст — адрес плотный и тёмный, приглашение серое.
+    run {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = CanonSpace.md, end = CanonSpace.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(CanonSpace.md))
+            // «Определяем…» → «Моя позиция» приходило рывком, будто экран моргнул.
+            AnimatedContent(targetState = text, label = "orderPoint", modifier = Modifier.weight(1f)) { value ->
+                Text(
+                    value,
+                    style = CanonBodyStrong,
+                    color = CanonText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            TextButton(onClick = onAction, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(actionLabel, style = CanonBody, color = CanonGreen2, maxLines = 1)
+            }
         }
     }
 }
@@ -5867,13 +6084,12 @@ private fun InstantWhereField(
     onValueChange: (String) -> Unit,
     onMap: () -> Unit,
 ) {
-    Surface(
-        color = CanonBg,
-        shape = CanonItemShape,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-    ) {
+    // Без своей подложки и обёртки: поле — вторая строка внутри карточки маршрута.
+    // Вторая заливка дала бы двойное скругление, а контейнер с fillMaxHeight растянул бы
+    // строку на весь экран (проверено — шапка заняла всю шторку).
+    run {
         Row(
-            Modifier.fillMaxWidth().padding(start = CanonSpace.md, end = CanonSpace.xs),
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = CanonSpace.md, end = CanonSpace.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(

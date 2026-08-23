@@ -62,6 +62,116 @@ def test_saved_idor_delete(client, user_factory):
     assert len(client.get("/places/saved", headers=owner["auth"]).json()) == 1
 
 
+# ------------------------------ порядок быстрого списка ------------------------------
+def test_saved_order_home_work_then_used(client, user_factory):
+    """Дом и работа сверху, свои — по последнему использованию.
+
+    В форме заказа человек видит не весь список, а первые несколько строк. Наверху должно
+    оказаться то, куда он ездит, а не то, что завёл последним, — иначе быстрый доступ
+    показывает случайный адрес «на один раз», а «Родители» приходится искать.
+    """
+    u = user_factory()
+    родители = client.post("/places/saved", headers=u["auth"],
+                           json={"kind": "custom", "label": "Родители", "address": "Сибай, Ленина 3"}).json()
+    client.post("/places/saved", headers=u["auth"],
+                json={"kind": "custom", "label": "Дача", "address": "Тубинский"})
+    client.post("/places/saved", headers=u["auth"], json={"kind": "home", "address": "мой дом"})
+    client.post("/places/saved", headers=u["auth"], json={"kind": "work", "address": "моя работа"})
+
+    # «Родители» заведены ПЕРВЫМИ — по дате добавления они были бы последними в списке.
+    assert client.post(f"/places/saved/{родители['id']}/used", headers=u["auth"]).status_code == 200
+
+    kinds = [p["kind"] for p in client.get("/places/saved", headers=u["auth"]).json()]
+    assert kinds[0] == "home" and kinds[1] == "work", "дом и работа обязаны быть сверху"
+
+    свои = [p["label"] for p in client.get("/places/saved", headers=u["auth"]).json()
+            if p["kind"] == "custom"]
+    assert свои[0] == "Родители", f"свои идут по использованию, а не по дате: {свои}"
+
+
+def test_saved_used_foreign_is_404(client, user_factory):
+    """Чужой адрес отметить нельзя, и существование его не подтверждаем."""
+    owner = user_factory()
+    other = user_factory()
+    mine = client.post("/places/saved", headers=owner["auth"],
+                       json={"kind": "custom", "label": "Мама", "address": "адрес"}).json()
+
+    assert client.post(f"/places/saved/{mine['id']}/used", headers=other["auth"]).status_code == 404
+    assert client.post("/places/saved/999999/used", headers=other["auth"]).status_code == 404
+
+
+def test_saved_new_place_is_on_top(client, user_factory):
+    """Только что заведённый адрес сразу наверху своих.
+
+    Человек добавляет место обычно перед тем, как туда поехать. Заставлять его ждать
+    первой поездки, чтобы адрес всплыл в быстром списке, — значит не понимать, зачем
+    он его заводил.
+    """
+    u = user_factory()
+    client.post("/places/saved", headers=u["auth"],
+                json={"kind": "custom", "label": "Старый", "address": "адрес 1"})
+    client.post("/places/saved", headers=u["auth"],
+                json={"kind": "custom", "label": "Новый", "address": "адрес 2"})
+
+    свои = [p["label"] for p in client.get("/places/saved", headers=u["auth"]).json()
+            if p["kind"] == "custom"]
+    assert свои[0] == "Новый", f"новый адрес должен быть сверху: {свои}"
+
+# ------------------------------ порядок быстрого списка ------------------------------
+def test_saved_order_home_work_then_used(client, user_factory):
+    """Дом и работа сверху, свои — по последнему использованию.
+
+    В форме заказа человек видит не весь список, а первые несколько строк. Наверху должно
+    оказаться то, куда он ездит, а не то, что завёл последним, — иначе быстрый доступ
+    показывает случайный адрес «на один раз», а «Родители» приходится искать.
+    """
+    u = user_factory()
+    родители = client.post("/places/saved", headers=u["auth"],
+                           json={"kind": "custom", "label": "Родители", "address": "Сибай, Ленина 3"}).json()
+    client.post("/places/saved", headers=u["auth"],
+                json={"kind": "custom", "label": "Дача", "address": "Тубинский"})
+    client.post("/places/saved", headers=u["auth"], json={"kind": "home", "address": "мой дом"})
+    client.post("/places/saved", headers=u["auth"], json={"kind": "work", "address": "моя работа"})
+
+    # «Родители» заведены ПЕРВЫМИ — по дате добавления они были бы последними в списке.
+    assert client.post(f"/places/saved/{родители['id']}/used", headers=u["auth"]).status_code == 200
+
+    kinds = [p["kind"] for p in client.get("/places/saved", headers=u["auth"]).json()]
+    assert kinds[0] == "home" and kinds[1] == "work", "дом и работа обязаны быть сверху"
+
+    свои = [p["label"] for p in client.get("/places/saved", headers=u["auth"]).json()
+            if p["kind"] == "custom"]
+    assert свои[0] == "Родители", f"свои идут по использованию, а не по дате: {свои}"
+
+
+def test_saved_used_foreign_is_404(client, user_factory):
+    """Чужой адрес отметить нельзя, и существование его не подтверждаем."""
+    owner = user_factory()
+    other = user_factory()
+    mine = client.post("/places/saved", headers=owner["auth"],
+                       json={"kind": "custom", "label": "Мама", "address": "адрес"}).json()
+
+    assert client.post(f"/places/saved/{mine['id']}/used", headers=other["auth"]).status_code == 404
+    assert client.post("/places/saved/999999/used", headers=other["auth"]).status_code == 404
+
+
+def test_saved_new_place_is_on_top(client, user_factory):
+    """Только что заведённый адрес сразу наверху своих.
+
+    Человек добавляет место обычно перед тем, как туда поехать. Заставлять его ждать
+    первой поездки, чтобы адрес всплыл в быстром списке, — значит не понимать, зачем
+    он его заводил.
+    """
+    u = user_factory()
+    client.post("/places/saved", headers=u["auth"],
+                json={"kind": "custom", "label": "Старый", "address": "адрес 1"})
+    client.post("/places/saved", headers=u["auth"],
+                json={"kind": "custom", "label": "Новый", "address": "адрес 2"})
+
+    свои = [p["label"] for p in client.get("/places/saved", headers=u["auth"]).json()
+            if p["kind"] == "custom"]
+    assert свои[0] == "Новый", f"новый адрес должен быть сверху: {свои}"
+
 # ------------------------------ недавние ------------------------------
 def test_recent_dedup_and_cap(client, user_factory):
     u = user_factory()

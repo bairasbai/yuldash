@@ -713,6 +713,15 @@ object ApiClient {
         call("GET", "/geocode?q=" + enc(query), null, auth = true)
 
     /**
+     * Адрес по координатам (обратный геокодер).
+     *
+     * Нужен там, где точку ставят пином: без него в заказ уходило безымянное «Точка
+     * на карте» — ни водитель в списке заказов, ни пассажир в истории не понимали, где это.
+     */
+    internal suspend fun geocodeReverse(lat: Double, lng: Double): Result<JSONObject> =
+        call("GET", "/geocode/reverse?lat=$lat&lng=$lng", null, auth = true)
+
+    /**
      * F14: подсказки точек сбора по ориентирам города/села («у мечети», «автовокзал»).
      * Публичный справочник — auth не нужен. Пусто → показываем ручной выбор на карте.
      */
@@ -4275,6 +4284,7 @@ object ApiClient {
         lat = o.optDouble("lat"),
         lng = o.optDouble("lng"),
         createdAt = o.optString("created_at"),
+        usedAt = o.optString("used_at"),
     )
 
     /** Сохранённые адреса (Дом/Работа/свои). Ответ — массив (call() кладёт в "items"). */
@@ -4289,6 +4299,16 @@ object ApiClient {
         call("POST", "/places/saved", JSONObject()
             .put("kind", kind).put("label", label).put("address", address)
             .put("lat", lat).put("lng", lng), auth = true).map { parseSavedPlace(it) }
+
+    /**
+     * Отметить, что сохранённым адресом воспользовались.
+     *
+     * По этой отметке сервер строит порядок быстрого списка в форме заказа: наверху то,
+     * куда человек ездит, а не то, что завёл последним. Best-effort — если не дошло,
+     * заказ всё равно оформляется, просто порядок обновится в следующий раз.
+     */
+    suspend fun markSavedPlaceUsed(id: Int): Result<Unit> =
+        call("POST", "/places/saved/$id/used", null, auth = true).map { }
 
     /** Удалить сохранённый адрес по id (чужое/нет → 404). */
     suspend fun deleteSavedPlace(id: Int): Result<Unit> =
@@ -6024,6 +6044,8 @@ data class DriverEarningsDto(
 data class SavedPlaceDto(
     val id: Int, val kind: String, val label: String,
     val address: String, val lat: Double, val lng: Double, val createdAt: String,
+    /** Когда адресом пользовались в последний раз — по нему сервер строит порядок списка. */
+    val usedAt: String = "",
 )
 /** Недавний адрес назначения (GET /places/recent, свежие сверху). */
 data class RecentPlaceDto(

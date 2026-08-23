@@ -31,6 +31,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.History
@@ -113,36 +115,73 @@ internal fun QuickPlacesBlock(
     modifier: Modifier = Modifier,
     // Убрать недавний адрес. Пустой по умолчанию: блок показывают и там, где чистить нечего.
     onDeleteRecent: (Int) -> Unit = {},
+    // Открыть экран «Мои адреса». Без него завести второй адрес неоткуда: подсказка
+    // с приглашением исчезает, как только появился первый.
+    onOpenSavedPlaces: () -> Unit = {},
+    // Убрать сохранённое место. Отдельно от недавних: это именованный адрес, его заводили
+    // руками, и удаление необратимо — экран сначала переспрашивает.
+    onDeleteSaved: (SavedPlaceDto) -> Unit = {},
 ) {
+    val scope = rememberCoroutineScope()
+    // Какое место собираемся убрать. Дом и «Родители» стираются насовсем, промах пальца
+    // тут стоит дороже лишнего касания.
+    var askRemove by remember { mutableStateOf<SavedPlaceDto?>(null) }
     val home = saved.firstOrNull { it.kind == "home" }
     val work = saved.firstOrNull { it.kind == "work" }
-    if (home == null && work == null && recent.isEmpty()) {
+    // Свои места («Родители», «Дача») — три штуки. Порядок задал сервер: сверху те, которыми
+    // пользовались недавно. Больше трёх в шторку не берём: она станет простынёй, и недавние
+    // адреса уедут за нижний край — а туда человек смотрит чаще всего.
+    val custom = saved.filter { it.kind !in setOf("home", "work") }.take(3)
+
+    // Тап по сохранённому месту = «этим адресом воспользовались». Отметку шлём отсюда,
+    // а не из экрана заказа: список знает id, экрану про это думать незачем.
+    val pickSaved: (SavedPlaceDto) -> Unit = { p ->
+        scope.launch { ApiClient.markSavedPlaceUsed(p.id) }
+        onPick(p.address, p.lat, p.lng)
+    }
+
+    if (home == null && work == null && custom.isEmpty() && recent.isEmpty()) {
+        // Кнопка, а не надпись. Раньше это была просто фраза: звала завести адреса и
+        // никуда не вела — тупик ровно в том месте, где человек готов был это сделать.
         Surface(
+            onClick = onOpenSavedPlaces,
             shape = CanonItemShape,
             color = CanonMint,
-            modifier = modifier.fillMaxWidth(),
+            modifier = modifier.fillMaxWidth().heightIn(min = 56.dp),
         ) {
-            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text("🏠", fontSize = 19.sp)
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    appText("Добавь дом и работу — заказывать станет быстрее.", "Өй һәм эш адресын өҫтә — заказ биреүе тиҙерәк булыр."),
-                    color = CanonGreen, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium,
+                    appText("Добавь дом и работу", "Өй һәм эш адресын өҫтә"),
+                    color = CanonGreen, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    Icons.Default.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = CanonGreen2,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
         return
     }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        home?.let {
-            QuickPlaceRow(placeKindIcon("home"), appText("Дом", "Өй"), it.address, named = true) {
-                onPick(it.address, it.lat, it.lng)
-            }
+        home?.let { p ->
+            QuickPlaceRow(placeKindIcon("home"), appText("Дом", "Өй"), p.address,
+                named = true, onDelete = { askRemove = p }) { pickSaved(p) }
         }
-        work?.let {
-            QuickPlaceRow(placeKindIcon("work"), appText("Работа", "Эш"), it.address, named = true) {
-                onPick(it.address, it.lat, it.lng)
-            }
+        work?.let { p ->
+            QuickPlaceRow(placeKindIcon("work"), appText("Работа", "Эш"), p.address,
+                named = true, onDelete = { askRemove = p }) { pickSaved(p) }
+        }
+        custom.forEach { p ->
+            QuickPlaceRow(placeKindIcon(p.kind), placeKindLabel(p.kind, p.label), p.address,
+                named = true, onDelete = { askRemove = p }) { pickSaved(p) }
         }
         if (recent.isNotEmpty()) {
             Text(
@@ -155,13 +194,58 @@ internal fun QuickPlacesBlock(
                 // соседней строки, и следующая строка приезжает уже наполовину сдвинутой.
                 key(r.id) {
                     SwipeToDeleteRow(onDelete = { onDeleteRecent(r.id) }) {
-                        QuickPlaceRow(Icons.Default.History, r.address, null) {
+                        // Крестик и свайп делают одно и то же. Жест знают не все, кнопку
+                        // видно сразу — второй путь к действию, а не замена первому.
+                        // Спрашивать не о чем: адрес вернётся сам после следующего заказа.
+                        QuickPlaceRow(
+                            Icons.Default.History, r.address, null,
+                            onDelete = { onDeleteRecent(r.id) },
+                        ) {
                             onPick(r.address, r.lat, r.lng)
                         }
                     }
                 }
             }
         }
+        // Дверь к своим адресам — всегда, а не только пока список пуст. Иначе завести
+        // второй адрес неоткуда: приглашение исчезает после первого, а искать его
+        // в настройках человек не пойдёт.
+        TextButton(
+            onClick = onOpenSavedPlaces,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) {
+            Icon(Icons.Default.Bookmark, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                appText("Мои адреса", "Минең адрестар"),
+                color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+    // Спрашиваем только про названные места: их заводили руками и вернуть нельзя.
+    askRemove?.let { place ->
+        val name = placeKindLabel(place.kind, place.label)
+        AlertDialog(
+            onDismissRequest = { askRemove = null },
+            title = { Text(appText("Убрать «$name»?", "«$name» алып ташларғамы?")) },
+            text = {
+                Text(appText(
+                    "Адрес исчезнет из списка. Завести заново можно в «Мои адреса».",
+                    "Адрес исемлектән юғала. Яңынан «Минең адрестар»ҙа өҫтәп була.",
+                ))
+            },
+            confirmButton = {
+                TextButton(onClick = { onDeleteSaved(place); askRemove = null }) {
+                    Text(appText("Убрать", "Алып ташлау"), color = CanonRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { askRemove = null }) {
+                    Text(appText("Отмена", "Кире алыу"), color = CanonMuted)
+                }
+            },
+            containerColor = CanonSurface,
+        )
     }
 }
 
@@ -171,6 +255,8 @@ private fun QuickPlaceRow(
     title: String,
     subtitle: String?,
     named: Boolean = false,
+    // Убрать строку из списка. null — крестика нет (например, у строк, которые не удаляются).
+    onDelete: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     // Без рамки. Пять обведённых строк подряд превращают экран в таблицу — это приём
@@ -198,6 +284,18 @@ private fun QuickPlaceRow(
             Column(Modifier.weight(1f)) {
                 Text(title, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 if (subtitle != null) Text(subtitle, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
+            }
+            if (onDelete != null) {
+                // Приглушённый, не красный: это не опасное действие, а уборка. Красным
+                // здесь мы пугали бы человека каждый раз, когда он просто смотрит список.
+                IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = appText("Убрать «$title»", "«$title» алып ташлау"),
+                        tint = CanonMuted,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }
