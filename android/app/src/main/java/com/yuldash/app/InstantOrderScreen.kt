@@ -732,8 +732,12 @@ internal fun InstantRouteMap(
     // Куда машины ехали в прошлый раз — чтобы новое положение не «телепортировалось».
     val prevCars = remember { mutableStateOf<List<Point>>(emptyList()) }
     val carShown = remember { mutableStateOf<List<Point>>(emptyList()) }
+    // Класс кузова каждой машины — тем же порядком, что и точки: сопоставление по близости
+    // сохраняет порядок целевого списка, поэтому индексы совпадают.
+    val carCats = remember { mutableStateOf<List<String?>>(emptyList()) }
     LaunchedEffect(nearbyDrivers, to) {
         val target = if (to == null) nearbyDrivers.map { Point(it.lat, it.lng) } else emptyList()
+        carCats.value = if (to == null) nearbyDrivers.map { it.category } else emptyList()
         val from = matchByProximity(prevCars.value, target)
         prevCars.value = target
         if (from.isEmpty() || target.isEmpty()) { carShown.value = target; return@LaunchedEffect }
@@ -751,19 +755,25 @@ internal fun InstantRouteMap(
         }
         carShown.value = target
     }
-    DisposableEffect(carShown.value, mapZoom, to) {
+    val тёмная = appIsDark()
+    DisposableEffect(carShown.value, carCats.value, mapZoom, to, тёмная) {
         val map = mapView.mapWindow.map
         val carObjs = mutableListOf<com.yandex.mapkit.map.MapObject>()
         // Ячейка сетки в градусах: чем дальше камера, тем крупнее клетка и тем охотнее
         // соседние машины собираются в одну метку. На близком зуме клетка меньше дома,
         // и группировка не срабатывает вовсе — видно каждую машину отдельно.
         val cell = 0.6 / Math.pow(2.0, mapZoom.toDouble() - 4.0)
-        groupPoints(carShown.value, cell).forEach { (center, count) ->
+        val cats = carCats.value
+        groupCars(carShown.value, cell).forEach { (center, члены) ->
             runCatching {
                 carObjs += map.mapObjects.addPlacemark(center).apply {
+                    // Одна машина — показываем её класс. Несколько — кружок с числом:
+                    // спорить, чьей картинкой изображать группу из эконома и бизнеса, незачем.
                     setIcon(
-                        if (count > 1) ImageProvider.fromBitmap(carClusterBitmap(count))
-                        else ImageProvider.fromBitmap(mapVehicleBitmap(ctx, MapVehicleIcon.Taxi)),
+                        if (члены.size > 1) ImageProvider.fromBitmap(carClusterBitmap(члены.size))
+                        else ImageProvider.fromBitmap(
+                            mapVehicleBitmap(ctx, mapVehicleIconFor(cats.getOrNull(члены[0]), тёмная)),
+                        ),
                     )
                     setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0.5f)))
                 }
@@ -809,22 +819,26 @@ internal fun matchByProximity(prev: List<Point>, target: List<Point>): List<Poin
  * маршрута. Клетка задаётся вызывающим по зуму: на близком масштабе она меньше дома
  * и ничего не склеивает, на дальнем — собирает целый район в один кружок.
  */
-internal fun groupPoints(points: List<Point>, cell: Double): List<Pair<Point, Int>> {
+internal fun groupCars(points: List<Point>, cell: Double): List<Pair<Point, List<Int>>> {
     if (points.isEmpty()) return emptyList()
-    if (cell <= 0.0) return points.map { it to 1 }
-    val buckets = LinkedHashMap<Pair<Long, Long>, MutableList<Point>>()
-    points.forEach { p ->
+    if (cell <= 0.0) return points.mapIndexed { i, p -> p to listOf(i) }
+    val buckets = LinkedHashMap<Pair<Long, Long>, MutableList<Int>>()
+    points.forEachIndexed { i, p ->
         val key = Math.round(p.latitude / cell) to Math.round(p.longitude / cell)
-        buckets.getOrPut(key) { mutableListOf() }.add(p)
+        buckets.getOrPut(key) { mutableListOf() }.add(i)
     }
-    return buckets.values.map { group ->
+    return buckets.values.map { члены ->
         // Метка встаёт в середину своей группы, а не в угол клетки: иначе кружок
         // повисает на пустом месте рядом с машинами, которые он изображает.
-        val lat = group.sumOf { it.latitude } / group.size
-        val lng = group.sumOf { it.longitude } / group.size
-        Point(lat, lng) to group.size
+        val lat = члены.sumOf { points[it].latitude } / члены.size
+        val lng = члены.sumOf { points[it].longitude } / члены.size
+        Point(lat, lng) to члены.toList()
     }
 }
+
+/** То же самое, но без состава группы — только точка и сколько машин в ней. */
+internal fun groupPoints(points: List<Point>, cell: Double): List<Pair<Point, Int>> =
+    groupCars(points, cell).map { (center, члены) -> center to члены.size }
 
 // ==================================== ПАССАЖИР ====================================
 
@@ -1601,16 +1615,22 @@ private fun InstantDestinationPicker(
         estimating = false
     }
 
-    // «Честные машины рядом»: пока адрес Б не выбран — реальные машины на линии рядом (presence).
-    // Обновляем раз в 15с. Выбрал адрес → прячем (на карте появится маршрут). Нет — просто пусто.
+    // «Честные машины рядом»: реальные машины на линии у точки А (presence), раз в 15с.
+    // Отвечают на вопрос «когда за мной приедут» — и до выбора адреса Б, и после него.
+    //
+    // Раньше опрос выключался, как только выбран адрес Б, а список обнулялся. Ноль машин
+    // при выбранном маршруте попадал в ветку «рядом машин нет — поищем дальше», и человек
+    // читал это ровно над кнопкой «Вызвать»: машина стоит в минуте езды, а приложение
+    // отговаривает заказывать. На самом деле это было не «машин нет», а «я перестал
+    // спрашивать» — разницу видно только из кода. На карте машины по-прежнему прячутся
+    // при выбранном маршруте (см. блок отрисовки), там их место занимает сам маршрут.
     var nearbyDrivers by remember { mutableStateOf<List<com.yuldash.app.data.NearbyDriverDto>>(emptyList()) }
     // Пришёл ли хоть один УСПЕШНЫЙ ответ. Без этого «машин рядом нет» и «ещё не спросили»
     // выглядят одинаково — пустым местом, и мы молча врём человеку, что рядом пусто.
     var nearbyLoaded by remember { mutableStateOf(false) }
     // Пока экран перед глазами — переспрашиваем, какие машины рядом. Свернул приложение →
     // опрос засыпает: искать машины для человека, который сейчас не выбирает поездку, незачем.
-    RepeatWhileVisible(effFrom, toPoint) {
-        if (toPoint != null) { nearbyDrivers = emptyList(); return@RepeatWhileVisible }
+    RepeatWhileVisible(effFrom) {
         val f = effFrom ?: return@RepeatWhileVisible
         var fails = 0
         while (isActive) {
@@ -1731,9 +1751,31 @@ private fun InstantDestinationPicker(
                             .height(1.dp)
                             .background(CanonBorder),
                     )
+                    // Остановки по пути — между «откуда» и «куда», в порядке заезда.
+                    // Раньше они жили отдельным блоком ниже по списку, и маршрут читался
+                    // разорванным: две точки сверху, а то, что между ними, — где-то там.
+                    stops.forEachIndexed { i, stop ->
+                        OrderStopRow(
+                            text = stop.text,
+                            onRemove = { stops = stops.filterIndexed { j, _ -> j != i } },
+                        )
+                        Box(
+                            Modifier
+                                .padding(start = 50.dp)
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(CanonBorder),
+                        )
+                    }
                     if (toPoint != null) {
                         OrderDestinationRow(
                             text = toText.ifBlank { appText("Точка на карте", "Картала нөктә") },
+                            // Время в пути — подписью под адресом. Сервер его считает всегда,
+                            // а видно его было только в раскрытых деталях заказа: человек знал
+                            // цену и не знал, во сколько будет на месте.
+                            tripMin = estimate?.etaMin?.toInt()?.takeIf { it > 0 },
+                            canAddStop = stops.size < InstantStopsMax,
+                            onAddStop = { addingStop = true },
                             onEdit = { toPoint = null; query = ""; estimate = null },
                         )
                     } else {
@@ -1834,6 +1876,11 @@ private fun InstantDestinationPicker(
                                 price = opt?.price,
                                 selected = isOpen && category == cls.category,
                                 enabled = isOpen,
+                                iconRes = cls.iconRes,
+                                iconNightRes = cls.iconNightRes,
+                                // Минуты — только для открытого класса и только когда машины
+                                // этого класса реально рядом: иначе цифра станет обещанием.
+                                pickupEtaMin = if (isOpen) opt?.pickupEtaMin else null,
                                 onClick = {
                                     if (isOpen) {
                                         category = cls.category
@@ -1845,13 +1892,19 @@ private fun InstantDestinationPicker(
                                         classWanted = cls.category
                                     }
                                 },
-                                // Уже, чем было: у Яндекса в ряду видно пять тарифов, у нас
-                                // помещалось две с половиной — ряд не читался как выбор, потому
-                                // что выбирать было будто не из чего.
-                                modifier = Modifier.width(118.dp),
+                                // Ширина под картинку машины: в экран влезает три карточки и
+                                // край четвёртой. Обрезанный край — самый честный намёк «листай
+                                // дальше»: без него Минивэн просто не существовал для человека.
+                                modifier = Modifier.width(132.dp),
                             )
                         }
                     }
+                    // Что выбрано в салоне — сразу под машинами. Опция относится к машине,
+                    // поэтому и стоит рядом с её выбором, а не в свёрнутом списке ниже.
+                    InstantChosenOptionsRow(
+                        selected = orderOptions,
+                        onRemove = { code -> orderOptionsCsv = (orderOptions - code).joinToString(",") },
+                    )
                 }
                 // Подтверждение по «скоро»-классу: тёплым текстом, без формы и обещаний срока.
                 AnimatedVisibility(
@@ -2072,15 +2125,8 @@ private fun InstantDestinationPicker(
                         forPhone = forPhone, onForPhone = { forPhone = it.take(32) },
                     )
                 }
-                // Остановки по пути. Показываем, когда маршрут уже задан: до этого добавлять
-                // «по пути» некуда — пути ещё нет.
-                if (toPoint != null) {
-                    InstantStopsBlock(
-                        stops = stops,
-                        onRemove = { idx -> stops = stops.filterIndexed { i, _ -> i != idx } },
-                        onAdd = { addingStop = true },
-                    )
-                }
+                // Остановки переехали в карточку маршрута наверху — там им и место: это
+                // точки пути, а не настройка заказа. Здесь остаётся только лист выбора адреса.
                 if (addingStop) {
                     PickStopSheet(
                         onDismiss = { addingStop = false },
@@ -2581,13 +2627,24 @@ internal data class InstantClassInfo(
     val category: String,
     val titleRu: String, val titleBa: String,
     val subtitleRu: String, val subtitleBa: String,
+    /** Картинка машины класса — главный опознавательный знак тарифа. Файлы лежат
+     *  в res/drawable-nodpi, меняются без правки кода. */
+    val iconRes: Int,
+    /** Ночная версия картинки. Нужна там, где дневная тонет в тёмном фоне: чёрный седан
+     *  Бизнеса ночью превращался в пару фар. Нет ночной — показываем дневную. */
+    val iconNightRes: Int? = null,
 )
 
 internal val InstantClasses = listOf(
-    InstantClassInfo("standard", "Эконом", "Эконом", "обычная машина", "ғәҙәти машина"),
-    InstantClassInfo("comfort", "Комфорт", "Комфорт", "новее и с кондиционером", "яңыраҡ, кондиционерлы"),
-    InstantClassInfo("business", "Бизнес", "Бизнес", "седан премиум-класса", "премиум класслы седан"),
-    InstantClassInfo("minivan", "Минивэн", "Минивэн", "6–8 мест", "6–8 урын"),
+    InstantClassInfo("standard", "Эконом", "Эконом", "обычная машина", "ғәҙәти машина",
+                     R.drawable.yuldash_tariff_economy),
+    InstantClassInfo("comfort", "Комфорт", "Комфорт", "новее и с кондиционером", "яңыраҡ, кондиционерлы",
+                     R.drawable.yuldash_tariff_comfort),
+    InstantClassInfo("business", "Бизнес", "Бизнес", "седан премиум-класса", "премиум класслы седан",
+                     R.drawable.yuldash_tariff_business,
+                     iconNightRes = R.drawable.yuldash_tariff_business_night),
+    InstantClassInfo("minivan", "Минивэн", "Минивэн", "6–8 мест", "6–8 урын",
+                     R.drawable.yuldash_tariff_minivan),
 )
 
 @Composable
@@ -2599,6 +2656,9 @@ private fun InstantClassCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    iconRes: Int? = null,
+    iconNightRes: Int? = null,
+    pickupEtaMin: Int? = null,
 ) {
     // Сохраняем общий Mobility-компонент с radio-семантикой и добавляем
     // мягкий тактильный масштаб из входящей ветки.
@@ -2613,6 +2673,9 @@ private fun InstantClassCard(
         selected = selected,
         onClick = onClick,
         modifier = modifier.graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha },
+        iconRes = iconRes,
+        iconNightRes = iconNightRes,
+        pickupEtaMin = pickupEtaMin,
     )
 }
 
@@ -2637,6 +2700,54 @@ internal val InstantOptions = listOf(
     InstantOptionInfo("pets", "С животным", "Хайуан менән", "🐾"),
     InstantOptionInfo("big_luggage", "Большой багаж", "Ҙур багаж", "🧳"),
 )
+
+/**
+ * Выбранные опции салона — чипами. Тап по чипу снимает опцию.
+ *
+ * Крестик тут не отдельная кнопка, а знак «нажми — уберётся»: две цели касания рядом на
+ * чипе шириной в палец промахиваются друг в друга, и человек снимает не то, что хотел.
+ */
+@Composable
+private fun InstantChosenOptionsRow(selected: Set<String>, onRemove: (String) -> Unit) {
+    AnimatedVisibility(
+        visible = selected.isNotEmpty(),
+        enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(),
+        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(),
+    ) {
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+        ) {
+            InstantOptions.filter { it.code in selected }.forEach { opt ->
+                val label = appText(opt.labelRu, opt.labelBa)
+                Surface(
+                    onClick = { onRemove(opt.code) },
+                    shape = CanonTinyShape,
+                    color = CanonTaxiBg,
+                    modifier = Modifier.minimumInteractiveComponentSize(),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = CanonSpace.sm, vertical = CanonSpace.xs),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+                    ) {
+                        Text(opt.emoji, fontSize = TxCaption, lineHeight = LhCaption)
+                        Text(label, color = CanonText, fontSize = TxCaption, lineHeight = LhCaption,
+                             fontWeight = FontWeight.Medium, maxLines = 1)
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = appText("Убрать: $label", "Алыу: $label"),
+                            tint = CanonMutedStrong,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 @Composable
 private fun InstantOptionsBlock(selected: Set<String>, onToggle: (String) -> Unit) {
@@ -5810,49 +5921,12 @@ internal fun ChangeDestinationSheet(
 
 // ------------------------------ остановки по пути ------------------------------
 // Смысл остановки в том, что за неё платят. Без этого водитель везёт лишние километры даром,
-// а пассажир не понимает, почему цена не изменилась. Числом не ограничиваем: предохранитель
-// не в лимите, а в том, что каждая остановка стоит денег, а водитель может сойти.
-
-@Composable
-private fun InstantStopsBlock(
-    stops: List<com.yuldash.app.data.TaxiStop>,
-    onRemove: (Int) -> Unit,
-    onAdd: () -> Unit,
-) {
-    Surface(color = CanonSurface, shape = CanonItemShape) {
-        Column(Modifier.fillMaxWidth().padding(CanonSpace.md),
-               verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
-            stops.forEachIndexed { i, stop ->
-                Row(verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
-                    Icon(Icons.Default.Place, contentDescription = null, tint = CanonGreen2,
-                         modifier = Modifier.size(18.dp))
-                    Text(stop.text, style = CanonBody, color = CanonText,
-                         maxLines = 1, overflow = TextOverflow.Ellipsis,
-                         modifier = Modifier.weight(1f))
-                    Surface(
-                        modifier = Modifier.minimumInteractiveComponentSize(),
-                        onClick = { onRemove(i) }, shape = CircleShape, color = CanonSurface,
-                    ) {
-                        Icon(Icons.Default.Close,
-                             contentDescription = appText("Убрать остановку", "Туҡталышты алыу"),
-                             tint = CanonMuted, modifier = Modifier.padding(12.dp).size(18.dp))
-                    }
-                }
-            }
-            TextButton(onClick = onAdd, modifier = Modifier.heightIn(min = 48.dp)) {
-                Icon(Icons.Default.Add, contentDescription = null, tint = CanonGreen2,
-                     modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(CanonSpace.xs))
-                Text(
-                    if (stops.isEmpty()) appText("Заехать по пути", "Юлда инеп сығыу")
-                    else appText("Ещё остановка", "Тағы туҡталыш"),
-                    style = CanonBody, color = CanonGreen2,
-                )
-            }
-        }
-    }
-}
+// а пассажир не понимает, почему цена не изменилась.
+//
+// Больше трёх не даём: каждая остановка удлиняет поездку и цену, а водитель на четвёртой
+// начинает отказываться — заказ висит, и виноватым выглядит приложение. Сами строки живут
+// в карточке маршрута (OrderStopRow), здесь остаётся только выбор адреса.
+internal const val InstantStopsMax = 3
 
 /** Выбор места для остановки. Тот же поиск адреса, что на экране заказа. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -5944,14 +6018,87 @@ internal fun DriverStopButton(
  * человеку нужно видеть результат и иметь возможность передумать одним тапом.
  */
 @Composable
-private fun OrderDestinationRow(text: String, onEdit: () -> Unit) {
-    OrderPointRow(
-        icon = Icons.Default.Place,
-        tint = CanonGold,
-        text = text,
-        actionLabel = appText("Изменить", "Үҙгәртеү"),
-        onAction = onEdit,
-    )
+private fun OrderDestinationRow(
+    text: String,
+    onEdit: () -> Unit,
+    tripMin: Int? = null,
+    canAddStop: Boolean = false,
+    onAddStop: () -> Unit = {},
+) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = CanonSpace.md, end = CanonSpace.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Default.Place, contentDescription = null, tint = CanonGold,
+             modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(CanonSpace.md))
+        Column(Modifier.weight(1f)) {
+            Text(text, style = CanonBodyStrong, color = CanonText,
+                 maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Появляется вместе с расчётом — плавно, а не рывком: цена и время приходят
+            // одним ответом, и подпись не должна дёргать строку адреса при каждом пересчёте.
+            AnimatedVisibility(
+                visible = tripMin != null,
+                enter = fadeIn(tween(CanonMotion.NORMAL)),
+                exit = fadeOut(tween(CanonMotion.QUICK)),
+            ) {
+                Text(
+                    appText("≈ $tripMin мин в пути", "≈ $tripMin мин юлда"),
+                    style = CanonCaption, color = CanonMuted, maxLines = 1,
+                )
+            }
+        }
+        // «Заехать по пути» — круглой кнопкой у адреса (образец Яндекс). Механизм остановок
+        // готов давно, но вход в него лежал в деталях заказа: о нём знал только тот, кто уже
+        // полез в настройки. «Заедем за мамой» — обычная поездка, а не настройка.
+        if (canAddStop) {
+            Surface(
+                onClick = onAddStop,
+                shape = CircleShape,
+                color = CanonBg,
+                modifier = Modifier.minimumInteractiveComponentSize(),
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = appText("Заехать по пути", "Юлда инеп сығыу"),
+                    tint = CanonGreen2,
+                    modifier = Modifier.padding(CanonSpace.sm).size(20.dp),
+                )
+            }
+        }
+        TextButton(onClick = onEdit, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text(appText("Изменить", "Үҙгәртеү"), style = CanonBody, color = CanonGreen2, maxLines = 1)
+        }
+    }
+}
+
+/** Остановка по пути — строка в карточке маршрута. Убрать можно одним тапом: список
+ *  собирают на ходу, и ошибиться адресом здесь так же легко, как в «куда». */
+@Composable
+private fun OrderStopRow(text: String, onRemove: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = CanonSpace.md, end = CanonSpace.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Default.Place, contentDescription = null, tint = CanonGreen2,
+             modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(CanonSpace.md))
+        Text(text, style = CanonBody, color = CanonText, maxLines = 1,
+             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Surface(
+            onClick = onRemove,
+            shape = CircleShape,
+            color = CanonBg,
+            modifier = Modifier.minimumInteractiveComponentSize(),
+        ) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = appText("Убрать остановку", "Туҡталышты алыу"),
+                tint = CanonMuted,
+                modifier = Modifier.padding(CanonSpace.sm).size(18.dp),
+            )
+        }
+    }
 }
 
 /**

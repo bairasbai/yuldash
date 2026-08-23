@@ -102,10 +102,10 @@ class EstimateIn(BaseModel):
     round_trip: bool = False
     # Сколько водитель ждёт на месте, минут. Ноль = обычная поездка в одну сторону.
     return_wait_min: int = Field(0, ge=0, le=24 * 60)
-    # Остановки по пути: A → точки → B. Числом не ограничиваем (решение Александра) —
-    # предохранитель не в лимите, а в том, что каждая остановка стоит денег, а водитель
-    # в любой момент может сойти. Верхняя граница здесь только против явного мусора.
-    waypoints: list[WaypointIn] = Field(default_factory=list, max_length=20)
+    # Остановки по пути: A → точки → B. Не больше трёх (решение Александра, 2026-08-23):
+    # каждая удлиняет поездку и цену, а на четвёртой водители начинают отказываться — заказ
+    # висит до истечения, и виноватым выглядит приложение. Экран даёт столько же.
+    waypoints: list[WaypointIn] = Field(default_factory=list, max_length=3)
     # ВНИМАНИЕ: поля цены здесь НЕТ намеренно — сервер считает сам, клиенту не верим.
 
 
@@ -127,8 +127,12 @@ class OrderIn(EstimateIn):
 
 
 class WaypointsIn(BaseModel):
-    """Новый набор остановок. Проеденные сюда не входят — сервер сохранит их сам."""
-    waypoints: list[WaypointIn] = Field(default_factory=list, max_length=20)
+    """Новый набор остановок. Проеденные сюда не входят — сервер сохранит их сам.
+
+    Лимит тот же, что при заказе: три ещё не проеденные точки. Проеденные не считаются —
+    спорить о том, что уже позади, не о чем.
+    """
+    waypoints: list[WaypointIn] = Field(default_factory=list, max_length=3)
 
 
 class DestinationIn(BaseModel):
@@ -285,13 +289,17 @@ def instant_demand(city: Optional[str] = None, user: User = Depends(current_user
 
 
 @router.get("/instant/nearby-drivers")
-def nearby_drivers_ep(lat: float, lng: float, user: User = Depends(current_user)):
+def nearby_drivers_ep(lat: float, lng: float, user: User = Depends(current_user),
+                      session: Session = Depends(get_session)):
     """Свободные машины «на линии» рядом с пассажиром — АНОНИМНЫЕ точки на карте + ≈ETA
-    до подачи (для карты в режиме такси). Только реальные presence-данные, без личности
-    водителя (ни id, ни телефона). Нет Redis → пустой список (карта просто без машинок)."""
+    до подачи и класс кузова (для карты в режиме такси). Только реальные presence-данные,
+    без личности водителя (ни id, ни телефона). Нет Redis → пустой список (карта без машинок).
+
+    Класс нужен, чтобы метка выглядела как та машина, которая приедет: человек выбрал Бизнес
+    и должен видеть на карте бизнес-машины, а не одинаковые точки."""
     if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
         raise herr(400, "Некорректные координаты", "Координаталар дөрөҫ түгел")
-    return {"drivers": isv.nearby_drivers(lat, lng)}
+    return {"drivers": isv.nearby_drivers(lat, lng, session=session)}
 
 
 # ------------------------------ presence ------------------------------

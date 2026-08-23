@@ -2461,6 +2461,8 @@ object ApiClient {
                         // с open=false, чтобы показать «скоро» вместо кнопки, за которой пусто.
                         // Старый сервер поля не шлёт → true, прежнее поведение.
                         open = c.optBoolean("open", true),
+                        pickupEtaMin = if (c.isNull("pickup_eta_min")) null
+                        else c.optInt("pickup_eta_min").takeIf { it > 0 },
                     )
                 },
                 basePrice = o.optInt("base_price"),
@@ -3101,7 +3103,10 @@ object ApiClient {
             val arr = o.optJSONArray("drivers") ?: org.json.JSONArray()
             (0 until arr.length()).map { i ->
                 val d = arr.getJSONObject(i)
-                NearbyDriverDto(d.optDouble("lat"), d.optDouble("lng"), d.optInt("eta_min", 1))
+                NearbyDriverDto(
+                    d.optDouble("lat"), d.optDouble("lng"), d.optInt("eta_min", 1),
+                    category = d.optString("category").takeIf { it.isNotBlank() },
+                )
             }
         }
 
@@ -4833,7 +4838,14 @@ class ApiException(val status: Int, message: String) : Exception(message)
 
 /** Цена одного класса машины в options оценки — все цены одним запросом.
  *  `open=false` — класс есть в тарифах, но в этом городе ещё не набралось водителей. */
-data class InstantClassOption(val category: String, val price: Int, val open: Boolean = true)
+data class InstantClassOption(
+    val category: String,
+    val price: Int,
+    val open: Boolean = true,
+    /** Через сколько подъедет машина ИМЕННО этого класса. null = таких рядом нет либо
+     *  сервер старый — тогда на карточке минут не пишем вовсе, а не показываем чужие. */
+    val pickupEtaMin: Int? = null,
+)
 
 /** Что предложить, когда в выбранном классе никого. Цена — уже пересчитанная под этот класс. */
 data class InstantAlternativeDto(val category: String, val price: Int, val priceDiff: Int)
@@ -5341,7 +5353,15 @@ data class DistrictDto(val district: String, val region: String, val settlements
 
 /** Смена такси за местный день (волна 2, §8 Отдых): прогресс к 8-часовому лимиту и блок отдыха. */
 /** Свободная машина рядом (для карты такси): анонимная точка + ≈ETA до подачи. Без личности. */
-data class NearbyDriverDto(val lat: Double, val lng: Double, val etaMin: Int)
+data class NearbyDriverDto(
+    val lat: Double,
+    val lng: Double,
+    val etaMin: Int,
+    /** Класс кузова: standard | comfort | business | minivan. null = сервер не сказал,
+     *  тогда на карте рисуем общую машинку. Это «какая машина», а не «кто за рулём»:
+     *  точка остаётся анонимной. */
+    val category: String? = null,
+)
 
 data class TaxiWorkdayDto(
     val day: String,                 // местный день учёта, ISO ("2026-07-10")

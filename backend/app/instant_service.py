@@ -141,13 +141,19 @@ def driver_go_offline(session, profile) -> None:
     presence_offline(profile.user_id)
 
 
-def nearby_drivers(lat: float, lng: float, limit: int = 8) -> list[dict]:
+def nearby_drivers(lat: float, lng: float, limit: int = 8,
+                   session: Optional[Session] = None) -> list[dict]:
     """Свободные машины «на линии» рядом с пассажиром — АНОНИМНЫЕ позиции + ≈ETA до подачи.
 
     Только РЕАЛЬНЫЕ данные из presence (Redis GEO), без выдуманного: показываем машины,
     которые действительно на линии рядом. Личность водителя НЕ раскрываем (ни id, ни имя,
     ни телефон) — только точка на карте и оценка «≈N мин до тебя» (та же средняя скорость,
-    что в оценке заказа). Нет Redis → пустой список (честно «не знаю», UI просто без машинок)."""
+    что в оценке заказа). Нет Redis → пустой список (честно «не знаю», UI просто без машинок).
+
+    С `session` добавляем ещё и класс кузова (`car_class`): на карте метка тогда выглядит
+    как та машина, которая реально приедет, — эконом жёлтый, бизнес серебристый, минивэн
+    крупнее. Это «какая машина», а не «кто за рулём»: анонимность точки не меняется.
+    """
     r = _redis()
     if r is None:
         return []
@@ -157,7 +163,7 @@ def nearby_drivers(lat: float, lng: float, limit: int = 8) -> list[dict]:
                             withcoord=True, withdist=True, sort="ASC", count=limit * 2)
     except Exception:  # noqa: BLE001 — сбой GEO → просто без машинок, не падаем
         return []
-    out: list[dict] = []
+    живые: list[tuple[int, float, list]] = []
     for m in found:
         # withdist+withcoord → [member, dist_km, [lng, lat]]
         try:
@@ -165,12 +171,88 @@ def nearby_drivers(lat: float, lng: float, limit: int = 8) -> list[dict]:
             did = _member_driver_id(member)
         except (ValueError, IndexError, TypeError, AttributeError):
             continue
-        if not presence_alive(r, did):
-            continue
-        eta = max(1, round(dist_km / settings.instant_avg_speed_kmh * 60))
-        out.append({"lat": float(coord[1]), "lng": float(coord[0]), "eta_min": eta})
-        if len(out) >= limit:
+        if presence_alive(r, did):
+            живые.append((did, dist_km, coord))
+        if len(живые) >= limit:
             break
+    # Классы кузова — ОДНИМ запросом на весь список: карта опрашивает эту ручку раз в 15 секунд,
+    # и поход в базу за каждой машиной превратил бы её в десяток запросов на каждый опрос.
+    классы: dict[int, str] = {}
+    if session is not None and живые:
+        классы = {
+            p.user_id: cc.class_to_category(p.car_class)
+            for p in session.exec(
+                select(DriverProfile).where(DriverProfile.user_id.in_([d for d, _, _ in живые]))
+            ).all()
+        }
+    out: list[dict] = []
+    for did, dist_km, coord in живые:
+        eta = max(1, round(dist_km / settings.instant_avg_speed_kmh * 60))
+        точка = {"lat": float(coord[1]), "lng": float(coord[0]), "eta_min": eta}
+        # Без класса клиент рисует прежнюю общую машинку — старые клиенты этого поля не знают.
+        if did in классы:
+            точка["category"] = классы[did]
+        out.append(точка)
+    return out
+
+
+def nearby_pickup_eta_by_category(session: Session, lat: float, lng: float,
+                                  limit: int = 40) -> dict[str, int]:
+    """Через сколько подъедет ближайшая машина КАЖДОГО класса — минуты по категориям заказа.
+
+    Зачем отдельно от `nearby_drivers`. Тот отвечает на вопрос «есть ли вообще кто-то рядом»
+    и не смотрит на классы. Витрина же ставит четыре тарифа в ряд, и одна общая цифра на
+    всех четырёх — это обещание подачи за тот класс, машин которого рядом может не быть
+    вовсе: бизнес-седан один на город, а карточка обещает те же две минуты, что и эконом.
+
+    Класс берём ТОТ ЖЕ, по которому работает подбор: доступные машине ∩ включённые
+    водителем (`cc.effective_classes`). Иначе витрина обещала бы подачу от машины, которой
+    оффер по этому классу даже не придёт.
+
+    Личность не раскрываем: наружу уходит только «в этом классе ближайшая за N минут» —
+    ни id, ни имени, ни координат конкретного водителя.
+    """
+    r = _redis()
+    if r is None:
+        return {}
+    try:
+        # Радиус — самый широкий круг ПОДБОРА (RADII_KM), а не радиус суржа. Витрина обязана
+        # показывать ту же картину, что и поиск машины: иначе на карточке «нет машин», а заказ
+        # спокойно находит водителя в двенадцати километрах — и человек не понял, почему ждал.
+        found = r.geosearch(PRESENCE_KEY, longitude=lng, latitude=lat,
+                            radius=RADII_KM[-1], unit="km",
+                            withdist=True, sort="ASC", count=limit)
+    except Exception:  # noqa: BLE001 — сбой GEO → просто без минут, экран работает дальше
+        return {}
+    # sort="ASC" → первый встреченный в классе и есть ближайший, сортировать заново не нужно.
+    pairs: list[tuple[int, float]] = []
+    for m in found:
+        try:
+            did, dist_km = _member_driver_id(m[0]), float(m[1])
+        except (ValueError, IndexError, TypeError, AttributeError):
+            continue
+        if presence_alive(r, did):
+            pairs.append((did, dist_km))
+    if not pairs:
+        return {}
+    # Профили — ОДНИМ запросом. Оценка цены пересчитывается на каждое движение точки по карте;
+    # поход в базу за каждым найденным водителем превратил бы это в десятки запросов на жест.
+    profiles = {
+        p.user_id: p
+        for p in session.exec(
+            select(DriverProfile).where(DriverProfile.user_id.in_([d for d, _ in pairs]))
+        ).all()
+    }
+    out: dict[str, int] = {}
+    for did, dist_km in pairs:
+        p = profiles.get(did)
+        if p is None:
+            continue
+        avail = cc.available_or_legacy(getattr(p, "car_classes_available", ""), p.car_class)
+        for cls in cc.effective_classes(avail, getattr(p, "car_classes_enabled", "")):
+            cat = cc.class_to_category(cls)
+            if cat not in out:
+                out[cat] = max(1, round(dist_km / settings.instant_avg_speed_kmh * 60))
     return out
 
 
@@ -634,6 +716,9 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     # Так мы ещё и меряем спрос до того, как искать машины.
     place = class_rollout.place_at(session, frm[0], frm[1])
     opened = class_rollout.open_categories(session, place)
+    # Подача считается по классам: у каждой карточки в витрине своё число минут.
+    # Пусто для класса = машин этого класса рядом нет; клиент тогда молчит, а не выдумывает.
+    pickup_eta_by_cat = nearby_pickup_eta_by_category(session, frm[0], frm[1])
     options = []
     # Тарифы забираем ОДНИМ запросом, а не по одному на класс.
     #
@@ -660,6 +745,8 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
                 "base_price": _tariff_price(ct, dist_km, eta_min, 1.0),
                 "dynamic_k": ct_dynamic,
                 "open": cat in opened,
+                # Через сколько подъедет машина ИМЕННО этого класса. None → рядом таких нет.
+                "pickup_eta_min": pickup_eta_by_cat.get(cat),
             })
 
     return {

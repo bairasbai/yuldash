@@ -131,7 +131,12 @@ def test_nearby_drivers_anonymous(client, user_factory, fake_redis):
     drivers = resp.json()["drivers"]
     assert len(drivers) >= 1
     d0 = drivers[0]
-    assert set(d0.keys()) == {"lat", "lng", "eta_min"}             # только точка + ETA
+    # Точка + ETA + класс кузова. Класс добавлен, чтобы метка на карте выглядела как та машина,
+    # которая приедет (эконом жёлтый, бизнес серебристый). Это «какая машина», а не «кто за
+    # рулём»: личность по нему не восстановить. Список ключей проверяем строго — новое поле
+    # в анонимной выдаче должно проходить через этот тест осознанно, а не проскакивать молча.
+    assert set(d0.keys()) <= {"lat", "lng", "eta_min", "category"}, d0
+    assert {"lat", "lng", "eta_min"} <= set(d0.keys()), d0
     assert d0["eta_min"] >= 1
     # приватность: никакой личности не утекает
     for leak in ("driver_id", "id", "phone", "name", "user_id"):
