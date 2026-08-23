@@ -866,6 +866,10 @@ internal fun InstantOrderScreen(
     // «Мои адреса»: дом, работа и свои места. Из шторки заказа туда ведёт постоянная строка —
     // без неё завести второй адрес неоткуда (решение Александра, Q2).
     onSavedPlaces: () -> Unit = {},
+    // Чем рассчитываются с водителем и куда идти это менять. Экран сам ничего не помнит:
+    // выбор живёт выше и переживает уход с экрана — платят изо дня в день одинаково.
+    payMethod: String = PayMethods.CASH,
+    onOpenPayments: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val loggedIn = ApiClient.isLoggedIn()
@@ -1100,6 +1104,8 @@ internal fun InstantOrderScreen(
                         onOrderCreated = { order = it },
                         onSavedPlaces = onSavedPlaces,
                         embedded = embedded,
+                        payMethod = payMethod,
+                        onOpenPayments = onOpenPayments,
                         onScheduled = { scheduled ->
                             scheduledConfirmId = scheduled.id
                             scheduledConfirmAt = scheduled.scheduledAt
@@ -1480,6 +1486,8 @@ private fun InstantDestinationPicker(
     // Экран встроен в хаб (под ним своя нижняя панель) или открыт отдельно. От этого зависит,
     // берёт ли шторка запас под системную навигацию — иначе отступ считается дважды.
     embedded: Boolean = false,
+    payMethod: String = PayMethods.CASH,
+    onOpenPayments: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -2196,6 +2204,34 @@ private fun InstantDestinationPicker(
                     horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // Способ расчёта — слева от главной кнопки (образец Яндекс). Значок
+                    // отвечает на вопрос «чем я плачу» без единого слова; подпись под ним
+                    // нужна потому, что купюра и стрелки перевода в мелком размере
+                    // различаются плохо — особенно у пожилых.
+                    Surface(
+                        onClick = onOpenPayments,
+                        shape = InstantControlShape,
+                        color = CanonBg,
+                        modifier = Modifier.minimumInteractiveComponentSize().width(64.dp),
+                    ) {
+                        Column(
+                            Modifier.padding(vertical = CanonSpace.xs).heightIn(min = 54.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(
+                                PayMethods.icon(payMethod),
+                                contentDescription = appText("Способ оплаты", "Түләү ысулы"),
+                                tint = CanonGreen2,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Text(
+                                PayMethods.short(payMethod),
+                                color = CanonMutedStrong, fontSize = 12.sp, lineHeight = 17.sp,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                     Button(
                         onClick = {
                             val f = effFrom ?: return@Button
@@ -2223,6 +2259,8 @@ private fun InstantDestinationPicker(
                                         roundTrip = roundTrip,
                                         returnWaitMin = if (roundTrip) returnWaitMin else 0,
                                         stops = stops,
+                                        // Чем рассчитаются — водитель увидит это вместе с оффером.
+                                        paymentMethod = payMethod,
                                     )
                                         .onSuccess {
                                             // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
@@ -3258,6 +3296,9 @@ internal fun InstantDriverEnRouteCard(
                     to = order.toText,
                     compact = true,
                 )
+                // Способ расчёта на виду всю поездку: пассажир может сменить его на ходу,
+                // а уведомление за рулём легко пропустить.
+                InstantPayMethodRow(order.paymentMethod)
                 // Карточка водителя
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(shape = CircleShape, color = CanonBg, modifier = Modifier.size(46.dp)) {
@@ -4978,6 +5019,9 @@ internal fun InstantOfferOverlay(
                         toLabel = appText("Назначение", "Барыр урын"),
                         compact = true,
                     )
+                    // Чем рассчитаются. Для водителя это не мелочь: наличные — сдача и налог,
+                    // перевод — банк и телефон под рукой. Знать надо ДО того, как взял заказ.
+                    InstantPayMethodRow(order.paymentMethod)
                     // Пассажир (B7a-4): рейтинг + опыт — водитель решает по данным; новичок — честно.
                     // Агрегат анонимен; имя/телефон откроются только после «Взять заказ».
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -6114,6 +6158,28 @@ private fun OrderInsertStopRow(onClick: () -> Unit) {
             Spacer(Modifier.width(CanonSpace.md))
             Box(Modifier.weight(1f).height(1.dp).background(CanonBorder))
         }
+    }
+}
+
+/**
+ * Строка «чем рассчитаются» — одинаковая у обеих сторон.
+ *
+ * Спор на высадке начинается не с денег, а с того, что об этом не договорились заранее.
+ * Одна строка, видимая обоим, снимает весь разговор.
+ */
+@Composable
+private fun InstantPayMethodRow(method: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+    ) {
+        Icon(PayMethods.icon(method), contentDescription = null, tint = CanonMuted,
+             modifier = Modifier.size(18.dp))
+        Text(
+            appText("Оплата: ", "Түләү: ") + PayMethods.title(method).lowercase(),
+            style = CanonCaption, color = CanonMutedStrong,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

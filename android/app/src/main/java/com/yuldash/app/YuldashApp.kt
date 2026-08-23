@@ -13,6 +13,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -316,6 +317,14 @@ internal fun YuldashApp() {
     val context = LocalContext.current
     val prefs = remember {
         context.getSharedPreferences("yuldash_prefs", android.content.Context.MODE_PRIVATE)
+    }
+    // Память экранов: что было на экране, когда с него ушли (см. SaveableStateProvider ниже).
+    val screenStates = rememberSaveableStateHolder()
+    // Чем человек рассчитывается с водителем. Помним между заказами: платят изо дня в день
+    // одинаково, и заставлять выбирать заново каждый раз — мелкая, но ежедневная работа.
+    // Первый заказ — наличные: «договоримся» звучит нейтрально, но на деле это отложенный спор.
+    var payMethod by remember {
+        mutableStateOf(prefs.getString(PAY_METHOD_PREF, PayMethods.CASH) ?: PayMethods.CASH)
     }
     // Всё состояние приложения живёт в YuldashViewModel (вынесено из god-composable).
     val vm: YuldashViewModel = viewModel()
@@ -960,6 +969,10 @@ internal fun YuldashApp() {
             },
             label = "screen"
         ) { scr ->
+        // Состояние экрана переживает уход с него: ушёл в «Способы оплаты» и вернулся —
+        // маршрут, цена и введённый текст на месте. Обычный `when` уничтожает композицию
+        // ушедшего экрана вместе с его состоянием, и человек вводил адрес заново.
+        screenStates.SaveableStateProvider(scr) {
         when (scr) {
             Screen.Splash -> {
                 // Зелёный «мост» — продолжение СИСТЕМНОГО сплэша, БЕЗ повторной анимации лого.
@@ -1078,6 +1091,8 @@ internal fun YuldashApp() {
                 onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
                 onOpenScheduled = { screen = Screen.ScheduledOrders },
                 onSavedPlaces = { if (ApiClient.isLoggedIn()) screen = Screen.SavedPlaces else screen = Screen.Login },
+                payMethod = payMethod,
+                onOpenPayments = { screen = Screen.PaymentMethods },
                 onCourierMode = { if (ApiClient.isLoggedIn()) screen = Screen.Courier else screen = Screen.Login },
                 onNotifications = { screen = Screen.Notifications },
                 onRouteWatch = { from, to ->
@@ -1285,6 +1300,18 @@ internal fun YuldashApp() {
             Screen.Privacy -> PrivacyScreen(onBack = { goBack() })
             Screen.Rules -> RulesScreen(onBack = { goBack() })
             Screen.PaymentInfo -> PaymentInfoScreen(onBack = { goBack() }, onOpenPricing = { screen = Screen.PricingInfo })
+            Screen.PaymentMethods -> PaymentMethodsScreen(
+                current = payMethod,
+                // Идёт поездка → смена способа уходит и на сервер, а не только в память телефона.
+                activeOrderId = NavSignals.activeTaxiTrip.value,
+                // Выбор помним между заказами: человек платит одинаково изо дня в день,
+                // и заставлять его каждый раз выбирать заново — мелкая, но ежедневная работа.
+                onPick = { m ->
+                    payMethod = m
+                    prefs.edit().putString(PAY_METHOD_PREF, m).apply()
+                },
+                onBack = { goBack() },
+            )
             Screen.PricingInfo -> PricingInfoScreen(onBack = { goBack() })
             Screen.Blocklist -> BlocklistScreen(onBack = { goBack() })
             Screen.Report -> ReportScreen(onBack = { goBack() })
@@ -1306,7 +1333,7 @@ internal fun YuldashApp() {
                 },
                 onPrivacy = { screen = Screen.Privacy },
                 onConsents = { screen = Screen.Consents },
-                onPayments = { screen = Screen.PaymentInfo },
+                onPayments = { screen = Screen.PaymentMethods },
                 onFilters = { screen = Screen.Filters },
                 isAdmin = isAdmin,
                 onAdminCabinet = { screen = Screen.AdminCabinet },
@@ -1601,6 +1628,7 @@ internal fun YuldashApp() {
                 onEarnings = { screen = Screen.CourierEarnings },
             )
             Screen.AdminCourier -> AdminCourierScreen(onBack = { goBack() })
+        }
         }
         }
         }
@@ -2288,6 +2316,9 @@ internal fun HomeScreen(
     onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Такси скоро» водитель уходит в онбординг
     onOpenScheduled: () -> Unit = {},    // «На время»: предзаказ создан из встроенного такси → «Мои предзаказы»
     onSavedPlaces: () -> Unit = {},      // «Мои адреса»: дом, работа и свои места — из шторки заказа
+    // Способ расчёта общий для всех заказов: живёт над экранами и переживает уходы с них.
+    payMethod: String = PayMethods.CASH,
+    onOpenPayments: () -> Unit = {},
     onCourierMode: () -> Unit = {},      // из режима «Курьер» — к работе курьера (заказы, линия, заработок)
     onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → создать поездку с датой-шаблоном
     onTabChange: (HomeTab) -> Unit = {}
@@ -2323,6 +2354,8 @@ internal fun HomeScreen(
                     onRouteWatch = onRouteWatch,
                     onOpenScheduled = onOpenScheduled,
                     onSavedPlaces = onSavedPlaces,
+                    payMethod = payMethod,
+                    onOpenPayments = onOpenPayments,
                     onCourierMode = onCourierMode,
                     onSeasonalPublish = onSeasonalPublish,   // F15: баннер «на праздник» → создать поездку (с датой-шаблоном)
                 )

@@ -42,7 +42,9 @@ internal object SessionKeys {
     val CLEARED_BY_FILE: Map<String, List<String>> = mapOf(
         MAIN_PREFS to CLEARED_ON_LOGOUT,
         // «Я вожу» / «я езжу» и последний режим (попутка / такси / посылка) — это про аккаунт.
-        "yuldash_prefs" to listOf("preferred_role", "mode_last"),
+        // Способ расчёта — привычка конкретного человека («я всегда наличными»), а не
+        // настройка телефона: следующему владельцу она достаться не должна.
+        "yuldash_prefs" to listOf("preferred_role", "mode_last", "pay_method"),
         // Номер брони: по нему сервис поездки воскресает и продолжает трансляцию.
         "trip_location_svc" to listOf("last_booking", "last_lang"),
         // Номера посылок, которые человек вёз: и сами по себе чужие данные, и воскрешение сервиса.

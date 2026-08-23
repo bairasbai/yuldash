@@ -124,6 +124,9 @@ class OrderIn(EstimateIn):
     # ЖЁСТКИЙ: молча подсунуть мужчину — обмануть в том, ради чего галочку и ставили.
     # Не нашлось никого — заказ честно истекает, и человек сам решает, искать ли шире.
     women_only: bool = False
+    # Чем рассчитаются: cash | sbp | negotiate. Пусто → «договоримся на месте».
+    # Карты и корпоративный счёт заведены, но выключены — их сервер не примет.
+    payment_method: str = Field("", max_length=16)
 
 
 class WaypointsIn(BaseModel):
@@ -418,6 +421,7 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
         entrance=(body.entrance or "").strip()[:60],
         for_name=(body.for_name or "").strip()[:120],
         for_phone=(body.for_phone or "").strip()[:32],
+        payment_method=_pay_method_or_default(body.payment_method),
         women_only=bool(body.women_only),
     )
     session.add(order)
@@ -497,6 +501,7 @@ def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
         entrance=(body.entrance or "").strip()[:60],
         for_name=(body.for_name or "").strip()[:120],
         for_phone=(body.for_phone or "").strip()[:32],
+        payment_method=_pay_method_or_default(body.payment_method),
         women_only=bool(body.women_only),
     )
     session.add(order)
@@ -1134,6 +1139,60 @@ def order_receipt(order_id: int, user: User = Depends(current_user),
         "driver_name": (driver.name if driver and driver.name else "Водитель"),
         "driver_verified": bool(driver.verified) if driver else False,
     }
+
+
+def _pay_method_or_default(method: str) -> str:
+    """Способ расчёта из запроса. Незнакомое или выключенное → «договоримся на месте».
+
+    Не ругаемся ошибкой: старый клиент поля не шлёт вовсе, а новый может прислать способ,
+    который мы ещё не включили. И в том, и в другом случае честный ответ один — договорятся
+    на месте, как это и работает сегодня.
+    """
+    m = (method or "").strip().lower()
+    return m if isv.pay_method_open(m) else isv.PAY_NEGOTIATE
+
+
+class PaymentMethodIn(BaseModel):
+    """Новый способ расчёта."""
+    method: str = Field("", max_length=16)
+
+
+@router.post("/instant/orders/{order_id}/payment")
+def set_payment_method(order_id: int, body: PaymentMethodIn,
+                       user: User = Depends(current_user),
+                       session: Session = Depends(get_session)):
+    """Пассажир меняет способ расчёта — до самого конца поездки.
+
+    Почему не только до заказа: про наличные человек вспоминает ровно тогда, когда лезет
+    в карман, то есть уже сидя в машине. Запрещать смену значит заставлять его звонить
+    водителю и договариваться голосом — то есть мимо приложения.
+
+    Водителю уходит уведомление. Без него смена была бы тихой подменой договорённости:
+    он везёт, рассчитывая на наличные, а на высадке узнаёт про перевод.
+    """
+    order = session.get(InstantOrder, order_id)
+    if not order or order.passenger_id != user.id:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if order.status in (S.done, S.cancelled, S.expired):
+        raise herr(409, "Поездка уже завершена", "Сәфәр тамамланған")
+
+    method = _pay_method_or_default(body.method)
+    if method == (order.payment_method or isv.PAY_NEGOTIATE):
+        return {"payment_method": method, "changed": False}
+    order.payment_method = method
+    session.add(order)
+    session.commit()
+
+    if order.driver_id:
+        from ..services import push_bilingual   # локальный импорт — как в остальном файле
+        ru, ba = isv.pay_method_label(method)
+        push_bilingual(
+            session, order.driver_id,
+            "Способ оплаты изменён", "Түләү ысулы үҙгәрҙе",
+            f"Пассажир будет платить: {ru.lower()}", f"Пассажир түләй: {ba.lower()}",
+            data={"type": "instant_payment", "order_id": str(order.id), "method": method},
+        )
+    return {"payment_method": method, "changed": True}
 
 
 @router.post("/instant/orders/{order_id}/cash-received")

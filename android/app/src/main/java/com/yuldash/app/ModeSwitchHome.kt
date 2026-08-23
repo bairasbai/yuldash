@@ -122,7 +122,10 @@ internal fun PassengerModeHome(
     onClinicRides: () -> Unit = {},       // F22: раздел «Поездки к клинике» (проброс в карту попутки)
     onRouteWatch: (String?, String?) -> Unit = { _, _ -> },   // F13: «карауль поездку» из карты попутки
     onOpenScheduled: () -> Unit = {},     // «На время»: предзаказ создан → «Мои предзаказы»
-    onSavedPlaces: () -> Unit = {},       // «Мои адреса»: дом, работа и свои места
+    onSavedPlaces: () -> Unit = {},
+    // Способ расчёта живёт выше экрана: он общий для всех заказов и переживает уходы с экрана.
+    payMethod: String = PayMethods.CASH,
+    onOpenPayments: () -> Unit = {},       // «Мои адреса»: дом, работа и свои места
     onCourierMode: () -> Unit = {},       // «Хочу возить» → работа курьера (заказы, линия, заработок)
     onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → форма создания поездки (аргумент — дата-шаблон)
 ) {
@@ -203,6 +206,8 @@ internal fun PassengerModeHome(
                         onTaxiOnboarding = onTaxiOnboarding,
                         onOpenScheduled = onOpenScheduled,
                         onSavedPlaces = onSavedPlaces,
+                        payMethod = payMethod,
+                        onOpenPayments = onOpenPayments,
                     )
                     // Курьер: раньше «Посылки» лежали 9-м пунктом профиля — до отправки было 9–11 касаний.
                     // Теперь это равноправный режим хаба: два касания от старта приложения.

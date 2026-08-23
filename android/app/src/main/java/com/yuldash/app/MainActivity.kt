@@ -311,8 +311,12 @@ class MainActivity : ComponentActivity() {
         }
         // Пуш о ходе такси-заказа (B9b-2). Два пути: наше уведомление из FcmService (extra
         // EXTRA_OPEN_ORDER) ИЛИ системный трей FCM в фоне (data-ключи приходят как extras интента).
+        // «instant_payment» — пассажир сменил способ расчёта на ходу. Ведём туда же, куда
+        // и остальные новости о заказе: водитель должен увидеть новую строку «Оплата:»
+        // в своей карточке, а не гадать, что изменилось.
         if (i?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) == true ||
-            i?.getStringExtra("type") == "instant_status"
+            i?.getStringExtra("type") == "instant_status" ||
+            i?.getStringExtra("type") == "instant_payment"
         ) {
             i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER)
             i.removeExtra("type")
@@ -454,6 +458,7 @@ internal enum class Screen {
     Privacy,
     Rules,
     PaymentInfo,
+    PaymentMethods,   // «Способы оплаты»: чем рассчитаемся с водителем (наличные / СБП / договоримся)
     PricingInfo,   // «Честно о цене»: как считается цена попутки/такси и куда идёт комиссия
     Blocklist,
     Report,

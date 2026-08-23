@@ -2510,6 +2510,19 @@ object ApiClient {
      *  comment/entrance — «как меня найти» (в селе «Ленина 12» это пять домов без табличек,
      *  а чат открывается только ПОСЛЕ принятия заказа). forName/forPhone — заказ ДЛЯ ДРУГОГО
      *  человека: сын из Уфы вызывает такси маме в Баймаке, водитель должен звонить маме. */
+    /**
+     * Сменить способ расчёта — можно до самого конца поездки.
+     *
+     * Про наличные человек вспоминает тогда, когда лезет в карман, то есть уже сидя в машине.
+     * Водителю сервер шлёт уведомление сам: тихая смена договорённости — это тот же спор
+     * на высадке, только с обиженным водителем.
+     */
+    suspend fun setInstantPaymentMethod(orderId: Int, method: String): Result<String> =
+        call("POST", "/instant/orders/$orderId/payment",
+             JSONObject().put("method", method), auth = true)
+            .map { it.optString("payment_method").ifBlank { "negotiate" } }
+            .onSuccess { Analytics.log("instant_payment_$method") }
+
     suspend fun createInstantOrder(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
         fromText: String = "", toText: String = "", category: String = "standard",
@@ -2518,6 +2531,7 @@ object ApiClient {
         options: List<String> = emptyList(),
         roundTrip: Boolean = false, returnWaitMin: Int = 0,
         stops: List<TaxiStop> = emptyList(),
+        paymentMethod: String = "",
     ): Result<InstantOrderDto> {
         val body = instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
             roundTrip, returnWaitMin, stops)
@@ -2533,6 +2547,8 @@ object ApiClient {
         // «Только женщина за рулём» — в попутках выбор был всегда, в такси появился
         // аудитом 2026-08-06. Фильтр жёсткий: подмены не будет.
         if (womenOnly) body.put("women_only", true)
+        // Чем рассчитаются. Пусто — сервер поставит «договоримся на месте», как было раньше.
+        if (paymentMethod.isNotBlank()) body.put("payment_method", paymentMethod)
         return call("POST", "/instant/orders", body, auth = true)
             .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_create") }
     }
@@ -4982,6 +4998,10 @@ data class InstantOrderDto(
     val toLat: Double, val toLng: Double,
     val fromText: String, val toText: String,
     val category: String,
+    /** Чем рассчитываются: cash | sbp | negotiate. Приложение денег не касается — это
+     *  запись договорённости, и видят её ОБЕ стороны: спор «я думал, ты переводом»
+     *  случается ровно потому, что до высадки об этом никто не говорил. */
+    val paymentMethod: String = "negotiate",
     /** «Только женщина за рулём»: экран должен объяснить, почему машину искали дольше
      *  или не нашли вовсе — иначе человек решит, что приложение сломалось. */
     val womenOnly: Boolean = false,
@@ -5114,6 +5134,7 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     fromText = optString("from_text"),
     toText = optString("to_text"),
     category = optString("category"),
+    paymentMethod = optString("payment_method").ifBlank { "negotiate" },
     womenOnly = optBoolean("women_only", false),
     priceEstimate = optInt("price_estimate"),
     priceFinal = if (isNull("price_final")) null else optInt("price_final"),
