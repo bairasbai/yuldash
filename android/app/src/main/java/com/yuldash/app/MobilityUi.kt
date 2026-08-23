@@ -277,14 +277,16 @@ internal fun TaxiServiceClassTile(
                 stateDescription = selectionState
             },
     ) {
+        // Поля по вертикали узкие: лента тарифов висит над картой, и каждая её лишняя точка —
+        // это кусок карты, которого человек не видит.
         Column(
-            Modifier.padding(horizontal = CanonSpace.sm, vertical = CanonSpace.md),
+            Modifier.padding(horizontal = CanonSpace.sm, vertical = CanonSpace.sm),
             verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
         ) {
             // Пропорция кадра = пропорция подготовленной картинки (tools/tariff_icons.py):
             // машина заполняет его целиком, без полей по бокам. Разъедутся числа — в ряду
             // снова появится воздух вокруг машин, и они станут выглядеть уменьшенными.
-            Box(Modifier.fillMaxWidth().aspectRatio(440f / 300f)) {
+            Box(Modifier.fillMaxWidth().aspectRatio(440f / 240f)) {
                 if (car != null) {
                     // Ночью фон карточки почти чёрный, и чёрный седан Бизнеса растворяется
                     // в нём — остаются фары в пустоте. Мягкое световое пятно под машиной

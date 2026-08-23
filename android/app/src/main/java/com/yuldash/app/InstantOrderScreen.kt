@@ -58,6 +58,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.ChatBubble
@@ -1098,6 +1099,7 @@ internal fun InstantOrderScreen(
                     "picker" -> InstantDestinationPicker(
                         onOrderCreated = { order = it },
                         onSavedPlaces = onSavedPlaces,
+                        embedded = embedded,
                         onScheduled = { scheduled ->
                             scheduledConfirmId = scheduled.id
                             scheduledConfirmAt = scheduled.scheduledAt
@@ -1475,6 +1477,9 @@ private fun InstantDestinationPicker(
     onOrderCreated: (InstantOrderDto) -> Unit,
     onScheduled: (InstantOrderDto) -> Unit = {},
     onSavedPlaces: () -> Unit = {},
+    // Экран встроен в хаб (под ним своя нижняя панель) или открыт отдельно. От этого зависит,
+    // берёт ли шторка запас под системную навигацию — иначе отступ считается дважды.
+    embedded: Boolean = false,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1665,6 +1670,9 @@ private fun InstantDestinationPicker(
     TaxiSheetScaffold(
         stop = sheetStop,
         onStopChange = { sheetTouched = true; sheetStop = it },
+        // Встроенный в хаб экран стоит НАД нижней панелью приложения — запас под системную
+        // навигацию уже взят ею. Отдельный экран такси последний, там запас нужен.
+        underSystemBar = !embedded,
         map = { m ->
             // Карта с РЕАЛЬНЫМИ машинами рядом (честно, без выдуманной цены): видно, что
             // помощь близко. Машинки — из presence, ≈ETA до подачи.
@@ -1742,15 +1750,23 @@ private fun InstantDestinationPicker(
                                       else appText("На карте", "Картала"),
                         onAction = { if (!hasLocPerm && !fromManual) askMyLocation() else pickFromOnMap = true },
                     )
+                    // Между «откуда» и «куда» — не просто черта, а место для остановки:
+                    // кружок с плюсом в колонке точек маршрута. Пока добавлять больше нельзя,
+                    // остаётся обычная черта.
+                    //
                     // Отступ слева равен ширине иконки с полями: черта идёт под текстом,
                     // а не под точкой маршрута — иначе она разрезала бы сам маршрут пополам.
-                    Box(
-                        Modifier
-                            .padding(start = 50.dp)
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(CanonBorder),
-                    )
+                    if (toPoint != null && stops.size < InstantStopsMax) {
+                        OrderInsertStopRow(onClick = { addingStop = true })
+                    } else {
+                        Box(
+                            Modifier
+                                .padding(start = 50.dp)
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(CanonBorder),
+                        )
+                    }
                     // Остановки по пути — между «откуда» и «куда», в порядке заезда.
                     // Раньше они жили отдельным блоком ниже по списку, и маршрут читался
                     // разорванным: две точки сверху, а то, что между ними, — где-то там.
@@ -1774,10 +1790,9 @@ private fun InstantDestinationPicker(
                             // а видно его было только в раскрытых деталях заказа: человек знал
                             // цену и не знал, во сколько будет на месте.
                             tripMin = estimate?.etaMin?.toInt()?.takeIf { it > 0 },
-                            canAddStop = stops.size < InstantStopsMax,
-                            onAddStop = { addingStop = true },
                             onEdit = { toPoint = null; query = ""; estimate = null },
                         )
+
                     } else {
                         // Поле «куда» — в шапке, а не в прокрутке. Шапка видна в любом положении
                         // шторки, и свёрнутая шторка остаётся рабочей: карта во весь рост, а задать
@@ -2125,19 +2140,6 @@ private fun InstantDestinationPicker(
                         forPhone = forPhone, onForPhone = { forPhone = it.take(32) },
                     )
                 }
-                // Остановки переехали в карточку маршрута наверху — там им и место: это
-                // точки пути, а не настройка заказа. Здесь остаётся только лист выбора адреса.
-                if (addingStop) {
-                    PickStopSheet(
-                        onDismiss = { addingStop = false },
-                        onPicked = { hit ->
-                            // Добавляем в конец: порядок задаёт пассажир тем, как добавляет.
-                            // Переставлять потом нельзя — водитель уже поедет к первой точке.
-                            stops = stops + com.yuldash.app.data.TaxiStop(hit.lat, hit.lon, hit.title)
-                            addingStop = false
-                        },
-                    )
-                }
                 // Круговой рейс — только межгород. Доступность решает сервер: он знает, где проходит
                 // граница зоны. Переехал человек точку Б в черту города — предложение исчезает, и
                 // включённый флаг надо погасить, иначе он молча уедет в заказ и цена не сойдётся.
@@ -2291,6 +2293,22 @@ private fun InstantDestinationPicker(
             }
         },
     )
+
+    // Лист выбора остановки — здесь, вместе с остальными оверлеями, а НЕ в теле шторки.
+    // Кнопка «+» стоит в шапке и видна всегда, тело же рисуется только у раскрытой шторки:
+    // из-за этого нажатие взводило флаг, а показывать лист было некому — со стороны это
+    // выглядело как мёртвая кнопка.
+    if (addingStop) {
+        PickStopSheet(
+            onDismiss = { addingStop = false },
+            onPicked = { hit ->
+                // Добавляем в конец: порядок задаёт пассажир тем, как добавляет.
+                // Переставлять потом нельзя — водитель уже поедет к первой точке.
+                stops = stops + com.yuldash.app.data.TaxiStop(hit.lat, hit.lon, hit.title)
+                addingStop = false
+            },
+        )
+    }
 
     if (pickOnMap) {
         PickupPickerOverlay(
@@ -6022,8 +6040,6 @@ private fun OrderDestinationRow(
     text: String,
     onEdit: () -> Unit,
     tripMin: Int? = null,
-    canAddStop: Boolean = false,
-    onAddStop: () -> Unit = {},
 ) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = CanonSpace.md, end = CanonSpace.xs),
@@ -6048,26 +6064,55 @@ private fun OrderDestinationRow(
                 )
             }
         }
-        // «Заехать по пути» — круглой кнопкой у адреса (образец Яндекс). Механизм остановок
-        // готов давно, но вход в него лежал в деталях заказа: о нём знал только тот, кто уже
-        // полез в настройки. «Заедем за мамой» — обычная поездка, а не настройка.
-        if (canAddStop) {
-            Surface(
-                onClick = onAddStop,
-                shape = CircleShape,
-                color = CanonBg,
-                modifier = Modifier.minimumInteractiveComponentSize(),
-            ) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = appText("Заехать по пути", "Юлда инеп сығыу"),
-                    tint = CanonGreen2,
-                    modifier = Modifier.padding(CanonSpace.sm).size(20.dp),
-                )
-            }
-        }
         TextButton(onClick = onEdit, modifier = Modifier.heightIn(min = 48.dp)) {
             Text(appText("Изменить", "Үҙгәртеү"), style = CanonBody, color = CanonGreen2, maxLines = 1)
+        }
+    }
+}
+
+/**
+ * Место для остановки — кружок с плюсом на линии маршрута.
+ *
+ * Занимает место разделительной черты между точками, поэтому объяснять его не нужно: то,
+ * что стоит МЕЖДУ «откуда» и «куда», может значить только «вставить точку сюда». Так экран
+ * не прирастает ни одним словом — а слова здесь дороги, карточка маршрута и так плотная.
+ *
+ * Нажимается вся строка во всю ширину, а не сам кружок: цель размером с ноготь мимо пальца
+ * в машине на ходу — это не кнопка, а лотерея.
+ */
+@Composable
+private fun OrderInsertStopRow(onClick: () -> Unit) {
+    Surface(onClick = onClick, color = CanonBg, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            // Высота ФИКСИРОВАНА, а не «не меньше»: внутри нить тянется на всю высоту строки,
+            // и при открытой границе она растягивала карточку на весь экран.
+            //
+            // 36 dp, а не обычные 48: это перемычка между двумя адресами, и на полной высоте
+            // она разрывала маршрут пополам — «откуда» и «куда» переставали читаться как одна
+            // вещь. Цель касания при этом не мелкая: полоса во всю ширину карточки, а сверху
+            // и снизу от неё стоят строки, у которых кликабельны только кнопки справа —
+            // промах по вертикали не сделает ничего чужого.
+            Modifier.fillMaxWidth().height(36.dp)
+                .padding(start = CanonSpace.md, end = CanonSpace.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Нить маршрута: тонкая линия от точки «откуда» вниз к точке «куда», и кружок
+            // ровно на ней. Без нити значок висел в пустоте между строками и читался как
+            // дыра в карточке, а не как место для новой точки.
+            Box(
+                Modifier.width(22.dp).fillMaxHeight(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.width(2.dp).fillMaxHeight().background(CanonBorder))
+                Icon(
+                    Icons.Default.AddCircleOutline,
+                    contentDescription = appText("Заехать по пути", "Юлда инеп сығыу"),
+                    tint = CanonGreen2,
+                    modifier = Modifier.size(22.dp).background(CanonBg, CircleShape),
+                )
+            }
+            Spacer(Modifier.width(CanonSpace.md))
+            Box(Modifier.weight(1f).height(1.dp).background(CanonBorder))
         }
     }
 }
