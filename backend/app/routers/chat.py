@@ -134,6 +134,25 @@ def _order_chat_key(order_id: int) -> int:
     return INSTANT_CHAT_KEY_BASE + order_id
 
 
+def _окно_моё(session: Session, я: int, второй, *, участник: bool = True) -> bool:
+    """Открытое окно чата остаётся моим, пока я участник и меня не закрыли (волна 159).
+
+    Сторож окна (волна 141) проверял только «ключ входа ещё жив». Этого мало: права на конкретную
+    переписку кончаются раньше, чем сессия.
+
+    Проба: курьер взял посылку, открыл окно, потом снялся («заболел»). Посылку взял другой курьер,
+    отправитель пишет уже ЕМУ: «ключ под ковриком, свекровь глухая — стучите громко». Сообщение
+    прилетает и в окно первого курьера — оно осталось открытым. REST-историю ему закрыли, живой
+    канал никто не закрыл.
+
+    Блокировка тоже действует: на запись `is_blocked` стоит, а тот, кто молча слушает, продолжал
+    получать всё, что пишет человек, который от него закрылся.
+    """
+    if not участник or второй is None or второй == я:
+        return False
+    return not is_blocked(session, я, второй)
+
+
 def _parcel_chat_key(parcel_id: int) -> int:
     return PARCEL_CHAT_KEY_BASE + parcel_id
 
@@ -247,6 +266,11 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
     # а чужая переписка продолжала приходить в уже открытое окно.
     страж = await watch_ws_access(
         websocket, token,
+        lambda s2: (lambda b, r: _окно_моё(
+            s2, user_id, other_id,
+            участник=bool(b and r) and user_id in (b.passenger_id, r.driver_id),
+        ))(s2.get(Booking, booking_id),
+           s2.get(Ride, s2.get(Booking, booking_id).ride_id) if s2.get(Booking, booking_id) else None),
         on_close=lambda: manager.disconnect(booking_id, websocket))
     msgs = 0
     try:
@@ -356,6 +380,10 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
     # а чужая переписка продолжала приходить в уже открытое окно.
     страж = await watch_ws_access(
         websocket, token,
+        lambda s2: (lambda o: _окно_моё(
+            s2, user_id, other_id,
+            участник=bool(o) and user_id in (o.passenger_id, o.driver_id),
+        ))(s2.get(InstantOrder, order_id)),
         on_close=lambda: manager.disconnect(key, websocket))
     msgs = 0
     try:
@@ -515,6 +543,12 @@ async def parcel_chat_ws(websocket: WebSocket, parcel_id: int):
     # а чужая переписка продолжала приходить в уже открытое окно.
     страж = await watch_ws_access(
         websocket, token,
+        lambda s2: (lambda pl: _окно_моё(
+            s2, user_id, (pl.courier_id if pl and user_id == pl.sender_id else
+                          (pl.sender_id if pl else None)),
+            # Курьера могли снять и заменить: тогда это уже не моя доставка.
+            участник=bool(pl) and user_id in (pl.sender_id, pl.courier_id),
+        ))(s2.get(ParcelDelivery, parcel_id)),
         on_close=lambda: manager.disconnect(key, websocket))
     msgs = 0
     try:

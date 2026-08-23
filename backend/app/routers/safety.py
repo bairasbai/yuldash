@@ -17,8 +17,8 @@ from ..models import (
 )
 from ..safety_logic import have_met
 from ..security import current_user
-from ..services import (booking_and_ride_for_user, notify_admin_telegram, pick_lang, sms_lang_of,
-                        push_notification, send_push, send_text)
+from ..services import (booking_and_ride_for_user, notify_admin_telegram, pick_lang, push_bilingual,
+                        sms_lang_of, push_notification, send_text, sms_will_reach)
 from ..timeutil import utcnow
 from .. import quality
 
@@ -108,7 +108,102 @@ def _order_for_participant(session: Session, order_id: int, user: User) -> Insta
     return order
 
 
-@router.post("/sos", response_model=SosEvent)
+def _кто_в_беде(order, нажал: User) -> str:
+    """Чьё имя уйдёт близким. Обычно — того, кто нажал; в заказе «для другого» — того, кого везут.
+
+    Сын из Уфы вызывает такси маме в Баймаке — это рабочий сценарий, поле `for_name` для него
+    и заведено. Мама звонит: «везут не туда», сын жмёт SOS. Близкие получали «СЫН просит
+    срочной помощи», хотя сын дома и в безопасности, а в машине мама (волна 192).
+    """
+    если_везут_другого = (getattr(order, "for_name", "") or "").strip() if order else ""
+    return если_везут_другого or (нажал.name or нажал.phone or "")
+
+
+def _место_беды(order, booking_id, нажал_lat, нажал_lng) -> tuple:
+    """Где человек, которому нужна помощь. Возврат: (lat, lng) или (None, None).
+
+    Раньше брали координаты ТОГО ТЕЛЕФОНА, ЧТО НАЖАЛ. Для обычной поездки это правильно —
+    человек в машине сам и жмёт. А в заказе «для другого» нажимает тот, кто остался дома:
+    близкие получали ссылку на Уфу, пока мама ехала под Баймаком, и ехали за триста
+    километров не туда (волна 192).
+
+    Место берём у МАШИНЫ (её позицию сервер знает по живому треку поездки). Нет свежей
+    позиции — не пишем НИЧЕГО: сигнал без места честнее сигнала с чужим местом.
+    """
+    from ..livepos import livepos_get
+    везут_другого = bool(order and ((order.for_name or "").strip() or (order.for_phone or "").strip()))
+    if везут_другого and order is not None:
+        поз = livepos_get("order", order.id)
+        return (поз.get("lat"), поз.get("lng")) if поз else (None, None)
+    if нажал_lat is not None and нажал_lng is not None:
+        return (нажал_lat, нажал_lng)
+    # Своих координат нет (GPS не схватился) — машина лучше, чем ничего.
+    if order is not None:
+        поз = livepos_get("order", order.id)
+        if поз:
+            return (поз.get("lat"), поз.get("lng"))
+    if booking_id is not None:
+        поз = livepos_get("booking", booking_id)
+        if поз:
+            return (поз.get("lat"), поз.get("lng"))
+    return (None, None)
+
+
+def _телефон_в_беде(order, нажал: User) -> str:
+    """Номер того, кому надо звонить, — ТОЛЬКО в заказе «для другого».
+
+    Свой номер близкие знают наизусть, писать его им незачем. А номер мамы, которую везут,
+    они видят впервые: его вписал сын при заказе, и без него «свяжитесь скорее» — совет
+    без адреса.
+    """
+    if order is None:
+        return ""
+    чужой = (getattr(order, "for_phone", "") or "").strip()
+    return чужой if чужой and чужой != (нажал.phone or "") else ""
+
+
+def _текст_сигнала(*, кто: str, время: str, телефон: str, машина: str, место: str,
+                   по_русски: bool) -> str:
+    """SMS близким. Порядок строк = порядок действий человека, который её читает.
+
+    Прежний текст был написан для системы, а не для человека в панике: «SOS! Имя просит
+    срочной помощи (Юлдаш). Свяжитесь скорее. Место: <ссылка> Машина: …» — одним абзацем,
+    без времени, без номера («связаться» — с кем?) и без запасного хода. Ночью, спросонья,
+    из такого текста не выцепить главное.
+
+    Теперь по строкам, в том порядке, в каком человек действует:
+        1. что случилось и когда — понять, свежий ли сигнал (SMS приходят с задержкой);
+        2. кому звонить — первое действие;
+        3. что делать, если не отвечает, — 112, а не растерянность;
+        4. приметы машины — по ним ищут и их называют полиции;
+        5. где искать — ссылка последней: она длинная, и глаз об неё спотыкается.
+
+    Машина и номер стоят ДО ссылки намеренно: на кнопочном телефоне ссылка не откроется,
+    и человек должен суметь действовать вообще без интернета.
+    """
+    строки = []
+    if по_русски:
+        строки.append(f"SOS · Юлдаш, {время}")
+        строки.append(f"{кто}: нужна срочная помощь.")
+        строки.append(f"Звони: {телефон}. Не отвечает — 112." if телефон
+                      else "Свяжись скорее. Не получается — звони 112.")
+        if машина:
+            строки.append(f"Машина: {машина}")
+        if место:
+            строки.append(f"Где искать: {место}")
+    else:
+        строки.append(f"SOS · Юлдаш, {время}")
+        строки.append(f"{кто}: ашығыс ярҙам кәрәк.")
+        строки.append(f"Шылтырат: {телефон}. Яуап бирмәһә — 112." if телефон
+                      else "Тиҙерәк бәйләнешкә сыҡ. Булмаһа — 112-гә шылтырат.")
+        if машина:
+            строки.append(f"Машина: {машина}")
+        if место:
+            строки.append(f"Ҡайҙа эҙләргә: {место}")
+    return chr(10).join(строки)
+
+
+@router.post("/sos")
 def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ride = None
     if body.booking_id is not None:
@@ -122,7 +217,8 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     ).all()
     # Место кладём в ТЕКСТ события (как у «застрял»): отдельной колонки под координаты нет,
     # а заводить её ради ссылки — миграция ради ссылки. В stdout координаты НЕ пишем (152-ФЗ).
-    link = _maps_link(body.lat, body.lng)
+    место_lat, место_lng = _место_беды(order, body.booking_id, body.lat, body.lng)
+    link = _maps_link(место_lat, место_lng)
     where = f" Место: {link}" if link else ""
     fields = body.model_dump(exclude={"lat", "lng"})
     fields["note"] = (fields.get("note") or "").strip() + where
@@ -135,21 +231,30 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     # А123БВ102» — помогает, и это же первое, что спросит полиция (решение 2026-08-06).
     # Имя и телефон водителя сюда НЕ идут: родным они не нужны, это уже данные из анкеты.
     car = _car_of(session, ride.driver_id if ride is not None else (order.driver_id if order else None))
-    car_text = f" Машина: {car}." if car else ""
     # Телефоны доверенных контактов собираем ПОКА сессия открыта, рассылку SMS — в фон (после ответа).
+    contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
+    phones_all = [c.phone for c in contacts if c.phone]
     notified = 0
     if len(recent) < SOS_SMS_PER_HOUR:
-        contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
-        who = user.name or user.phone
-        phones = [c.phone for c in contacts if c.phone]
-        notified = len(phones)
+        who = _кто_в_беде(order, user)
+        phones = phones_all
+        # Скольким SMS РЕАЛЬНО уйдёт, а не скольким мы собирались написать. На проде канал SMS
+        # молчит (`sms_provider=mock`), и раньше здесь стояла длина списка контактов: женщина
+        # в беде читала «двоим близким отправлено» и ждала маму, которая ничего не получила
+        # (волна 184). Правило одно на все ручки — `services.sms_will_reach`.
+        notified = sms_will_reach(phones)
         # Ссылка на карту — главное в этом SMS: без неё родные знают, что беда, но не знают куда ехать.
+        # Время сигнала — местное (Уфа UTC+5): «21:40» человек сверяет со своими часами.
+        местное = (utcnow() + timedelta(hours=settings.local_tz_offset_hours)).strftime("%H:%M")
+        звонить = _телефон_в_беде(order, user)
         background.add_task(
             _send_sos_sms, phones,
             _sos_text(
                 session, user.id,
-                f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.{where}{car_text}",
-                f"SOS! {who} ашығыс ярҙам һорай (Юлдаш). Тиҙерәк бәйләнешкә сыҡ.{where}{car_text}",
+                _текст_сигнала(кто=who, время=местное, телефон=звонить,
+                               машина=car, место=link, по_русски=True),
+                _текст_сигнала(кто=who, время=местное, телефон=звонить,
+                               машина=car, место=link, по_русски=False),
             ),
         )
     else:
@@ -167,13 +272,18 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     ride_line = _ride_context_line(session, ride)
     background.add_task(
         notify_admin_telegram,
-        f"🆘 SOS (Юлдаш)\n"
+        f"🆘 SOS (Юлдаш) — {(utcnow() + timedelta(hours=settings.local_tz_offset_hours)).strftime('%H:%M')} по Уфе\n"
         f"От: {user.name or '—'}\n"
+        + (f"⚠️ В машине НЕ заказчик: {_кто_в_беде(order, user)}"
+           f"{(', тел ' + _телефон_в_беде(order, user)) if _телефон_в_беде(order, user) else ''}\n"
+           if _кто_в_беде(order, user) != (user.name or user.phone or "") else "")
+        + 
         f"Тел: {user.phone or '—'}\n"
         f"Категория: {body.category}\n"
         f"{order_line}"
         f"{ride_line}"
-        f"Контактов уведомлено (SMS): {notified}\n"
+        f"Контактов уведомлено (SMS): {notified}"
+        f"{' — канал SMS молчит, близким никто не написал' if (notified == 0 and phones_all) else ''}\n"
         f"Детали: {body.note or '—'}{where}"
     )
     # 🌙 SMS админу вдобавок к Telegram. Раньше весь ночной контур безопасности сводился к
@@ -191,7 +301,42 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
                 f"тел {user.phone or '—'}.{where} Открой админку.",
             )
     log.info(f"[SOS] user={user.id} category={body.category} contacts_notified={notified}")
-    return event
+    # Человек обязан знать, дошёл ли сигнал до РОДНЫХ (аудит 2026-08-08, волна 172).
+    #
+    # Рассылка близким глушится после SOS_SMS_PER_HOUR сигналов за час — правильная защита:
+    # заевшая кнопка в кармане иначе даёт поток платных SMS, и настоящий сигнал тонет среди
+    # сорока одинаковых. Но ответ ручки был просто событием, без единого слова о рассылке.
+    #
+    # Значит седьмое нажатие выглядело для человека ровно как первое: «сигнал отправлен».
+    # Женщина в беде видит успех и ждёт маму, которая ничего не получила. Молчание в такой
+    # момент опаснее самого потолка — потому что вместо «звони сама» человек выбирает ждать.
+    #
+    # Диспетчер узнаёт ВСЕГДА (Telegram намеренно не капится), поэтому и говорим честно:
+    # сигнал приняли, а родным SMS не ушло — позвони им сама.
+    заглушено = notified == 0 and len(recent) >= SOS_SMS_PER_HOUR
+    # Вторая причина того же молчания: канал SMS выключен целиком (на проде он такой и есть).
+    # Для человека разницы с потолком нет — родные не получат ничего, — а вот текст нужен свой:
+    # «слишком много сигналов» тут было бы неправдой и сбило бы с толку (волна 184).
+    канал_молчит = notified == 0 and not заглушено and bool(phones_all)
+    подсказка_ru = подсказка_ba = ""
+    if канал_молчит:
+        подсказка_ru = ("Сигнал принят, дежурный уже видит его. Отправка SMS сейчас не работает — "
+                        "родным сообщение не уйдёт. Позвони им сама, если можешь.")
+        подсказка_ba = ("Сигнал ҡабул ителде, дежурный уны күрә инде. SMS ебәреү хәҙер эшләмәй — "
+                        "яҡындарыңа хәбәр китмәйәсәк. Мөмкин булһа, үҙең шылтырат.")
+    if заглушено:
+        подсказка_ru = ("Сигнал принят, дежурный уже видит его. Родным SMS сейчас не уходит — "
+                        "слишком много сигналов подряд. Позвони им сама, если можешь.")
+        подсказка_ba = ("Сигнал ҡабул ителде, дежурный уны күрә инде. Яҡындарға SMS хәҙер "
+                        "китмәй — сигналдар артыҡ күп. Мөмкин булһа, үҙең шылтырат.")
+    return {
+        **event.model_dump(),
+        "contacts_notified": notified,      # скольким близким SMS реально уйдёт прямо сейчас
+        "contacts_total": len(phones_all),  # сколько доверенных вообще заведено
+        "sms_suppressed": заглушено,        # рассылка близким заглушена потолком
+        "hint_ru": подсказка_ru,
+        "hint_ba": подсказка_ba,
+    }
 
 
 # ----------------------------- Админ: лента SOS (аудит 2026-07-26) -----------------------------
@@ -296,6 +441,10 @@ class ReportIn(BaseModel):
     category: ReportCategory = "other"         # закрытый перечень §9 (default — совместимость)
     order_id: Optional[int] = None             # привязка к быстрому заказу
     booking_id: Optional[int] = None           # привязка к брони попутки
+    # Привязка к доставке (волна 191). Поля не было вовсе: курьер, которому не заплатили,
+    # физически не мог указать, о какой доставке речь, — жалоба уходила без привязки,
+    # а разбор такую не обрабатывает. У такси и попутки привязка есть с самого начала.
+    parcel_id: Optional[int] = None            # привязка к доставке курьера
 
 
 class ReportCreatedOut(BaseModel):
@@ -340,6 +489,21 @@ def _report_counterparty(session: Session, user: User, body: ReportIn) -> int:
         if other is None:
             raise herr(409, "У заказа нет второй стороны", "Заказдың икенсе яғы юҡ")
         return other
+    if body.parcel_id is not None:
+        # Вторая сторона доставки (волна 191). Получатель посылки аккаунта не имеет —
+        # он человек отправителя, и отвечает за расчёт именно отправитель: это он заказал
+        # «купи и привези» и это ему курьер вернёт покупку, если дело дойдёт до разбора.
+        from ..models import ParcelDelivery
+        p = session.get(ParcelDelivery, body.parcel_id)
+        if not p:
+            raise herr(404, "Доставка не найдена", "Илтеү табылманы")
+        if p.courier_id is not None and user.id == p.courier_id:
+            return p.sender_id
+        if user.id == p.sender_id:
+            if p.courier_id is None:
+                raise herr(409, "У доставки ещё нет курьера", "Илтеүҙең әле курьеры юҡ")
+            return p.courier_id
+        raise herr(403, "Ты не участник этой доставки", "Һин был илтеүҙә ҡатнашмайһың")
     if body.booking_id is not None:
         b = session.get(Booking, body.booking_id)
         ride = session.get(Ride, b.ride_id) if b else None
@@ -397,7 +561,31 @@ def _guard_unpaid_report(session: Session, user: User, body: ReportIn) -> Option
     """B8-7 «Пассажир не заплатил» одним тапом. Правила для category=unpaid с привязкой:
     жалуется ТОЛЬКО водитель, поездка ЗАВЕРШЕНА (done), одна жалоба на заказ/бронь (дедуп —
     повтор возвращает существующую). Возврат: существующая жалоба (дедуп) или None (создаём)."""
-    if body.category != "unpaid" or (body.order_id is None and body.booking_id is None):
+    if body.category != "unpaid" or (body.order_id is None and body.booking_id is None
+                                     and body.parcel_id is None):
+        return None
+    if body.parcel_id is not None and body.order_id is None and body.booking_id is None:
+        # Третья дверь у того же правила (волна 191). У водителя такси кнопка «пассажир
+        # не заплатил» есть с самого начала, у водителя попутки тоже, а у курьера её не было —
+        # при том что рискует он больше всех: в «купи и привези» он оставляет в магазине СВОИ
+        # деньги. Жалоба с привязкой к доставке создавалась (общий путь её пропускал), но
+        # правилами не обрастала и разбором не обрабатывалась: комиссию с курьера не снимали,
+        # в заработке доставка оставалась, а сама она числилась «получатель рассчитался».
+        from ..models import ParcelDelivery
+        parcel = session.get(ParcelDelivery, body.parcel_id)
+        if parcel is None:
+            raise herr(404, "Доставка не найдена", "Илтеү табылманы")
+        if parcel.courier_id != user.id:
+            raise herr(403, "«Не заплатили» отмечает курьер доставки",
+                       "«Түләмәнеләр» тип илтеү курьеры билдәләй")
+        if parcel.status != "delivered":
+            raise herr(409, "Отметить можно только вручённую доставку",
+                       "Тик тапшырылған илтеүҙе билдәләп була")
+        dup = session.exec(select(Report).where(
+            Report.parcel_id == body.parcel_id, Report.category == "unpaid",
+        )).first()
+        if dup:
+            return dup
         return None
     if body.order_id is not None:
         order = session.get(InstantOrder, body.order_id)   # существование проверено в _report_counterparty
@@ -490,6 +678,7 @@ def create_report(body: ReportIn,
     report = Report(
         reporter_id=user.id, target_user_id=target_id, reason=body.reason,
         category=body.category, order_id=body.order_id, booking_id=body.booking_id,
+        parcel_id=body.parcel_id,          # привязка к доставке (волна 191)
     )
     session.add(report)
     session.commit()
@@ -527,6 +716,11 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
     session.add(r)
     session.commit()
     session.refresh(r)
+    # След в журнале пишем СРАЗУ после решения, до побочных эффектов (списание комиссии,
+    # паузы, письма). Так запись точно останется, даже если побочка упадёт, — и сторож
+    # «каждое админское действие оставляет след» видит её рядом с ручкой (волна 191).
+    admin_action(user.id, "report.resolve", report_id=report_id,
+                 target_user=r.target_user_id, category=r.category)
     if r.category in quality.SEVERE_CATEGORIES and r.target_user_id is not None:
         if body.keep_pause:
             # Оставить: «до разбора» → честная таймерная пауза (не вечная).
@@ -558,12 +752,32 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
                     )
         except Exception as e:  # noqa: BLE001 — разбор жалобы важнее, чем побочка со списанием
             log.warning(f"[DEBT] списание долга по заказу {r.order_id}: {type(e).__name__}: {e}")
+    # 💸 То же для доставки (волна 191): подтвердили «не заплатили» → снимаем с курьера
+    # комиссию за эту доставку и снимаем отметку «получатель рассчитался». Отметку ставит
+    # вручение, а вручение — это код от получателя, а не деньги в руке.
+    if r.category == "unpaid" and getattr(r, "parcel_id", None):
+        from ..models import ParcelDelivery
+        try:
+            parcel = session.get(ParcelDelivery, r.parcel_id)
+            if parcel is not None and parcel.courier_id:
+                parcel.commission_kop = 0
+                parcel.commission_paid = True      # в «к оплате» она попасть не должна
+                parcel.settled = False             # получатель НЕ рассчитался
+                session.add(parcel)
+                session.commit()
+                push_notification(
+                    session, parcel.courier_id, "money",
+                    "Комиссия за доставку списана", "Илтеү комиссияһы алып ташланды",
+                    "Жалоба «не заплатили» подтверждена — комиссию за эту доставку с тебя сняли.",
+                    "«Түләмәнеләр» ялыуы раҫланды — был илтеү өсөн комиссия һинән алып ташланды.",
+                    ref_kind="parcel", ref_id=parcel.id,
+                )
+        except Exception as e:  # noqa: BLE001 — разбор важнее побочки со списанием
+            log.warning(f"[DEBT] списание комиссии по доставке {r.parcel_id}: {type(e).__name__}: {e}")
     # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).
     if r.target_user_id is not None:      # аккаунт обвиняемого удалён — наказывать некого
         quality.apply_ladder_after_resolve(session, r.target_user_id)
     quality.tell_report_decision(session, r, confirmed=True)   # автор узнаёт исход (волна 85)
-    admin_action(user.id, "report.resolve", report_id=report_id,
-                 target_user=r.target_user_id, category=r.category)
     return _admin_report_out(session, r)
 
 
@@ -747,7 +961,10 @@ def _maps_link(lat: Optional[float], lng: Optional[float]) -> str:
     """Ссылка на точку в Яндекс.Картах для доверенного контакта (найти человека на трассе)."""
     if lat is None or lng is None:
         return ""
-    return f"https://yandex.ru/maps/?ll={lng},{lat}&z=16&pt={lng},{lat}"
+    # Один параметр вместо двух: `pt` и ставит метку, и центрирует карту (проверено —
+    # открывается та же точка в том же масштабе). Экономия 16 знаков решает, уйдёт SOS
+    # тремя SMS или четырьмя, а кириллица в SMS — это 67 знаков на часть.
+    return f"https://yandex.ru/maps/?pt={lng},{lat}&z=16"
 
 
 class StuckIn(BaseModel):
@@ -864,10 +1081,11 @@ def _roadside(session: Session, background: BackgroundTasks, user: User, body: "
             SosEvent.user_id == user.id, SosEvent.created_at >= utcnow() - timedelta(hours=1),
         )
     ).all()
+    contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
+    phones_all = [c.phone for c in contacts if c.phone]
     phones = []
     if len(recent) <= SOS_SMS_PER_HOUR:   # <=: только что записанное событие уже в счёте
-        contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
-        phones = [c.phone for c in contacts if c.phone]
+        phones = phones_all
         who = user.name or user.phone
         msg = _sos_text(
             session, user.id,
@@ -882,17 +1100,25 @@ def _roadside(session: Session, background: BackgroundTasks, user: User, body: "
         f"🛟 Помощь на трассе (Юлдаш)\n"
         f"От: {user.name or '—'}\n"
         f"Тел: {user.phone or '—'}\n"
-        f"Контактов уведомлено: {len(phones)}\n"
+        f"Контактов уведомлено: {sms_will_reach(phones)}"
+        f"{' — канал SMS молчит, близким никто не написал' if (phones and not sms_will_reach(phones)) else ''}\n"
         f"Детали: {body.note or '—'}{where}"
     )
     log.info(f"[ROADSIDE] user={user.id} booking={booking_id} order={order_id} "
-             f"contacts_notified={len(phones)}")
+             f"contacts_notified={sms_will_reach(phones)}")
     # Сколько человек реально предупреждено — это должен знать тот, кто нажал (волна 122).
     # Экран писал «близкие и поддержка получили твои координаты» ВСЕГДА, даже когда доверенных
     # контактов человек не заводил и SMS не ушло никому. Курьер на трассе в минус двадцать
     # читал это и переставал звонить сам.
+    #
+    # Волна 184. Число тут было длиной списка телефонов — то есть намерением. На проде канал
+    # SMS выключен, и курьер на трассе в минус двадцать читал «близкие получили твои
+    # координаты», хотя не ушло никому: обещание починили в волне 122, а считать продолжали
+    # по-старому. Теперь считаем фактом, а `contacts_total` даёт экрану отличить «звать
+    # некого» от «есть кого, но сообщение не уйдёт» — это разные подсказки человеку.
     payload = event.model_dump()
-    payload["contacts_notified"] = len(phones)
+    payload["contacts_notified"] = sms_will_reach(phones)
+    payload["contacts_total"] = len(phones_all)
     return payload
 
 
@@ -912,6 +1138,12 @@ def _roadside(session: Session, background: BackgroundTasks, user: User, body: "
 WINTER_TITLE = "Юлдаш"
 WINTER_ASK_RU = "Всё в порядке? Отметь, что доехал(а)."
 WINTER_ASK_BA = "Бөтәһе лә яҡшымы? Барып еткәнеңде билдәлә."
+# Заказ «для другого»: в машине мама, приложение у сына. Спрашивать его «ты доехал?»
+# бессмысленно — он никуда не ехал, а его «да» гасит тревогу за человека, о котором он
+# ничего не знает (волна 193). Поэтому вопрос называет ТОГО, КОГО ВЕЗУТ, и говорит,
+# что сделать, прежде чем отвечать: позвонить.
+WINTER_ASK_FOR_RU = "{кто} доехал(а)? Позвони и отметь."
+WINTER_ASK_FOR_BA = "{кто} барып еттеме? Шылтырат та билдәлә."
 
 
 def _winter_contacts_for(session: Session, user_id: int) -> list:
@@ -931,6 +1163,7 @@ def _winter_run(
     closed: bool,             # поездка/доставка уже закрыта — спрашивать нечего
     too_early: bool,          # ещё не выехали — спрашивать рано
     ask_user_ids: list,       # кого спрашиваем «всё в порядке?»
+    ask_for_name: str = "",   # заказ «для другого»: имя того, КОГО ВЕЗУТ (иначе пусто)
     watch_user_id: int,       # чьи близкие получат звонок, если ответа нет
     contact_phones: list,     # уже собранные телефоны (пусто → эскалировать некому)
     also_notify_user_id=None,  # кого ещё предупредить в приложении (напр. отправителя посылки)
@@ -951,8 +1184,15 @@ def _winter_run(
         session.add(obj)
         session.commit()
         for uid in ask_user_ids:
-            if uid:
-                send_push(session, uid, WINTER_TITLE, WINTER_ASK_RU)
+            if not uid:
+                continue
+            # На языке человека. Перевод `WINTER_ASK_BA` был написан и лежал рядом, но
+            # вызов слал только русский: башкироязычный получал вопрос безопасности
+            # на чужом языке — ровно там, где правило двух языков важнее всего (волна 193).
+            за_другого = bool(ask_for_name) and uid == watch_user_id
+            body_ru = WINTER_ASK_FOR_RU.format(кто=ask_for_name) if за_другого else WINTER_ASK_RU
+            body_ba = WINTER_ASK_FOR_BA.format(кто=ask_for_name) if за_другого else WINTER_ASK_BA
+            push_bilingual(session, uid, WINTER_TITLE, WINTER_TITLE, body_ru, body_ba)
         return {"state": "check_sent"}
 
     waited_min = (now - obj.winter_check_sent_at).total_seconds() / 60.0
@@ -1016,8 +1256,18 @@ def winter_check_ack(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
-    """Участник ответил «всё в порядке» — гасит эскалацию близким."""
-    booking, _ = booking_and_ride_for_user(session, booking_id, user)
+    """Пассажир ответил «всё в порядке» — гасит эскалацию близким.
+
+    Нажать может ТОЛЬКО тот, кого ждут дома (волна 160). Раньше кнопку жал любой участник —
+    то есть и водитель, тот самый человек, от которого эта защита и стоит. Одним запросом,
+    за пассажирку, навсегда: отметка ставится один раз, и ни ручка, ни ночной робот больше
+    никогда не позовут её маму. У третьей двери того же протокола — доставки — проверка стояла;
+    в двух, где человек едет один с незнакомцем, её не было.
+    """
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    if user.id != booking.passenger_id:
+        raise herr(403, "Отметить «я доехала» может только пассажир",
+                   "«Мин барып еттем» тип тик юлсы ғына билдәләй ала")
     return _winter_ack(session, booking)
 
 
@@ -1049,6 +1299,8 @@ def winter_check_order(
         ask_user_ids=[order.passenger_id, order.driver_id],
         watch_user_id=order.passenger_id,
         contact_phones=phones,
+        # Кого везём, если это заказ для другого человека (сын вызвал маме).
+        ask_for_name=(order.for_name or "").strip(),
     )
 
 
@@ -1058,7 +1310,11 @@ def winter_check_order_ack(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
+    """Пассажир такси ответил «всё в порядке». Только он — см. пояснение у брони (волна 160)."""
     order = _order_for_participant(session, order_id, user)
+    if user.id != order.passenger_id:
+        raise herr(403, "Отметить «я доехал» может только пассажир",
+                   "«Мин барып еттем» тип тик юлсы ғына билдәләй ала")
     return _winter_ack(session, order)
 
 

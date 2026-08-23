@@ -34,7 +34,7 @@ from datetime import timedelta
 
 from sqlmodel import Session, select
 
-from . import instant_service as isv
+from . import declare_remind, incident_escalate, instant_service as isv, waiting_on_us
 from . import ads_expire, promo_ride, sos_escalate, winter_escalate
 from .config import settings
 from .db import engine
@@ -394,6 +394,16 @@ def run_once(session: Session, dry_run: bool = False) -> dict:
         # горело «Оплачено · показывается» и уведомления не было — человек шёл
         # в поддержку с обвинением.
         "ads_expired": ads_expire.expire_finished_ads(session, dry_run),
+        # Жалоба, на которую обвинённый не ответил, уходит на разбор сама (волна 175).
+        # Здесь же, а не отдельным таймером, по той же причине, что SOS и зимний протокол:
+        # справедливость не должна зависеть от того, открыл ли кто-то экран.
+        "incidents_escalated": incident_escalate.escalate_silent_incidents(session, dry_run),
+        # Водитель заявил оплату, а подтверждения нет: предупреждаем ОБЕ стороны за сутки
+        # до того, как доверие кончится и такси закроется (волна 176).
+        "declares_reminded": declare_remind.remind_pending_declares(session, dry_run),
+        # Очереди, которые упираются в Александра: человек ждёт ответа и не знает,
+        # ждут ли его вообще. Пишем ему и даём Александру сводку (волна 178).
+        "people_waiting": waiting_on_us.remind_waiting_people(session, dry_run),
     }
 
 

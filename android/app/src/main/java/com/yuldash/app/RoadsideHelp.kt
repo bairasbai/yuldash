@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import com.yuldash.app.data.ApiClient
 import kotlinx.coroutines.launch
 
 /**
@@ -39,15 +40,18 @@ import kotlinx.coroutines.launch
 fun RoadsideHelpAction(
     key: Any?,
     modifier: Modifier = Modifier,
-    send: suspend (Double?, Double?) -> Result<Int>,
+    send: suspend (Double?, Double?) -> Result<ApiClient.RoadsideResult>,
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var confirm by remember(key) { mutableStateOf(false) }
     var busy by remember(key) { mutableStateOf(false) }
     var sent by remember(key) { mutableStateOf(false) }
-    // Скольким близким реально ушло SMS. -1 = ещё не отправляли.
+    // Скольким близким реально уйдёт SMS. -1 = ещё не отправляли.
     var notified by remember(key) { mutableIntStateOf(-1) }
+    // Сколько доверенных заведено всего. Нужен, чтобы отличить «звать некого» от
+    // «есть кого, но сообщение не уйдёт»: человеку на трассе это разные новости (волна 184).
+    var contactsTotal by remember(key) { mutableIntStateOf(0) }
     val failMsg = appText(
         "Сигнал не отправлен. Проверь связь и повтори.",
         "Сигнал ебәрелмәне. Бәйләнеште тикшереп ҡабатла.",
@@ -62,15 +66,27 @@ fun RoadsideHelpAction(
                 // «близкие получили твои координаты» — даже когда доверенных контактов человек
                 // не заводил и SMS не ушло НИКОМУ. Курьер на трассе в минус двадцать читал это
                 // и переставал звонить сам.
-                if (notified > 0) appText(
-                    "Помощь вызвана: близкие и поддержка получили твои координаты.",
-                    "Ярҙам саҡырылды: яҡындар һәм ярҙам хеҙмәте координаталарыңды алды.",
-                ) else appText(
-                    "Поддержка получила твои координаты. Близких в списке нет — добавь их " +
-                        "в «Доверенных», чтобы в следующий раз им тоже ушло SMS.",
-                    "Ярҙам хеҙмәте координаталарыңды алды. Яҡындар исемлектә юҡ — уларҙы " +
-                        "«Ышаныслы кешеләр»гә өҫтә, киләһе юлы SMS уларға ла китһен.",
-                ),
+                when {
+                    notified > 0 -> appText(
+                        "Помощь вызвана: близкие и поддержка получили твои координаты.",
+                        "Ярҙам саҡырылды: яҡындар һәм ярҙам хеҙмәте координаталарыңды алды.",
+                    )
+                    // Доверенных нет вовсе — звать было некого, и это поправимо на будущее.
+                    contactsTotal == 0 -> appText(
+                        "Поддержка получила твои координаты. Близких в списке нет — добавь их " +
+                            "в «Доверенных», чтобы в следующий раз им тоже ушло SMS.",
+                        "Ярҙам хеҙмәте координаталарыңды алды. Яҡындар исемлектә юҡ — уларҙы " +
+                            "«Ышаныслы кешеләр»гә өҫтә, киләһе юлы SMS уларға ла китһен.",
+                    )
+                    // Доверенные есть, а сообщение им не уйдёт (волна 184). Раньше человек
+                    // видел здесь «близкие получили твои координаты» и переставал звонить сам.
+                    else -> appText(
+                        "Поддержка получила твои координаты. Сообщение близким сейчас не " +
+                            "уходит — позвони им сам, если можешь.",
+                        "Ярҙам хеҙмәте координаталарыңды алды. Яҡындарға хәбәр хәҙер китмәй — " +
+                            "мөмкин булһа, үҙең шылтырат.",
+                    )
+                },
                 color = CanonWarn,
                 style = CanonCaption,
                 modifier = Modifier.fillMaxWidth().padding(CanonSpace.md),
@@ -110,7 +126,12 @@ fun RoadsideHelpAction(
                     busy = true
                     scope.launch {
                         send(LocationPrefs.lastLat, LocationPrefs.lastLng)
-                            .onSuccess { n -> notified = n; sent = true; confirm = false }
+                            .onSuccess { r ->
+                                notified = r.notified
+                                contactsTotal = r.contactsTotal
+                                sent = true
+                                confirm = false
+                            }
                             .onFailure {
                                 android.widget.Toast
                                     .makeText(ctx, serverSaid(it, failMsg), android.widget.Toast.LENGTH_LONG)

@@ -81,10 +81,24 @@ def add_contact(body: ContactIn, user: User = Depends(current_user), session: Se
             TrustedContact.user_id == user.id, TrustedContact.phone == phone,
         ).limit(1)).first()
         if уже:
-            # Имя могло поменяться («Мама» → «Мама Гульнара») — обновим, дублей не заводим.
+            # Обновляем ВСЁ, что человек прислал, а не только имя (волна 160). Ручки «изменить
+            # контакт» на сервере нет, поэтому повторное добавление того же номера — единственный
+            # способ поменять настройку. Раньше менялось только имя, а пометка «тревожить только
+            # при беде» молча выбрасывалась: человек просил не дёргать пожилую маму SMS по каждому
+            # шагу поездки, а её продолжали дёргать, и другого пути это исправить в приложении нет.
+            изменилось = False
             новое_имя = (body.name or "").strip()
             if новое_имя and новое_имя != уже.name:
                 уже.name = новое_имя
+                изменилось = True
+            новая_связь = (getattr(body, "relation", "") or "").strip()
+            if новая_связь and новая_связь != (уже.relation or ""):
+                уже.relation = новая_связь
+                изменилось = True
+            if bool(body.notify_by_default) != bool(уже.notify_by_default):
+                уже.notify_by_default = bool(body.notify_by_default)
+                изменилось = True
+            if изменилось:
                 session.add(уже)
                 session.commit()
                 session.refresh(уже)
@@ -474,7 +488,8 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
     # это про день выезда. Оценка через год говорит уже не о поездке (волна 57).
     guard_rating_window(ride.depart_at if ride else None)
     avg, cnt = apply_rating(session, user, ratee_id, stars=body.stars, text=body.text,
-                            tags=body.tags, booking_id=booking_id, place="review")
+                            tags=body.tags, booking_id=booking_id, place="review",
+                            happened_at=(ride.depart_at if ride else None))
     return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
 
 

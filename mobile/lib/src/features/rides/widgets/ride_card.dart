@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../models/ride.dart';
 
 class RideCard extends StatelessWidget {
-  const RideCard({super.key, required this.ride, this.compact = false});
+  const RideCard({
+    super.key,
+    required this.ride,
+    this.compact = false,
+    this.onBook,
+  });
 
   final Ride ride;
   final bool compact;
+  final VoidCallback? onBook;
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +44,15 @@ class RideCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(ride.departureLabel),
+            if (ride.pickup.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                ride.pickup,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
             const SizedBox(height: 10),
             Row(
               children: [
@@ -78,7 +94,7 @@ class RideCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: () {},
+                      onPressed: onBook,
                       icon: const Icon(Icons.lock_open),
                       label: const Text('Забронировать'),
                     ),
@@ -86,7 +102,7 @@ class RideCard extends StatelessWidget {
                   const SizedBox(width: 10),
                   IconButton.outlined(
                     tooltip: 'Поделиться',
-                    onPressed: () {},
+                    onPressed: () => _copyShareText(context),
                     icon: const Icon(Icons.ios_share),
                   ),
                 ],
@@ -96,6 +112,17 @@ class RideCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _copyShareText(BuildContext context) async {
+    final text = '${ride.from} → ${ride.to}, ${ride.departureLabel}. '
+        '${ride.priceRub} ₽, свободных мест: ${ride.freeSeats}. Юлдаш: https://yulbash.ru';
+    await Clipboard.setData(ClipboardData(text: text));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Текст поездки скопирован.')),
+      );
+    }
   }
 }
 

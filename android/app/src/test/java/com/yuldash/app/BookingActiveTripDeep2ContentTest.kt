@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import androidx.compose.runtime.CompositionLocalProvider
+import com.yuldash.app.data.ApiClient
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
@@ -156,12 +157,16 @@ class BookingActiveTripDeep2ContentTest {
     }
 
     // --- голосовое: подпись + кнопка воспроизведения (contentDescription) ---
+    // Адреса тут НАШИ: чужой хост пузырь принципиально не открывает (см. блок про слежку ниже).
+
+    private val ourVoice = "${ApiClient.apiBase()}/media/voice/a.m4a"
+    private val ourPhoto = "${ApiClient.apiBase()}/media/chat/p.jpg"
 
     @Test
     fun bubble_voice_showsVoiceLabelAndPlayButton() {
         composeRule.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                MessageBubble(text = "", voiceUrl = "https://example.com/a.m4a", mine = false)
+                MessageBubble(text = "", voiceUrl = ourVoice, mine = false)
             }
         }
         composeRule.onNodeWithText("Голосовое").assertIsDisplayed()
@@ -172,7 +177,7 @@ class BookingActiveTripDeep2ContentTest {
     fun bubble_voice_bashkir_showsVoiceLabel() {
         composeRule.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
-                MessageBubble(text = "", voiceUrl = "https://example.com/a.m4a", mine = true)
+                MessageBubble(text = "", voiceUrl = ourVoice, mine = true)
             }
         }
         composeRule.onNodeWithText("Тауыш").assertIsDisplayed()
@@ -185,12 +190,66 @@ class BookingActiveTripDeep2ContentTest {
     fun bubble_imagePrefix_rendersPhotoNotRawUrl() {
         composeRule.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                MessageBubble(text = "[img]https://example.com/p.jpg", voiceUrl = null, mine = true)
+                MessageBubble(text = "[img]$ourPhoto", voiceUrl = null, mine = true)
             }
         }
         composeRule.onNodeWithContentDescription("Фото").assertIsDisplayed()
         // Префиксный url не должен рендериться как обычный текст.
-        composeRule.onNodeWithText("[img]https://example.com/p.jpg").assertDoesNotExist()
+        composeRule.onNodeWithText("[img]$ourPhoto").assertDoesNotExist()
+    }
+
+    // --- медиа с ЧУЖОГО сервера: показываем строкой, но не загружаем ---
+    //
+    // Текст сообщения человек набирает сам, поэтому «[img]» ещё не значит «наше фото».
+    // Мошенник «из поддержки» шлёт `[img]http://свой-сервер/1.png`, Coil сам идёт по ссылке —
+    // и хозяин чужого сервера записывает IP, город, время и устройство того, кто просто
+    // открыл чат. Нажимать ничего не надо. Поэтому чужой адрес остаётся текстом.
+
+    @Test
+    fun bubble_foreignImage_showsLinkAsTextWithoutLoading() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                MessageBubble(text = "[img]http://evil.example/1.png", voiceUrl = null, mine = false)
+            }
+        }
+        // Картинки нет — есть адрес строкой и объяснение почему.
+        composeRule.onNodeWithContentDescription("Фото").assertDoesNotExist()
+        composeRule.onNodeWithText("http://evil.example/1.png").assertIsDisplayed()
+        composeRule.onNodeWithText("⚠️ Ссылка ведёт на чужой сайт — не открываем").assertIsDisplayed()
+    }
+
+    @Test
+    fun bubble_foreignImage_bashkir_showsWarning() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
+                MessageBubble(text = "[img]http://evil.example/1.png", voiceUrl = null, mine = false)
+            }
+        }
+        composeRule.onNodeWithText("⚠️ Һылтанма ят сайтҡа илтә — асмайбыҙ").assertIsDisplayed()
+    }
+
+    @Test
+    fun bubble_foreignVoice_doesNotOfferPlayback() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                MessageBubble(text = "", voiceUrl = "http://evil.example/a.m4a", mine = false)
+            }
+        }
+        // Кнопки «играть» нет: нажатие увело бы плеер на чужой сервер.
+        composeRule.onNodeWithContentDescription("Воспроизвести").assertDoesNotExist()
+        composeRule.onNodeWithText("⚠️ Ссылка ведёт на чужой сайт — не открываем").assertIsDisplayed()
+    }
+
+    @Test
+    fun bubble_protocolRelativeImage_isTreatedAsForeign() {
+        // «//evil.example/x.png» выглядит как путь на нашем сервере, но это чужой адрес.
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                MessageBubble(text = "[img]//evil.example/x.png", voiceUrl = null, mine = true)
+            }
+        }
+        composeRule.onNodeWithContentDescription("Фото").assertDoesNotExist()
+        composeRule.onNodeWithText("//evil.example/x.png").assertIsDisplayed()
     }
 
     // --- меню по долгому тапу: правка / удалить у себя / удалить у всех ---

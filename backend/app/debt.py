@@ -29,7 +29,7 @@ from .config import settings
 from .ledger import driver_balance, fee_kop_for, post_promo_compensation, promo_comp_ext_id
 from .models import (
     CommissionDebt, DebtStatus, InstantOrder, InstantOrderStatus, LedgerEntry, LedgerKind,
-    TaxiApplication, TaxiApplicationStatus, User,
+    Report, TaxiApplication, TaxiApplicationStatus, User,
 )
 from .timeutil import local_date, utcnow
 
@@ -219,6 +219,50 @@ def _local_day_expr(session: Session, column):
     return func.strftime("%Y-%m-%d", column, f"{offset_h:+d} hours")
 
 
+def unpaid_confirmed_order_ids(session: Session, driver_id: int) -> set:
+    """Заказы этого водителя, по которым РАЗБОР подтвердил «пассажир не заплатил».
+
+    Зачем (аудит 2026-08-08, волна 190). Водителя кинули на 620 ₽, он нажал «пассажир
+    не заплатил», админ жалобу подтвердил и снял с него комиссию за эту поездку — всё
+    правильно. А в заработке она осталась. Мало того: комиссия снялась, и «чистыми» по ней
+    стало БОЛЬШЕ, чем по честной поездке. Приложение показывало человеку, что он заработал
+    ровно ту сумму, которую ему не отдали, и выглядело это лучше обычной поездки.
+
+    Водитель планирует по этому числу бензин, платёж и продукты. Число, которое он читает
+    как факт, обязано быть фактом.
+
+    Считаем по подтверждённой жалобе, а не по метке `unpaid_reported`: метку ставит сам
+    водитель нажатием кнопки, и до разбора это его слово, а не установленный факт.
+    """
+    rows = session.exec(
+        select(Report.order_id).where(
+            Report.category == "unpaid",
+            Report.status == "resolved",
+            Report.order_id.is_not(None),
+            Report.reporter_id == driver_id,
+        )
+    ).all()
+    return {int(r) for r in rows if r}
+
+
+def unpaid_confirmed_parcel_ids(session: Session, courier_id: int) -> set:
+    """Доставки этого курьера, по которым РАЗБОР подтвердил, что ему не заплатили.
+
+    Пара к `unpaid_confirmed_order_ids` (такси). Правило одно, наборы разные: там заказы,
+    здесь доставки. Держим рядом, чтобы не разъехались, — у курьера цена ошибки выше:
+    в «купи и привези» он тратит на товар СВОИ деньги (волна 191).
+    """
+    rows = session.exec(
+        select(Report.parcel_id).where(
+            Report.category == "unpaid",
+            Report.status == "resolved",
+            Report.parcel_id.is_not(None),
+            Report.reporter_id == courier_id,
+        )
+    ).all()
+    return {int(r) for r in rows if r}
+
+
 def driver_earnings(session: Session, driver_id: int, period: str = "week",
                     now: Optional[datetime] = None) -> dict:
     """История заработка водителя за период (week|month|all): суммарно + разбивка по дням.
@@ -244,6 +288,12 @@ def driver_earnings(session: Session, driver_id: int, period: str = "week",
         conds.append(InstantOrder.done_at >= start_local - tz)   # местная полночь → обратно в UTC
 
     price_expr = func.coalesce(InstantOrder.price_final, InstantOrder.price_estimate)
+    # Поездки, по которым разбор признал, что денег водитель не получил, в заработок
+    # не идут — но и не исчезают: их сумма называется отдельно (волна 190). Спрятать
+    # совсем было бы вторым обманом: работу он сделал, и она должна быть видна.
+    кинутые = unpaid_confirmed_order_ids(session, driver_id)
+    if кинутые:
+        conds.append(InstantOrder.id.not_in(кинутые))
     total_row = session.exec(
         select(func.coalesce(func.sum(price_expr), 0), func.count()).where(*conds)
     ).one()
@@ -256,7 +306,18 @@ def driver_earnings(session: Session, driver_id: int, period: str = "week",
         .where(*conds).group_by(day_expr).order_by(day_expr)
     ).all()
     by_day = [{"date": str(r[0]), "sum": int(r[1] or 0), "trips": int(r[2] or 0)} for r in rows]
-    return {"period": period, "total": total_sum, "trips": total_trips, "by_day": by_day}
+    # Сколько за тот же период не отдали. Считаем теми же условиями, но по обратному набору.
+    неоплачено_сумма = неоплачено_поездок = 0
+    if кинутые:
+        строка = session.exec(
+            select(func.coalesce(func.sum(price_expr), 0), func.count()).where(
+                *[c for c in conds if c is not conds[-1]], InstantOrder.id.in_(кинутые))
+        ).one()
+        неоплачено_сумма = int(строка[0] or 0)
+        неоплачено_поездок = int(строка[1] or 0)
+    return {"period": period, "total": total_sum, "trips": total_trips, "by_day": by_day,
+            # Разбор подтвердил, что по этим поездкам не заплатили (волна 190).
+            "unpaid_total": неоплачено_сумма, "unpaid_trips": неоплачено_поездок}
 
 
 def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
@@ -289,6 +350,7 @@ def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
                 LedgerEntry.ext_id.in_([promo_comp_ext_id(i) for i in order_ids]),
             )
         ).all() if e.order_id is not None}
+    кинутые = unpaid_confirmed_order_ids(session, driver_id)
     rides, total_price, total_fee, total_net = [], 0, 0, 0
     for o in orders:
         price_rub = int(o.price_final if o.price_final is not None else o.price_estimate)
@@ -300,9 +362,16 @@ def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
         disc_kop = max(int(o.promo_discount_kop or 0), 0)
         comp_kop = comps.get(o.id, 0)
         net_kop = price_rub * 100 - disc_kop - fee_kop + comp_kop
-        total_price += price_rub
-        total_fee += fee_kop
-        total_net += net_kop
+        # По подтверждённой жалобе «пассажир не заплатил» на руки не пришло ничего.
+        # Строку оставляем — работа была, и в споре её надо видеть, — но «чистыми» ноль,
+        # и в итоги она не идёт (волна 190).
+        не_заплатили = o.id in кинутые
+        if не_заплатили:
+            net_kop = 0
+        else:
+            total_price += price_rub
+            total_fee += fee_kop
+            total_net += net_kop
         rides.append({
             "order_id": o.id,
             "done_at": o.done_at,
@@ -313,6 +382,7 @@ def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
             "fee_kop": fee_kop,                       # комиссия платформы, копейки
             "net_kop": net_kop,                       # «чистыми» водителю
             "paid": bool(o.paid),
+            "unpaid_confirmed": не_заплатили,     # разбор признал: денег не было (волна 190)
             "payment_method": o.payment_method or "",
             "fee_status": (d.status.value if d and hasattr(d.status, "value") else
                            (d.status if d else "none")),
@@ -476,6 +546,23 @@ def void_debt_for_order(session: Session, order_id: int, note: str = "") -> bool
 # лежали у водителя в кошельке. Комиссию тут ВЗЯЛИ (записью fee), поэтому приставка намеренно
 # не WRITTEN_OFF_PREFIX — иначе расшифровка заработка спрятала бы её и завысила «чистыми».
 WALLET_PAID_NOTE = "Оплачен из кошелька"
+
+
+def taxi_owed_kop(session: Session, driver_id: Optional[int]) -> int:
+    """Сколько водитель ещё должен платформе за такси (unpaid + pending), копейки.
+
+    Лёгкая сумма для денежных проверок: `debt_summary` тянет разбивку по неделям и реквизиты,
+    а здесь нужно одно число.
+    """
+    if driver_id is None:
+        return 0
+    total = session.exec(
+        select(func.coalesce(func.sum(CommissionDebt.amount_kop), 0)).where(
+            CommissionDebt.driver_id == driver_id,
+            CommissionDebt.status != DebtStatus.paid,
+        )
+    ).one()
+    return max(int(total or 0), 0)
 
 
 def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
@@ -701,7 +788,10 @@ def blocked_driver_ids(session: Session, driver_ids: list, now=None) -> set:
 
 
 # Понятная ошибка блокировки такси (RU — серверная строка; UI локализует через appText).
+# Оба языка (волна 177): башкироязычный водитель видел «нет доступа» вместо причины —
+# и не понимал, что дело в долге и что с этим делать.
 TAXI_BLOCKED_MSG = "Оплати долг сервису, чтобы возить такси"
+TAXI_BLOCKED_MSG_BA = "Такси йөрөтөр өсөн сервисҡа бурысты түлә"
 
 
 def debt_summary(session: Session, driver_id: int) -> dict:

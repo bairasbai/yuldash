@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
 
+import 'data/app_scope.dart';
 import 'features/auth/phone_login_page.dart';
 import 'features/home/home_shell.dart';
 import 'features/onboarding/onboarding_page.dart';
@@ -45,31 +46,48 @@ class YuldashApp extends StatefulWidget {
 
 class _YuldashAppState extends State<YuldashApp> {
   final _localeNotifier = ValueNotifier(const Locale('ru'));
+  final _state = AppState();
+
+  @override
+  void initState() {
+    super.initState();
+    _state.init();
+  }
+
+  @override
+  void dispose() {
+    _localeNotifier.dispose();
+    _state.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return AppLocaleController(
-      localeNotifier: _localeNotifier,
-      child: ValueListenableBuilder<Locale>(
-        valueListenable: _localeNotifier,
-        builder: (context, locale, _) {
-          return MaterialApp.router(
-            title: 'Юлдаш',
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.light,
-            routerConfig: _router,
-            locale: locale,
-            supportedLocales: const [
-              Locale('ru'),
-              Locale('ba'),
-            ],
-            localizationsDelegates: const [
-              GlobalMaterialLocalizations.delegate,
-              GlobalWidgetsLocalizations.delegate,
-              GlobalCupertinoLocalizations.delegate,
-            ],
-          );
-        },
+    return AppScope(
+      state: _state,
+      child: AppLocaleController(
+        localeNotifier: _localeNotifier,
+        child: ValueListenableBuilder<Locale>(
+          valueListenable: _localeNotifier,
+          builder: (context, locale, _) {
+            return MaterialApp.router(
+              title: 'Юлдаш',
+              debugShowCheckedModeBanner: false,
+              theme: AppTheme.light,
+              routerConfig: _router,
+              locale: locale,
+              supportedLocales: const [
+                Locale('ru'),
+                Locale('ba'),
+              ],
+              localizationsDelegates: const [
+                GlobalMaterialLocalizations.delegate,
+                GlobalWidgetsLocalizations.delegate,
+                GlobalCupertinoLocalizations.delegate,
+              ],
+            );
+          },
+        ),
       ),
     );
   }

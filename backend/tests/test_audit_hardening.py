@@ -63,8 +63,12 @@ def test_tg_pay_ok_activates_courier_commission(client, user_factory, monkeypatc
     courier = user_factory("Courier")
     sender = user_factory("Sender")
     with Session(engine) as s:
+        # Тип обязателен: долг курьера считается только по курьерским заказам, и с волны 157
+        # оплата гасит ровно их. Раньше тип не задавали — доставка была попутной, а гасилась
+        # вместе с курьерскими, то есть тест закреплял ровно ту дыру, что нашли позже.
         pd = M.ParcelDelivery(sender_id=sender["id"], courier_id=courier["id"],
                               from_city="A", to_city="B", status="delivered",
+                              delivery_type="courier",
                               delivered_at=utcnow() - timedelta(hours=2), commission_kop=5000)
         s.add(pd); s.commit(); s.refresh(pd)
         pay = M.Payment(user_id=courier["id"], purpose="courier_commission",

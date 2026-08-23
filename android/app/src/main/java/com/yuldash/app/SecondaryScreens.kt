@@ -478,6 +478,9 @@ private fun notifIcon(type: String): androidx.compose.ui.graphics.vector.ImageVe
     "coupon" -> Icons.Default.LocalOffer
     "instant" -> Icons.Default.Bolt
     "referral" -> Icons.Default.CardGiftcard
+    // Водительские дела (волна 169: бейдж снят после смены машины) — это про допуск
+    // к работе, а не про конкретную поездку: человек должен находить такое в ленте глазами.
+    "driver" -> Icons.Default.Badge
     else -> Icons.Default.Notifications
 }
 

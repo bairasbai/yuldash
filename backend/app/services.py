@@ -337,6 +337,33 @@ def set_driver_docs_verdict(session: Session, user: User, profile: DriverProfile
     session.add(profile)
 
 
+def revoke_verification_on_car_change(session: Session, user: User,
+                                      profile: DriverProfile) -> bool:
+    """Машину подменили после проверки — бейдж «Проверен» гаснет (волна 169).
+
+    Живёт здесь, рядом с `set_driver_docs_verdict`, по той же причине, по которой там живёт
+    вердикт: у бейджа должна быть ОДНА дверь. Сторож `test_docs_verdicts_go_through_one_door`
+    следит, чтобы никто не трогал `User.verified` из обработчиков напрямую, — и он прав.
+    Первая версия этой правки писала `user.verified = False` прямо в роутере, и сторож её поймал.
+
+    Почему бейдж вообще должен гаснуть. Женщина ждёт машину у подъезда вечером; на экране
+    «Lada Granta, белая, А123БВ102» и зелёная галочка. Сверить номер — единственный способ
+    убедиться, что садишься в ту машину. Если водитель после проверки вписал другой автомобиль,
+    галочка относится к машине, которой уже нет: модератор сверял одну, приедет другая.
+
+    Возвращает True, если бейдж действительно сняли (роутеру — чтобы сказать об этом человеку).
+    Документы при этом не отклоняем: они в порядке, устарела привязка к автомобилю. Работать
+    водителю это не мешает — бейдж про доверие, а не про допуск.
+    """
+    if not user.verified:
+        return False
+    user.verified = False
+    session.add(user)
+    if profile is not None:
+        session.add(profile)
+    return True
+
+
 # ----------------------------- Push (FCM) -----------------------------
 _fcm_app = None
 
@@ -865,6 +892,35 @@ def record_server_error(path: str = "") -> None:
         log.warning(f"[ERR_ALERT] record failed: {e}")
 
 
+def sms_channel_live() -> bool:
+    """Может ли SMS вообще дойти до человека прямо сейчас — ОДНО правило на весь сервис.
+
+    Зачем отдельная функция. На проде `sms_provider=mock`: SMS никуда не уходят, они пишутся
+    в лог (вход у нас через Telegram, юрлица для sms.ru нет). Это осознанное решение и оно
+    в порядке — не в порядке было то, что ручки безопасности продолжали считать «скольким
+    близким ушло SMS» по длине списка контактов. Женщина нажимала SOS и получала в ответ
+    «двоим близким отправлено», курьер на трассе читал «близкие получили твои координаты» —
+    и оба переставали звонить сами. Не ушло никому (аудит 2026-08-08, волна 184).
+
+    Правило живёт здесь одно, потому что мест, где надо ответить человеку «позвали или нет»,
+    три: красная кнопка SOS, «застрял на трассе» и зимний протокол. Разъедутся они молча.
+    """
+    if settings.sms_provider == "smsru":
+        return bool(settings.sms_ru_api_id)
+    if settings.sms_provider == "smsdar":
+        return bool(settings.smsdar_id and settings.smsdar_password)
+    return False
+
+
+def sms_will_reach(phones) -> int:
+    """Скольким из этих номеров SMS РЕАЛЬНО уйдёт. Ноль, если канал молчит.
+
+    Единственный источник числа «контактов уведомлено» во всех ручках безопасности:
+    человек должен видеть факт, а не намерение.
+    """
+    return len([p for p in (phones or []) if p]) if sms_channel_live() else 0
+
+
 def send_text(phone: str, text: str) -> bool:
     """Отправка произвольного SMS (SOS, статусы близким). smsru → реально; иначе/фоллбэк — в лог.
 
@@ -872,7 +928,7 @@ def send_text(phone: str, text: str) -> bool:
     False: вызывающему важно знать, ушло сообщение или только легло в лог. Понадобилось для
     повтора по непринятому SOS — он помечал сигнал доставленным вслепую (волна 140)."""
     mp = mask_phone(phone)
-    if settings.sms_provider == "smsru" and settings.sms_ru_api_id:
+    if sms_channel_live() and settings.sms_provider == "smsru":
         try:
             import httpx
             params = {"api_id": settings.sms_ru_api_id, "to": phone, "msg": text, "json": 1}
@@ -890,7 +946,7 @@ def send_text(phone: str, text: str) -> bool:
             if not settings.is_prod:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
             return False
-    elif settings.sms_provider == "smsdar" and settings.smsdar_id and settings.smsdar_password:
+    elif sms_channel_live() and settings.sms_provider == "smsdar":
         try:
             ok, info = _smsdar_send(phone, text)
             log.info(f"[SMS] {mp}: smsdar sent={ok} ({info})")
@@ -954,12 +1010,31 @@ def may_send_family_sms(session: Session, user_id: int, kind: str) -> bool:
     return True
 
 
+def _sms_failed() -> Exception:
+    """Код входа не ушёл: человек стоит на пороге приложения и не может войти (волна 173).
+
+    Раньше здесь был односторонний русский текст «SMS не отправлено». Это самое неудачное место
+    для одного языка: башкироязычный человек в этот момент вообще ничего не может сделать —
+    ни войти, ни понять, что случилось, ни узнать, куда обращаться. Правило проекта «каждая
+    видимая надпись на двух языках» существует ровно для таких минут, а не для украшения.
+
+    Текст ещё и говорит, ЧТО делать: сбой у оператора связи проходит сам, и «повтори через
+    минуту» полезнее, чем «ошибка 502».
+    """
+    from .errors import herr
+    return herr(
+        502,
+        "Не получилось отправить код. Попробуй ещё раз через минуту.",
+        "Кодты ебәреп булманы. Бер минуттан ҡабатлап ҡара.",
+    )
+
+
 def send_sms(phone: str, code: str) -> None:
     """Отправка OTP. `smsru` — реально через sms.ru; иначе мок (код в лог).
     Если sms.ru НЕ отправил (напр. нет одобренного отправителя) — код падает в лог,
     чтобы вход работал на период настройки отправителя."""
     mp = mask_phone(phone)
-    if settings.sms_provider == "smsru" and settings.sms_ru_api_id:
+    if sms_channel_live() and settings.sms_provider == "smsru":
         try:
             import httpx
             params = {"api_id": settings.sms_ru_api_id, "to": phone, "msg": f"Yuldash: kod {code}", "json": 1}
@@ -971,27 +1046,27 @@ def send_sms(phone: str, code: str) -> None:
             log.info(f"[SMS] {mp}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
             if not ok:
                 if settings.is_prod:
-                    raise HTTPException(502, "SMS не отправлено")
+                    raise _sms_failed()
                 log.info(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
         except Exception as e:  # noqa: BLE001
             log.warning(f"[SMS] {mp}: smsru error {e}")
             if settings.is_prod:
-                raise HTTPException(502, "SMS не отправлено")
+                raise _sms_failed()
             log.info(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
-    elif settings.sms_provider == "smsdar" and settings.smsdar_id and settings.smsdar_password:
+    elif sms_channel_live() and settings.sms_provider == "smsdar":
         try:
             ok, info = _smsdar_send(phone, f"Yuldash: kod {code}")
             log.info(f"[SMS] {mp}: smsdar sent={ok} ({info})")
             if not ok:
                 if settings.is_prod:
-                    raise HTTPException(502, "SMS не отправлено")
+                    raise _sms_failed()
                 log.info(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
         except HTTPException:
             raise
         except Exception as e:  # noqa: BLE001
             log.warning(f"[SMS] {mp}: smsdar error {e}")
             if settings.is_prod:
-                raise HTTPException(502, "SMS не отправлено")
+                raise _sms_failed()
             log.info(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
     else:
         if settings.is_prod:

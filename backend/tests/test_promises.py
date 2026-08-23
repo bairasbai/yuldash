@@ -63,6 +63,7 @@ def test_обещание_телефон_закрыт_до_подтвержде�
 # ---------------------------------------------------------------------------
 def test_обещание_только_женщины_держит_обе_стороны(client, user_factory):
     woman = user_factory("Обещание: женщина за рулём", role=UserRole.driver, gender="female")
+    _подтвердить_женщину(woman["id"])        # отметку ставит подтверждённая женщина (волна 168)
     rid = _ride(client, woman, women_only=True)
 
     man = user_factory("Обещание: мужчина", gender="male")
@@ -778,3 +779,24 @@ def test_обещание_фото_профиля_не_выдаёт_адрес(c
     assert got.status_code == 200, got.status_code
     assert exif_sig not in got.content, "в чужих руках оказались координаты съёмки"
     assert got.content.startswith(jpeg_soi), "фото сломали чисткой — так тоже нельзя"
+
+
+def _подтвердить_женщину(user_id: int) -> None:
+    """Модератор сверил документы: женщина за рулём (волна 168).
+
+    Без этого отметку «только женщины» поставить нельзя — иначе она была бы приманкой,
+    которую любой выдаёт себе сам.
+    """
+    from sqlmodel import Session as _S, select as _sel
+    from app.db import engine as _eng
+    from app.models import DriverProfile as _DP, User as _U
+    with _S(_eng) as s:
+        u = s.get(_U, user_id)
+        u.gender = "female"
+        s.add(u)
+        p = s.exec(_sel(_DP).where(_DP.user_id == user_id)).first()
+        if p is None:
+            p = _DP(user_id=user_id)
+        p.gender_verified = True
+        s.add(p)
+        s.commit()

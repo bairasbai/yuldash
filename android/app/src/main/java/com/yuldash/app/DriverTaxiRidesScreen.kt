@@ -277,11 +277,20 @@ private fun TaxiRideRow(r: DriverTaxiRideDto, modifier: Modifier = Modifier, onC
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TaxiRideTag(
-                    if (r.paid) appText("Оплачено", "Түләнгән") else appText("Не отмечено", "Билдәләнмәгән"),
-                    if (r.paid) CanonMint else CanonWarnBg,
-                    if (r.paid) CanonGreen2 else CanonWarn,
-                )
+                // Разбор признал, что денег не было. Раньше такая поездка выглядела ЛУЧШЕ
+                // честной: комиссию с неё сняли, и «чистыми» показывалось больше (волна 190).
+                if (r.unpaidConfirmed) {
+                    TaxiRideTag(
+                        appText("Не заплатили — подтверждено", "Түләмәнеләр — раҫланған"),
+                        CanonDangerBg, CanonRed,
+                    )
+                } else {
+                    TaxiRideTag(
+                        if (r.paid) appText("Оплачено", "Түләнгән") else appText("Не отмечено", "Билдәләнмәгән"),
+                        if (r.paid) CanonMint else CanonWarnBg,
+                        if (r.paid) CanonGreen2 else CanonWarn,
+                    )
+                }
                 if (r.paymentMethod.isNotBlank()) {
                     TaxiRideTag(payMethodLabel(r.paymentMethod), CanonMint, CanonGreen2)
                 }

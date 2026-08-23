@@ -21,8 +21,9 @@ from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, UserRole
 from ..security import current_user
 from ..services import (
-    DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url,
-    set_driver_docs_verdict, set_user_gender, short_name, user_rating,
+    DOC_DIR, enforce_upload_quota, notify_admin_telegram, push_notification, read_upload,
+    revoke_verification_on_car_change, secure_docs_url, set_driver_docs_verdict,
+    set_user_gender, short_name, user_rating,
 )
 from ..storage import get_storage
 from ..timeutil import utcnow
@@ -221,11 +222,34 @@ def set_driver_profile(body: DriverProfileIn, user: User = Depends(current_user)
         "\n".join(p for p in (body.car_make, body.car_model, body.car_color, body.car_plate) if p),
         user.id, place="car_profile", session=session,
     )
+    # Машина, которую сверяет пассажир, — это марка, модель, цвет и госномер. Если она
+    # изменилась, прежнее подтверждение относится к другому автомобилю (аудит 2026-08-08,
+    # волна 169).
+    #
+    # Проба: водитель проходит проверку на «Lada Granta А123БВ102», потом вписывает
+    # «Toyota Camry Х999ХХ777» — и бейдж «Проверен» остаётся. Женщина у подъезда сверяет
+    # номер, видит зелёную галочку и садится в машину, которую не проверял никто.
+    #
+    # Тот же приём уже применён рядом к подтверждению пола: прислал другие права —
+    # подтверждение гасим, модератор сверит заново. Здесь ровно та же логика, только про
+    # автомобиль. Работать водителю это не мешает: бейдж — про доверие, а не про допуск.
+    было = (dp.car_make or "", dp.car_model or "", dp.car_color or "", dp.car_plate or "")
     dp.car_make = body.car_make.strip()
     dp.car_model = body.car_model.strip()
     dp.car_color = body.car_color.strip()
     dp.car_plate = body.car_plate.strip()
     dp.seats = body.seats
+    стало = (dp.car_make, dp.car_model, dp.car_color, dp.car_plate)
+    машина_сменилась = any(было) and было != стало
+    if машина_сменилась and revoke_verification_on_car_change(session, user, dp):
+        push_notification(
+            session, user.id, "driver",
+            "Машина изменилась — нужна проверка", "Машина үҙгәрҙе — тикшереү кәрәк",
+            "Бейдж «Проверен» снят: попутчики сверяют машину по этим данным. "
+            "Отправь документы на проверку — вернём.",
+            "«Тикшерелгән» билдәһе алынды: юлдаштар машинаны ошо мәғлүмәт буйынса тикшерә. "
+            "Документтарҙы тикшереүгә ебәр — кире ҡайтарабыҙ.",
+        )
     session.add(dp)
     session.commit()
     session.refresh(dp)

@@ -497,6 +497,11 @@ class Booking(SQLModel, table=True):
     contact_then_cancel: bool = False
     thanked: bool = False                     # «Сказать рәхмәт»: пассажир поблагодарил за поездку (дедуп)
     rate_reminded: bool = False               # фоновая задача уже слала «оцените поездку» по этой броне (дедуп, без спама)
+    # Когда ВОДИТЕЛЬ принял эту бронь. Это единственное доказательство, что стороны реально
+    # имеют дело друг с другом: нажать «Забронировать» может кто угодно, не спрашивая водителя,
+    # а подтверждение — встречный шаг. По статусу это не восстановить: отменённая после
+    # подтверждения и отменённая из ожидания выглядят одинаково (аудит 2026-08-08, волна 158).
+    confirmed_at: Optional[datetime] = None
     cancelled_at: Optional[datetime] = None   # когда бронь отменили (для счётчиков за день)
     # Причина отмены (код: changed_mind/found_other/plans_changed/driver_no_response/car_problem/no_show/other)
     # и флаг неявки — сигнал доверия «между своими» и аргумент в споре. Пусто = причину не указали.
@@ -1116,6 +1121,14 @@ class CommissionDebt(SQLModel, table=True):
     # можно было жать бесконечно: pending снимает блок, админ отклонил → нажал снова → работает.
     # После DEBT_MAX_DECLARES отклонённых заявок «слово» больше не снимает блокировку.
     declare_count: int = 0
+    # Момент, когда предупредили водителя, что доверие вот-вот кончится (волна 176).
+    # Нужно, чтобы предупреждение ушло ОДИН раз: каждую ночь — спам, который перестают
+    # читать ровно к тому дню, когда он важен.
+    declare_reminded_at: Optional[datetime] = None
+    # Момент, когда предупредили водителя, что доверие вот-вот кончится (волна 176).
+    # Нужно, чтобы предупреждение ушло ОДИН раз: каждую ночь — спам, который перестают
+    # читать ровно к тому дню, когда он важен.
+    declare_reminded_at: Optional[datetime] = None
     note: str = ""                                        # почему списан вручную (история для админа)
     confirmed_at: Optional[datetime] = None               # когда админ подтвердил
     # Один заказ = максимум одна запись долга. DB-барьер против гонки двойного «done»
@@ -1182,6 +1195,10 @@ class TaxiApplication(SQLModel, table=True):
     osgop_until: Optional[date_type] = Field(default=None, index=True)
     docs_expired: bool = Field(default=False, index=True)   # допуск снят до обновления документов
     docs_warned_at: Optional[datetime] = None               # когда слали последнее напоминание (анти-спам)
+    # До какого момента водитель работает по СЛОВУ: новую дату документа он вписал сам, фото
+    # не приложил (волна 170). Не принёс до этого срока — ночной робот снимает допуск обратно.
+    # None = подтверждать нечего (фото есть или дата не менялась).
+    docs_photo_due_at: Optional[datetime] = Field(default=None, index=True)
     status: TaxiApplicationStatus = Field(default=TaxiApplicationStatus.pending, index=True)
     comment: Optional[str] = None                  # комментарий админа при отклонении
     created_at: datetime = Field(default_factory=utcnow)

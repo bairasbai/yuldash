@@ -188,7 +188,7 @@ def test_pending_then_approve_opens_gate(client, user_factory):
     d = _driver_online(client, user_factory, "CycleDrv", taxi_approved=False)
     # Без заявки: гейт (b) держит, ошибка понятная.
     resp = _heartbeat(client, d)
-    assert resp.status_code == 403 and "провер" in resp.json()["detail"].lower()
+    assert resp.status_code == 403 and "провер" in resp.json()["detail"]["ru"].lower()
     assert client.get("/taxi/application", headers=d["auth"]).status_code == 404
     # Подал → pending, гейт всё ещё держит.
     made = client.post("/taxi/apply", headers=d["auth"], json=VALID_APPLY).json()
@@ -241,7 +241,7 @@ def test_unapproved_driver_gets_no_offers_and_cannot_accept(client, user_factory
         s.commit()
     assert client.get("/instant/driver/offer", headers=d["auth"]).json()["offer"] is None
     resp = client.post(f"/instant/orders/{order['id']}/accept", headers=d["auth"])
-    assert resp.status_code == 403 and "провер" in resp.json()["detail"].lower()
+    assert resp.status_code == 403 and "провер" in resp.json()["detail"]["ru"].lower()
 
 
 # ============================ Анти-IDOR / права ============================

@@ -151,6 +151,41 @@ def test_orphan_evidence_photo_is_deleted_but_live_one_stays(client, user_factor
     assert storage.exists(f"evidence/{live}"), "чистка съела улику живого спора"
 
 
+def _поля_со_снимками(исходник: str) -> set:
+    """Поля, куда код кладёт ССЫЛКУ НА СНИМОК, — по признаку, а не по одному слову в имени.
+
+    Раньше признаком было просто «в имени есть photo или evidence». Волна 170 завела поле
+    `docs_photo_due_at` — момент времени «до какого дня водитель работает, пока не принёс фото
+    документа», — и сторож потребовал внести ЭТУ ДАТУ в список живых ссылок чистки. Дата
+    к файлам отношения не имеет, а сторож её не отличал.
+
+    Уточнение простое: имя, оканчивающееся на `_at`, — это момент времени, а не ссылка.
+    Так сторож продолжает ловить настоящие поля со снимками и перестаёт цепляться к соседям
+    с похожим словом внутри.
+    """
+    import re as _re
+    найдено = {
+        поле for _obj, поле in _re.findall(r"(\w+)\.(\w*(?:evidence|photo)\w*)\s*=", исходник)
+    }
+    return {поле for поле in найдено if not поле.endswith("_at")}
+
+
+def test_сторож_снимков_отличает_дату_от_ссылки():
+    """Проверка самого сторожа: слепой и придирчивый ломаются одинаково тихо.
+
+    Слепой пропустит новое поле со снимком — и чистка съест улики живого спора. Придирчивый
+    будет падать на каждом соседе с похожим именем, и его перестанут читать.
+    """
+    настоящие = "parcel.pickup_photo_url = url\n    inc.evidence_urls = csv\n"
+    даты = "app.docs_photo_due_at = utcnow()\n    dp.car_photo_checked_at = utcnow()\n"
+
+    поля = _поля_со_снимками(настоящие + даты)
+
+    assert "pickup_photo_url" in поля, "сторож перестал видеть настоящее поле со снимком"
+    assert "docs_photo_due_at" not in поля, "сторож принял дату за ссылку на файл"
+    assert "car_photo_checked_at" not in поля, "сторож принял отметку времени за ссылку"
+
+
 def test_every_evidence_field_is_known_to_the_cleaner():
     """Сторож прибора: чистка удаляет приватные снимки, на которые НЕ осталось ссылок.
 
@@ -160,7 +195,6 @@ def test_every_evidence_field_is_known_to_the_cleaner():
     полноту сторожит тест, а не память.
     """
     import pathlib as _pl
-    import re
 
     app_src = chr(10).join(f.read_text(encoding="utf-8") for f in _pl.Path("app").rglob("*.py"))
     cleaner = _pl.Path("app/cleanup.py").read_text(encoding="utf-8")
@@ -169,10 +203,7 @@ def test_every_evidence_field_is_known_to_the_cleaner():
     # их чистит только удаление аккаунта (580-ФЗ требует хранить, пока человек работает).
     docs_fields = {"license_url", "car_photo_url", "permit_photo_url", "osago_url",
                    "criminal_record_url", "selfie_url"}
-    written = {
-        fld for _obj, fld in re.findall(r"(\w+)\.(\w*(?:evidence|photo)\w*)\s*=", app_src)
-        if fld not in docs_fields
-    }
+    written = _поля_со_снимками(app_src) - docs_fields
     assert written, "разбор сломался — полей не нашлось вовсе"
 
     missing = sorted(f for f in written if f not in cleaner)

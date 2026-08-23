@@ -271,6 +271,39 @@ def _settlement(p: ParcelDelivery) -> Optional[dict]:
     }
 
 
+def owed_to_courier_kop(p: ParcelDelivery, session: Optional[Session] = None) -> int:
+    """Сколько отправитель остался должен курьеру, когда доставка закрылась. ОДНО правило.
+
+    Случай ровно один, но денежный: «купи и привези», курьер сходил в магазин на СВОИ деньги,
+    а получателя не оказалось дома — товар уехал обратно к отправителю. Лекарства теперь
+    у отправителя, деньги — потрачены курьером, и вернуть их должен тот, кто заказ сделал.
+
+    Почему это вообще пришлось писать (аудит 2026-08-08, волна 185). Правило «после закупки
+    расчёт только через разбор» стояло на двух дверях: отправитель не может отменить,
+    курьер не может сняться — обе отвечают «открой спор, чтобы вернуть деньги». А третья
+    дверь, возврат, была открыта настежь и молчала: заказ закрывался в `returned`, курьеру
+    не приходило вообще ничего, отправителю приходило «комиссию за возврат мы не берём» —
+    и человек читал это как «я ничего не должен». Полторы тысячи рублей чужих денег
+    исчезали без единой записи. Именно этой дверью и пользуются чаще всех: получателя нет
+    дома — обычное дело, а отмена и снятие — редкость.
+
+    Ноль во всех остальных случаях: при вручении получатель рассчитался на месте
+    (`settled`), в обычной доставке своих денег курьер не тратит.
+    """
+    товар = max(int(getattr(p, "goods_actual_kop", 0) or 0), 0)
+    тип = getattr(p, "delivery_type", "poputka") or "poputka"
+    if p.status == "returned":
+        return товар if тип == "buy_bring" else 0
+    # Второй случай (волна 191): доставку ВРУЧИЛИ, а денег курьеру не отдали, и разбор это
+    # подтвердил. Тогда отправитель должен и за товар (это деньги курьера из магазина),
+    # и за саму доставку: услуга-то оказана, коробка у получателя.
+    if p.status == "delivered" and session is not None and p.courier_id:
+        from ..debt import unpaid_confirmed_parcel_ids
+        if p.id in unpaid_confirmed_parcel_ids(session, p.courier_id):
+            return товар + max(int(getattr(p, "delivery_price_kop", 0) or 0), 0)
+    return 0
+
+
 def _parcel_base(p: ParcelDelivery, blur_coords: bool = False) -> dict:
     """Общие поля заявки БЕЗ приватного телефона, БЕЗ кода вручения и БЕЗ адресов.
 
@@ -724,7 +757,18 @@ def parcel_cancel(parcel_id: int, user: User = Depends(current_user), session: S
     prev_courier = parcel.courier_id
     # Курьер уже в пути → фиксируем компенсацию (он потратил время и бензин).
     fee_kop = settings.courier_cancel_fee_kop if (prev_courier and parcel.status in _CANCEL_FEE_STATUSES) else 0
-    parcel.status = "canceled"
+    # Коробка УЖЕ в машине курьера — отмена не может просто закрыть дело (аудит 2026-08-08,
+    # волна 162). Раньше заказ уходил в `canceled`, и курьер оставался с чужой посылкой без
+    # единого пути в приложении: возврат отвечал «возврат доступен, пока посылка у тебя»
+    # (а она у него и есть — просто статус уже не тот), и человеку предлагали открыть спор.
+    # То есть чтобы отдать коробку назад, надо было завести конфликт с тем, кто ничего плохого
+    # не сделал: отправитель имеет полное право передумать.
+    #
+    # Теперь такая отмена переводит доставку в «везу обратно»: дело живое, отправитель ждёт
+    # свою коробку, курьер закрывает её обычным `return-done`. Компенсация за бензин при этом
+    # фиксируется ровно так же.
+    коробка_у_курьера = bool(prev_courier) and parcel.status == "in_transit"
+    parcel.status = "returning" if коробка_у_курьера else "canceled"
     parcel.cancel_fee_kop = fee_kop
     session.add(parcel)
     session.commit()
@@ -732,7 +776,17 @@ def parcel_cancel(parcel_id: int, user: User = Depends(current_user), session: S
     route = f"{parcel.from_city} → {parcel.to_city}"
     if prev_courier:  # курьер уже вёз — предупредим (best-effort), без телефонов
         try:
-            if fee_kop > 0:
+            if коробка_у_курьера:
+                push_notification(
+                    session, prev_courier, "parcel",
+                    "Отправитель отменил — вези обратно", "Ебәреүсе кире алды — кире алып ҡайт",
+                    f"{route} · посылка у тебя. Отвези её обратно и отметь «вернул»."
+                    + (f" Компенсация {fee_kop // 100} ₽ — договоритесь напрямую." if fee_kop else ""),
+                    f"{route} · бандероль һиндә. Уны кире алып ҡайт та «ҡайтарҙым» тип билдәлә."
+                    + (f" Компенсация {fee_kop // 100} һ — үҙ-ара килешегеҙ." if fee_kop else ""),
+                    ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
+                )
+            elif fee_kop > 0:
                 push_notification(
                     session, prev_courier, "parcel",
                     "Доставка отменена", "Доставка кире алынды",
@@ -1219,14 +1273,42 @@ def parcel_return_done(parcel_id: int, user: User = Depends(current_user),
     session.add(parcel)
     session.commit()
     session.refresh(parcel)
+    # Деньги курьера, потраченные в магазине, не исчезают вместе со статусом (волна 185).
+    долг = owed_to_courier_kop(parcel)
+    рубли = долг // 100
     try:
-        push_notification(
-            session, parcel.sender_id, "parcel",
-            "Посылка вернулась к тебе", "Бандероль һиңә ҡайтты",
-            "Курьер вернул посылку. Комиссию за возврат мы не берём.",
-            "Курьер бандерольде кире ҡайтарҙы. Кире ҡайтарыу өсөн комиссия алмайбыҙ.",
-            ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
-        )
+        if долг:
+            # Отправителю: товар у него в руках, деньги — курьера. Мягко, но прямо: это не
+            # штраф и не комиссия, это возврат чужих денег за то, что он сам заказал.
+            push_notification(
+                session, parcel.sender_id, "parcel",
+                "Посылка вернулась к тебе", "Бандероль һиңә ҡайтты",
+                f"Курьер вернул покупку и потратил на неё свои {рубли} ₽ — верни ему эту сумму. "
+                "Комиссию за возврат мы не берём.",
+                f"Курьер һатып алғанды кире ҡайтарҙы һәм уға үҙенең {рубли} һумын тотҡан — "
+                "был сумманы ҡайтар. Кире ҡайтарыу өсөн комиссия алмайбыҙ.",
+                ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
+            )
+            # Курьеру раньше не приходило НИЧЕГО: он закрывал заказ и оставался один на один
+            # со своим чеком из магазина. Теперь дело закрыто вслух, и назван выход, если
+            # договориться не вышло, — тот же, что обещают две соседние двери.
+            push_notification(
+                session, parcel.courier_id, "parcel",
+                "Возврат закрыт", "Кире ҡайтарыу ябылды",
+                f"Отправитель должен вернуть тебе {рубли} ₽ за товар. "
+                "Не получится договориться — открой спор, там разберёт человек.",
+                f"Ебәреүсе һиңә тауар өсөн {рубли} һум ҡайтарырға тейеш. "
+                "Килешеп булмаһа — бәхәс ас, кеше ҡарар.",
+                ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
+            )
+        else:
+            push_notification(
+                session, parcel.sender_id, "parcel",
+                "Посылка вернулась к тебе", "Бандероль һиңә ҡайтты",
+                "Курьер вернул посылку. Комиссию за возврат мы не берём.",
+                "Курьер бандерольде кире ҡайтарҙы. Кире ҡайтарыу өсөн комиссия алмайбыҙ.",
+                ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
+            )
     except Exception:  # noqa: BLE001
         pass
     return _parcel_for_courier(parcel, session)
@@ -1528,7 +1610,16 @@ def parcel_receipt(parcel_id: int, user: User = Depends(current_user),
     # зафиксирована; иначе — заявленную при заказе.
     goods_kop = int(parcel.goods_actual_kop or 0) or int(parcel.cod_amount_kop or 0)
     delivery_kop = int(parcel.delivery_price_kop or 0)
-    total_kop = delivery_kop + goods_kop
+    долг_курьеру = owed_to_courier_kop(parcel, session)
+    # «Итого» — это сумма, которую кто-то кому-то действительно должен СЕЙЧАС.
+    #
+    # У доставленной посылки это доставка плюс товар: получатель рассчитался на месте.
+    # У ВЕРНУВШЕЙСЯ — только товар: услуга не оказана, поэтому мы и комиссию за возврат
+    # не берём. Раньше чек и там складывал доставку с товаром, и отправитель, которому
+    # курьер привёз коробку обратно, видел «Итого 5 094 ₽» — счёт за то, чего не было
+    # (волна 185). Число в чеке читают как решение спора, а не как справку.
+    total_kop = долг_курьеру if долг_курьеру else (
+        0 if parcel.status == "returned" else delivery_kop + goods_kop)
     return {
         "parcel_id": parcel.id,
         "role": "courier" if parcel.courier_id == user.id else "sender",
@@ -1542,6 +1633,9 @@ def parcel_receipt(parcel_id: int, user: User = Depends(current_user),
         "delivery_price_kop": delivery_kop,
         "goods_kop": goods_kop,
         "total_kop": total_kop,
+        # Сколько отправитель возвращает курьеру за товар, купленный на свои (волна 185).
+        # Отдельным полем, а не «догадайся по статусу»: экран должен назвать это словами.
+        "owed_to_courier_kop": долг_курьеру,
         "amount": total_kop // 100,
         "commission_kop": int(parcel.commission_kop or 0),
         "commission_paid": bool(parcel.commission_paid),

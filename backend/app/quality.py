@@ -257,7 +257,13 @@ def escalate_severe(session: Session, report: Report, reporter: User) -> None:
     from .services import notify_admin_telegram   # локальный импорт: тесты патчат services
     if report.category not in SEVERE_CATEGORIES:
         return
-    tied_to_trip = any((report.order_id, report.booking_id, report.parcel_id))
+    # Не «есть номер поездки», а «встреча реально состоялась»: номер брони ставится одним тапом
+    # постороннего, и этого хватало, чтобы выключить честному водителю работу (волна 158).
+    from .safety_logic import trip_really_happened
+    tied_to_trip = trip_really_happened(
+        session, booking_id=report.booking_id, order_id=report.order_id,
+        parcel_id=report.parcel_id,
+    )
     if tied_to_trip:
         pause_taxi(session, report.target_user_id, hours=None, reason=PAUSE_REASON_REVIEW)
     target = session.get(User, report.target_user_id)

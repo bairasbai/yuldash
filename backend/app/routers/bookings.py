@@ -310,7 +310,16 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
     is_driver = ride.driver_id == user.id
     # Контакты взрослого за подростка — водителю, пока бронь ЖИВАЯ. Отменённая ничего не
     # открывает: см. комментарий у полей ниже.
-    guardian_visible = is_driver and booking.status != BookingStatus.cancelled
+    # Завершённая поездка тоже перестаёт открывать контакты взрослого (волна 160). Отменённую
+    # закрыли раньше, а `done` — это статус навсегда: спустя год водитель открывал старую бронь
+    # и видел телефон мамы. Она в приложении не зарегистрирована, согласия не давала и удалить
+    # свой номер не может никак. После поездки держим то же окно, что и для телефона самого
+    # пассажира: пока идёт разбор и связь ещё нужна — открыто, дальше закрыто.
+    guardian_visible = (
+        is_driver
+        and booking.status != BookingStatus.cancelled
+        and (booking.status != BookingStatus.done or unlocked)
+    )
     return {
         "booking_id": booking.id,
         "ride_id": ride.id,
@@ -606,6 +615,7 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     if is_blocked(session, user.id, booking.passenger_id):
         raise herr(403, "Недоступно", "Мөмкин түгел")
     booking.status = BookingStatus.confirmed
+    booking.confirmed_at = utcnow()   # доказательство встречи сторон (волна 158)
     session.add(booking)
     session.commit()
     session.refresh(booking)

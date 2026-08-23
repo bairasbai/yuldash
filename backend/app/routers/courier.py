@@ -25,7 +25,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
-from ..rating_service import guard_rating_window
+from ..rating_service import guard_rating_on_pause, guard_rating_window
 from ..config import settings
 from ..db import get_session
 from ..logs import admin_action
@@ -52,6 +52,24 @@ router = APIRouter(tags=["courier"])
 # параметры, не .env). Цена считается сервером — единственный источник истины.
 # ---------------------------------------------------------------------------
 COURIER_COD_CAP_KOP = 500_000          # потолок наложки/стоимости товара для buy_bring = 5000 ₽
+
+# Насколько курьер может превысить сумму, на которую согласился заказчик (аудит 2026-08-08,
+# волна 157). Раньше проверялся только общий потолок: заказчик просил купить лекарств на 1000 ₽,
+# курьер вводил 5000 ₽, и получателю приходил счёт в пять раз больше — а тот стоит в дверях
+# с пакетом и решает за секунду. Совсем без запаса тоже нельзя: цена в магазине не совпадает
+# с ожиданием почти никогда. Берём БОЛЬШЕЕ из процента и фикса — иначе на заказе в 200 ₽ запас
+# был бы тридцать рублей.
+COURIER_GOODS_OVERRUN_PERCENT = 15     # запас к согласованной сумме, %
+COURIER_GOODS_OVERRUN_MIN_KOP = 10000  # но не меньше 100 ₽ — для маленьких заказов
+
+
+def goods_limit_kop(agreed_kop: int) -> int:
+    """Потолок фактической стоимости товара: согласованная сумма плюс разумный запас."""
+    agreed = max(int(agreed_kop or 0), 0)
+    if agreed <= 0:
+        return COURIER_COD_CAP_KOP     # сумма не согласована — держит только общий потолок
+    запас = max(agreed * COURIER_GOODS_OVERRUN_PERCENT // 100, COURIER_GOODS_OVERRUN_MIN_KOP)
+    return min(agreed + запас, COURIER_COD_CAP_KOP)
 
 COURIER_TARIFF = {
     "base_kop": 10000,                 # подача курьера — 100 ₽
@@ -163,6 +181,37 @@ def _guard_not_paused(prof: Optional[CourierProfile]) -> None:
                    "Сифат буйынса бәләкәй тәнәфес. Тын ал — тиҙҙән яңынан сафта 💚")
 
 
+def courier_rating(session: Session, courier_id: int) -> Tuple[float, int]:
+    """Рейтинг человека КАК КУРЬЕРА: только оценки за доставки, которые он вёз сам.
+
+    Зачем отдельно от общего рейтинга (аудит 2026-08-08, волна 186). Общий балл человека
+    складывается из всех его ролей сразу: он пассажир, он водитель попутки, он отправитель
+    посылок и он же курьер. Для витрины это правильно — доверие человеку одно. Но лестница
+    качества отнимает у него РАБОТУ, а работа у него одна — курьерская.
+
+    Что было. Айрат работает курьером. Как ЗАКАЗЧИК он получил три единицы от курьеров,
+    которые везли его коробки. Лестница посмотрела на общий балл, увидела 1.0 и сняла его
+    с линии на двое суток — при том что как курьер он не вёз ещё ни одной посылки, и
+    претензий к его работе не было ни у кого. Письмо сказало «Рейтинг заметно просел» —
+    ни слова о том, какие это оценки и за что.
+
+    Правила подсчёта берём общие (`services._rating_from_rows`): тот же кап на пару
+    «оценил–оценённый» и то же окно свежести. Другой здесь только НАБОР строк — не все
+    оценки человека, а те, где он был курьером доставки.
+    """
+    from ..services import _rating_from_rows
+    rows = list(session.exec(
+        select(Rating.rater_id, Rating.stars, Rating.created_at)
+        .join(ParcelDelivery, Rating.parcel_id == ParcelDelivery.id)      # type: ignore[arg-type]
+        .where(
+            Rating.ratee_id == courier_id,
+            Rating.excluded == False,        # noqa: E712 — снятые оценки вне среднего
+            ParcelDelivery.courier_id == courier_id,
+        )
+    ).all())
+    return _rating_from_rows(rows)
+
+
 def _maybe_courier_soft_ladder(session: Session, courier_id: int, avg: float, cnt: int) -> None:
     """C3 мягкая лестница: оценили курьера → по-доброму реагируем на просевший рейтинг.
     - хватает данных и рейтинг < COURIER_ADVICE_RATING → тёплый пуш-совет (дедуп 1/нед);
@@ -185,8 +234,10 @@ def _maybe_courier_soft_ladder(session: Session, courier_id: int, avg: float, cn
             push_notification(
                 session, courier_id, "safety",
                 "Пауза по качеству", "Сифат буйынса пауза",
-                "Рейтинг заметно просел. Дадим паузу на пару дней — вернёшься с новыми силами 💚",
-                "Рейтинг ныҡ төштө. Бер-ике көн тәнәфес — яңы көс менән ҡайтырһың 💚",
+                "Оценки за твои доставки заметно просели. Дадим паузу на пару дней — "
+                "вернёшься с новыми силами 💚",
+                "Илтеүҙәрең өсөн баһалар ныҡ төштө. Бер-ике көн тәнәфес — "
+                "яңы көс менән ҡайтырһың 💚",
             )
         except Exception:
             pass
@@ -201,10 +252,10 @@ def _maybe_courier_soft_ladder(session: Session, courier_id: int, avg: float, cn
         try:
             push_bilingual(session, courier_id,
                            "Совет от Юлдаша", "Юлдаштан кәңәш",
-                           "Рейтинг немного просел. Бережная доставка и доброе слово быстро "
-                           "возвращают звёзды 💚",
-                           "Рейтинг бер аҙ төштө. Иғтибарлы доставка һәм йылы һүҙ "
-                           "йондоҙҙарҙы тиҙ кире ҡайтара 💚")
+                           "Оценки за доставки немного просели. Бережная доставка и доброе "
+                           "слово быстро возвращают звёзды 💚",
+                           "Илтеүҙәр өсөн баһалар бер аҙ төштө. Иғтибарлы доставка һәм йылы "
+                           "һүҙ йондоҙҙарҙы тиҙ кире ҡайтара 💚")
         except Exception:
             pass
 
@@ -315,6 +366,21 @@ def _price(from_lat: Optional[float], from_lng: Optional[float],
     `percent` не задан → верхняя ступень из конфига (консервативная оценка, как и раньше)."""
     if percent is None:
         percent = settings.courier_service_fee_percent
+    # Потолок расстояния — тот же, что у такси (волна 188). Дыра была слово в слово та же:
+    # цена доставки считается от расстояния, комиссия — от цены, неоплаченная комиссия
+    # блокирует курьера. Промах по карте давал Уфа → Владивосток: доставка 140 778 ₽,
+    # комиссия 4 223 ₽ при пороге блокировки 1000 ₽ — то есть человек терял работу
+    # за чужой соскользнувший палец.
+    #
+    # Проверку ставим ЗДЕСЬ, в расчёте цены: через него ходят и оценка, и создание заказа.
+    if None not in (from_lat, from_lng, to_lat, to_lng):
+        прямая = haversine_km(from_lat, from_lng, to_lat, to_lng)
+        if прямая > max(float(settings.max_trip_km), 1.0):
+            raise herr(
+                422,
+                "Это слишком далеко для доставки. Проверь адрес получателя на карте 🗺",
+                "Был илтеү өсөн бик алыҫ. Алыусының адресын картала тикшер 🗺",
+            )
     t = COURIER_TARIFF
     if None in (from_lat, from_lng, to_lat, to_lng):
         distance_km = 0.0
@@ -979,11 +1045,69 @@ def courier_goods_cost(order_id: int, body: GoodsCostIn, user: User = Depends(cu
     if actual_kop > COURIER_COD_CAP_KOP:
         raise herr(422, f"Сумма покупки слишком большая (лимит {COURIER_COD_CAP_KOP // 100} ₽)",
                    f"Һатып алыу суммаһы бик ҙур (сик {COURIER_COD_CAP_KOP // 100} һ)")
+    # Главный потолок — не общий лимит, а то, на что согласился ЗАКАЗЧИК (волна 157). Запас
+    # на разницу цен в магазине есть, но пятикратный счёт получателю выставить нельзя: он стоит
+    # в дверях с пакетом и решает за секунду. Больше запаса — пусть заказчик поднимет сумму сам
+    # (эндпоинт ниже), это его деньги и его решение.
+    предел = goods_limit_kop(getattr(parcel, "cod_amount_kop", 0) or 0)
+    if actual_kop > предел:
+        raise herr(
+            422,
+            f"Заказчик согласился на {(parcel.cod_amount_kop or 0) // 100} ₽ "
+            f"(с запасом — до {предел // 100} ₽). Свяжись с ним: он поднимет сумму в заказе",
+            f"Заказ биреүсе {(parcel.cod_amount_kop or 0) // 100} һумға ризалашҡан "
+            f"(запас менән — {предел // 100} һумға тиклем). Уның менән бәйләнеш: ул заказҙа "
+            "сумманы арттырыр",
+        )
     parcel.goods_actual_kop = actual_kop
     session.add(parcel)
     session.commit()
     session.refresh(parcel)
     return {"id": parcel.id, "settlement": parcels_mod._settlement(parcel)}
+
+
+class RaiseBudgetIn(BaseModel):
+    cod_amount_kop: int = 0   # новая сумма, на которую согласен заказчик
+
+
+@router.post("/courier/orders/{order_id}/raise-budget")
+def courier_raise_budget(order_id: int, body: RaiseBudgetIn, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)):
+    """Заказчик поднимает сумму, на которую согласен («в аптеке дороже — ладно, бери»).
+
+    Без этой двери отказ курьеру («сумма выше согласованной») был бы тупиком: товар уже куплен,
+    провести расчёт нельзя, и оба остаются в подвешенном состоянии. Поднимать может ТОЛЬКО
+    заказчик и только вверх — курьер сумму своего же счёта не двигает. До вручения.
+    """
+    parcel = session.get(ParcelDelivery, order_id)
+    if not parcel or parcel.sender_id != user.id:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "buy_bring":
+        raise herr(409, "Только для «купи и привези»", "Тик «һатып ал да килтер» өсөн")
+    if parcel.status in _FINAL_STATUSES:
+        raise herr(409, "Заказ уже завершён", "Заказ инде тамамланған")
+    новая = int(body.cod_amount_kop or 0)
+    прежняя = int(parcel.cod_amount_kop or 0)
+    if новая <= прежняя:
+        raise herr(422, "Новая сумма должна быть больше прежней",
+                   "Яңы сумма элеккенән ҙурыраҡ булырға тейеш")
+    if новая > COURIER_COD_CAP_KOP:
+        raise herr(422, f"Сумма покупки слишком большая (лимит {COURIER_COD_CAP_KOP // 100} ₽)",
+                   f"Һатып алыу суммаһы бик ҙур (сик {COURIER_COD_CAP_KOP // 100} һ)")
+    parcel.cod_amount_kop = новая
+    session.add(parcel)
+    session.commit()
+    session.refresh(parcel)
+    if parcel.courier_id:
+        push_notification(
+            session, parcel.courier_id, "parcel",
+            "Заказчик поднял сумму покупки 💰", "Заказ биреүсе һатып алыу сумманы арттырҙы 💰",
+            f"Теперь можно потратить до {goods_limit_kop(новая) // 100} ₽.",
+            f"Хәҙер {goods_limit_kop(новая) // 100} һумға тиклем тотоу мөмкин.",
+            ref_kind="parcel", ref_id=parcel.id,
+        )
+    return {"id": parcel.id, "cod_amount_kop": parcel.cod_amount_kop,
+            "goods_limit_kop": goods_limit_kop(parcel.cod_amount_kop)}
 
 
 # ---------------------------------------------------------------------------
@@ -1090,6 +1214,11 @@ def courier_earnings(period: str = "week", user: User = Depends(current_user),
 
     # В БД цена доставки — delivery_price_kop (в API она отдаётся как price_kop);
     # берём поле модели, а не имя из JSON, иначе агрегат молча считал бы не то.
+    # Доставки, по которым разбор признал, что курьеру не заплатили, в заработок не идут —
+    # но и не исчезают: их сумма называется отдельно (волна 191, по образцу волны 190).
+    не_заплатили = debt_mod.unpaid_confirmed_parcel_ids(session, user.id)
+    if не_заплатили:
+        conds.append(ParcelDelivery.id.not_in(не_заплатили))
     net_expr = (func.coalesce(ParcelDelivery.delivery_price_kop, 0)
                 - func.coalesce(ParcelDelivery.commission_kop, 0))
     total_row = session.exec(
@@ -1102,12 +1231,22 @@ def courier_earnings(period: str = "week", user: User = Depends(current_user),
         select(day_expr.label("day"), func.coalesce(func.sum(net_expr), 0), func.count())
         .where(*conds).group_by(day_expr).order_by(day_expr)
     ).all()
+    неоплачено = (0, 0)
+    if не_заплатили:
+        неоплачено = session.exec(
+            select(func.coalesce(func.sum(net_expr), 0), func.count()).where(
+                *[c for c in conds if c is not conds[-1]],
+                ParcelDelivery.id.in_(не_заплатили))
+        ).one()
     return {
         "period": period,
         "net_kop": int(total_row[0] or 0),          # чистыми курьеру, копейки
         "commission_kop": int(total_row[1] or 0),   # комиссия платформы за тот же период
         "deliveries": int(total_row[2] or 0),
         "by_day": [{"date": str(r[0]), "net_kop": int(r[1] or 0), "deliveries": int(r[2] or 0)} for r in rows],
+        # Разбор подтвердил, что по этим доставкам не заплатили (волна 191).
+        "unpaid_net_kop": int(неоплачено[0] or 0),
+        "unpaid_deliveries": int(неоплачено[1] or 0),
     }
 
 
@@ -1137,6 +1276,10 @@ def parcel_rate(parcel_id: int, body: ParcelRateIn, user: User = Depends(current
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if parcel.status != "delivered":
         raise herr(409, "Оценить можно после вручения", "Тапшырғандан һуң баһалап була")
+    # Пауза лестницы и оценки (волна 161): свежую доставку оценить можно — это твой голос
+    # о том, что было; по архиву за два месяца раздавать единицы нельзя. Эта дверь общий шов
+    # не зовёт, поэтому правило берём оттуда же функцией, а не копией.
+    guard_rating_on_pause(session, user.id, parcel.delivered_at or parcel.created_at)
     # Третья дверь к оценке — и в ней те же два пробела, что закрыли у попутки и такси
     # (волна 57): не было срока и не было модерации текста. Считаем от создания доставки:
     # своего «вручено в» у посылки нет, а доставка живёт дни, не месяцы (волна 58).
@@ -1158,8 +1301,16 @@ def parcel_rate(parcel_id: int, body: ParcelRateIn, user: User = Depends(current
                        stars=stars, text=text, text_published=False))
     session.commit()
     avg, cnt = user_rating(session, ratee_id)
-    # 🟡 Мягкая лестница: если оценили курьера — по-доброму реагируем на просевший рейтинг.
-    _maybe_courier_soft_ladder(session, ratee_id, avg, cnt)
+    # 🟡 Мягкая лестница — только тому, кого оценили ИМЕННО КАК КУРЬЕРА этой доставки,
+    # и только по его курьерским оценкам (волна 186).
+    #
+    # Здесь дверь и была не та. Оценка взаимная: отправитель оценивает курьера, курьер —
+    # отправителя. А лестница вызывалась для «кого оценили», кем бы он ни был, и смотрела
+    # на общий балл человека. Заказчик с курьерским профилем получал двое суток без работы
+    # за то, как он вёл себя в роли заказчика: у нас один человек часто и возит, и заказывает.
+    if parcel.courier_id and ratee_id == parcel.courier_id:
+        к_avg, к_cnt = courier_rating(session, ratee_id)
+        _maybe_courier_soft_ladder(session, ratee_id, к_avg, к_cnt)
     return {"ratee_id": ratee_id, "rating": round(avg, 1) if cnt > 0 else 0.0, "count": cnt}
 
 

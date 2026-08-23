@@ -22,7 +22,8 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
-from ..ledger import PayoutError, driver_balance, ledger_entries, reconcile, request_payout
+from ..ledger import (PayoutError, driver_balance, ledger_entries, owed_to_platform_kop,
+                      payable_balance, reconcile, request_payout)
 from ..models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus,
     LedgerEntry, LedgerKind, Payment, User, UserRole,
@@ -170,9 +171,17 @@ def pay_booking(booking_id: int, body: PayIn, user: User = Depends(current_user)
 # ------------------------------ кошелёк водителя ------------------------------
 @router.get("/wallet/balance")
 def wallet_balance(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Баланс кошелька — сумма всех записей ledger по СВОЕМУ id (нельзя запросить чужой)."""
+    """Баланс кошелька — сумма всех записей ledger по СВОЕМУ id (нельзя запросить чужой).
+
+    Рядом с балансом отдаём, сколько из него зарезервировано под неоплаченную комиссию и
+    сколько реально свободно. Без этих двух чисел человек видит 600 ₽, жмёт «Вывести» и
+    получает отказ, не понимая причины (волна 156)."""
     bal = driver_balance(session, user.id)
-    return {"balance_kop": bal, "balance_rub": bal // 100}
+    долг = owed_to_platform_kop(session, user.id)
+    свободно = max(bal - долг, 0)
+    return {"balance_kop": bal, "balance_rub": bal // 100,
+            "reserved_kop": min(долг, max(bal, 0)),   # больше, чем лежит, зарезервировать нельзя
+            "payable_kop": свободно, "payable_rub": свободно // 100}
 
 
 @router.get("/wallet/ledger")
@@ -210,6 +219,7 @@ def admin_ledger_reconcile(days: int = 1, date_from: str = "", date_to: str = ""
 # ГОТОВНОСТЬ. Режим доступен, только когда Александр оформит ИП + бизнес-ЮKassa + ключи выплат
 # и выставит PAYOUTS_ENABLED=true. Выключено → «Выплаты скоро» (не 500), Модель А остаётся рабочей.
 _PAYOUT_SOON = "Выплаты на карту скоро будут доступны"
+_PAYOUT_SOON_BA = "Картаға түләүҙәр тиҙҙән эшләй башлай"
 
 
 def _payout_profile(session: Session, user_id: int) -> DriverProfile | None:
@@ -224,6 +234,9 @@ def wallet_payout_status(user: User = Depends(current_user), session: Session = 
     return {
         "enabled": settings.payouts_ready,          # реально ли можно выводить (флаг + ключи в проде)
         "balance_kop": driver_balance(session, user.id),
+        # Сколько из баланса свободно: долг платформе выводить нельзя (волна 156).
+        "payable_kop": payable_balance(session, user.id),
+        "owed_kop": owed_to_platform_kop(session, user.id),
         "has_requisite": bool(dp and dp.payout_card_last4),
         "card_last4": (dp.payout_card_last4 if dp else ""),
         "min_kop": settings.payout_min_kop,
@@ -273,7 +286,7 @@ def wallet_payout(body: PayoutIn, user: User = Depends(current_user), session: S
     payouts_ready=False → 503 «Выплаты скоро» (не падаем). Иначе: нужны сохранённые реквизиты,
     сумма в границах и ≤ баланса; списание идёт в ledger записью payout (−сумма), идемпотентно."""
     if not settings.payouts_ready:                          # выключено → мягко «скоро», не 500
-        raise HTTPException(503, _PAYOUT_SOON)
+        raise herr(503, _PAYOUT_SOON, _PAYOUT_SOON_BA)
     dp = _payout_profile(session, user.id)
     if not dp or not dp.payout_card_last4:
         raise herr(400, "Сначала добавь карту для вывода", "Башта сығарыу өсөн карта өҫтә")

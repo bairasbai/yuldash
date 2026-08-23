@@ -1097,14 +1097,26 @@ object ApiClient {
     private fun liveLinkOrNull(j: JSONObject): String? =
         j.optString("token", "").takeIf { it.isNotBlank() }?.let { "$BASE/t/$it" }
 
+    /** Ответ на «позвать помощь»: скольким близким сообщение реально уйдёт и сколько
+     *  доверенных заведено всего. Старый сервер второго числа не присылает — тогда считаем,
+     *  что доверенных столько же, скольким ушло (текст экрана останется прежним). */
+    data class RoadsideResult(val notified: Int, val contactsTotal: Int)
+
+    private fun roadsideResult(j: JSONObject): RoadsideResult {
+        val ушло = j.optInt("contacts_notified")
+        return RoadsideResult(ушло, j.optInt("contacts_total", ушло))
+    }
+
     /** F12 «Застрял на трассе»: координаты уходят доверенным контактам + запись в SOS-ленту админа.
      *  Уровень мягче паники SOS. Координаты необязательны (шлём хотя бы сигнал о помощи). */
     /** Возвращает, СКОЛЬКИМ близким реально ушло SMS (волна 122): экран обещал помощь даже
-     *  тому, кто доверенных контактов не заводил. */
-    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String): Result<Int> {
+     *  тому, кто доверенных контактов не заводил. Волна 184 добавила второе число — сколько
+     *  доверенных вообще заведено: без него «ушло нулю» и «звать некого» выглядят одинаково,
+     *  а человеку на трассе это разные новости и разные действия. */
+    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String): Result<RoadsideResult> {
         val body = JSONObject().put("note", note)
         if (lat != null && lng != null) body.put("lat", lat).put("lng", lng)
-        return call("POST", "/bookings/$bookingId/stuck", body, auth = true).map { it.optInt("contacts_notified") }.onSuccess { Analytics.log("roadside_help") }
+        return call("POST", "/bookings/$bookingId/stuck", body, auth = true).map { roadsideResult(it) }.onSuccess { Analytics.log("roadside_help") }
     }
 
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
@@ -4383,21 +4395,23 @@ object ApiClient {
         call("POST", "/instant/orders/$orderId/im-coming", JSONObject(), auth = true)
             .map { it.optBoolean("ok", true) }
 
-    suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = ""): Result<Int> {
+    // Тип результата пришёл из main (волна 19x): помощь на дороге теперь возвращает не число,
+    // а разбор ситуации. Мой метод «уже выхожу» рядом — они друг другу не мешают.
+    suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = ""): Result<RoadsideResult> {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true).map { it.optInt("contacts_notified") }
+        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true).map { roadsideResult(it) }
     }
 
     /** «Застрял на трассе» в ДОСТАВКЕ. Курьер едет по той же зимней трассе и вдобавок один:
      *  рядом нет пассажира, который заметит беду. Сервер принимал сигнал с 2026-08-06,
      *  но в приложении нажать было негде (аудит 2026-08-06). */
-    suspend fun parcelRoadsideHelp(parcelId: Int, lat: Double?, lng: Double?, note: String = ""): Result<Int> {
+    suspend fun parcelRoadsideHelp(parcelId: Int, lat: Double?, lng: Double?, note: String = ""): Result<RoadsideResult> {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/parcels/$parcelId/stuck", body, auth = true).map { it.optInt("contacts_notified") }
+        return call("POST", "/parcels/$parcelId/stuck", body, auth = true).map { roadsideResult(it) }
             .onSuccess { Analytics.log("roadside_help_parcel") }
     }
 
@@ -4453,6 +4467,7 @@ object ApiClient {
                 commissionKop = o.optInt("commission_kop"),
                 commissionPaid = o.optBoolean("commission_paid"),
                 cancelFeeKop = o.optInt("cancel_fee_kop"),
+                owedToCourierKop = o.optInt("owed_to_courier_kop"),
                 settled = o.optBoolean("settled"),
                 declaredValueKop = o.optInt("declared_value_kop"),
                 courierName = o.optString("courier_name"),
@@ -4527,6 +4542,7 @@ object ApiClient {
                         feeKop = r.optInt("fee_kop"),
                         netKop = r.optInt("net_kop"),
                         paid = r.optBoolean("paid"),
+                        unpaidConfirmed = r.optBoolean("unpaid_confirmed"),
                         paymentMethod = r.optString("payment_method"),
                         feeStatus = r.optString("fee_status"),
                     )
@@ -6085,6 +6101,9 @@ data class ParcelReceiptDto(
     val commissionKop: Int, val commissionPaid: Boolean,
     val cancelFeeKop: Int, val settled: Boolean, val declaredValueKop: Int,
     val courierName: String, val courierVerified: Boolean,
+    // Сколько отправитель возвращает курьеру за товар, купленный курьером на свои (волна 185).
+    // Старый сервер поля не присылает → 0, и чек выглядит как прежде.
+    val owedToCourierKop: Int = 0,
 )
 
 /** «Сказать рәхмәт»: имя водителя, сказали ли уже, и (если включены денежные чаевые
@@ -6097,6 +6116,9 @@ data class DriverTaxiRideDto(
     val orderId: Int, val doneAt: String, val from: String, val to: String,
     val priceRub: Int, val feeKop: Int, val netKop: Int,
     val paid: Boolean, val paymentMethod: String, val feeStatus: String,
+    // Разбор подтвердил: по этой поездке пассажир не заплатил (волна 190). Старый сервер
+    // поля не присылает → false, и строка выглядит как прежде.
+    val unpaidConfirmed: Boolean = false,
 )
 
 /** Список поездок водителя + итоги (GET /driver/taxi-rides). */

@@ -450,6 +450,36 @@ def round_trip_price(one_way: int, zone: str) -> int:
         return one_way
     back = one_way * (1 - settings.round_trip_discount_percent / 100.0)
     return round_to_10(one_way + back)
+def _floor_at_zone_edge(session: Session, zone: str, category: str,
+                        eta_min: float, dist_km: float, surge: float) -> int:
+    """Пол цены для межгорода: столько же, сколько стоила бы поездка ровно до границы зон.
+
+    Зачем (аудит 2026-08-08, волна 167). Тарифы у зон разные: город берёт больше за километр
+    (короткие поездки), межгород — меньше (дальние). На стыке это давало разрыв в другую сторону:
+
+      * 40.0 км по городскому тарифу — 690 ₽;
+      * 40.1 км по межгородскому — 560 ₽.
+
+    Сто метров пути делали поездку на 130 ₽ **дешевле**. Для человека это выглядит как ошибка
+    приложения: сосед доехал дальше и заплатил меньше, объяснить это невозможно. Водителю тоже
+    прямой убыток — согласиться везти на километр дальше значит потерять деньги.
+
+    Чиним не цифрами в базе (их правит Александр и они меняются), а правилом: цена не может
+    падать при росте расстояния. Межгородская поездка стоит минимум столько же, сколько стоила
+    бы поездка ровно до границы по городскому тарифу. Дальше межгородский тариф растёт своим
+    темпом — дешевле за километр, как и задумано.
+    """
+    if zone != "intercity":
+        return 0
+    край = float(settings.instant_intercity_km)
+    if dist_km <= край:
+        return 0
+    городской = active_tariff(session, "city", category)
+    if not городской:
+        return 0
+    # Время на границе оцениваем пропорционально: маршрут тот же, просто короче.
+    eta_на_краю = eta_min * (край / dist_km) if dist_km > 0 else eta_min
+    return _tariff_price(городской, край, eta_на_краю, surge)
 
 
 def _price_factors(route: pricing.RouteMetrics, surge: float, pickup: float,
@@ -524,8 +554,20 @@ def _price_factors(route: pricing.RouteMetrics, surge: float, pickup: float,
 
 
 def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard",
-             round_trip: bool = False, waypoints: Optional[list] = None) -> dict:
+             round_trip: bool = False, waypoints: Optional[list] = None,
+             when=None) -> dict:
     """Server-owned upfront fare v2.
+
+    `when` — момент, НА КОТОРЫЙ считаем поездку (по умолчанию сейчас). Нужен предзаказу:
+    раньше цена всегда бралась на время нажатия, и заказ «на пять утра», оформленный днём,
+    считался по дневной ставке (аудит 2026-08-08, волна 163). Ночная надбавка существует именно
+    затем, чтобы кто-то поехал в мороз в пять утра, — по дневной цене никто не берёт такой заказ,
+    и человек остаётся на морозе с подтверждённым заказом, за который никто не едет. Обратный
+    случай не лучше: заказ на полдень, оформленный ночью, брал ночную наценку с человека,
+    который едет днём.
+
+    Спрос и погода остаются «на сейчас» намеренно: предсказать пробки и метель на завтра нельзя,
+    а врать точной цифрой хуже, чем показать честную оценку по тарифу.
 
     base = max(min_price, (base + per_km·road_distance + per_min·traffic_eta) · Tariff.k)
     final = base · min(demand × night × weather × pickup, surge_max_k), rounded to 10 ₽.
@@ -538,6 +580,22 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     stops = waypoints or []
     route = route_through(frm, stops, to) if stops else pricing.route_metrics(frm, to)
     dist_km = max(route.distance_km, 0.5)
+    # Потолок расстояния — ОДИН на все двери такси: оценка, заказ, предзаказ (волна 187).
+    #
+    # Что было. Гейт такси проверял только точку ПОДАЧИ («такси работает в этом городе»),
+    # а точку назначения не смотрел никто. Палец соскользнул по карте — и заказ Баймак →
+    # Владивосток уходил в работу: 7000 км, 83 450 ₽. Проверено пробой целиком: водитель
+    # принял, «завершил», получил долг платформе 2 503 ₽ и тут же блокировку такси за долг.
+    # То есть промах пассажира отнимал работу у водителя, который ничего не нарушил.
+    #
+    # Текст читает пассажир в момент, когда он уверен, что всё правильно, — значит он должен
+    # подсказать, что делать: посмотреть точку на карте, а не гадать, почему «ошибка».
+    if dist_km > max(float(settings.max_trip_km), 1.0):
+        raise herr(
+            422,
+            "Это слишком далеко для такси. Проверь точку назначения на карте 🗺",
+            "Был такси өсөн бик алыҫ. Барасаҡ урынды картала тикшер 🗺",
+        )
     eta_min = max(route.duration_min, 0.1)
     zone = zone_for_km(dist_km)
     t = active_tariff(session, zone, category)
@@ -547,7 +605,7 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
         raise herr(503, "Такси пока не считает цену. Попробуй позже или поезжай попуткой 🚗",
                    "Такси хәҙергә хаҡты иҫәпләмәй. Һуңғараҡ ҡабатла йәки юлдаш менән бар 🚗")
 
-    now = utcnow()
+    now = when or utcnow()
     surge = surge_k_for(session, frm[0], frm[1])
     nearest = nearby_drivers(frm[0], frm[1], limit=1)
     pickup_eta = int(nearest[0]["eta_min"]) if nearest else None
@@ -557,8 +615,15 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     dynamic = total_k(t, surge, now, pickup=pickup, weather=weather.k)
     base_price = _tariff_price(t, dist_km, eta_min, 1.0)
     price = _tariff_price(t, dist_km, eta_min, dynamic)
-    # Круговой рейс: цену считаем от УЖЕ посчитанной односторонней, чтобы обратная дорога
-    # ехала по тем же коэффициентам. Пассажир видит обе цифры и сам решает.
+    # На стыке зон цена не должна падать (волна 167): поездка длиннее не может стоить дешевле.
+    пол = _floor_at_zone_edge(session, zone, category, eta_min, dist_km, dynamic)
+    if пол > price:
+        price = пол
+        base_price = max(base_price,
+                         _floor_at_zone_edge(session, zone, category, eta_min, dist_km, 1.0))
+    # Круговой рейс считаем ПОСЛЕ пола, от итоговой односторонней цены: иначе обратная
+    # дорога поедет по заниженной ставке, а на стыке зон это как раз та поездка, где
+    # порожняк водителя длиннее всего.
     rt_available = round_trip_available(zone)
     rt_price = round_trip_price(price, zone)
     if round_trip and rt_available:
@@ -1193,6 +1258,17 @@ def add_fallback_category(session: Session, order: InstantOrder, category: str) 
     price = _category_price(session, order, cat)
     if price is not None and price < (order.price_estimate or 0):
         order.price_estimate = price
+        # Цена уехала — значит оффер, который сейчас висит у водителя на экране, врёт
+        # (аудит 2026-08-08, волна 167). Проба: заказ «Комфорт» за 300 ₽ разослан водителю,
+        # пассажир соглашается искать и в «Эконом» — цена падает до 100 ₽, а оффер остаётся
+        # прежним. Водитель смотрит на 300, нажимает «Принять» и везёт за 100.
+        #
+        # Правило простое: изменилась цена — старое предложение недействительно. Снимаем оффер,
+        # заказ снова уходит в рассылку и водители видят настоящую сумму. Потерять секунды
+        # на повторной рассылке не страшно; узнать после поездки, что заплатят втрое меньше
+        # обещанного, — это причина уйти из сервиса навсегда.
+        order.current_offer_driver_id = None
+        order.offer_expires_at = None
     session.add(order)
     session.commit()
     session.refresh(order)
@@ -1213,7 +1289,10 @@ def waiting_fee_kop(started, now) -> int:
     за каждую ПОЛНУЮ минуту (неполная минута — в пользу пассажира). Целые копейки."""
     whole_min = int(max((now - started).total_seconds(), 0.0) // 60)
     billable = max(0, whole_min - settings.wait_free_minutes)
-    return billable * settings.wait_fee_rub_per_min * 100
+    # Потолок (волна 163): без него счётчик тикал бесконечно. Водитель нажал «я на месте»
+    # и ушёл по делам — за три часа набегало 875 ₽, больше двух поездок. Пассажир при этом
+    # не может ни остановить счётчик, ни доказать, что машины у подъезда не было.
+    return min(billable * settings.wait_fee_rub_per_min, settings.wait_fee_cap_rub) * 100
 
 
 def _order_base_fee_kop(session: Session, order: InstantOrder) -> int:
@@ -2152,6 +2231,7 @@ def notify_pay_now_debt(session: Session, debt) -> bool:
     дальше, а через три часа такси у него закрыто «неизвестно за что». Обычный недельный долг
     пушем не тревожим — про него достаточно кабинета."""
     from . import debt as debt_mod            # локальный импорт: без циклов на старте
+    from .services import push_notification  # там же и запись в Центр уведомлений
     if debt is None or not debt_mod.is_pay_now(debt):
         return False
     rub = debt.amount_kop // 100
@@ -2176,6 +2256,7 @@ def notify_debt_near_block(session: Session, debt) -> bool:
 
     Шлём один раз, тем заказом, которым линия пересечена (см. `debt.crossed_warn_line`)."""
     from . import debt as debt_mod            # локальный импорт: без циклов на старте
+    from .services import push_notification  # там же и запись в Центр уведомлений
     if debt is None or debt.driver_id is None:
         return False
     owed = debt_mod.crossed_warn_line(session, debt.driver_id, debt.amount_kop)

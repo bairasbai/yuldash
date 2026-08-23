@@ -83,6 +83,30 @@ def driver_balance(session: Session, driver_id: int) -> int:
     return int(total or 0)
 
 
+def owed_to_platform_kop(session: Session, driver_id: int) -> int:
+    """Весь непогашенный долг человека платформе: такси + доставка, копейки.
+
+    Долгов у одного человека может быть два вида, и живут они в разных таблицах: комиссия
+    за такси — записями долга, комиссия курьера — флагом на самой доставке. Кошелёк при этом
+    один. Считать «сколько он должен» по одному виду — значит недосчитать.
+    """
+    from . import debt as _debt
+    from .routers import courier as _courier
+    return _debt.taxi_owed_kop(session, driver_id) + _courier._commission_owed_kop(session, driver_id)
+
+
+def payable_balance(session: Session, driver_id: int) -> int:
+    """Сколько водитель реально может вывести на карту: баланс минус долг платформе.
+
+    Без этой поправки кошелёк работал в одну сторону (аудит 2026-08-08, волна 156). Проба:
+    в кошельке 600 ₽, долг по комиссии 500 ₽ — водитель выводил все 600 на карту, долг
+    оставался неоплаченным, и платформа теряла деньги, которые сама же ему и доплатила.
+    Особенно обидно, что доплатила она их компенсацией промо-скидки: платформа оплатила
+    скидку пассажира, а водитель забрал компенсацию и остался должен комиссию.
+    """
+    return max(driver_balance(session, driver_id) - owed_to_platform_kop(session, driver_id), 0)
+
+
 def ledger_entries(session: Session, driver_id: int, limit: int = 100) -> list[LedgerEntry]:
     """Записи ledger водителя (свежие сверху) — для экрана кошелька/истории."""
     return session.exec(
@@ -160,8 +184,19 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
         session.rollback()
         return {"status": "already", "entry_id": prev_id, "amount_kop": -prev_amount,
                 "balance_kop": driver_balance(session, driver_id)}
-    if amount_kop > driver_balance(session, driver_id):
+    # Считаем не «сколько лежит», а «сколько СВОБОДНО»: долг платформе выводить нельзя.
+    # Иначе водитель забирал компенсацию промо-скидки на карту и оставался должен комиссию
+    # за ту же поездку (волна 156).
+    свободно = payable_balance(session, driver_id)
+    if amount_kop > свободно:
+        долг = owed_to_platform_kop(session, driver_id)
         session.rollback()
+        if долг > 0:
+            raise PayoutError(
+                "debt",
+                f"Доступно к выводу {свободно // 100} ₽: {долг // 100} ₽ на балансе зарезервировано "
+                "под неоплаченную комиссию",
+            )
         raise PayoutError("insufficient", "Недостаточно средств на балансе")
     entry = LedgerEntry(
         driver_id=driver_id, kind=LedgerKind.payout, amount_kop=-amount_kop,

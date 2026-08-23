@@ -10,8 +10,10 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import com.yuldash.app.data.ApiClient
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import org.junit.Assert.assertEquals
@@ -209,6 +211,44 @@ class AccessibilityDeep4ContentTest {
             }
         }
         composeRule.onNodeWithText("Статус ала: Гөлназ").assertIsDisplayed()
+    }
+
+    // Голос заявки: наш адрес — кнопка есть, чужой — кнопки нет.
+    //
+    // Адрес кладёт тот, кто создал заявку, а сервер это поле не чистит. Одно нажатие «Слушать»
+    // по чужой ссылке — и хозяин постороннего сервера знает IP, город и время водителя.
+
+    @Test
+    fun localRequestCard_ownVoice_showsPlayButton() {
+        val req = LocalRequest(
+            title = "Голосом", route = "Уфа → Сибай", time = "сегодня",
+            passenger = "Айгуль", status = "ждём отклики",
+            voiceUrl = "${ApiClient.apiBase()}/media/voice/a.m4a",
+        )
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                LocalRequestCard(req)
+            }
+        }
+        composeRule.onNodeWithText("Голосовая заявка").assertIsDisplayed()
+    }
+
+    @Test
+    fun localRequestCard_foreignVoice_hidesPlayButton() {
+        val req = LocalRequest(
+            title = "Голосом", route = "Уфа → Сибай", time = "сегодня",
+            passenger = "Айгуль", status = "ждём отклики",
+            voiceUrl = "http://evil.example/a.m4a",
+        )
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                LocalRequestCard(req)
+            }
+        }
+        composeRule.onNodeWithText("Голосовая заявка").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Слушать заявку").assertDoesNotExist()
+        // Сама заявка при этом на месте — прячем только кнопку.
+        composeRule.onNodeWithText("Уфа → Сибай").assertIsDisplayed()
     }
 
     // ──────────────────── CreatePassengerRequestContent: нижние блоки ────────────────────

@@ -1,6 +1,10 @@
 # Codex/агент-конфиги с API-ключами (Stitch и пр.) — НЕ в git
 .codex/
 
+# strix (pentest-инструмент) — ставится в отдельный venv, в git НЕ коммитим
+strix-src/
+strix-venv/
+
 # Android
 android/.gradle/
 android/local.properties

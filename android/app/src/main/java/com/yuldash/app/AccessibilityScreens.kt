@@ -489,7 +489,10 @@ internal fun LocalRequestCard(request: LocalRequest) {
             request.trustedContact?.let {
                 Text(appText("Статус получит: $it", "Статус ала: $it"), color = CanonMuted, fontSize = 12.sp)
             }
-            request.voiceUrl?.let { url -> VoiceRequestPlayRow(url) }
+            // Адрес голосовой заявки кладёт тот, кто её создал, а сервер это поле не чистит
+            // (`POST /requests`). Чужой адрес не показываем кнопкой: одно нажатие водителя —
+            // и хозяин постороннего сервера знает его IP, город и время (см. `isOwnMediaHost`).
+            request.voiceUrl?.takeIf { isOwnMediaHost(it) }?.let { url -> VoiceRequestPlayRow(url) }
         }
     }
 }

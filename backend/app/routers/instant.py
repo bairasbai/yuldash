@@ -40,7 +40,7 @@ def _guard_taxi_not_blocked(session: Session, driver_id: int) -> None:
     """Долг по комиссии просрочен / выше порога → водитель НЕ может возить такси.
     ПОПУТКА (плановые Ride/Booking) этим не затрагивается — там своего долга нет."""
     if debt_mod.taxi_block_reason(session, driver_id) is not None:
-        raise HTTPException(403, debt_mod.TAXI_BLOCKED_MSG)
+        raise herr(403, debt_mod.TAXI_BLOCKED_MSG, debt_mod.TAXI_BLOCKED_MSG_BA)
 
 
 def _guard_taxi_available(session: Session, lat: float | None = None, lng: float | None = None) -> None:
@@ -68,7 +68,7 @@ def _guard_taxi_driver(session: Session, driver_id: int, lat: float | None = Non
         # Разный текст важен: первый обвиняет человека, второй объясняет, что делать.
         if taxi_mod.taxi_docs_expired(session, driver_id):
             raise herr(403, taxi_mod.MSG_DOCS_EXPIRED["ru"], taxi_mod.MSG_DOCS_EXPIRED["ba"])
-        raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
+        raise herr(403, taxi_mod.TAXI_NOT_APPROVED_MSG, taxi_mod.TAXI_NOT_APPROVED_MSG_BA)
     _guard_taxi_not_blocked(session, driver_id)
     pretrip_mod.guard_pretrip(session, driver_id)   # 580-ФЗ: подтверждение готовности на сегодня
     workday_mod.guard_taxi_rested(session, driver_id)
@@ -231,7 +231,7 @@ def set_zone(body: ZoneIn, user: User = Depends(current_user), session: Session 
     if not dp:
         raise herr(409, "Сначала стань водителем (профиль водителя не найден)", "Башта йөрөтөүсе бул (йөрөтөүсе профиле табылманы)")
     if not taxi_mod.is_approved_taxi_driver(session, user.id):
-        raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
+        raise herr(403, taxi_mod.TAXI_NOT_APPROVED_MSG, taxi_mod.TAXI_NOT_APPROVED_MSG_BA)
     base, city, district, intercity, regions, direction_id = normalize_zone(body)
     if direction_id is not None and session.get(Settlement, direction_id) is None:
         raise herr(404, "Направление не найдено в справочнике", "Йүнәлеш белешмәлектә табылманы")
@@ -280,7 +280,7 @@ def instant_demand(city: Optional[str] = None, user: User = Depends(current_user
     Доступ — одобренный таксист (роль водителя). Такси выключено в зоне → зона в ответ
     не попадает; выключенный город → пустой zones + честный updated_at."""
     if not taxi_mod.is_approved_taxi_driver(session, user.id):
-        raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
+        raise herr(403, taxi_mod.TAXI_NOT_APPROVED_MSG, taxi_mod.TAXI_NOT_APPROVED_MSG_BA)
     return isv.demand_zones(session, city)
 
 
@@ -460,9 +460,12 @@ def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
     if quality_mod.passenger_pause_until(session, user.id) is not None:
         raise HTTPException(403, isv.strike_pause_message())
     when = _parse_scheduled_at(body.scheduled_at)
+    # Цену считаем на время ПОДАЧИ, а не нажатия (волна 163): иначе заказ на пять утра,
+    # оформленный днём, уходит по дневной ставке и в мороз за ним никто не едет.
+    # Круговой рейс и остановки — тоже часть цены, их нельзя терять у предзаказа.
     est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
                        body.category, round_trip=body.round_trip,
-                       waypoints=[w.model_dump() for w in body.waypoints])
+                       waypoints=[w.model_dump() for w in body.waypoints], when=when)
     # Предзаказ — та же открытая тройка «комментарий + два адреса», что и обычный заказ.
     moderate_open_text("\n".join(p for p in (body.comment, body.from_text, body.to_text) if p),
                        user.id, place="order_comment", session=session)
@@ -823,7 +826,8 @@ def rate_order(order_id: int, body: RateIn, user: User = Depends(current_user),
     guard_rating_window(order.done_at or order.created_at)
     avg, cnt = rating_service.apply_rating(
         session, user, ratee_id, stars=body.stars, text=body.text, tags=body.tags,
-        order_id=order_id, place="review")
+        order_id=order_id, place="review",
+        happened_at=(order.done_at or order.created_at))
     # Анонимность: rater не раскрываем, отдаём только агрегат оценённого.
     return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
 
