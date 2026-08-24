@@ -290,7 +290,9 @@ def instant_demand(city: Optional[str] = None, user: User = Depends(current_user
     не попадает; выключенный город → пустой zones + честный updated_at."""
     if not taxi_mod.is_approved_taxi_driver(session, user.id):
         raise herr(403, taxi_mod.TAXI_NOT_APPROVED_MSG, taxi_mod.TAXI_NOT_APPROVED_MSG_BA)
-    return isv.demand_zones(session, city)
+    # Свой id — чтобы сервер подписал зоны расстоянием от живой позиции водителя.
+    # Наружу это не «где водитель», а «сколько километров до зоны»: его точка не уходит.
+    return isv.demand_zones(session, city, driver_id=user.id)
 
 
 @router.get("/instant/nearby-drivers")

@@ -2444,12 +2444,12 @@ internal fun DriverDemandSection(online: Boolean) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader(
             appText("Спрос рядом", "Яҡында ихтыяж"),
-            appText("Где сейчас чаще ищут попутку", "Хәҙер юлдашты нисә ерҙә йышыраҡ эҙләй"),
+            appText("Где сейчас чаще заказывают такси", "Хәҙер таксины ҡайҙа йышыраҡ заказ итә"),
         )
         when {
             !online -> EmptyStateCard(
                 title = appText("Пока тихо", "Әлегә тыныс"),
-                text = appText("Выйди на линию — покажем, где сейчас ищут попутку.", "Линияға сыҡ — юлдашты ҡайҙа эҙләгәнен күрһәтербеҙ."),
+                text = appText("Выйди на линию — покажем, где сейчас заказывают такси.", "Линияға сыҡ — таксины ҡайҙа заказ иткәнен күрһәтербеҙ."),
                 icon = Icons.Default.TravelExplore,
             )
             loading && zones.isEmpty() -> SkeletonCard(lines = 3)
@@ -2459,7 +2459,7 @@ internal fun DriverDemandSection(online: Boolean) {
             )
             zones.isEmpty() -> EmptyStateCard(
                 title = appText("Пока тихо", "Әлегә тыныс"),
-                text = appText("Рядом никто не ищет попутку. Мы сообщим, как появятся заказы.", "Яҡында бер кем дә юлдаш эҙләмәй. Заказ килеү менән хәбәр итербеҙ."),
+                text = appText("Рядом сейчас никто не заказывает. Мы сообщим, как появятся заказы.", "Яҡында хәҙер бер кем дә заказ итмәй. Заказ килеү менән хәбәр итербеҙ."),
                 icon = Icons.Default.TravelExplore,
             )
             else -> {
@@ -2491,8 +2491,13 @@ internal fun DriverDemandSection(online: Boolean) {
                                         .clip(CircleShape)
                                         .background(CanonGreen.copy(alpha = 0.35f + 0.55f * dot)),
                                 )
+                                // «Зона в ≈4 км» полезнее, чем «Зона 2»: водитель решает,
+                                // стоит ли туда ехать. Сервер считает расстояние по его живой
+                                // позиции; не знает — остаётся номер, а не выдуманные километры.
+                                val км = z.distKm?.let { if (it < 1.0) 1 else kotlin.math.round(it).toInt() }
                                 Text(
-                                    appText("Зона ${i + 1}", "${i + 1}-се зона"),
+                                    if (км != null) appText("Зона в ≈$км км", "≈$км км алыҫлыҡтағы зона")
+                                    else appText("Зона ${i + 1}", "${i + 1}-се зона"),
                                     color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
                                     modifier = Modifier.weight(1f),
                                 )

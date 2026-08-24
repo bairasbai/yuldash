@@ -2420,6 +2420,10 @@ object ApiClient {
                         lng = z.optDouble("lng", 0.0),
                         weight = z.optDouble("weight", 0.0),
                         requests = z.optInt("requests", 0),
+                        // Далеко ли зона — считает сервер по живой позиции водителя.
+                        // Нет поля (только вышел на линию / старый сервер) → null, и подпись
+                        // остаётся «Зона N»: выдуманные километры хуже их отсутствия.
+                        distKm = if (z.isNull("dist_km")) null else z.optDouble("dist_km"),
                     )
                 }.sortedByDescending { it.weight },
                 updatedAt = o.optString("updated_at"),
@@ -6083,7 +6087,8 @@ data class ConversationDto(
 
 data class PopularRouteDto(val from: String, val to: String, val count: Int)
 /** Зона спроса для водителя: где сейчас чаще ищут попутку. Анонимно — только агрегат, без личности. */
-data class DemandZoneDto(val lat: Double, val lng: Double, val weight: Double, val requests: Int)
+data class DemandZoneDto(val lat: Double, val lng: Double, val weight: Double, val requests: Int,
+                         val distKm: Double? = null)
 /** Ответ /instant/demand: список зон спроса + метка времени обновления. */
 data class InstantDemandDto(val zones: List<DemandZoneDto>, val updatedAt: String)
 /** Живая лента карты: счётчики поездок за период + топ-маршрут недели. */

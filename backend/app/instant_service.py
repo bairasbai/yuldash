@@ -469,7 +469,8 @@ def _active_search_points(session: Session) -> list[tuple]:
     return [(flat, flng) for flat, flng in rows if flat is not None and flng is not None]
 
 
-def demand_zones(session: Session, city: Optional[str] = None) -> dict:
+def demand_zones(session: Session, city: Optional[str] = None,
+                 driver_id: Optional[int] = None) -> dict:
     """АНОНИМНЫЕ тепловые зоны спроса для водителя: «где сейчас ищут такси».
     Только агрегаты — активные поиски огрубляются до сетки ~1 км и группируются в зоны
     (без личности, телефонов и конкретных заказов). weight нормируется 0..1 (относительно
@@ -493,6 +494,8 @@ def demand_zones(session: Session, city: Optional[str] = None) -> dict:
                 continue
         key = (round(lat, DEMAND_GRID_DIGITS), round(lng, DEMAND_GRID_DIGITS))
         buckets[key] = buckets.get(key, 0) + 1
+    # Где сейчас сам водитель — чтобы подписать зоны расстоянием (см. ниже).
+    водитель_тут = driver_position(driver_id) if driver_id else None
     zones = []
     if buckets:
         max_req = max(buckets.values())
@@ -500,11 +503,22 @@ def demand_zones(session: Session, city: Optional[str] = None) -> dict:
             # Такси выключено в этой зоне (глобально/город) → не показываем (честно + приватно).
             if not taxi_mod.availability(session, zlat, zlng)["enabled"]:
                 continue
-            zones.append({
+            zone = {
                 "lat": zlat, "lng": zlng,
                 "weight": round(cnt / max_req, 3),
                 "requests": cnt,
-            })
+            }
+            # Далеко ли зона — считаем на сервере по ЖИВОЙ позиции водителя (presence).
+            # Иначе клиенту пришлось бы отдельно просить геолокацию ради одной подписи,
+            # а телефон водителя и так шлёт координаты, пока он на линии.
+            # Позиции нет (только вышел, нет Redis) — поля просто не будет: «Зона 1»
+            # честнее, чем выдуманные километры.
+            if водитель_тут is not None:
+                zone["dist_km"] = round(
+                    haversine_km(водитель_тут[0], водитель_тут[1], zlat, zlng), 1)
+            zones.append(zone)
+        # Сортируем по спросу, а не по близости: водитель сам решает, стоит ли ехать дальше
+        # за большим числом заказов. Расстояние — подсказка, а не приказ.
         zones.sort(key=lambda z: -z["requests"])
     return {"zones": zones, "updated_at": utcnow().isoformat()}
 
