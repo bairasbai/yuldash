@@ -2464,6 +2464,8 @@ object ApiClient {
                         // с open=false, чтобы показать «скоро» вместо кнопки, за которой пусто.
                         // Старый сервер поля не шлёт → true, прежнее поведение.
                         open = c.optBoolean("open", true),
+                        pickupEtaMin = if (c.isNull("pickup_eta_min")) null
+                        else c.optInt("pickup_eta_min").takeIf { it > 0 },
                     )
                 },
                 basePrice = o.optInt("base_price"),
@@ -2536,6 +2538,19 @@ object ApiClient {
      *  comment/entrance — «как меня найти» (в селе «Ленина 12» это пять домов без табличек,
      *  а чат открывается только ПОСЛЕ принятия заказа). forName/forPhone — заказ ДЛЯ ДРУГОГО
      *  человека: сын из Уфы вызывает такси маме в Баймаке, водитель должен звонить маме. */
+    /**
+     * Сменить способ расчёта — можно до самого конца поездки.
+     *
+     * Про наличные человек вспоминает тогда, когда лезет в карман, то есть уже сидя в машине.
+     * Водителю сервер шлёт уведомление сам: тихая смена договорённости — это тот же спор
+     * на высадке, только с обиженным водителем.
+     */
+    suspend fun setInstantPaymentMethod(orderId: Int, method: String): Result<String> =
+        call("POST", "/instant/orders/$orderId/payment",
+             JSONObject().put("method", method), auth = true)
+            .map { it.optString("payment_method").ifBlank { "negotiate" } }
+            .onSuccess { Analytics.log("instant_payment_$method") }
+
     suspend fun createInstantOrder(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
         fromText: String = "", toText: String = "", category: String = "standard",
@@ -2544,6 +2559,7 @@ object ApiClient {
         options: List<String> = emptyList(),
         roundTrip: Boolean = false, returnWaitMin: Int = 0,
         stops: List<TaxiStop> = emptyList(),
+        paymentMethod: String = "",
     ): Result<InstantOrderDto> {
         val body = instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
             roundTrip, returnWaitMin, stops)
@@ -2559,6 +2575,8 @@ object ApiClient {
         // «Только женщина за рулём» — в попутках выбор был всегда, в такси появился
         // аудитом 2026-08-06. Фильтр жёсткий: подмены не будет.
         if (womenOnly) body.put("women_only", true)
+        // Чем рассчитаются. Пусто — сервер поставит «договоримся на месте», как было раньше.
+        if (paymentMethod.isNotBlank()) body.put("payment_method", paymentMethod)
         return call("POST", "/instant/orders", body, auth = true)
             .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_create") }
     }
@@ -3129,7 +3147,10 @@ object ApiClient {
             val arr = o.optJSONArray("drivers") ?: org.json.JSONArray()
             (0 until arr.length()).map { i ->
                 val d = arr.getJSONObject(i)
-                NearbyDriverDto(d.optDouble("lat"), d.optDouble("lng"), d.optInt("eta_min", 1))
+                NearbyDriverDto(
+                    d.optDouble("lat"), d.optDouble("lng"), d.optInt("eta_min", 1),
+                    category = d.optString("category").takeIf { it.isNotBlank() },
+                )
             }
         }
 
@@ -4917,7 +4938,14 @@ class ApiException(val status: Int, message: String) : Exception(message)
 
 /** Цена одного класса машины в options оценки — все цены одним запросом.
  *  `open=false` — класс есть в тарифах, но в этом городе ещё не набралось водителей. */
-data class InstantClassOption(val category: String, val price: Int, val open: Boolean = true)
+data class InstantClassOption(
+    val category: String,
+    val price: Int,
+    val open: Boolean = true,
+    /** Через сколько подъедет машина ИМЕННО этого класса. null = таких рядом нет либо
+     *  сервер старый — тогда на карточке минут не пишем вовсе, а не показываем чужие. */
+    val pickupEtaMin: Int? = null,
+)
 
 /** Что предложить, когда в выбранном классе никого. Цена — уже пересчитанная под этот класс. */
 data class InstantAlternativeDto(val category: String, val price: Int, val priceDiff: Int)
@@ -5087,6 +5115,10 @@ data class InstantOrderDto(
     val toLat: Double, val toLng: Double,
     val fromText: String, val toText: String,
     val category: String,
+    /** Чем рассчитываются: cash | sbp | negotiate. Приложение денег не касается — это
+     *  запись договорённости, и видят её ОБЕ стороны: спор «я думал, ты переводом»
+     *  случается ровно потому, что до высадки об этом никто не говорил. */
+    val paymentMethod: String = "negotiate",
     /** «Только женщина за рулём»: экран должен объяснить, почему машину искали дольше
      *  или не нашли вовсе — иначе человек решит, что приложение сломалось. */
     val womenOnly: Boolean = false,
@@ -5235,6 +5267,7 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     fromText = optString("from_text"),
     toText = optString("to_text"),
     category = optString("category"),
+    paymentMethod = optString("payment_method").ifBlank { "negotiate" },
     womenOnly = optBoolean("women_only", false),
     priceEstimate = optInt("price_estimate"),
     priceFinal = if (isNull("price_final")) null else optInt("price_final"),
@@ -5483,7 +5516,15 @@ data class DistrictDto(val district: String, val region: String, val settlements
 
 /** Смена такси за местный день (волна 2, §8 Отдых): прогресс к 8-часовому лимиту и блок отдыха. */
 /** Свободная машина рядом (для карты такси): анонимная точка + ≈ETA до подачи. Без личности. */
-data class NearbyDriverDto(val lat: Double, val lng: Double, val etaMin: Int)
+data class NearbyDriverDto(
+    val lat: Double,
+    val lng: Double,
+    val etaMin: Int,
+    /** Класс кузова: standard | comfort | business | minivan. null = сервер не сказал,
+     *  тогда на карте рисуем общую машинку. Это «какая машина», а не «кто за рулём»:
+     *  точка остаётся анонимной. */
+    val category: String? = null,
+)
 
 data class TaxiWorkdayDto(
     val day: String,                 // местный день учёта, ISO ("2026-07-10")

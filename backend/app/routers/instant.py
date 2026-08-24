@@ -104,10 +104,10 @@ class EstimateIn(BaseModel):
     round_trip: bool = False
     # Сколько водитель ждёт на месте, минут. Ноль = обычная поездка в одну сторону.
     return_wait_min: int = Field(0, ge=0, le=24 * 60)
-    # Остановки по пути: A → точки → B. Числом не ограничиваем (решение Александра) —
-    # предохранитель не в лимите, а в том, что каждая остановка стоит денег, а водитель
-    # в любой момент может сойти. Верхняя граница здесь только против явного мусора.
-    waypoints: list[WaypointIn] = Field(default_factory=list, max_length=20)
+    # Остановки по пути: A → точки → B. Не больше трёх (решение Александра, 2026-08-23):
+    # каждая удлиняет поездку и цену, а на четвёртой водители начинают отказываться — заказ
+    # висит до истечения, и виноватым выглядит приложение. Экран даёт столько же.
+    waypoints: list[WaypointIn] = Field(default_factory=list, max_length=3)
     # ВНИМАНИЕ: поля цены здесь НЕТ намеренно — сервер считает сам, клиенту не верим.
 
 
@@ -126,11 +126,18 @@ class OrderIn(EstimateIn):
     # ЖЁСТКИЙ: молча подсунуть мужчину — обмануть в том, ради чего галочку и ставили.
     # Не нашлось никого — заказ честно истекает, и человек сам решает, искать ли шире.
     women_only: bool = False
+    # Чем рассчитаются: cash | sbp | negotiate. Пусто → «договоримся на месте».
+    # Карты и корпоративный счёт заведены, но выключены — их сервер не примет.
+    payment_method: str = Field("", max_length=16)
 
 
 class WaypointsIn(BaseModel):
-    """Новый набор остановок. Проеденные сюда не входят — сервер сохранит их сам."""
-    waypoints: list[WaypointIn] = Field(default_factory=list, max_length=20)
+    """Новый набор остановок. Проеденные сюда не входят — сервер сохранит их сам.
+
+    Лимит тот же, что при заказе: три ещё не проеденные точки. Проеденные не считаются —
+    спорить о том, что уже позади, не о чем.
+    """
+    waypoints: list[WaypointIn] = Field(default_factory=list, max_length=3)
 
 
 class DestinationIn(BaseModel):
@@ -287,17 +294,23 @@ def instant_demand(city: Optional[str] = None, user: User = Depends(current_user
 
 
 @router.get("/instant/nearby-drivers")
-def nearby_drivers_ep(lat: float, lng: float, user: User = Depends(current_user)):
+def nearby_drivers_ep(lat: float, lng: float, user: User = Depends(current_user),
+                      session: Session = Depends(get_session)):
     """Свободные машины «на линии» рядом с пассажиром — АНОНИМНЫЕ точки на карте + ≈ETA
-    до подачи (для карты в режиме такси). Только реальные presence-данные, без личности
-    водителя (ни id, ни телефона). Нет Redis → пустой список (карта просто без машинок)."""
+    до подачи и класс кузова (для карты в режиме такси). Только реальные presence-данные,
+    без личности водителя (ни id, ни телефона). Нет Redis → пустой список (карта без машинок).
+
+    Класс нужен, чтобы метка выглядела как та машина, которая приедет: человек выбрал Бизнес
+    и должен видеть на карте бизнес-машины, а не одинаковые точки."""
     if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
         raise herr(400, "Некорректные координаты", "Координаталар дөрөҫ түгел")
-    # Наружу отдаём РОВНО точку и ETA. `nearby_drivers` знает про машины больше (например,
+    # Наружу отдаём РОВНО точку, ETA и класс машины. `nearby_drivers` знает больше (например,
     # расстояние — оно нужно расчёту дальней подачи), но карта не место, где это раздают:
     # список полей публичной ручки должен расти осознанно, а не сам собой вслед за внутренним.
-    return {"drivers": [{"lat": d["lat"], "lng": d["lng"], "eta_min": d["eta_min"]}
-                        for d in isv.nearby_drivers(lat, lng)]}
+    return {"drivers": [
+        {k: v for k, v in d.items() if k in ("lat", "lng", "eta_min", "category")}
+        for d in isv.nearby_drivers(lat, lng, session=session)
+    ]}
 
 
 # ------------------------------ presence ------------------------------
@@ -423,6 +436,7 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
         entrance=(body.entrance or "").strip()[:60],
         for_name=(body.for_name or "").strip()[:120],
         for_phone=(body.for_phone or "").strip()[:32],
+        payment_method=_pay_method_or_default(body.payment_method),
         women_only=bool(body.women_only),
     )
     session.add(order)
@@ -504,6 +518,7 @@ def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
         entrance=(body.entrance or "").strip()[:60],
         for_name=(body.for_name or "").strip()[:120],
         for_phone=(body.for_phone or "").strip()[:32],
+        payment_method=_pay_method_or_default(body.payment_method),
         women_only=bool(body.women_only),
     )
     session.add(order)
@@ -1251,6 +1266,60 @@ def admin_price_complaints(limit: int = 50, user: User = Depends(current_user),
         "created_at": r.created_at.isoformat() if r.created_at else "",
         "handled": r.handled_at is not None,
     } for r in rows]}
+
+
+def _pay_method_or_default(method: str) -> str:
+    """Способ расчёта из запроса. Незнакомое или выключенное → «договоримся на месте».
+
+    Не ругаемся ошибкой: старый клиент поля не шлёт вовсе, а новый может прислать способ,
+    который мы ещё не включили. И в том, и в другом случае честный ответ один — договорятся
+    на месте, как это и работает сегодня.
+    """
+    m = (method or "").strip().lower()
+    return m if isv.pay_method_open(m) else isv.PAY_NEGOTIATE
+
+
+class PaymentMethodIn(BaseModel):
+    """Новый способ расчёта."""
+    method: str = Field("", max_length=16)
+
+
+@router.post("/instant/orders/{order_id}/payment")
+def set_payment_method(order_id: int, body: PaymentMethodIn,
+                       user: User = Depends(current_user),
+                       session: Session = Depends(get_session)):
+    """Пассажир меняет способ расчёта — до самого конца поездки.
+
+    Почему не только до заказа: про наличные человек вспоминает ровно тогда, когда лезет
+    в карман, то есть уже сидя в машине. Запрещать смену значит заставлять его звонить
+    водителю и договариваться голосом — то есть мимо приложения.
+
+    Водителю уходит уведомление. Без него смена была бы тихой подменой договорённости:
+    он везёт, рассчитывая на наличные, а на высадке узнаёт про перевод.
+    """
+    order = session.get(InstantOrder, order_id)
+    if not order or order.passenger_id != user.id:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if order.status in (S.done, S.cancelled, S.expired):
+        raise herr(409, "Поездка уже завершена", "Сәфәр тамамланған")
+
+    method = _pay_method_or_default(body.method)
+    if method == (order.payment_method or isv.PAY_NEGOTIATE):
+        return {"payment_method": method, "changed": False}
+    order.payment_method = method
+    session.add(order)
+    session.commit()
+
+    if order.driver_id:
+        from ..services import push_bilingual   # локальный импорт — как в остальном файле
+        ru, ba = isv.pay_method_label(method)
+        push_bilingual(
+            session, order.driver_id,
+            "Способ оплаты изменён", "Түләү ысулы үҙгәрҙе",
+            f"Пассажир будет платить: {ru.lower()}", f"Пассажир түләй: {ba.lower()}",
+            data={"type": "instant_payment", "order_id": str(order.id), "method": method},
+        )
+    return {"payment_method": method, "changed": True}
 
 
 @router.post("/instant/orders/{order_id}/cash-received")

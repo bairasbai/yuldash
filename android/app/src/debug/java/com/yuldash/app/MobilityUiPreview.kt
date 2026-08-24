@@ -67,6 +67,8 @@ private fun TaxiOrderPreview() {
                     price = 290,
                     selected = true,
                     onClick = {},
+                    iconRes = R.drawable.yuldash_tariff_economy,
+                    pickupEtaMin = 3,
                     modifier = Modifier.weight(1f),
                 )
                 TaxiServiceClassTile(
@@ -75,6 +77,8 @@ private fun TaxiOrderPreview() {
                     price = 390,
                     selected = false,
                     onClick = {},
+                    iconRes = R.drawable.yuldash_tariff_comfort,
+                    pickupEtaMin = 7,
                     modifier = Modifier.weight(1f),
                 )
             }

@@ -22,7 +22,26 @@ private fun Paint.softShadow(radius: Float = 3f, dy: Float = 2f) = apply {
     setShadowLayer(radius, 0f, dy, 0x40000000)
 }
 
-internal enum class MapVehicleIcon { Taxi, Courier }
+internal enum class MapVehicleIcon {
+    Taxi, Courier, Economy, Comfort, Business, BusinessNight, Minivan
+}
+
+/**
+ * Класс машины с сервера → метка на карте.
+ *
+ * Неизвестный класс (старый сервер или водитель без заполненной машины) — прежняя общая
+ * машинка. Пустая карта хуже неточной: человек должен видеть, что рядом кто-то есть.
+ */
+internal fun mapVehicleIconFor(category: String?, dark: Boolean = false): MapVehicleIcon =
+    when (category) {
+        "comfort" -> MapVehicleIcon.Comfort
+        // Ночью карта сама тёмная, и чёрный седан на ней превращается в пятно. Та же машина,
+        // тот же ракурс, серебристый кузов — единственное, что меняется.
+        "business" -> if (dark) MapVehicleIcon.BusinessNight else MapVehicleIcon.Business
+        "minivan" -> MapVehicleIcon.Minivan
+        "standard", "economy" -> MapVehicleIcon.Economy
+        else -> MapVehicleIcon.Taxi
+    }
 
 private val mapVehicleCache = HashMap<MapVehicleIcon, Bitmap>()
 
@@ -31,6 +50,11 @@ internal fun mapVehicleBitmap(context: Context, icon: MapVehicleIcon = MapVehicl
     val resId = when (icon) {
         MapVehicleIcon.Taxi -> R.drawable.yuldash_map_car_top
         MapVehicleIcon.Courier -> R.drawable.yuldash_map_courier_top
+        MapVehicleIcon.Economy -> R.drawable.yuldash_map_car_economy
+        MapVehicleIcon.Comfort -> R.drawable.yuldash_map_car_comfort
+        MapVehicleIcon.Business -> R.drawable.yuldash_map_car_business
+        MapVehicleIcon.BusinessNight -> R.drawable.yuldash_map_car_business_night
+        MapVehicleIcon.Minivan -> R.drawable.yuldash_map_car_minivan
     }
     val raw = BitmapFactory.decodeResource(context.resources, resId)
     val marker = Bitmap.createScaledBitmap(raw, 72, 72, true)

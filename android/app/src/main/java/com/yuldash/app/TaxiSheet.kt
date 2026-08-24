@@ -77,6 +77,10 @@ internal fun TaxiSheetScaffold(
     // рисует ноль высоты, но её обёртка со своими отступами и запасом под системную панель
     // остаётся — и под содержимым висит полоса пустоты в полсотни точек.
     hasFooter: Boolean = true,
+    // Стоит ли шторка последней на экране. Если под ней есть своя нижняя панель (экран такси
+    // встроен в хаб), запас под системную навигацию берёт она — и шторке добавлять его нельзя,
+    // иначе между содержимым и панелью висит полоса пустоты в палец шириной.
+    underSystemBar: Boolean = true,
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().background(CanonBg)) {
@@ -172,8 +176,8 @@ internal fun TaxiSheetScaffold(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = CanonSpace.lg)
-                        .padding(bottom = CanonSpace.lg)
-                        .navigationBarsPadding(),
+                        .padding(bottom = if (underSystemBar) CanonSpace.lg else CanonSpace.sm)
+                        .then(if (underSystemBar) Modifier.navigationBarsPadding() else Modifier),
                     verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
                 ) {
                     footer()

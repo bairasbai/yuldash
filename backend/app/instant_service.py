@@ -168,7 +168,8 @@ def driver_go_offline(session, profile) -> None:
 
 
 def nearby_drivers(lat: float, lng: float, limit: int = 8,
-                   radius_km: Optional[float] = None) -> list[dict]:
+                   radius_km: Optional[float] = None,
+                   session: Optional[Session] = None) -> list[dict]:
     """Свободные машины «на линии» рядом с пассажиром — АНОНИМНЫЕ позиции + ≈ETA до подачи.
 
     Только РЕАЛЬНЫЕ данные из presence (Redis GEO), без выдуманного: показываем машины,
@@ -179,7 +180,12 @@ def nearby_drivers(lat: float, lng: float, limit: int = 8,
     `radius_km` — насколько далеко смотреть. По умолчанию городской радиус (карта): показывать
     на экране машину за пятнадцать километров бессмысленно. Расчёт цены зовёт с бо́льшим
     радиусом — тем же, до какого matcher реально рассылает офферы (RADII_KM): цену должен
-    определять тот, кто действительно может приехать, а не тот, кто помещается в экран."""
+    определять тот, кто действительно может приехать, а не тот, кто помещается в экран.
+
+    С `session` добавляем ещё и класс кузова (`car_class`): на карте метка тогда выглядит
+    как та машина, которая реально приедет, — эконом жёлтый, бизнес серебристый, минивэн
+    крупнее. Это «какая машина», а не «кто за рулём»: анонимность точки не меняется.
+    """
     r = _redis()
     if r is None:
         return []
@@ -190,7 +196,7 @@ def nearby_drivers(lat: float, lng: float, limit: int = 8,
                             withcoord=True, withdist=True, sort="ASC", count=limit * 2)
     except Exception:  # noqa: BLE001 — сбой GEO → просто без машинок, не падаем
         return []
-    out: list[dict] = []
+    живые: list[tuple[int, float, list]] = []
     for m in found:
         # withdist+withcoord → [member, dist_km, [lng, lat]]
         try:
@@ -198,17 +204,127 @@ def nearby_drivers(lat: float, lng: float, limit: int = 8,
             did = _member_driver_id(member)
         except (ValueError, IndexError, TypeError, AttributeError):
             continue
-        if not presence_alive(r, did):
-            continue
-        eta = max(1, round(dist_km / settings.instant_avg_speed_kmh * 60))
-        # dist_km — по прямой, как его считает Redis GEO. Отдаём как есть: превращать его
-        # в дорожные километры — дело того, кто считает деньги (см. pickup_road_km), а не
-        # карты машинок на экране.
-        out.append({"lat": float(coord[1]), "lng": float(coord[0]), "eta_min": eta,
-                    "dist_km": round(dist_km, 2)})
-        if len(out) >= limit:
+        if presence_alive(r, did):
+            живые.append((did, dist_km, coord))
+        if len(живые) >= limit:
             break
+    # Классы кузова — ОДНИМ запросом на весь список: карта опрашивает эту ручку раз в 15 секунд,
+    # и поход в базу за каждой машиной превратил бы её в десяток запросов на каждый опрос.
+    классы: dict[int, str] = {}
+    if session is not None and живые:
+        классы = {
+            p.user_id: cc.class_to_category(p.car_class)
+            for p in session.exec(
+                select(DriverProfile).where(DriverProfile.user_id.in_([d for d, _, _ in живые]))
+            ).all()
+        }
+    out: list[dict] = []
+    for did, dist_km, coord in живые:
+        eta = max(1, round(dist_km / settings.instant_avg_speed_kmh * 60))
+        # dist_km — по прямой, как его считает Redis GEO. Превращать его в дорожные
+        # километры — дело того, кто считает деньги (см. pickup_road_km), а не карты машинок.
+        # Наружу это поле не уходит: публичная ручка отдаёт только точку, ETA и класс.
+        точка = {"lat": float(coord[1]), "lng": float(coord[0]), "eta_min": eta,
+                 "dist_km": round(dist_km, 2)}
+        # Без класса клиент рисует прежнюю общую машинку — старые клиенты этого поля не знают.
+        if did in классы:
+            точка["category"] = классы[did]
+        out.append(точка)
     return out
+
+
+def nearby_pickup_eta_by_category(session: Session, lat: float, lng: float,
+                                  limit: int = 40) -> dict[str, int]:
+    """Через сколько подъедет ближайшая машина КАЖДОГО класса — минуты по категориям заказа.
+
+    Зачем отдельно от `nearby_drivers`. Тот отвечает на вопрос «есть ли вообще кто-то рядом»
+    и не смотрит на классы. Витрина же ставит четыре тарифа в ряд, и одна общая цифра на
+    всех четырёх — это обещание подачи за тот класс, машин которого рядом может не быть
+    вовсе: бизнес-седан один на город, а карточка обещает те же две минуты, что и эконом.
+
+    Класс берём ТОТ ЖЕ, по которому работает подбор: доступные машине ∩ включённые
+    водителем (`cc.effective_classes`). Иначе витрина обещала бы подачу от машины, которой
+    оффер по этому классу даже не придёт.
+
+    Личность не раскрываем: наружу уходит только «в этом классе ближайшая за N минут» —
+    ни id, ни имени, ни координат конкретного водителя.
+    """
+    r = _redis()
+    if r is None:
+        return {}
+    try:
+        # Радиус — самый широкий круг ПОДБОРА (RADII_KM), а не радиус суржа. Витрина обязана
+        # показывать ту же картину, что и поиск машины: иначе на карточке «нет машин», а заказ
+        # спокойно находит водителя в двенадцати километрах — и человек не понял, почему ждал.
+        found = r.geosearch(PRESENCE_KEY, longitude=lng, latitude=lat,
+                            radius=RADII_KM[-1], unit="km",
+                            withdist=True, sort="ASC", count=limit)
+    except Exception:  # noqa: BLE001 — сбой GEO → просто без минут, экран работает дальше
+        return {}
+    # sort="ASC" → первый встреченный в классе и есть ближайший, сортировать заново не нужно.
+    pairs: list[tuple[int, float]] = []
+    for m in found:
+        try:
+            did, dist_km = _member_driver_id(m[0]), float(m[1])
+        except (ValueError, IndexError, TypeError, AttributeError):
+            continue
+        if presence_alive(r, did):
+            pairs.append((did, dist_km))
+    if not pairs:
+        return {}
+    # Профили — ОДНИМ запросом. Оценка цены пересчитывается на каждое движение точки по карте;
+    # поход в базу за каждым найденным водителем превратил бы это в десятки запросов на жест.
+    profiles = {
+        p.user_id: p
+        for p in session.exec(
+            select(DriverProfile).where(DriverProfile.user_id.in_([d for d, _ in pairs]))
+        ).all()
+    }
+    out: dict[str, int] = {}
+    for did, dist_km in pairs:
+        p = profiles.get(did)
+        if p is None:
+            continue
+        avail = cc.available_or_legacy(getattr(p, "car_classes_available", ""), p.car_class)
+        for cls in cc.effective_classes(avail, getattr(p, "car_classes_enabled", "")):
+            cat = cc.class_to_category(cls)
+            if cat not in out:
+                out[cat] = max(1, round(dist_km / settings.instant_avg_speed_kmh * 60))
+    return out
+
+
+# ============================ Способ расчёта (деньги мимо платформы) ============================
+# ЗАПИСЬ ДОГОВОРЁННОСТИ, а не платёж: приложение денег не касается и комиссию с них не берёт.
+# Поле нужно, чтобы обе стороны ехали с одинаковым пониманием, чем всё кончится на высадке.
+#
+# card и corporate заведены заранее и ВЫКЛЮЧЕНЫ: принимать карты без договора с банком,
+# кассы и чеков нельзя. Когда договор будет — включаются флагом, переделывать нечего.
+PAY_CASH = "cash"
+PAY_SBP = "sbp"
+PAY_NEGOTIATE = "negotiate"
+PAY_CARD = "card"
+PAY_CORPORATE = "corporate"
+
+# Способы, доступные пассажиру прямо сейчас.
+PAY_METHODS_OPEN: tuple[str, ...] = (PAY_CASH, PAY_SBP, PAY_NEGOTIATE)
+# Заготовленные, но выключенные — витрина показывает их строкой «скоро».
+PAY_METHODS_SOON: tuple[str, ...] = (PAY_CARD, PAY_CORPORATE)
+
+
+def pay_method_open(method: str) -> bool:
+    """Можно ли выбрать этот способ сегодня. Карты и корпоративный счёт — пока нет."""
+    return (method or "") in PAY_METHODS_OPEN
+
+
+def pay_method_label(method: str) -> tuple[str, str]:
+    """Как способ называется на двух языках. Пусто → «договоримся»: это наше умолчание."""
+    return {
+        PAY_CASH: ("Наличными", "Наличный менән"),
+        PAY_SBP: ("Переводом по СБП", "СБП аша күсереү"),
+        PAY_NEGOTIATE: ("Договоримся на месте", "Урында килешәбеҙ"),
+        PAY_CARD: ("Картой в приложении", "Ҡушымтала карта менән"),
+        PAY_CORPORATE: ("Корпоративный счёт", "Корпоратив иҫәп"),
+    }.get(method or "", ("Договоримся на месте", "Урында килешәбеҙ"))
 
 
 # ============================ Сурж (честная наценка, волна 2 §5) ============================
@@ -1226,6 +1342,9 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     # Так мы ещё и меряем спрос до того, как искать машины.
     place = class_rollout.place_at(session, frm[0], frm[1])
     opened = class_rollout.open_categories(session, place)
+    # Подача считается по классам: у каждой карточки в витрине своё число минут.
+    # Пусто для класса = машин этого класса рядом нет; клиент тогда молчит, а не выдумывает.
+    pickup_eta_by_cat = nearby_pickup_eta_by_category(session, frm[0], frm[1])
     options_out = []          # витрина классов (имя `options` занято параметром — опциями салона)
     # Тарифы забираем ОДНИМ запросом, а не по одному на класс.
     #
@@ -1262,6 +1381,8 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
                 "base_price": _tariff_price(ct, dist_km, eta_min, 1.0),
                 "dynamic_k": ct_dynamic,
                 "open": cat in opened,
+                # Через сколько подъедет машина ИМЕННО этого класса. None → рядом таких нет.
+                "pickup_eta_min": pickup_eta_by_cat.get(cat),
             })
 
     return {
@@ -3213,6 +3334,9 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         # адрес, подъезд и комментарий отдаются заранее, чтобы водитель нашёл человека.
         "to_text": street_only(order.to_text) if blur else order.to_text,
         "category": order.category,
+        # Чем рассчитываются. Видно ОБЕИМ сторонам: спор «я думал, ты переводом» случается
+        # ровно потому, что до высадки об этом никто не говорил.
+        "payment_method": order.payment_method or PAY_NEGOTIATE,
         # «Только женщина за рулём»: экран должен объяснить, ПОЧЕМУ машину не нашли,
         # иначе человек решит, что приложение сломалось, а не что выбор сузил круг.
         "women_only": bool(getattr(order, "women_only", False)),
