@@ -90,6 +90,25 @@ def price_kop(order: InstantOrder) -> int:
     return max(int(rub or 0), 0) * 100
 
 
+def discountable_rub(order: InstantOrder) -> int:
+    """С какой суммы промокод вправе давать скидку, ₽ — цена МИНУС компенсации водителю.
+
+    В цене с 2026-08-23 живёт строка «машина едет издалека» — это бензин водителя, а не
+    выручка. Скидка по промокоду — наш подарок пассажиру за наш счёт, и считать её долей
+    от чужого топлива неправильно: потолок «не больше N% от цены» тогда растёт ровно тогда,
+    когда водителю и так тяжело.
+
+    Поля читаем прямо с заказа: модуль заказов зависит от этого файла, обратный импорт
+    замкнул бы круг.
+    """
+    if order is None:
+        return 0
+    rub = order.price_final if order.price_final is not None else order.price_estimate
+    compensation_rub = (int(getattr(order, "pickup_fee_kop", 0) or 0)
+                        + int(getattr(order, "options_fee_kop", 0) or 0)) // 100
+    return max(int(rub or 0) - compensation_rub, 0)
+
+
 def payable_kop(order: InstantOrder) -> int:
     """Сколько пассажир реально платит за поездку: цена минус зафиксированная скидка."""
     if order is None:
@@ -185,8 +204,7 @@ def consume(session: Session, user_id: int, order: InstantOrder) -> int:
     red, _promo = available(session, user_id, lock=True)
     if red is None:
         return 0
-    disc = cap_for_price(red.discount_kop, order.price_final
-                         if order.price_final is not None else order.price_estimate)
+    disc = cap_for_price(red.discount_kop, discountable_rub(order))
     if disc <= 0:
         return 0
     stale_id = red.used_order_id
@@ -275,8 +293,7 @@ def reclamp(session: Session, order: InstantOrder) -> int:
     disc = max(int(order.promo_discount_kop or 0), 0)
     if disc <= 0:
         return 0
-    capped = cap_for_price(disc, order.price_final
-                           if order.price_final is not None else order.price_estimate)
+    capped = cap_for_price(disc, discountable_rub(order))
     if capped == disc:
         return disc
     session.execute(

@@ -37,7 +37,7 @@ def _order(passenger_id: int, driver_id: int, status=S.onboard) -> int:
 
 def test_estimate_reports_pickup_eta_separately(client, user_factory, monkeypatch):
     """«Через сколько приедет» и «сколько ехать» — разные числа, и оба честные."""
-    monkeypatch.setattr(isv, "nearby_drivers", lambda lat, lng, limit=8: [{"lat": lat, "lng": lng, "eta_min": 4}])
+    monkeypatch.setattr(isv, "nearby_drivers", lambda lat, lng, limit=8, **kw: [{"lat": lat, "lng": lng, "eta_min": 4}])
     u = user_factory("Юлаусы")
     r = client.post("/instant/estimate", headers=u["auth"], json={
         "from_lat": 52.59, "from_lng": 58.31, "to_lat": 52.70, "to_lng": 58.40,
@@ -50,7 +50,7 @@ def test_estimate_reports_pickup_eta_separately(client, user_factory, monkeypatc
 
 def test_estimate_pickup_eta_is_null_when_no_cars(client, user_factory, monkeypatch):
     """Рядом никого → честное «не знаю», а не выдуманное число."""
-    monkeypatch.setattr(isv, "nearby_drivers", lambda lat, lng, limit=8: [])
+    monkeypatch.setattr(isv, "nearby_drivers", lambda lat, lng, limit=8, **kw: [])
     u = user_factory("Юлаусы2")
     r = client.post("/instant/estimate", headers=u["auth"], json={
         "from_lat": 52.59, "from_lng": 58.31, "to_lat": 52.70, "to_lng": 58.40,

@@ -393,12 +393,26 @@ def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
 
 def order_commission_kop(order: InstantOrder, percent: Optional[float] = None) -> int:
     """Комиссия платформы по завершённому такси-заказу, копейки.
-    База = финальная цена (или оценка) в ₽ → копейки; процент — лесенка по стажу
-    (driver_fee_percent) либо service_fee_percent, если процент не передан."""
+
+    База = финальная цена (или оценка) МИНУС компенсации водителю; процент — лесенка по стажу
+    (driver_fee_percent) либо service_fee_percent, если процент не передан.
+
+    Почему минус компенсации (решение Александра, 2026-08-23). Строка «машина едет издалека»
+    — это не выручка, а бензин, который водитель сожжёт по дороге к пассажиру. Взять с неё
+    15% значит заработать на чужом топливе: за 190 ₽ компенсации мы бы забрали 28 ₽, и заказ
+    из «еле окупается» снова становится «не поеду». Комиссию берём с работы, а не с расходов.
+    """
     price_rub = int(order.price_final if order.price_final is not None else order.price_estimate)
     if price_rub <= 0:
         return 0
-    return fee_kop_for(price_rub * 100, percent)
+    # Компенсации читаем прямо с полей заказа: инструмент расчёта комиссии не должен
+    # зависеть от модуля заказов (он сам зависит от этого — вышел бы круг импортов).
+    compensation_rub = (int(getattr(order, "pickup_fee_kop", 0) or 0)
+                        + int(getattr(order, "options_fee_kop", 0) or 0)) // 100
+    base_rub = max(price_rub - compensation_rub, 0)
+    if base_rub <= 0:
+        return 0
+    return fee_kop_for(base_rub * 100, percent)
 
 
 def _clock_starts(now: datetime) -> datetime:

@@ -88,6 +88,56 @@ ACCESSIBILITY_OPTIONS: frozenset[str] = frozenset({OPT_WHEELCHAIR, OPT_GUIDE_DOG
 TRUNK_OPTIONS: frozenset[str] = frozenset({OPT_STROLLER, OPT_WHEELCHAIR, OPT_BIG_LUGGAGE})
 
 
+# --- Сколько опция стоит (решение Александра 2026-08-23) -------------------------------
+# Раньше все опции были бесплатны, и это ломало саму функцию. Детское кресло стоит 3–8 тысяч,
+# живёт три-четыре года и занимает багажник постоянно — за ноль рублей водитель просто не
+# включит галочку «у меня есть кресло», и заказ мамы с ребёнком не найдёт машину вообще.
+# Ориентир рынка: Яндекс берёт за кресло 150–180 ₽ (замер 22.08.2026).
+#
+# Деньги идут водителю ЦЕЛИКОМ: это компенсация его расходов, а не выручка платформы,
+# поэтому комиссия с них не берётся (см. debt.order_commission_kop).
+_OPTION_PRICE_RUB: dict[str, int] = {
+    OPT_SEAT_0_1: 150,      # автолюлька
+    OPT_SEAT_1_4: 150,      # кресло 1–4
+    OPT_SEAT_4_7: 150,      # кресло 4–7
+    OPT_BOOSTER: 150,       # бустер
+    OPT_PETS: 100,          # животное — чистка салона
+    OPT_BIG_LUGGAGE: 100,   # большой багаж — место и погрузка
+    OPT_STROLLER: 0,        # коляска: это не услуга, это семья с ребёнком
+    OPT_WHEELCHAIR: 0,      # ↓ см. ниже — только ноль
+    OPT_GUIDE_DOG: 0,
+}
+
+# ⚠️ ДОСТУПНОСТЬ ВСЕГДА БЕСПЛАТНА, И ЭТО НЕ НАСТРОЙКА.
+# Брать деньги за инвалидную коляску или собаку-проводника — дискриминация: в 2025 году
+# с водителя взыскали 5 000 ₽ морального вреда и 30 000 ₽ штрафа за отказ везти незрячего
+# с собакой (Красноярск). Поэтому цена доступности зашита в код нулём и НЕ переопределяется
+# конфигом: настройка, которую можно случайно поменять в .env, здесь недопустима.
+FREE_FOREVER: frozenset[str] = ACCESSIBILITY_OPTIONS
+
+
+def option_price_rub(code: str) -> int:
+    """Цена одной опции, ₽. Доступность — всегда 0, что бы ни стояло в конфиге."""
+    key = (code or "").strip().lower()
+    if key in FREE_FOREVER:
+        return 0
+    if key not in OPTIONS:
+        return 0
+    from .config import settings   # локальный импорт: config тянет car_class на старте
+    override = getattr(settings, "option_prices_rub", None) or {}
+    try:
+        if key in override:
+            return max(int(override[key]), 0)
+    except (TypeError, ValueError):
+        pass                       # кривое значение в конфиге не должно ломать заказ
+    return _OPTION_PRICE_RUB.get(key, 0)
+
+
+def options_fee_rub(raw: Optional[str]) -> int:
+    """Сколько стоят выбранные опции вместе, ₽. Пустая строка / мусор → 0."""
+    return sum(option_price_rub(code) for code in parse_options(raw))
+
+
 # --- Хранение списков строкой ---------------------------------------------------------
 # Опции и включённые классы лежат CSV-строкой, а не булевыми колонками: их семь и они будут
 # добавляться. Фильтр кандидатов и так идёт перебором в Python (instant_service.eligible),

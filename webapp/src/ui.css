@@ -2908,6 +2908,28 @@ button.list-row:active {
   line-height: 1.4;
 }
 
+/* --- Дальняя подача: из чего сложилась цена (2026-08-23) ---
+   Цена такси перестала быть одним числом: к поездке добавляется дорога водителя
+   к пассажиру. Без этой строки человек видит просто «стало дороже». */
+.taxi-pickup {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: var(--radius-item);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: 1.45;
+}
+.taxi-pickup b {
+  color: var(--text);
+}
+/* Выгода — зелёным: «водителю по пути» и «подожди, будет дешевле». */
+.taxi-pickup--win {
+  background: var(--pooling-bg, var(--surface-2));
+  color: var(--pooling, var(--text));
+  font-weight: 600;
+}
+
 /* --- Сейчас / На время --- */
 .taxi-when {
   margin-top: 14px;

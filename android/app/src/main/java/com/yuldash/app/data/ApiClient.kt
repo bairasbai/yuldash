@@ -2439,6 +2439,9 @@ object ApiClient {
                 roundTrip, returnWaitMin, stops), auth = true).map { o ->
             val note = o.optJSONObject("surge_note")
             val promoNote = o.optJSONObject("promo_note")   // null, когда скидки нет
+            val pickupNote = o.optJSONObject("pickup_note") // null, когда подача ничего не стоит
+            val waitHint = o.optJSONObject("pickup_wait_hint") // null, когда ждать нечего
+            val optionCatalogArr = o.optJSONArray("option_catalog") ?: JSONArray()
             val optArr = o.optJSONArray("options") ?: JSONArray()
             val factorArr = o.optJSONArray("price_factors") ?: JSONArray()
             InstantEstimateDto(
@@ -2474,6 +2477,30 @@ object ApiClient {
                 weatherK = o.optDouble("weather_k", 1.0),
                 weatherCode = o.optString("weather_code"),
                 hasTolls = o.optBoolean("has_tolls"),
+                // Дальняя подача строкой. `ride_price` подстрахован полной ценой: у старого
+                // сервера поля нет, и тогда «поездка» — это и есть весь чек.
+                ridePrice = o.optInt("ride_price", o.optInt("price")),
+                pickupFee = o.optInt("pickup_fee", 0),
+                pickupKm = o.optDouble("pickup_km", 0.0),
+                pickupPending = o.optBoolean("pickup_pending", false),
+                pickupMaxRub = o.optInt("pickup_max_rub", 0),
+                pickupNoteRu = pickupNote?.optString("ru") ?: "",
+                pickupNoteBa = pickupNote?.optString("ba") ?: "",
+                pickupEnroute = o.optBoolean("pickup_enroute", false),
+                pickupFullFee = o.optInt("pickup_full_fee", 0),
+                pickupWaitMinutes = waitHint?.optInt("minutes", 0) ?: 0,
+                pickupWaitSaveRub = waitHint?.optInt("save_rub", 0) ?: 0,
+                pickupWaitRu = waitHint?.optString("ru") ?: "",
+                pickupWaitBa = waitHint?.optString("ba") ?: "",
+                optionsFee = o.optInt("options_fee", 0),
+                weatherFee = o.optInt("weather_fee", 0),
+                weatherKind = o.optString("weather_kind"),
+                optionCatalog = (0 until optionCatalogArr.length()).mapNotNull { i ->
+                    optionCatalogArr.optJSONObject(i)?.let { row ->
+                        val code = row.optString("code")
+                        if (code.isBlank()) null else code to row.optInt("price", 0)
+                    }
+                }.toMap(),
                 priceFactors = (0 until factorArr.length()).mapNotNull { i ->
                     factorArr.optJSONObject(i)?.let { p ->
                         InstantPriceFactorDto(
@@ -2485,6 +2512,7 @@ object ApiClient {
                             titleBa = p.optString("title_ba"),
                             descriptionRu = p.optString("description_ru"),
                             descriptionBa = p.optString("description_ba"),
+                            amountRub = p.optInt("amount_rub", 0),
                         )
                     }
                 },
@@ -4444,7 +4472,63 @@ object ApiClient {
                 paid = o.optBoolean("paid"),
                 driverName = o.optString("driver_name"),
                 driverVerified = o.optBoolean("driver_verified"),
+                ridePrice = o.optInt("ride_price"),
+                rideBasePrice = o.optInt("ride_base_price"),
+                surgeRub = o.optInt("surge_rub"),
+                pickupFeeKop = o.optInt("pickup_fee_kop"),
+                pickupKm = o.optDouble("pickup_km", 0.0),
+                pickupEnroute = o.optBoolean("pickup_enroute"),
+                optionsFeeKop = o.optInt("options_fee_kop"),
+                weatherFeeKop = o.optInt("weather_fee_kop"),
+                weatherKind = o.optString("weather_kind"),
+                options = o.optJSONArray("options")?.let { arr ->
+                    (0 until arr.length()).mapNotNull { i -> arr.optString(i).takeIf { it.isNotBlank() } }
+                } ?: emptyList(),
+                driverFeePercent = o.optDouble("driver_fee_percent", 0.0),
+                driverFeeKop = o.optInt("driver_fee_kop"),
+                driverGrossKop = o.optInt("driver_gross_kop"),
+                driverNetKop = o.optInt("driver_net_kop"),
+                commissionFreeKop = o.optInt("commission_free_kop"),
             )
+        }
+
+    /** «Что-то не так с ценой» — человек спорит с нашим расчётом, а не с водителем.
+     *  Уходит и БЕЗ заказа: чаще всего возмущение рождается ДО него. Координат не шлём. */
+    suspend fun sendPriceComplaint(
+        price: Int, reason: String, comment: String = "", orderId: Int? = null,
+        breakdown: Map<String, Int> = emptyMap(),
+    ): Result<Unit> {
+        val body = JSONObject()
+            .put("price", price)
+            .put("reason", reason)
+            .put("comment", comment.take(500))
+        if (orderId != null && orderId > 0) body.put("order_id", orderId)
+        if (breakdown.isNotEmpty()) {
+            val b = JSONObject()
+            breakdown.forEach { (k, v) -> b.put(k, v) }
+            body.put("breakdown", b)
+        }
+        return call("POST", "/instant/price-complaint", body, auth = true).map { }
+    }
+
+    /** Админ: жалобы на цену — свежие сверху. Инструмент тарифа: менять цену по фактам,
+     *  а не по ощущениям, и видеть, на какой сумме люди отваливаются. */
+    suspend fun getPriceComplaints(limit: Int = 50): Result<List<PriceComplaintDto>> =
+        call("GET", "/admin/price-complaints?limit=$limit", null, auth = true).map { o ->
+            val arr = o.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let { r ->
+                    PriceComplaintDto(
+                        id = r.optInt("id"),
+                        orderId = if (r.isNull("order_id")) null else r.optInt("order_id"),
+                        price = r.optInt("price"),
+                        reason = r.optString("reason"),
+                        comment = r.optString("comment"),
+                        breakdown = r.optString("breakdown"),
+                        createdAt = r.optString("created_at"),
+                    )
+                }
+            }
         }
 
     /** Квитанция за доставку (обе стороны, только после вручения или возврата).
@@ -4872,6 +4956,9 @@ data class InstantPriceFactorDto(
     val titleBa: String,
     val descriptionRu: String,
     val descriptionBa: String,
+    /** Сколько эта строка стоит в рублях. Заполнена у kind="money" (дальняя подача);
+     *  у коэффициентов ноль — там цена берётся умножением, отдельной суммы нет. */
+    val amountRub: Int = 0,
 )
 
 /** Оценка цены быстрого заказа (сервер считает сам по своей формуле).
@@ -4903,6 +4990,36 @@ data class InstantEstimateDto(
     val weatherCode: String = "",
     val hasTolls: Boolean = false,
     val priceFactors: List<InstantPriceFactorDto> = emptyList(),
+    // Дальняя подача: с 2026-08-23 это отдельная СТРОКА СЧЁТА в рублях, а не коэффициент.
+    // `price` = ridePrice + pickupFee. Деньги идут водителю за дорогу к пассажиру, комиссию
+    // с них не берём. Старый сервер полей не шлёт → нули, и строка просто не появится.
+    val ridePrice: Int = 0,
+    val pickupFee: Int = 0,
+    val pickupKm: Double = 0.0,
+    // Рядом машин нет: честной цифры не существует. Обещаем потолок (`pickupMaxRub`),
+    // точную сумму фиксируем, когда водитель согласится.
+    val pickupPending: Boolean = false,
+    val pickupMaxRub: Int = 0,
+    val pickupNoteRu: String = "",
+    val pickupNoteBa: String = "",
+    // Водителю и так по пути в эту сторону → подача вдвое дешевле. `pickupFullFee` — сколько
+    // она стоила бы, если бы он ехал специально: без этой цифры выгода не видна.
+    val pickupEnroute: Boolean = false,
+    val pickupFullFee: Int = 0,
+    // «Сюда уже едет машина — подождёшь, и за подачу платить не придётся».
+    // Минуты = 0 → подсказки нет (машины по пути сюда не видно или экономить нечего).
+    val pickupWaitMinutes: Int = 0,
+    val pickupWaitSaveRub: Int = 0,
+    val pickupWaitRu: String = "",
+    val pickupWaitBa: String = "",
+    // Опции салона деньгами (детское кресло 150 ₽ и т.д.). `optionCatalog` — прайс ВСЕХ опций
+    // с сервера: клиент подписывает цену на галочке, не храня второй список у себя.
+    val optionsFee: Int = 0,
+    val optionCatalog: Map<String, Int> = emptyMap(),
+    // Зимняя дорога: компенсация водителю за гололёд/метель/снег/мороз. Тоже вне наценки
+    // и без комиссии. `weatherKind` нужен подписи: «Гололёд» объясняет, «погода» — нет.
+    val weatherFee: Int = 0,
+    val weatherKind: String = "",
     // Промокод-скидка на поездку в такси (kind=taxi_ride). Считает и решает сервер: клиент только
     // показывает выгоду ДО заказа. Пустой код и нули = скидки нет ИЛИ сервер старый — в обоих
     // случаях на экране не должно быть ни «−0 ₽», ни перечёркнутых цен.
@@ -4975,6 +5092,22 @@ data class InstantOrderDto(
     val womenOnly: Boolean = false,
     val priceEstimate: Int,
     val priceFinal: Int?,
+    // Из чего сложилась сумма: поездка + дорога водителя к пассажиру (2026-08-23).
+    // Пассажиру — чтобы видеть, за что платит; водителю — чтобы видеть, что компенсация
+    // за подачу дошла до него целиком (комиссию с неё не берём).
+    val ridePrice: Int = 0,
+    val pickupFeeKop: Int = 0,
+    val pickupKm: Double = 0.0,
+    // Заказ создавался, когда рядом не было машин: сумма подачи появится при принятии.
+    val pickupPending: Boolean = false,
+    // Водителю было по пути → подача вдвое дешевле. Нужен в чеке: иначе не объяснить,
+    // почему за такую же дорогу у соседа вышло дороже.
+    val pickupEnroute: Boolean = false,
+    // Опции салона деньгами (кресло 150 ₽ и т.д.): уходят водителю целиком, без комиссии.
+    val optionsFeeKop: Int = 0,
+    // Зимняя дорога — тоже его деньги, без комиссии.
+    val weatherFeeKop: Int = 0,
+    val weatherKind: String = "",
     val distanceKm: Double,
     val etaMin: Double,
     val driverId: Int?,
@@ -5105,6 +5238,15 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     womenOnly = optBoolean("women_only", false),
     priceEstimate = optInt("price_estimate"),
     priceFinal = if (isNull("price_final")) null else optInt("price_final"),
+    // Старый сервер этих полей не шлёт: «поездка» = весь чек, подачи нет — прежний вид экрана.
+    ridePrice = optInt("ride_price", optInt("price_estimate")),
+    pickupFeeKop = optInt("pickup_fee_kop"),
+    pickupKm = optDouble("pickup_km", 0.0),
+    pickupPending = optBoolean("pickup_pending", false),
+    pickupEnroute = optBoolean("pickup_enroute", false),
+    optionsFeeKop = optInt("options_fee_kop"),
+    weatherFeeKop = optInt("weather_fee_kop"),
+    weatherKind = optString("weather_kind"),
     distanceKm = optDouble("distance_km", 0.0),
     etaMin = optDouble("eta_min", 0.0),
     driverId = if (isNull("driver_id")) null else optInt("driver_id"),
@@ -6081,6 +6223,18 @@ data class InstantWaitDto(val waitUntil: String, val waitMinutes: Int, val order
 
 /** Квитанция за такси-поездку (GET /instant/orders/{id}/receipt). Телефонов в чеке нет.
  *  amount — ₽ (итог поездки), waitingFeeKop — платное ожидание, копейки. */
+/** Жалоба на цену (админ). Координат тут нет: чтобы разобраться в ЦЕНЕ, знать,
+ *  откуда человек ехал, не нужно. */
+data class PriceComplaintDto(
+    val id: Int,
+    val orderId: Int?,
+    val price: Int,
+    val reason: String,
+    val comment: String,
+    val breakdown: String,
+    val createdAt: String,
+)
+
 data class InstantReceiptDto(
     val orderId: Int, val role: String,
     val fromText: String, val toText: String, val doneAt: String,
@@ -6088,6 +6242,26 @@ data class InstantReceiptDto(
     val distanceKm: Double, val amount: Int, val amountKop: Int, val waitingFeeKop: Int,
     val paymentMethod: String, val paid: Boolean,
     val driverName: String, val driverVerified: Boolean,
+    // --- Из чего сложилась сумма (2026-08-23). Раньше в чеке была одна цифра, и на вопрос
+    // «куда делись деньги» ответить было нечем. Старый сервер полей не шлёт → нули, и чек
+    // выглядит как прежде.
+    val ridePrice: Int = 0,
+    val rideBasePrice: Int = 0,
+    val surgeRub: Int = 0,
+    val pickupFeeKop: Int = 0,
+    val pickupKm: Double = 0.0,
+    val pickupEnroute: Boolean = false,
+    val optionsFeeKop: Int = 0,
+    val options: List<String> = emptyList(),
+    val weatherFeeKop: Int = 0,
+    val weatherKind: String = "",
+    // --- Только для водителя: он реально платит комиссию, поэтому видит её целиком.
+    // Пассажиру их не шлют вообще (в Модели А он платит водителю напрямую).
+    val driverFeePercent: Double = 0.0,
+    val driverFeeKop: Int = 0,
+    val driverGrossKop: Int = 0,
+    val driverNetKop: Int = 0,
+    val commissionFreeKop: Int = 0,
 )
 
 /** Квитанция за доставку (GET /parcels/{id}/receipt). Телефонов и адресов в чеке нет.

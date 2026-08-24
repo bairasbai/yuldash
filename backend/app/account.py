@@ -35,7 +35,8 @@ from .config import settings
 from .errors import herr
 from .timeutil import utcnow
 from .models import (
-    Ad, AdEvent, AppReview, Block, Booking, BookingStatus, CommissionDebt, Consent, Coupon, OfferDecline,
+    Ad, AdEvent, AppReview, Block, Booking, BookingStatus, CommissionDebt, Consent, Coupon,
+    OfferDecline, PriceComplaint,
     CouponRedemption, CouponReport, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
     DriverProfile, DriverSchedule, FamilySmsLog, Incident, InstantOrder, InstantOrderStatus, InviteCode,
     LedgerEntry, Message,
@@ -468,6 +469,13 @@ def delete_user_account(session: Session, user: User) -> None:
     if order_ids:
         session.execute(delete(OfferDecline).where(OfferDecline.order_id.in_(order_ids)))
     session.execute(delete(OfferDecline).where(OfferDecline.driver_id == uid))
+    # Жалобы на цену. Уходят вместе с человеком: это его слова о его деньгах, а не общий
+    # журнал. Тариф мы к этому моменту уже поправили — ценность жалобы в сумме, а не в том,
+    # чтобы держать её после того, как человек ушёл. Чужие заказы тут не пострадают: жалоба
+    # ссылается только на свой (см. routers/instant.price_complaint).
+    if order_ids:
+        session.execute(delete(PriceComplaint).where(PriceComplaint.order_id.in_(order_ids)))
+    session.execute(delete(PriceComplaint).where(PriceComplaint.user_id == uid))
     session.execute(delete(InstantOrder).where(
         or_(InstantOrder.passenger_id == uid, InstantOrder.driver_id == uid)))
     # 3.12 Посылки: отвязать себя как курьера на ЧУЖИХ, удалить свои (как отправитель).

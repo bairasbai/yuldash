@@ -56,6 +56,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocalTaxi
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Place
@@ -317,6 +318,41 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                         ),
                         color = CanonMuted, fontSize = 12.sp,
                     )
+                    // Дорога водителя к пассажиру — отдельные деньги, и человек должен видеть
+                    // их как слагаемое, а не гадать, почему итог больше цены поездки.
+                    if (estimate.pickupFee > 0 || estimate.optionsFee > 0 || estimate.weatherFee > 0) {
+                        val parts = buildList {
+                            add(appText("Поездка ${estimate.ridePrice} ₽", "Сәфәр ${estimate.ridePrice} һум"))
+                            if (estimate.pickupFee > 0) {
+                                add(appText("дорога водителя ${estimate.pickupFee} ₽",
+                                    "водитель юлы ${estimate.pickupFee} һум"))
+                            }
+                            if (estimate.optionsFee > 0) {
+                                add(appText("опции ${estimate.optionsFee} ₽",
+                                    "өҫтәмәләр ${estimate.optionsFee} һум"))
+                            }
+                            if (estimate.weatherFee > 0) {
+                                add(appText("зимняя дорога ${estimate.weatherFee} ₽",
+                                    "ҡышҡы юл ${estimate.weatherFee} һум"))
+                            }
+                        }
+                        Text(
+                            parts.joinToString(" + "),
+                            color = CanonMuted, fontSize = 12.sp,
+                        )
+                        // Водителю по пути — дорога к пассажиру вдвое дешевле. Показываем
+                        // зелёным и со старой цифрой: выгоду надо назвать, иначе человек
+                        // видит просто другое число и не понимает, что сэкономил.
+                        if (estimate.pickupEnroute && estimate.pickupFullFee > estimate.pickupFee) {
+                            Text(
+                                appText(
+                                    "Водителю по пути — дорога вдвое дешевле, было бы ${estimate.pickupFullFee} ₽",
+                                    "Водителгә юл ыңғайы — юл ике тапҡыр арзаныраҡ, ${estimate.pickupFullFee} һум булыр ине",
+                                ),
+                                color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text("${estimate.price} ₽", color = CanonGreen2, fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -353,6 +389,9 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                     }
                     val badge = when (factor.kind) {
                         "multiplier" -> "×${formatTaxiMultiplier(factor.k)}"
+                        // Строка стоит денег — показываем деньги. «×1,12» рядом с суммой,
+                        // которую человек платит, не объясняет ничего.
+                        "money" -> "+${factor.amountRub} ₽"
                         "cap" -> appText("лимит", "сик")
                         "notice" -> "!"
                         else -> appText("учтено", "иҫәптә")
@@ -361,6 +400,29 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                         Text(
                             badge, color = CanonTaxiText, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
+
+            // «Сюда уже едет машина — подождёшь, и за подачу платить не придётся».
+            // Это не реклама ожидания: подсказка появляется, только когда человеку реально
+            // есть что сэкономить, и всегда с суммой, чтобы решение было его.
+            if (estimate.pickupWaitMinutes > 0 && estimate.pickupWaitRu.isNotBlank()) {
+                Surface(shape = CanonItemShape, color = CanonPoolingBg) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(CanonSpace.md),
+                        horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Text("🚗", fontSize = 16.sp)
+                        Text(
+                            appText(
+                                estimate.pickupWaitRu,
+                                estimate.pickupWaitBa.ifBlank { estimate.pickupWaitRu },
+                            ),
+                            color = CanonPooling, fontSize = 14.sp, lineHeight = 20.sp,
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                 }
@@ -386,8 +448,148 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                     )
                 }
             }
+
+            // Прочитать цену вслух. Для бабушки, которая едет в клинику, четыре строчки
+            // мелким шрифтом — это ничего: она видит только итог и решает, что обманули.
+            TaxiPriceAloudButton(estimate)
+
+            // Клапан для несогласия. Слово «жалоба» из другого мира: у нас между своими,
+            // и человек не жалуется на соседа — он спорит с НАШИМ расчётом. Без этой кнопки
+            // несогласие уходит молча вместе с человеком.
+            TaxiPriceComplaintButton(estimate)
         }
     }
+}
+
+/** «Прочитать цену вслух» — три числа голосом: поездка, дорога водителя, итого.
+ *
+ *  Кнопки нет, если синтезатор недоступен: неработающая кнопка хуже её отсутствия —
+ *  человек нажмёт, ничего не услышит и решит, что сломалось приложение, а не голос. */
+@Composable
+private fun TaxiPriceAloudButton(estimate: InstantEstimateDto) {
+    val speaker = rememberPriceSpeaker()
+    val ru = LocalAppLanguage.current != AppLanguage.Ba
+    if (!speaker.ready) return
+
+    TextButton(
+        onClick = {
+            val total = estimate.priceToPay
+            // Башкирскую фразу читаем ТОЛЬКО настоящим башкирским голосом. Русский синтезатор
+            // на башкирском тексте выдаёт кашу — это хуже, чем прочитать по-русски.
+            val text = if (!ru && speaker.bashkirAvailable)
+                priceAloudBa(estimate.ridePrice, estimate.pickupFee, total)
+            else priceAloudRu(estimate.ridePrice, estimate.pickupFee, total)
+            speaker.speak(text)
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Icon(
+            Icons.Default.VolumeUp,
+            contentDescription = null,
+            tint = CanonGreen2,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(CanonSpace.xs))
+        Text(
+            appText("Прочитать цену вслух", "Хаҡты ҡысҡырып уҡырға"),
+            color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+/** Причины несогласия с ценой. Список закрытый: свободный текст в поле причины никто
+ *  не прочитает, а вот «дорого для такого расстояния» — это уже данные. */
+private val PriceComplaintReasons = listOf(
+    "expensive_for_distance" to ("Дорого для такого расстояния" to "Был ара өсөн ҡиммәт"),
+    "was_cheaper" to ("Было дешевле минуту назад" to "Бер минут элек арзаныраҡ ине"),
+    "line_unclear" to ("Не понимаю строку в счёте" to "Иҫәптәге юлды аңламайым"),
+    "other" to ("Другое" to "Башҡа"),
+)
+
+@Composable
+private fun TaxiPriceComplaintButton(estimate: InstantEstimateDto) {
+    var open by remember { mutableStateOf(false) }
+    var sent by remember { mutableStateOf(false) }
+    var comment by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    if (sent) {
+        Surface(shape = CanonItemShape, color = CanonPoolingBg, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                appText("Спасибо. Посмотрим и ответим", "Рәхмәт. Ҡарап сығып яуап бирербеҙ"),
+                color = CanonPooling, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(CanonSpace.md),
+            )
+        }
+        return
+    }
+
+    TextButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            appText("Что-то не так с ценой?", "Хаҡ менән нимәлер дөрөҫ түгелме?"),
+            color = CanonMuted, fontSize = 12.sp,
+        )
+    }
+    if (!open) return
+
+    AlertDialog(
+        onDismissRequest = { open = false },
+        containerColor = CanonSurface,
+        title = {
+            Text(appText("Что не так с ценой?", "Хаҡта нимә дөрөҫ түгел?"),
+                color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                PriceComplaintReasons.forEach { (code, labels) ->
+                    Surface(
+                        onClick = {
+                            open = false
+                            scope.launch {
+                                ApiClient.sendPriceComplaint(
+                                    price = estimate.priceToPay,
+                                    reason = code,
+                                    comment = comment,
+                                    breakdown = mapOf(
+                                        "ride_price" to estimate.ridePrice,
+                                        "pickup_fee" to estimate.pickupFee,
+                                        "options_fee" to estimate.optionsFee,
+                                        "price" to estimate.price,
+                                    ),
+                                )
+                                sent = true
+                            }
+                        },
+                        shape = CanonItemShape,
+                        color = CanonBg,
+                        border = BorderStroke(1.dp, CanonBorder),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    ) {
+                        Text(
+                            appText(labels.first, labels.second),
+                            color = CanonText, fontSize = 14.sp, lineHeight = 20.sp,
+                            modifier = Modifier.padding(CanonSpace.md),
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it.take(300) },
+                    placeholder = {
+                        Text(appText("Можно словами (необязательно)", "Һүҙ менән дә була (мотлаҡ түгел)"),
+                            color = CanonMuted, fontSize = 14.sp)
+                    },
+                    singleLine = false,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { open = false }) {
+                Text(appText("Закрыть", "Ябырға"), color = CanonMuted)
+            }
+        },
+    )
 }
 
 // ------------------------------ Промокод в такси: выгода и честность ------------------------------
@@ -2054,6 +2256,7 @@ private fun InstantDestinationPicker(
                             val next = if (code in orderOptions) orderOptions - code else orderOptions + code
                             orderOptionsCsv = next.joinToString(",")
                         },
+                        prices = estimate?.optionCatalog ?: emptyMap(),
                     )
                 }
                 // Детали: как найти пассажира и «заказ для другого». Появляются вместе с маршрутом.
@@ -2639,7 +2842,14 @@ internal val InstantOptions = listOf(
 )
 
 @Composable
-private fun InstantOptionsBlock(selected: Set<String>, onToggle: (String) -> Unit) {
+private fun InstantOptionsBlock(
+    selected: Set<String>,
+    onToggle: (String) -> Unit,
+    // Цены опций приходят С СЕРВЕРА (оценка цены, `option_catalog`). Свой список цен на
+    // клиенте однажды разошёлся бы с серверным — и человек увидел бы на галочке одну сумму,
+    // а в заказе другую. Пусто = старый сервер, тогда просто не показываем цену.
+    prices: Map<String, Int> = emptyMap(),
+) {
     // Свёрнут по умолчанию: девяти заказам из десяти ничего этого не нужно, и держать девять
     // галочек на главном пути — значит мешать всем ради немногих. Но открыть — один тап.
     var open by rememberSaveable { mutableStateOf(false) }
@@ -2715,6 +2925,19 @@ private fun InstantOptionsBlock(selected: Set<String>, onToggle: (String) -> Uni
                                 color = CanonText, fontSize = TxCaption, lineHeight = LhCaption,
                                 fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
                             )
+                            // Цену показываем только там, где она есть: у коляски и у
+                            // доступности её нет и быть не может, и «+0 ₽» там читалось бы
+                            // как намёк, что вообще-то могли бы взять.
+                            val price = prices[opt.code] ?: 0
+                            if (price > 0) {
+                                Spacer(Modifier.width(CanonSpace.xs))
+                                Text(
+                                    "+$price ₽",
+                                    color = if (on) CanonTaxiText else CanonMuted,
+                                    fontSize = TxCaption, lineHeight = LhCaption,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
                         }
                     }
                 }
@@ -4820,6 +5043,56 @@ internal fun InstantOfferOverlay(
                                         "Пассажир: ${formatTaxiKop(order.driverGrossKop)} · комиссия ${formatTaxiKop(order.driverFeeKop)} (${formatTaxiMultiplier(order.driverFeePercent)}%)",
                                     ),
                                     color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                                )
+                            }
+                            // Дорога до пассажира. Раньше за неё платили множителем ко всей цене
+                            // (+12% максимум), и водитель молча ехал двадцать километров себе
+                            // в убыток. Теперь это отдельные деньги, и он видит их ДО принятия —
+                            // иначе решение «брать или нет» принимается вслепую.
+                            if (order.pickupFeeKop > 0) {
+                                val km = kotlin.math.round(order.pickupKm).toInt()
+                                Text(
+                                    appText(
+                                        "Ехать до пассажира ~$km км · ${formatTaxiKop(order.pickupFeeKop)} тебе сверху, без комиссии",
+                                        "Пассажирға тиклем ~$km км · ${formatTaxiKop(order.pickupFeeKop)} һиңә өҫтәмә, комиссияһыҙ",
+                                    ),
+                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                // Половинная надбавка — не молча. Водитель должен понимать,
+                                // почему за ту же дорогу сегодня меньше: он и так едет в эту
+                                // сторону, и решение брать заказ остаётся за ним.
+                                if (order.pickupEnroute) {
+                                    Text(
+                                        appText(
+                                            "Тебе в эту сторону по пути — надбавка половинная",
+                                            "Һиңә был яҡҡа юл ыңғайы — өҫтәмә яртылаш",
+                                        ),
+                                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                                    )
+                                }
+                            }
+                            // Кресло, животное, багаж — тоже его деньги, без комиссии. Водитель
+                            // должен видеть это ДО принятия: возня с креслом занимает время,
+                            // и решение «брать или нет» он принимает с этой суммой в уме.
+                            if (order.weatherFeeKop > 0) {
+                                Text(
+                                    appText(
+                                        "Тяжёлая дорога · ${formatTaxiKop(order.weatherFeeKop)} тебе сверху, без комиссии",
+                                        "Ауыр юл · ${formatTaxiKop(order.weatherFeeKop)} һиңә өҫтәмә, комиссияһыҙ",
+                                    ),
+                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            if (order.optionsFeeKop > 0) {
+                                Text(
+                                    appText(
+                                        "Кресло и опции · ${formatTaxiKop(order.optionsFeeKop)} тебе сверху, без комиссии",
+                                        "Ултырғыс һәм өҫтәмәләр · ${formatTaxiKop(order.optionsFeeKop)} һиңә өҫтәмә, комиссияһыҙ",
+                                    ),
+                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp,
+                                    fontWeight = FontWeight.Bold,
                                 )
                             }
                             // «Тебе чистыми» посчитано с полной цены — и это верно: скидку пассажира

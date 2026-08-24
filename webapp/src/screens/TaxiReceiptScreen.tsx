@@ -273,6 +273,76 @@ export default function TaxiReceiptScreen() {
               )}
             </div>
 
+            {/* Из чего сложилась сумма. Каждая строка — причина, по которой цена такая. */}
+            {(state.r.ride_price ?? 0) > 0 && (
+              <div className="info-list">
+                <div className="info-row">
+                  <span className="info-row__k">{appText("Поездка", "Сәфәр")}</span>
+                  <span className="info-row__v">
+                    {(state.r.ride_base_price || state.r.ride_price) ?? 0} ₽
+                  </span>
+                </div>
+                {(state.r.surge_rub ?? 0) > 0 && (
+                  <div className="info-row">
+                    <span className="info-row__k">{appText("Наценка за спрос", "Ихтыяж өҫтәмәһе")}</span>
+                    <span className="info-row__v">+{state.r.surge_rub} ₽</span>
+                  </div>
+                )}
+                {(state.r.pickup_fee_kop ?? 0) > 0 && (
+                  <div className="info-row">
+                    <span className="info-row__k">
+                      {appText(
+                        `Дорога водителя к тебе, ~${Math.round(state.r.pickup_km ?? 0)} км`,
+                        `Водителдең һиңә тиклем юлы, ~${Math.round(state.r.pickup_km ?? 0)} км`
+                      )}
+                    </span>
+                    <span className="info-row__v">+{rubLabel(state.r.pickup_fee_kop ?? 0)}</span>
+                  </div>
+                )}
+                {(state.r.weather_fee_kop ?? 0) > 0 && (
+                  <div className="info-row">
+                    <span className="info-row__k">
+                      {state.r.weather_kind === "ice"
+                        ? appText("Гололёд на дороге", "Юлда быҙлауыҡ")
+                        : state.r.weather_kind === "blizzard"
+                          ? appText("Метель по пути", "Юлда буран")
+                          : state.r.weather_kind === "frost"
+                            ? appText("Сильный мороз", "Ҡаты һыуыҡ")
+                            : appText("Тяжёлая дорога", "Ауыр юл")}
+                    </span>
+                    <span className="info-row__v">+{rubLabel(state.r.weather_fee_kop ?? 0)}</span>
+                  </div>
+                )}
+                {(state.r.options_fee_kop ?? 0) > 0 && (
+                  <div className="info-row">
+                    <span className="info-row__k">{appText("Кресло и опции", "Ултырғыс һәм өҫтәмәләр")}</span>
+                    <span className="info-row__v">+{rubLabel(state.r.options_fee_kop ?? 0)}</span>
+                  </div>
+                )}
+                {state.r.role === "driver" && (state.r.driver_gross_kop ?? 0) > 0 && (
+                  <>
+                    <div className="info-row">
+                      <span className="info-row__k">{appText("Всего от пассажира", "Пассажирҙан барлығы")}</span>
+                      <span className="info-row__v">{rubLabel(state.r.driver_gross_kop ?? 0)}</span>
+                    </div>
+                    <div className="info-row">
+                      <span className="info-row__k">
+                        {appText(
+                          `Комиссия Юлдаша ${state.r.driver_fee_percent ?? 0}%`,
+                          `Юлдаш комиссияһы ${state.r.driver_fee_percent ?? 0}%`
+                        )}
+                      </span>
+                      <span className="info-row__v">−{rubLabel(state.r.driver_fee_kop ?? 0)}</span>
+                    </div>
+                    <div className="info-row">
+                      <span className="info-row__k">{appText("Чистыми тебе", "Һиңә таҙа килем")}</span>
+                      <span className="info-row__v">{rubLabel(state.r.driver_net_kop ?? 0)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="receipt__total">
               <span>{appText("Итого", "Барлығы")}</span>
               <b>{priceLabel(state.r.amount, ru)}</b>
