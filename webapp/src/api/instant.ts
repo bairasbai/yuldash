@@ -43,6 +43,22 @@ export interface InstantOrder {
   category: TaxiCategory | string;
   price_estimate: number;
   price_final: number | null;
+  /**
+   * Из чего сложилась сумма: поездка + дорога водителя к пассажиру (2026-08-23).
+   * Пассажиру — чтобы видеть, за что платит; водителю — чтобы видеть, что компенсация
+   * за подачу дошла до него целиком (комиссию с неё не берём).
+   */
+  ride_price?: number;
+  pickup_fee_kop?: number;
+  pickup_km?: number;
+  pickup_pending?: boolean;
+  /** Водителю было по пути → подача вдвое дешевле. */
+  pickup_enroute?: boolean;
+  /** Опции салона деньгами: уходят водителю целиком, без комиссии. */
+  options_fee_kop?: number;
+  /** Зимняя дорога — тоже его деньги, без комиссии. */
+  weather_fee_kop?: number;
+  weather_kind?: string;
   /** Сколько пассажир реально платит, копейки (цена минус промокод). Точка правды для истории. */
   passenger_price_kop: number;
   promo_discount_kop: number;
@@ -136,6 +152,41 @@ export interface EstimateResult {
   pickup_k?: number;
   weather_k?: number;
   weather_code?: string;
+  /**
+   * Дальняя подача — ОТДЕЛЬНАЯ строка счёта в рублях (2026-08-23), а не коэффициент:
+   * `price` = `ride_price` + `pickup_fee`. Эти деньги идут водителю за дорогу к пассажиру,
+   * комиссию с них не берём. Старый сервер полей не шлёт → нули, строка не появится.
+   */
+  ride_price?: number;
+  pickup_fee?: number;
+  pickup_km?: number;
+  /** Рядом машин нет: точной суммы не существует, обещаем потолок и фиксируем при accept. */
+  pickup_pending?: boolean;
+  pickup_max_rub?: number;
+  pickup_note?: { ru: string; ba: string } | null;
+  /** Водителю и так по пути → подача вдвое дешевле. `pickup_full_fee` — цена без скидки. */
+  pickup_enroute?: boolean;
+  pickup_full_fee?: number;
+  /** «Сюда уже едет машина — подождёшь, и подача выйдет дешевле». null = ждать нечего. */
+  pickup_wait_hint?: { minutes: number; save_rub: number; ru: string; ba: string } | null;
+  /**
+   * Опции салона деньгами (детское кресло 150 ₽, животное и большой багаж по 100 ₽).
+   * Уходят водителю целиком, комиссия с них не берётся. Доступность (инвалидная коляска,
+   * собака-проводник) — всегда 0 ₽.
+   *
+   * ⚠️ В веб-версии выбора опций пока НЕТ — поле придёт нулём. Оставлено для чека и для
+   * будущего экрана: считать цену без него значит показать сумму, которой в заказе не будет.
+   */
+  options_fee?: number;
+  option_catalog?: { code: string; price: number }[];
+  /**
+   * Зимняя дорога: компенсация водителю за гололёд, метель, сильный снег или мороз —
+   * 1,5 ₽/км, потолок 15% от поездки. Вне наценки и без комиссии: зимой у него реально
+   * выше расход и износ. `weather_kind` нужен подписи — «Гололёд» объясняет, «погода» нет.
+   */
+  weather_fee?: number;
+  weather_kind?: string;
+  weather_note?: { ru: string; ba: string } | null;
   /** Итоговый множитель (спрос × ночь × погода × подача) — его и показываем человеку. */
   dynamic_k?: number;
   /** Потолок наценки: выше него цена не поднимется ни при каком спросе. */
@@ -467,6 +518,29 @@ export interface TaxiReceipt {
   paid: boolean;
   driver_name: string;
   driver_verified: boolean;
+  /**
+   * Из чего сложилась сумма (2026-08-23). Раньше в чеке была одна цифра, и на вопрос
+   * «куда делись деньги» ответить было нечем. Старый сервер полей не шлёт → нули.
+   */
+  ride_price?: number;
+  ride_base_price?: number;
+  surge_rub?: number;
+  pickup_fee_kop?: number;
+  pickup_km?: number;
+  pickup_enroute?: boolean;
+  options_fee_kop?: number;
+  weather_fee_kop?: number;
+  weather_kind?: string;
+  /**
+   * Только для водителя: он реально платит комиссию, поэтому видит её целиком.
+   * Пассажиру эти поля НЕ приходят — в Модели А он платит водителю напрямую, наши 15%
+   * через него не проходят, и строка «комиссия платформы» была бы неправдой о его деньгах.
+   */
+  driver_fee_percent?: number;
+  driver_fee_kop?: number;
+  driver_gross_kop?: number;
+  driver_net_kop?: number;
+  commission_free_kop?: number;
 }
 
 /** 409 = поездка ещё не завершена, 403 = чужой заказ, 404 = нет заказа/эндпоинта. */

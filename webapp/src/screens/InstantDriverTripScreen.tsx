@@ -749,6 +749,34 @@ function OfferOverlay({
         <div className="offer-card__timer">{left}</div>
         <div className="offer-card__title">{appText("Новый заказ рядом!", "Яҡында яңы заказ!")}</div>
         <div className="offer-card__price">{priceLabel(order.price_estimate, ru)}</div>
+        {/* Дорога ДО пассажира — отдельные деньги водителю, без комиссии. Он должен видеть
+            их ДО принятия: раньше за двадцать километров порожняка доплачивали +12% ко всей
+            цене, и решение «брать или нет» принималось вслепую. */}
+        {(order.pickup_fee_kop ?? 0) > 0 && (
+          <div className="taxi-pickup taxi-pickup--win">
+            {appText(
+              `Ехать до пассажира ~${Math.round(order.pickup_km ?? 0)} км · +${Math.round((order.pickup_fee_kop ?? 0) / 100)} ₽ тебе сверху, без комиссии`,
+              `Пассажирға тиклем ~${Math.round(order.pickup_km ?? 0)} км · +${Math.round((order.pickup_fee_kop ?? 0) / 100)} һум һиңә өҫтәмә, комиссияһыҙ`
+            )}
+            {order.pickup_enroute && (
+              <div>
+                {appText(
+                  "Тебе в эту сторону по пути — надбавка половинная",
+                  "Һиңә был яҡҡа юл ыңғайы — өҫтәмә яртылаш"
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        {/* Кресло и опции — тоже деньги водителя, без комиссии. Видно ДО принятия заказа. */}
+        {(order.options_fee_kop ?? 0) > 0 && (
+          <div className="taxi-pickup taxi-pickup--win">
+            {appText(
+              `Кресло и опции · +${Math.round((order.options_fee_kop ?? 0) / 100)} ₽ тебе сверху, без комиссии`,
+              `Ултырғыс һәм өҫтәмәләр · +${Math.round((order.options_fee_kop ?? 0) / 100)} һум һиңә өҫтәмә, комиссияһыҙ`
+            )}
+          </div>
+        )}
         <div className="offer-card__route">
           <div className="offer-card__pt">
             <span className="taxi-route__dot taxi-route__dot--a" aria-hidden />

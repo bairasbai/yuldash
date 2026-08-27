@@ -516,6 +516,49 @@ function ComposeView({
         </div>
       )}
 
+      {/* Дорога водителя к пассажиру — отдельные деньги в цене (2026-08-23).
+          Без этой строки человек видит только выросшее число и не понимает, за что платит. */}
+      {to && estimate && ((estimate.pickup_fee ?? 0) > 0 || (estimate.options_fee ?? 0) > 0
+        || (estimate.weather_fee ?? 0) > 0) && (
+        <div className={`taxi-pickup${estimate.pickup_enroute ? " taxi-pickup--win" : ""}`}>
+          {appText(
+            [
+              `Поездка ${estimate.ride_price ?? estimate.price} ₽`,
+              (estimate.pickup_fee ?? 0) > 0 ? `дорога водителя ${estimate.pickup_fee} ₽` : "",
+              (estimate.options_fee ?? 0) > 0 ? `опции ${estimate.options_fee} ₽` : "",
+              (estimate.weather_fee ?? 0) > 0 ? `зимняя дорога ${estimate.weather_fee} ₽` : "",
+            ].filter(Boolean).join(" + "),
+            [
+              `Сәфәр ${estimate.ride_price ?? estimate.price} һум`,
+              (estimate.pickup_fee ?? 0) > 0 ? `водитель юлы ${estimate.pickup_fee} һум` : "",
+              (estimate.options_fee ?? 0) > 0 ? `өҫтәмәләр ${estimate.options_fee} һум` : "",
+              (estimate.weather_fee ?? 0) > 0 ? `ҡышҡы юл ${estimate.weather_fee} һум` : "",
+            ].filter(Boolean).join(" + ")
+          )}
+          {estimate.pickup_note && (
+            <div>
+              <b>{ru ? estimate.pickup_note.ru : estimate.pickup_note.ba}</b>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Рядом никого: точной суммы не существует. Говорим потолок и про бесплатную отмену —
+          обещать цифру, которой у нас нет, значит соврать в первом же заказе. */}
+      {to && estimate?.pickup_pending && estimate.pickup_note && (
+        <div className="taxi-pickup">
+          {ru ? estimate.pickup_note.ru : estimate.pickup_note.ba}
+        </div>
+      )}
+
+      {/* «Сюда уже едет машина — подождёшь, и подача выйдет дешевле».
+          Честная замена идее «поделить подачу между соседями»: второй ничего не теряет. */}
+      {to && estimate?.pickup_wait_hint && (
+        <div className="taxi-pickup taxi-pickup--win">
+          🚗 {ru ? estimate.pickup_wait_hint.ru : estimate.pickup_wait_hint.ba}
+        </div>
+      )}
+
       {/* Промокод сработал. Вводить ничего не надо — сервер применил сам.
           Отдельно говорим, кто платит скидку: иначе водитель думает, что
           недоплатили ему, и спорит с пассажиром на ровном месте. */}

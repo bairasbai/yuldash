@@ -226,11 +226,19 @@ def route_weather(
     points: Iterable[tuple[float, float]],
     when: Optional[datetime] = None,
     client: Any = None,
+    cached_only: bool = False,
 ) -> RouteWeather:
     """Предупреждения по маршруту на время выезда.
 
     `points` — начало и конец (можно больше). Берём худшее по маршруту: если на выезде чисто,
     а под Сибаем метель, человек должен узнать про метель, а не про «ясно».
+
+    `cached_only=True` — НЕ ходить наружу: отдать то, что уже в кэше, иначе «не знаю».
+    Так погоду спрашивает РАСЧЁТ ЦЕНЫ (строка «зимняя дорога»). Причина простая: цена
+    пересчитывается на каждое движение пальца по карте, и поход в интернет с таймаутом
+    в шесть секунд на этом пути недопустим — человек будет смотреть на крутящийся спиннер
+    вместо цены. Кэш греет карточка погоды: тот же маршрут, тот же ключ, она грузится
+    рядом на том же экране.
     """
     if not settings.weather_warnings_enabled:
         return RouteWeather()
@@ -265,6 +273,11 @@ def route_weather(
                 warnings=[Warning(**w) for w in cached.get("warnings", [])],
                 temperature_c=cached.get("temperature_c"),
             )
+
+    if cached_only:
+        # Кэш пуст → честно «не знаю». Для цены это значит «строки нет»: брать деньги
+        # за погоду, которой мы не видели, нельзя.
+        return RouteWeather()
 
     payload = _fetch(grid_points, client=client)
     if payload is None:
