@@ -341,6 +341,17 @@ private fun TripStatusHeader(order: InstantOrderDto) {
                     color = CanonGreen2,
                 )
             }
+        } else if (order.status == "onboard") {
+            // В пути минуты подачи прячутся — машина уже пришла, — и справа от «В пути»
+            // оставалась пустота в половину строки. Ставим цену: в дороге это ровно то
+            // число, которое человек держит в голове до высадки.
+            // Имя латиницей не для красоты: сторож двуязычия видит кириллицу внутри
+            // "$..." и считает её надписью мимо appText.
+            val rub = order.priceFinal ?: order.priceEstimate
+            if (rub > 0) {
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text("$rub ₽", style = CanonHeading, color = CanonText)
+            }
         }
     }
 }

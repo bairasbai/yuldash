@@ -2517,6 +2517,17 @@ object ApiClient {
      * Водителю сервер шлёт уведомление сам: тихая смена договорённости — это тот же спор
      * на высадке, только с обиженным водителем.
      */
+    /**
+     * Включена ли онлайн-оплата на сервере.
+     *
+     * Спрашивается ДО показа кнопки «Оплатить онлайн»: при выключенном эквайринге кнопка
+     * была живой, и человек узнавал правду, только нажав её. Ответ не требует входа —
+     * это факт про сервис, а не про человека.
+     */
+    suspend fun paymentsOnlineEnabled(): Result<Boolean> =
+        call("GET", "/health", null, auth = false)
+            .map { it.optString("payments", "off") != "off" }
+
     suspend fun setInstantPaymentMethod(orderId: Int, method: String): Result<String> =
         call("POST", "/instant/orders/$orderId/payment",
              JSONObject().put("method", method), auth = true)
