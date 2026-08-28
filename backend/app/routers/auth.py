@@ -667,11 +667,22 @@ class RefreshIn(BaseModel):
 
 
 @router.post("/auth/refresh")
-def refresh(body: RefreshIn, session: Session = Depends(get_session)):
-    """Обновить пару токенов по refresh-токену (ротация: старый refresh гасится)."""
+def refresh(body: RefreshIn, session: Session = Depends(get_session),
+            x_device_id: str = Header(default="", alias="X-Device-Id")):
+    """Обновить пару токенов по refresh-токену (ротация: старый refresh гасится).
+
+    Бан устройства проверяем и здесь (аудит 2026-08-08, волна 204). Гейт стоял на трёх
+    дверях входа — запрос кода, проверка кода, Telegram, — а приложение продлевает вход
+    само и бесконечно. То есть забаненный работал дальше как ни в чём не бывало, и бан
+    выглядел выполненным: в админке он есть, новый вход режется, а человек на линии.
+
+    Заголовок шлёт клиент, значит его можно и не слать, — поэтому вторая половина проверки
+    живёт в `rotate_refresh` и смотрит на устройство, которое сервер запомнил сам.
+    """
     if not body.refresh_token.strip():
         raise herr(400, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
+    guard_device_not_banned(session, x_device_id)
     return rotate_refresh(session, body.refresh_token.strip())
 
 

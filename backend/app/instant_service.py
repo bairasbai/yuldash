@@ -35,7 +35,7 @@ from .models import (
 )
 from .services import (pick_lang, sms_lang_of,
     blocked_user_ids, haversine_km, may_send_family_sms, push_bilingual, send_push,
-                       send_text, user_rating)
+                       passenger_rating, send_text)
 from .timeutil import utcnow
 
 PRESENCE_KEY = "presence"                    # Redis GEO-множество координат водителей «на линии»
@@ -1461,10 +1461,15 @@ def decline_offer(session: Session, order_id: int, driver_id: int, reason: str =
 # ============================ Push / приватность ============================
 def passenger_stats(session: Session, passenger_id: int) -> tuple:
     """Рейтинг и опыт пассажира для оффера (B7a-4): (средняя★ | None, поездок).
-    Рейтинг — общий анонимный агрегат (Rating по ratee_id: такси + попутка).
-    Поездки = завершённые такси-заказы + завершённые брони попутки.
-    Телефон/имя этим НЕ раскрываются — приватность до accept не тронута."""
-    avg, cnt = user_rating(session, passenger_id)
+    Рейтинг — анонимный агрегат ПАССАЖИРСКИХ оценок (такси + попутка, только те поездки,
+    в которых он ехал). Поездки — по тому же правилу: завершённые такси-заказы и брони.
+    Телефон/имя этим НЕ раскрываются — приватность до accept не тронута.
+
+    Раньше рейтинг тут был ОБЩИЙ, со всеми ролями человека сразу, и половина карточки
+    противоречила второй: поездки считались по-пассажирски, а звёзды — как попало
+    (волна 195). Спокойная пассажирка со старой машиной выглядела для водителя на 3.0
+    вместо 5.0 — а по этому числу он решает, ехать ли за ней ночью."""
+    avg, cnt = passenger_rating(session, passenger_id)
     done_orders = session.exec(
         select(func.count(InstantOrder.id)).where(
             InstantOrder.passenger_id == passenger_id, InstantOrder.status == S.done)

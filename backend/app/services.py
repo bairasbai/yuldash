@@ -29,11 +29,12 @@ from .imagemeta import shrink_image, strip_audio_metadata, strip_image_metadata
 from .logs import log
 from .observability import scrub_text
 from .models import (
-    Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, Notification, PickupPoint,
-    Rating, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent, User, UserRole,
+    Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, InstantOrder,
+    Notification, PickupPoint, Rating, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent,
+    User, UserRole,
 )
 from .schemas import RideOut
-from .timeutil import local_date, utcnow
+from .timeutil import local_date, local_month, utcnow
 
 # ----------------------------- Медиа-папки -----------------------------
 # Голосовые — публично (/media). Документы водителя (права/авто) — ПРИВАТНО (вне /media),
@@ -1132,6 +1133,102 @@ def user_rating(session: Session, user_id: int) -> tuple[float, int]:
     return _rating_from_rows(rows)
 
 
+def driver_rating(session: Session, driver_id: int) -> tuple[float, int]:
+    """Рейтинг человека КАК ВОДИТЕЛЯ: только оценки за поездки, которые он вёз сам.
+
+    Зачем отдельно от общего рейтинга (аудит 2026-08-08, волна 194 — соседняя дверь к 186,
+    где то же самое чинили у курьера). Общий балл человека складывается из всех его ролей
+    сразу: он пассажир такси, он попутчик, он отправитель посылок и он же водитель. Для
+    ВИТРИНЫ это правильно — доверие человеку одно, и `user_rating` там и остаётся. Но
+    лестница качества отнимает у него РАБОТУ, а работа у него одна — за рулём.
+
+    Что было. Марат работает таксистом. Сам он тоже ездит пассажиром, и трое чужих водителей
+    поставили ему по единице как ПАССАЖИРУ. `DriverProfile.rating` — то самое число, по
+    которому matcher решает, кому предложить заказ, — стало 1.0, и Марат ушёл в конец
+    очереди офферов за то, что было в другой роли. Ни одной жалобы на его вождение при этом
+    не было.
+
+    Правила подсчёта берём общие (`_rating_from_rows`): тот же кап на пару «оценил–оценённый»
+    и то же окно свежести. Другой здесь только НАБОР строк — не все оценки человека, а те,
+    где за рулём был он: быстрый заказ такси или рейс попутки.
+    """
+    taxi = list(session.exec(
+        select(Rating.rater_id, Rating.stars, Rating.created_at)
+        .join(InstantOrder, Rating.order_id == InstantOrder.id)      # type: ignore[arg-type]
+        .where(
+            Rating.ratee_id == driver_id,
+            Rating.excluded == False,        # noqa: E712 — снятые оценки вне среднего
+            InstantOrder.driver_id == driver_id,
+        )
+    ).all())
+    pooling = list(session.exec(
+        select(Rating.rater_id, Rating.stars, Rating.created_at)
+        .join(Booking, Rating.booking_id == Booking.id)              # type: ignore[arg-type]
+        .join(Ride, Booking.ride_id == Ride.id)                      # type: ignore[arg-type]
+        .where(
+            Rating.ratee_id == driver_id,
+            Rating.excluded == False,        # noqa: E712
+            Ride.driver_id == driver_id,
+        )
+    ).all())
+    # Два набора складываем ДО расчёта: кап на пару и окно свежести должны видеть всю
+    # водительскую историю разом, иначе постоянный попутчик обойдёт кап через второй сервис.
+    return _rating_from_rows(taxi + pooling)
+
+
+def passenger_rating(session: Session, passenger_id: int) -> tuple[float, int]:
+    """Балл человека КАК ПАССАЖИРА: только оценки за поездки, в которых он ехал.
+
+    Зеркало `driver_rating` (волна 195). Нужно там, где водитель решает, брать ли заказ:
+    в оффере ему показывают карточку пассажира — рейтинг и число поездок. Число поездок
+    там всегда считалось по-пассажирски, а рейтинг рядом был общий, со всеми ролями сразу.
+    Гульнара — спокойная пассажирка (три пятёрки), но своя машина у неё старая, и как
+    водителя попутки её оценили на единицы: в карточке пассажирки водитель видел 3.0.
+
+    Правила подсчёта общие (`_rating_from_rows`), другой только набор строк: быстрый заказ
+    такси и рейс попутки, где он ехал. Посылки сюда не идут — отправитель это другая роль,
+    и число поездок в той же карточке их тоже не считает.
+    """
+    taxi = list(session.exec(
+        select(Rating.rater_id, Rating.stars, Rating.created_at)
+        .join(InstantOrder, Rating.order_id == InstantOrder.id)      # type: ignore[arg-type]
+        .where(
+            Rating.ratee_id == passenger_id,
+            Rating.excluded == False,        # noqa: E712 — снятые оценки вне среднего
+            InstantOrder.passenger_id == passenger_id,
+        )
+    ).all())
+    pooling = list(session.exec(
+        select(Rating.rater_id, Rating.stars, Rating.created_at)
+        .join(Booking, Rating.booking_id == Booking.id)              # type: ignore[arg-type]
+        .where(
+            Rating.ratee_id == passenger_id,
+            Rating.excluded == False,        # noqa: E712
+            Booking.passenger_id == passenger_id,
+        )
+    ).all())
+    return _rating_from_rows(taxi + pooling)
+
+
+def rated_as_driver(session: Session, ratee_id: int, *, booking_id: "int | None" = None,
+                    order_id: "int | None" = None) -> bool:
+    """Поставлена ли ЭТА оценка человеку за его работу за рулём (а не как пассажиру).
+
+    Нужна отдельно от `driver_rating`, потому что водительский балл от чужой роли не
+    меняется — а лестница всё равно сработала бы, если он и так лежал ниже порога. Тогда
+    наказание возобновлялось бы само, от действия постороннего человека: отсидел паузу,
+    кто-то оценил тебя как пассажира — и снова здравствуй (тот же капкан ловили в волне 186).
+    """
+    if order_id is not None:
+        o = session.get(InstantOrder, order_id)
+        return bool(o is not None and o.driver_id == ratee_id)
+    if booking_id is not None:
+        b = session.get(Booking, booking_id)
+        r = session.get(Ride, b.ride_id) if b is not None else None
+        return bool(r is not None and r.driver_id == ratee_id)
+    return False
+
+
 # Анти-накрутка бейджа «N поездок» (аудит 2026-08-07). Средний балл от накрутки парой аккаунтов
 # защищён капом выше, а бейдж — не был ничем: он просто считал брони со статусом done, а перевести
 # бронь в done можно было за три запроса, не проехав ни метра. Бейдж доверия — и есть продукт
@@ -1141,6 +1238,16 @@ def user_rating(session: Session, user_id: int) -> tuple[float, int]:
 # поездок в месяц значило бы врать о честном водителе в другую сторону.
 TRIPS_PAIR_CAP = 8
 TRIPS_PAIR_WINDOW_DAYS = 30
+
+
+def member_since(created_at) -> str:
+    """«С нами с <месяц год>» строкой «2026-09». Месяц МЕСТНЫЙ (волна 203).
+
+    Считался серверным: человек, зарегистрировавшийся в ночь на первое сентября по Уфе,
+    показывался как «с августа». Мелочь, но это бейдж доверия — по нему решают, садиться
+    ли в машину, — и та же семья ошибок, что ранний рейс из волны 79.
+    """
+    return local_month(created_at)
 
 
 def driver_trips_agg(session: Session, driver_ids: set) -> dict:
@@ -1214,7 +1321,7 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
     avg, cnt = rating_agg.get(ride.driver_id, (0.0, 0))
     rating = round(avg, 1) if cnt > 0 else (prof.rating if prof else 5.0)  # реальный рейтинг; до отзывов — сид
     trips = (trips_agg or {}).get(ride.driver_id, 0)                       # F8: завершённых поездок водителя
-    since = drv.created_at.strftime("%Y-%m") if (drv and drv.created_at) else ""  # F8: «С нами с <мес год>»
+    since = member_since(drv.created_at if drv else None)   # F8: «С нами с <мес год>», месяц местный
     return RideOut(
         **ride.model_dump(exclude={"created_at"}),
         boosted=(ride.boosted_until is not None and ride.boosted_until > utcnow()),

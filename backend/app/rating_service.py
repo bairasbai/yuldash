@@ -122,14 +122,23 @@ def apply_rating(session: Session, rater: User, ratee_id: int, *, stars: int,
                            text_published=False))
     session.commit()
 
-    from .services import user_rating   # локальный импорт: services тянет модели по кругу
-    avg, cnt = user_rating(session, ratee_id)
-    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ratee_id)).first()
-    if prof and cnt > 0:
-        prof.rating = round(avg, 1)
-        session.add(prof)
-        session.commit()
-    if cnt > 0:
-        from . import quality
-        quality.maybe_low_rating_advice(session, ratee_id, avg)
+    # локальный импорт: services тянет модели по кругу
+    from .services import driver_rating, rated_as_driver, user_rating
+    avg, cnt = user_rating(session, ratee_id)     # витрина: доверие человеку одно, все роли вместе
+
+    # Санкции — по той роли, за которую наказываем (волна 194; у курьера то же чинили в 186).
+    # `DriverProfile.rating` читает matcher (`instant_service._score`): просевший балл = меньше
+    # заказов, то есть меньше денег. Оценка после поездки взаимная, и раньше сюда одинаково
+    # приходили обе стороны — водителю переписывали его рабочий балл по единицам, которые он
+    # получил, сидя ПАССАЖИРОМ в чужой машине.
+    if rated_as_driver(session, ratee_id, booking_id=booking_id, order_id=order_id):
+        d_avg, d_cnt = driver_rating(session, ratee_id)
+        prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ratee_id)).first()
+        if prof and d_cnt > 0:
+            prof.rating = round(d_avg, 1)
+            session.add(prof)
+            session.commit()
+        if d_cnt > 0:
+            from . import quality
+            quality.maybe_low_rating_advice(session, ratee_id, d_avg)
     return avg, cnt
