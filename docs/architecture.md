@@ -3,6 +3,115 @@
 > Чтобы НЕ читать весь файл. Иди сразу в нужный ФАЙЛ (UI давно разрезан), `grep` по имени функции.
 > ⚠️ Числа строк ниже устарели — ищи через `grep`/`rg`. Актуальная карта файлов — сразу ниже.
 
+## ⭐ Приоритет, ночная надбавка и курьер по правилам такси (2026-08-28, вечер)
+
+**`backend/app/priority.py`** (новый) — кому заказ достаётся первым.
+- `taxi_points(session, driver_id)` / `courier_points(...)` — расклад баллов: рейтинг ≥
+  `priority_rating_min` (+1), ≥ `priority_orders_week` выполненных за 7 дней (+1), «возит туда,
+  куда не хотят» — ночь, метель или подача в селе (+1). Минус — только за брошенный ПРИНЯТЫЙ
+  заказ (`priority_drop_penalty`). За малый объём и за отказ от оффера минусов нет.
+- Новичок получает `priority_newbie_points` авансом на `priority_newbie_days`.
+- `score_bonus(points)` — добавка к `_score` матчера; вес `priority_weight` = 0.15 подобран так,
+  что полный приоритет перебивает ~500 м и не больше.
+- Курьер: `courier_feed_delay_sec` / `visible_delay_sec` — приоритетные видят заказ сразу,
+  остальные через `courier_feed_delay_sec`, и только если на линии есть приоритетный
+  (`any_priority_courier_online`), иначе это пустая пауза.
+- `payload(...)` → `GET /driver/priority` и `GET /courier/priority`; экраны показывают расклад
+  целиком (Android — `PrioritySection` в `ProfileScreen`/`CourierScreen`, PWA — `PriorityCard`).
+
+**Ночная надбавка (`instant_service._seed_night`)** — механизм был написан, но коэффициент
+стоял 1.0, то есть ночь стоила как день. Теперь `night_k_default` = 1.15, окно 22:00–06:00
+по Уфе; засев трогает только тарифы, где ночь не настроена руками. ⚠️ В тестах выключена
+(`conftest`: `NIGHT_K_DEFAULT=1.0`), иначе половина проверок цены зависела бы от часа прогона.
+
+**Отмена и ожидание (`instant_service`)** — `cancel_fee_with_pickup_kop` = подача + дорога
+водителя + его ожидание, потолок = `Tariff.pickup_max_rub`; `cancel_fee_parts_kop` отдаёт
+разбор клиенту. `wait_free_minutes` 5 → 3, `no_show_extra_minutes` 3 → 5 (кнопка «не вышел»
+осталась на 8-й минуте).
+
+**Предзаказ** — `EstimateIn.scheduled_at` уходит в `estimate(when=...)`: экран показывает цену
+на ВРЕМЯ ПОДАЧИ. Заморозка на предзаказ не распространяется (цену всё равно пересчитает
+`activate_scheduled`). `scheduled_price_cap_rub` — обещание потолка, **выключено**.
+
+**Курьер (`routers/courier.py`, `routers/parcels.py`)**
+- `courier_pickup_fee_kop` + `settle_courier_pickup` — дорога курьера к посылке. Считается
+  от `CourierProfile.work_city` (координат курьера в системе нет), фиксируется при взятии
+  заказа; до этого `pickup_pending` и показанный потолок.
+- `POST /parcels/{id}/arrived` — «Я на месте», одна кнопка на оба конца; сервер понимает
+  по статусу. `settle_courier_waiting` разносит время в `waiting_sender_kop` /
+  `waiting_receiver_kop` — в чеке видно, кто задержал.
+- `courier_night_k`, зимняя дорога через `isv.winter_road_*`, `courier_commission_base_kop`
+  (комиссия не берётся с подачи и зимы, берётся с ожидания).
+- Тариф целиком в конфиге (`courier_base_kop` = 15000 и соседние), комиссия 15%, лесенка
+  3/8/15 по вручённым доставкам, надбавка buy_bring убрана.
+- Миграция `bi_courier_catches_up` — 10 колонок в `parceldelivery` + `kind` в `pricecomplaint`.
+
+**Тесты:** `test_priority.py` (18), `test_night_surge.py` (12), `test_scheduled_price.py` (8),
+`test_courier_catches_up.py` (14), плюс дополненные `test_price_honesty.py`.
+
+## 💰 Честность счёта: одна точка компенсаций, заморозка цены, курьер (2026-08-28)
+
+**`backend/app/compensation.py`** (новый) — ОДИН список того, что в цене является компенсацией
+водителю, а не заработком платформы: `pickup_fee_kop`, `options_fee_kop`, `weather_fee_kop`.
+Его зовут три места, и раньше каждое несло свою копию: чек (`isv.order_compensation_rub`),
+комиссия (`debt.order_commission_kop`) и промокод (`promo_ride.discountable_rub`). Копии
+разошлись — зимняя дорога попала в чек и не попала в комиссию. Сторож —
+`tests/test_price_honesty.py::test_money_paths_use_the_single_source` (читает исходники).
+
+**`backend/app/price_freeze.py`** (новый) — заморозка цены на `price_freeze_sec` (120 с).
+`remember()` зовётся из `POST /instant/estimate`, `apply()` — из `POST /instant/orders`.
+Правило: берём МЕНЬШУЮ из замороженной и текущей. Ключ — sha1 от округлённых точек плюс
+класс, опции и круговой рейс (иначе цена Эконома переносилась бы на Бизнес). Снимок берётся
+целиком (`FROZEN_KEYS`): половина старого расчёта и половина нового не сложились бы в итог.
+Redis нет → заморозки нет, заказ идёт как раньше. В ответе оценки — `price_locked_sec`,
+клиенты показывают строку «Цена закреплена на 2 мин».
+
+**Отмена и ожидание (`instant_service.py`):** `cancel_fee_with_pickup_kop` — платная отмена
+и «пассажир не вышел» = `Tariff.base` + `pickup_fee_kop`; `add_waiting_fee` — накопление
+ожидания с ОДНИМ потолком на заказ (был на каждую остановку); `finish_early` закрывает
+незакрытую стоянку. Ожидание — 7 ₽/мин (было 5).
+
+**Межгород:** `billable_km(dist_km)` — «сходящийся километр»: первые
+`intercity_taper_from_km` по полной ставке, дальше на `intercity_taper_percent` дешевле
+(потолок скидки 90%). **Выключено** (обе настройки 0). `max_trip_km` 1000 → 500.
+
+**Курьер (`routers/courier.py`):** длина — `pricing.route_metrics` (дороги, не линейка);
+зона считается по длине и меняет ставку (`courier_per_km_intercity_kop` < `courier_per_km_kop`);
+весь тариф — в конфиге (`courier_base_kop` и соседние), а не в коде; пол комиссии
+`courier_commission_min_kop` 2500 → 1000 коп; `courier_fee_tier` — по ВРУЧЁННЫМ ДОСТАВКАМ
+(`courier_deliveries_before`), а не по дням с одобрения.
+
+**Тесты:** `test_price_honesty.py` (10), `test_price_freeze.py` (12),
+`test_intercity_and_courier_price.py` (12).
+
+## 📊 Воронка «посмотрел цену → заказал» (2026-08-28)
+
+Цену мы правим вслепую: заказов стало меньше — это «людей мало» или «дорого»? Теперь видно.
+
+**`backend/app/funnel.py`** (новый, ~140 строк) — только Redis, только счётчики, ни строки в БД:
+- `note_price_view(r, user_id, frm, to)` — зовётся из `POST /instant/estimate`. Склейка бурста:
+  один и тот же маршрут одного человека внутри `funnel_view_dedupe_min` (15 мин) = ОДИН просмотр
+  (клиент пересчитывает цену на каждое движение пальца по карте). Ключ склейки —
+  `funnel:seen:{uid}:{хэш маршрута}`; координаты в Redis не попадают, только sha1 от точек,
+  округлённых до ~100 м.
+- `note_order(r, user_id)` — зовётся из `POST /instant/orders` и `POST /instant/schedule`.
+  Засчитывается, только если жива метка `funnel:eye:{uid}` (человек смотрел цену не дальше
+  `funnel_attribution_min` = 60 мин назад). Поэтому конверсия не может превысить 100%.
+- `stats(r, days)` — сводка: сегодня, за период, разбивка по дням. Проценты — `None`, когда
+  просмотров не было: «никто не смотрел» и «смотрели и ушли» — разные новости.
+- Счётчики `funnel:view:{день}` / `funnel:order:{день}` живут 31 день и уходят сами. День —
+  МЕСТНЫЙ (`local_date`), иначе вечерние просмотры падали бы в завтрашний столбец.
+- Redis нет или упал — все функции молча возвращают ноль. Оценка и заказ не замечают.
+
+**Витрина:** `GET /admin/taxi/pulse` → ключ `funnel` (`routers/taxi.py`). Android —
+`PulseFunnelCard` + `FunnelBars` в `AdminTaxiPulseScreen.kt` (крупный процент, «сегодня N из M»,
+столбики по дням: высота — просмотры, залитая часть — заказы). PWA — тот же блок в
+`webapp/src/screens/AdminTaxiPulseScreen.tsx` (стили `.funnel*` в `ui.css`).
+
+**Конфиг:** `funnel_view_dedupe_min`, `funnel_attribution_min`, `funnel_window_days`.
+**Тесты:** `backend/tests/test_funnel.py` — 17 (склейка бурста, заказ без просмотра, сбой Redis,
+приватность ключей, местный день, путь оценка → заказ → пульс).
+
 ## 💰 Дальняя подача — отдельная строка счёта, а не множитель (2026-08-23)
 
 Цена такси перестала быть одним числом с одним множителем. Теперь это **поездка + компенсации
@@ -2011,7 +2120,7 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - 🔒 **Живое окно проверяет право, а не личность.** Все шесть сторожей (`location.py` — три канала координат, `chat.py` — три чата) спрашивают: участник ли я СЕЙЧАС (`_вторая_сторона` / `участник=`) и не заблокирован ли (`is_blocked`). Раньше проверялся только живой токен — и «Заблокировать» закрывало чат, но не карту, а снятый курьер продолжал слышать переписку и светиться на карте чужой доставки (волна 159).
 - ⚖️ **Автонаказание требует доказанной встречи.** `safety_logic.trip_really_happened` — единый ответ на вопрос «стороны реально имели дело друг с другом?»: попутка — водитель подтвердил бронь (`Booking.confirmed_at`), такси — заказ принят водителем, посылка — курьер её взял. Зовётся из `quality.py` перед авто-паузой за тяжёлую жалобу. Раньше хватало номера брони, который ставится одним тапом постороннего (волна 158). Жалоба админу при этом уходит всегда — ограничена только автоматика.
 - 🛒 **«Купи и привези»: границу задаёт заказчик, не платформа.** Фактическая стоимость товара (`/courier/orders/{id}/goods-cost`) ограничена `goods_limit_kop` = согласованная сумма + запас (больший из 15% и 100 ₽), сверху общий потолок 5000 ₽. Выше — заказчик поднимает сумму сам (`/courier/orders/{id}/raise-budget`, только он и только вверх, курьеру уходит пуш). Раньше держал только общий потолок, и счёт получателю можно было выставить впятеро больше согласованного (волна 157).
-- `backend/app/ledger.py` — деньги: `fee_kop_for` (комиссия, целые копейки, ROUND_HALF_UP), `driver_balance` (= SUM), `settle_instant_order`/`settle_booking` (идемпотентно, под row-lock), `reconcile` (сверка за период). ⚠️ **Ставки разные:** такси — лесенка `driver_fee_percent` (3/5/8% + промо запуска), **попутка — своя `settings.ride_service_fee_percent`, по умолчанию 0%** (решение Александра, волна 154: попутка приводит людей, зарабатываем на такси). Без явной ставки бронь получала плоские 8% — картой водитель получал меньше, чем наличными.
+- `backend/app/ledger.py` — деньги: `fee_kop_for` (комиссия, целые копейки, ROUND_HALF_UP), `driver_balance` (= SUM), `settle_instant_order`/`settle_booking` (идемпотентно, под row-lock), `reconcile` (сверка за период). ⚠️ **Ставки разные:** такси — лесенка `driver_fee_percent` (3/8/15% по поездкам + промо запуска), **попутка — своя `settings.ride_service_fee_percent`, по умолчанию 0%** (решение Александра, волна 154: попутка приводит людей, зарабатываем на такси). Без явной ставки бронь получала плоские 8% — картой водитель получал меньше, чем наличными.
 - `backend/app/routers/wallet.py` — эндпоинты оплаты/кошелька/сверки, зарегистрирован в `routers/__init__.py`.
 - `backend/alembic/versions/p3_ledger.py` — миграция (rev `p3_ledger`, down `p2_instant_order`), идемпотентна: свежая БД create_all → no-op; прод создаёт `ledgerentry` c 5 индексами и добавляет колонки в `payment`/`instantorder`/`booking`.
 - `backend/tests/test_ledger.py` — 19 тестов (комиссия/начисление/только-done/наличные/идемпотентность webhook/append-only/сверка/IDOR/бронь).
@@ -2127,7 +2236,7 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 
 Четыре части поверх `feat/geo-catalog`. Все цифры — в конфиге (`app/config.py`) или в БД (тарифы): Александр правит без пересборки. ПОПУТКА не затронута. Деньги — только целые копейки (int `*_kop`).
 
-**1. Комиссия лесенкой 3/5/8 (`app/debt.py`):** `driver_fee_percent(session, driver_id)` — стаж = дни с ПЕРВОГО done instant-заказа водителя: ≤`fee_tier1_days`(30) → `fee_tier1_percent`(3%); ≤`fee_tier2_days`(60) → `fee_tier2_percent`(5%); дальше `service_fee_percent`(8%). Промо запуска: заявка таксиста approved до `launch_promo_until` (ISO-дата, `""`=выкл — дефолт) → `launch_promo_percent`(0%) первые `launch_promo_days`(90) от одобрения. `accrue_for_order` берёт процент лесенки; 0% → долг не создаётся.
+**1. Комиссия лесенкой 3/8/15 по ПОЕЗДКАМ (`app/debt.py`):** `driver_fee_percent(session, driver_id, now)` — ступень по числу done instant-заказов, завершённых СТРОГО ДО `now` (`done_trips_before`): <`fee_tier1_trips`(30) → `fee_tier1_percent`(3%); <`fee_tier2_trips`(100) → `fee_tier2_percent`(8%); дальше `service_fee_percent`(15%). «Строго до» — чтобы заказ не поднимал ставку сам себе: водитель берёт 31-й заказ по 3% и по 3% его и оплачивает (сторож — `test_fee_ladder_trips.py`). Переход с прежней лесенки по дням: `fee_trips_ladder_since` (ISO-дата, `""`=выкл — дефолт, живых водителей нет) — кто начал работать раньше неё, получает ту ступень, что выгоднее ему (`_no_rate_jump`, старые границы `fee_tier1_days`/`fee_tier2_days` остались только для этого). Промо запуска: заявка таксиста approved до `launch_promo_until` (ISO-дата, `""`=выкл — дефолт) → `launch_promo_percent`(0%) первые `launch_promo_days`(90) от одобрения. `accrue_for_order` берёт процент лесенки на момент СОЗДАНИЯ заказа; 0% → долг не создаётся. `/instant/workday` отдаёт `trips_done`, `fee_tier_trips`, `fee_trips_to_next` — кабинет показывает «через N поездок станет Y%».
 
 **2. Сурж (`app/instant_service.py`):** `surge_k_for(session, lat, lng)` — спрос (`searching/created` заказы за `surge_window_min`=10 мин в радиусе `surge_radius_km`=7 км, haversine) / предложение (живые presence из Redis GEOSEARCH, знаменатель ≥1) → ступени `SURGE_STEPS`: <1→1.0; ≥1→1.1; ≥1.5→1.2; ≥2→1.3; ≥3→1.5; потолок `surge_max_k`=1.5, флаг `surge_enabled`. Без Redis → 1.0 (не падаем и не наживаемся вслепую). Формула цены: `max(min_price, (base+per_km·d+per_min·t) · Tariff.k · surge_k)` — статичный `Tariff.k` остаётся АВАРИЙНЫМ множителем (всегда, дефолт 1.0), двойного счёта нет. `estimate` отдаёт `surge_k`, `surge_note{ru,ba}` (прозрачно ДО заказа) и `options[{category,price}]` (обе цены классов одним запросом); `POST /instant/orders` фиксирует `InstantOrder.surge_k` (price_estimate уже с ним).
 

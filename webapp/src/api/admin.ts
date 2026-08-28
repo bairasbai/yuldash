@@ -384,6 +384,28 @@ export interface TaxiPulseCity {
   active: number;
 }
 
+/** Один день воронки: сколько раз смотрели цену и сколько из этого стало заказом. */
+export interface TaxiFunnelDay {
+  day: string; // YYYY-MM-DD, местная дата
+  views: number;
+  orders: number;
+}
+
+/**
+ * Воронка «посмотрел цену → заказал» (backend/app/funnel.py).
+ * Проценты — number | null: null значит «никто не смотрел», и это НЕ 0%.
+ */
+export interface TaxiFunnel {
+  window_days: number;
+  views_today: number;
+  orders_today: number;
+  percent_today: number | null;
+  views_period: number;
+  orders_period: number;
+  percent_period: number | null;
+  by_day: TaxiFunnelDay[];
+}
+
 export interface TaxiPulse {
   drivers_online: number;
   orders_active: number;
@@ -394,6 +416,7 @@ export interface TaxiPulse {
   gps_suspects_today: number;
   contact_then_cancel_today: number;
   avg_search_sec_today: number | null;
+  funnel?: TaxiFunnel;
   by_city: TaxiPulseCity[];
 }
 

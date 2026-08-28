@@ -27,6 +27,7 @@ from sqlalchemy import func
 from .config import settings
 from .errors import herr
 from . import car_class as cc
+from . import compensation as comp_mod
 from . import class_rollout
 from . import pricing
 from .livepos import livepos_get
@@ -544,11 +545,30 @@ def active_tariff(session: Session, zone: str, category: str) -> Optional[Tariff
     ).first()
 
 
+def billable_km(dist_km: float) -> float:
+    """Оплачиваемая длина: на межгороде километр за порогом дешевеет («сходящийся километр»).
+
+    Зачем. Линейный счёт держит одну и ту же ставку и на 50 км, и на 350 — так не работает
+    ни одно реальное междугороднее такси. Дальний заказ выходит дороже рынка, водитель его
+    не увидит (заказа просто не будет), и мы решим, что «межгород не нужен».
+
+    ВЫКЛЮЧЕНО по умолчанию: механизм есть, цифры не сверены с реальными ценами по маршрутам
+    (docs/tasks.md, «Долги по ценообразованию»). Порог 0 или скидка 0 → длина как есть.
+    """
+    edge = float(settings.intercity_taper_from_km)
+    pct = float(settings.intercity_taper_percent)
+    if edge <= 0 or pct <= 0 or dist_km <= edge:
+        return dist_km
+    # Потолок 90%: даже на тысяче километров километр не может стать бесплатным.
+    return edge + (dist_km - edge) * (1.0 - min(pct, 90.0) / 100.0)
+
+
 def _tariff_price(t: Tariff, dist_km: float, eta_min: float, surge: float) -> int:
     """Цена по тарифу: max(min_price, (base + per_km·dist + per_min·eta) · k · surge),
     округление до 10 ₽. Tariff.k — статичный АВАРИЙНЫЙ множитель (по умолчанию 1.0,
-    правится в БД); динамический сурж — отдельным surge (двойного счёта нет)."""
-    raw = t.base + t.per_km * dist_km + t.per_min * eta_min
+    правится в БД); динамический сурж — отдельным surge (двойного счёта нет).
+    `dist_km` проходит через `billable_km`: на длинных перегонах километр может дешеветь."""
+    raw = t.base + t.per_km * billable_km(dist_km) + t.per_min * eta_min
     return max(t.min_price, round_to_10(raw * t.k * surge))
 
 
@@ -949,12 +969,10 @@ def pickup_fee_after_enroute(fee_rub: int, enroute: bool) -> int:
 def order_compensation_rub(order: InstantOrder) -> int:
     """Сколько в цене заказа — компенсации водителю, а не заработок платформы, ₽.
 
-    Сюда входит дальняя подача, опции салона (детское кресло, животное, большой багаж)
-    и зимняя дорога.
-    Единая точка: с этой суммы не берётся комиссия и её не должен затирать пересчёт цены."""
-    return (int(order.pickup_fee_kop or 0)
-            + int(getattr(order, "options_fee_kop", 0) or 0)
-            + int(getattr(order, "weather_fee_kop", 0) or 0)) // 100
+    Список полей — в `app/compensation.py`, ОДИН на всё приложение. Раньше он был переписан
+    здесь, в расчёте комиссии и в промокоде — и разъехался: зимняя дорога попала в чек, но
+    не в комиссию, и водителю писали «с неё не берём», забирая 15%."""
+    return comp_mod.compensation_rub(order)
 
 
 def set_ride_price(order: InstantOrder, ride_rub: int, base_rub: Optional[int] = None) -> int:
@@ -1588,6 +1606,7 @@ def seed_tariffs(session: Session) -> None:
     # существующие строки досев не трогает (в этом и была его задача).
     _retariff(session)
     _seed_pickup(session)
+    _seed_night(session)
 
 
 # Правила строки «дальняя подача» по зонам (см. pickup_fee_rub). В городе водитель обычно
@@ -1598,6 +1617,34 @@ _PICKUP_DEFAULTS = {
     "city": dict(pickup_free_km=3.0, pickup_per_km=11.5, pickup_max_rub=400),
     "intercity": dict(pickup_free_km=5.0, pickup_per_km=12.0, pickup_max_rub=1200),
 }
+
+
+def _seed_night(session: Session) -> int:
+    """Включить ночную надбавку там, где её ещё не настраивали. Возврат — сколько строк тронули.
+
+    Трогаем ТОЛЬКО нетронутые (`night_k` ≤ 1.0 — надбавки нет): ненулевое значение поставил
+    человек из админки, и наше «улучшение» затёрло бы его решение. Тот же приём, что
+    в `_seed_pickup`.
+
+    Зачем вообще. Механизм ночной надбавки был написан давно, но коэффициент так и остался
+    1.0: ночь стоила столько же, сколько день, и в пять утра в мороз за заказом никто не ехал.
+    Настройка `night_k_default` = 0 или 1.0 → ничего не включаем.
+    """
+    k = float(settings.night_k_default)
+    if k <= 1.0:
+        return 0
+    changed = 0
+    for row in session.exec(select(Tariff)).all():
+        if float(getattr(row, "night_k", 0.0) or 0.0) > 1.0:
+            continue
+        row.night_k = k
+        row.night_from_hour = int(settings.night_from_hour_default)
+        row.night_to_hour = int(settings.night_to_hour_default)
+        session.add(row)
+        changed += 1
+    if changed:
+        session.commit()
+    return changed
 
 
 def _seed_pickup(session: Session) -> int:
@@ -1805,8 +1852,7 @@ def toggle_stop(session: Session, order: InstantOrder,
     if order.stop_started_at is None:
         order.stop_started_at = now
     else:
-        order.waiting_fee_kop = int(order.waiting_fee_kop or 0) + waiting_fee_kop(
-            order.stop_started_at, now)
+        add_waiting_fee(order, order.stop_started_at, now)
         order.stop_started_at = None
     session.add(order)
     session.commit()
@@ -1949,6 +1995,12 @@ def finish_early(session: Session, order: InstantOrder, reason: str = "other",
         t = active_tariff(session, zone_for_km(driven_km), order.category or "standard")
     price = (_tariff_price(t, driven_km, driven_min, order_pricing_k(order))
              if t is not None else int(order.price_estimate or 0))
+
+    # Водитель мог завершить поездку, не нажав «Поехали» после остановки. Раньше это время
+    # просто пропадало: человек стоял и ждал, а деньги не доставались никому.
+    if order.stop_started_at is not None:
+        add_waiting_fee(order, order.stop_started_at, now)
+        order.stop_started_at = None
 
     order.status = S.done
     order.done_at = now
@@ -2116,8 +2168,8 @@ NO_SHOW_REASON = "no_show"
 
 
 def waiting_fee_kop(started, now) -> int:
-    """Платное ожидание: первые wait_free_minutes бесплатно, дальше wait_fee_rub_per_min ₽
-    за каждую ПОЛНУЮ минуту (неполная минута — в пользу пассажира). Целые копейки."""
+    """Платное ожидание за ОДИН промежуток: первые wait_free_minutes бесплатно, дальше
+    wait_fee_rub_per_min ₽ за каждую ПОЛНУЮ минуту (неполная — в пользу пассажира)."""
     whole_min = int(max((now - started).total_seconds(), 0.0) // 60)
     billable = max(0, whole_min - settings.wait_free_minutes)
     # Потолок (волна 163): без него счётчик тикал бесконечно. Водитель нажал «я на месте»
@@ -2126,16 +2178,93 @@ def waiting_fee_kop(started, now) -> int:
     return min(billable * settings.wait_fee_rub_per_min, settings.wait_fee_cap_rub) * 100
 
 
+def capped_waiting_kop(current_kop: int, started, now) -> int:
+    """Итог ожидания по заказу после добавления промежутка, с ОДНИМ потолком на заказ.
+
+    Отдельной функцией, потому что дверей две: остановка в пути (`toggle_stop`) и завершение
+    поездки. Разойдись они — потолок снова стал бы «на каждую остановку», как было до
+    аудита 2026-08-28.
+    """
+    total = int(current_kop or 0) + (waiting_fee_kop(started, now) if started is not None else 0)
+    return min(total, settings.wait_fee_cap_rub * 100)
+
+
+def add_waiting_fee(order: InstantOrder, started, now) -> int:
+    """Добавить промежуток ожидания к заказу и вернуть НОВЫЙ итог по заказу, копейки.
+
+    Потолок обещан «за ожидание по одному ЗАКАЗУ», а применялся к каждому промежутку
+    отдельно и потом складывался: три остановки по часу давали 900 ₽ вместо обещанных 300 ₽
+    (аудит 2026-08-28). Теперь потолок один — на заказ, как и написано в настройках.
+    """
+    if started is None:
+        return int(order.waiting_fee_kop or 0)
+    order.waiting_fee_kop = capped_waiting_kop(order.waiting_fee_kop, started, now)
+    return order.waiting_fee_kop
+
+
 def _order_base_fee_kop(session: Session, order: InstantOrder) -> int:
     """Штраф = подача (Tariff.base) этого заказа, копейки. Тариф не найден → 0 (не штрафуем вслепую)."""
     t = session.get(Tariff, order.tariff_id) if order.tariff_id else None
     return int(t.base) * 100 if t and t.base > 0 else 0
 
 
+def cancel_fee_parts_kop(session: Session, order: InstantOrder, now=None) -> dict:
+    """Из чего сложилась платная отмена, копейками. Для чека человеку.
+
+    Раньше он видел одну сумму и решал, что его обобрали. «60 ₽ бензин водителя + 25 ₽
+    ожидание» — это то же число, но с ним не спорят (решение Александра, 2026-08-28).
+    """
+    now = now or utcnow()
+    t = session.get(Tariff, order.tariff_id) if order.tariff_id else None
+    подача = _order_base_fee_kop(session, order)
+    дорога = int(getattr(order, "pickup_fee_kop", 0) or 0)
+    ожидание = capped_waiting_kop(order.waiting_fee_kop, order.waiting_started_at, now)
+    итого = подача + дорога + ожидание
+    потолок = int(getattr(t, "pickup_max_rub", 0) or 0) * 100 if t is not None else 0
+    урезано = потолок > 0 and итого > потолок
+    return {
+        "base_kop": подача,
+        "pickup_kop": дорога,
+        "waiting_kop": ожидание,
+        "total_kop": min(итого, потолок) if потолок > 0 else итого,
+        "capped": урезано,
+        "cap_kop": потолок,
+    }
+
+
+def cancel_fee_with_pickup_kop(session: Session, order: InstantOrder, now=None) -> int:
+    """Платная отмена = подача по тарифу + дорога водителя к пассажиру + его ожидание.
+
+    Раньше здесь была только подача из тарифа (70 ₽), а компенсация за дальнюю дорогу
+    просто исчезала. Водитель ехал 20 км в село, пассажир видел в цене строку «дорога
+    водителя — 240 ₽», отменял у подъезда — и водитель оставался с 70 ₽ за 40 км
+    порожняка. Это отключало наш главный принцип ровно там, где он нужнее всего.
+
+    Ожидание считаем ЗДЕСЬ, а не берём готовым: счётчик ожидания закрывается только когда
+    пассажир сел в машину, а в этих двух случаях он не сел ни разу. Водитель при этом отждал
+    ровно столько же, сколько отждал бы в поездке.
+
+    Опции салона и зимняя дорога сюда НЕ входят: кресло не пригодилось, а зимнюю дорогу
+    он не проехал — платят за то, что действительно случилось.
+
+    Потолок — потолок строки «дорога водителя» этого тарифа (400 ₽ город / 1 200 межгород):
+    отмена не может стоить больше того числа, которое человек видел ДО заказа. Тариф без
+    настроенной подачи потолка не даёт — там и брать особо нечего (решения Александра,
+    2026-08-28).
+    """
+    now = now or utcnow()
+    t = session.get(Tariff, order.tariff_id) if order.tariff_id else None
+    итого = (_order_base_fee_kop(session, order)
+             + int(getattr(order, "pickup_fee_kop", 0) or 0)
+             + capped_waiting_kop(order.waiting_fee_kop, order.waiting_started_at, now))
+    потолок = int(getattr(t, "pickup_max_rub", 0) or 0) * 100 if t is not None else 0
+    return min(итого, потолок) if потолок > 0 else итого
+
+
 def passenger_cancel_fee_kop(session: Session, order: InstantOrder, now=None) -> int:
     """Штраф пассажира за отмену (Модель А: только фиксируем). Бесплатно, если:
     водитель ещё не назначен, ИЛИ прошло ≤ cancel_free_minutes от принятия, ИЛИ водитель
-    ещё не нажал «Я на месте». Иначе — подача (tariff.base). Показываем ДО отмены."""
+    ещё не нажал «Я на месте». Иначе — подача + дорога водителя. Показываем ДО отмены."""
     now = now or utcnow()
     if order.driver_id is None or order.accepted_at is None:
         return 0
@@ -2143,7 +2272,7 @@ def passenger_cancel_fee_kop(session: Session, order: InstantOrder, now=None) ->
         return 0
     if order.waiting_started_at is None:
         return 0
-    return _order_base_fee_kop(session, order)
+    return cancel_fee_with_pickup_kop(session, order, now)
 
 
 def no_show_available_at(order: InstantOrder):
@@ -2366,9 +2495,18 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
     if target == S.onboard and order.waiting_started_at is not None:
         # Пассажир сел → фиксируем платное ожидание (целые копейки, задним числом не меняем).
         values["waiting_fee_kop"] = waiting_fee_kop(order.waiting_started_at, now)
-    if target == S.done and order.price_final is None:
-        # Сурж уже в price_estimate (зафиксирован при создании); ожидание — целыми ₽ сверху.
-        values["price_final"] = order.price_estimate + order.waiting_fee_kop // 100
+    if target == S.done:
+        # Водитель мог завершить поездку, не нажав «Поехали» после остановки. Раньше это
+        # время пропадало: человек стоял и ждал, а деньги не доставались никому. То же
+        # самое чинится в `finish_early` — двери две, правило одно.
+        ожидание_коп = int(order.waiting_fee_kop or 0)
+        if order.stop_started_at is not None:
+            ожидание_коп = capped_waiting_kop(ожидание_коп, order.stop_started_at, now)
+            values["waiting_fee_kop"] = ожидание_коп
+            values["stop_started_at"] = None
+        if order.price_final is None:
+            # Сурж уже в price_estimate (зафиксирован при создании); ожидание — целыми ₽ сверху.
+            values["price_final"] = order.price_estimate + ожидание_коп // 100
 
     # Атомарно: сдвигаем статус ТОЛЬКО если он всё ещё source. Иначе гонку проиграли.
     result = session.execute(
@@ -2434,7 +2572,9 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     elif (reason or "").strip() == NO_SHOW_REASON:
         _guard_no_show(order, now)
         values["no_show"] = True
-        values["cancel_fee_kop"] = _order_base_fee_kop(session, order)
+        # Пассажир не вышел — водитель сделал всё: доехал и отждал. Дорога к пассажиру
+        # оплачивается так же, как при платной отмене (см. cancel_fee_with_pickup_kop).
+        values["cancel_fee_kop"] = cancel_fee_with_pickup_kop(session, order, now)
     result = session.execute(
         update(InstantOrder)
         .where(InstantOrder.id == order_id, InstantOrder.status == order.status)
@@ -2611,7 +2751,7 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
     return out
 
 
-def _score(profs: dict, did: int, dist_km: float) -> float:
+def _score(profs: dict, did: int, dist_km: float, priority: float = 0.0) -> float:
     p = profs.get(did)
     rating = p.rating if p else 5.0
     score = settings.instant_w_dist / max(dist_km, 0.3) + settings.instant_w_rating * rating
@@ -2619,13 +2759,18 @@ def _score(profs: dict, did: int, dist_km: float) -> float:
     # заказы (не блок — вернуть место можно хорошими поездками).
     if rating < settings.matcher_low_rating:
         score -= settings.matcher_penalty_low_rating
-    return score
+    # ⭐ Приоритет (app/priority.py): решает СПОРНЫЕ случаи — когда двое примерно рядом,
+    # едет тот, кто лучше работает. Вес подобран так, чтобы он перебивал около полукилометра
+    # и не больше: когда один явно ближе, едет он, и это честно перед пассажиром.
+    return score + priority
 
 
 def rank(session: Session, ids: list, dist: dict) -> list:
-    """Скоринг: ближе подача и выше рейтинг → раньше в очереди офферов."""
+    """Скоринг: ближе подача, выше рейтинг и приоритет → раньше в очереди офферов."""
+    from . import priority as prio
     profs = {p.user_id: p for p in session.exec(select(DriverProfile).where(DriverProfile.user_id.in_(ids))).all()}
-    return sorted(ids, key=lambda did: -_score(profs, did, dist.get(did, 999.0)))
+    бонус = {did: prio.score_bonus(prio.taxi_points(session, did)["points"]) for did in ids}
+    return sorted(ids, key=lambda did: -_score(profs, did, dist.get(did, 999.0), бонус.get(did, 0.0)))
 
 
 def candidates(r, session: Session, order: InstantOrder, exclude: set) -> list:
@@ -2767,6 +2912,23 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
 LIVE_ORDER_STATUSES = (S.created, S.searching, S.offered, S.accepted, S.arriving, S.onboard)
 
 
+def scheduled_price_cap_rub(shown_rub: int) -> Optional[int]:
+    """Потолок цены предзаказа: больше этого с человека не берём. None — обещание выключено.
+
+    Зачем. Цену предзаказа сервер пересчитывает в момент подачи (рынок за ночь мог измениться),
+    и человек, оформивший заказ вечером, не знает, сколько отдаст утром. Обещание потолка
+    закрывает этот страх: «≈350 ₽, больше 420 ₽ не возьмём», а разницу платит платформа
+    из своей комиссии — по общему правилу «скидки платит платформа, а не водитель».
+
+    ВЫКЛЮЧЕНО по умолчанию: пока нет данных, как часто цена реально улетает, обещание может
+    оказаться дороже, чем мы потянем. Включается одной настройкой (решение Александра).
+    """
+    pct = float(settings.scheduled_price_guarantee_percent)
+    if pct <= 0 or shown_rub <= 0:
+        return None
+    return round_to_10(shown_rub * (1.0 + pct / 100.0))
+
+
 def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     """Активация предзаказа «на время»: scheduled → обычный поиск водителя.
     Цену/сурж пересчитываем ЗАНОВО на момент активации (не фиксируем при бронировании —
@@ -2810,6 +2972,15 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
                    # Опции заказа несут деньги (кресло 150 ₽). Пересчёт без них обнулил бы
                    # кресло у предзаказа: человек выбрал его вечером, а к утру оно исчезло.
                    options=cc.parse_options(order.options))
+    # Обещание потолка (по умолчанию выключено, см. scheduled_price_cap_rub). Урезаем ТОЛЬКО
+    # цену самой поездки: компенсации — бензин водителя, и платформа не вправе их резать.
+    потолок = scheduled_price_cap_rub(int(order.price_estimate or 0))
+    if потолок is not None and int(est["price"]) > потолок:
+        компенсации = (int(est.get("pickup_fee", 0)) + int(est.get("options_fee", 0))
+                       + int(est.get("weather_fee", 0)))
+        est = dict(est)
+        est["ride_price"] = max(потолок - компенсации, 0)
+        est["price"] = est["ride_price"] + компенсации
     session.execute(
         update(InstantOrder).where(InstantOrder.id == order.id, InstantOrder.status == S.scheduled)
         .values(price_estimate=est["price"], ride_price=est.get("ride_price", est["price"]),
@@ -3419,6 +3590,9 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         "waiting_started_at": order.waiting_started_at.isoformat() if order.waiting_started_at else None,
         "waiting_fee_kop": order.waiting_fee_kop,
         "cancel_fee_kop": order.cancel_fee_kop,
+        # Из чего сложилась бы платная отмена ПРЯМО СЕЙЧАС. Показываем ДО тапа и в чеке
+        # после: одна сумма без объяснения читается как «нас обобрали».
+        "cancel_fee_parts": cancel_fee_parts_kop(session, order),
         "no_show": order.no_show,
         "wait_free_min": settings.wait_free_minutes,
         "wait_fee_rub_per_min": settings.wait_fee_rub_per_min,

@@ -28,6 +28,7 @@ from ..timeutil import local_date, utcnow
 from .. import antifraud as af_mod
 from .. import car_class as cc
 from .. import class_rollout
+from .. import funnel as funnel_mod
 from .. import geo as geo_mod
 from .. import instant_service as isv
 from .. import pretrip as pretrip_mod
@@ -830,6 +831,9 @@ def admin_taxi_pulse(user: User = Depends(current_user), session: Session = Depe
         # Анти-фрод (B8-8): отмены после открытия телефона/чата за день (такси + попутка).
         "contact_then_cancel_today": ctc_today,
         "avg_search_sec_today": (round(sum(waits) / len(waits), 1) if waits else None),
+        # Воронка «посмотрел цену → заказал» (app/funnel.py). Единственная цифра, по которой
+        # видно, что цена отпугнула: заказов стало меньше — это «людей мало» или «дорого»?
+        "funnel": funnel_mod.stats(isv._redis()),
         "by_city": [
             {"city": city, **counts}
             for city, counts in sorted(by_city.items(), key=lambda kv: -(kv[1]["online"] + kv[1]["active"]))

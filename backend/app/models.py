@@ -1719,6 +1719,26 @@ class ParcelDelivery(SQLModel, table=True):
     # «Купи и привези»: стоимость товара (наложка), которую курьер тратит и получатель возвращает.
     # Ограничена потолком COURIER_COD_CAP_KOP (защита курьера от больших авансов). 0 = не применяется.
     cod_amount_kop: int = Field(default=0, sa_type=BigInteger)
+    # --- Курьер догоняет такси (2026-08-28): те же строки счёта, что у поездки ---
+    # Дорога КУРЬЕРА к посылке. Раньше он ехал за ней даром: 15 км в село — 0 ₽, ровно та же
+    # дыра, которую в такси чинили целой волной. Считается не по GPS (координат курьера у нас
+    # нет), а от города, в котором он работает, — и фиксируется, когда он берёт заказ.
+    pickup_fee_kop: int = Field(default=0, sa_type=BigInteger)
+    pickup_km: float = 0.0
+    # True — курьера ещё нет, сумму назовём при взятии заказа (отправителю показан потолок).
+    pickup_pending: bool = False
+    # Курьеру и так по пути в ту сторону → дорога вдвое дешевле (как у водителя такси).
+    pickup_enroute: bool = False
+    # Зимняя дорога: гололёд не разбирает, человек в машине или коробка.
+    weather_fee_kop: int = Field(default=0, sa_type=BigInteger)
+    weather_kind: str = Field(default="", max_length=16)
+    # Ночная надбавка, зафиксированная на доставке (1.0 = день). Нужна чеку: «ночь +15%».
+    night_k: float = 1.0
+    # Платное ожидание. Курьер ждёт на ДВУХ концах, и виноваты разные люди — поэтому храним
+    # раздельно: в чеке видно, где сколько набежало, а делят это между собой они сами.
+    waiting_started_at: Optional[datetime] = None
+    waiting_sender_kop: int = Field(default=0, sa_type=BigInteger)
+    waiting_receiver_kop: int = Field(default=0, sa_type=BigInteger)
     # Комиссия платформы с доставки (коп) — фиксируется при создании (прозрачно, «на доверии»).
     commission_kop: int = Field(default=0, sa_type=BigInteger)
     # C3: комиссия по этой доставке уже оплачена курьером платформе (биллинг «на доверии»).
@@ -1842,6 +1862,9 @@ class PriceComplaint(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
     order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
+    # На чью цену жалуются: taxi | courier. Без этого поля жалобы двух режимов слиплись бы
+    # в одну кучу, и «дорого» про доставку читалось бы как «дорого» про поездку.
+    kind: str = Field(default="taxi", max_length=16, index=True)
     price: int = 0                                    # сумма, на которую жалуются, ₽
     reason: str = Field(default="other", max_length=32)   # перечень — instant.PRICE_COMPLAINT_REASONS
     comment: str = Field(default="", max_length=500)

@@ -862,6 +862,55 @@ def parcels_available(
     return [_parcel_available(p) for p in rows]
 
 
+def _settle_waiting_if_courier(session: Session, parcel) -> int:
+    """Закрыть открытое ожидание курьера. Для «по пути» ничего не делаем — там нет тарифа."""
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") == "poputka":
+        return 0
+    from .courier import settle_courier_waiting
+    return settle_courier_waiting(session, parcel)
+
+
+@router.post("/parcels/{parcel_id}/arrived")
+def parcel_arrived(parcel_id: int, user: User = Depends(current_user),
+                   session: Session = Depends(get_session)):
+    """«Я на месте» — одна кнопка на ОБА конца: у отправителя и у получателя.
+
+    Зачем. Чтобы считать платное ожидание, нужен момент «приехал». У такси это кнопка
+    «Я на месте», у курьера её не было вообще: путь шёл «принял → везу → вручил», и оба
+    приезда в нём не отмечались — курьер стоял у двери сорок минут бесплатно.
+
+    Одна кнопка, а не две: сервер сам понимает по статусу, у кого курьер стоит
+    (`accepted` — у отправителя, `in_transit` — у получателя). Курьеру нечего запоминать.
+
+    Правила ожидания — общие с такси: первые минуты бесплатно, дальше поминутно, потолок
+    на всю доставку. Повторное нажатие ничего не ломает: счётчик уже идёт.
+    """
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel:
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    if parcel.courier_id != user.id:
+        raise herr(403, "Это не твоя доставка", "Был һинең илтеүең түгел")
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") == "poputka":
+        raise herr(409, "У доставки «по пути» нет платного ожидания",
+                   "«Юл ыңғайы» илтеүҙә түләүле көтөү юҡ")
+    if parcel.status not in ("accepted", "in_transit"):
+        raise herr(409, "Сейчас отметить приезд нельзя", "Хәҙер килеүҙе билдәләп булмай")
+    if parcel.waiting_started_at is None:
+        parcel.waiting_started_at = utcnow()
+        session.add(parcel)
+        session.commit()
+        session.refresh(parcel)
+    from .courier import courier_waiting_total_kop
+    return {
+        "ok": True,
+        "where": "sender" if parcel.status == "accepted" else "receiver",
+        "waiting_started_at": parcel.waiting_started_at.isoformat(),
+        "wait_free_min": settings.wait_free_minutes,
+        "wait_fee_rub_per_min": settings.wait_fee_rub_per_min,
+        "waiting_fee_kop": courier_waiting_total_kop(parcel),
+    }
+
+
 @router.post("/parcels/{parcel_id}/accept")
 def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
                   user: User = Depends(current_user), session: Session = Depends(get_session)):
@@ -938,6 +987,13 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
     if taken.rowcount == 0:
         session.rollback()
         raise herr(409, "Посылку уже взяли", "Бандерольде инде алғандар")
+    session.commit()
+    session.refresh(parcel)
+    # Дорога КУРЬЕРА к посылке: до этого момента честного числа не было (курьера не было).
+    # Считается от города, где он работает, — координат курьера у нас нет.
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "poputka":
+        from .courier import settle_courier_pickup
+        settle_courier_pickup(session, parcel, user.id, now)
     session.refresh(parcel)
     photo = ((body.pickup_photo_url if body else "") or "").strip()
     # Своё фото, а не чужое: приватный снимок с чужим именем курьер мог бы предъявить админу
@@ -988,6 +1044,9 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
     if new_status == "in_transit":
         if parcel.status != "accepted":
             raise herr(409, "Сначала прими посылку", "Башта бандерольде ал")
+        # Курьер тронулся — закрываем ожидание У ОТПРАВИТЕЛЯ (статус ещё accepted, по нему
+        # функция и понимает, на чьей стороне он стоял).
+        _settle_waiting_if_courier(session, parcel)
         parcel.status = "in_transit"
         # Фото «взял целой» — именно здесь, а не при взятии заказа: это момент, когда курьер
         # реально стоит у посылки. Чужой хост не принимаем (открытие такой ссылки у оппонента
@@ -1020,6 +1079,8 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
         code = (body.code or "").strip().upper()
         if not code or code != (parcel.confirm_code or "").upper():
             raise herr(422, "Неверный код получения", "Ялған алыу коды")
+        # Вручил — закрываем ожидание У ПОЛУЧАТЕЛЯ (статус ещё in_transit).
+        _settle_waiting_if_courier(session, parcel)
         parcel.status = "delivered"
         parcel.delivered_at = utcnow()
         # Фото «отдал целой» — вторая граница ответственности, парная к pickup_photo_url выше.
@@ -1642,6 +1703,21 @@ def parcel_receipt(parcel_id: int, user: User = Depends(current_user),
         "cancel_fee_kop": int(parcel.cancel_fee_kop or 0),
         "settled": bool(parcel.settled),
         "declared_value_kop": int(parcel.declared_value_kop or 0),
+        # --- Из чего сложилась доставка (2026-08-28, «курьер догоняет такси») ---
+        # Раньше здесь была одна сумма, и на вопрос «за что» ответить было нечем — ровно та
+        # же беда, что была у чека такси. Компенсации курьеру показываем отдельно: с них
+        # комиссия не берётся, и человек должен видеть, что эти деньги идут ему целиком.
+        "pickup_fee_kop": int(getattr(parcel, "pickup_fee_kop", 0) or 0),
+        "pickup_km": float(getattr(parcel, "pickup_km", 0.0) or 0.0),
+        "weather_fee_kop": int(getattr(parcel, "weather_fee_kop", 0) or 0),
+        "weather_kind": str(getattr(parcel, "weather_kind", "") or ""),
+        "night_k": float(getattr(parcel, "night_k", 1.0) or 1.0),
+        # Ожидание — раздельно по концам: задерживают курьера разные люди, и в чеке должно
+        # быть видно, кто именно. Делят это между собой отправитель с получателем сами.
+        "waiting_sender_kop": int(getattr(parcel, "waiting_sender_kop", 0) or 0),
+        "waiting_receiver_kop": int(getattr(parcel, "waiting_receiver_kop", 0) or 0),
+        "waiting_fee_kop": (int(getattr(parcel, "waiting_sender_kop", 0) or 0)
+                            + int(getattr(parcel, "waiting_receiver_kop", 0) or 0)),
         "courier_name": (courier.name if courier and courier.name else "Курьер"),
         "courier_verified": bool(courier.verified) if courier else False,
     }

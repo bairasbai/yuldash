@@ -92,7 +92,7 @@ def _debt_row(driver_id: int) -> CommissionDebt:
 # ============================ Дашборд таксиста (кабинет) ============================
 def test_driver_dashboard_today(client, user_factory, fake_redis):
     """/instant/workday отдаёт заработок и заказы ЗА СЕГОДНЯ + текущую ступень комиссии.
-    Новичок (первый done-заказ) — 3% (1-я ступень), стаж 0 дней, дальше растёт до 5%."""
+    Новичок (первый done-заказ) — 3% (1-я ступень), впереди ещё 29 поездок до 8%."""
     d, pax, done = _order_to_done(client, user_factory, fake_redis, "DashDrv", "DashPax")
     wd = client.get("/instant/workday", headers=d["auth"])
     assert wd.status_code == 200
@@ -100,12 +100,14 @@ def test_driver_dashboard_today(client, user_factory, fake_redis):
     # Заработок и счётчик за сегодня.
     assert body["orders_today"] == 1
     assert body["earnings_today"] == int(done["price_final"])
-    # Ступень комиссии — по стажу: первый заказ → 3%, стаж 0 дней, следующая ступень 5%.
+    # Ступень комиссии — по ПОЕЗДКАМ: одна за спиной → 3%, до 8% осталось 29.
     assert body["fee_percent"] == settings.fee_tier1_percent
     assert body["tenure_days"] == 0
+    assert body["trips_done"] == 1
     assert body["fee_tiers"] == [settings.fee_tier1_percent, settings.fee_tier2_percent, settings.service_fee_percent]
+    assert body["fee_tier_trips"] == [settings.fee_tier1_trips, settings.fee_tier2_trips]
     assert body["fee_next_percent"] == settings.fee_tier2_percent
-    assert body["fee_days_to_next"] == settings.fee_tier1_days
+    assert body["fee_trips_to_next"] == settings.fee_tier1_trips - 1
 
 
 def test_driver_dashboard_empty_day(client, user_factory, fake_redis):

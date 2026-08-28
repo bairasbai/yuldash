@@ -1,7 +1,8 @@
 // ================================================================
 //  Пульс такси → /admin/taxi-pulse (RequireAdmin).
 //  GET /admin/taxi/pulse — живая сводка: на линии / активные заказы / счётчики дня /
-//  средний подбор / анти-фрод / разбивка по городам. Автообновление раз в 20 сек.
+//  средний подбор / анти-фрод / воронка «смотрят цену → заказывают» / разбивка по городам.
+//  Автообновление раз в 20 сек.
 //  Без Redis presence = 0 (панель честно показывает, не падает). Двуязычно, все состояния.
 // ================================================================
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -15,6 +16,9 @@ import { IconTrend, IconCar } from "../components/Icons";
 type State = "loading" | "error" | "ready";
 
 const REFRESH_MS = 20_000;
+
+/** «26.5» → «27%». Доля процента в такой метрике — шум, а не точность. */
+const pct = (v: number | null): string => (v == null ? "—" : `${Math.round(v)}%`);
 
 export default function AdminTaxiPulseScreen() {
   const { appText } = useLang();
@@ -87,6 +91,57 @@ export default function AdminTaxiPulseScreen() {
               </div>
             ))}
           </div>
+
+          {pulse.funnel && (
+            <>
+              {/* Главная цифра для правки тарифа: без неё падение заказов после надбавки
+                  выглядит как «людей мало», а не как «дорого». */}
+              <h2 className="section-title" style={{ marginTop: 20 }}>
+                {appText("Смотрят цену → заказывают", "Хаҡты ҡарайҙар → заказ бирәләр")}
+              </h2>
+              <div className="admin-card funnel">
+                <div className="funnel__top">
+                  <b>{pct(pulse.funnel.percent_today)}</b>
+                  <span>
+                    {pulse.funnel.views_today === 0
+                      ? appText("Сегодня цену ещё никто не смотрел", "Бөгөн хаҡты әле бер кем ҡараманы")
+                      : appText(
+                          `Сегодня: ${pulse.funnel.orders_today} из ${pulse.funnel.views_today} заказали`,
+                          `Бөгөн: ${pulse.funnel.views_today} кешенән ${pulse.funnel.orders_today} заказ бирҙе`,
+                        )}
+                  </span>
+                </div>
+                {pulse.funnel.views_period > 0 && (
+                  <>
+                    <p className="funnel__period">
+                      {appText(
+                        `За ${pulse.funnel.window_days} дней: ${pct(pulse.funnel.percent_period)} · ${pulse.funnel.orders_period} из ${pulse.funnel.views_period}`,
+                        `${pulse.funnel.window_days} көнгә: ${pct(pulse.funnel.percent_period)} · ${pulse.funnel.views_period} кешенән ${pulse.funnel.orders_period}`,
+                      )}
+                    </p>
+                    <div className="funnel-bars">
+                      {[...pulse.funnel.by_day].reverse().map((d) => {
+                        const top = Math.max(...pulse.funnel!.by_day.map((x) => x.views), 1);
+                        return (
+                          <div key={d.day} className="funnel-bar">
+                            <div className="funnel-bar__track">
+                              <div className="funnel-bar__views" style={{ height: `${(d.views / top) * 100}%` }}>
+                                <div
+                                  className="funnel-bar__orders"
+                                  style={{ height: d.views ? `${(d.orders / d.views) * 100}%` : "0%" }}
+                                />
+                              </div>
+                            </div>
+                            <span>{d.day.slice(-2)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
+          )}
 
           <h2 className="section-title" style={{ marginTop: 20 }}>
             {appText("По городам", "Ҡалалар буйынса")}

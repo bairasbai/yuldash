@@ -14,6 +14,7 @@
 // ================================================================
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import PriorityCard from "../components/PriorityCard";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
@@ -30,6 +31,7 @@ import {
 import {
   fetchCarrying,
   acceptParcel,
+  parcelArrived,
   setParcelStatus,
   type Parcel,
 } from "../api/parcels";
@@ -307,6 +309,11 @@ export default function CourierScreen() {
       {tab === "cabinet" && me && (
         <>
           <Cabinet me={me} onReload={() => load()} />
+          {/* ⭐ Приоритет: кому заказ падает первым и за что. Считается по ДОСТАВКАМ,
+              отдельно от такси — работа разная, заслуги одной роли в другую не переносятся. */}
+          <div style={{ marginTop: 12 }}>
+            <PriorityCard courier />
+          </div>
           {/* Заработок отдельно от комиссии: иначе работа выглядит одним сплошным долгом. */}
           <button
             type="button"
@@ -500,6 +507,18 @@ function CarryOrders() {
     return () => ac.abort();
   }, [load]);
 
+  async function onArrived(id: number) {
+    setBusyId(id);
+    try {
+      await parcelArrived(id);
+      await load();
+    } catch {
+      /* тихо: кнопку можно нажать ещё раз, счётчик уже идёт */
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function onDepart(id: number) {
     setBusyId(id);
     try {
@@ -564,6 +583,7 @@ function CarryOrders() {
             p={p}
             busy={busyId === p.id}
             onDepart={() => onDepart(p.id)}
+            onArrived={() => onArrived(p.id)}
             onDeliver={() => { setCodeErr(null); setCodeFor(p); }}
             onGoodsCost={(kop) => onGoods(p.id, kop)}
           />

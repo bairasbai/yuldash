@@ -2364,6 +2364,7 @@ object ApiClient {
         fromText: String, toText: String, category: String,
         roundTrip: Boolean = false, returnWaitMin: Int = 0,
         stops: List<TaxiStop> = emptyList(),
+        scheduledAtIso: String? = null,
     ): JSONObject = JSONObject()
         .put("from_lat", fromLat).put("from_lng", fromLng)
         .put("to_lat", toLat).put("to_lng", toLng)
@@ -2373,6 +2374,10 @@ object ApiClient {
         // проверяет, что это межгород; в городе флаг просто ничего не меняет.
         .put("round_trip", roundTrip)
         .also { if (stops.isNotEmpty()) it.put("waypoints", stopsArray(stops)) }
+        // Время подачи предзаказа: без него экран показывал цену «на сейчас», а заказ
+        // оформлялся по цене на время подачи — заказ на пять утра считался по дневной
+        // ставке, а уезжал по ночной.
+        .also { if (!scheduledAtIso.isNullOrBlank()) it.put("scheduled_at", scheduledAtIso) }
         .put("return_wait_min", returnWaitMin.coerceIn(0, 24 * 60))
 
     /** Водитель «на линии» шлёт координаты (heartbeat ~раз в 12с) → Redis GEO. Координаты не логируем.
@@ -2389,6 +2394,23 @@ object ApiClient {
                 cancelledToday = o.optInt("cancelled_today"),
                 noShowToday = o.optInt("no_show_today"),
                 avgSearchSec = if (o.isNull("avg_search_sec_today")) null else o.optDouble("avg_search_sec_today"),
+                funnel = o.optJSONObject("funnel")?.let { fo ->
+                    val days = fo.optJSONArray("by_day") ?: JSONArray()
+                    TaxiFunnelDto(
+                        windowDays = fo.optInt("window_days", 7),
+                        viewsToday = fo.optInt("views_today"),
+                        ordersToday = fo.optInt("orders_today"),
+                        percentToday = if (fo.isNull("percent_today")) null else fo.optDouble("percent_today"),
+                        viewsPeriod = fo.optInt("views_period"),
+                        ordersPeriod = fo.optInt("orders_period"),
+                        percentPeriod = if (fo.isNull("percent_period")) null else fo.optDouble("percent_period"),
+                        byDay = (0 until days.length()).mapNotNull { i ->
+                            days.optJSONObject(i)?.let { dd ->
+                                TaxiFunnelDayDto(dd.optString("day"), dd.optInt("views"), dd.optInt("orders"))
+                            }
+                        },
+                    )
+                },
                 byCity = (0 until arr.length()).map { i ->
                     val c = arr.getJSONObject(i)
                     TaxiPulseCityDto(c.optString("city"), c.optInt("online"), c.optInt("active"))
@@ -2437,10 +2459,12 @@ object ApiClient {
         fromText: String = "", toText: String = "", category: String = "standard",
         roundTrip: Boolean = false, returnWaitMin: Int = 0,
         stops: List<TaxiStop> = emptyList(),
+        /** Время подачи предзаказа (ISO-UTC). Пусто = цена «на сейчас». */
+        scheduledAtIso: String? = null,
     ): Result<InstantEstimateDto> =
         call("POST", "/instant/estimate",
             instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
-                roundTrip, returnWaitMin, stops), auth = true).map { o ->
+                roundTrip, returnWaitMin, stops, scheduledAtIso), auth = true).map { o ->
             val note = o.optJSONObject("surge_note")
             val promoNote = o.optJSONObject("promo_note")   // null, когда скидки нет
             val pickupNote = o.optJSONObject("pickup_note") // null, когда подача ничего не стоит
@@ -2499,6 +2523,7 @@ object ApiClient {
                 pickupWaitRu = waitHint?.optString("ru") ?: "",
                 pickupWaitBa = waitHint?.optString("ba") ?: "",
                 optionsFee = o.optInt("options_fee", 0),
+                priceLockedSec = o.optInt("price_locked_sec", 0),
                 weatherFee = o.optInt("weather_fee", 0),
                 weatherKind = o.optString("weather_kind"),
                 optionCatalog = (0 until optionCatalogArr.length()).mapNotNull { i ->
@@ -3176,10 +3201,11 @@ object ApiClient {
                 ordersToday = o.optInt("orders_today"),
                 feePercent = o.optDouble("fee_percent", 0.0),
                 tenureDays = o.optInt("tenure_days"),
+                tripsDone = o.optInt("trips_done"),
                 feeTiers = o.optJSONArray("fee_tiers")?.let { a -> (0 until a.length()).map { a.optDouble(it) } } ?: emptyList(),
-                feeTierDays = o.optJSONArray("fee_tier_days")?.let { a -> (0 until a.length()).map { a.optInt(it) } } ?: emptyList(),
+                feeTierTrips = o.optJSONArray("fee_tier_trips")?.let { a -> (0 until a.length()).map { a.optInt(it) } } ?: emptyList(),
                 feeNextPercent = if (o.isNull("fee_next_percent")) null else o.optDouble("fee_next_percent"),
-                feeDaysToNext = if (o.isNull("fee_days_to_next")) null else o.optInt("fee_days_to_next"),
+                feeTripsToNext = if (o.isNull("fee_trips_to_next")) null else o.optInt("fee_trips_to_next"),
             )
         }
 
@@ -4665,6 +4691,50 @@ object ApiClient {
     // ---------- курьер: «что-то пошло не так» ----------
 
     /** Курьер снимает себя с заказа («не смогу везти»): посылка возвращается в общий список. */
+    /**
+     * «Я на месте» — курьер приехал. Одна кнопка на ОБА конца: сервер сам понимает по статусу,
+     * у кого он стоит (у отправителя или у получателя), и с этой минуты идёт платное ожидание
+     * по тем же правилам, что у такси. Повторное нажатие ничего не ломает — счётчик уже идёт.
+     */
+    /** Мой приоритет водителя: сколько баллов, за что и что их отнимает. */
+    suspend fun getDriverPriority(): Result<PriorityDto> =
+        call("GET", "/driver/priority", null, auth = true).map { parsePriority(it) }
+
+    /** Мой приоритет курьера — тот же расклад, но по доставкам (роли считаются раздельно). */
+    suspend fun getCourierPriority(): Result<PriorityDto> =
+        call("GET", "/courier/priority", null, auth = true).map { parsePriority(it) }
+
+    private fun parsePriority(o: JSONObject): PriorityDto {
+        fun rows(key: String): List<PriorityPartDto> {
+            val arr = o.optJSONArray(key) ?: JSONArray()
+            return (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let {
+                    PriorityPartDto(it.optString("code"), it.optInt("points"), it.optDouble("value", 0.0))
+                }
+            }
+        }
+        return PriorityDto(
+            kind = o.optString("kind", "taxi"),
+            points = o.optInt("points"),
+            plus = o.optInt("plus"),
+            minus = o.optInt("minus"),
+            maxPoints = o.optInt("max_points", 3),
+            parts = rows("parts"),
+            rules = rows("rules"),
+            feedDelaySec = o.optInt("feed_delay_sec"),
+        )
+    }
+
+    suspend fun parcelArrived(parcelId: Int): Result<CourierArrivedDto> =
+        call("POST", "/parcels/$parcelId/arrived", null, auth = true).map { o ->
+            CourierArrivedDto(
+                where = o.optString("where"),
+                waitFreeMin = o.optInt("wait_free_min"),
+                waitFeeRubPerMin = o.optInt("wait_fee_rub_per_min"),
+                waitingFeeKop = o.optInt("waiting_fee_kop"),
+            )
+        }
+
     suspend fun parcelRelease(parcelId: Int, reason: String = ""): Result<Unit> =
         call("POST", "/parcels/$parcelId/release", JSONObject().put("reason", reason.take(200)), auth = true).map { }
 
@@ -5044,6 +5114,9 @@ data class InstantEstimateDto(
     val pickupWaitSaveRub: Int = 0,
     val pickupWaitRu: String = "",
     val pickupWaitBa: String = "",
+    // На сколько секунд эта цена закреплена: пока человек думает, она не вырастет.
+    // 0 = заморозка выключена или Redis недоступен — тогда про неё молчим, а не обещаем зря.
+    val priceLockedSec: Int = 0,
     // Опции салона деньгами (детское кресло 150 ₽ и т.д.). `optionCatalog` — прайс ВСЕХ опций
     // с сервера: клиент подписывает цену на галочке, не храня второй список у себя.
     val optionsFee: Int = 0,
@@ -5108,7 +5181,58 @@ data class TaxiPulseDto(
     val cancelledToday: Int,
     val noShowToday: Int,
     val avgSearchSec: Double?,    // средний подбор (created→accepted) сегодня; null = не было
+    val funnel: TaxiFunnelDto? = null,   // «посмотрел цену → заказал»; null = сервер не прислал
     val byCity: List<TaxiPulseCityDto>,
+)
+
+/** Одна строка приоритета: за что дали (или сняли) баллы и с какой цифрой. */
+data class PriorityPartDto(val code: String, val points: Int, val value: Double)
+
+/**
+ * Приоритет исполнителя: кому заказ достаётся первым (backend/app/priority.py).
+ *
+ * Показываем ЦЕЛИКОМ и всегда: скрытый приоритет человек читает как «заказы раздают
+ * по блату» — это ровно та боль Яндекса, против которой мы строимся.
+ */
+data class PriorityDto(
+    val kind: String = "taxi",
+    val points: Int = 0,
+    val plus: Int = 0,
+    val minus: Int = 0,
+    val maxPoints: Int = 3,
+    val parts: List<PriorityPartDto> = emptyList(),
+    val rules: List<PriorityPartDto> = emptyList(),
+    /** Курьер: через сколько секунд заказ увидят остальные. 0 = видишь сразу. */
+    val feedDelaySec: Int = 0,
+)
+
+/**
+ * Ответ на «Я на месте» у курьера: где он стоит и по каким правилам пошло ожидание.
+ * `where`: sender — у отправителя, receiver — у получателя.
+ */
+data class CourierArrivedDto(
+    val where: String = "",
+    val waitFreeMin: Int = 0,
+    val waitFeeRubPerMin: Int = 0,
+    val waitingFeeKop: Int = 0,
+)
+
+/** Один день воронки: сколько раз смотрели цену и сколько из этого стало заказом. */
+data class TaxiFunnelDayDto(val day: String, val views: Int, val orders: Int)
+
+/**
+ * Воронка «посмотрел цену → заказал» (backend/app/funnel.py).
+ * Проценты — Double?: null значит «никто не смотрел», и это НЕ то же самое, что 0%.
+ */
+data class TaxiFunnelDto(
+    val windowDays: Int = 7,
+    val viewsToday: Int = 0,
+    val ordersToday: Int = 0,
+    val percentToday: Double? = null,
+    val viewsPeriod: Int = 0,
+    val ordersPeriod: Int = 0,
+    val percentPeriod: Double? = null,
+    val byDay: List<TaxiFunnelDayDto> = emptyList(),
 )
 
 data class InstantOrderDto(
@@ -5539,18 +5663,19 @@ data class TaxiWorkdayDto(
     val blocked: Boolean,            // отдых: такси закрыто до unlockAt
     val unlockAt: String?,           // когда снова на линию (ISO, UTC-наивное), null если не заблокирован
     val returnRideUsed: Boolean,     // «один попутчик домой» уже опубликован
-    // Дашборд кабинета (заработок/заказы за сегодня + ступень комиссии по стажу).
+    // Дашборд кабинета (заработок/заказы за сегодня + ступень комиссии по поездкам).
     val earningsToday: Int = 0,      // legacy: валовая сумма за сегодня, ₽
     val grossTodayKop: Int = 0,       // пассажиры заплатили, копейки
     val feeTodayKop: Int = 0,         // комиссия платформы, копейки
     val netTodayKop: Int = 0,         // чистый доход водителя, копейки
     val ordersToday: Int = 0,        // завершённых заказов сегодня
     val feePercent: Double = 0.0,    // текущая комиссия платформы, % (с учётом промо запуска)
-    val tenureDays: Int = 0,         // стаж таксиста, дней (с первого done-заказа) — позиция на лесенке
-    val feeTiers: List<Double> = emptyList(),      // ступени комиссии [3,5,8]
-    val feeTierDays: List<Int> = emptyList(),      // границы ступеней в днях [30,60]
+    val tenureDays: Int = 0,         // стаж таксиста, дней с первого done-заказа (справка, лесенку не двигает)
+    val tripsDone: Int = 0,          // завершённых поездок — позиция на лесенке комиссии
+    val feeTiers: List<Double> = emptyList(),      // ступени комиссии [3,8,15]
+    val feeTierTrips: List<Int> = emptyList(),     // границы ступеней в поездках [30,100]
     val feeNextPercent: Double? = null,            // следующая ступень, % (null = верхняя, дальше не растёт)
-    val feeDaysToNext: Int? = null,                // через сколько дней ступень поднимется (null = верхняя)
+    val feeTripsToNext: Int? = null,               // сколько поездок до следующей ступени (null = верхняя)
 )
 
 /** Пресет популярного маршрута (Сибай–Магнитогорск…) — чип, заполняющий «откуда/куда». */

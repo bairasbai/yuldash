@@ -180,6 +180,28 @@ export function acceptParcel(id: number, pickupPhotoUrl?: string): Promise<Parce
   );
 }
 
+/** Ответ на «Я на месте»: где курьер стоит и по каким правилам пошло ожидание. */
+export interface ParcelArrived {
+  ok: boolean;
+  /** sender — у отправителя, receiver — у получателя. */
+  where: "sender" | "receiver";
+  waiting_started_at: string;
+  wait_free_min: number;
+  wait_fee_rub_per_min: number;
+  waiting_fee_kop: number;
+}
+
+/**
+ * POST /parcels/{id}/arrived — «Я на месте».
+ *
+ * Одна кнопка на ОБА конца: сервер сам понимает по статусу, у кого курьер стоит. С этой
+ * минуты идёт платное ожидание по тем же правилам, что у такси — раньше курьер стоял
+ * у двери сорок минут бесплатно.
+ */
+export function parcelArrived(id: number): Promise<ParcelArrived> {
+  return apiPost<ParcelArrived>(`/parcels/${id}/arrived`, {});
+}
+
 /**
  * POST /parcels/{id}/status — двигать статус. delivered требует code вручения.
  * deliveryPhotoUrl — снимок «отдал целой», вторая граница ответственности.

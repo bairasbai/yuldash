@@ -27,6 +27,7 @@ _OK_TO_REFUSE = {
     "/driver/debt", "/driver/earnings",        # деньги таксиста — только одобренному таксисту
     "/instant/workday", "/instant/driver/offer",
     "/courier/available", "/courier/me", "/courier/earnings", "/courier/application",
+    "/courier/priority",         # приоритет курьера — только курьеру, как и всё остальное в режиме
     "/wallet", "/wallet/payout/requisite",
     "/ads/stats",                # статистика рекламы — только рекламодателю
     "/instant/demand",           # спрос виден водителю на линии (иначе это карта чужого спроса)

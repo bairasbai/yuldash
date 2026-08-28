@@ -24,6 +24,11 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from .. import funnel
+from .. import instant_service as isv
+from .. import priority as prio
+from .. import price_freeze
+from .. import pricing as pricing_mod
 from ..antifraud import moderate_open_text
 from ..rating_service import guard_rating_on_pause, guard_rating_window
 from ..config import settings
@@ -71,13 +76,8 @@ def goods_limit_kop(agreed_kop: int) -> int:
     запас = max(agreed * COURIER_GOODS_OVERRUN_PERCENT // 100, COURIER_GOODS_OVERRUN_MIN_KOP)
     return min(agreed + запас, COURIER_COD_CAP_KOP)
 
-COURIER_TARIFF = {
-    "base_kop": 10000,                 # подача курьера — 100 ₽
-    "per_km_kop": 2000,                # 20 ₽ за км дороги
-    "road_k": 1.3,                     # прямая (haversine) → примерная длина по дорогам
-    "size_add_kop": {"small": 0, "medium": 5000, "large": 15000},  # надбавка за размер
-    "urgency_now_kop": 10000,          # надбавка «нужен курьер сейчас» (+100 ₽)
-}
+# Тариф курьера переехал в конфиг (settings.courier_base_kop и соседние): цену доставки
+# нельзя было поправить без пересборки приложения, хотя тарифы такси живут в базе.
 # Ставки лесенки живут в КОНФИГЕ (settings.courier_*), а не здесь: до аудита 2026-08-03 они
 # были захардкожены, и правка комиссии в .env меняла такси, а курьера — нет, хотя комментарий
 # ниже обещал «как у такси». Значения по умолчанию совпадают с такси (3% → 5% → 8%).
@@ -91,7 +91,7 @@ COURIER_TARIFF = {
 #   4) «Купи и привези» — чуть выше базового (курьер тратит своё и едет в магазин — ценность выше).
 # Финал комиссии считается при ВРУЧЕНИИ (там уже известен назначенный курьер и его стаж);
 # при создании заказа комиссия — лишь ОЦЕНКА (по дефолтной ступени), для показа в breakdown.
-COURIER_COMMISSION_MIN_KOP = 2500      # пол комиссии = 25 ₽ (комиссия ≥ этого, но ≤ цены доставки)
+# Пол комиссии живёт в конфиге (settings.courier_commission_min_kop): 25 ₽ отменяли лесенку.
 
 # Лесенка по стажу курьера (дни от одобрения заявки CourierApplication.reviewed_at) —
 # в конфиге: settings.courier_fee_tier1_days/courier_fee_tier2_days и соответствующие проценты,
@@ -104,7 +104,11 @@ COURIER_LAUNCH_PROMO_UNTIL = ""        # ISO-дата (YYYY-MM-DD). Курьер
 
 # «Купи и привези» — надбавка к базовому проценту. Честно: курьер тратит СВОИ деньги на товар
 # и едет в магазин (больше работы и риска) → ценность услуги выше, комиссия чуть выше обычной.
-COURIER_BUY_BRING_EXTRA_PERCENT = 2.0
+# Убрана 2026-08-28 (решение Александра). Придумывали её, когда база была 8% и два пункта
+# были заметны; при базе 15% она делала самую трудную работу самой дорогой для курьера —
+# ровно наоборот тому, что нужно. Риск «купи и привези» закрыт потолком стоимости товара,
+# а не процентом. Ноль оставлен константой, чтобы витрины и тесты не переписывались.
+COURIER_BUY_BRING_EXTRA_PERCENT = 0.0
 
 # C3 — мягкая лестница качества курьера («по-соседски», без жёстких авто-блоков).
 # Судим только при достаточном числе оценок (шум одного клиента репутацию не роняет).
@@ -267,7 +271,7 @@ def _maybe_courier_soft_ladder(session: Session, courier_id: int, avg: float, cn
 def courier_commission_kop(price_kop: int, percent: float) -> int:
     """Комиссия в копейках по цене доставки и проценту.
     Формула: `min(price, max(МИНИМУМ, round(price*pct/100)))` —
-    комиссия не ниже пола (COURIER_COMMISSION_MIN_KOP), но и НЕ БОЛЬШЕ самой цены доставки
+    комиссия не ниже пола (settings.courier_commission_min_kop), но и НЕ БОЛЬШЕ цены доставки
     (комиссия не может превышать доставку — иначе курьер уйдёт в минус).
     Особый случай: percent ≤ 0 (промо запуска) → комиссия РЕАЛЬНО 0, без пола (подарок первым)."""
     price_kop = int(price_kop or 0)
@@ -277,7 +281,7 @@ def courier_commission_kop(price_kop: int, percent: float) -> int:
     # иначе расхождение на .5-границах и дрейф float на некруглых процентах.
     from ..ledger import fee_kop_for
     raw = fee_kop_for(price_kop, percent)
-    return min(price_kop, max(COURIER_COMMISSION_MIN_KOP, raw))
+    return min(price_kop, max(int(settings.courier_commission_min_kop), 0, raw))
 
 
 def _courier_reviewed_at(session: Session, courier_id: int):
@@ -308,19 +312,38 @@ def _launch_promo_active(session: Session, courier_id: int, now) -> bool:
     return local_date(now) <= until       # окно ещё не закрылось
 
 
+def courier_deliveries_before(session: Session, courier_id: int, when=None) -> int:
+    """Сколько доставок курьер уже вручил К МОМЕНТУ `when` (строго до).
+
+    Строго до — чтобы доставка не поднимала ставку сама себе: курьер взял 31-ю по 3%
+    и по 3% её и оплачивает (то же правило, что у такси)."""
+    when = when or utcnow()
+    return int(session.exec(
+        select(func.count()).select_from(ParcelDelivery).where(
+            ParcelDelivery.courier_id == courier_id,
+            ParcelDelivery.status == "delivered",
+            ParcelDelivery.delivered_at.is_not(None),
+            ParcelDelivery.delivered_at < when,
+        )
+    ).one() or 0)
+
+
 def courier_fee_tier(session: Session, courier_id: int, now=None) -> Tuple[float, str]:
-    """Базовая ступень лесенки по стажу курьера (БЕЗ промо и БЕЗ buy_bring надбавки).
-    Стаж = дни от одобрения (reviewed_at): ≤30 → 3% (tier1); 31–60 → 5% (tier2); дальше → 8% (tier3).
-    Стаж неизвестен (нет одобренной заявки) → консервативно верхняя ступень (дефолт 8%).
+    """Базовая ступень лесенки курьера (БЕЗ промо и БЕЗ buy_bring надбавки).
+
+    Ступень — по ВРУЧЁННЫМ ДОСТАВКАМ, как у такси по поездкам (2026-08-28): <30 → 3% (tier1);
+    <100 → 5% (tier2); дальше → 8% (tier3). Календарь льготу больше не двигает: она достаётся
+    тому, кто возит, а не тому, кто числится.
+
+    Нет одобренной заявки → консервативно верхняя ступень: стажа мы про такого не знаем.
     Все цифры — из конфига (settings.courier_*), правятся в .env без пересборки."""
     now = now or utcnow()
-    reviewed = _courier_reviewed_at(session, courier_id)
-    if reviewed is None:
+    if _courier_reviewed_at(session, courier_id) is None:
         return settings.courier_service_fee_percent, "tier3"
-    days = (now - reviewed).days
-    if days <= settings.courier_fee_tier1_days:
+    done = courier_deliveries_before(session, courier_id, now)
+    if done < settings.courier_fee_tier1_deliveries:
         return settings.courier_fee_tier1_percent, "tier1"
-    if days <= settings.courier_fee_tier2_days:
+    if done < settings.courier_fee_tier2_deliveries:
         return settings.courier_fee_tier2_percent, "tier2"
     return settings.courier_service_fee_percent, "tier3"
 
@@ -338,17 +361,32 @@ def courier_commission_percent(session: Session, courier_id: int,
     return percent, tier
 
 
+def courier_commission_base_kop(parcel) -> int:
+    """С чего берём комиссию у курьера: цена доставки МИНУС компенсации ему.
+
+    То же правило, что у такси (решение Александра, 2026-08-28):
+      • дорога к посылке и зимняя дорога — это его бензин, а не наш заработок → не берём;
+      • ожидание — его рабочее время, а не расход → берём.
+
+    Иначе в приложении оказалось бы две разных морали, и первый же курьер, который был
+    таксистом, это заметит.
+    """
+    цена = int(getattr(parcel, "delivery_price_kop", 0) or 0)
+    компенсации = (int(getattr(parcel, "pickup_fee_kop", 0) or 0)
+                   + int(getattr(parcel, "weather_fee_kop", 0) or 0))
+    return max(цена - компенсации, 0)
+
+
 def finalize_commission_kop(session: Session, parcel, now=None) -> int:
     """Финализировать комиссию заказа по НАЗНАЧЕННОМУ курьеру (стаж/промо/тип) — вызывается при
-    вручении. База = зафиксированная цена доставки (delivery_price_kop). Сохраняет commission_kop
-    и fee_kop на заказе. Возвращает итоговую комиссию (коп)."""
+    вручении. База = цена доставки минус компенсации курьеру (см. courier_commission_base_kop).
+    Сохраняет commission_kop и fee_kop на заказе. Возвращает итоговую комиссию (коп)."""
     dtype = (getattr(parcel, "delivery_type", "courier") or "courier")
     if dtype not in _COURIER_TYPES or not parcel.courier_id:
         return int(getattr(parcel, "commission_kop", 0) or 0)
     now = now or utcnow()
     percent, _tier = courier_commission_percent(session, parcel.courier_id, dtype, now)
-    base_kop = int(getattr(parcel, "delivery_price_kop", 0) or 0)
-    commission = courier_commission_kop(base_kop, percent)
+    commission = courier_commission_kop(courier_commission_base_kop(parcel), percent)
     parcel.commission_kop = commission
     parcel.fee_kop = commission           # fee_kop = доход платформы (statement в /admin/parcels)
     return commission
@@ -357,9 +395,126 @@ def finalize_commission_kop(session: Session, parcel, now=None) -> int:
 # ---------------------------------------------------------------------------
 # Цена (сервер — источник истины)
 # ---------------------------------------------------------------------------
+def courier_night_k(when=None) -> float:
+    """Ночной коэффициент доставки. 1.0 — день или надбавка выключена.
+
+    Окно и величина — ОБЩИЕ с такси (settings.night_*): два разных ночных правила в одном
+    приложении объяснить нельзя, а разъедутся они на первой же правке.
+    """
+    k = float(settings.night_k_default)
+    if k <= 1.0:
+        return 1.0
+    час = isv.local_hour(when)
+    в_окне = isv.in_night_window(час, int(settings.night_from_hour_default),
+                                 int(settings.night_to_hour_default))
+    return k if в_окне else 1.0
+
+
+def courier_pickup_fee_kop(straight_km: Optional[float], zone: str) -> int:
+    """Дорога курьера к посылке, копейки. Ноль — платить не за что.
+
+    Формула такси (`isv.pickup_fee_rub`), свои цифры: бесплатные километры + ставка + потолок.
+    Расстояние — от города, в котором курьер работает, до точки забора: координат курьера
+    у нас нет, а город он указывает сам.
+    """
+    if straight_km is None:
+        return 0
+    if zone == "intercity":
+        free_km = float(settings.courier_pickup_free_km_intercity)
+        per_km = int(settings.courier_pickup_per_km_intercity_kop)
+        max_kop = int(settings.courier_pickup_max_intercity_kop)
+    else:
+        free_km = float(settings.courier_pickup_free_km)
+        per_km = int(settings.courier_pickup_per_km_kop)
+        max_kop = int(settings.courier_pickup_max_kop)
+    if per_km <= 0 or max_kop <= 0:
+        return 0
+    оплачиваемые = isv.pickup_road_km(straight_km) - free_km
+    if оплачиваемые <= 0:
+        return 0
+    return min(int(round(оплачиваемые * per_km / 1000.0)) * 1000, max_kop)   # округление до 10 ₽
+
+
+def settle_courier_pickup(session: Session, parcel, courier_id: int, now=None) -> None:
+    """Зафиксировать дорогу курьера к посылке в момент, когда он взял заказ.
+
+    Почему только сейчас. При создании заказа курьера ещё нет, и честного числа не
+    существует — отправителю показан потолок и прямо сказано, что сумму назовём позже.
+    Придумать её раньше значило бы взять деньги за километры, которых может не быть.
+
+    Откуда берём расстояние. Координат курьера у нас нет (в отличие от таксиста с его
+    presence): считаем от НАСЕЛЁННОГО ПУНКТА, который он сам указал как место работы,
+    до точки забора. Для городской доставки это ноль — строка не появляется. Для «курьер
+    в Баймаке, посылка в Темясово» это честные 35 км.
+
+    Город не указан или не найден в справочнике → строки нет. Брать деньги «наверное он
+    далеко» нельзя: это ровно тот случай, когда человек не может ни проверить, ни поспорить.
+    """
+    from .. import geo as geo_mod
+    from ..services import haversine_km
+
+    now = now or utcnow()
+    if not bool(getattr(parcel, "pickup_pending", False)):
+        return
+    prof = _my_profile(session, courier_id)
+    город = (getattr(prof, "work_city", "") or "").strip() if prof else ""
+    точка = geo_mod.by_exact_name(session, город) if город else None
+    if точка is None or parcel.from_lat is None or parcel.from_lng is None:
+        parcel.pickup_pending = False
+        session.add(parcel)
+        session.commit()
+        return
+    прямая = haversine_km(точка.lat, точка.lng, parcel.from_lat, parcel.from_lng)
+    зона = "intercity" if прямая > float(settings.instant_intercity_km) else "city"
+    сумма = courier_pickup_fee_kop(прямая, зона)
+    parcel.pickup_pending = False
+    parcel.pickup_km = round(isv.pickup_road_km(прямая), 2) if сумма > 0 else 0.0
+    parcel.pickup_fee_kop = сумма
+    if сумма > 0:
+        parcel.delivery_price_kop = int(parcel.delivery_price_kop or 0) + сумма
+    session.add(parcel)
+    session.commit()
+
+
+# ============================ Платное ожидание курьера ============================
+# Курьер ждёт на ДВУХ концах: отправителя, когда забирает, и получателя, когда привозит.
+# Задерживают его разные люди, поэтому копим раздельно — в чеке видно, где сколько набежало.
+# Правила общие с такси (3 минуты бесплатно, 7 ₽/мин, потолок 300 ₽ на доставку): два разных
+# правила ожидания в одном приложении объяснить нельзя.
+def courier_waiting_total_kop(parcel) -> int:
+    return (int(getattr(parcel, "waiting_sender_kop", 0) or 0)
+            + int(getattr(parcel, "waiting_receiver_kop", 0) or 0))
+
+
+def settle_courier_waiting(session: Session, parcel, now=None) -> int:
+    """Закрыть открытое ожидание и записать его на нужный конец. Возврат — сколько добавили.
+
+    На чьей стороне ждали, решает статус: `accepted` — курьер стоит у отправителя,
+    `in_transit` — у получателя. Ничего не ждали → ноль, счётчик не двигаем.
+    """
+    now = now or utcnow()
+    начало = getattr(parcel, "waiting_started_at", None)
+    if начало is None:
+        return 0
+    было = courier_waiting_total_kop(parcel)
+    стало = isv.capped_waiting_kop(было, начало, now)
+    добавили = max(стало - было, 0)
+    if добавили > 0:
+        if (parcel.status or "") == "accepted":
+            parcel.waiting_sender_kop = int(parcel.waiting_sender_kop or 0) + добавили
+        else:
+            parcel.waiting_receiver_kop = int(parcel.waiting_receiver_kop or 0) + добавили
+        parcel.delivery_price_kop = int(parcel.delivery_price_kop or 0) + добавили
+    parcel.waiting_started_at = None
+    session.add(parcel)
+    session.commit()
+    return добавили
+
+
 def _price(from_lat: Optional[float], from_lng: Optional[float],
            to_lat: Optional[float], to_lng: Optional[float],
-           size: str, urgency: str, percent: Optional[float] = None) -> dict:
+           size: str, urgency: str, percent: Optional[float] = None,
+           session: Optional[Session] = None, when=None) -> dict:
     """Честная цена доставки: haversine × road_k × тариф + размер + срочность. Возвращает
     price_kop, commission_kop (ОЦЕНКА по `percent`), distance_km и breakdown (прозрачно для UI).
     Без суржа. Комиссия здесь — ориентировочная (commission_estimated=True); финал — при вручении.
@@ -381,29 +536,88 @@ def _price(from_lat: Optional[float], from_lng: Optional[float],
                 "Это слишком далеко для доставки. Проверь адрес получателя на карте 🗺",
                 "Был илтеү өсөн бик алыҫ. Алыусының адресын картала тикшер 🗺",
             )
-    t = COURIER_TARIFF
-    if None in (from_lat, from_lng, to_lat, to_lng):
-        distance_km = 0.0
+    прямая_км = (0.0 if None in (from_lat, from_lng, to_lat, to_lng)
+                 else haversine_km(from_lat, from_lng, to_lat, to_lng))
+    if прямая_км <= 0.01:
+        # Точки совпали (забрать и отдать в одном месте) — платного запроса к маршрутизатору
+        # такая «дорога» не стоит, а запасной расчёт округлил бы её до 500 метров.
+        distance_km, zone = 0.0, "city"
     else:
-        distance_km = round(haversine_km(from_lat, from_lng, to_lat, to_lng) * t["road_k"], 2)
-    base_kop = t["base_kop"]
-    distance_kop = int(round(distance_km * t["per_km_kop"]))
-    size_kop = t["size_add_kop"].get(size, 0)
-    urgency_kop = t["urgency_now_kop"] if urgency == "now" else 0
-    price_kop = base_kop + distance_kop + size_kop + urgency_kop
-    commission_kop = courier_commission_kop(price_kop, percent)
+        # Длину берём по ДОРОГАМ, а не линейкой по карте (как у такси с самого начала).
+        # В горах прямая и дорога расходятся в разы: через хребет линейка показывала 8 км
+        # там, где ехать 30, и курьер вёз двадцать километров даром. Маршрутизатор
+        # недоступен → внутри честный запасной расчёт (прямая × 1,3), как было раньше.
+        route = pricing_mod.route_metrics((from_lat, from_lng), (to_lat, to_lng))
+        distance_km = round(max(route.distance_km, 0.0), 2)
+        zone = "intercity" if distance_km > settings.instant_intercity_km else "city"
+    per_km = (settings.courier_per_km_intercity_kop if zone == "intercity"
+              else settings.courier_per_km_kop)
+    base_kop = int(settings.courier_base_kop)
+    distance_kop = int(round(distance_km * per_km))
+    size_kop = {"medium": int(settings.courier_size_medium_kop),
+                "large": int(settings.courier_size_large_kop)}.get(size, 0)
+    urgency_kop = int(settings.courier_urgency_now_kop) if urgency == "now" else 0
+    доставка_kop = base_kop + distance_kop + size_kop + urgency_kop
+
+    # --- Ночная надбавка: НАЦЕНКА, а не компенсация — множит саму доставку ---
+    # Ночью курьеров почти нет, и без надбавки ночной заказ просто никто не возьмёт: человек
+    # смотрит на «никто не откликнулся». Окно и коэффициент — общие с такси.
+    night_k = courier_night_k(when)
+    доставка_kop = int(round(доставка_kop * night_k))
+
+    # --- Дорога курьера к посылке: строка счёта, а не наценка ---
+    # Курьера ещё нет — честного числа не существует. Показываем потолок и говорим об этом
+    # прямо (pickup_pending), а точную сумму фиксируем, когда он возьмёт заказ. Придумывать
+    # её сейчас значило бы взять деньги за километры, которых, может быть, не будет.
+    pickup_max_kop = (settings.courier_pickup_max_intercity_kop if zone == "intercity"
+                      else settings.courier_pickup_max_kop)
+    pickup_kop, pickup_pending = 0, distance_km > 0
+
+    # --- Зимняя дорога: тот же расчёт, что у такси ---
+    # Гололёд не разбирает, человек в машине или коробка: риск, износ и скорость те же.
+    weather_kind = ""
+    weather_kop = 0
+    if distance_km > 0 and session is not None:
+        weather_kind = isv.winter_road_kind(
+            session, (from_lat, from_lng), (to_lat, to_lng), when)
+        weather_kop = isv.winter_road_fee_rub(
+            distance_km, доставка_kop // 100, weather_kind) * 100
+
+    price_kop = доставка_kop + pickup_kop + weather_kop
+    # Комиссия — только с доставки: подача и зимняя дорога это бензин курьера (см.
+    # courier_commission_base_kop). Взять с них процент значило бы заработать на его топливе.
+    commission_kop = courier_commission_kop(доставка_kop, percent)
     return {
         "price_kop": price_kop,
         "commission_kop": commission_kop,
         "distance_km": distance_km,
+        "zone": zone,
+        # Из чего сложилась цена — теми же строками, что у такси: доставка + дорога курьера
+        # + зимняя дорога. Человек должен видеть слагаемые, а не одно число.
+        "delivery_kop": доставка_kop,
+        "pickup_kop": pickup_kop,
+        "pickup_pending": pickup_pending,
+        "pickup_max_kop": pickup_max_kop,
+        "weather_kop": weather_kop,
+        "weather_kind": weather_kind,
+        "night_k": night_k,
         "breakdown": {
             "base_kop": base_kop,
             "distance_kop": distance_kop,
             "size_kop": size_kop,
             "urgency_kop": urgency_kop,
+            "per_km_kop": per_km,
+            "zone": zone,
+            "delivery_kop": доставка_kop,
+            "pickup_kop": pickup_kop,
+            "pickup_pending": pickup_pending,
+            "pickup_max_kop": pickup_max_kop,
+            "weather_kop": weather_kop,
+            "weather_kind": weather_kind,
+            "night_k": night_k,
             "commission_percent": percent,
             # C4 — аддитивные поля (старый клиент игнорирует):
-            "commission_min_kop": COURIER_COMMISSION_MIN_KOP,  # пол комиссии
+            "commission_min_kop": int(settings.courier_commission_min_kop),  # пол комиссии
             "commission_estimated": True,   # ориентировочно; финал считается при вручении
         },
     }
@@ -760,6 +974,14 @@ def courier_available(from_city: Optional[str] = None, to_city: Optional[str] = 
             ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
         ).order_by(ParcelDelivery.id.desc()).limit(FEED_MAX)   # потолок витрины (волна 89)
     ).all()
+    # ⭐ Фора приоритетным (app/priority.py): свежий заказ первые секунды виден только тем,
+    # кто работает много и хорошо. Никто заказа не теряет — через полминуты он у всех.
+    # Задержка включается ТОЛЬКО если на линии есть приоритетный курьер: иначе это была бы
+    # пустая пауза, когда заказ не виден никому, а отправитель смотрит на «ищем курьера».
+    задержка = prio.visible_delay_sec(session, prio.courier_points(session, user.id)["points"])
+    if задержка > 0:
+        порог = utcnow() - timedelta(seconds=задержка)
+        rows = [p for p in rows if (p.created_at or порог) <= порог]
     if from_city:
         fc = from_city.strip().casefold()
         rows = [p for p in rows if (p.from_city or "").strip().casefold() == fc]
@@ -801,7 +1023,8 @@ def courier_available(from_city: Optional[str] = None, to_city: Optional[str] = 
 @router.get("/courier/estimate")
 def courier_estimate(from_lat: float, from_lng: float, to_lat: float, to_lng: float,
                      size: str = "small", urgency: str = "bypath",
-                     delivery_type: str = "courier", user: User = Depends(current_user)):
+                     delivery_type: str = "courier", user: User = Depends(current_user),
+                     session: Session = Depends(get_session)):
     """Оценка цены доставки курьером. Сервер — источник истины (haversine × тариф). Без суржа.
     Комиссия — ОРИЕНТИРОВОЧНАЯ: по дефолтной ступени (8%) + минимум + надбавка buy_bring; точный
     процент зависит от стажа НАЗНАЧЕННОГО курьера и считается при вручении."""
@@ -818,7 +1041,17 @@ def courier_estimate(from_lat: float, from_lng: float, to_lat: float, to_lng: fl
         raise herr(422, "Выбери тип доставки", "Доставка төрөн һайла")
     percent = settings.courier_service_fee_percent + (
         COURIER_BUY_BRING_EXTRA_PERCENT if dtype == "buy_bring" else 0.0)
-    return _price(from_lat, from_lng, to_lat, to_lng, size, urgency, percent=percent)
+    priced = _price(from_lat, from_lng, to_lat, to_lng, size, urgency, percent=percent,
+                    session=session)
+    # Цену закрепляем на те же две минуты, что у такси: пока человек думает, она не вырастет.
+    подпись = f"{size}|{urgency}|{dtype}"
+    priced["price_locked_sec"] = price_freeze.remember_courier(
+        isv._redis(), user.id, (from_lat, from_lng), (to_lat, to_lng), подпись, priced)
+    # Воронка «посмотрел цену → заказал» — своя для доставки: у неё другие люди и другие
+    # причины передумать, и усреднять её с такси значит получить число ни о чём.
+    funnel.note_price_view(isv._redis(), user.id, (from_lat, from_lng), (to_lat, to_lng),
+                           kind=funnel.COURIER)
+    return priced
 
 
 # ---------------------------------------------------------------------------
@@ -923,7 +1156,11 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
     est_percent = settings.courier_service_fee_percent + (
         COURIER_BUY_BRING_EXTRA_PERCENT if dtype == "buy_bring" else 0.0)
     priced = _price(body.from_lat, body.from_lng, body.to_lat, body.to_lng, size, urgency,
-                    percent=est_percent)
+                    percent=est_percent, session=session)
+    # Заморозка: человек видел цену минуту назад — по ней и везём. Подешевело — берём новую.
+    priced = price_freeze.apply_courier(
+        isv._redis(), user.id, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
+        f"{size}|{urgency}|{dtype}", priced)
 
     # Дедуп двойного тапа — тот же шов, что у посылки «по пути» (разбор №2). Заказ курьера
     # дороже обычной посылки (комиссия + выкуп товара), поэтому дубль тут стоит реальных денег.
@@ -981,6 +1218,12 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
         commission_kop=priced["commission_kop"],
         # C2: цена доставки для получателя (без комиссии) — фиксируем при создании.
         delivery_price_kop=priced["price_kop"],
+        # Дорога курьера к посылке: курьера ещё нет, честного числа не существует —
+        # отправителю показан потолок, сумму зафиксируем при взятии заказа.
+        pickup_pending=bool(priced.get("pickup_pending")),
+        weather_fee_kop=int(priced.get("weather_kop", 0) or 0),
+        weather_kind=str(priced.get("weather_kind", ""))[:16],
+        night_k=float(priced.get("night_k", 1.0) or 1.0),
         declared_value_kop=int(body.declared_value_kop or 0),
         cod_amount_kop=cod_amount_kop,
         delivery_type=dtype,
@@ -996,6 +1239,8 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
     session.add(parcel)
     session.commit()
     session.refresh(parcel)
+    # Вторая половина воронки доставки (см. app/funnel.py).
+    funnel.note_order(isv._redis(), user.id, kind=funnel.COURIER)
     try:  # уведомление админа — best-effort, без телефона получателя
         notify_admin_telegram(
             f"📦 Новый заказ курьера ({dtype})\nID: {parcel.id}\n"
@@ -1128,6 +1373,18 @@ def _commission_owed_kop(session: Session, courier_id: int) -> int:
     return int(owed or 0)
 
 
+@router.get("/courier/priority")
+def courier_priority(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Мой приоритет курьера: сколько баллов, за что и что их отнимает.
+
+    Показываем ЦЕЛИКОМ и всегда. Скрытый приоритет читается как «заказы раздают по блату» —
+    это ровно та боль Яндекса, против которой мы и строимся: там человек не понимает,
+    почему ему не падают заказы, и уходит.
+    """
+    _guard_courier(user, session)
+    return prio.payload(session, user.id, prio.COURIER)
+
+
 @router.get("/courier/me")
 def courier_me(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Кабинет курьера: заявка + профиль + statement (комиссия платформы по моим доставленным
@@ -1175,7 +1432,7 @@ def courier_me(user: User = Depends(current_user), session: Session = Depends(ge
             # C4 — текущая ступень курьера (аддитивно): какой % и минимум действуют сейчас.
             "current_fee_percent": cur_percent,
             "fee_tier": cur_tier,                         # tier1|tier2|tier3|promo
-            "commission_min_kop": COURIER_COMMISSION_MIN_KOP,
+            "commission_min_kop": int(settings.courier_commission_min_kop),
         },
         "rating": {
             "avg": round(avg, 1) if cnt > 0 else None,    # None = ещё нет оценок

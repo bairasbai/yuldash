@@ -93,15 +93,19 @@ class ApiClientEndpointContractTest {
         "declared_value_kop", "delivered_count", "deliveries", "delivery_attempts", "delivery_kop",
         "discount_kop", "discount_used_order_id", "distance_km", "distance_kop", "donations_total",
         "done_today", "driver", "driver_id", "drivers_online", "dynamic_k", "earned_count",
-        "earnings_today", "entry_id", "eta_min", "fee_days_to_next", "fee_kop", "fee_next_percent",
-        "fee_per_redemption_kop", "fee_percent", "fee_today_kop", "founder_limit", "founder_used",
+        "earnings_today", "entry_id", "eta_min", "fee_kop", "fee_next_percent",
+        "fee_per_redemption_kop", "fee_percent", "fee_today_kop", "fee_trips_to_next",
+        "founder_limit", "founder_used",
         "from_lat", "from_lng", "fuel_estimate_kop", "goal", "goods_actual_kop", "gross_today_kop",
         "hours", "id", "impressions", "invited", "invited_by", "k", "km", "lat", "level",
         "limit_hours", "limit_per_user", "limit_sec", "limit_total", "lng", "max_kop", "max_price",
         "min_kop", "month", "my_response_id", "my_stars", "net_kop", "net_today_kop", "next_at",
-        "no_show_today", "online", "order_id", "orders_active", "orders_today", "owed_commission_kop",
+        "no_show_today", "online", "order_id", "orders_active", "orders_period", "orders_today",
+        "owed_commission_kop",
         "owner_id", "parcels_helped", "partner_id", "passenger", "passenger_rating", "pay_amount",
-        "payment_id", "pending_kop", "period_days", "perk_value", "pickup_eta_min", "pickup_k",
+        "payment_id", "pending_kop", "percent_period", "percent_today", "period_days", "perk_value",
+        "plus", "points", "price_locked_sec",
+        "pickup_eta_min", "pickup_k",
         "pickup_lat", "pickup_lng", "price", "price_kop", "price_with_discount", "pricing_cap_k",
         "promo_discount_kop", "ratee_id", "rating_count", "redeemed", "redeemed_count",
         "redeemed_total", "ref_id", "reliability", "remaining_sec", "requests", "ride_id",
@@ -110,9 +114,10 @@ class ApiClientEndpointContractTest {
         "surge_k", "suspend_1_days", "suspend_2_days", "suspend_3_days", "target_user_id",
         "tariff_id", "tenure_days", "threshold_kop", "to_lat", "to_lng", "to_next", "today", "total",
         "total_due_kop", "total_fee_kop", "total_net_kop", "total_price", "traffic_k", "trips",
-        "trips_count", "unbilled_fee_kop", "unpaid_kop", "unread", "urgency_kop", "user_id", "value",
+        "trips_count", "trips_done", "unbilled_fee_kop", "unpaid_kop", "unread", "urgency_kop", "user_id", "value",
+        "views", "views_period", "views_today",
         "wait_minutes", "waiting_fee_kop", "warnings", "weather_k", "week", "weight", "weight_kg",
-        "year",
+        "window_days", "year",
     )
 
     /** текстовые поля: имена, города, коды, адреса */
@@ -160,14 +165,15 @@ class ApiClientEndpointContractTest {
 
     /** вложенные списки — пустые: цикл разбора должен пережить и это */
     private val arrayKeys = listOf(
-        "achievements", "benefits", "by_city", "by_day", "cities", "drivers", "fee_tier_days",
+        "achievements", "benefits", "by_city", "by_day", "cities", "drivers", "fee_tier_trips",
         "fee_tiers", "options", "parcels", "placements", "prefs", "price_factors", "reviews",
         "rides", "routes", "weeks", "zones",
     )
 
     /** вложенные объекты — пустые: поля возьмут значения по умолчанию */
     private val objectKeys = listOf(
-        "application", "boost", "breakdown", "by_role", "coupon", "courier", "donate", "from", "how",
+        "application", "boost", "breakdown", "by_role", "coupon", "courier", "donate", "from",
+        "funnel", "how",
         "message", "money", "next", "offer", "order", "partner", "payee", "profile", "promo",
         "promo_note", "rank", "rating", "sbp", "settlement", "statement", "surge_note", "title", "to",
         "top_route", "user",

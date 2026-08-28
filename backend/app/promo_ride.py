@@ -29,6 +29,7 @@ from typing import Optional
 from sqlalchemy import update
 from sqlmodel import Session, select
 
+from . import compensation as comp_mod
 from .config import settings
 from .models import InstantOrder, InstantOrderStatus, PromoCode, PromoRedemption
 from .timeutil import utcnow
@@ -98,15 +99,13 @@ def discountable_rub(order: InstantOrder) -> int:
     от чужого топлива неправильно: потолок «не больше N% от цены» тогда растёт ровно тогда,
     когда водителю и так тяжело.
 
-    Поля читаем прямо с заказа: модуль заказов зависит от этого файла, обратный импорт
-    замкнул бы круг.
+    Список компенсаций — в `app/compensation.py`, общий с чеком и расчётом комиссии.
+    Свой список здесь однажды уже разошёлся с чужим и потерял зимнюю дорогу.
     """
     if order is None:
         return 0
     rub = order.price_final if order.price_final is not None else order.price_estimate
-    compensation_rub = (int(getattr(order, "pickup_fee_kop", 0) or 0)
-                        + int(getattr(order, "options_fee_kop", 0) or 0)) // 100
-    return max(int(rub or 0) - compensation_rub, 0)
+    return max(int(rub or 0) - comp_mod.compensation_rub(order), 0)
 
 
 def payable_kop(order: InstantOrder) -> int:

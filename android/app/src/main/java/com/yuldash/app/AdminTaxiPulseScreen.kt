@@ -1,14 +1,19 @@
 package com.yuldash.app
 
 // «Пульс такси» (B7b-3) — живая панель админа: кто на линии, активные заказы, счётчики дня,
-// разбивка по городам. Автообновление ~30с, честные состояния: скелетон / ошибка / пусто.
+// воронка «смотрят цену → заказывают», разбивка по городам. Автообновление ~30с,
+// честные состояния: скелетон / ошибка / пусто.
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -38,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import androidx.compose.foundation.lazy.items
 import com.yuldash.app.data.PriceComplaintDto
+import com.yuldash.app.data.TaxiFunnelDto
 import com.yuldash.app.data.TaxiPulseDto
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -132,8 +138,11 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
                             )
                         }
                     }
+                    p.funnel?.let { f ->
+                        item { PulseFunnelCard(f, Modifier.appearIn(3)) }
+                    }
                     item {
-                        Text(appText("По городам", "Ҡалалар буйынса"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.appearIn(3))
+                        Text(appText("По городам", "Ҡалалар буйынса"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.appearIn(4))
                     }
                     if (p.byCity.isEmpty()) {
                         item {
@@ -149,7 +158,7 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
                                 Surface(
                                     color = CanonSurface, shape = CanonItemShape,
                                     border = BorderStroke(1.dp, CanonBorder),
-                                    modifier = Modifier.fillMaxWidth().appearIn(3 + i),
+                                    modifier = Modifier.fillMaxWidth().appearIn(4 + i),
                                 ) {
                                     Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
@@ -181,6 +190,109 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
         }
     }
 }
+
+/**
+ * Воронка «смотрят цену → заказывают». Главная цифра для правки тарифа: без неё падение
+ * заказов после надбавки выглядит как «людей мало», а не как «дорого».
+ *
+ * Проценты приходят как Double? — null значит «никто не смотрел». Показывать в этом случае
+ * 0% нельзя: «не приходили» и «пришли и ушли из-за цены» — противоположные новости.
+ */
+@Composable
+private fun PulseFunnelCard(f: TaxiFunnelDto, modifier: Modifier = Modifier) {
+    Surface(
+        color = CanonSurface, shape = CanonItemShape,
+        border = BorderStroke(1.dp, CanonBorder), modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    appText("Смотрят цену → заказывают", "Хаҡты ҡарайҙар → заказ бирәләр"),
+                    color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    f.percentToday?.let { formatPercent(it) } ?: "—",
+                    color = CanonGreen2, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                )
+            }
+            Text(
+                if (f.viewsToday == 0)
+                    appText("Сегодня цену ещё никто не смотрел", "Бөгөн хаҡты әле бер кем ҡараманы")
+                else
+                    appText(
+                        "Сегодня: ${f.ordersToday} из ${f.viewsToday} заказали",
+                        "Бөгөн: ${f.viewsToday} кешенән ${f.ordersToday} заказ бирҙе",
+                    ),
+                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+            )
+            if (f.viewsPeriod > 0) {
+                Text(
+                    appText(
+                        "За ${f.windowDays} дней: ${f.percentPeriod?.let { formatPercent(it) } ?: "—"} · ${f.ordersPeriod} из ${f.viewsPeriod}",
+                        "${f.windowDays} көнгә: ${f.percentPeriod?.let { formatPercent(it) } ?: "—"} · ${f.viewsPeriod} кешенән ${f.ordersPeriod}",
+                    ),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+                FunnelBars(f.byDay.reversed())
+            }
+        }
+    }
+}
+
+/**
+ * Столбики по дням, старые слева. Высота — просмотры, залитая часть снизу — заказы:
+ * видно и «сколько людей приходило», и «сколько из них доехало до кнопки», одним взглядом.
+ */
+@Composable
+private fun FunnelBars(days: List<com.yuldash.app.data.TaxiFunnelDayDto>) {
+    if (days.isEmpty()) return
+    val maxViews = days.maxOf { it.views }.coerceAtLeast(1)
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        days.forEach { d ->
+            // Столбик тянется из нуля: панель «оживает», а не подставляет готовую картинку.
+            val viewsH by animateFloatAsState(
+                BAR_MAX_DP * d.views / maxViews, tween(CanonMotion.SLOW), label = "funnelViews",
+            )
+            val ordersH by animateFloatAsState(
+                BAR_MAX_DP * d.orders / maxViews, tween(CanonMotion.SLOW), label = "funnelOrders",
+            )
+            Column(
+                Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box(Modifier.height(BAR_MAX_DP.dp), contentAlignment = Alignment.BottomCenter) {
+                    Surface(
+                        color = CanonMint, shape = CanonTinyShape,
+                        modifier = Modifier.fillMaxWidth().height(viewsH.dp.coerceAtLeast(3.dp)),
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                            Surface(
+                                color = CanonGreen2, shape = CanonTinyShape,
+                                modifier = Modifier.fillMaxWidth().height(ordersH.dp),
+                            ) {}
+                        }
+                    }
+                }
+                Text(dayLabel(d.day), color = CanonMuted, fontSize = 12.sp, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** Высота самого высокого столбика воронки, dp. */
+private const val BAR_MAX_DP = 44f
+
+/** «2026-08-28» → «28»: в неделе число дня однозначно, а места в столбике мало. */
+private fun dayLabel(iso: String): String = iso.takeLast(2)
+
+/** «26.5» → «27%»: доля процента в такой метрике — шум, а не точность. */
+private fun formatPercent(p: Double): String = "${Math.round(p)}%"
 
 /** Одна жалоба: сумма, причина словами и то, что человек дописал сам. */
 @Composable
