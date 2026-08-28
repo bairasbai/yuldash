@@ -8,8 +8,11 @@
 `POST /places/saved`           — создать/обновить: home/work по одному (upsert по kind),
                                  custom — до лимита MAX_SAVED.
 `DELETE /places/saved/{id}`    — удалить своё (чужое → 404).
+`POST /places/saved/{id}/used` — отметить, что адресом воспользовались (для сортировки).
 `GET  /places/recent`          — мои недавние точки (свежие сверху, ≤ MAX_RECENT).
 `POST /places/recent`          — добавить недавнюю (вызывается при заказе); дедуп по адресу.
+`DELETE /places/recent/{id}`   — убрать одну свою точку (чужое → 404).
+`DELETE /places/recent`        — очистить весь свой список.
 """
 from typing import Optional
 
@@ -51,6 +54,7 @@ def _saved_out(p: SavedPlace) -> dict:
         "id": p.id, "kind": p.kind, "label": p.label, "address": p.address,
         "lat": p.lat, "lng": p.lng,
         "created_at": p.created_at.isoformat() if p.created_at else "",
+        "used_at": p.used_at.isoformat() if p.used_at else "",
     }
 
 
@@ -64,10 +68,20 @@ def _recent_out(p: RecentPlace) -> dict:
 # ------------------------------ сохранённые ------------------------------
 @router.get("/places/saved")
 def list_saved(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Мои сохранённые места (дом/работа сверху, затем произвольные по времени добавления)."""
+    """Мои сохранённые места.
+
+    Порядок: дом, работа, дальше свои — по последнему использованию, свежие сверху.
+    Клиент показывает в форме заказа только первые несколько, и наверху должно оказаться
+    то, куда человек ездит, а не то, что он завёл последним (решение Александра, Q5).
+    """
     rows = session.exec(
-        select(SavedPlace).where(SavedPlace.user_id == user.id).order_by(SavedPlace.id.asc())
+        select(SavedPlace).where(SavedPlace.user_id == user.id)
+        .order_by(SavedPlace.used_at.desc(), SavedPlace.id.desc())
     ).all()
+    # Дом и работа всегда первыми: их по одному, они названы человеком, и прятать их
+    # за случайным «Магнитом» нельзя, даже если туда ездили позже.
+    _order = {SavedPlaceKind.home.value: 0, SavedPlaceKind.work.value: 1}
+    rows = sorted(rows, key=lambda p: _order.get(p.kind, 2))
     return [_saved_out(p) for p in rows]
 
 
@@ -122,6 +136,25 @@ def delete_saved(place_id: int, user: User = Depends(current_user),
     return {"ok": True}
 
 
+@router.post("/places/saved/{place_id}/used")
+def mark_saved_used(place_id: int, user: User = Depends(current_user),
+                    session: Session = Depends(get_session)):
+    """Отметить, что адресом только что воспользовались.
+
+    Зовёт клиент, когда человек выбрал сохранённое место в форме заказа. По этой отметке
+    строится порядок быстрого списка: наверху то, куда ездят.
+
+    Чужое/несуществующее → 404 (анти-IDOR, как и остальные ручки этого файла).
+    """
+    place = session.get(SavedPlace, place_id)
+    if not place or place.user_id != user.id:
+        raise herr(404, "Место не найдено", "Урын табылманы")
+    place.used_at = utcnow()
+    session.add(place)
+    session.commit()
+    return {"ok": True}
+
+
 # ------------------------------ недавние ------------------------------
 @router.get("/places/recent")
 def list_recent(user: User = Depends(current_user), session: Session = Depends(get_session)):
@@ -162,3 +195,35 @@ def add_recent(body: RecentPlaceIn, user: User = Depends(current_user),
         session.execute(delete(RecentPlace).where(RecentPlace.id.in_(stale)))
         session.commit()
     return _recent_out(place)
+
+
+@router.delete("/places/recent/{place_id}")
+def delete_recent(place_id: int, user: User = Depends(current_user),
+                  session: Session = Depends(get_session)):
+    """Убрать одну свою недавнюю точку.
+
+    Список копится сам, из каждого заказа, и человек его не выбирал. Значит право убрать
+    оттуда строку — не украшение, а обязательная часть: там оседают адрес больницы, дом
+    бывшего, работа, с которой ушёл.
+
+    Чужое/несуществующее → 404: не подтверждаем существование чужой записи (анти-IDOR).
+    """
+    place = session.get(RecentPlace, place_id)
+    if not place or place.user_id != user.id:
+        raise herr(404, "Адрес не найден", "Адрес табылманы")
+    session.delete(place)
+    session.commit()
+    return {"ok": True}
+
+
+@router.delete("/places/recent")
+def clear_recent(user: User = Depends(current_user),
+                 session: Session = Depends(get_session)):
+    """Очистить весь свой список недавних.
+
+    Нужна отдельно от удаления по одной: когда телефон отдают в чужие руки или просто
+    хотят убрать следы поездок, чистить список по строке — десять жестов вместо одного.
+    """
+    session.execute(delete(RecentPlace).where(RecentPlace.user_id == user.id))
+    session.commit()
+    return {"ok": True}

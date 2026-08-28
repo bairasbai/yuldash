@@ -202,6 +202,9 @@ private fun TaxiReceiptCard(r: InstantReceiptDto) {
                     letterSpacing = MoneyType.HeroTracking,
                     fontWeight = FontWeight.Bold,
                 )
+                // Из чего сложилась сумма. Раньше здесь было одно число и «в том числе
+                // ожидание» — на вопрос «куда делись деньги» ответить было нечем.
+                TaxiReceiptBreakdown(r)
                 // Платное ожидание показываем отдельной строкой — иначе «почему больше, чем в оценке?».
                 if (r.waitingFeeKop > 0) {
                     TaxiReceiptNote(
@@ -359,6 +362,109 @@ private fun TaxiReceiptHairline() {
 }
 
 /** Тихая строка под суммой: иконка + пояснение (ожидание, способ оплаты). */
+/** Строка счёта: слева за что, справа сколько. Одна строка — одна причина, по которой
+ *  сумма стала такой. */
+@Composable
+private fun TaxiReceiptLine(label: String, value: String, accent: Color = CanonText,
+                            hint: String = "") {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                label, color = CanonMuted,
+                fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                value, color = accent,
+                fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        if (hint.isNotBlank()) {
+            Text(hint, color = CanonMuted, fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine)
+        }
+    }
+}
+
+/** Разбивка суммы: поездка, наценка, дорога водителя, опции — и, если чек смотрит водитель,
+ *  зеркальный расчёт с комиссией.
+ *
+ *  Пассажиру комиссию НЕ показываем: в нашей модели он платит водителю напрямую, наши 15%
+ *  через него не проходят, и строка «комиссия платформы» была бы неправдой о его деньгах. */
+@Composable
+private fun TaxiReceiptBreakdown(r: InstantReceiptDto) {
+    // Старый сервер разбивки не шлёт — тогда показывать нечего, и блока просто нет.
+    if (r.ridePrice <= 0) return
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+        TaxiReceiptLine(
+            appText("Поездка", "Сәфәр"),
+            "${r.rideBasePrice.takeIf { it > 0 } ?: r.ridePrice} ₽",
+        )
+        if (r.surgeRub > 0) {
+            TaxiReceiptLine(
+                appText("Наценка за спрос", "Ихтыяж өҫтәмәһе"),
+                "+${r.surgeRub} ₽", CanonWarn,
+            )
+        }
+        if (r.pickupFeeKop > 0) {
+            val km = kotlin.math.round(r.pickupKm).toInt()
+            TaxiReceiptLine(
+                appText("Дорога водителя к тебе, ~$km км", "Водителдең һиңә тиклем юлы, ~$km км"),
+                "+" + kopToRub(r.pickupFeeKop), CanonGreen2,
+                hint = if (r.pickupEnroute)
+                    appText("Ему было по пути — вдвое дешевле", "Уға юл ыңғайы ине — ике тапҡыр арзаныраҡ")
+                else appText("Уходит водителю целиком", "Тулыһынса водителгә бара"),
+            )
+        }
+        if (r.weatherFeeKop > 0) {
+            val weather = when (r.weatherKind) {
+                "ice" -> appText("Гололёд на дороге", "Юлда быҙлауыҡ")
+                "blizzard" -> appText("Метель по пути", "Юлда буран")
+                "snow" -> appText("Сильный снегопад", "Көслө ҡар яуа")
+                "frost" -> appText("Сильный мороз", "Ҡаты һыуыҡ")
+                else -> appText("Тяжёлая дорога", "Ауыр юл")
+            }
+            TaxiReceiptLine(
+                weather, "+" + kopToRub(r.weatherFeeKop), CanonGreen2,
+                hint = appText("Уходит водителю целиком", "Тулыһынса водителгә бара"),
+            )
+        }
+        if (r.optionsFeeKop > 0) {
+            TaxiReceiptLine(
+                appText("Кресло и опции", "Ултырғыс һәм өҫтәмәләр"),
+                "+" + kopToRub(r.optionsFeeKop), CanonGreen2,
+                hint = appText("Уходит водителю целиком", "Тулыһынса водителгә бара"),
+            )
+        }
+        if (r.role == "driver" && r.driverGrossKop > 0) {
+            val feeLabel = if (r.driverFeePercent % 1.0 == 0.0) r.driverFeePercent.toInt().toString()
+            else String.format(java.util.Locale.US, "%.1f", r.driverFeePercent)
+            Box(Modifier.fillMaxWidth().height(1.dp).background(CanonBorder))
+            TaxiReceiptLine(
+                appText("Всего от пассажира", "Пассажирҙан барлығы"),
+                kopToRub(r.driverGrossKop),
+            )
+            TaxiReceiptLine(
+                // Процент печатаем тут же: «8» вместо «8.0», а дробный — с одним знаком.
+                // Тянуть ради этого приватный хелпер из соседнего экрана незачем.
+                appText("Комиссия Юлдаша $feeLabel%", "Юлдаш комиссияһы $feeLabel%"),
+                "−" + kopToRub(r.driverFeeKop), CanonRed,
+                hint = if (r.commissionFreeKop > 0)
+                    appText(
+                        "С ${kopToRub(r.commissionFreeKop)} комиссию не берём — это твой бензин и кресло",
+                        "${kopToRub(r.commissionFreeKop)} суммаһынан комиссия алмайбыҙ — был һинең бензин һәм ултырғыс",
+                    )
+                else "",
+            )
+            TaxiReceiptLine(
+                appText("Чистыми тебе", "Һиңә таҙа килем"),
+                kopToRub(r.driverNetKop), CanonGreen2,
+            )
+        }
+    }
+}
+
 @Composable
 private fun TaxiReceiptNote(icon: ImageVector, tint: Color, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -410,13 +516,13 @@ private fun TaxiAfterRideActions(
                         icon = Icons.Default.Favorite,
                         iconBg = CanonMint,
                         iconTint = CanonGreen2,
-                        title = if (thanked) appText("Рәхмәт сказан 💚", "Рәхмәт әйтелде 💚")
-                        else appText("Сказать рәхмәт", "Рәхмәт әйтеү"),
+                        title = if (thanked) appText("«Рәхмәт» сказан 💚", "Рәхмәт әйтелде 💚")
+                        else appText("Сказать «рәхмәт»", "Рәхмәт әйтеү"),
                         text = appText("Тёплое спасибо водителю — без денег.", "Йөрөтөүсегә йылы рәхмәт — аҡсаһыҙ."),
                     )
                     if (!thanked) {
                         AppButton(
-                            text = appText("Сказать рәхмәт", "Рәхмәт әйтеү"),
+                            text = appText("Сказать «рәхмәт»", "Рәхмәт әйтеү"),
                             onClick = {
                                 if (thanksBusy) return@AppButton
                                 thanksBusy = true

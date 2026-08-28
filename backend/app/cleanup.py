@@ -32,6 +32,9 @@ UPLOAD_DAYS = 2      # события загрузки (квота 24ч)
 TOKEN_DAYS = 1       # протухшие/отозванные refresh-токены
 ADEVENT_DAYS = 90    # показы/клики рекламы (поштучно потом не нужны)
 DECLINE_DAYS = 90    # причины отказа водителей от офферов (нужна статистика, не строки)
+# Жалобы на цену: сигнал для тарифа, а не дело с участниками. Полгода — больше, чем нужно,
+# чтобы увидеть сезон и починить цифру; дальше это просто чужое недовольство в базе.
+PRICE_COMPLAINT_DAYS = 180
 ANALYTICS_DAYS = 90  # анонимные продуктовые события веб-версии (воронка) — поштучно не нужны
 NOTIF_DAYS = 90      # старые уведомления (быстрорастущий объём: строка на каждый пуш)
 SOS_DAYS = 180       # ТОЛЬКО закрытые (handled) SOS; открытые не трогаем
@@ -117,7 +120,7 @@ _ALLOWED_TABLES = frozenset({
     "message", "otpcode", "tgauth", "uploadevent", "refreshtoken", "adevent", "offerdecline",
     "sosevent", "report", "tripshare", "requestresponse", "riderequest",
     "booking", "ride", "notification", "instantorder", "parceldelivery",
-    "analyticsevent", "waitlistentry",
+    "analyticsevent", "waitlistentry", "pricecomplaint",
     "pretripcheck", "taxiworkday", "dailydigestlog", "textflag", "recentplace",
     "familysmslog",
 })
@@ -138,6 +141,10 @@ def _rules(now):
          {"now": now, "c": cut(TOKEN_DAYS)}),
         ("показы/клики рекламы >90д", "adevent", "created_at < :c", {"c": cut(ADEVENT_DAYS)}),
         ("причины отказа от офферов >90д", "offerdecline", "created_at < :c", {"c": cut(DECLINE_DAYS)}),
+        # Жалобы на цену: их ценность — в сумме и причине, а не в том, кто именно написал.
+        # Полгода хватает, чтобы поправить тариф по фактам.
+        ("жалобы на цену >180д", "pricecomplaint", "created_at < :c",
+         {"c": cut(PRICE_COMPLAINT_DAYS)}),
         ("аналитика веб (события) >90д", "analyticsevent", "created_at < :c", {"c": cut(ANALYTICS_DAYS)}),
         ("уведомления >90д", "notification", "created_at < :c", {"c": cut(NOTIF_DAYS)}),
         # Лист ожидания: позванным цель достигнута, непозванным за год — обещание не сбылось.
@@ -203,7 +210,11 @@ def _rules(now):
          # offerdecline.order_id — тоже жёсткий FK. Сейчас спасает случайность (журнал живёт
          # 90 дней, заказы чистятся после 180), но правило не должно держаться на разнице
          # двух независимых чисел: подняли бы DECLINE_DAYS — и чистка упала бы на внешнем ключе.
-         "AND NOT EXISTS (SELECT 1 FROM offerdecline od WHERE od.order_id = instantorder.id)",
+         "AND NOT EXISTS (SELECT 1 FROM offerdecline od WHERE od.order_id = instantorder.id) "
+         # pricecomplaint.order_id — тот же жёсткий FK: жалоба на цену живёт 180 дней, столько
+         # же, сколько заказ. Без гарда чистка упала бы на внешнем ключе ровно в тот день,
+         # когда обе даты сойдутся.
+         "AND NOT EXISTS (SELECT 1 FROM pricecomplaint pc WHERE pc.order_id = instantorder.id)",
          {"c": cut(TRIP_DAYS)}),
         # Доставки: старые терминальные с ЗАКРЫТОЙ комиссией и без спора/оценки (финансы/репутацию
         # бережём). message.parcel_id — жёсткий FK (чат отправитель ↔ курьер): без гарда чистка

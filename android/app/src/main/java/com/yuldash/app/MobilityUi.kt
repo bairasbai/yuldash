@@ -1,12 +1,14 @@
 package com.yuldash.app
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -39,12 +41,16 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.Image
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -234,57 +240,124 @@ internal fun TaxiServiceClassTile(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Картинка машины этого класса. null → рисуем прежний контурный значок. */
+    iconRes: Int? = null,
+    /** Ночная версия картинки — для классов, у которых дневная тонет в тёмном фоне. */
+    iconNightRes: Int? = null,
+    /** Через сколько подъедет машина ИМЕННО этого класса. null → минут не пишем:
+     *  выдуманное «2 мин» на классе, которого рядом нет, — это обещание, а не подсказка. */
+    pickupEtaMin: Int? = null,
 ) {
+    // Выбранный тариф выделяем ПОДЛОЖКОЙ, а не рамкой (образец — Яндекс). Рамка у каждой
+    // плитки превращала ряд тарифов в таблицу: пять прямоугольников с обводкой, где у одного
+    // обводка вдвое толще. Подложка читается мгновенно и не добавляет линий.
     val bg by animateColorAsState(
-        if (selected) CanonTaxiBg else CanonSurface,
+        if (selected) CanonTaxiBg else CanonBg,
         tween(CanonMotion.QUICK),
         label = "taxiClassBg",
     )
-    val border by animateColorAsState(
-        if (selected) CanonTaxi else CanonBorder,
-        tween(CanonMotion.QUICK),
-        label = "taxiClassBorder",
-    )
+    // Невыбранные машины приглушаем — взгляд должен сам находить выбранную (образец Яндекс).
+    // Не обесцвечиваем совсем: чёрный седан Бизнеса и жёлтый Эконом обязаны остаться
+    // узнаваемыми, иначе картинка перестаёт отвечать на вопрос «что за мной приедет».
+    val carAlpha by animateFloatAsState(
+        if (selected) 1f else 0.6f, tween(CanonMotion.QUICK), label = "taxiClassCar")
     val selectionState = if (selected) appText("Выбрано", "Һайланған")
     else appText("Не выбрано", "Һайланмаған")
+    val dark = appIsDark()
+    val car = (if (dark) iconNightRes else null) ?: iconRes
     Surface(
         onClick = onClick,
         shape = CanonItemShape,
         color = bg,
-        border = BorderStroke(if (selected) 2.dp else 1.dp, border),
         modifier = modifier
-            .heightIn(min = 94.dp)
+            .heightIn(min = 88.dp)
             .semantics(mergeDescendants = true) {
                 role = Role.RadioButton
                 this.selected = selected
                 stateDescription = selectionState
             },
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (selected) CanonTaxi else CanonBg,
-                ) {
+        // Поля по вертикали узкие: лента тарифов висит над картой, и каждая её лишняя точка —
+        // это кусок карты, которого человек не видит.
+        Column(
+            Modifier.padding(horizontal = CanonSpace.sm, vertical = CanonSpace.sm),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+        ) {
+            // Пропорция кадра = пропорция подготовленной картинки (tools/tariff_icons.py):
+            // машина заполняет его целиком, без полей по бокам. Разъедутся числа — в ряду
+            // снова появится воздух вокруг машин, и они станут выглядеть уменьшенными.
+            Box(Modifier.fillMaxWidth().aspectRatio(440f / 240f)) {
+                if (car != null) {
+                    // Ночью фон карточки почти чёрный, и чёрный седан Бизнеса растворяется
+                    // в нём — остаются фары в пустоте. Мягкое световое пятно под машиной
+                    // возвращает силуэт и заодно ставит её на «землю», а не в воздух.
+                    if (dark) {
+                        Box(
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth(0.9f)
+                                .height(20.dp)
+                                .background(
+                                    Brush.radialGradient(
+                                        listOf(CanonSurface, CanonSurface.copy(alpha = 0f)),
+                                    ),
+                                ),
+                        )
+                    }
+                    Image(
+                        painter = painterResource(car),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize().align(Alignment.Center).alpha(carAlpha),
+                    )
+                } else {
+                    // Запасной путь: картинки класса нет — рисуем прежний значок, чтобы
+                    // плитка осталась рабочей, а не пустой.
                     Icon(
                         Icons.Default.DirectionsCar,
                         contentDescription = null,
-                        tint = if (selected) CanonTaxiInk else CanonMutedStrong,
-                        modifier = Modifier.padding(8.dp).size(19.dp),
+                        tint = if (selected) CanonTaxiText else CanonMutedStrong,
+                        modifier = Modifier.size(30.dp).align(Alignment.Center),
                     )
                 }
-                Spacer(Modifier.weight(1f))
-                if (selected) {
-                    // CanonTaxiText, а не CanonTaxiInk: подложка выбранного тарифа (CanonTaxiBg)
-                    // в тёмной теме тёмно-коричневая, и тёмный ink на ней даёт контраст 1.05.
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonTaxiText, modifier = Modifier.size(18.dp))
+                if (pickupEtaMin != null) {
+                    // «Когда приедет» — пилюлей поверх машины, как у Яндекса. Отдельной строкой
+                    // оно отодвинуло бы цену вниз, а цена на этой карточке главнее.
+                    Surface(
+                        color = CanonSurface,
+                        shape = CanonTinyShape,
+                        modifier = Modifier.align(Alignment.TopStart),
+                    ) {
+                        Text(
+                            appText("$pickupEtaMin мин", "$pickupEtaMin мин"),
+                            color = if (selected) CanonText else CanonMutedStrong,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = CanonSpace.xs),
+                        )
+                    }
                 }
             }
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                if (price != null) Text("$price ₽", color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(
+                title,
+                color = CanonText,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            // Цена — самое крупное число на карточке: «что» уже сказала картинка.
+            if (price != null) {
+                Text("$price ₽", color = CanonText, fontSize = 16.sp, lineHeight = 23.sp,
+                     fontWeight = FontWeight.ExtraBold, maxLines = 1)
+            } else if (subtitle.isNotBlank()) {
+                // Подпись остаётся ровно для одного случая — «скоро», когда цены ещё нет.
+                Text(subtitle, color = CanonMutedStrong, fontSize = 12.sp, lineHeight = 17.sp,
+                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(subtitle, color = CanonMutedStrong, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

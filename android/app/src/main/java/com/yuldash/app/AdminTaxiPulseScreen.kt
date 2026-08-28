@@ -36,6 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
+import androidx.compose.foundation.lazy.items
+import com.yuldash.app.data.PriceComplaintDto
 import com.yuldash.app.data.TaxiPulseDto
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -49,6 +51,7 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
     var reloadTick by remember { mutableStateOf(0) }
+    var complaints by remember { mutableStateOf<List<PriceComplaintDto>>(emptyList()) }
 
     // Первая загрузка + автообновление ~30с (панель «живая», админ не жмёт руками).
     // В фоне цикл стоит (repeatOnLifecycle RESUMED), как остальные опросы приложения:
@@ -60,6 +63,9 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
                 ApiClient.getTaxiPulse()
                     .onSuccess { pulse = it; error = false }
                     .onFailure { if (pulse == null) error = true }   // при живых данных сбой сети не пугает
+                // Жалобы на цену тянем тем же циклом: отдельный опрос ради списка — лишний
+                // трафик, а сбой здесь не должен гасить сам пульс.
+                ApiClient.getPriceComplaints().onSuccess { complaints = it }
                 loading = false
                 delay(30_000)
             }
@@ -159,7 +165,46 @@ internal fun AdminTaxiPulseScreen(onBack: () -> Unit) {
                     }
                 }
             }
+            // Жалобы на цену. Место выбрано не случайно: пульс — это «как себя чувствует
+            // такси», и несогласие людей с ценой относится сюда же, рядом с подбором и
+            // машинами на линии. Отдельный экран ради списка из десяти строк — лишний.
+            if (complaints.isNotEmpty()) {
+                item {
+                    Text(
+                        appText("Не согласны с ценой", "Хаҡ менән килешмәйҙәр"),
+                        color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                    )
+                }
+                items(complaints, key = { it.id }) { c -> PriceComplaintCard(c) }
+            }
             item { Spacer(Modifier.height(12.dp)) }
+        }
+    }
+}
+
+/** Одна жалоба: сумма, причина словами и то, что человек дописал сам. */
+@Composable
+private fun PriceComplaintCard(c: PriceComplaintDto) {
+    val reason = when (c.reason) {
+        "expensive_for_distance" -> appText("дорого для такого расстояния", "был ара өсөн ҡиммәт")
+        "was_cheaper" -> appText("минуту назад было дешевле", "бер минут элек арзаныраҡ ине")
+        "line_unclear" -> appText("не понял строку в счёте", "иҫәптәге юлды аңламаған")
+        else -> appText("другое", "башҡа")
+    }
+    Surface(color = CanonSurface, shape = CanonItemShape,
+        border = BorderStroke(1.dp, CanonBorder), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${c.price} ₽", color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(8.dp))
+                Text(reason, color = CanonMuted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            }
+            if (c.comment.isNotBlank()) {
+                Text(c.comment, color = CanonText, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+            if (c.breakdown.isNotBlank()) {
+                Text(c.breakdown, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
+            }
         }
     }
 }

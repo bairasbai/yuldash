@@ -28,6 +28,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +60,8 @@ import kotlinx.coroutines.launch
 internal object OnlinePayGate {
     /** true после первого 503 от /pay — онлайн-оплата ещё не включена (до перезапуска приложения). */
     var unavailable by mutableStateOf(false)
+    /** Спрашивали ли уже сервер, включена ли онлайн-оплата (один раз на сессию). */
+    var asked by mutableStateOf(false)
 }
 
 private enum class PayOnlineStage { Idle, Waiting, Paid }
@@ -74,6 +77,15 @@ internal fun PayOnlineCard(
     pay: suspend (String) -> Result<PayTripResultDto>,
     modifier: Modifier = Modifier,
 ) {
+    // Спрашиваем сервер ДО показа кнопки: раньше карточка появлялась всегда и пряталась
+    // только после первого нажатия, ответившего «нельзя». Один впустую нажатый платёж за
+    // сессию — мелочь, но именно на ней человек решает, можно ли верить кнопкам вообще.
+    LaunchedEffect(Unit) {
+        if (!OnlinePayGate.asked) {
+            OnlinePayGate.asked = true
+            ApiClient.paymentsOnlineEnabled().onSuccess { OnlinePayGate.unavailable = !it }
+        }
+    }
     if (OnlinePayGate.unavailable) return
     val context = LocalContext.current
     val scope = rememberCoroutineScope()

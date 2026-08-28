@@ -62,6 +62,116 @@ def test_saved_idor_delete(client, user_factory):
     assert len(client.get("/places/saved", headers=owner["auth"]).json()) == 1
 
 
+# ------------------------------ порядок быстрого списка ------------------------------
+def test_saved_order_home_work_then_used(client, user_factory):
+    """Дом и работа сверху, свои — по последнему использованию.
+
+    В форме заказа человек видит не весь список, а первые несколько строк. Наверху должно
+    оказаться то, куда он ездит, а не то, что завёл последним, — иначе быстрый доступ
+    показывает случайный адрес «на один раз», а «Родители» приходится искать.
+    """
+    u = user_factory()
+    родители = client.post("/places/saved", headers=u["auth"],
+                           json={"kind": "custom", "label": "Родители", "address": "Сибай, Ленина 3"}).json()
+    client.post("/places/saved", headers=u["auth"],
+                json={"kind": "custom", "label": "Дача", "address": "Тубинский"})
+    client.post("/places/saved", headers=u["auth"], json={"kind": "home", "address": "мой дом"})
+    client.post("/places/saved", headers=u["auth"], json={"kind": "work", "address": "моя работа"})
+
+    # «Родители» заведены ПЕРВЫМИ — по дате добавления они были бы последними в списке.
+    assert client.post(f"/places/saved/{родители['id']}/used", headers=u["auth"]).status_code == 200
+
+    kinds = [p["kind"] for p in client.get("/places/saved", headers=u["auth"]).json()]
+    assert kinds[0] == "home" and kinds[1] == "work", "дом и работа обязаны быть сверху"
+
+    свои = [p["label"] for p in client.get("/places/saved", headers=u["auth"]).json()
+            if p["kind"] == "custom"]
+    assert свои[0] == "Родители", f"свои идут по использованию, а не по дате: {свои}"
+
+
+def test_saved_used_foreign_is_404(client, user_factory):
+    """Чужой адрес отметить нельзя, и существование его не подтверждаем."""
+    owner = user_factory()
+    other = user_factory()
+    mine = client.post("/places/saved", headers=owner["auth"],
+                       json={"kind": "custom", "label": "Мама", "address": "адрес"}).json()
+
+    assert client.post(f"/places/saved/{mine['id']}/used", headers=other["auth"]).status_code == 404
+    assert client.post("/places/saved/999999/used", headers=other["auth"]).status_code == 404
+
+
+def test_saved_new_place_is_on_top(client, user_factory):
+    """Только что заведённый адрес сразу наверху своих.
+
+    Человек добавляет место обычно перед тем, как туда поехать. Заставлять его ждать
+    первой поездки, чтобы адрес всплыл в быстром списке, — значит не понимать, зачем
+    он его заводил.
+    """
+    u = user_factory()
+    client.post("/places/saved", headers=u["auth"],
+                json={"kind": "custom", "label": "Старый", "address": "адрес 1"})
+    client.post("/places/saved", headers=u["auth"],
+                json={"kind": "custom", "label": "Новый", "address": "адрес 2"})
+
+    свои = [p["label"] for p in client.get("/places/saved", headers=u["auth"]).json()
+            if p["kind"] == "custom"]
+    assert свои[0] == "Новый", f"новый адрес должен быть сверху: {свои}"
+
+# ------------------------------ порядок быстрого списка ------------------------------
+def test_saved_order_home_work_then_used(client, user_factory):
+    """Дом и работа сверху, свои — по последнему использованию.
+
+    В форме заказа человек видит не весь список, а первые несколько строк. Наверху должно
+    оказаться то, куда он ездит, а не то, что завёл последним, — иначе быстрый доступ
+    показывает случайный адрес «на один раз», а «Родители» приходится искать.
+    """
+    u = user_factory()
+    родители = client.post("/places/saved", headers=u["auth"],
+                           json={"kind": "custom", "label": "Родители", "address": "Сибай, Ленина 3"}).json()
+    client.post("/places/saved", headers=u["auth"],
+                json={"kind": "custom", "label": "Дача", "address": "Тубинский"})
+    client.post("/places/saved", headers=u["auth"], json={"kind": "home", "address": "мой дом"})
+    client.post("/places/saved", headers=u["auth"], json={"kind": "work", "address": "моя работа"})
+
+    # «Родители» заведены ПЕРВЫМИ — по дате добавления они были бы последними в списке.
+    assert client.post(f"/places/saved/{родители['id']}/used", headers=u["auth"]).status_code == 200
+
+    kinds = [p["kind"] for p in client.get("/places/saved", headers=u["auth"]).json()]
+    assert kinds[0] == "home" and kinds[1] == "work", "дом и работа обязаны быть сверху"
+
+    свои = [p["label"] for p in client.get("/places/saved", headers=u["auth"]).json()
+            if p["kind"] == "custom"]
+    assert свои[0] == "Родители", f"свои идут по использованию, а не по дате: {свои}"
+
+
+def test_saved_used_foreign_is_404(client, user_factory):
+    """Чужой адрес отметить нельзя, и существование его не подтверждаем."""
+    owner = user_factory()
+    other = user_factory()
+    mine = client.post("/places/saved", headers=owner["auth"],
+                       json={"kind": "custom", "label": "Мама", "address": "адрес"}).json()
+
+    assert client.post(f"/places/saved/{mine['id']}/used", headers=other["auth"]).status_code == 404
+    assert client.post("/places/saved/999999/used", headers=other["auth"]).status_code == 404
+
+
+def test_saved_new_place_is_on_top(client, user_factory):
+    """Только что заведённый адрес сразу наверху своих.
+
+    Человек добавляет место обычно перед тем, как туда поехать. Заставлять его ждать
+    первой поездки, чтобы адрес всплыл в быстром списке, — значит не понимать, зачем
+    он его заводил.
+    """
+    u = user_factory()
+    client.post("/places/saved", headers=u["auth"],
+                json={"kind": "custom", "label": "Старый", "address": "адрес 1"})
+    client.post("/places/saved", headers=u["auth"],
+                json={"kind": "custom", "label": "Новый", "address": "адрес 2"})
+
+    свои = [p["label"] for p in client.get("/places/saved", headers=u["auth"]).json()
+            if p["kind"] == "custom"]
+    assert свои[0] == "Новый", f"новый адрес должен быть сверху: {свои}"
+
 # ------------------------------ недавние ------------------------------
 def test_recent_dedup_and_cap(client, user_factory):
     u = user_factory()
@@ -87,6 +197,90 @@ def test_recent_idor(client, user_factory):
     client.post("/places/recent", headers=owner["auth"], json={"address": "мой недавний"})
     assert client.get("/places/recent", headers=other["auth"]).json() == []
 
+
+
+def test_recent_delete_one(client, user_factory):
+    """Свайп по строке убирает ровно её, соседние остаются на месте."""
+    u = user_factory()
+    a = client.post("/places/recent", headers=u["auth"], json={"address": "больница"}).json()
+    client.post("/places/recent", headers=u["auth"], json={"address": "автовокзал"})
+
+    r = client.delete(f"/places/recent/{a['id']}", headers=u["auth"])
+    assert r.status_code == 200
+
+    left = [p["address"] for p in client.get("/places/recent", headers=u["auth"]).json()]
+    assert left == ["автовокзал"]
+
+
+def test_recent_delete_foreign_is_404(client, user_factory):
+    """Чужую строку не удалить, и сам факт её существования не подтверждаем.
+
+    Недавние — это карта личных мест: больница, дом, работа. Ответ «403 запрещено» уже сказал
+    бы «такая запись есть»; отвечаем так же, как на несуществующий id.
+    """
+    owner = user_factory()
+    other = user_factory()
+    mine = client.post("/places/recent", headers=owner["auth"], json={"address": "мой"}).json()
+
+    assert client.delete(f"/places/recent/{mine['id']}", headers=other["auth"]).status_code == 404
+    assert client.delete("/places/recent/999999", headers=other["auth"]).status_code == 404
+    # запись на месте: чужой запрос её не тронул
+    assert [p["address"] for p in client.get("/places/recent", headers=owner["auth"]).json()] == ["мой"]
+
+
+def test_recent_clear_all_touches_only_me(client, user_factory):
+    """Очистка списка стирает только свои строки — соседа по базе не задевает."""
+    me = user_factory()
+    other = user_factory()
+    client.post("/places/recent", headers=me["auth"], json={"address": "мой 1"})
+    client.post("/places/recent", headers=me["auth"], json={"address": "мой 2"})
+    client.post("/places/recent", headers=other["auth"], json={"address": "чужой"})
+
+    assert client.delete("/places/recent", headers=me["auth"]).status_code == 200
+    assert client.get("/places/recent", headers=me["auth"]).json() == []
+    assert [p["address"] for p in client.get("/places/recent", headers=other["auth"]).json()] == ["чужой"]
+
+
+def test_recent_delete_one(client, user_factory):
+    """Свайп по строке убирает ровно её, соседние остаются на месте."""
+    u = user_factory()
+    a = client.post("/places/recent", headers=u["auth"], json={"address": "больница"}).json()
+    client.post("/places/recent", headers=u["auth"], json={"address": "автовокзал"})
+
+    r = client.delete(f"/places/recent/{a['id']}", headers=u["auth"])
+    assert r.status_code == 200
+
+    left = [p["address"] for p in client.get("/places/recent", headers=u["auth"]).json()]
+    assert left == ["автовокзал"]
+
+
+def test_recent_delete_foreign_is_404(client, user_factory):
+    """Чужую строку не удалить, и сам факт её существования не подтверждаем.
+
+    Недавние — это карта личных мест: больница, дом, работа. Ответ «403 запрещено» уже сказал
+    бы «такая запись есть»; отвечаем так же, как на несуществующий id.
+    """
+    owner = user_factory()
+    other = user_factory()
+    mine = client.post("/places/recent", headers=owner["auth"], json={"address": "мой"}).json()
+
+    assert client.delete(f"/places/recent/{mine['id']}", headers=other["auth"]).status_code == 404
+    assert client.delete("/places/recent/999999", headers=other["auth"]).status_code == 404
+    # запись на месте: чужой запрос её не тронул
+    assert [p["address"] for p in client.get("/places/recent", headers=owner["auth"]).json()] == ["мой"]
+
+
+def test_recent_clear_all_touches_only_me(client, user_factory):
+    """Очистка списка стирает только свои строки — соседа по базе не задевает."""
+    me = user_factory()
+    other = user_factory()
+    client.post("/places/recent", headers=me["auth"], json={"address": "мой 1"})
+    client.post("/places/recent", headers=me["auth"], json={"address": "мой 2"})
+    client.post("/places/recent", headers=other["auth"], json={"address": "чужой"})
+
+    assert client.delete("/places/recent", headers=me["auth"]).status_code == 200
+    assert client.get("/places/recent", headers=me["auth"]).json() == []
+    assert [p["address"] for p in client.get("/places/recent", headers=other["auth"]).json()] == ["чужой"]
 
 # ------------------------------ 152-ФЗ: удаление аккаунта ------------------------------
 def test_places_wiped_on_account_delete(client, user_factory):

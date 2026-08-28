@@ -27,6 +27,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +38,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -53,10 +56,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocalTaxi
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddCircleOutline
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.ExpandMore
@@ -68,7 +77,10 @@ import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Redeem
+import androidx.compose.material.icons.filled.NearMe
+import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Sos
 import androidx.compose.material.icons.filled.Star
@@ -83,6 +95,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
@@ -96,6 +110,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -304,6 +319,41 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                         ),
                         color = CanonMuted, fontSize = 12.sp,
                     )
+                    // Дорога водителя к пассажиру — отдельные деньги, и человек должен видеть
+                    // их как слагаемое, а не гадать, почему итог больше цены поездки.
+                    if (estimate.pickupFee > 0 || estimate.optionsFee > 0 || estimate.weatherFee > 0) {
+                        val parts = buildList {
+                            add(appText("Поездка ${estimate.ridePrice} ₽", "Сәфәр ${estimate.ridePrice} һум"))
+                            if (estimate.pickupFee > 0) {
+                                add(appText("дорога водителя ${estimate.pickupFee} ₽",
+                                    "водитель юлы ${estimate.pickupFee} һум"))
+                            }
+                            if (estimate.optionsFee > 0) {
+                                add(appText("опции ${estimate.optionsFee} ₽",
+                                    "өҫтәмәләр ${estimate.optionsFee} һум"))
+                            }
+                            if (estimate.weatherFee > 0) {
+                                add(appText("зимняя дорога ${estimate.weatherFee} ₽",
+                                    "ҡышҡы юл ${estimate.weatherFee} һум"))
+                            }
+                        }
+                        Text(
+                            parts.joinToString(" + "),
+                            color = CanonMuted, fontSize = 12.sp,
+                        )
+                        // Водителю по пути — дорога к пассажиру вдвое дешевле. Показываем
+                        // зелёным и со старой цифрой: выгоду надо назвать, иначе человек
+                        // видит просто другое число и не понимает, что сэкономил.
+                        if (estimate.pickupEnroute && estimate.pickupFullFee > estimate.pickupFee) {
+                            Text(
+                                appText(
+                                    "Водителю по пути — дорога вдвое дешевле, было бы ${estimate.pickupFullFee} ₽",
+                                    "Водителгә юл ыңғайы — юл ике тапҡыр арзаныраҡ, ${estimate.pickupFullFee} һум булыр ине",
+                                ),
+                                color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text("${estimate.price} ₽", color = CanonGreen2, fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -340,6 +390,9 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                     }
                     val badge = when (factor.kind) {
                         "multiplier" -> "×${formatTaxiMultiplier(factor.k)}"
+                        // Строка стоит денег — показываем деньги. «×1,12» рядом с суммой,
+                        // которую человек платит, не объясняет ничего.
+                        "money" -> "+${factor.amountRub} ₽"
                         "cap" -> appText("лимит", "сик")
                         "notice" -> "!"
                         else -> appText("учтено", "иҫәптә")
@@ -348,6 +401,29 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                         Text(
                             badge, color = CanonTaxiText, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
+
+            // «Сюда уже едет машина — подождёшь, и за подачу платить не придётся».
+            // Это не реклама ожидания: подсказка появляется, только когда человеку реально
+            // есть что сэкономить, и всегда с суммой, чтобы решение было его.
+            if (estimate.pickupWaitMinutes > 0 && estimate.pickupWaitRu.isNotBlank()) {
+                Surface(shape = CanonItemShape, color = CanonPoolingBg) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(CanonSpace.md),
+                        horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Text("🚗", fontSize = 16.sp)
+                        Text(
+                            appText(
+                                estimate.pickupWaitRu,
+                                estimate.pickupWaitBa.ifBlank { estimate.pickupWaitRu },
+                            ),
+                            color = CanonPooling, fontSize = 14.sp, lineHeight = 20.sp,
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                 }
@@ -373,8 +449,148 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                     )
                 }
             }
+
+            // Прочитать цену вслух. Для бабушки, которая едет в клинику, четыре строчки
+            // мелким шрифтом — это ничего: она видит только итог и решает, что обманули.
+            TaxiPriceAloudButton(estimate)
+
+            // Клапан для несогласия. Слово «жалоба» из другого мира: у нас между своими,
+            // и человек не жалуется на соседа — он спорит с НАШИМ расчётом. Без этой кнопки
+            // несогласие уходит молча вместе с человеком.
+            TaxiPriceComplaintButton(estimate)
         }
     }
+}
+
+/** «Прочитать цену вслух» — три числа голосом: поездка, дорога водителя, итого.
+ *
+ *  Кнопки нет, если синтезатор недоступен: неработающая кнопка хуже её отсутствия —
+ *  человек нажмёт, ничего не услышит и решит, что сломалось приложение, а не голос. */
+@Composable
+private fun TaxiPriceAloudButton(estimate: InstantEstimateDto) {
+    val speaker = rememberPriceSpeaker()
+    val ru = LocalAppLanguage.current != AppLanguage.Ba
+    if (!speaker.ready) return
+
+    TextButton(
+        onClick = {
+            val total = estimate.priceToPay
+            // Башкирскую фразу читаем ТОЛЬКО настоящим башкирским голосом. Русский синтезатор
+            // на башкирском тексте выдаёт кашу — это хуже, чем прочитать по-русски.
+            val text = if (!ru && speaker.bashkirAvailable)
+                priceAloudBa(estimate.ridePrice, estimate.pickupFee, total)
+            else priceAloudRu(estimate.ridePrice, estimate.pickupFee, total)
+            speaker.speak(text)
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Icon(
+            Icons.Default.VolumeUp,
+            contentDescription = null,
+            tint = CanonGreen2,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(CanonSpace.xs))
+        Text(
+            appText("Прочитать цену вслух", "Хаҡты ҡысҡырып уҡырға"),
+            color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+/** Причины несогласия с ценой. Список закрытый: свободный текст в поле причины никто
+ *  не прочитает, а вот «дорого для такого расстояния» — это уже данные. */
+private val PriceComplaintReasons = listOf(
+    "expensive_for_distance" to ("Дорого для такого расстояния" to "Был ара өсөн ҡиммәт"),
+    "was_cheaper" to ("Было дешевле минуту назад" to "Бер минут элек арзаныраҡ ине"),
+    "line_unclear" to ("Не понимаю строку в счёте" to "Иҫәптәге юлды аңламайым"),
+    "other" to ("Другое" to "Башҡа"),
+)
+
+@Composable
+private fun TaxiPriceComplaintButton(estimate: InstantEstimateDto) {
+    var open by remember { mutableStateOf(false) }
+    var sent by remember { mutableStateOf(false) }
+    var comment by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    if (sent) {
+        Surface(shape = CanonItemShape, color = CanonPoolingBg, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                appText("Спасибо. Посмотрим и ответим", "Рәхмәт. Ҡарап сығып яуап бирербеҙ"),
+                color = CanonPooling, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(CanonSpace.md),
+            )
+        }
+        return
+    }
+
+    TextButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            appText("Что-то не так с ценой?", "Хаҡ менән нимәлер дөрөҫ түгелме?"),
+            color = CanonMuted, fontSize = 12.sp,
+        )
+    }
+    if (!open) return
+
+    AlertDialog(
+        onDismissRequest = { open = false },
+        containerColor = CanonSurface,
+        title = {
+            Text(appText("Что не так с ценой?", "Хаҡта нимә дөрөҫ түгел?"),
+                color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                PriceComplaintReasons.forEach { (code, labels) ->
+                    Surface(
+                        onClick = {
+                            open = false
+                            scope.launch {
+                                ApiClient.sendPriceComplaint(
+                                    price = estimate.priceToPay,
+                                    reason = code,
+                                    comment = comment,
+                                    breakdown = mapOf(
+                                        "ride_price" to estimate.ridePrice,
+                                        "pickup_fee" to estimate.pickupFee,
+                                        "options_fee" to estimate.optionsFee,
+                                        "price" to estimate.price,
+                                    ),
+                                )
+                                sent = true
+                            }
+                        },
+                        shape = CanonItemShape,
+                        color = CanonBg,
+                        border = BorderStroke(1.dp, CanonBorder),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    ) {
+                        Text(
+                            appText(labels.first, labels.second),
+                            color = CanonText, fontSize = 14.sp, lineHeight = 20.sp,
+                            modifier = Modifier.padding(CanonSpace.md),
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it.take(300) },
+                    placeholder = {
+                        Text(appText("Можно словами (необязательно)", "Һүҙ менән дә була (мотлаҡ түгел)"),
+                            color = CanonMuted, fontSize = 14.sp)
+                    },
+                    singleLine = false,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { open = false }) {
+                Text(appText("Закрыть", "Ябырға"), color = CanonMuted)
+            }
+        },
+    )
 }
 
 // ------------------------------ Промокод в такси: выгода и честность ------------------------------
@@ -454,7 +670,7 @@ private fun taxiPromoHonestText(): String = appText(
  * Скидки нет → карточка не рисуется вовсе: обычному заказу лишняя плашка только мешает.
  */
 @Composable
-private fun TaxiPromoPayRow(order: InstantOrderDto, forDriver: Boolean, modifier: Modifier = Modifier) {
+internal fun TaxiPromoPayRow(order: InstantOrderDto, forDriver: Boolean, modifier: Modifier = Modifier) {
     if (!order.hasPromoDiscount) return
     val savedText = formatTaxiKop(order.promoDiscountKop)
     Surface(color = CanonMint, shape = CanonItemShape, modifier = modifier.fillMaxWidth()) {
@@ -502,7 +718,7 @@ private fun TaxiPromoPayRow(order: InstantOrderDto, forDriver: Boolean, modifier
  * а не досчитывает пропущенное.
  */
 @Composable
-private fun rememberNowMs(): State<Long> {
+internal fun rememberNowMs(): State<Long> {
     val state = remember { mutableStateOf(System.currentTimeMillis()) }
     val owner = LocalLifecycleOwner.current
     LaunchedEffect(owner) {
@@ -517,7 +733,7 @@ private fun rememberNowMs(): State<Long> {
 }
 
 /** Секунды → «M:SS». Часы не нужны: дольше двух часов мы цифру ожидания вообще не показываем. */
-private fun mmSs(sec: Long): String {
+internal fun mmSs(sec: Long): String {
     val s = sec.coerceAtLeast(0)
     return "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
 }
@@ -561,6 +777,18 @@ internal fun rememberMyPoint(active: Boolean = true): State<Point?> {
  *  car/carBearing (B7a-3) — live-позиция машины (нав-стрелка, как у попутки): один placemark,
  *  двигаем geometry без пересоздания — плавно и без мигания.
  *  Локаль MapKit задаётся при первой карте приложения; тут только initialize (повторный setLocale бы упал). */
+/** Навести камеру так, чтобы в кадр попали обе точки маршрута. Одна на создание и на кнопку. */
+private fun fitRouteCamera(map: com.yandex.mapkit.map.Map, from: Point, to: Point) {
+    runCatching {
+        val bbox = com.yandex.mapkit.geometry.BoundingBox(
+            Point(minOf(from.latitude, to.latitude), minOf(from.longitude, to.longitude)),
+            Point(maxOf(from.latitude, to.latitude), maxOf(from.longitude, to.longitude)),
+        )
+        val fit = map.cameraPosition(com.yandex.mapkit.geometry.Geometry.fromBoundingBox(bbox))
+        map.move(CameraPosition(fit.target, (fit.zoom - 0.6f).coerceIn(3f, 15f), 0f, 0f))
+    }
+}
+
 @Composable
 internal fun InstantRouteMap(
     from: Point?,
@@ -569,6 +797,9 @@ internal fun InstantRouteMap(
     car: Point? = null,
     carBearing: Double? = null,
     nearbyDrivers: List<com.yuldash.app.data.NearbyDriverDto> = emptyList(),
+    // Счётчик «наведись на маршрут заново». Меняется — камера возвращается к А и Б.
+    // Нужен кнопке возврата: увёл карту пальцем — машина пропадала из кадра насовсем.
+    recenterTick: Int = 0,
 ) {
     val ctx = LocalContext.current
     // Цвет маршрута берём из токена темы, а не из константы: в тёмной теме CanonGreen2 светлее,
@@ -636,14 +867,7 @@ internal fun InstantRouteMap(
                     }
                 )
             }.getOrNull()
-            runCatching {
-                val bbox = com.yandex.mapkit.geometry.BoundingBox(
-                    Point(minOf(from.latitude, to.latitude), minOf(from.longitude, to.longitude)),
-                    Point(maxOf(from.latitude, to.latitude), maxOf(from.longitude, to.longitude)),
-                )
-                val fit = map.cameraPosition(com.yandex.mapkit.geometry.Geometry.fromBoundingBox(bbox))
-                map.move(CameraPosition(fit.target, (fit.zoom - 0.6f).coerceIn(3f, 15f), 0f, 0f))
-            }
+            fitRouteCamera(map, from, to)
         } else {
             (from ?: to)?.let { map.move(CameraPosition(it, 14f, 0f, 0f)) }
         }
@@ -652,6 +876,16 @@ internal fun InstantRouteMap(
             added.forEach { runCatching { map.mapObjects.remove(it) } }
         }
     }
+    // Кнопка «вернуть карту»: возвращаем камеру к маршруту. Первый проход пропускаем —
+    // при создании карта уже наведена, и повторное движение выглядело бы дёрганьем.
+    LaunchedEffect(recenterTick) {
+        if (recenterTick > 0) {
+            val map = mapView.mapWindow.map
+            if (from != null && to != null) fitRouteCamera(map, from, to)
+            else (from ?: to)?.let { map.move(CameraPosition(it, 14f, 0f, 0f)) }
+        }
+    }
+
     // Маркер машины (live-трек, B7a-3): нав-стрелка (как стрелка попутчика), поворот по bearing.
     // Placemark один на жизнь карты — обновляем geometry/direction, не пересоздаём (без мигания).
     val carPm = remember { mutableStateOf<com.yandex.mapkit.map.PlacemarkMapObject?>(null) }
@@ -685,17 +919,66 @@ internal fun InstantRouteMap(
         }
     }
     // «Честные машины рядом»: показываем ТОЛЬКО до выбора адреса (to == null), чтобы не мешать
-    // маршруту. Каждая машинка — реальная точка из presence + ≈ETA (без цены и без личности).
-    DisposableEffect(nearbyDrivers, to, etaMinWord) {
+    // маршруту. Каждая машинка — реальная точка из presence (без цены и без личности).
+    //
+    // Зум карты держим в состоянии: от него зависит, сливать ли соседние машины в один
+    // кружок. Слушатель камеры срабатывает на каждый кадр движения, поэтому записываем
+    // только заметные изменения — иначе перерисовка идёт на каждый пиксель жеста.
+    var mapZoom by remember { mutableFloatStateOf(mapView.mapWindow.map.cameraPosition.zoom) }
+    DisposableEffect(Unit) {
+        val listener = com.yandex.mapkit.map.CameraListener { _, pos, _, _ ->
+            if (kotlin.math.abs(pos.zoom - mapZoom) > 0.4f) mapZoom = pos.zoom
+        }
+        mapView.mapWindow.map.addCameraListener(listener)
+        onDispose { runCatching { mapView.mapWindow.map.removeCameraListener(listener) } }
+    }
+    // Куда машины ехали в прошлый раз — чтобы новое положение не «телепортировалось».
+    val prevCars = remember { mutableStateOf<List<Point>>(emptyList()) }
+    val carShown = remember { mutableStateOf<List<Point>>(emptyList()) }
+    // Класс кузова каждой машины — тем же порядком, что и точки: сопоставление по близости
+    // сохраняет порядок целевого списка, поэтому индексы совпадают.
+    val carCats = remember { mutableStateOf<List<String?>>(emptyList()) }
+    LaunchedEffect(nearbyDrivers, to) {
+        val target = if (to == null) nearbyDrivers.map { Point(it.lat, it.lng) } else emptyList()
+        carCats.value = if (to == null) nearbyDrivers.map { it.category } else emptyList()
+        val from = matchByProximity(prevCars.value, target)
+        prevCars.value = target
+        if (from.isEmpty() || target.isEmpty()) { carShown.value = target; return@LaunchedEffect }
+        // Ход в 12 кадров: этого хватает, чтобы движение читалось глазом, и мало,
+        // чтобы карта не работала анимацией вместо карты.
+        val steps = 12
+        for (i in 1..steps) {
+            val k = i.toFloat() / steps
+            carShown.value = target.mapIndexed { idx, t ->
+                val f = from.getOrNull(idx) ?: t
+                Point(f.latitude + (t.latitude - f.latitude) * k,
+                      f.longitude + (t.longitude - f.longitude) * k)
+            }
+            kotlinx.coroutines.delay(60)
+        }
+        carShown.value = target
+    }
+    val тёмная = appIsDark()
+    DisposableEffect(carShown.value, carCats.value, mapZoom, to, тёмная) {
         val map = mapView.mapWindow.map
         val carObjs = mutableListOf<com.yandex.mapkit.map.MapObject>()
-        if (to == null) {
-            nearbyDrivers.forEach { d ->
-                runCatching {
-                    carObjs += map.mapObjects.addPlacemark(Point(d.lat, d.lng)).apply {
-                        setIcon(ImageProvider.fromBitmap(carEtaBitmap("≈${d.etaMin} $etaMinWord")))
-                        setIconStyle(IconStyle().setAnchor(PointF(0.5f, 1f)))
-                    }
+        // Ячейка сетки в градусах: чем дальше камера, тем крупнее клетка и тем охотнее
+        // соседние машины собираются в одну метку. На близком зуме клетка меньше дома,
+        // и группировка не срабатывает вовсе — видно каждую машину отдельно.
+        val cell = 0.6 / Math.pow(2.0, mapZoom.toDouble() - 4.0)
+        val cats = carCats.value
+        groupCars(carShown.value, cell).forEach { (center, члены) ->
+            runCatching {
+                carObjs += map.mapObjects.addPlacemark(center).apply {
+                    // Одна машина — показываем её класс. Несколько — кружок с числом:
+                    // спорить, чьей картинкой изображать группу из эконома и бизнеса, незачем.
+                    setIcon(
+                        if (члены.size > 1) ImageProvider.fromBitmap(carClusterBitmap(члены.size))
+                        else ImageProvider.fromBitmap(
+                            mapVehicleBitmap(ctx, mapVehicleIconFor(cats.getOrNull(члены[0]), тёмная)),
+                        ),
+                    )
+                    setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0.5f)))
                 }
             }
         }
@@ -703,6 +986,62 @@ internal fun InstantRouteMap(
     }
     AndroidView(factory = { mapView }, modifier = modifier)
 }
+
+/**
+ * Сопоставить прошлые положения машин с новыми — по близости.
+ *
+ * У машин на карте НЕТ идентификатора: сервер отдаёт только координаты, чтобы по ним нельзя
+ * было проследить путь конкретного водителя. Поэтому «та же самая машина» определяется
+ * единственным доступным способом — какая из прошлых точек ближе всего к новой.
+ *
+ * Дальше километра не сопоставляем: это уже не та машина уехала, а другая появилась.
+ * Ошибка здесь стоит дёшево — машины анонимны и взаимозаменяемы, а движение выглядит живым.
+ */
+internal fun matchByProximity(prev: List<Point>, target: List<Point>): List<Point> {
+    if (prev.isEmpty() || target.isEmpty()) return emptyList()
+    val free = prev.toMutableList()
+    return target.map { t ->
+        val best = free.minByOrNull { p ->
+            val dLat = p.latitude - t.latitude
+            val dLng = (p.longitude - t.longitude) * Math.cos(Math.toRadians(t.latitude))
+            dLat * dLat + dLng * dLng
+        }
+        // ~0.01 градуса ≈ километр. Дальше — считаем, что машина новая, и ставим сразу на место.
+        if (best != null && Math.abs(best.latitude - t.latitude) < 0.01 &&
+            Math.abs(best.longitude - t.longitude) < 0.02
+        ) {
+            free.remove(best); best
+        } else t
+    }
+}
+
+/**
+ * Собрать точки, попавшие в одну клетку сетки, в одну метку с числом.
+ *
+ * Восемь машин в квартале на отдалённой карте — каша, за которой не видно ни улиц, ни
+ * маршрута. Клетка задаётся вызывающим по зуму: на близком масштабе она меньше дома
+ * и ничего не склеивает, на дальнем — собирает целый район в один кружок.
+ */
+internal fun groupCars(points: List<Point>, cell: Double): List<Pair<Point, List<Int>>> {
+    if (points.isEmpty()) return emptyList()
+    if (cell <= 0.0) return points.mapIndexed { i, p -> p to listOf(i) }
+    val buckets = LinkedHashMap<Pair<Long, Long>, MutableList<Int>>()
+    points.forEachIndexed { i, p ->
+        val key = Math.round(p.latitude / cell) to Math.round(p.longitude / cell)
+        buckets.getOrPut(key) { mutableListOf() }.add(i)
+    }
+    return buckets.values.map { члены ->
+        // Метка встаёт в середину своей группы, а не в угол клетки: иначе кружок
+        // повисает на пустом месте рядом с машинами, которые он изображает.
+        val lat = члены.sumOf { points[it].latitude } / члены.size
+        val lng = члены.sumOf { points[it].longitude } / члены.size
+        Point(lat, lng) to члены.toList()
+    }
+}
+
+/** То же самое, но без состава группы — только точка и сколько машин в ней. */
+internal fun groupPoints(points: List<Point>, cell: Double): List<Pair<Point, Int>> =
+    groupCars(points, cell).map { (center, члены) -> center to члены.size }
 
 // ==================================== ПАССАЖИР ====================================
 
@@ -726,6 +1065,13 @@ internal fun InstantOrderScreen(
     embedded: Boolean = false,
     onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Скоро» водитель может уйти в онбординг таксиста
     onOpenScheduled: () -> Unit = {},    // «На время»: предзаказ создан → «Мои предзаказы»
+    // «Мои адреса»: дом, работа и свои места. Из шторки заказа туда ведёт постоянная строка —
+    // без неё завести второй адрес неоткуда (решение Александра, Q2).
+    onSavedPlaces: () -> Unit = {},
+    // Чем рассчитываются с водителем и куда идти это менять. Экран сам ничего не помнит:
+    // выбор живёт выше и переживает уход с экрана — платят изо дня в день одинаково.
+    payMethod: String = PayMethods.CASH,
+    onOpenPayments: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val loggedIn = ApiClient.isLoggedIn()
@@ -890,6 +1236,23 @@ internal fun InstantOrderScreen(
                 current.status == "cancelled" -> "cancelled"
                 else -> "done"
             }
+            // Пока человек едет, экран принадлежит поездке: переключатель сервисов и нижнее
+            // меню прячутся (их читают HomeShell и PassengerModeHome).
+            //
+            // Сигнал НЕ гасим при уходе с экрана — специально. Человек может уйти в чат или
+            // профиль, и поездка от этого не заканчивается: наоборот, именно тогда ему нужна
+            // полоска «Ильдар едет · 3 мин» сверху. Гасит сигнал наблюдатель в HomeShell,
+            // когда заказ действительно завершился.
+            LaunchedEffect(phase, current?.id) {
+                if (phase == "enroute") NavSignals.activeTaxiTrip.value = current?.id ?: 0
+                else if (current == null || current.isTerminal) NavSignals.activeTaxiTrip.value = 0
+            }
+            // А вот «экран поездки прямо сейчас на виду» — состояние ровно этого экрана,
+            // и оно обязано сбрасываться при уходе: иначе полоска не покажется никогда.
+            DisposableEffect(phase) {
+                if (phase == "enroute") NavSignals.taxiTripOnScreen.value = true
+                onDispose { NavSignals.taxiTripOnScreen.value = false }
+            }
             AnimatedContent(
                 targetState = phase,
                 // Спокойный кросс-фейд с еле заметным подъёмом: смена фазы читается как движение,
@@ -941,6 +1304,10 @@ internal fun InstantOrderScreen(
                     }
                     "picker" -> InstantDestinationPicker(
                         onOrderCreated = { order = it },
+                        onSavedPlaces = onSavedPlaces,
+                        embedded = embedded,
+                        payMethod = payMethod,
+                        onOpenPayments = onOpenPayments,
                         onScheduled = { scheduled ->
                             scheduledConfirmId = scheduled.id
                             scheduledConfirmAt = scheduled.scheduledAt
@@ -952,13 +1319,19 @@ internal fun InstantOrderScreen(
                     // В «Водитель едет» перед этим отрабатывает своё предупреждение о платной
                     // подаче — порядок «деньги → причина → отмена» специально не меняем.
                     "searching" -> current?.let { o ->
-                        InstantSearchingCard(
+                        // Волна 160: поиск машины переехал на общую шторку — карта во весь
+                        // рост с радаром вокруг точки подачи. Старая карточка
+                        // (InstantSearchingCard) пока жива рядом, удалим после проверки.
+                        TaxiSearchingScreen(
                             order = o,
                             onCancel = { cancelReasonForId = o.id },
                         )
                     }
                     "enroute" -> current?.let { o ->
-                        InstantDriverEnRouteCard(
+                        // Волна 160: поездка переехала на собственный экран — карта во весь
+                        // рост, шторка с тремя положениями. Старая карточка (InstantDriverEnRouteCard)
+                        // пока жива рядом: удалим её, когда новый экран отходит на людях.
+                        TaxiTripScreen(
                             order = o,
                             onCancel = { cancelReasonForId = o.id },
                         )
@@ -1141,6 +1514,18 @@ private fun InstantRetryCard(onRetry: () -> Unit, onBack: () -> Unit) {
 /** Русское склонение: «1 машина», «2 машины», «5 машин». Раньше всегда было «N машин рядом»,
  *  и при одной свободной машине бейдж читался как опечатка. В башкирском счётное слово
  *  остаётся в единственном числе — там менять нечего. */
+/** Счётное слово к минутам: 1 минута, 2 минуты, 5 минут. В башкирском форма одна. */
+private fun minutesWordRu(n: Int): String {
+    val h = n % 100
+    val t = n % 10
+    return when {
+        h in 11..14 -> "минут"
+        t == 1 -> "минуту"
+        t in 2..4 -> "минуты"
+        else -> "минут"
+    }
+}
+
 private fun carsWordRu(n: Int): String {
     val h = n % 100
     val t = n % 10
@@ -1172,6 +1557,8 @@ private fun InstantNearbyBadge(
     loaded: Boolean,
     routeSet: Boolean,
     modifier: Modifier = Modifier,
+    // Через сколько минут приедет ближайшая. 0 — не знаем (машин нет или ещё грузим).
+    etaMin: Int = 0,
 ) {
     AnimatedVisibility(
         visible = loaded && (count > 0 || routeSet),
@@ -1190,10 +1577,16 @@ private fun InstantNearbyBadge(
                     tint = if (count > 0) CanonTaxi else CanonMuted, modifier = Modifier.size(16.dp),
                 )
                 Spacer(Modifier.width(4.dp))
-                AnimatedContent(targetState = count, label = "nearbyCount") { n ->
+                // Отвечаем на вопрос «когда за мной приедут», а не «сколько машин вокруг».
+                // Счётчик машин человеку ничего не решает: одна в двух минутах лучше пяти
+                // в пятнадцати. Число оставляем только когда минут ещё не знаем.
+                AnimatedContent(targetState = count to etaMin, label = "nearbyEta") { (n, eta) ->
                     Text(
-                        if (n > 0) appText("$n ${carsWordRu(n)} рядом", "$n машина яҡында")
-                        else appText("Рядом машин нет — поищем дальше", "Яҡында машина юҡ — арыраҡ ҡарайбыҙ"),
+                        when {
+                            n > 0 && eta > 0 -> appText("Машина за $eta ${minutesWordRu(eta)}", "Машина $eta минутта")
+                            n > 0 -> appText("$n ${carsWordRu(n)} рядом", "$n машина яҡында")
+                            else -> appText("Рядом машин нет — поищем дальше", "Яҡында машина юҡ — арыраҡ ҡарайбыҙ")
+                        },
                         color = if (n > 0) CanonText else CanonMuted,
                         fontSize = TxCaption, lineHeight = LhCaption, fontWeight = FontWeight.Bold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -1291,6 +1684,12 @@ private fun InstantAddressResults(
 private fun InstantDestinationPicker(
     onOrderCreated: (InstantOrderDto) -> Unit,
     onScheduled: (InstantOrderDto) -> Unit = {},
+    onSavedPlaces: () -> Unit = {},
+    // Экран встроен в хаб (под ним своя нижняя панель) или открыт отдельно. От этого зависит,
+    // берёт ли шторка запас под системную навигацию — иначе отступ считается дважды.
+    embedded: Boolean = false,
+    payMethod: String = PayMethods.CASH,
+    onOpenPayments: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1346,6 +1745,14 @@ private fun InstantDestinationPicker(
     // «Только женщина за рулём». В попутках выбор был всегда, в такси его не было — хотя
     // ночью в машину к незнакомому человеку садятся именно здесь (аудит 2026-08-06).
     var womenOnly by rememberSaveable { mutableStateOf(false) }
+    // Остановки по пути: «заедем за мамой», «в аптеку». Смысл в том, что за них платят —
+    // иначе водитель везёт лишние километры даром, а пассажир не понимает, почему цена та же.
+    var stops by remember { mutableStateOf<List<com.yuldash.app.data.TaxiStop>>(emptyList()) }
+    var addingStop by remember { mutableStateOf(false) }
+    // Круговой рейс: «отвези и привези обратно». Доступен только на межгороде — решает сервер.
+    var roundTrip by rememberSaveable { mutableStateOf(false) }
+    // Сколько водитель ждёт на месте. Час по умолчанию: типичное «сходить и вернуться».
+    var returnWaitMin by rememberSaveable { mutableIntStateOf(60) }
     var forOther by rememberSaveable { mutableStateOf(false) } // заказ ДЛЯ ДРУГОГО человека
     var forName by rememberSaveable { mutableStateOf("") }
     var forPhone by rememberSaveable { mutableStateOf("") }
@@ -1375,6 +1782,9 @@ private fun InstantDestinationPicker(
     val createFailMsg = appText("Не удалось создать заказ. Повтори.", "Заказ булманы. Ҡабатла.")
     val myPosText = appText("Моя позиция", "Минең урын")
     val mapPointText = appText("Точка на карте", "Картала нөктә")
+    // Пока геокодер отвечает. Показываем не пустоту и не «Точка на карте»: человек должен
+    // видеть, что адрес сейчас появится, иначе решит, что так и останется.
+    val resolvingText = appText("Определяем адрес…", "Адресты билдәләйбеҙ…")
 
     // Единый путь запроса (Permissions.kt): объясняем зачем → просим → если система больше
     // не спрашивает, ведём в настройки. Раньше был голый launch(): после двух отказов кнопка
@@ -1405,12 +1815,13 @@ private fun InstantDestinationPicker(
     }
 
     // Оценка цены, когда есть обе точки (и при смене класса — тариф другой).
-    LaunchedEffect(effFrom, toPoint, category, estimateTick) {
+    LaunchedEffect(effFrom, toPoint, category, estimateTick, roundTrip, returnWaitMin, stops) {
         val f = effFrom; val t = toPoint
         if (f == null || t == null) { estimate = null; return@LaunchedEffect }
         delay(350)   // дебаунс: позиция уточняется GPS-фиксами — не дёргаем /estimate на каждый
         estimating = true; errorText = null
-        ApiClient.instantEstimate(f.latitude, f.longitude, t.latitude, t.longitude, fromText, toText, category)
+        ApiClient.instantEstimate(f.latitude, f.longitude, t.latitude, t.longitude, fromText, toText, category,
+            roundTrip = roundTrip, returnWaitMin = returnWaitMin, stops = stops)
             .onSuccess { estimate = it }
             .onFailure {
                 estimate = null   // сбрасываем устаревшую цену → кнопка «Вызвать» гаснет, не заказываем по старой оценке
@@ -1419,16 +1830,22 @@ private fun InstantDestinationPicker(
         estimating = false
     }
 
-    // «Честные машины рядом»: пока адрес Б не выбран — реальные машины на линии рядом (presence).
-    // Обновляем раз в 15с. Выбрал адрес → прячем (на карте появится маршрут). Нет — просто пусто.
+    // «Честные машины рядом»: реальные машины на линии у точки А (presence), раз в 15с.
+    // Отвечают на вопрос «когда за мной приедут» — и до выбора адреса Б, и после него.
+    //
+    // Раньше опрос выключался, как только выбран адрес Б, а список обнулялся. Ноль машин
+    // при выбранном маршруте попадал в ветку «рядом машин нет — поищем дальше», и человек
+    // читал это ровно над кнопкой «Вызвать»: машина стоит в минуте езды, а приложение
+    // отговаривает заказывать. На самом деле это было не «машин нет», а «я перестал
+    // спрашивать» — разницу видно только из кода. На карте машины по-прежнему прячутся
+    // при выбранном маршруте (см. блок отрисовки), там их место занимает сам маршрут.
     var nearbyDrivers by remember { mutableStateOf<List<com.yuldash.app.data.NearbyDriverDto>>(emptyList()) }
     // Пришёл ли хоть один УСПЕШНЫЙ ответ. Без этого «машин рядом нет» и «ещё не спросили»
     // выглядят одинаково — пустым местом, и мы молча врём человеку, что рядом пусто.
     var nearbyLoaded by remember { mutableStateOf(false) }
     // Пока экран перед глазами — переспрашиваем, какие машины рядом. Свернул приложение →
     // опрос засыпает: искать машины для человека, который сейчас не выбирает поездку, незачем.
-    RepeatWhileVisible(effFrom, toPoint) {
-        if (toPoint != null) { nearbyDrivers = emptyList(); return@RepeatWhileVisible }
+    RepeatWhileVisible(effFrom) {
         val f = effFrom ?: return@RepeatWhileVisible
         var fails = 0
         while (isActive) {
@@ -1442,134 +1859,178 @@ private fun InstantDestinationPicker(
         }
     }
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        MobilityScreenIntro(
-            mode = MobilityMode.Taxi,
-            title = appText("Куда едем?", "Ҡайҙа барабыҙ?"),
-            subtitle = appText(
-                "Маршрут, время подачи и цена — до вызова машины.",
-                "Маршрут, килеү ваҡыты һәм хаҡ — машинаны саҡырғансы.",
-            ),
-            badge = appText("Такси", "Такси"),
-        )
+    // Шторка над картой — тот же язык, что у экрана поездки (TaxiSheet.kt).
+    //
+    // Было: одна простыня из семнадцати блоков, и до кнопки «Вызвать» человек прокручивал
+    // пять экранов. Заказ такси читался как список настроек, а не как «поехали».
+    //
+    // Стало: карта во весь рост; свёрнутая шторка показывает откуда и куда, средняя — тарифы,
+    // цену и кнопку, полная — всё остальное. Пока маршрут не задан, шторка открыта: там поле
+    // адреса и быстрый выбор, ради которых человек сюда и пришёл.
+    // Счётчик «наведи камеру заново». Растёт по кнопке возврата; сама карта по нему решает,
+    // показать маршрут целиком или вернуться к одной точке.
+    var mapRecenterTick by remember { mutableIntStateOf(0) }
+    var sheetStop by remember { mutableStateOf(TaxiSheetStop.Full) }
+    var sheetTouched by remember { mutableStateOf(false) }
+    // Выбрал адрес — сама съезжает к тарифам и кнопке. Пока он их не трогал руками.
+    LaunchedEffect(toPoint != null) {
+        if (!sheetTouched) sheetStop = if (toPoint == null) TaxiSheetStop.Full else TaxiSheetStop.Half
+    }
 
-        // Карта с РЕАЛЬНЫМИ машинами рядом (честно, без выдуманной цены): видно, что помощь близко.
-        // Показываем, только когда знаем позицию. Машинки — из presence, ≈ETA до подачи.
-        if (effFrom != null) {
-            Card(shape = CanonItemShape, colors = CardDefaults.cardColors(containerColor = CanonSurface),
-                elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
-                Box {
-                    InstantRouteMap(
-                        from = effFrom, to = null, nearbyDrivers = nearbyDrivers,
-                        modifier = Modifier.fillMaxWidth().height(190.dp),
-                    )
-                    InstantNearbyBadge(
-                        count = nearbyDrivers.size,
-                        loaded = nearbyLoaded,
-                        routeSet = toPoint != null,
-                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-                    )
-                }
-            }
-        }
-
-        // Точка А
-        Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
-            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.MyLocation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        appText("Откуда", "Ҡайҙан"),
-                        color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
-                    )
-                    val label = when {
-                        fromManual && fromText.isNotBlank() -> fromText
-                        effFrom != null -> appText("Моя позиция", "Минең урын")
-                        hasLocPerm -> appText("Определяем…", "Билдәләйбеҙ…")
-                        else -> appText("Включи геолокацию", "Геолокацияны ҡабыҙ")
-                    }
-                    // «Определяем…» → «Моя позиция» приходило рывком, будто экран моргнул.
-                    AnimatedContent(targetState = label, label = "fromLabel") { text ->
-                        Text(
-                            text, color = CanonText, fontSize = TxBody, lineHeight = LhBody,
-                            fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                // Тач-цель: у TextButton своя высота 40dp — ниже нормы 48dp, а мимо этой кнопки
-                // человек промахивается в перчатках, стоя на остановке.
-                if (!hasLocPerm && !fromManual) {
-                    TextButton(
-                        onClick = { askMyLocation() },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) {
-                        Text(
-                            appText("Включить", "Ҡабыҙ"), color = CanonGreen2,
-                            fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
-                        )
-                    }
-                } else {
-                    TextButton(onClick = { pickFromOnMap = true }, modifier = Modifier.heightIn(min = 48.dp)) {
-                        Text(
-                            appText("На карте", "Картала"), color = CanonGreen2,
-                            fontSize = TxBody, lineHeight = LhBody,
-                        )
-                    }
-                }
-            }
-        }
-
-        // Быстрый выбор: Дом/Работа + недавние (до ввода адреса). Тап подставляет адрес и координаты сразу.
-        if (toPoint == null) {
-            // Ничего не загрузилось и была ошибка → честно говорим об этом. Загрузилась хотя бы
-            // часть — показываем её и не пугаем: адреса на месте, просто связь моргнула.
-            if (placesFailed && savedPlaces.isEmpty() && recentPlaces.isEmpty()) {
-                AppErrorState(
-                    onRetry = { placesReload++ },
-                    title = appText("Не удалось загрузить твои адреса", "Адрестарыңды йөкләп булманы"),
-                    text = appText(
-                        "Дом, работа и недавние поездки никуда не делись — просто пропала связь.",
-                        "Өй, эш һәм һуңғы сәфәрҙәр юғалманы — тик бәйләнеш өҙөлдө.",
-                    ),
+    TaxiSheetScaffold(
+        stop = sheetStop,
+        onStopChange = { sheetTouched = true; sheetStop = it },
+        // Встроенный в хаб экран стоит НАД нижней панелью приложения — запас под системную
+        // навигацию уже взят ею. Отдельный экран такси последний, там запас нужен.
+        underSystemBar = !embedded,
+        map = { m ->
+            // Карта с РЕАЛЬНЫМИ машинами рядом (честно, без выдуманной цены): видно, что
+            // помощь близко. Машинки — из presence, ≈ETA до подачи.
+            Box(m) {
+                InstantRouteMap(
+                    from = effFrom,
+                    to = toPoint,
+                    nearbyDrivers = nearbyDrivers,
+                    recenterTick = mapRecenterTick,
+                    modifier = Modifier.fillMaxSize(),
                 )
-            } else {
-                QuickPlacesBlock(
-                    saved = savedPlaces,
-                    recent = recentPlaces,
-                    onPick = { address, lat, lng -> pickDestination(address, lat, lng) },
+                InstantNearbyBadge(
+                    count = nearbyDrivers.size,
+                    loaded = nearbyLoaded,
+                    routeSet = toPoint != null,
+                    // Ближайшая из тех, кто на линии. Не среднее и не «примерно»: человек
+                    // планирует по самому раннему сроку, а не по среднему по больнице.
+                    etaMin = nearbyDrivers.minOfOrNull { it.etaMin } ?: 0,
+                    modifier = Modifier.align(Alignment.TopStart).padding(CanonSpace.md),
                 )
-            }
-        }
-
-        // Точка Б: поиск + «на карте»
-        Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
-            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = if (toPoint != null && query.isBlank()) toText else query,
-                    onValueChange = { query = it; if (it.isBlank()) { toPoint = null; estimate = null } },
-                    label = { Text(appText("Куда", "Ҡайҙа")) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = CanonMuted) },
-                    // Карта живёт прямо в поле: одно место для «куда», два способа его задать.
-                    trailingIcon = {
-                        IconButton(
-                            onClick = { pickOnMap = true },
-                            modifier = Modifier.size(48.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.Map,
-                                contentDescription = appText("Выбрать точку на карте", "Картала нөктә һайлау"),
-                                tint = CanonGreen2,
-                                modifier = Modifier.size(22.dp),
-                            )
+                // Вернуть карту. Одна кнопка на два случая: маршрут не задан — ведёт к тебе,
+                // задан — показывает всю поездку целиком. Механизм внутри карты сам разбирает,
+                // какой случай; кнопке остаётся его позвать.
+                val hasRoute = toPoint != null
+                Surface(
+                    onClick = {
+                        // Ровно как в попутке: выключена — включаем (спросив разрешение),
+                        // включена — ведём карту. Выключить кнопкой нельзя намеренно:
+                        // её жмут, чтобы найти себя, а не чтобы потеряться. Выключение —
+                        // в Профиль → Конфиденциальность, где оно осознанное.
+                        when {
+                            LocationPrefs.sharingEnabled -> mapRecenterTick++
+                            hasLocPerm -> LocationPrefs.sharingEnabled = true
+                            else -> askMyLocation()
                         }
                     },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                    shape = CircleShape,
+                    color = CanonSurface,
+                    shadowElevation = CanonDepth.raised,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(CanonSpace.md)
+                        .size(48.dp),   // тач-цель 48dp (a11y §4.5)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            if (hasRoute) Icons.Default.ZoomOutMap else Icons.Default.NearMe,
+                            contentDescription = if (hasRoute)
+                                appText("Показать весь путь", "Бөтә юлды күрһәтеү")
+                            else appText("Где я", "Мин ҡайҙа"),
+                            tint = CanonGreen2,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+        },
+        header = {
+            // Обе точки — в ОДНОЙ карточке. Маршрут это одна вещь, «откуда и куда»; двумя
+            // отдельными плашками с зазором он читался как два независимых вопроса.
+            // Строки разделяет черта, начинающаяся под текстом, а не от края: приём списков,
+            // он и говорит, что строки принадлежат одному объекту.
+            Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) {
+                    OrderPointRow(
+                        icon = Icons.Default.MyLocation,
+                        tint = CanonGreen2,
+                        text = when {
+                            fromManual && fromText.isNotBlank() -> fromText
+                            effFrom != null -> appText("Моя позиция", "Минең урын")
+                            hasLocPerm -> appText("Определяем…", "Билдәләйбеҙ…")
+                            else -> appText("Включи геолокацию", "Геолокацияны ҡабыҙ")
+                        },
+                        actionLabel = if (!hasLocPerm && !fromManual) appText("Включить", "Ҡабыҙ")
+                                      else appText("На карте", "Картала"),
+                        onAction = { if (!hasLocPerm && !fromManual) askMyLocation() else pickFromOnMap = true },
+                    )
+                    // Между «откуда» и «куда» — не просто черта, а место для остановки:
+                    // кружок с плюсом в колонке точек маршрута. Пока добавлять больше нельзя,
+                    // остаётся обычная черта.
+                    //
+                    // Отступ слева равен ширине иконки с полями: черта идёт под текстом,
+                    // а не под точкой маршрута — иначе она разрезала бы сам маршрут пополам.
+                    if (toPoint != null && stops.size < InstantStopsMax) {
+                        OrderInsertStopRow(onClick = { addingStop = true })
+                    } else {
+                        Box(
+                            Modifier
+                                .padding(start = 50.dp)
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(CanonBorder),
+                        )
+                    }
+                    // Остановки по пути — между «откуда» и «куда», в порядке заезда.
+                    // Раньше они жили отдельным блоком ниже по списку, и маршрут читался
+                    // разорванным: две точки сверху, а то, что между ними, — где-то там.
+                    stops.forEachIndexed { i, stop ->
+                        OrderStopRow(
+                            text = stop.text,
+                            onRemove = { stops = stops.filterIndexed { j, _ -> j != i } },
+                        )
+                        Box(
+                            Modifier
+                                .padding(start = 50.dp)
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(CanonBorder),
+                        )
+                    }
+                    if (toPoint != null) {
+                        OrderDestinationRow(
+                            text = toText.ifBlank { appText("Точка на карте", "Картала нөктә") },
+                            // Время в пути — подписью под адресом. Сервер его считает всегда,
+                            // а видно его было только в раскрытых деталях заказа: человек знал
+                            // цену и не знал, во сколько будет на месте.
+                            tripMin = estimate?.etaMin?.toInt()?.takeIf { it > 0 },
+                            onEdit = { toPoint = null; query = ""; estimate = null },
+                        )
+
+                    } else {
+                        // Поле «куда» — в шапке, а не в прокрутке. Шапка видна в любом положении
+                        // шторки, и свёрнутая шторка остаётся рабочей: карта во весь рост, а задать
+                        // адрес по-прежнему можно, не разворачивая список.
+                        InstantWhereField(
+                            value = query,
+                            onValueChange = { q ->
+                                query = q
+                                if (q.isBlank()) { toPoint = null; estimate = null }
+                                // Начал печатать — раскрываем: подсказки живут ниже, и в свёрнутом
+                                // виде человек писал бы вслепую.
+                                else if (sheetStop != TaxiSheetStop.Full) { sheetTouched = true; sheetStop = TaxiSheetStop.Full }
+                            },
+                            onMap = { pickOnMap = true },
+                        )
+                    }
+                }
+            }
+        },
+        body = {
+            if (toPoint == null) {
+                // Быстрый выбор: Дом/Работа + недавние (до ввода адреса). Тап подставляет адрес и координаты сразу.
+                // Поле «куда» — ПЕРВЫМ, список сохранённых адресов под ним. Раньше было
+                // наоборот: человек, у которого нужного адреса в списке нет (а это каждый раз,
+                // когда едешь в новое место), сначала просматривал чужие строки и только потом
+                // добирался до строки ввода. Главное действие экрана не может стоять вторым.
+                // Само поле уехало в шапку (видно в любом положении шторки), здесь остаются
+                // только подсказки: их бывает шесть, и место им в прокрутке.
                 InstantAddressResults(
                     query = query,
                     searching = searchingAddr,
@@ -1580,366 +2041,547 @@ private fun InstantDestinationPicker(
                     },
                     onRetry = { searchTick++ },
                 )
-            }
-        }
-
-        // «Сохранить как Дом/Работу» для выбранного адреса — потом заказывать в один тап.
-        if (toPoint != null && toText.isNotBlank()) {
-            SaveAsPlaceChips(
-                address = toText,
-                lat = toPoint!!.latitude,
-                lng = toPoint!!.longitude,
-                savedHome = savedPlaces.firstOrNull { it.kind == "home" },
-                savedWork = savedPlaces.firstOrNull { it.kind == "work" },
-                onSaved = { placesReload++ },
-            )
-        }
-
-        // Класс машины: Эконом / Комфорт / Бизнес / Минивэн — все цены сразу, выбранная уходит
-        // в заказ. Класс, в котором в этом городе ещё не набралось водителей, приходит с
-        // open=false: показываем «скоро» вместо кнопки, за которой пусто. Ткнуть в пустоту и
-        // не дождаться — верный способ потерять человека навсегда.
-        if (toPoint != null) {
-            val opts = estimate?.options.orEmpty().associateBy { it.category }
-            LazyRow(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
-                contentPadding = PaddingValues(horizontal = 2.dp),
-            ) {
-                items(InstantClasses, key = { it.category }) { cls ->
-                    val opt = opts[cls.category]
-                    val isOpen = opt?.open ?: true
-                    InstantClassCard(
-                        title = appText(cls.titleRu, cls.titleBa),
-                        subtitle = if (isOpen) appText(cls.subtitleRu, cls.subtitleBa)
-                        else appText("скоро", "тиҙҙән"),
-                        price = opt?.price,
-                        selected = isOpen && category == cls.category,
-                        enabled = isOpen,
-                        onClick = {
-                            if (isOpen) {
-                                category = cls.category
-                            } else {
-                                // Нажатие на закрытый класс — это заявка спроса. Считаем её:
-                                // так видно, сколько людей ждут Бизнес в Уфе, ещё до того,
-                                // как мы начнём искать под него водителей.
-                                Analytics.log("class_wanted_${cls.category}")
-                                classWanted = cls.category
-                            }
-                        },
-                        modifier = Modifier.width(156.dp),
-                    )
-                }
-            }
-        }
-
-        // Подтверждение по «скоро»-классу: тёплым текстом, без формы и обещаний срока.
-        AnimatedVisibility(
-            visible = classWanted != null,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
-        ) {
-            Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
-                Row(
-                    Modifier.fillMaxWidth().padding(CanonSpace.md),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("🔔", fontSize = TxTitle, lineHeight = LhTitle)
-                    Spacer(Modifier.width(CanonSpace.sm))
-                    Text(
-                        appText(
-                            "Записали. Напишем, как только этот класс появится рядом.",
-                            "Яҙып ҡуйҙыҡ. Был класс яҡында барлыҡҡа килгәс, хәбәр итәбеҙ.",
-                        ),
-                        color = CanonText, fontSize = TxBody, lineHeight = LhBody,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-        }
-
-        // Что нужно в салоне: детское кресло по возрасту, коляска, животное, багаж.
-        // Это НЕ класс — галочка поверх любого класса: машина не может стоять в двух классах,
-        // а кресло возить может любая. Фильтр на сервере жёсткий: без кресла заказ не придёт.
-        if (toPoint != null) {
-            InstantOptionsBlock(
-                selected = orderOptions,
-                onToggle = { code ->
-                    val next = if (code in orderOptions) orderOptions - code else orderOptions + code
-                    orderOptionsCsv = next.joinToString(",")
-                },
-            )
-        }
-
-        // Сурж — честно и ДО заказа: почему дороже и на сколько (потолок ×1.5 на сервере).
-        AnimatedVisibility(
-            visible = (estimate?.surgeK ?: 1.0) > 1.0,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
-        ) {
-            val est = estimate
-            val pct = (((est?.surgeK ?: 1.0) - 1.0) * 100).toInt()
-            Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
-                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("⚡", fontSize = TxTitle, lineHeight = LhTitle)
-                    Spacer(Modifier.width(8.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            // Серверный текст (двуязычный) — источник правды; локальный — фолбэк.
-                            appText(
-                                est?.surgeNoteRu?.ifBlank { null } ?: "Сейчас заказов больше обычного — цена выше на $pct%. Вызвать или подождать?",
-                                est?.surgeNoteBa?.ifBlank { null } ?: "Хәҙер заказдар күберәк — хаҡ $pct%-ҡа юғарыраҡ. Саҡырырғамы, әллә көтөргәме?",
+                if (toPoint == null) {
+                    // Ничего не загрузилось и была ошибка → честно говорим об этом. Загрузилась хотя бы
+                    // часть — показываем её и не пугаем: адреса на месте, просто связь моргнула.
+                    if (placesFailed && savedPlaces.isEmpty() && recentPlaces.isEmpty()) {
+                        AppErrorState(
+                            onRetry = { placesReload++ },
+                            title = appText("Не удалось загрузить твои адреса", "Адрестарыңды йөкләп булманы"),
+                            text = appText(
+                                "Дом, работа и недавние поездки никуда не делись — просто пропала связь.",
+                                "Өй, эш һәм һуңғы сәфәрҙәр юғалманы — тик бәйләнеш өҙөлдө.",
                             ),
-                            color = CanonText, fontSize = TxCaption, lineHeight = LhCaption,
+                        )
+                    } else {
+                        QuickPlacesBlock(
+                            saved = savedPlaces,
+                            recent = recentPlaces,
+                            onPick = { address, lat, lng -> pickDestination(address, lat, lng) },
+                            // Убираем строку сразу, запрос летит следом. Жест, после которого
+                            // полсекунды ничего не происходит, читается как «не сработало».
+                            // Сервер отказал → перечитываем список, и адрес возвращается.
+                            onDeleteRecent = { id ->
+                                recentPlaces = recentPlaces.filterNot { it.id == id }
+                                scope.launch {
+                                    ApiClient.deleteRecentPlace(id).onFailure { placesReload++ }
+                                }
+                            },
+                            onOpenSavedPlaces = onSavedPlaces,
+                            // Убрали именованное место — список перечитываем с сервера:
+                            // порядок там свой, локально его не воспроизвести честно.
+                            onDeleteSaved = { place ->
+                                savedPlaces = savedPlaces.filterNot { it.id == place.id }
+                                scope.launch {
+                                    ApiClient.deleteSavedPlace(place.id).onFailure { placesReload++ }
+                                }
+                            },
                         )
                     }
                 }
-            }
-        }
-
-        // Оценка цены: одна крупная сумма + три ответа, которые нужны до заказа.
-        if (toPoint != null) {
-            Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape) {
-                // Три состояния цены сменяются кросс-фейдом и в ОДНОЙ высоте: раньше карточка
-                // на каждом пересчёте схлопывалась и раздувалась, и кнопка «Вызвать» прыгала
-                // под пальцем. Скелетон вместо спиннера держит форму будущего числа.
-                val estPhase = when {
-                    estimating -> "calc"
-                    errorText != null -> "err"
-                    estimate != null -> "ok"
-                    else -> "none"
-                }
-                AnimatedContent(
-                    targetState = estPhase,
-                    transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)).togetherWith(fadeOut(tween(CanonMotion.QUICK))) },
-                    label = "estimatePhase",
-                ) { phase ->
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        when (phase) {
-                            "calc" -> {
-                                SkeletonBox(widthFraction = 0.42f, height = 30.dp, shape = InstantControlShape)
-                                SkeletonBox(widthFraction = 0.72f, height = 14.dp, shape = CircleShape)
-                                Text(
-                                    appText("Считаем цену…", "Хаҡты иҫәпләйбеҙ…"),
-                                    color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
-                                )
-                            }
-                            // Ошибка больше не тупик: раньше это была красная строка без единой
-                            // кнопки — заказать нельзя, повторить нечем, выход только «назад».
-                            "err" -> {
-                                Text(
-                                    errorText ?: appText("Не удалось оценить цену", "Хаҡты баһалап булманы"),
-                                    color = CanonRed, fontSize = TxBody, lineHeight = LhBody,
-                                )
-                                Text(
-                                    appText("Проверь интернет — без цены заказывать нельзя.",
-                                        "Интернетты тикшер — хаҡһыҙ заказ итеп булмай."),
-                                    color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                AppButton(
-                                    text = appText("Повторить", "Ҡабатлау"),
-                                    onClick = { estimateTick++ },
-                                    style = AppButtonStyle.Secondary,
-                                    icon = Icons.Default.Search,
-                                    height = 48.dp,
-                                )
-                            }
-                            "ok" -> estimate?.let { est ->
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    // Доминанта экрана: сюда человек и смотрит. Со скидкой здесь
-                                    // стоит сумма, которую он реально отдаст, — а не та, которую
-                                    // «якобы» экономит: цена в кнопке и в кармане обязана совпасть.
-                                    AnimatedContent(targetState = est.priceToPay, label = "estPrice") { p ->
-                                        Text(
-                                            "$p ₽",
-                                            color = if (est.hasPromoDiscount) CanonGreen2 else CanonText,
-                                            fontSize = TxHero, lineHeight = LhHero,
-                                            fontWeight = FontWeight.Bold,
-                                        )
+            } else {
+                // Класс машины: Эконом / Комфорт / Бизнес / Минивэн — все цены сразу, выбранная уходит
+                // в заказ. Класс, в котором в этом городе ещё не набралось водителей, приходит с
+                // open=false: показываем «скоро» вместо кнопки, за которой пусто. Ткнуть в пустоту и
+                // не дождаться — верный способ потерять человека навсегда.
+                if (toPoint != null) {
+                    val opts = estimate?.options.orEmpty().associateBy { it.category }
+                    LazyRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                        contentPadding = PaddingValues(horizontal = 2.dp),
+                    ) {
+                        items(InstantClasses, key = { it.category }) { cls ->
+                            val opt = opts[cls.category]
+                            val isOpen = opt?.open ?: true
+                            InstantClassCard(
+                                title = appText(cls.titleRu, cls.titleBa),
+                                subtitle = if (isOpen) appText(cls.subtitleRu, cls.subtitleBa)
+                                else appText("скоро", "тиҙҙән"),
+                                price = opt?.price,
+                                selected = isOpen && category == cls.category,
+                                enabled = isOpen,
+                                iconRes = cls.iconRes,
+                                iconNightRes = cls.iconNightRes,
+                                // Минуты — только для открытого класса и только когда машины
+                                // этого класса реально рядом: иначе цифра станет обещанием.
+                                pickupEtaMin = if (isOpen) opt?.pickupEtaMin else null,
+                                onClick = {
+                                    if (isOpen) {
+                                        category = cls.category
+                                    } else {
+                                        // Нажатие на закрытый класс — это заявка спроса. Считаем её:
+                                        // так видно, сколько людей ждут Бизнес в Уфе, ещё до того,
+                                        // как мы начнём искать под него водителей.
+                                        Analytics.log("class_wanted_${cls.category}")
+                                        classWanted = cls.category
                                     }
-                                    Spacer(Modifier.width(8.dp))
-                                    Column {
-                                        // «Было столько» — только когда скидка реально есть.
-                                        // Нет скидки → нет ни перечёркнутой цены, ни пустого места.
-                                        if (est.hasPromoDiscount) {
-                                            Text(
-                                                "${est.price} ₽",
-                                                color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
-                                                textDecoration = TextDecoration.LineThrough,
-                                            )
-                                        }
+                                },
+                                // Ширина под картинку машины: в экран влезает три карточки и
+                                // край четвёртой. Обрезанный край — самый честный намёк «листай
+                                // дальше»: без него Минивэн просто не существовал для человека.
+                                modifier = Modifier.width(132.dp),
+                            )
+                        }
+                    }
+                    // Что выбрано в салоне — сразу под машинами. Опция относится к машине,
+                    // поэтому и стоит рядом с её выбором, а не в свёрнутом списке ниже.
+                    InstantChosenOptionsRow(
+                        selected = orderOptions,
+                        onRemove = { code -> orderOptionsCsv = (orderOptions - code).joinToString(",") },
+                    )
+                }
+                // Подтверждение по «скоро»-классу: тёплым текстом, без формы и обещаний срока.
+                AnimatedVisibility(
+                    visible = classWanted != null,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(CanonSpace.md),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("🔔", fontSize = TxTitle, lineHeight = LhTitle)
+                            Spacer(Modifier.width(CanonSpace.sm))
+                            Text(
+                                appText(
+                                    "Записали. Напишем, как только этот класс появится рядом.",
+                                    "Яҙып ҡуйҙыҡ. Был класс яҡында барлыҡҡа килгәс, хәбәр итәбеҙ.",
+                                ),
+                                color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+                // Оценка цены: одна крупная сумма + три ответа, которые нужны до заказа.
+                //
+                // Показываем только в ПОЛНОМ положении шторки. Та же сумма написана на кнопке
+                // «Вызвать за 100 ₽» и на плитке выбранного тарифа — третий раз крупно она
+                // не нужна, а места занимала столько, что от карты оставалась полоска
+                // в сантиметр. У Яндекса отдельного блока с ценой нет вовсе.
+                if (toPoint != null && sheetStop == TaxiSheetStop.Full) {
+                    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape) {
+                        // Три состояния цены сменяются кросс-фейдом и в ОДНОЙ высоте: раньше карточка
+                        // на каждом пересчёте схлопывалась и раздувалась, и кнопка «Вызвать» прыгала
+                        // под пальцем. Скелетон вместо спиннера держит форму будущего числа.
+                        val estPhase = when {
+                            estimating -> "calc"
+                            errorText != null -> "err"
+                            estimate != null -> "ok"
+                            else -> "none"
+                        }
+                        AnimatedContent(
+                            targetState = estPhase,
+                            transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)).togetherWith(fadeOut(tween(CanonMotion.QUICK))) },
+                            label = "estimatePhase",
+                        ) { phase ->
+                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                when (phase) {
+                                    "calc" -> {
+                                        SkeletonBox(widthFraction = 0.42f, height = 30.dp, shape = InstantControlShape)
+                                        SkeletonBox(widthFraction = 0.72f, height = 14.dp, shape = CircleShape)
                                         Text(
-                                            appText("примерно", "яҡынса"),
+                                            appText("Считаем цену…", "Хаҡты иҫәпләйбеҙ…"),
                                             color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
                                         )
                                     }
+                                    // Ошибка больше не тупик: раньше это была красная строка без единой
+                                    // кнопки — заказать нельзя, повторить нечем, выход только «назад».
+                                    "err" -> {
+                                        Text(
+                                            errorText ?: appText("Не удалось оценить цену", "Хаҡты баһалап булманы"),
+                                            color = CanonRed, fontSize = TxBody, lineHeight = LhBody,
+                                        )
+                                        Text(
+                                            appText("Проверь интернет — без цены заказывать нельзя.",
+                                                "Интернетты тикшер — хаҡһыҙ заказ итеп булмай."),
+                                            color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        AppButton(
+                                            text = appText("Повторить", "Ҡабатлау"),
+                                            onClick = { estimateTick++ },
+                                            style = AppButtonStyle.Secondary,
+                                            icon = Icons.Default.Search,
+                                            height = 48.dp,
+                                        )
+                                    }
+                                    "ok" -> estimate?.let { est ->
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            // Доминанта экрана: сюда человек и смотрит. Со скидкой здесь
+                                            // стоит сумма, которую он реально отдаст, — а не та, которую
+                                            // «якобы» экономит: цена в кнопке и в кармане обязана совпасть.
+                                            AnimatedContent(targetState = est.priceToPay, label = "estPrice") { p ->
+                                                Text(
+                                                    "$p ₽",
+                                                    color = if (est.hasPromoDiscount) CanonGreen2 else CanonText,
+                                                    fontSize = TxHero, lineHeight = LhHero,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                            }
+                                            Spacer(Modifier.width(8.dp))
+                                            Column {
+                                                // «Было столько» — только когда скидка реально есть.
+                                                // Нет скидки → нет ни перечёркнутой цены, ни пустого места.
+                                                if (est.hasPromoDiscount) {
+                                                    Text(
+                                                        "${est.price} ₽",
+                                                        color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                                                        textDecoration = TextDecoration.LineThrough,
+                                                    )
+                                                }
+                                                Text(
+                                                    appText("примерно", "яҡынса"),
+                                                    color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                                                )
+                                            }
+                                        }
+                                        val meta = buildList {
+                                            if (est.distanceKm > 0) add(appText("≈ ${est.distanceKm.toInt()} км", "≈ ${est.distanceKm.toInt()} км"))
+                                            if (est.etaMin > 0) add(appText("≈ ${est.etaMin.toInt()} мин в пути", "≈ ${est.etaMin.toInt()} мин юлда"))
+                                            // Время ПОДАЧИ — то, что человек на самом деле хочет знать перед
+                                            // заказом. Раньше его не показывали вообще: была только длительность
+                                            // поездки, и «когда приедет?» оставалось без ответа.
+                                            est.pickupEtaMin?.let { add(appText("машина через ≈$it мин", "машина ≈$it минуттан")) }
+                                        }.joinToString("  ·  ")
+                                        if (meta.isNotBlank()) Text(
+                                            meta, color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                                        )
+                                    }
                                 }
-                                val meta = buildList {
-                                    if (est.distanceKm > 0) add(appText("≈ ${est.distanceKm.toInt()} км", "≈ ${est.distanceKm.toInt()} км"))
-                                    if (est.etaMin > 0) add(appText("≈ ${est.etaMin.toInt()} мин в пути", "≈ ${est.etaMin.toInt()} мин юлда"))
-                                    // Время ПОДАЧИ — то, что человек на самом деле хочет знать перед
-                                    // заказом. Раньше его не показывали вообще: была только длительность
-                                    // поездки, и «когда приедет?» оставалось без ответа.
-                                    est.pickupEtaMin?.let { add(appText("машина через ≈$it мин", "машина ≈$it минуттан")) }
-                                }.joinToString("  ·  ")
-                                if (meta.isNotBlank()) Text(
-                                    meta, color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                            }
+                        }
+                    }
+                    // Погода на маршруте — рядом с ценой, до нажатия «Вызвать». В такси человек чаще
+                    // всего едет прямо сейчас, и гололёд для него не «планы на завтра», а через минуту.
+                    // Координаты уже выбраны на карте — геокодить ничего не нужно.
+                    if (toPoint != null) {
+                        WeatherWarningCard(
+                            rememberRouteWeather(
+                                fromLat = fromPoint?.latitude, fromLng = fromPoint?.longitude,
+                                toLat = toPoint?.latitude, toLng = toPoint?.longitude,
+                            )
+                        )
+                    }
+                    // Выгода по промокоду — сразу под ценой. Это единственное место, где человек видит,
+                    // что промокод не бумажка, и решает ДО нажатия «Вызвать».
+                    TaxiPromoSavingsCard(estimate)
+                    // Pricing v2 приходит только с сервера: клиент показывает
+                    // базу, факторы и общий потолок, но не пересчитывает сумму сам.
+                    TaxiPricingBreakdown(estimate)
+                }
+            }
+        },
+        extra = {
+            if (toPoint != null) {
+                // Полная версия того, что под кнопкой сказано одной строкой.
+                Text(
+                    if (scheduledAtMs != null) appText(
+                        "Предзаказ ждёт своего времени. Открой Юлдаш ко времени подачи, чтобы начать поиск. Цену уточним при подаче.",
+                        "Алдан заказ үҙ ваҡытын көтә. Эҙләүҙе башлар өсөн Юлдашты килеү ваҡытына ас. Хаҡты килгәндә асыҡлайбыҙ.")
+                    else appText(
+                        "Оплата водителю напрямую. Телефон водителя откроется после того, как он примет заказ.",
+                        "Түләү йөрөтөүсегә тура. Йөрөтөүсе заказды алғас, уның телефоны асыла."),
+                    color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption)
+
+                // «Сохранить как Дом/Работу» для выбранного адреса — потом заказывать в один тап.
+                if (toPoint != null && toText.isNotBlank()) {
+                    SaveAsPlaceChips(
+                        address = toText,
+                        lat = toPoint!!.latitude,
+                        lng = toPoint!!.longitude,
+                        savedHome = savedPlaces.firstOrNull { it.kind == "home" },
+                        savedWork = savedPlaces.firstOrNull { it.kind == "work" },
+                        onSaved = { placesReload++ },
+                    )
+                }
+                // Сурж — честно и ДО заказа: почему дороже и на сколько (потолок ×1.5 на сервере).
+                AnimatedVisibility(
+                    visible = (estimate?.surgeK ?: 1.0) > 1.0,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    val est = estimate
+                    val pct = (((est?.surgeK ?: 1.0) - 1.0) * 100).toInt()
+                    Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("⚡", fontSize = TxTitle, lineHeight = LhTitle)
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    // Серверный текст (двуязычный) — источник правды; локальный — фолбэк.
+                                    appText(
+                                        est?.surgeNoteRu?.ifBlank { null } ?: "Сейчас заказов больше обычного — цена выше на $pct%. Вызвать или подождать?",
+                                        est?.surgeNoteBa?.ifBlank { null } ?: "Хәҙер заказдар күберәк — хаҡ $pct%-ҡа юғарыраҡ. Саҡырырғамы, әллә көтөргәме?",
+                                    ),
+                                    color = CanonText, fontSize = TxCaption, lineHeight = LhCaption,
                                 )
                             }
                         }
                     }
                 }
-            }
-            // Погода на маршруте — рядом с ценой, до нажатия «Вызвать». В такси человек чаще
-            // всего едет прямо сейчас, и гололёд для него не «планы на завтра», а через минуту.
-            // Координаты уже выбраны на карте — геокодить ничего не нужно.
-            if (toPoint != null) {
-                WeatherWarningCard(
-                    rememberRouteWeather(
-                        fromLat = fromPoint?.latitude, fromLng = fromPoint?.longitude,
-                        toLat = toPoint?.latitude, toLng = toPoint?.longitude,
+                // Что нужно в салоне: детское кресло по возрасту, коляска, животное, багаж.
+                // Это НЕ класс — галочка поверх любого класса: машина не может стоять в двух классах,
+                // а кресло возить может любая. Фильтр на сервере жёсткий: без кресла заказ не придёт.
+                if (toPoint != null) {
+                    InstantOptionsBlock(
+                        selected = orderOptions,
+                        onToggle = { code ->
+                            val next = if (code in orderOptions) orderOptions - code else orderOptions + code
+                            orderOptionsCsv = next.joinToString(",")
+                        },
+                        prices = estimate?.optionCatalog ?: emptyMap(),
                     )
-                )
-            }
-            // Выгода по промокоду — сразу под ценой. Это единственное место, где человек видит,
-            // что промокод не бумажка, и решает ДО нажатия «Вызвать».
-            TaxiPromoSavingsCard(estimate)
-            // Pricing v2 приходит только с сервера: клиент показывает
-            // базу, факторы и общий потолок, но не пересчитывает сумму сам.
-            TaxiPricingBreakdown(estimate)
-        }
-
-        // Детали: как найти пассажира и «заказ для другого». Появляются вместе с маршрутом.
-        if (toPoint != null) {
-            InstantOrderDetails(
-                open = detailsOpen,
-                onToggle = { detailsOpen = !detailsOpen },
-                comment = comment, onComment = { comment = it.take(300) },
-                entrance = entrance, onEntrance = { entrance = it.take(60) },
-                forOther = forOther,
-                onForOther = {
-                    forOther = it
-                    if (!it) { forName = ""; forPhone = "" }   // выключили — не шлём чужие ПДн
-                },
-                forName = forName, onForName = { forName = it.take(120) },
-                forPhone = forPhone, onForPhone = { forPhone = it.take(32) },
-            )
-        }
-
-        // «Только женщина за рулём». Честно предупреждаем про цену выбора: женщин-водителей
-        // меньше, машину можно ждать дольше или не дождаться. Подменять её мужчиной мы не
-        // будем ни при каких условиях — иначе галочка ничего не значит (аудит 2026-08-06).
-        if (toPoint != null) {
-            Surface(color = CanonSurface, shape = CanonItemShape) {
-                SettingSwitchRow(
-                    icon = Icons.Default.Shield,
-                    title = appText("Только женщина за рулём", "Тик ҡатын-ҡыҙ йөрөтөүсе"),
-                    subtitle = appText(
-                        "Заказ увидят только женщины-водители. Их меньше — машину можно ждать дольше или не дождаться.",
-                        "Заказды тик ҡатын-ҡыҙ йөрөтөүселәр күрәсәк. Улар аҙыраҡ — машинаны оҙағыраҡ көтөргә тура килеүе бар.",
-                    ),
-                    checked = womenOnly,
-                    onCheckedChange = { womenOnly = it },
-                )
-            }
-        }
-
-        // Когда подать машину: «Сейчас» или «На время» (предзаказ). Появляется, когда есть маршрут.
-        if (toPoint != null) {
-            InstantTimingPicker(
-                scheduledAtMs = scheduledAtMs,
-                onNow = { scheduledAtMs = null },
-                onPickTime = { picked -> scheduledAtMs = picked },
-            )
-        }
-
-        val scheduled = scheduledAtMs != null
-        Spacer(Modifier.height(4.dp))
-        Button(
-            onClick = {
-                val f = effFrom ?: return@Button
-                val t = toPoint ?: return@Button
-                creating = true; errorText = null
-                val fText = fromText.ifBlank { myPosText }
-                val tText = toText.ifBlank { mapPointText }
-                scope.launch {
-                    if (scheduled) {
-                        val iso = isoFromMillis(scheduledAtMs!!)
-                        ApiClient.scheduleInstantOrder(f.latitude, f.longitude, t.latitude, t.longitude, iso, fText, tText, category)
-                            .onSuccess {
-                                ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
-                                onScheduled(it)
-                            }
-                            .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
-                    } else {
-                        ApiClient.createInstantOrder(
-                            f.latitude, f.longitude, t.latitude, t.longitude, fText, tText, category,
-                            comment = comment, entrance = entrance,
-                            forName = if (forOther) forName else "",
-                            forPhone = if (forOther) forPhone else "",
-                            womenOnly = womenOnly,
-                            options = orderOptions.toList(),
+                }
+                // Детали: как найти пассажира и «заказ для другого». Появляются вместе с маршрутом.
+                if (toPoint != null) {
+                    InstantOrderDetails(
+                        open = detailsOpen,
+                        onToggle = { detailsOpen = !detailsOpen },
+                        comment = comment, onComment = { comment = it.take(300) },
+                        entrance = entrance, onEntrance = { entrance = it.take(60) },
+                        forOther = forOther,
+                        onForOther = {
+                            forOther = it
+                            if (!it) { forName = ""; forPhone = "" }   // выключили — не шлём чужие ПДн
+                        },
+                        forName = forName, onForName = { forName = it.take(120) },
+                        forPhone = forPhone, onForPhone = { forPhone = it.take(32) },
+                    )
+                }
+                // Круговой рейс — только межгород. Доступность решает сервер: он знает, где проходит
+                // граница зоны. Переехал человек точку Б в черту города — предложение исчезает, и
+                // включённый флаг надо погасить, иначе он молча уедет в заказ и цена не сойдётся.
+                val rtAvailable = estimate?.roundTripAvailable == true
+                LaunchedEffect(rtAvailable) { if (!rtAvailable) roundTrip = false }
+                if (toPoint != null && rtAvailable) {
+                    InstantRoundTripCard(
+                        estimate = estimate,
+                        checked = roundTrip,
+                        onChecked = { roundTrip = it },
+                        waitMin = returnWaitMin,
+                        onWaitMin = { returnWaitMin = it },
+                    )
+                }
+                // «Только женщина за рулём». Честно предупреждаем про цену выбора: женщин-водителей
+                // меньше, машину можно ждать дольше или не дождаться. Подменять её мужчиной мы не
+                // будем ни при каких условиях — иначе галочка ничего не значит (аудит 2026-08-06).
+                if (toPoint != null) {
+                    Surface(color = CanonSurface, shape = CanonItemShape) {
+                        SettingSwitchRow(
+                            icon = Icons.Default.Shield,
+                            title = appText("Только женщина за рулём", "Тик ҡатын-ҡыҙ йөрөтөүсе"),
+                            subtitle = appText(
+                                "Заказ увидят только женщины-водители. Их меньше — машину можно ждать дольше или не дождаться.",
+                                "Заказды тик ҡатын-ҡыҙ йөрөтөүселәр күрәсәк. Улар аҙыраҡ — машинаны оҙағыраҡ көтөргә тура килеүе бар.",
+                            ),
+                            checked = womenOnly,
+                            onCheckedChange = { womenOnly = it },
                         )
-                            .onSuccess {
-                                // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
-                                ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
-                                onOrderCreated(it)
-                            }
-                            .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
                     }
-                    creating = false
                 }
-            },
-            enabled = effFrom != null && toPoint != null && estimate != null && !creating,
-            // heightIn: на крупном системном шрифте фиксированные 54dp срезали надпись с ценой.
-            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
-            shape = InstantControlShape,
-            colors = ButtonDefaults.buttonColors(containerColor = CanonTaxi, contentColor = CanonTaxiInk),   // жёлтый — режим такси
-        ) {
-            if (creating) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = CanonTaxiInk)
-            } else {
-                Icon(if (scheduled) Icons.Default.AccessTime else Icons.Default.DirectionsCar, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                val label = when {
-                    // Предзаказ «на время»: показываем время подачи.
-                    scheduled -> appText("Заказать на ${clockHm(scheduledAtMs!!)}", "${clockHm(scheduledAtMs!!)}-ға заказ итеү")
-                    // Глагол-действие: «Вызвать машину» понятнее, чем «Заказать» (эталон Яндекс/inDrive).
-                    // Цена на кнопке — уже со скидкой: человек нажимает ровно ту сумму, что заплатит.
-                    estimate != null -> appText("Вызвать за ${estimate!!.priceToPay} ₽", "${estimate!!.priceToPay} ₽-ға саҡырыу")
-                    else -> appText("Вызвать машину", "Машина саҡырыу")
-                }
-                // Цена в кнопке меняется вместе с классом машины — без анимации это выглядело
-                // как подмена суммы в последний момент перед нажатием.
-                AnimatedContent(targetState = label, label = "orderCta") { text ->
-                    Text(
-                        text, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                // Когда подать машину: «Сейчас» или «На время» (предзаказ). Появляется, когда есть маршрут.
+                if (toPoint != null) {
+                    InstantTimingPicker(
+                        scheduledAtMs = scheduledAtMs,
+                        onNow = { scheduledAtMs = null },
+                        onPickTime = { picked -> scheduledAtMs = picked },
                     )
                 }
+
             }
-        }
-        Text(
-            if (scheduled) appText("Предзаказ ждёт своего времени. Открой Юлдаш ко времени подачи, чтобы начать поиск. Цену уточним при подаче.",
-                "Алдан заказ үҙ ваҡытын көтә. Эҙләүҙе башлар өсөн Юлдашты килеү ваҡытына ас. Хаҡты килгәндә асыҡлайбыҙ.")
-            else appText("Оплата водителю напрямую. Телефон водителя откроется после того, как он примет заказ.",
-                "Түләү йөрөтөүсегә тура. Йөрөтөүсе заказды алғас, уның телефоны асыла."),
-            color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption)
+        },
+        // Подвал живёт только когда есть куда ехать: до выбора адреса кнопки «Вызвать» нет,
+        // и его отступы оставляли под списком адресов пустую полосу.
+        hasFooter = toPoint != null,
+        footer = {
+            // Главное действие экрана — вне прокрутки и видно в любом положении
+            // шторки. Раньше кнопка жила в «полном» положении: в среднем её просто
+            // не было, а это единственное, ради чего сюда пришли.
+            if (toPoint != null) {
+                val scheduled = scheduledAtMs != null
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // Способ расчёта — слева от главной кнопки (образец Яндекс). Значок
+                    // отвечает на вопрос «чем я плачу» без единого слова; подпись под ним
+                    // нужна потому, что купюра и стрелки перевода в мелком размере
+                    // различаются плохо — особенно у пожилых.
+                    Surface(
+                        onClick = onOpenPayments,
+                        shape = InstantControlShape,
+                        color = CanonBg,
+                        modifier = Modifier.minimumInteractiveComponentSize().width(64.dp),
+                    ) {
+                        Column(
+                            Modifier.padding(vertical = CanonSpace.xs).heightIn(min = 54.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(
+                                PayMethods.icon(payMethod),
+                                contentDescription = appText("Способ оплаты", "Түләү ысулы"),
+                                tint = CanonGreen2,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Text(
+                                PayMethods.short(payMethod),
+                                color = CanonMutedStrong, fontSize = 12.sp, lineHeight = 17.sp,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            val f = effFrom ?: return@Button
+                            val t = toPoint ?: return@Button
+                            creating = true; errorText = null
+                            val fText = fromText.ifBlank { myPosText }
+                            val tText = toText.ifBlank { mapPointText }
+                            scope.launch {
+                                if (scheduled) {
+                                    val iso = isoFromMillis(scheduledAtMs!!)
+                                    ApiClient.scheduleInstantOrder(f.latitude, f.longitude, t.latitude, t.longitude, iso, fText, tText, category)
+                                        .onSuccess {
+                                            ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
+                                            onScheduled(it)
+                                        }
+                                        .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                                } else {
+                                    ApiClient.createInstantOrder(
+                                        f.latitude, f.longitude, t.latitude, t.longitude, fText, tText, category,
+                                        comment = comment, entrance = entrance,
+                                        forName = if (forOther) forName else "",
+                                        forPhone = if (forOther) forPhone else "",
+                                        womenOnly = womenOnly,
+                                        options = orderOptions.toList(),
+                                        roundTrip = roundTrip,
+                                        returnWaitMin = if (roundTrip) returnWaitMin else 0,
+                                        stops = stops,
+                                        // Чем рассчитаются — водитель увидит это вместе с оффером.
+                                        paymentMethod = payMethod,
+                                    )
+                                        .onSuccess {
+                                            // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
+                                            ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
+                                            onOrderCreated(it)
+                                        }
+                                        .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                                }
+                                creating = false
+                            }
+                        },
+                        enabled = effFrom != null && toPoint != null && estimate != null && !creating,
+                        // heightIn: на крупном системном шрифте фиксированные 54dp срезали надпись с ценой.
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                        shape = InstantControlShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = CanonTaxi, contentColor = CanonTaxiInk),   // жёлтый — режим такси
+                    ) {
+                        if (creating) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = CanonTaxiInk)
+                        } else {
+                            Icon(if (scheduled) Icons.Default.AccessTime else Icons.Default.DirectionsCar, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            val label = when {
+                                // Предзаказ «на время»: показываем время подачи.
+                                scheduled -> appText("Заказать на ${clockHm(scheduledAtMs!!)}", "${clockHm(scheduledAtMs!!)}-ға заказ итеү")
+                                // Глагол-действие: «Вызвать машину» понятнее, чем «Заказать» (эталон Яндекс/inDrive).
+                                // Цена на кнопке — уже со скидкой: человек нажимает ровно ту сумму, что заплатит.
+                                estimate != null -> appText("Вызвать за ${estimate!!.priceToPay} ₽", "${estimate!!.priceToPay} ₽-ға саҡырыу")
+                                else -> appText("Вызвать машину", "Машина саҡырыу")
+                            }
+                            // Цена в кнопке меняется вместе с классом машины — без анимации это выглядело
+                            // как подмена суммы в последний момент перед нажатием.
+                            AnimatedContent(targetState = label, label = "orderCta") { text ->
+                                Text(
+                                    text, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                    }
+                    // Ползунки — вход в детали заказа: опции салона, остановки, «как меня найти»,
+                    // время подачи. Раньше до них нужно было догадаться потянуть шторку вверх;
+                    // теперь рядом с главной кнопкой стоит видимая дверь, как у Яндекса.
+                    Surface(
+                        onClick = { sheetTouched = true; sheetStop = TaxiSheetStop.Full },
+                        shape = InstantControlShape,
+                        color = CanonBg,
+                        modifier = Modifier.minimumInteractiveComponentSize().size(54.dp),
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = appText("Детали заказа", "Заказ деталдәре"),
+                                tint = CanonGreen2,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                }
+                // Одной короткой строкой: двухстрочное объяснение под кнопкой обрезалось
+                // нижним краем и вместе с кнопкой съедало карту. Подробности — в «полном»
+                // положении шторки, там для них есть место.
+                Text(
+                    if (scheduled) appText("Предзаказ ждёт своего времени", "Алдан заказ үҙ ваҡытын көтә")
+                    else appText("Оплата водителю напрямую", "Түләү йөрөтөүсегә тура"),
+                    color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        },
+    )
+
+    // Лист выбора остановки — здесь, вместе с остальными оверлеями, а НЕ в теле шторки.
+    // Кнопка «+» стоит в шапке и видна всегда, тело же рисуется только у раскрытой шторки:
+    // из-за этого нажатие взводило флаг, а показывать лист было некому — со стороны это
+    // выглядело как мёртвая кнопка.
+    if (addingStop) {
+        PickStopSheet(
+            onDismiss = { addingStop = false },
+            onPicked = { hit ->
+                // Добавляем в конец: порядок задаёт пассажир тем, как добавляет.
+                // Переставлять потом нельзя — водитель уже поедет к первой точке.
+                stops = stops + com.yuldash.app.data.TaxiStop(hit.lat, hit.lon, hit.title)
+                addingStop = false
+            },
+        )
     }
 
     if (pickOnMap) {
         PickupPickerOverlay(
             initial = toPoint ?: effFrom,
-            onConfirm = { lat, lng -> toPoint = Point(lat, lng); toText = mapPointText; query = ""; suggestions = emptyList(); pickOnMap = false },
+            onConfirm = { lat, lng ->
+                toPoint = Point(lat, lng); toText = resolvingText
+                query = ""; suggestions = emptyList(); pickOnMap = false
+                // Спрашиваем, как называется это место. Не дождались — остаётся «Точка
+                // на карте»: координаты у водителя есть, заказ из-за адреса не ломаем.
+                scope.launch {
+                    val addr = GeocoderClient.addressAt(lat, lng)
+                    toText = if (addr.isNotBlank()) addr else mapPointText
+                }
+            },
             onDismiss = { pickOnMap = false },
+            // Не «место встречи»: туда едут, а не встречаются.
+            hint = appText("Двигай карту — пин там, куда едешь", "Картаны күсер — пин барасаҡ урында"),
         )
     }
     if (pickFromOnMap) {
         PickupPickerOverlay(
             initial = effFrom,
-            onConfirm = { lat, lng -> fromPoint = Point(lat, lng); fromText = mapPointText; fromManual = true; pickFromOnMap = false },
+            onConfirm = { lat, lng ->
+                fromPoint = Point(lat, lng); fromText = resolvingText
+                fromManual = true; pickFromOnMap = false
+                scope.launch {
+                    val addr = GeocoderClient.addressAt(lat, lng)
+                    fromText = if (addr.isNotBlank()) addr else mapPointText
+                }
+            },
             onDismiss = { pickFromOnMap = false },
+            hint = appText("Двигай карту — пин там, откуда поедешь", "Картаны күсер — пин сығасаҡ урында"),
         )
     }
 }
@@ -2244,13 +2886,24 @@ internal data class InstantClassInfo(
     val category: String,
     val titleRu: String, val titleBa: String,
     val subtitleRu: String, val subtitleBa: String,
+    /** Картинка машины класса — главный опознавательный знак тарифа. Файлы лежат
+     *  в res/drawable-nodpi, меняются без правки кода. */
+    val iconRes: Int,
+    /** Ночная версия картинки. Нужна там, где дневная тонет в тёмном фоне: чёрный седан
+     *  Бизнеса ночью превращался в пару фар. Нет ночной — показываем дневную. */
+    val iconNightRes: Int? = null,
 )
 
 internal val InstantClasses = listOf(
-    InstantClassInfo("standard", "Эконом", "Эконом", "обычная машина", "ғәҙәти машина"),
-    InstantClassInfo("comfort", "Комфорт", "Комфорт", "новее и с кондиционером", "яңыраҡ, кондиционерлы"),
-    InstantClassInfo("business", "Бизнес", "Бизнес", "седан премиум-класса", "премиум класслы седан"),
-    InstantClassInfo("minivan", "Минивэн", "Минивэн", "6–8 мест", "6–8 урын"),
+    InstantClassInfo("standard", "Эконом", "Эконом", "обычная машина", "ғәҙәти машина",
+                     R.drawable.yuldash_tariff_economy),
+    InstantClassInfo("comfort", "Комфорт", "Комфорт", "новее и с кондиционером", "яңыраҡ, кондиционерлы",
+                     R.drawable.yuldash_tariff_comfort),
+    InstantClassInfo("business", "Бизнес", "Бизнес", "седан премиум-класса", "премиум класслы седан",
+                     R.drawable.yuldash_tariff_business,
+                     iconNightRes = R.drawable.yuldash_tariff_business_night),
+    InstantClassInfo("minivan", "Минивэн", "Минивэн", "6–8 мест", "6–8 урын",
+                     R.drawable.yuldash_tariff_minivan),
 )
 
 @Composable
@@ -2262,6 +2915,9 @@ private fun InstantClassCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    iconRes: Int? = null,
+    iconNightRes: Int? = null,
+    pickupEtaMin: Int? = null,
 ) {
     // Сохраняем общий Mobility-компонент с radio-семантикой и добавляем
     // мягкий тактильный масштаб из входящей ветки.
@@ -2276,6 +2932,9 @@ private fun InstantClassCard(
         selected = selected,
         onClick = onClick,
         modifier = modifier.graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha },
+        iconRes = iconRes,
+        iconNightRes = iconNightRes,
+        pickupEtaMin = pickupEtaMin,
     )
 }
 
@@ -2301,8 +2960,63 @@ internal val InstantOptions = listOf(
     InstantOptionInfo("big_luggage", "Большой багаж", "Ҙур багаж", "🧳"),
 )
 
+/**
+ * Выбранные опции салона — чипами. Тап по чипу снимает опцию.
+ *
+ * Крестик тут не отдельная кнопка, а знак «нажми — уберётся»: две цели касания рядом на
+ * чипе шириной в палец промахиваются друг в друга, и человек снимает не то, что хотел.
+ */
 @Composable
-private fun InstantOptionsBlock(selected: Set<String>, onToggle: (String) -> Unit) {
+private fun InstantChosenOptionsRow(selected: Set<String>, onRemove: (String) -> Unit) {
+    AnimatedVisibility(
+        visible = selected.isNotEmpty(),
+        enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(),
+        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(),
+    ) {
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+        ) {
+            InstantOptions.filter { it.code in selected }.forEach { opt ->
+                val label = appText(opt.labelRu, opt.labelBa)
+                Surface(
+                    onClick = { onRemove(opt.code) },
+                    shape = CanonTinyShape,
+                    color = CanonTaxiBg,
+                    modifier = Modifier.minimumInteractiveComponentSize(),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = CanonSpace.sm, vertical = CanonSpace.xs),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+                    ) {
+                        Text(opt.emoji, fontSize = TxCaption, lineHeight = LhCaption)
+                        Text(label, color = CanonText, fontSize = TxCaption, lineHeight = LhCaption,
+                             fontWeight = FontWeight.Medium, maxLines = 1)
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = appText("Убрать: $label", "Алыу: $label"),
+                            tint = CanonMutedStrong,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun InstantOptionsBlock(
+    selected: Set<String>,
+    onToggle: (String) -> Unit,
+    // Цены опций приходят С СЕРВЕРА (оценка цены, `option_catalog`). Свой список цен на
+    // клиенте однажды разошёлся бы с серверным — и человек увидел бы на галочке одну сумму,
+    // а в заказе другую. Пусто = старый сервер, тогда просто не показываем цену.
+    prices: Map<String, Int> = emptyMap(),
+) {
     // Свёрнут по умолчанию: девяти заказам из десяти ничего этого не нужно, и держать девять
     // галочек на главном пути — значит мешать всем ради немногих. Но открыть — один тап.
     var open by rememberSaveable { mutableStateOf(false) }
@@ -2378,6 +3092,19 @@ private fun InstantOptionsBlock(selected: Set<String>, onToggle: (String) -> Uni
                                 color = CanonText, fontSize = TxCaption, lineHeight = LhCaption,
                                 fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
                             )
+                            // Цену показываем только там, где она есть: у коляски и у
+                            // доступности её нет и быть не может, и «+0 ₽» там читалось бы
+                            // как намёк, что вообще-то могли бы взять.
+                            val price = prices[opt.code] ?: 0
+                            if (price > 0) {
+                                Spacer(Modifier.width(CanonSpace.xs))
+                                Text(
+                                    "+$price ₽",
+                                    color = if (on) CanonTaxiText else CanonMuted,
+                                    fontSize = TxCaption, lineHeight = LhCaption,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
                         }
                     }
                 }
@@ -2390,7 +3117,7 @@ private fun InstantOptionsBlock(selected: Set<String>, onToggle: (String) -> Uni
 /** «Машина на месте»: живой таймер — бесплатное окно тикает вниз, дальше честно копится
  *  платное ожидание (+N ₽/мин, целыми минутами — как считает сервер). */
 @Composable
-private fun InstantWaitingRow(order: InstantOrderDto) {
+internal fun InstantWaitingRow(order: InstantOrderDto) {
     val startMs = order.waitingStartedAt?.let { isoUtcToEpochMs(it) } ?: return
     val now by rememberNowMs()
     val elapsedSec = ((now - startMs) / 1000).coerceAtLeast(0)
@@ -2418,13 +3145,17 @@ private fun InstantWaitingRow(order: InstantOrderDto) {
                     Text(
                         appText("Бесплатное ожидание $leftMmSs", "Бушлай көтөү $leftMmSs"),
                         color = CanonText, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
                 } else {
                     val paidRub = ((elapsedSec / 60 - order.waitFreeMin).coerceAtLeast(0)) * order.waitFeeRubPerMin
+                    // Единственное место, где написано, что деньги уже капают: обрезать эту
+                    // строку нельзя. На башкирском она ещё длиннее — потому две строки, а не одна.
                     Text(
                         appText("Платное ожидание · +${order.waitFeeRubPerMin} ₽/мин" + (if (paidRub > 0) " (уже +$paidRub ₽)" else ""),
                             "Түләүле көтөү · +${order.waitFeeRubPerMin} ₽/мин" + (if (paidRub > 0) " (инде +$paidRub ₽)" else "")),
                         color = CanonText, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
                 }
             }
@@ -2579,7 +3310,7 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
  * согласия. Никаких «а потом оказалось дороже».
  */
 @Composable
-private fun InstantAlternativesBlock(order: InstantOrderDto, watchedSec: Long) {
+internal fun InstantAlternativesBlock(order: InstantOrderDto, watchedSec: Long) {
     var options by remember(order.id) { mutableStateOf<List<InstantAlternativeDto>>(emptyList()) }
     var afterSec by remember(order.id) { mutableIntStateOf(20) }
     var added by remember(order.id) { mutableStateOf<String?>(null) }
@@ -2687,6 +3418,12 @@ internal fun InstantDriverEnRouteCard(
     mapContent: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
+    // Смена адреса: шторка выбора нового места. Доступна всю активную поездку —
+    // «передумал» случается и пока водитель едет, и уже в машине.
+    var showChangeDestination by remember { mutableStateOf(false) }
+    // Правка остановок на ходу: «заедем ещё в аптеку» или «мама сама доехала».
+    var addingStopEnRoute by remember { mutableStateOf(false) }
+    val stopsScope = rememberCoroutineScope()
     // Семантика фаз (§5, структура как Яндекс): accepted = водитель едет к тебе,
     // arriving = «Я на месте» (машина ждёт — тикает ожидание), onboard = в пути.
     val phaseTitle = when (order.status) {
@@ -2776,6 +3513,18 @@ internal fun InstantDriverEnRouteCard(
                                 fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
                             )
                         }
+                    } else if (order.status == "onboard") {
+                        // В пути минуты подачи прячутся — машина уже пришла, — и справа от
+                        // «В пути» оставалась пустота в половину строки. Ставим цену: в дороге
+                        // это ровно то число, которое человек держит в голове до высадки.
+                        val сумма = order.priceFinal ?: order.priceEstimate
+                        if (сумма > 0) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "$сумма ₽", color = CanonText,
+                                fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
                 TaxiTripProgress(status = order.status)
@@ -2786,10 +3535,24 @@ internal fun InstantDriverEnRouteCard(
                     to = order.toText,
                     compact = true,
                 )
+                // Способ расчёта на виду всю поездку: пассажир может сменить его на ходу,
+                // а уведомление за рулём легко пропустить.
+                InstantPayMethodRow(order.paymentMethod)
                 // Карточка водителя
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(shape = CircleShape, color = CanonBg, modifier = Modifier.size(46.dp)) {
-                        Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp))
+                    // Первая буква имени вместо безликой фигурки: серый человечек на светлом
+                    // кружке читался как «фото не загрузилось». Имени нет — оставляем значок.
+                    Surface(shape = CircleShape, color = CanonMint, modifier = Modifier.size(46.dp)) {
+                        val initial = order.driverName.trim().firstOrNull()?.uppercase().orEmpty()
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            if (initial.isNotBlank()) {
+                                Text(initial, color = CanonGreen2, fontSize = TxTitle,
+                                     lineHeight = LhTitle, fontWeight = FontWeight.Bold)
+                            } else {
+                                Icon(Icons.Default.Person, contentDescription = null,
+                                     tint = CanonGreen2, modifier = Modifier.size(22.dp))
+                            }
+                        }
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -2829,6 +3592,24 @@ internal fun InstantDriverEnRouteCard(
                                 )
                             }
                         }
+                    }
+                    // «Изменить адрес». Маршрут выбирает тот, кто едет: пассажир меняет сам,
+                    // без разрешения. Спрашиваем водителя только если поездка стала
+                    // междугородной или цена выросла втрое — это уже другая работа.
+                    if (order.status in setOf("accepted", "arriving", "onboard")) {
+                        Surface(
+                            modifier = Modifier.minimumInteractiveComponentSize(),
+                            onClick = { showChangeDestination = true },
+                            shape = CircleShape, color = CanonMint,
+                        ) {
+                            Icon(
+                                Icons.Default.SwapHoriz,
+                                contentDescription = appText("Изменить адрес", "Адресты үҙгәртеү"),
+                                tint = CanonGreen2,
+                                modifier = Modifier.padding(12.dp).size(20.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
                     }
                     // «Написать» (B7b-1): чат заказа — не звоня, уточнить подъезд/этаж/ориентир.
                     Surface(
@@ -2886,6 +3667,117 @@ internal fun InstantDriverEnRouteCard(
                 if (order.status == "arriving") {
                     InstantWaitingRow(order)
                 }
+                // Водитель минуту не подтверждает, что видел новый адрес. Заставить его
+                // посмотреть в телефон за рулём мы не можем — но сказать пассажиру правду
+                // и дать кнопку звонка можем. Это честнее вечного спиннера.
+                if (order.destinationAckOverdue) {
+                    Surface(color = CanonWarnBg, shape = CanonItemShape,
+                            modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(CanonSpace.md),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                        ) {
+                            Icon(Icons.Default.AccessTime, contentDescription = null, tint = CanonWarn)
+                            Text(
+                                appText("Водитель ещё не увидел новый адрес",
+                                        "Йөрөтөүсе яңы адресты әле күрмәгән"),
+                                style = CanonCaption, color = CanonText,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (order.driverPhone.isNotBlank()) {
+                                TextButton(onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + order.driverPhone))) } }) {
+                                    Text(appText("Позвонить", "Шылтыратыу"), color = CanonGreen2)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Остановки в пути. Добавлять можно всегда, убирать — тоже: «мама сама
+                // доехала» это живой случай, цена при этом падает, водителю проще.
+                // А порядок менять нельзя: водитель уже едет к первой точке, и перестановка
+                // на ходу — путаница ради редкого случая.
+                if (order.status in setOf("accepted", "arriving", "onboard")) {
+                    Surface(color = CanonSurface, shape = CanonItemShape,
+                            modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth().padding(CanonSpace.md),
+                               verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                            order.stops.forEachIndexed { i, st ->
+                                Row(verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                                    Icon(Icons.Default.Place, contentDescription = null,
+                                         tint = if (st.done) CanonMuted else CanonGreen2,
+                                         modifier = Modifier.size(18.dp))
+                                    Text(st.text, style = CanonBody,
+                                         color = if (st.done) CanonMuted else CanonText,
+                                         maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                         modifier = Modifier.weight(1f))
+                                    // Проеденную остановку убрать нельзя — уже проехали,
+                                    // спорить не о чем.
+                                    if (!st.done) {
+                                        Surface(
+                                            modifier = Modifier.minimumInteractiveComponentSize(),
+                                            onClick = {
+                                                stopsScope.launch {
+                                                    ApiClient.setWaypoints(
+                                                        order.id,
+                                                        order.stops.filter { !it.done }
+                                                            .filterIndexed { j, _ -> j != i },
+                                                    )
+                                                }
+                                            },
+                                            shape = CircleShape, color = CanonSurface,
+                                        ) {
+                                            Icon(Icons.Default.Close,
+                                                 contentDescription = appText("Убрать остановку",
+                                                                              "Туҡталышты алыу"),
+                                                 tint = CanonMuted,
+                                                 modifier = Modifier.padding(12.dp).size(18.dp))
+                                        }
+                                    }
+                                }
+                            }
+                            TextButton(onClick = { addingStopEnRoute = true },
+                                       modifier = Modifier.heightIn(min = 48.dp)) {
+                                Icon(Icons.Default.Add, contentDescription = null,
+                                     tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(CanonSpace.xs))
+                                Text(
+                                    if (order.stops.isEmpty()) appText("Заехать по пути", "Юлда инеп сығыу")
+                                    else appText("Ещё остановка", "Тағы туҡталыш"),
+                                    style = CanonBody, color = CanonGreen2,
+                                )
+                            }
+                        }
+                    }
+                }
+                if (addingStopEnRoute) {
+                    PickStopSheet(
+                        onDismiss = { addingStopEnRoute = false },
+                        onPicked = { hit ->
+                            addingStopEnRoute = false
+                            stopsScope.launch {
+                                ApiClient.setWaypoints(
+                                    order.id,
+                                    order.stops.filter { !it.done } +
+                                        com.yuldash.app.data.TaxiStop(hit.lat, hit.lon, hit.title),
+                                )
+                            }
+                        },
+                    )
+                }
+
+                if (showChangeDestination) {
+                    ChangeDestinationSheet(
+                        order = order,
+                        onDismiss = { showChangeDestination = false },
+                        // Экран сам переспросит сервер через пару секунд — новую цену и адрес
+                        // он возьмёт оттуда, а не из нашего локального предположения.
+                        onChanged = {},
+                    )
+                }
+
                 // Безопасность (B7b-2): SOS + «Поделиться поездкой с близким» — всю активную поездку.
                 InstantSafetyRow(orderId = order.id, onShare = { showShare = true })
                 if (order.status != "onboard") {
@@ -2981,14 +3873,46 @@ private fun InstantReasonChip(
 /** Причины отмены пассажиром: код уходит на сервер, подпись — человеку. Порядок не случайный:
  *  сверху то, что случается чаще всего («долго ждать»), внизу «другое» — так почти никто не
  *  докручивает до конца списка, и ответ занимает одно касание. */
+/** Группа причин отмены: заголовок и сами причины (код → надпись). */
+internal data class CancelReasonGroup(val title: String, val reasons: List<Pair<String, String>>)
+
+/**
+ * Причины отмены ГРУППАМИ (образец — Яндекс, экран «Что случилось?»).
+ *
+ * Шесть чипов вперемешку человек читал целиком, а мы получали причину, по которой нельзя
+ * понять, кто виноват: сервис не нашёл машину, водитель не поехал или планы изменились.
+ * Заголовки решают обе задачи разом — глаз идёт сразу в свою группу, а разбор жалоб видит
+ * претензии к водителю отдельно от «передумал».
+ *
+ * Коды остаются строками и уходят на сервер как есть (`reason`, до 200 символов).
+ */
 @Composable
-private fun instantCancelReasons(): List<Pair<String, String>> = listOf(
-    "long_wait" to appText("Долго ждать машину", "Машинаны оҙаҡ көтөргә"),
-    "found_other" to appText("Уехал(а) другим способом", "Башҡа юл менән киттем"),
-    "wrong_address" to appText("Ошибся адресом", "Адресты яңылыш яҙғанмын"),
-    "plans_changed" to appText("Планы изменились", "Пландар үҙгәрҙе"),
-    "price" to appText("Дорого", "Ҡиммәт"),
-    "other" to appText("Другая причина", "Башҡа сәбәп"),
+private fun instantCancelGroups(): List<CancelReasonGroup> = listOf(
+    CancelReasonGroup(
+        appText("По моей инициативе", "Үҙ теләгем менән"),
+        listOf(
+            "plans_changed" to appText("Планы изменились", "Пландар үҙгәрҙе"),
+            "wrong_address" to appText("Ошибся адресом", "Адресты яңылыш яҙғанмын"),
+            "found_other" to appText("Уехал другим способом", "Башҡа юл менән киттем"),
+        ),
+    ),
+    CancelReasonGroup(
+        appText("Из-за водителя", "Йөрөтөүсе арҡаһында"),
+        listOf(
+            "driver_not_moving" to appText("Не двигается", "Ҡуҙғалмай"),
+            "driver_asked_more" to appText("Просил больше денег", "Күберәк аҡса һораны"),
+            "driver_refused" to appText("Отказался везти", "Илтеүҙән баш тартты"),
+            "driver_silent" to appText("Не отвечает", "Яуап бирмәй"),
+        ),
+    ),
+    CancelReasonGroup(
+        appText("Не понравился сервис", "Хеҙмәт оҡшаманы"),
+        listOf(
+            "long_wait" to appText("Долго ждать машину", "Машинаны оҙаҡ көтөргә"),
+            "price" to appText("Дорого", "Ҡиммәт"),
+            "other" to appText("Другая причина", "Башҡа сәбәп"),
+        ),
+    ),
 )
 
 /**
@@ -3019,7 +3943,7 @@ private fun InstantCancelReasonDialog(
     // Защёлка от второго касания: отмена — необратимое действие, и на медленном телефоне палец
     // успевает нажать дважды, пока окно закрывается. Второй тап должен уйти в никуда.
     var picked by remember { mutableStateOf<String?>(null) }
-    val reasons = instantCancelReasons()
+    val groups = instantCancelGroups()
     val feeText = formatTaxiKop(feeKop)
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -3060,16 +3984,25 @@ private fun InstantCancelReasonDialog(
                     ),
                     color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
                 )
-                reasons.forEach { (code, label) ->
-                    InstantReasonChip(
-                        label = label,
-                        picked = picked == code,
-                        enabled = picked == null,
-                        modifier = Modifier.fillMaxWidth(),
-                        // Одно касание = и причина, и отмена. Второй кнопки «подтвердить» тут нет
-                        // сознательно: решение человек уже принял на прошлом экране.
-                        onClick = { picked = code; onPick(code) },
+                // Группами с заголовками (образец — Яндекс): глаз идёт сразу в свою группу,
+                // а разбор жалоб видит претензии к водителю отдельно от «планы изменились».
+                groups.forEach { group ->
+                    Text(
+                        group.title,
+                        color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
+                    group.reasons.forEach { (code, label) ->
+                        InstantReasonChip(
+                            label = label,
+                            picked = picked == code,
+                            enabled = picked == null,
+                            modifier = Modifier.fillMaxWidth(),
+                            // Одно касание = и причина, и отмена. Второй кнопки «подтвердить»
+                            // тут нет сознательно: решение человек уже принял на прошлом экране.
+                            onClick = { picked = code; onPick(code) },
+                        )
+                    }
                 }
                 Text(
                     appText(
@@ -3161,7 +4094,7 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
  *  а пассажиру тут же показываем ссылку — скопировать или отправить самому (share-sheet).
  *  Состояния честные: загрузка / пусто (подсказка добавить контакт) / список / ошибка / ссылка. */
 @Composable
-private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
+internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var contacts by remember { mutableStateOf<List<com.yuldash.app.data.ContactDto>?>(null) }
@@ -3589,9 +4522,18 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
                 }
             }
             Text(
-                appText("Оценка анонимна — видно только средний рейтинг.", "Баһа аноним — тик уртаса рейтинг күренә."),
-                color = CanonMuted, fontSize = 12.sp, textAlign = TextAlign.Center,
+                // Короче и с полями: длинная фраза без отступов ломалась посреди слова,
+                // и подпись под звёздами читалась как обрывок.
+                appText("Анонимно: видно только средний балл",
+                        "Аноним: тик уртаса балл күренә"),
+                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg),
             )
+            // «Рәхмәт» — сразу здесь, а не только в чеке: до чека нужно догадаться, а сказать
+            // спасибо хочется в ту же минуту. Денег не двигаем: это жест, а не чаевые, и кнопки
+            // с суммой у нас нет намеренно — платёж идёт мимо приложения, и такая кнопка врала бы.
+            if (!isDriver) InstantThanksRow(orderId = order.id)
             TextButton(onClick = { showReport = true }) {
                 Text(
                     if (isDriver) appText("Пожаловаться на пассажира", "Пассажирға ялыу")
@@ -4305,6 +5247,56 @@ internal fun InstantOfferOverlay(
                                     color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                                 )
                             }
+                            // Дорога до пассажира. Раньше за неё платили множителем ко всей цене
+                            // (+12% максимум), и водитель молча ехал двадцать километров себе
+                            // в убыток. Теперь это отдельные деньги, и он видит их ДО принятия —
+                            // иначе решение «брать или нет» принимается вслепую.
+                            if (order.pickupFeeKop > 0) {
+                                val km = kotlin.math.round(order.pickupKm).toInt()
+                                Text(
+                                    appText(
+                                        "Ехать до пассажира ~$km км · ${formatTaxiKop(order.pickupFeeKop)} тебе сверху, без комиссии",
+                                        "Пассажирға тиклем ~$km км · ${formatTaxiKop(order.pickupFeeKop)} һиңә өҫтәмә, комиссияһыҙ",
+                                    ),
+                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                // Половинная надбавка — не молча. Водитель должен понимать,
+                                // почему за ту же дорогу сегодня меньше: он и так едет в эту
+                                // сторону, и решение брать заказ остаётся за ним.
+                                if (order.pickupEnroute) {
+                                    Text(
+                                        appText(
+                                            "Тебе в эту сторону по пути — надбавка половинная",
+                                            "Һиңә был яҡҡа юл ыңғайы — өҫтәмә яртылаш",
+                                        ),
+                                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                                    )
+                                }
+                            }
+                            // Кресло, животное, багаж — тоже его деньги, без комиссии. Водитель
+                            // должен видеть это ДО принятия: возня с креслом занимает время,
+                            // и решение «брать или нет» он принимает с этой суммой в уме.
+                            if (order.weatherFeeKop > 0) {
+                                Text(
+                                    appText(
+                                        "Тяжёлая дорога · ${formatTaxiKop(order.weatherFeeKop)} тебе сверху, без комиссии",
+                                        "Ауыр юл · ${formatTaxiKop(order.weatherFeeKop)} һиңә өҫтәмә, комиссияһыҙ",
+                                    ),
+                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            if (order.optionsFeeKop > 0) {
+                                Text(
+                                    appText(
+                                        "Кресло и опции · ${formatTaxiKop(order.optionsFeeKop)} тебе сверху, без комиссии",
+                                        "Ултырғыс һәм өҫтәмәләр · ${formatTaxiKop(order.optionsFeeKop)} һиңә өҫтәмә, комиссияһыҙ",
+                                    ),
+                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
                             // «Тебе чистыми» посчитано с полной цены — и это верно: скидку пассажира
                             // оплачивает Юлдаш. Но на руки водитель получит меньше, и узнать об
                             // этом он должен ДО того, как возьмёт заказ, а не в машине.
@@ -4332,6 +5324,9 @@ internal fun InstantOfferOverlay(
                         toLabel = appText("Назначение", "Барыр урын"),
                         compact = true,
                     )
+                    // Чем рассчитаются. Для водителя это не мелочь: наличные — сдача и налог,
+                    // перевод — банк и телефон под рукой. Знать надо ДО того, как взял заказ.
+                    InstantPayMethodRow(order.paymentMethod)
                     // Пассажир (B7a-4): рейтинг + опыт — водитель решает по данным; новичок — честно.
                     // Агрегат анонимен; имя/телефон откроются только после «Взять заказ».
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -4575,6 +5570,59 @@ internal fun InstantDriverTripScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             TaxiTripProgress(status = current.status)
+                            // Смена адреса. Стоит ПЕРВОЙ и до всего остального: если пассажир
+                            // поменял точку Б, это самое важное на экране — водитель ведёт
+                            // маршрут во внешнем навигаторе, и тот сам о смене не узнает.
+                            // Локальная копия:  — изменяемая переменная, и внутри
+                            // лямбд компилятор за её содержимое не ручается.
+                            val ord = current
+                            DriverDestinationCard(
+                                order = ord,
+                                onAck = {
+                                    scope.launch {
+                                        ApiClient.ackDestination(ord.id)   // экран сам переспросит сервер через пару секунд
+                                        // Сразу открываем навигатор с новым адресом: водитель за рулём,
+                                        // и лишний тап — это лишний взгляд в телефон вместо дороги.
+                                        openNavigator(ctx, ord.toLat, ord.toLng)
+                                    }
+                                },
+                                onAccept = {
+                                    scope.launch {
+                                        ApiClient.acceptDestination(ord.id)
+                                        openNavigator(ctx, ord.toLat, ord.toLng)
+                                    }
+                                },
+                                onDecline = { reason ->
+                                    scope.launch {
+                                        ApiClient.declineDestination(ord.id, reason)
+                                    }
+                                },
+                            )
+                            // Остановки: куда заезжать по пути и отметка стоянки.
+                            if (ord.stops.isNotEmpty()) {
+                                Surface(color = CanonMint, shape = CanonItemShape) {
+                                    Column(Modifier.fillMaxWidth().padding(CanonSpace.md),
+                                           verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+                                        Text(appText("Остановки по пути", "Юлдағы туҡталыштар"),
+                                             style = CanonCaption, color = CanonMuted)
+                                        ord.stops.forEach { st ->
+                                            Row(verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                                                Icon(Icons.Default.Place, contentDescription = null,
+                                                     tint = if (st.done) CanonMuted else CanonGreen2,
+                                                     modifier = Modifier.size(18.dp))
+                                                Text(st.text, style = CanonBody,
+                                                     color = if (st.done) CanonMuted else CanonText,
+                                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            DriverStopButton(
+                                order = ord,
+                                onToggle = { scope.launch { ApiClient.toggleStop(ord.id) } },
+                            )
                             // Пассажир + телефон (после accept)
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
@@ -4859,5 +5907,787 @@ private fun openNavigator(ctx: Context, lat: Double, lng: Double) {
     for (u in uris) {
         val ok = runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u))) }.isSuccess
         if (ok) return
+    }
+}
+
+
+// ------------------------------ круговой рейс ------------------------------
+// Зачем он есть. Дальняя поездка ломается о пустую дорогу назад: водитель везёт человека
+// 450 км и столько же едет обратно ни с кем. Это его день и его бензин, а платят за половину.
+// Поднять цену всем — наказать и тех, у кого обратный заказ есть. Поэтому предлагаем выбор:
+// берёшь машину в обе стороны — обратная дорога со скидкой. Пассажиру дешевле двух отдельных
+// заказов, водителю — второй конец без поиска клиента. Так делает и рынок межгорода.
+//
+// Карточка появляется ТОЛЬКО когда сервер сказал, что рейс доступен (межгород). В городе
+// порожняка нет, и предлагать нечего.
+
+/** Сколько водитель ждёт на месте. Часы, а не минуты: человек мыслит «на часок» / «до вечера». */
+private val ROUND_TRIP_WAIT_HOURS = listOf(1, 2, 3, 4)
+
+@Composable
+private fun InstantRoundTripCard(
+    estimate: com.yuldash.app.data.InstantEstimateDto?,
+    checked: Boolean,
+    onChecked: (Boolean) -> Unit,
+    waitMin: Int,
+    onWaitMin: (Int) -> Unit,
+) {
+    val discount = estimate?.roundTripDiscountPercent ?: 0
+    val maxHours = (estimate?.roundTripMaxWaitHours ?: 4).coerceAtLeast(1)
+    Surface(color = CanonSurface, shape = CanonItemShape) {
+        Column {
+            SettingSwitchRow(
+                icon = Icons.Default.SwapHoriz,
+                title = appText("Обратно тоже", "Кире лә"),
+                subtitle = if (discount > 0) appText(
+                    "Водитель довезёт, подождёт и вернёт обратно. Обратная дорога — на $discount% дешевле.",
+                    "Йөрөтөүсе илтә, көтә һәм кире ҡайтара. Кире юл $discount% арзаныраҡ.",
+                ) else appText(
+                    "Водитель довезёт, подождёт и вернёт обратно.",
+                    "Йөрөтөүсе илтә, көтә һәм кире ҡайтара.",
+                ),
+                checked = checked,
+                onCheckedChange = onChecked,
+            )
+            // Выбор времени показываем только включённым: пока переключатель выключен, эти
+            // кнопки — лишний шум на и без того плотном экране заказа.
+            AnimatedVisibility(
+                visible = checked,
+                enter = expandVertically(tween(CanonMotion.NORMAL)) + fadeIn(tween(CanonMotion.NORMAL)),
+                exit = shrinkVertically(tween(CanonMotion.QUICK)) + fadeOut(tween(CanonMotion.QUICK)),
+            ) {
+                Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
+                    Text(
+                        appText("Сколько ждать на месте", "Урында күпме көтөргә"),
+                        color = CanonMuted, style = CanonCaption,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ROUND_TRIP_WAIT_HOURS.filter { it <= maxHours }.forEach { h ->
+                            RoundTripWaitChip(
+                                hours = h,
+                                selected = waitMin == h * 60,
+                                onClick = { onWaitMin(h * 60) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    // Ожидание отдельно не оплачивается — оно уже оплачено тем, что второй конец
+                    // достался водителю без поиска пассажира. Но человек должен понимать рамку:
+                    // это не «жди сколько хочешь», у водителя есть смена.
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        appText(
+                            "Ждать дольше водитель не сможет — у него смена. Задержишься — поездку придётся заказать заново.",
+                            "Йөрөтөүсе оҙағыраҡ көтә алмай — уның сменаһы бар. Һуңлаһаң, сәфәрҙе яңынан заказ итергә тура килә.",
+                        ),
+                        color = CanonMuted, style = CanonMicro,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoundTripWaitChip(
+    hours: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // CanonGreen2, а не CanonGreen: второй в тёмной теме превращается в светлую мяту, и белая
+    // надпись на нём становится нечитаемой. CanonGreen2 затемнён специально под белый текст.
+    val bg by animateColorAsState(if (selected) CanonGreen2 else CanonMint, tween(CanonMotion.QUICK), label = "rtChipBg")
+    val fg by animateColorAsState(if (selected) CanonOnAccent else CanonText, tween(CanonMotion.QUICK), label = "rtChipFg")
+    Surface(
+        color = bg,
+        shape = CanonTinyShape,
+        modifier = modifier.heightIn(min = 48.dp).clickable(onClick = onClick),   // тач-цель ≥48dp
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                appText("$hours ч", "$hours сәғ"),
+                color = fg,
+                style = if (selected) CanonBodyStrong else CanonBody,
+            )
+        }
+    }
+}
+
+
+// ------------------------------ смена адреса: экран водителя ------------------------------
+// Почему карточку нельзя пролистать. До сих пор водитель не получал по заказу НИ ОДНОГО
+// уведомления: все пуши шли пассажиру, а он узнавал новости, переспрашивая сервер раз в пять
+// секунд — и только пока держал экран открытым. За рулём он его не держит.
+//
+// А главное — маршрут он ведёт во ВНЕШНЕМ навигаторе. Мы запускаем его один раз, передав
+// координаты, и связь на этом кончается: поменяется точка Б — навигатор об этом не узнает
+// никогда. Поэтому «Понял» здесь не вежливость, а единственный момент, когда мы точно знаем,
+// что человек видел новый адрес. И сразу за ним открываем навигатор заново — водитель за
+// рулём, лишний тап это лишний взгляд в телефон вместо дороги.
+
+/** Причины, по которым водитель может сойти с маршрута. Список закрытый: свободный текст
+ *  никто не читает, а выбор из четырёх — это данные о том, что чинить. */
+private data class DeclineReason(val code: String, val ru: String, val ba: String)
+
+private val DECLINE_REASONS = listOf(
+    DeclineReason("shift_end", "Заканчивается смена", "Сменам бөтә"),
+    DeclineReason("out_of_zone", "Далеко от моей зоны", "Минең зонанан алыҫ"),
+    DeclineReason("no_fuel", "Не хватит топлива", "Яғыулыҡ етмәй"),
+    DeclineReason("other", "Другая причина", "Башҡа сәбәп"),
+)
+
+@Composable
+internal fun DriverDestinationCard(
+    order: com.yuldash.app.data.InstantOrderDto,
+    onAck: () -> Unit,
+    onAccept: () -> Unit,
+    onDecline: (String) -> Unit,
+) {
+    val pending = order.pendingToText.isNotBlank() || order.pendingPrice > 0
+    val changed = order.destinationChanges > 0 && !order.destinationAck
+    if (!pending && !changed) return
+
+    var askReason by remember { mutableStateOf(false) }
+
+    Surface(color = CanonWarnBg, shape = CanonCardShape, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(CanonSpace.md), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = CanonWarn)
+                Text(
+                    if (pending) appText("Пассажир просит изменить маршрут",
+                                         "Юлсы маршрутты үҙгәртеүҙе һорай")
+                    else appText("Адрес изменился", "Адрес үҙгәрҙе"),
+                    style = CanonBodyStrong, color = CanonText,
+                )
+            }
+
+            val where = if (pending) order.pendingToText else order.toText
+            if (where.isNotBlank()) Text(where, style = CanonBody, color = CanonText)
+
+            val price = if (pending) order.pendingPrice else order.priceEstimate
+            if (price > 0) {
+                Text(
+                    if (pending) appText("Станет $price ₽", "$price һум була")
+                    else appText("Цена — $price ₽", "Хаҡ — $price һум"),
+                    style = CanonBodyStrong, color = CanonText,
+                )
+            }
+
+            // Крупная смена: объясняем, почему вообще спрашиваем. Пять часов за руль и
+            // ночёвка в чужом городе — это не «поменял адрес», это другая работа.
+            if (pending) {
+                Text(
+                    when (order.pendingReason) {
+                        "zone" -> appText("Поездка станет междугородной — это другая работа, поэтому спрашиваем тебя.",
+                                          "Сәфәр ҡалалар-ара була — был башҡа эш, шуға һинән һорайбыҙ.")
+                        else -> appText("Цена вырастет втрое — решать тебе.",
+                                        "Хаҡ өс тапҡырға арта — үҙең хәл ит.")
+                    },
+                    style = CanonMicro, color = CanonMuted,
+                )
+            }
+
+            if (askReason) {
+                Text(appText("Почему не сможешь?", "Ниңә бара алмайһың?"),
+                     style = CanonCaption, color = CanonMuted)
+                DECLINE_REASONS.forEach { r ->
+                    Surface(
+                        color = CanonSurface, shape = CanonItemShape,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .clickable { askReason = false; onDecline(r.code) },
+                    ) {
+                        Box(Modifier.padding(horizontal = CanonSpace.md), contentAlignment = Alignment.CenterStart) {
+                            Text(appText(r.ru, r.ba), style = CanonBody, color = CanonText)
+                        }
+                    }
+                }
+                TextButton(onClick = { askReason = false }) {
+                    Text(appText("Назад", "Кире"), color = CanonMuted)
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                    Button(
+                        onClick = { if (pending) onAccept() else onAck() },
+                        colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    ) {
+                        Text(if (pending) appText("Согласен", "Риза") else appText("Понял", "Аңланым"),
+                             style = CanonButton, color = CanonOnAccent)
+                    }
+                    OutlinedButton(
+                        onClick = { askReason = true },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    ) {
+                        Text(appText("Не смогу", "Бара алмайым"), style = CanonButton, color = CanonRed)
+                    }
+                }
+                // Отказ от НОВОГО маршрута не рвёт тот, на который человек соглашался.
+                Text(
+                    if (pending) appText("Откажешься — поедете по прежнему адресу за прежнюю цену.",
+                                         "Баш тартһаң, элекке адрес буйынса элекке хаҡҡа барабыҙ.")
+                    else appText("Не сможешь — поездка завершится здесь, деньги за проеденное твои.",
+                                 "Бара алмаһаң, сәфәр ошонда тамамлана, үтелгән юл аҡсаһы һинеке."),
+                    style = CanonMicro, color = CanonMuted,
+                )
+            }
+        }
+    }
+}
+
+
+// ------------------------------ смена адреса: экран пассажира ------------------------------
+// Пассажир — хозяин маршрута: меняет сам, без разрешения. Но цену он должен увидеть ДО
+// того, как согласится, и увидеть, ИЗ ЧЕГО она сложилась: «проехали 6 км · осталось 9».
+// Иначе новая цифра выглядит как произвол, хотя за ней честная арифметика.
+//
+// Сети нет — говорим прямо. Запоминать «на потом» нельзя: человек будет уверен, что адрес
+// сменился, машина поедет по старому, а смена прилетит водителю через десять минут, когда
+// он уже почти на месте.
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun ChangeDestinationSheet(
+    order: InstantOrderDto,
+    onDismiss: () -> Unit,
+    onChanged: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var query by remember { mutableStateOf("") }
+    var suggestions by remember { mutableStateOf<List<com.yuldash.app.data.GeoHit>>(emptyList()) }
+    var picked by remember { mutableStateOf<com.yuldash.app.data.GeoHit?>(null) }
+    var quote by remember { mutableStateOf<com.yuldash.app.data.DestinationQuoteDto?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    // Тексты считаем ЗДЕСЬ: внутри лямбд обработки ответа язык уже не спросишь —
+    // appText работает только в разметке.
+    val failCount = appText("Не получилось посчитать. Проверь связь",
+                            "Иҫәпләп булманы. Бәйләнеште тикшер")
+    val failChange = appText("Не получилось. Попробуй ещё раз", "Булманы. Ҡабат ҡара")
+
+    // Подсказки адреса — с той же паузой, что на экране заказа: маршрут у карты платный,
+    // и дёргать его на каждую букву незачем.
+    LaunchedEffect(query) {
+        if (query.trim().length < 2) { suggestions = emptyList(); return@LaunchedEffect }
+        delay(350)
+        GeocoderClient.suggestResult(query).onSuccess { suggestions = it.take(6) }
+    }
+
+    // Выбрали адрес — сразу считаем, во что это обойдётся. Ничего пока не меняя.
+    LaunchedEffect(picked) {
+        val place = picked ?: return@LaunchedEffect
+        busy = true; error = null
+        ApiClient.previewDestination(order.id, place.lat, place.lon, place.title)
+            .onSuccess { quote = it }
+            .onFailure {
+                quote = null
+                error = (it as? ApiException)?.message
+                    ?: failCount
+            }
+        busy = false
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).padding(bottom = CanonSpace.xl),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
+        ) {
+            Text(appText("Куда едем?", "Ҡайҙа барабыҙ?"), style = CanonTitle, color = CanonText)
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it; picked = null; quote = null },
+                placeholder = { Text(appText("Новый адрес", "Яңы адрес"), color = CanonMuted) },
+                singleLine = true,
+                shape = CanonFieldShape,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            suggestions.forEach { sug ->
+                Surface(
+                    color = CanonBg, shape = CanonItemShape,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .clickable { picked = sug; query = sug.title; suggestions = emptyList() },
+                ) {
+                    Box(Modifier.padding(horizontal = CanonSpace.md), contentAlignment = Alignment.CenterStart) {
+                        Text(sug.title, style = CanonBody, color = CanonText, maxLines = 2)
+                    }
+                }
+            }
+
+            if (busy) {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
+                    Text(appText("Считаем цену…", "Хаҡты иҫәпләйбеҙ…"), style = CanonCaption, color = CanonMuted)
+                }
+            }
+
+            error?.let { Text(it, style = CanonCaption, color = CanonRed) }
+
+            quote?.let { q ->
+                Surface(color = CanonMint, shape = CanonItemShape) {
+                    Column(Modifier.fillMaxWidth().padding(CanonSpace.md),
+                           verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+                        Text(
+                            appText("Было ${q.oldPrice} ₽ → станет ${q.price} ₽",
+                                    "${q.oldPrice} һум ине → ${q.price} һум була"),
+                            style = CanonBodyStrong, color = CanonText,
+                        )
+                        // Показываем, из чего цена. Проеденное водителю платят в любом
+                        // случае — это не «накрутка», а уже сделанная работа.
+                        Text(
+                            appText("Проехали ${q.drivenKm.toInt()} км · осталось ${q.restKm.toInt()} км",
+                                    "${q.drivenKm.toInt()} км үттек · ${q.restKm.toInt()} км ҡалды"),
+                            style = CanonMicro, color = CanonMuted,
+                        )
+                        if (q.needsDriverOk) {
+                            Text(
+                                if (q.askReason == "zone")
+                                    appText("Это уже междугородняя поездка — спросим водителя, сможет ли он.",
+                                            "Был инде ҡалалар-ара сәфәр — йөрөтөүсенән һорайбыҙ.")
+                                else appText("Цена вырастет втрое — спросим водителя.",
+                                             "Хаҡ өс тапҡырға арта — йөрөтөүсенән һорайбыҙ."),
+                                style = CanonMicro, color = CanonWarn,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Button(
+                onClick = {
+                    val place = picked ?: return@Button
+                    busy = true; error = null
+                    scope.launch {
+                        ApiClient.changeDestination(order.id, place.lat, place.lon, place.title)
+                            .onSuccess { onChanged(); onDismiss() }
+                            .onFailure {
+                                error = (it as? ApiException)?.message
+                                    ?: failChange
+                            }
+                        busy = false
+                    }
+                },
+                enabled = picked != null && !busy,
+                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Text(
+                    if (quote?.needsDriverOk == true) appText("Спросить водителя", "Йөрөтөүсенән һорау")
+                    else appText("Изменить адрес", "Адресты үҙгәртеү"),
+                    style = CanonButton, color = CanonOnAccent,
+                )
+            }
+        }
+    }
+}
+
+
+// ------------------------------ остановки по пути ------------------------------
+// Смысл остановки в том, что за неё платят. Без этого водитель везёт лишние километры даром,
+// а пассажир не понимает, почему цена не изменилась.
+//
+// Больше трёх не даём: каждая остановка удлиняет поездку и цену, а водитель на четвёртой
+// начинает отказываться — заказ висит, и виноватым выглядит приложение. Сами строки живут
+// в карточке маршрута (OrderStopRow), здесь остаётся только выбор адреса.
+internal const val InstantStopsMax = 3
+
+/** Выбор места для остановки. Тот же поиск адреса, что на экране заказа. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PickStopSheet(
+    onDismiss: () -> Unit,
+    onPicked: (com.yuldash.app.data.GeoHit) -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    var suggestions by remember { mutableStateOf<List<com.yuldash.app.data.GeoHit>>(emptyList()) }
+
+    LaunchedEffect(query) {
+        if (query.trim().length < 2) { suggestions = emptyList(); return@LaunchedEffect }
+        delay(350)   // та же пауза, что на экране заказа: запросы к карте платные
+        GeocoderClient.suggestResult(query).onSuccess { suggestions = it.take(6) }
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).padding(bottom = CanonSpace.xl),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
+        ) {
+            Text(appText("Куда заехать?", "Ҡайҙа инеп сығырға?"), style = CanonTitle, color = CanonText)
+            OutlinedTextField(
+                value = query, onValueChange = { query = it },
+                placeholder = { Text(appText("Адрес остановки", "Туҡталыш адресы"), color = CanonMuted) },
+                singleLine = true, shape = CanonFieldShape, modifier = Modifier.fillMaxWidth(),
+            )
+            suggestions.forEach { hit ->
+                Surface(
+                    color = CanonBg, shape = CanonItemShape,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .clickable { onPicked(hit) },
+                ) {
+                    Box(Modifier.padding(horizontal = CanonSpace.md), contentAlignment = Alignment.CenterStart) {
+                        Text(hit.title, style = CanonBody, color = CanonText, maxLines = 2)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** «Стоим» / «Поехали» — водитель отмечает стоянку на остановке.
+ *
+ *  Кнопкой, а не автоматом по координатам: машина, застрявшая в пробке у светофора рядом
+ *  с остановкой, начала бы «зарабатывать» сама, а разбираться пришлось бы пассажиру.
+ *  Нажал — оба видят, что счётчик пошёл. Правила те же, что при подаче. */
+@Composable
+internal fun DriverStopButton(
+    order: com.yuldash.app.data.InstantOrderDto,
+    onToggle: () -> Unit,
+) {
+    if (order.status != "onboard" || order.stops.isEmpty()) return
+    val standing = order.standing
+    Surface(
+        color = if (standing) CanonWarnBg else CanonMint,
+        shape = CanonItemShape,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onToggle),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = CanonSpace.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            Icon(Icons.Default.AccessTime, contentDescription = null,
+                 tint = if (standing) CanonWarn else CanonGreen2)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (standing) appText("Поехали", "Киттек") else appText("Стоим", "Туҡтап торабыҙ"),
+                    style = CanonBodyStrong, color = CanonText,
+                )
+                Text(
+                    if (standing) appText("Идёт ожидание — нажми, когда тронешься",
+                                          "Көтөү бара — ҡуҙғалғас баҫ")
+                    else appText("Отметь остановку — пойдёт ожидание",
+                                 "Туҡталышты билдәлә — көтөү китә"),
+                    style = CanonMicro, color = CanonMuted,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * «Куда» в шапке шторки заказа — вторая половина маршрута.
+ *
+ * Отдельной строкой, а не внутри поля поиска: поле нужно, пока адрес ищут, а когда он выбран,
+ * человеку нужно видеть результат и иметь возможность передумать одним тапом.
+ */
+@Composable
+private fun OrderDestinationRow(
+    text: String,
+    onEdit: () -> Unit,
+    tripMin: Int? = null,
+) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = CanonSpace.md, end = CanonSpace.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Default.Place, contentDescription = null, tint = CanonGold,
+             modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(CanonSpace.md))
+        Column(Modifier.weight(1f)) {
+            Text(text, style = CanonBodyStrong, color = CanonText,
+                 maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Появляется вместе с расчётом — плавно, а не рывком: цена и время приходят
+            // одним ответом, и подпись не должна дёргать строку адреса при каждом пересчёте.
+            AnimatedVisibility(
+                visible = tripMin != null,
+                enter = fadeIn(tween(CanonMotion.NORMAL)),
+                exit = fadeOut(tween(CanonMotion.QUICK)),
+            ) {
+                Text(
+                    appText("≈ $tripMin мин в пути", "≈ $tripMin мин юлда"),
+                    style = CanonCaption, color = CanonMuted, maxLines = 1,
+                )
+            }
+        }
+        TextButton(onClick = onEdit, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text(appText("Изменить", "Үҙгәртеү"), style = CanonBody, color = CanonGreen2, maxLines = 1)
+        }
+    }
+}
+
+/**
+ * Место для остановки — кружок с плюсом на линии маршрута.
+ *
+ * Занимает место разделительной черты между точками, поэтому объяснять его не нужно: то,
+ * что стоит МЕЖДУ «откуда» и «куда», может значить только «вставить точку сюда». Так экран
+ * не прирастает ни одним словом — а слова здесь дороги, карточка маршрута и так плотная.
+ *
+ * Нажимается вся строка во всю ширину, а не сам кружок: цель размером с ноготь мимо пальца
+ * в машине на ходу — это не кнопка, а лотерея.
+ */
+@Composable
+private fun OrderInsertStopRow(onClick: () -> Unit) {
+    Surface(onClick = onClick, color = CanonBg, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            // Высота ФИКСИРОВАНА, а не «не меньше»: внутри нить тянется на всю высоту строки,
+            // и при открытой границе она растягивала карточку на весь экран.
+            //
+            // 36 dp, а не обычные 48: это перемычка между двумя адресами, и на полной высоте
+            // она разрывала маршрут пополам — «откуда» и «куда» переставали читаться как одна
+            // вещь. Цель касания при этом не мелкая: полоса во всю ширину карточки, а сверху
+            // и снизу от неё стоят строки, у которых кликабельны только кнопки справа —
+            // промах по вертикали не сделает ничего чужого.
+            Modifier.fillMaxWidth().height(36.dp)
+                .padding(start = CanonSpace.md, end = CanonSpace.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Нить маршрута: тонкая линия от точки «откуда» вниз к точке «куда», и кружок
+            // ровно на ней. Без нити значок висел в пустоте между строками и читался как
+            // дыра в карточке, а не как место для новой точки.
+            Box(
+                Modifier.width(22.dp).fillMaxHeight(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.width(2.dp).fillMaxHeight().background(CanonBorder))
+                Icon(
+                    Icons.Default.AddCircleOutline,
+                    contentDescription = appText("Заехать по пути", "Юлда инеп сығыу"),
+                    tint = CanonGreen2,
+                    modifier = Modifier.size(22.dp).background(CanonBg, CircleShape),
+                )
+            }
+            Spacer(Modifier.width(CanonSpace.md))
+            Box(Modifier.weight(1f).height(1.dp).background(CanonBorder))
+        }
+    }
+}
+
+/**
+ * Строка «чем рассчитаются» — одинаковая у обеих сторон.
+ *
+ * Спор на высадке начинается не с денег, а с того, что об этом не договорились заранее.
+ * Одна строка, видимая обоим, снимает весь разговор.
+ */
+@Composable
+private fun InstantPayMethodRow(method: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+    ) {
+        Icon(PayMethods.icon(method), contentDescription = null, tint = CanonMuted,
+             modifier = Modifier.size(18.dp))
+        Text(
+            appText("Оплата: ", "Түләү: ") + PayMethods.title(method).lowercase(),
+            style = CanonCaption, color = CanonMutedStrong,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** Остановка по пути — строка в карточке маршрута. Убрать можно одним тапом: список
+ *  собирают на ходу, и ошибиться адресом здесь так же легко, как в «куда». */
+@Composable
+private fun OrderStopRow(text: String, onRemove: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = CanonSpace.md, end = CanonSpace.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Default.Place, contentDescription = null, tint = CanonGreen2,
+             modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(CanonSpace.md))
+        Text(text, style = CanonBody, color = CanonText, maxLines = 1,
+             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Surface(
+            onClick = onRemove,
+            shape = CircleShape,
+            color = CanonBg,
+            modifier = Modifier.minimumInteractiveComponentSize(),
+        ) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = appText("Убрать остановку", "Туҡталышты алыу"),
+                tint = CanonMuted,
+                modifier = Modifier.padding(CanonSpace.sm).size(18.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Строка точки маршрута: иконка, адрес, действие справа.
+ *
+ * Одна на подачу и на назначение — чтобы они не разъехались по высоте и выравниванию.
+ * Подписи-лейбла над адресом нет намеренно (образец — Яндекс): иконка говорит то же самое,
+ * а ярус текста забирает место у карты.
+ */
+@Composable
+private fun OrderPointRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: androidx.compose.ui.graphics.Color,
+    text: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+) {
+    // Без собственной подложки и без обёртки: строка живёт внутри общей карточки маршрута.
+    // Своя заливка резала бы карточку на куски, а лишний контейнер растягивался на всю
+    // доступную высоту и раздувал шапку на весь экран.
+    // «Готово» от «жду ввода» отличает сам текст — адрес плотный и тёмный, приглашение серое.
+    run {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = CanonSpace.md, end = CanonSpace.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(CanonSpace.md))
+            // «Определяем…» → «Моя позиция» приходило рывком, будто экран моргнул.
+            AnimatedContent(targetState = text, label = "orderPoint", modifier = Modifier.weight(1f)) { value ->
+                Text(
+                    value,
+                    style = CanonBodyStrong,
+                    color = CanonText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            TextButton(onClick = onAction, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(actionLabel, style = CanonBody, color = CanonGreen2, maxLines = 1)
+            }
+        }
+    }
+}
+
+/**
+ * «Сказать рәхмәт» водителю — строкой на экране завершения.
+ *
+ * Механизм существовал давно: ручка на сервере, метод в клиенте, кнопка в чеке. Но чек человек
+ * открывает редко — сначала надо догадаться, что он есть. Тёплое спасибо жило за двумя тапами
+ * от той минуты, когда его хочется сказать.
+ *
+ * Это же и наш ответ чаевым: кнопки с суммой у нас нет намеренно — платёж идёт мимо приложения,
+ * и такая кнопка врала бы. Жест ничего не стоит и до водителя доходит.
+ */
+@Composable
+private fun InstantThanksRow(orderId: Int) {
+    val scope = rememberCoroutineScope()
+    var thanked by remember(orderId) { mutableStateOf(false) }
+    var busy by remember(orderId) { mutableStateOf(false) }
+    // Спрашиваем сервер, не благодарил ли он уже: предлагать второй раз то, что человек
+    // сделал минуту назад, — мелкая, но обидная небрежность.
+    LaunchedEffect(orderId) {
+        ApiClient.getInstantTipInfo(orderId).onSuccess { thanked = it.alreadyThanked }
+    }
+    Surface(
+        onClick = {
+            if (thanked || busy) return@Surface
+            busy = true
+            scope.launch {
+                ApiClient.sayInstantThanks(orderId).onSuccess { thanked = true }
+                busy = false
+            }
+        },
+        color = if (thanked) CanonMint else CanonBg,
+        shape = CanonItemShape,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        // По центру, как и всё в карточке оценки: заголовок, звёзды, подпись и «пожаловаться»
+        // центрированы, и один блок, прижатый влево, ломал ось — глаз спотыкался именно
+        // на нём, хотя виноват был не он, а разнобой.
+        Column(
+            Modifier.fillMaxWidth().padding(CanonSpace.md).heightIn(min = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            ) {
+                // Одно сердце, а не два: рядом с иконкой стояло ещё и эмодзи в тексте.
+                Icon(
+                    Icons.Default.Favorite,
+                    contentDescription = null,
+                    tint = CanonGreen2,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    if (thanked) appText("«Рәхмәт» сказан", "Рәхмәт әйтелде")
+                    else appText("Понравилось? Скажи «рәхмәт»", "Оҡшанымы? Рәхмәт әйт"),
+                    style = CanonBodyStrong,
+                    color = CanonText,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            Text(
+                if (thanked) appText("Водитель это увидит", "Йөрөтөүсе быны күрер")
+                else appText("Тёплое спасибо водителю — без денег", "Йөрөтөүсегә йылы рәхмәт — аҡсаһыҙ"),
+                style = CanonCaption,
+                color = CanonMuted,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/**
+ * Поле «Куда едем?» — главная строка экрана заказа.
+ *
+ * Своё, а не Material: OutlinedTextField обязательно рисует рамку и плавающую подпись, а
+ * именно они и делали экран похожим на анкету. Здесь вместо рамки — мягкая подложка, вместо
+ * подписи — прямой вопрос, который исчезает, как только человек начал печатать.
+ *
+ * Кнопка карты живёт внутри поля: «куда» — одна мысль, и оба способа её задать (напечатать
+ * или ткнуть в карту) должны быть в одном месте, а не в разных углах экрана.
+ */
+@Composable
+private fun InstantWhereField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onMap: () -> Unit,
+) {
+    // Без своей подложки и обёртки: поле — вторая строка внутри карточки маршрута.
+    // Вторая заливка дала бы двойное скругление, а контейнер с fillMaxHeight растянул бы
+    // строку на весь экран (проверено — шапка заняла всю шторку).
+    run {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = CanonSpace.md, end = CanonSpace.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = null,
+                tint = CanonMuted,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(CanonSpace.md))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (value.isEmpty()) {
+                    Text(
+                        appText("Куда едем?", "Ҡайҙа барабыҙ?"),
+                        style = CanonBody,
+                        color = CanonMuted,
+                        maxLines = 1,
+                    )
+                }
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    singleLine = true,
+                    textStyle = CanonBodyStrong.copy(color = CanonText),
+                    cursorBrush = SolidColor(CanonGreen2),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            IconButton(onClick = onMap, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    Icons.Default.Map,
+                    contentDescription = appText("Выбрать точку на карте", "Картала нөктә һайлау"),
+                    tint = CanonGreen2,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
     }
 }

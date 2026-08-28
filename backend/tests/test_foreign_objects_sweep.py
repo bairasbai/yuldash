@@ -22,6 +22,9 @@ import pytest
 from app.config import settings
 from app.main import app
 from app.models import UserRole
+from app.db import engine
+from app.models import InstantOrder, InstantOrderStatus
+from sqlmodel import Session
 
 from test_api import _ride
 
@@ -124,6 +127,22 @@ def owner_objects(client, user_factory_module):
         })
         assert parcel.status_code == 200, f"посылка не создалась: {parcel.text[:200]}"
         ids["parcel_id"] = parcel.json()["id"]
+
+        # Такси-заказ. Без него сторож не проверял НИ ОДНОГО адреса вида
+        # /instant/orders/{order_id}/... — а их полтора десятка, и все про живую поездку
+        # с чужими координатами и телефонами. Создаём прямо в базе: обычный путь требует
+        # включённого такси, одобренной заявки и свободного водителя рядом, а сторожу нужен
+        # только объект с владельцем.
+        with Session(engine) as s_ord:
+            order = InstantOrder(
+                passenger_id=pax["id"], driver_id=driver["id"], status=InstantOrderStatus.onboard,
+                from_lat=54.7351, from_lng=55.9587, to_lat=54.7450, to_lng=55.9700,
+                distance_km=3.0, eta_min=8.0, price_estimate=200, category="standard",
+            )
+            s_ord.add(order)
+            s_ord.commit()
+            s_ord.refresh(order)
+            ids["order_id"] = order.id
 
         ids["user_id"] = pax["id"]
         ids["driver_id"] = driver["id"]

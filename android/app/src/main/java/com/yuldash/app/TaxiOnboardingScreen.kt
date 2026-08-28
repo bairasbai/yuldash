@@ -1,7 +1,7 @@
 package com.yuldash.app
 
 // ============================ «Стать таксистом Юлдаша» (580-ФЗ) ============================
-// Онбординг таксиста: тёплые правила простыми словами (комиссия 3→5→8%, оплата раз в неделю по СБП,
+// Онбординг таксиста: тёплые правила простыми словами (комиссия 3→8→15%, оплата раз в неделю по СБП,
 // лимит 8 часов на линии) + форма заявки (ИНН самозанятого, разрешение на такси, ОСАГО, возраст 20+,
 // стаж 2+). Состояния: форма → загрузка → на проверке (pending) → одобрено / отклонено (+повторная подача).
 // Бэкенд: POST /taxi/apply, GET /taxi/application (методы в data/ApiClient.kt).
@@ -362,7 +362,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                     TaxiRuleRow(
                         "💚",
                         appText("Комиссия — втрое ниже, чем у Яндекса", "Комиссия — Яндексҡа ҡарағанда өс тапҡыр түбәнерәк"),
-                        appText("Первый месяц 3%, второй — 5%, дальше — 8%. Остальное — твоё.", "Тәүге ай 3%, икенсеһе — 5%, артабан — 8%. Ҡалғаны — һинеке."),
+                        appText("Первый месяц 3%, второй — 8%, дальше — 15%. Остальное — твоё.", "Тәүге ай 3%, икенсеһе — 8%, артабан — 15%. Ҡалғаны — һинеке."),
                     )
                     TaxiCommissionSteps()
                     TaxiRuleRow(
@@ -774,13 +774,13 @@ private fun TaxiChoiceChip(text: String, selected: Boolean, onClick: () -> Unit)
     }
 }
 
-/** Шкала комиссии 3% → 5% → 8%: три шага месяцев. */
+/** Шкала комиссии 3% → 8% → 15%: три шага месяцев. */
 @Composable
 private fun TaxiCommissionSteps() {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         TaxiCommissionStep("3%", appText("1-й месяц", "1-се ай"), Modifier.weight(1f))
-        TaxiCommissionStep("5%", appText("2-й месяц", "2-се ай"), Modifier.weight(1f))
-        TaxiCommissionStep("8%", appText("дальше", "артабан"), Modifier.weight(1f))
+        TaxiCommissionStep("8%", appText("2-й месяц", "2-се ай"), Modifier.weight(1f))
+        TaxiCommissionStep("15%", appText("дальше", "артабан"), Modifier.weight(1f))
     }
 }
 

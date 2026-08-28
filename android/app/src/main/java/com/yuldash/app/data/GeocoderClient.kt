@@ -53,4 +53,17 @@ object GeocoderClient {
      * разбор города при отправке формы). Экранам с полем адреса нужен suggestResult.
      */
     suspend fun suggest(query: String): List<GeoHit> = suggestResult(query).getOrDefault(emptyList())
+
+    /**
+     * Как называется место с такими координатами. Пустая строка — не смогли узнать.
+     *
+     * Зовётся, когда точку ставят пином на карте. Пустой ответ здесь не ошибка и не повод
+     * ломать заказ: остаётся прежнее «Точка на карте», координаты у водителя всё равно есть.
+     * Сеть в деревне пропадает, а уехать человеку надо сейчас.
+     */
+    suspend fun addressAt(lat: Double, lng: Double): String = withContext(Dispatchers.IO) {
+        ApiClient.geocodeReverse(lat, lng)
+            .map { it.optString("title") }
+            .getOrDefault("")
+    }
 }

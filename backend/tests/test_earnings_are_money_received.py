@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Водителя кинули на 620 ₽ — и приложение записало их ему в заработок (волна 190).
 
+Число 620 — из того разбора; в тестах цену берём у сервера, потому что тариф меняется.
+
 История. Пассажир вышел у подъезда и ушёл, не заплатив. Водитель нажал «пассажир не
 заплатил», админ разобрал жалобу и признал её: комиссию за эту поездку с водителя сняли —
 всё правильно, так и задумано.
@@ -65,7 +67,12 @@ def _поездка(client, user_factory, fake_redis, метка):
     for шаг in ("accept", "arrived", "onboard", "done"):
         assert client.post(f"/instant/orders/{oid}/{шаг}",
                            headers=водитель["auth"]).status_code == 200
-    return водитель, пассажир, oid
+    # Цену берём из ответа сервера, а не пишем числом: тариф меняется решением Александра
+    # (волна 158 подняла городской per_km и per_min), и прибитая константа роняла этот тест
+    # при каждой такой правке — хотя проверяет он совсем другое.
+    цена = int(order.get("price_estimate") or 0)
+    assert цена > 0, f"сервер не вернул цену заказа: {order}"
+    return водитель, пассажир, oid, цена
 
 
 def _кинули(client, user_factory, водитель, пассажир, oid, метка, подтвердить=True):
@@ -84,9 +91,9 @@ def _кинули(client, user_factory, водитель, пассажир, oid,
 
 def test_неоплаченная_поездка_не_идёт_в_заработок(client, user_factory, fake_redis):
     """Главное: в заработке — деньги, которые человек получил, а не которые ему обещали."""
-    водитель, пассажир, oid = _поездка(client, user_factory, fake_redis, "Осн")
+    водитель, пассажир, oid, цена = _поездка(client, user_factory, fake_redis, "Осн")
     до = client.get("/driver/earnings?period=week", headers=водитель["auth"]).json()
-    assert до["total"] == 620, до
+    assert до["total"] == цена, до
 
     _кинули(client, user_factory, водитель, пассажир, oid, "Осн")
 
@@ -99,12 +106,12 @@ def test_неоплаченная_поездка_не_идёт_в_заработ
 
 def test_неоплаченное_названо_отдельно_а_не_спрятано(client, user_factory, fake_redis):
     """Работу человек сделал. Убрать её совсем — второй обман."""
-    водитель, пассажир, oid = _поездка(client, user_factory, fake_redis, "Отд")
+    водитель, пассажир, oid, цена = _поездка(client, user_factory, fake_redis, "Отд")
 
     _кинули(client, user_factory, водитель, пассажир, oid, "Отд")
 
     тело = client.get("/driver/earnings?period=week", headers=водитель["auth"]).json()
-    assert тело["unpaid_total"] == 620, (
+    assert тело["unpaid_total"] == цена, (
         f"поездка исчезла из отчёта совсем: {тело}. Человек не поймёт, куда делся вечер работы"
     )
     assert тело["unpaid_trips"] == 1, тело
@@ -112,7 +119,7 @@ def test_неоплаченное_названо_отдельно_а_не_спр
 
 def test_в_списке_поездок_чистыми_ноль_и_метка(client, user_factory, fake_redis):
     """Раньше такая поездка выглядела ЛУЧШЕ честной: комиссию сняли, «чистыми» больше."""
-    водитель, пассажир, oid = _поездка(client, user_factory, fake_redis, "Спис")
+    водитель, пассажир, oid, цена = _поездка(client, user_factory, fake_redis, "Спис")
 
     _кинули(client, user_factory, водитель, пассажир, oid, "Спис")
 
@@ -123,12 +130,12 @@ def test_в_списке_поездок_чистыми_ноль_и_метка(cl
     )
     assert строка["unpaid_confirmed"] is True, "экран не отличит её от обычной"
     assert тело["total_net_kop"] == 0, f"итог по списку врёт: {тело['total_net_kop']}"
-    assert строка["price"] == 620, "цена поездки должна остаться видимой — это её работа"
+    assert строка["price"] == цена, "цена поездки должна остаться видимой — это её работа"
 
 
 def test_комиссию_с_такой_поездки_по_прежнему_снимают(client, user_factory, fake_redis):
     """Обратная сторона: старое правило (волна 2026-07-26) не должно сломаться."""
-    водитель, пассажир, oid = _поездка(client, user_factory, fake_redis, "Ком")
+    водитель, пассажир, oid, цена = _поездка(client, user_factory, fake_redis, "Ком")
 
     _кинули(client, user_factory, водитель, пассажир, oid, "Ком")
 
@@ -145,23 +152,23 @@ def test_комиссию_с_такой_поездки_по_прежнему_с�
 
 def test_честная_поездка_считается_как_прежде(client, user_factory, fake_redis):
     """Перестраховка не должна съесть нормальный заработок."""
-    водитель, _, _ = _поездка(client, user_factory, fake_redis, "Честн")
+    водитель, _, _, цена = _поездка(client, user_factory, fake_redis, "Честн")
 
     тело = client.get("/driver/earnings?period=week", headers=водитель["auth"]).json()
 
-    assert тело["total"] == 620, f"обычная поездка пропала из заработка: {тело}"
+    assert тело["total"] == цена, f"обычная поездка пропала из заработка: {тело}"
     assert тело["trips"] == 1
     assert тело["unpaid_total"] == 0, "честную поездку записали в неоплаченные"
 
 
 def test_отклонённая_жалоба_заработок_не_трогает(client, user_factory, fake_redis):
     """Разбор не подтвердил — значит деньги были. Слово водителя фактом не является."""
-    водитель, пассажир, oid = _поездка(client, user_factory, fake_redis, "Откл")
+    водитель, пассажир, oid, цена = _поездка(client, user_factory, fake_redis, "Откл")
 
     _кинули(client, user_factory, водитель, пассажир, oid, "Откл", подтвердить=False)
 
     тело = client.get("/driver/earnings?period=week", headers=водитель["auth"]).json()
-    assert тело["total"] == 620, (
+    assert тело["total"] == цена, (
         f"жалобу отклонили, а деньги из заработка убрали: {тело}. Так любой мог бы "
         "переписывать свой отчёт одной кнопкой"
     )
@@ -179,10 +186,10 @@ def test_правило_берёт_только_жалобы_этого_води
     """
     from app.debt import unpaid_confirmed_order_ids
 
-    водитель, пассажир, oid = _поездка(client, user_factory, fake_redis, "Чуж")
+    водитель, пассажир, oid, цена = _поездка(client, user_factory, fake_redis, "Чуж")
     # Уводим первого с линии: иначе оффер второго заказа уйдёт ему же — он ближе всех.
     client.post("/driver/online", headers=водитель["auth"], json={"online": False})
-    другой, пассажир2, oid2 = _поездка(client, user_factory, fake_redis, "Чуж2")
+    другой, пассажир2, oid2, _ = _поездка(client, user_factory, fake_redis, "Чуж2")
     _кинули(client, user_factory, другой, пассажир2, oid2, "Чуж2")
 
     with Session(engine) as s:
@@ -195,7 +202,7 @@ def test_правило_берёт_только_жалобы_этого_води
         "и чужое «мне не заплатили» обнулит мой отчёт"
     )
     assert client.get("/driver/earnings?period=week",
-                      headers=водитель["auth"]).json()["total"] == 620
+                      headers=водитель["auth"]).json()["total"] == цена
 
 
 def test_экран_поездок_называет_это_словами():

@@ -16,7 +16,8 @@ from ..livepos import livepos_set
 from ..models import Booking, BookingStatus, InstantOrder, InstantOrderStatus, ParcelDelivery, Ride
 from ..security import authenticate_ws
 from ..ws_guard import watch_ws_access
-from ..services import MAP_FEED_KEY, manager
+from ..logs import log
+from ..services import MAP_FEED_KEY, haversine_km, manager
 
 router = APIRouter(tags=["location"])
 
@@ -258,6 +259,29 @@ async def instant_location(websocket: WebSocket, order_id: int):
     )
     guard = TrackGuard(user_id)   # анти-телепорт (B8-3): фейковые скачки не ретранслируем
     msgs = 0
+    # След машины: копим локально, в базу сбрасываем редко. Кадры идут раз в ~12 секунд,
+    # и писать в базу на каждый — тратить запись ради числа, нужного раз за поездку.
+    prev_point: tuple | None = None
+    pending_km = 0.0
+
+    def _flush_driven() -> None:
+        """Слить накопленное в заказ. Редко и обязательно при закрытии канала."""
+        nonlocal pending_km
+        if pending_km <= 0:
+            return
+        try:
+            with Session(engine) as s3:
+                o3 = s3.get(InstantOrder, order_id)
+                # Копим ТОЛЬКО с пассажиром на борту: путь до посадки оплачен подачей.
+                if o3 is not None and o3.status == InstantOrderStatus.onboard:
+                    o3.driven_km = float(o3.driven_km or 0.0) + pending_km
+                    s3.add(o3)
+                    s3.commit()
+        except Exception as e:   # noqa: BLE001 — след вторичен, канал координат важнее
+            log.warning(f"[TRACK] след заказа {order_id} не записан: {type(e).__name__}")
+        finally:
+            pending_km = 0.0
+
     try:
         while True:
             data = await websocket.receive_text()
@@ -290,6 +314,14 @@ async def instant_location(websocket: WebSocket, order_id: int):
                 if role == "driver":
                     # Live-ссылка близкому (B7c): позиция машины → Redis-кэш (см. трек брони выше).
                     livepos_set("order", order_id, lat, lng, payload.get("bearing"))
+                    # След: длина отрезка от прошлой точки. Анти-телепорт выше уже отсеял
+                    # фейковые скачки — сюда приходит только правдоподобное движение.
+                    if prev_point is not None:
+                        pending_km += haversine_km(prev_point[0], prev_point[1],
+                                                   float(lat), float(lng))
+                    prev_point = (float(lat), float(lng))
+                    if msgs % 15 == 0:
+                        _flush_driven()
                 await manager.broadcast(send_key, {   # в inbox ДРУГОГО участника (не себе)
                     "type": "loc",
                     "role": role,
@@ -301,6 +333,10 @@ async def instant_location(websocket: WebSocket, order_id: int):
     except WebSocketDisconnect:
         pass
     finally:
+        # Сбросить след ДО отключения: связь в дороге рвётся постоянно, и без этого
+        # терялись бы последние минуты пути — те самые, за которые водителю платят.
+        if role == "driver":
+            _flush_driven()
         страж.cancel()          # сторож живёт ровно столько, сколько канал
         manager.disconnect(recv_key, websocket)
 

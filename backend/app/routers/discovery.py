@@ -185,6 +185,52 @@ def geocode(q: str = "", user: User = Depends(current_user)):
     return result
 
 
+@router.get("/geocode/reverse")
+def geocode_reverse(lat: float = 0.0, lng: float = 0.0, user: User = Depends(current_user)):
+    """Адрес по координатам (обратный геокодер).
+
+    Зовётся, когда человек ставит точку пином на карте: без этого в заказ уходило
+    безымянное «Точка на карте», и адрес не знал никто — ни водитель в списке заказов,
+    ни сам пассажир в истории поездок.
+
+    Тот же ключ и та же квота, что у поиска по адресу, поэтому те же две защиты:
+    суточный кеш и персональный лимит на промах кеша.
+    """
+    key = settings.yandex_geocoder_key
+    # Координаты вне глобуса — не запрос, а мусор или ошибка клиента. Не тратим на них вызов.
+    if not key or not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+        return {"title": ""}
+    # Округление до ~метра: два пина, поставленные в одну дверь, дают один ключ кеша
+    # и один платный вызов вместо двух.
+    ckey = f"revgeo:v1:{lat:.5f},{lng:.5f}"
+    cached = cache_get_json(ckey)
+    if cached is not None:
+        return cached
+    if user_over_limit("geocode", user.id, settings.rate_limit_geocode_per_min):
+        raise herr(429, "Слишком много запросов адресов. Подожди минуту.",
+                   "Адрес һорауҙары артыҡ күп. Бер минут көт.")
+    try:
+        import httpx
+        r = httpx.get("https://geocode-maps.yandex.ru/1.x/", params={
+            # Яндексу координаты идут в порядке «долгота широта» — обратном привычному.
+            "apikey": key, "geocode": f"{lng},{lat}", "format": "json",
+            "results": 1, "kind": "house", "lang": "ru_RU",
+        }, timeout=8)
+        members = r.json()["response"]["GeoObjectCollection"]["featureMember"]
+    except Exception:  # noqa: BLE001
+        return {"title": ""}     # ошибку НЕ кешируем — попробуем снова в следующий раз
+    title = ""
+    if members:
+        go = members[0].get("GeoObject", {})
+        name, desc = go.get("name", ""), go.get("description", "")
+        # name — «Ленина, 12», desc — «Баймак, Башкортостан». Человеку в строке заказа
+        # нужен дом с улицей; город он и так знает, а строка в шторке узкая.
+        title = name or desc
+    result = {"title": title}
+    cache_set_json(ckey, result, 86400)   # сутки, как и прямой поиск
+    return result
+
+
 @router.post("/voice")
 async def upload_voice(request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Загрузка голосового (multipart `file` ИЛИ base64 — обратная совместимость) → media → публичный URL."""
