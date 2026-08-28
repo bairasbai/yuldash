@@ -314,6 +314,11 @@ function ComposeView({
       from_text: from.text,
       to_text: to.text,
       category,
+      // Предзаказ считаем на время подачи, а не на сейчас: иначе человек запоминает
+      // дневное число, а машина утром приезжает по ночной ставке.
+      ...(when === "later" && schedAt
+        ? { scheduled_at: new Date(schedAt).toISOString() }
+        : {}),
     })
       .then((e) => alive && setEstimate(e))
       .catch((e) => {
@@ -331,7 +336,7 @@ function ComposeView({
     return () => {
       alive = false;
     };
-  }, [from?.lat, from?.lng, to?.lat, to?.lng, category]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [from?.lat, from?.lng, to?.lat, to?.lng, category, when, schedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ❄️ Погода на маршруте заказа — по координатам точек (сервер округляет их до ~5 км).
   const weather = useRouteWeather({
@@ -556,6 +561,17 @@ function ComposeView({
       {to && estimate?.pickup_wait_hint && (
         <div className="taxi-pickup taxi-pickup--win">
           🚗 {ru ? estimate.pickup_wait_hint.ru : estimate.pickup_wait_hint.ba}
+        </div>
+      )}
+
+      {/* Пока человек думает, цена не вырастет. Молчаливая заморозка никого не успокаивает —
+          успокаивает только названная. 0 секунд = выключена, тогда молчим и не обещаем. */}
+      {to && when === "now" && (estimate?.price_locked_sec ?? 0) > 0 && (
+        <div className="taxi-pickup taxi-pickup--win">
+          {appText(
+            `Цена закреплена на ${Math.ceil((estimate!.price_locked_sec ?? 0) / 60)} мин — пока думаешь, не вырастет`,
+            `Хаҡ ${Math.ceil((estimate!.price_locked_sec ?? 0) / 60)} минутҡа беркетелгән — уйлағанда артмай`,
+          )}
         </div>
       )}
 

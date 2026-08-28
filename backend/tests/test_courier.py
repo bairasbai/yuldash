@@ -99,7 +99,11 @@ def test_onboarding_and_full_flow(client, user_factory):
     est = re.json()
     assert est["price_kop"] > 0
     assert est["distance_km"] > 0
-    assert est["commission_kop"] == round(est["price_kop"] * 8.0 / 100)
+    # Ставку берём из конфига: верхняя ступень курьера уже менялась (8% → 15%), и проверка,
+    # зашитая числом, ловила бы не ошибку, а собственную несвежесть. База — доставка БЕЗ
+    # компенсаций курьеру (дорога к посылке, зимняя дорога): с них комиссия не берётся.
+    база = est["price_kop"] - est["pickup_kop"] - est["weather_kop"]
+    assert est["commission_kop"] == round(база * settings.courier_service_fee_percent / 100)
     assert est["breakdown"]["size_kop"] == 5000        # medium
     assert est["breakdown"]["urgency_kop"] == 10000    # now
 

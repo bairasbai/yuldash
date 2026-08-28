@@ -1708,7 +1708,10 @@ internal fun DriverCabinetScreen(
             scheduleSection = { DriverScheduleSection() },
             // Спрос рядом — только одобренному таксисту; читает online как State (реагирует на тумблер).
             demandSection = if (!taxiAppLoaded || taxiApp?.status == "approved") {
-                { DriverDemandSection(online = online) }
+                { Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+                    PrioritySection()
+                    DriverDemandSection(online = online)
+                } }
             } else null,
             onWallet = onWallet,
             onEarnings = onEarnings,
@@ -2152,8 +2155,9 @@ private fun feePct(p: Double): String =
 /**
  * Дашборд таксиста (экран «на линии»): заработок и заказы ЗА СЕГОДНЯ крупной тёмно-зелёной
  * картой (белый текст читаем в обеих темах — фикс. CanonGreenInk, не адаптивный) + честная
- * ЛЕСЕНКА КОМИССИИ по стажу (3/8/15%): подсвечена текущая ступень, подпись «через N дней станет Y%».
- * Данные — из /instant/workday (debt.driver_dashboard). Лесенка по дням стажа, НЕ по деньгам.
+ * ЛЕСЕНКА КОМИССИИ по поездкам (3/8/15%): подсвечена текущая ступень, подпись
+ * «через N поездок станет Y%». Данные — из /instant/workday (debt.driver_dashboard).
+ * Ступень двигают ПОЕЗДКИ, а не календарь и не деньги.
  */
 @Composable
 private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
@@ -2163,12 +2167,12 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
     var netEarnTargetKop by remember { mutableIntStateOf(0) }
     LaunchedEffect(wd.netTodayKop) { netEarnTargetKop = wd.netTodayKop }
     val netEarnKop by animateIntAsState(netEarnTargetKop, tween(700), label = "netEarnKop")
-    val tiers = wd.feeTiers.ifEmpty { listOf(3.0, 5.0, 8.0) }
-    // Индекс текущей ступени по стажу (границы feeTierDays = [30,60]).
+    val tiers = wd.feeTiers.ifEmpty { listOf(3.0, 8.0, 15.0) }
+    // Индекс текущей ступени по числу поездок (границы feeTierTrips = [30,100]).
     val activeIdx = when {
-        wd.feeTierDays.size < 2 -> 0
-        wd.tenureDays <= wd.feeTierDays[0] -> 0
-        wd.tenureDays <= wd.feeTierDays[1] -> 1
+        wd.feeTierTrips.size < 2 -> 0
+        wd.tripsDone < wd.feeTierTrips[0] -> 0
+        wd.tripsDone < wd.feeTierTrips[1] -> 1
         else -> 2
     }
     Card(
@@ -2202,7 +2206,7 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                     Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(30.dp))
                 }
             }
-            // ── Лесенка комиссии (по стажу) ──
+            // ── Лесенка комиссии (по поездкам) ──
             Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(appText("Комиссия сервиса", "Сервис комиссияһы"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
@@ -2225,11 +2229,11 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                     }
                 }
                 // Честная подпись: когда ступень поднимется (или уже верхняя).
-                val note = if (wd.feeNextPercent != null && wd.feeDaysToNext != null) {
-                    val dn = wd.feeDaysToNext
+                val note = if (wd.feeNextPercent != null && wd.feeTripsToNext != null) {
+                    val tn = wd.feeTripsToNext
                     appText(
-                        "Сейчас ${feePct(wd.feePercent)} — стартовая ставка. Через $dn ${pluralDaysRu(dn)} станет ${feePct(wd.feeNextPercent)}. Всё равно ниже, чем у агрегаторов.",
-                        "Хәҙер ${feePct(wd.feePercent)} — башланғыс. $dn көндән ${feePct(wd.feeNextPercent)} булыр. Барыбер агрегаторҙарҙан түбәнерәк.",
+                        "Сейчас ${feePct(wd.feePercent)} — стартовая ставка. Через $tn ${pluralTripsRu(tn)} станет ${feePct(wd.feeNextPercent)}. Всё равно ниже, чем у агрегаторов.",
+                        "Хәҙер ${feePct(wd.feePercent)} — башланғыс. Тағы $tn юлдан ${feePct(wd.feeNextPercent)} булыр. Барыбер агрегаторҙарҙан түбәнерәк.",
                     )
                 } else {
                     appText("Максимальная ставка ${feePct(wd.feePercent)} — ниже, чем у агрегаторов (22–30%).",
@@ -2251,13 +2255,13 @@ private fun pluralOrdersRu(n: Int): String {
     }
 }
 
-/** RU-плюрал «день/дня/дней». */
-private fun pluralDaysRu(n: Int): String {
+/** RU-плюрал «поездка/поездки/поездок» — лесенка комиссии считает именно их. */
+private fun pluralTripsRu(n: Int): String {
     val m10 = n % 10; val m100 = n % 100
     return when {
-        m10 == 1 && m100 != 11 -> "день"
-        m10 in 2..4 && m100 !in 12..14 -> "дня"
-        else -> "дней"
+        m10 == 1 && m100 != 11 -> "поездку"
+        m10 in 2..4 && m100 !in 12..14 -> "поездки"
+        else -> "поездок"
     }
 }
 
@@ -2415,6 +2419,99 @@ private fun TaxiOnboardingCta(app: com.yuldash.app.data.TaxiApplicationDto?, onC
  * «Зона N · ищут: M», отсортированным по весу; чем выше вес — тем ярче/крупнее зелёный индикатор.
  * Загружаем при входе и, пока водитель на линии, мягко обновляем раз в 60с (вне линии — «Пока тихо»).
  */
+/**
+ * ⭐ Мой приоритет — кому заказ достаётся первым.
+ *
+ * Показываем ЦЕЛИКОМ: и сколько баллов, и за что каждый, и что их отнимает. Скрытый приоритет
+ * человек читает как «заказы раздают по блату» — это ровно та боль Яндекса, из-за которой
+ * их водители не понимают, почему им не падают заказы, и уходят.
+ *
+ * Отдельно проговариваем то, чего у них нет: за малый объём мы НЕ наказываем, и отказ
+ * от заказа не стоит ничего. Это надо сказать словами, иначе человек будет бояться по привычке.
+ */
+@Composable
+internal fun PrioritySection(courier: Boolean = false) {
+    var data by remember { mutableStateOf<com.yuldash.app.data.PriorityDto?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    LaunchedEffect(courier) {
+        val r = if (courier) ApiClient.getCourierPriority() else ApiClient.getDriverPriority()
+        r.onSuccess { data = it }
+        loading = false
+    }
+    val d = data
+    if (loading || d == null) return
+
+    Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+        Text(
+            appText("Твой приоритет", "Һинең өҫтөнлөгөң"),
+            color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+        )
+        Surface(color = CanonSurface, shape = CanonItemShape,
+            border = BorderStroke(1.dp, CanonBorder), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        appText("${d.points} из ${d.maxPoints}", "${d.maxPoints}-тан ${d.points}"),
+                        color = CanonGreen2, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.width(CanonSpace.sm))
+                    Text(
+                        if (d.points >= d.maxPoints)
+                            appText("заказы приходят первыми", "заказдар беренсе килә")
+                        else
+                            appText("чем больше баллов, тем раньше заказ", "балл күберәк — заказ иртәрәк"),
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    )
+                }
+                d.parts.forEach { p -> PriorityRow(p, earned = true) }
+                if (d.minus > 0) {
+                    Text(
+                        appText("−${d.minus}: бросил принятый заказ за последнюю неделю",
+                            "−${d.minus}: аҙнала алынған заказды ташлағанһың"),
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    )
+                }
+                if (courier && d.feedDelaySec > 0) {
+                    Text(
+                        appText("Новые заказы ты видишь на ${d.feedDelaySec} сек позже приоритетных",
+                            "Яңы заказдарҙы өҫтөнлөклөләрҙән ${d.feedDelaySec} сек һуңыраҡ күрәһең"),
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    )
+                }
+                Text(
+                    appText("Мало заказов — не страшно, за это мы не снимаем ничего. Отказаться от заказа тоже можно свободно.",
+                        "Заказ аҙ булыуы — ҡурҡыныс түгел, уның өсөн бер нәмә лә алмайбыҙ. Заказдан баш тартырға ла ирекле."),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+            }
+        }
+    }
+}
+
+/** Одна строка расклада: за что дали балл и с какой цифрой. */
+@Composable
+private fun PriorityRow(p: com.yuldash.app.data.PriorityPartDto, earned: Boolean) {
+    val текст = when (p.code) {
+        "rating" -> appText("Рейтинг ${"%.1f".format(p.value)}", "Рейтинг ${"%.1f".format(p.value)}")
+        "active" -> appText("${p.value.toInt()} заказов за неделю", "Аҙнала ${p.value.toInt()} заказ")
+        "hard_trips" -> appText("Возишь туда, куда не хотят: ночь, метель, село",
+            "Бүтәндәр теләмәгән ергә йөрөтәһең: төн, буран, ауыл")
+        "newbie" -> appText("Новичку — аванс на первые ${p.value.toInt()} дней",
+            "Яңы башлаусыға — тәүге ${p.value.toInt()} көнгә аванс")
+        else -> appText("Бросил принятый заказ", "Алынған заказды ташлағанһың")
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            if (p.points >= 0) "+${p.points}" else "${p.points}",
+            color = if (p.points >= 0 && earned) CanonGreen2 else CanonMuted,
+            fontSize = 14.sp, fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.width(CanonSpace.sm))
+        Text(текст, color = CanonText, fontSize = 12.sp, lineHeight = 17.sp)
+    }
+}
+
+
 @Composable
 internal fun DriverDemandSection(online: Boolean) {
     var zones by remember { mutableStateOf<List<com.yuldash.app.data.DemandZoneDto>>(emptyList()) }
@@ -2444,12 +2541,12 @@ internal fun DriverDemandSection(online: Boolean) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader(
             appText("Спрос рядом", "Яҡында ихтыяж"),
-            appText("Где сейчас чаще ищут попутку", "Хәҙер юлдашты нисә ерҙә йышыраҡ эҙләй"),
+            appText("Где сейчас чаще заказывают такси", "Хәҙер таксины ҡайҙа йышыраҡ заказ итә"),
         )
         when {
             !online -> EmptyStateCard(
                 title = appText("Пока тихо", "Әлегә тыныс"),
-                text = appText("Выйди на линию — покажем, где сейчас ищут попутку.", "Линияға сыҡ — юлдашты ҡайҙа эҙләгәнен күрһәтербеҙ."),
+                text = appText("Выйди на линию — покажем, где сейчас заказывают такси.", "Линияға сыҡ — таксины ҡайҙа заказ иткәнен күрһәтербеҙ."),
                 icon = Icons.Default.TravelExplore,
             )
             loading && zones.isEmpty() -> SkeletonCard(lines = 3)
@@ -2459,7 +2556,7 @@ internal fun DriverDemandSection(online: Boolean) {
             )
             zones.isEmpty() -> EmptyStateCard(
                 title = appText("Пока тихо", "Әлегә тыныс"),
-                text = appText("Рядом никто не ищет попутку. Мы сообщим, как появятся заказы.", "Яҡында бер кем дә юлдаш эҙләмәй. Заказ килеү менән хәбәр итербеҙ."),
+                text = appText("Рядом сейчас никто не заказывает. Мы сообщим, как появятся заказы.", "Яҡында хәҙер бер кем дә заказ итмәй. Заказ килеү менән хәбәр итербеҙ."),
                 icon = Icons.Default.TravelExplore,
             )
             else -> {
@@ -2491,8 +2588,13 @@ internal fun DriverDemandSection(online: Boolean) {
                                         .clip(CircleShape)
                                         .background(CanonGreen.copy(alpha = 0.35f + 0.55f * dot)),
                                 )
+                                // «Зона в ≈4 км» полезнее, чем «Зона 2»: водитель решает,
+                                // стоит ли туда ехать. Сервер считает расстояние по его живой
+                                // позиции; не знает — остаётся номер, а не выдуманные километры.
+                                val км = z.distKm?.let { if (it < 1.0) 1 else kotlin.math.round(it).toInt() }
                                 Text(
-                                    appText("Зона ${i + 1}", "${i + 1}-се зона"),
+                                    if (км != null) appText("Зона в ≈$км км", "≈$км км алыҫлыҡтағы зона")
+                                    else appText("Зона ${i + 1}", "${i + 1}-се зона"),
                                     color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
                                     modifier = Modifier.weight(1f),
                                 )

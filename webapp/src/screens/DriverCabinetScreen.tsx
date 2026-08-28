@@ -10,6 +10,7 @@
 // ================================================================
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import PriorityCard from "../components/PriorityCard";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
@@ -323,6 +324,12 @@ export default function DriverCabinetScreen() {
               <b>{passengers}</b>
               <span>{appText("пассажиров", "юлаусы")}</span>
             </div>
+          </div>
+
+          {/* ⭐ Приоритет: кому заказ падает первым и за что. Показываем целиком —
+              скрытый приоритет человек читает как «заказы раздают по блату». */}
+          <div style={{ marginTop: 16 }}>
+            <PriorityCard />
           </div>
 
           {/* Быстрый доступ */}

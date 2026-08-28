@@ -361,8 +361,8 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TaxiRuleRow(
                         "💚",
-                        appText("Комиссия — втрое ниже, чем у Яндекса", "Комиссия — Яндексҡа ҡарағанда өс тапҡыр түбәнерәк"),
-                        appText("Первый месяц 3%, второй — 8%, дальше — 15%. Остальное — твоё.", "Тәүге ай 3%, икенсеһе — 8%, артабан — 15%. Ҡалғаны — һинеке."),
+                        appText("Комиссия — ниже, чем у агрегаторов", "Комиссия — агрегаторҙарҙан түбәнерәк"),
+                        appText("Первые 30 поездок 3%, следующие 70 — 8%, дальше — 15%. Остальное — твоё.", "Тәүге 30 юл 3%, киләһе 70 — 8%, артабан — 15%. Ҡалғаны — һинеке."),
                     )
                     TaxiCommissionSteps()
                     TaxiRuleRow(
@@ -774,12 +774,12 @@ private fun TaxiChoiceChip(text: String, selected: Boolean, onClick: () -> Unit)
     }
 }
 
-/** Шкала комиссии 3% → 8% → 15%: три шага месяцев. */
+/** Шкала комиссии 3% → 8% → 15%: три шага по числу поездок. */
 @Composable
 private fun TaxiCommissionSteps() {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        TaxiCommissionStep("3%", appText("1-й месяц", "1-се ай"), Modifier.weight(1f))
-        TaxiCommissionStep("8%", appText("2-й месяц", "2-се ай"), Modifier.weight(1f))
+        TaxiCommissionStep("3%", appText("1–30 поездок", "1–30 юл"), Modifier.weight(1f))
+        TaxiCommissionStep("8%", appText("31–100 поездок", "31–100 юл"), Modifier.weight(1f))
         TaxiCommissionStep("15%", appText("дальше", "артабан"), Modifier.weight(1f))
     }
 }

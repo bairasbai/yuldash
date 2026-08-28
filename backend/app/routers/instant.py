@@ -27,7 +27,9 @@ from .. import car_class
 from .. import rating_service
 from ..rating_service import guard_rating_window
 from .. import debt as debt_mod
+from .. import funnel
 from .. import geo as geo_mod
+from .. import price_freeze
 from .. import instant_service as isv
 from .. import pretrip as pretrip_mod
 from .. import promo_ride
@@ -102,6 +104,13 @@ class EstimateIn(BaseModel):
     # Круговой рейс: водитель везёт туда, ждёт и везёт обратно, обратная дорога со скидкой.
     # Только межгород — в городе порожняка нет (isv.round_trip_available).
     round_trip: bool = False
+    # Время подачи для ПРЕДЗАКАЗА. Пусто = «сейчас».
+    #
+    # Без него экран показывал цену на «сейчас», а предзаказ оформлялся по цене на время
+    # подачи: заказ на пять утра, сделанный днём, показывал дневную цену, а считался по
+    # ночной. Человек запоминал увиденное число и утром получал другое (решение Александра,
+    # 2026-08-28). Спрос и погоду на завтра всё равно не предскажем — а ночную ставку обязаны.
+    scheduled_at: Optional[datetime] = None
     # Сколько водитель ждёт на месте, минут. Ноль = обычная поездка в одну сторону.
     return_wait_min: int = Field(0, ge=0, le=24 * 60)
     # Остановки по пути: A → точки → B. Не больше трёх (решение Александра, 2026-08-23):
@@ -290,7 +299,9 @@ def instant_demand(city: Optional[str] = None, user: User = Depends(current_user
     не попадает; выключенный город → пустой zones + честный updated_at."""
     if not taxi_mod.is_approved_taxi_driver(session, user.id):
         raise herr(403, taxi_mod.TAXI_NOT_APPROVED_MSG, taxi_mod.TAXI_NOT_APPROVED_MSG_BA)
-    return isv.demand_zones(session, city)
+    # Свой id — чтобы сервер подписал зоны расстоянием от живой позиции водителя.
+    # Наружу это не «где водитель», а «сколько километров до зоны»: его точка не уходит.
+    return isv.demand_zones(session, city, driver_id=user.id)
 
 
 @router.get("/instant/nearby-drivers")
@@ -351,13 +362,27 @@ def estimate(body: EstimateIn, user: User = Depends(current_user), session: Sess
     того, как нажал «Заказать», иначе промокод для него не существует."""
     guard_estimate_budget(user.id)
     _guard_taxi_available(session, body.from_lat, body.from_lng)   # пассажиру — только гейт (a)
+    # Предзаказ считаем на ВРЕМЯ ПОДАЧИ, обычный заказ — на сейчас (см. EstimateIn.scheduled_at).
+    когда = _parse_scheduled_at(body.scheduled_at) if body.scheduled_at else None
     est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
                        body.category, round_trip=body.round_trip,
-                       waypoints=[w.model_dump() for w in body.waypoints],
+                       waypoints=[w.model_dump() for w in body.waypoints], when=когда,
                        # Опции салона стоят денег (кресло 150 ₽) — цена обязана их учитывать
                        # ещё ДО заказа, иначе на экране одна сумма, а в заказе другая.
                        options=body.options)
+    # Цену, которую человек сейчас увидит, закрепляем на price_freeze_sec: пока он думает,
+    # она не вырастет. Упадёт — при заказе возьмём новую, она дешевле (app/price_freeze.py).
+    # Предзаказ НЕ замораживаем: его цену сервер всё равно пересчитает в момент подачи,
+    # и обещать неизменность значит обещать то, чего мы не держим (решение Александра).
+    est["price_locked_sec"] = 0 if когда is not None else price_freeze.remember(
+        isv._redis(), user.id, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
+        body.category, car_class.dump_options(body.options), bool(body.round_trip), est)
     est.update(promo_ride.preview(session, user.id, est["price"]))
+    # Воронка «посмотрел цену → заказал»: без неё падение заказов после правки цены выглядит
+    # как «людей мало». Внутри — склейка бурста: пока человек двигает пин по тому же маршруту,
+    # это один просмотр, а не двадцать. Сбой Redis метрику гасит, но не трогает ответ.
+    funnel.note_price_view(isv._redis(), user.id,
+                           (body.from_lat, body.from_lng), (body.to_lat, body.to_lng))
     return est
 
 
@@ -379,6 +404,11 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
                        # Опции салона стоят денег (кресло 150 ₽) — цена обязана их учитывать
                        # ещё ДО заказа, иначе на экране одна сумма, а в заказе другая.
                        options=body.options)
+    # Заморозка: человек видел цену минуту назад — по ней и везём. Подорожало за это время —
+    # платит старую, подешевело — новую (app/price_freeze.py).
+    est = price_freeze.apply(
+        isv._redis(), user.id, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
+        body.category, car_class.dump_options(body.options), bool(body.round_trip), est)
     # Не даём плодить параллельные активные заказы одному пассажиру (двойной тап/спам).
     # Лочим строку пассажира → два одновременных POST сериализуются: первый создаёт заказ,
     # второй под локом видит existing и возвращает его (без row-lock оба проходили SELECT→INSERT).
@@ -447,6 +477,7 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     # видели честную сумму «к оплате».
     promo_ride.consume(session, user.id, order)
     session.refresh(order)
+    funnel.note_order(isv._redis(), user.id)     # вторая половина воронки (см. app/funnel.py)
     order = isv.start_matching(session, order)   # created → searching → offered|expired
     return isv.order_payload(session, order, user)
 
@@ -528,6 +559,7 @@ def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
     # момент активации — там же скидка при необходимости ужимается до доли новой цены.
     promo_ride.consume(session, user.id, order)
     session.refresh(order)
+    funnel.note_order(isv._redis(), user.id)     # предзаказ — такой же «заказал», как обычный
     return isv.order_payload(session, order, user)
 
 
@@ -1196,6 +1228,17 @@ def order_receipt(order_id: int, user: User = Depends(current_user),
     return body
 
 
+@router.get("/driver/priority")
+def driver_priority(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Мой приоритет водителя: сколько баллов, за что и что их отнимает.
+
+    Открыто и всегда — по той же причине, что у курьера: непрозрачный приоритет человек
+    читает как несправедливость, даже когда он справедлив.
+    """
+    from .. import priority as prio
+    return prio.payload(session, user.id, prio.TAXI)
+
+
 # ------------------------------ «Что-то не так с ценой» ------------------------------
 # Клапан для злости. У Яндекса это «Пожаловаться на цену», но слово «жалоба» из другого мира:
 # у нас «между своими», и человек не жалуется на соседа — он не понимает наш расчёт.
@@ -1208,6 +1251,9 @@ PRICE_COMPLAINT_REASONS = ("expensive_for_distance", "was_cheaper", "line_unclea
 class PriceComplaintIn(BaseModel):
     # Заказ необязателен: жалуются чаще на оценку, чем на завершённую поездку.
     order_id: Optional[int] = None
+    # На чью цену жалуются: taxi | courier. По умолчанию такси — так ручка работала до того,
+    # как «что-то не так с ценой» появилось и у доставки (2026-08-28).
+    kind: Literal["taxi", "courier"] = "taxi"
     price: int = Field(0, ge=0, le=1_000_000)
     reason: str = Field("other", max_length=32)
     comment: str = Field("", max_length=500)
@@ -1238,6 +1284,7 @@ def price_complaint(body: PriceComplaintIn, user: User = Depends(current_user),
         safe = {k: v for k, v in (body.breakdown or {}).items()
                 if isinstance(v, (int, float, str, bool)) and len(str(k)) <= 32}
         session.add(PriceComplaint(
+            kind=body.kind,
             user_id=user.id, order_id=order_id, price=int(body.price or 0),
             reason=reason, comment=(body.comment or "").strip()[:500],
             breakdown_json=json.dumps(safe, ensure_ascii=False)[:2000],
@@ -1262,6 +1309,8 @@ def admin_price_complaints(limit: int = 50, user: User = Depends(current_user),
     ).all()
     return {"items": [{
         "id": r.id, "order_id": r.order_id, "price": r.price, "reason": r.reason,
+        # На чью цену пожаловались: без этого жалобы такси и доставки слиплись бы в кучу.
+        "kind": getattr(r, "kind", "taxi") or "taxi",
         "comment": r.comment, "breakdown": r.breakdown_json,
         "created_at": r.created_at.isoformat() if r.created_at else "",
         "handled": r.handled_at is not None,

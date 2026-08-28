@@ -39,6 +39,22 @@ def _make_courier(client, user_factory, name="КурьерВитрина"):
     return c
 
 
+def _set_deliveries(courier_id: int, count: int):
+    """Вручённые доставки курьера — позиция на лесенке (она считает доставки, не дни)."""
+    if count <= 0:
+        return
+    base = utcnow() - timedelta(days=1)
+    with Session(engine) as s:
+        for i in range(count):
+            s.add(ParcelDelivery(
+                sender_id=courier_id, courier_id=courier_id,
+                from_city="Уфа", to_city="Стерлитамак",
+                description="Прошлая доставка", receiver_name="Тест",
+                status="delivered", delivered_at=base + timedelta(seconds=i),
+            ))
+        s.commit()
+
+
 def _set_tenure_days(courier_id: int, days: int):
     """Смещаем reviewed_at в прошлое — эмулируем стаж для лесенки 3/5/8."""
     with Session(engine) as s:
@@ -75,7 +91,7 @@ def test_available_shows_commission_of_this_courier_not_default_tier(client, use
     assert stored_commission == cr.courier_commission_kop(price_kop, settings.courier_service_fee_percent)
 
     newbie = _make_courier(client, user_factory, name="Новичок")
-    _set_tenure_days(newbie["id"], 10)          # стаж 10 дней → tier1 = 3%
+    _set_deliveries(newbie["id"], 10)           # 10 доставок → tier1 = 3%
 
     rows = client.get("/courier/available", headers=newbie["auth"])
     assert rows.status_code == 200, rows.text
@@ -93,12 +109,12 @@ def test_available_shows_commission_of_this_courier_not_default_tier(client, use
 
 
 def test_available_commission_matches_veteran_default_tier(client, user_factory):
-    """У ветерана (>60 дней) ступень совпадает с дефолтной — витрина не меняет число зря."""
+    """У ветерана (100+ доставок) ступень совпадает с дефолтной — витрина не меняет число зря."""
     sender = _make_courier(client, user_factory, name="ОтправительВетеран")
     created = _order(client, sender)
 
     veteran = _make_courier(client, user_factory, name="Ветеран")
-    _set_tenure_days(veteran["id"], 200)
+    _set_deliveries(veteran["id"], settings.courier_fee_tier2_deliveries)
 
     card = next(p for p in client.get("/courier/available", headers=veteran["auth"]).json()
                 if p["id"] == created["id"])
@@ -111,7 +127,7 @@ def test_available_buy_bring_keeps_extra_percent_for_newbie(client, user_factory
     created = _order(client, sender, delivery_type="buy_bring", cod_amount_kop=30000)
 
     newbie = _make_courier(client, user_factory, name="НовичокBuyBring")
-    _set_tenure_days(newbie["id"], 5)
+    _set_deliveries(newbie["id"], 5)
 
     card = next(p for p in client.get("/courier/available", headers=newbie["auth"]).json()
                 if p["id"] == created["id"])

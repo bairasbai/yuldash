@@ -175,3 +175,39 @@ export function fetchCourierEarnings(
 ): Promise<CourierEarnings> {
   return apiGet<CourierEarnings>(`/courier/earnings?period=${period}`, { signal });
 }
+
+// ----------------------------- ⭐ Приоритет исполнителя -----------------------------
+/** Одна строка приоритета: за что дали (или сняли) баллы и с какой цифрой. */
+export interface PriorityPart {
+  code: string;
+  points: number;
+  value: number;
+}
+
+/**
+ * Приоритет: кому заказ достаётся первым (backend/app/priority.py).
+ *
+ * Показываем ЦЕЛИКОМ и всегда: скрытый приоритет человек читает как «заказы раздают
+ * по блату» — это ровно та боль Яндекса, против которой мы строимся.
+ */
+export interface Priority {
+  kind: "taxi" | "courier";
+  points: number;
+  plus: number;
+  minus: number;
+  max_points: number;
+  parts: PriorityPart[];
+  rules: PriorityPart[];
+  /** Курьер: через сколько секунд заказ увидят остальные. 0 = видишь сразу. */
+  feed_delay_sec?: number;
+}
+
+/** GET /driver/priority — мой приоритет водителя. */
+export function fetchDriverPriority(signal?: AbortSignal): Promise<Priority> {
+  return apiGet<Priority>("/driver/priority", { signal });
+}
+
+/** GET /courier/priority — мой приоритет курьера (роли считаются раздельно). */
+export function fetchCourierPriority(signal?: AbortSignal): Promise<Priority> {
+  return apiGet<Priority>("/courier/priority", { signal });
+}

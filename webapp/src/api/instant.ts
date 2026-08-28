@@ -108,6 +108,13 @@ export interface EstimateInput {
   from_text?: string;
   to_text?: string;
   category?: TaxiCategory;
+  /**
+   * Время подачи ПРЕДЗАКАЗА (ISO-UTC). Пусто = цена «на сейчас».
+   *
+   * Без него экран считал цену на сейчас, а предзаказ оформлялся по цене на время подачи:
+   * заказ на пять утра, сделанный днём, показывал дневную ставку и уезжал по ночной.
+   */
+  scheduled_at?: string;
 }
 
 /**
@@ -178,6 +185,8 @@ export interface EstimateResult {
    * будущего экрана: считать цену без него значит показать сумму, которой в заказе не будет.
    */
   options_fee?: number;
+  /** На сколько секунд цена закреплена: пока человек думает, она не вырастет. 0 = выключено. */
+  price_locked_sec?: number;
   option_catalog?: { code: string; price: number }[];
   /**
    * Зимняя дорога: компенсация водителю за гололёд, метель, сильный снег или мороз —
@@ -493,7 +502,12 @@ export interface Workday {
   net_today_kop: number;
   orders_today: number;
   fee_percent: number;
-  tenure_days: number;
+  tenure_days: number; // справка «сколько с нами», лесенку НЕ двигает
+  trips_done: number; // завершённых поездок — позиция на лесенке комиссии
+  fee_tiers: number[]; // ступени [3, 8, 15]
+  fee_tier_trips: number[]; // границы ступеней в поездках [30, 100]
+  fee_next_percent: number | null; // следующая ставка (null = верхняя ступень)
+  fee_trips_to_next: number | null; // сколько поездок до неё
 }
 
 export function fetchWorkday(signal?: AbortSignal): Promise<Workday> {

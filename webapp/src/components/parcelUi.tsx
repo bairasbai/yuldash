@@ -167,12 +167,18 @@ export function CarryParcelCard({
   p,
   busy,
   onDepart,
+  onArrived,
   onDeliver,
   onGoodsCost,
 }: {
   p: Parcel;
   busy: boolean;
   onDepart: () => void;
+  /**
+   * «Я на месте» — с этой минуты идёт платное ожидание (на обоих концах).
+   * Не передан — кнопки нет: у доставки «по пути» тарифа, а значит и ожидания, не существует.
+   */
+  onArrived?: () => void;
   onDeliver: () => void;
   onGoodsCost?: (kop: number) => void; // buy_bring: ввод фактической стоимости товара
 }) {
@@ -236,6 +242,14 @@ export function CarryParcelCard({
         </div>
       ) : (
         <div className="parcel-card__actions">
+          {/* «Я на месте» — та же кнопка, что у таксиста, и работает на обоих концах:
+              у отправителя, когда забираешь, и у получателя, когда привёз. У доставки
+              «по пути» её нет: там нет тарифа, а значит и платного ожидания. */}
+          {onArrived && (
+            <button type="button" className="btn-soft" onClick={onArrived} disabled={busy}>
+              {appText("Я на месте", "Мин урында")}
+            </button>
+          )}
           {p.status === "accepted" && (
             <button type="button" className="btn-soft" onClick={onDepart} disabled={busy}>
               {appText("В пути", "Юлда")}
