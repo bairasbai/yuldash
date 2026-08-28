@@ -3230,13 +3230,17 @@ internal fun InstantWaitingRow(order: InstantOrderDto) {
                     Text(
                         appText("Бесплатное ожидание $leftMmSs", "Бушлай көтөү $leftMmSs"),
                         color = CanonText, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
                 } else {
                     val paidRub = ((elapsedSec / 60 - order.waitFreeMin).coerceAtLeast(0)) * order.waitFeeRubPerMin
+                    // Единственное место, где написано, что деньги уже капают: обрезать эту
+                    // строку нельзя. На башкирском она ещё длиннее — потому две строки, а не одна.
                     Text(
                         appText("Платное ожидание · +${order.waitFeeRubPerMin} ₽/мин" + (if (paidRub > 0) " (уже +$paidRub ₽)" else ""),
                             "Түләүле көтөү · +${order.waitFeeRubPerMin} ₽/мин" + (if (paidRub > 0) " (инде +$paidRub ₽)" else "")),
                         color = CanonText, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
                 }
             }
@@ -3594,6 +3598,18 @@ internal fun InstantDriverEnRouteCard(
                                 fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
                             )
                         }
+                    } else if (order.status == "onboard") {
+                        // В пути минуты подачи прячутся — машина уже пришла, — и справа от
+                        // «В пути» оставалась пустота в половину строки. Ставим цену: в дороге
+                        // это ровно то число, которое человек держит в голове до высадки.
+                        val сумма = order.priceFinal ?: order.priceEstimate
+                        if (сумма > 0) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "$сумма ₽", color = CanonText,
+                                fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
                 TaxiTripProgress(status = order.status)
@@ -3609,8 +3625,19 @@ internal fun InstantDriverEnRouteCard(
                 InstantPayMethodRow(order.paymentMethod)
                 // Карточка водителя
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(shape = CircleShape, color = CanonBg, modifier = Modifier.size(46.dp)) {
-                        Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp))
+                    // Первая буква имени вместо безликой фигурки: серый человечек на светлом
+                    // кружке читался как «фото не загрузилось». Имени нет — оставляем значок.
+                    Surface(shape = CircleShape, color = CanonMint, modifier = Modifier.size(46.dp)) {
+                        val initial = order.driverName.trim().firstOrNull()?.uppercase().orEmpty()
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            if (initial.isNotBlank()) {
+                                Text(initial, color = CanonGreen2, fontSize = TxTitle,
+                                     lineHeight = LhTitle, fontWeight = FontWeight.Bold)
+                            } else {
+                                Icon(Icons.Default.Person, contentDescription = null,
+                                     tint = CanonGreen2, modifier = Modifier.size(22.dp))
+                            }
+                        }
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -4580,8 +4607,13 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
                 }
             }
             Text(
-                appText("Оценка анонимна — видно только средний рейтинг.", "Баһа аноним — тик уртаса рейтинг күренә."),
-                color = CanonMuted, fontSize = 12.sp, textAlign = TextAlign.Center,
+                // Короче и с полями: длинная фраза без отступов ломалась посреди слова,
+                // и подпись под звёздами читалась как обрывок.
+                appText("Анонимно: видно только средний балл",
+                        "Аноним: тик уртаса балл күренә"),
+                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg),
             )
             // «Рәхмәт» — сразу здесь, а не только в чеке: до чека нужно догадаться, а сказать
             // спасибо хочется в ту же минуту. Денег не двигаем: это жест, а не чаевые, и кнопки
