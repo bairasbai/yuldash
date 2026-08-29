@@ -33,8 +33,8 @@ from . import pricing
 from .livepos import livepos_get
 from . import promo_ride
 from .models import (
-    Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus as S, OfferDecline,
-    Tariff, TripShare, TrustedContact, User,
+    Booking, BookingStatus, DriverCancel, DriverProfile, InstantOrder,
+    InstantOrderStatus as S, OfferDecline, Tariff, TripShare, TrustedContact, User,
 )
 from .services import (pick_lang, sms_lang_of,
     blocked_user_ids, haversine_km, may_send_family_sms, push_bilingual, send_push,
@@ -2322,7 +2322,27 @@ def driver_cancel_times(session: Session, driver_id: int, since) -> list:
 
     `no_show` исключаем: там водитель как раз всё сделал по правилам — доехал, отждал, отметил.
     Наказывать за это значило бы учить водителей молча уезжать вместо честной отметки.
+
+    События (`DriverCancel`) — основной источник. Раньше считали прямо по заказу
+    (`status == cancelled AND cancel_by == 'driver'`), и пока брошенный заказ так и умирал,
+    этого хватало. Теперь заказ возвращается в поиск и достаётся другому: `driver_id` и
+    `cancelled_at` на нём перезаписываются, след первого исчезает — и водитель мог бы
+    бросать заказы без единого следствия. Событие описывает поступок, а не заказ, и
+    переживает любую дальнейшую судьбу заказа.
+
+    Старые отмены (до появления событий) по-прежнему читаем с заказов — иначе у живых
+    водителей история страйков обнулилась бы в день выката. Дедуп по номеру заказа.
     """
+    события = session.exec(
+        select(DriverCancel).where(
+            DriverCancel.driver_id == driver_id,
+            DriverCancel.at >= since,
+            DriverCancel.no_show == False,      # noqa: E712 — SQL, не Python
+        )
+    ).all()
+    времена = [e.at for e in события]
+    учтённые = {e.order_id for e in события}
+    # Хвост совместимости: заказы, брошенные до перехода на события.
     rows = session.exec(
         select(InstantOrder).where(
             InstantOrder.driver_id == driver_id,
@@ -2331,7 +2351,9 @@ def driver_cancel_times(session: Session, driver_id: int, since) -> list:
             InstantOrder.cancelled_at >= since,
         )
     ).all()
-    return [o.cancelled_at for o in rows if o.accepted_at is not None and not o.no_show]
+    времена += [o.cancelled_at for o in rows
+                if o.accepted_at is not None and not o.no_show and o.id not in учтённые]
+    return времена
 
 
 def driver_pause_until(session: Session, driver_id: int, now=None):
@@ -2575,6 +2597,8 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
         # Пассажир не вышел — водитель сделал всё: доехал и отждал. Дорога к пассажиру
         # оплачивается так же, как при платной отмене (см. cancel_fee_with_pickup_kop).
         values["cancel_fee_kop"] = cancel_fee_with_pickup_kop(session, order, now)
+    прежний_статус = order.status
+    бросивший = order.driver_id
     result = session.execute(
         update(InstantOrder)
         .where(InstantOrder.id == order_id, InstantOrder.status == order.status)
@@ -2583,6 +2607,20 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     session.commit()
     if result.rowcount == 0:
         raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
+    # Поступок водителя фиксируем ОТДЕЛЬНЫМ событием, до всякого переназначения: заказ может
+    # уйти дальше и перезаписать свои поля новым водителем, а бросил его этот.
+    if actor == Actor.driver and бросивший and order.accepted_at is not None:
+        session.add(DriverCancel(
+            driver_id=бросивший, order_id=order_id, at=now,
+            no_show=bool(values.get("no_show")), reason=(reason or "")[:200],
+        ))
+        session.commit()
+    # Водитель бросил принятый заказ — человек не должен начинать всё заново.
+    if _reassignable(prev_status=прежний_статус, actor=actor, order=order,
+                     no_show=bool(values.get("no_show"))):
+        fresh = _reassign_after_driver_cancel(session, order_id, бросивший)
+        if fresh is not None:
+            return fresh        # заказ снова в поиске: промокод и цена остаются при нём
     _cleanup_tried(order_id)
     fresh = session.get(InstantOrder, order_id)
     # Поездки не было → скидка по промокоду возвращается пассажиру. Один код даётся на всю жизнь
@@ -2591,6 +2629,69 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     fresh = session.get(InstantOrder, order_id)
     _notify_cancel(session, fresh, actor)
     return fresh
+
+
+def _reassignable(prev_status, actor: Actor, order: InstantOrder, no_show: bool) -> bool:
+    """Можно ли вернуть брошенный заказ в поиск, а не хоронить его.
+
+    Три границы, и каждая — про человека, а не про технику:
+
+    • только `accepted`/`arriving`. Из `onboard` возвращать нельзя: пассажир уже в машине,
+      половина дороги позади, и «тот же заказ» от старой точки А — неправда. Такое высаживание
+      посреди пути — отдельный разговор со своей ценой, а не работа матчера.
+    • не `no_show`. Там пассажира на месте нет — искать ему машину бессмысленно и обидно
+      для следующего водителя, который приедет к пустому подъезду.
+    • не больше `taxi_reassign_limit` кругов. Заказ, который перекидывают по кругу, честнее
+      закрыть и дать человеку решить заново, чем час держать его в поиске.
+    """
+    return (
+        actor == Actor.driver
+        and not no_show
+        and prev_status in (S.accepted, S.arriving)
+        and int(getattr(order, "reassigns", 0) or 0) < int(settings.taxi_reassign_limit)
+    )
+
+
+def _reassign_after_driver_cancel(session: Session, order_id: int,
+                                  cancelled_driver_id: int | None) -> InstantOrder | None:
+    """Брошенный заказ возвращается в поиск: те же адреса, та же цена, тот же промокод.
+
+    Раньше этого пути не было. Водитель отменял — заказ умирал, пуш бодро спрашивал
+    «Ищем другого?», а экран отвечал «попробуй заказать снова». Женщина с ребёнком у подъезда
+    в мороз вбивала адреса заново, теряя и цену, и очередь.
+
+    Что сбрасываем: назначенного водителя и все отметки подачи — они принадлежали тому,
+    кто уехал. Что НЕ трогаем: маршрут, класс, опции салона, цену и промокод — это заказ
+    того же человека, и дорожать на ровном месте он не должен.
+
+    Бросившего добавляем в список «уже предлагали»: круг подбора не должен вернуть заказ
+    ему же через минуту. Поэтому `_cleanup_tried` здесь НЕ зовём — наоборот, дополняем.
+
+    Возврат None — заказ за это время успели тронуть (пассажир отменил сам, воркер закрыл);
+    тогда обычный путь отмены отработает как раньше.
+    """
+    result = session.execute(
+        update(InstantOrder)
+        .where(InstantOrder.id == order_id, InstantOrder.status == S.cancelled)
+        .values(status=S.searching, searching_at=utcnow(), search_round=0,
+                reassigns=InstantOrder.reassigns + 1,
+                driver_id=None, accepted_at=None, arriving_at=None,
+                waiting_started_at=None, current_offer_driver_id=None, offer_expires_at=None,
+                cancel_by="", cancel_reason="", cancelled_at=None, cancel_fee_kop=0)
+    )
+    session.commit()
+    if result.rowcount == 0:
+        return None
+    order = session.get(InstantOrder, order_id)
+    if cancelled_driver_id:
+        try:
+            r = _redis()
+            r.sadd(_tried_key(order_id), int(cancelled_driver_id))
+            r.expire(_tried_key(order_id), 3600)
+        except Exception:  # noqa: BLE001 — Redis лёг: хуже, чем «повторно предложим», не будет
+            pass
+    _notify_reassign(session, order)
+    return try_offer_next(session, order)
 
 
 # ============================ Matcher (подбор + офферы) ============================
@@ -3243,6 +3344,30 @@ def _notify_transition(session: Session, order: InstantOrder, target: S) -> None
         _notify_order_shares(session, order, "done")
 
 
+def _notify_reassign(session: Session, order: InstantOrder) -> None:
+    """Пассажиру: «водитель отменил, но мы уже ищем другую машину».
+
+    Тон важен не меньше факта. Человек ждал у подъезда и только что потерял машину —
+    ему нужно услышать, что делать ничего не надо, всё уже идёт. Раньше пуш спрашивал
+    «Ищем другого?», а поиска за этим вопросом не стояло: экран предлагал заказать заново.
+    """
+    from .services import push_notification
+
+    if not order.passenger_id:
+        return
+    try:
+        push_notification(
+            session, order.passenger_id, "ride",
+            "Ищем другую машину", "Башҡа машина эҙләйбеҙ",
+            "Водитель отменил заказ. Уже ищем другую машину — адрес и цена те же, "
+            "заказывать заново не нужно.",
+            "Водитель заказды кире алды. Башҡа машина эҙләйбеҙ инде — адрес та, хаҡ та "
+            "шул уҡ, ҡабаттан заказ итеү кәрәкмәй.",
+            ref_kind="instant", ref_id=order.id, data=_status_data(order, "searching"))
+    except Exception:  # noqa: BLE001 — уведомление не должно ломать поиск машины
+        pass
+
+
 def _notify_cancel(session: Session, order: InstantOrder, actor: Actor) -> None:
     """Отмена (B9b-2): водитель отменил → пассажиру; пассажир отменил → водителю.
 
@@ -3267,8 +3392,11 @@ def _notify_cancel(session: Session, order: InstantOrder, actor: Actor) -> None:
             push_notification(
                 session, order.passenger_id, "ride",
                 "Заказ отменён", "Заказ кире алынды",
-                "Водитель отменил заказ. Ищем другого?",
-                "Водитель заказды кире алды. Башҡаһын эҙләйекме?",
+                # Сюда доходят только те случаи, где заказ уже не вернуть в поиск: пассажир
+                # был в машине, либо круги переназначения кончились. Обещать поиск нельзя —
+                # ровно этим старый текст («Ищем другого?») и врал.
+                "Водитель отменил заказ. Другую машину найти не вышло — попробуй заказать снова.",
+                "Водитель заказды кире алды. Машина табылманы — ҡабаттан заказ итеп ҡара.",
                 ref_kind="instant", ref_id=order.id, data=_status_data(order, "cancelled"))
     elif actor == Actor.passenger and order.driver_id:
         push_notification(
@@ -3511,6 +3639,11 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         "id": order.id,
         "status": order.status.value,
         "role": role,
+        # Сколько раз заказ уже возвращался в поиск после отмены водителем. Нужен экрану:
+        # человек, у которого только что была принятая машина, увидит просто «ищем машину»
+        # и решит, что приложение сбросилось. Одна строка «первый водитель отменил» снимает
+        # вопрос и объясняет, почему он снова в очереди.
+        "reassigns": int(getattr(order, "reassigns", 0) or 0),
         "from_lat": from_lat, "from_lng": from_lng,
         "to_lat": to_lat, "to_lng": to_lng,
         "from_text": order.from_text,

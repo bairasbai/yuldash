@@ -32,6 +32,10 @@ UPLOAD_DAYS = 2      # события загрузки (квота 24ч)
 TOKEN_DAYS = 1       # протухшие/отозванные refresh-токены
 ADEVENT_DAYS = 90    # показы/клики рекламы (поштучно потом не нужны)
 DECLINE_DAYS = 90    # причины отказа водителей от офферов (нужна статистика, не строки)
+# Брошенные водителем заказы. Наказание смотрит окно `driver_cancel_window_days` (7 дней),
+# но события — это ещё и разбор спора «он вообще приезжал?», поэтому держим кварталом,
+# как и причины отказов. Меньше нельзя: админ разбирает жалобы не в тот же день.
+DRIVER_CANCEL_DAYS = 90
 # Жалобы на цену: сигнал для тарифа, а не дело с участниками. Полгода — больше, чем нужно,
 # чтобы увидеть сезон и починить цифру; дальше это просто чужое недовольство в базе.
 PRICE_COMPLAINT_DAYS = 180
@@ -118,6 +122,7 @@ KEEP_FOREVER = {
 # будущей правки, где в table случайно попадёт внешнее значение (см. review-plan 2026-07-03, P3).
 _ALLOWED_TABLES = frozenset({
     "message", "otpcode", "tgauth", "uploadevent", "refreshtoken", "adevent", "offerdecline",
+    "drivercancel",
     "sosevent", "report", "tripshare", "requestresponse", "riderequest",
     "booking", "ride", "notification", "instantorder", "parceldelivery",
     "analyticsevent", "waitlistentry", "pricecomplaint",
@@ -141,6 +146,7 @@ def _rules(now):
          {"now": now, "c": cut(TOKEN_DAYS)}),
         ("показы/клики рекламы >90д", "adevent", "created_at < :c", {"c": cut(ADEVENT_DAYS)}),
         ("причины отказа от офферов >90д", "offerdecline", "created_at < :c", {"c": cut(DECLINE_DAYS)}),
+        ("брошенные водителем заказы >90д", "drivercancel", "at < :c", {"c": cut(DRIVER_CANCEL_DAYS)}),
         # Жалобы на цену: их ценность — в сумме и причине, а не в том, кто именно написал.
         # Полгода хватает, чтобы поправить тариф по фактам.
         ("жалобы на цену >180д", "pricecomplaint", "created_at < :c",
@@ -211,6 +217,10 @@ def _rules(now):
          # 90 дней, заказы чистятся после 180), но правило не должно держаться на разнице
          # двух независимых чисел: подняли бы DECLINE_DAYS — и чистка упала бы на внешнем ключе.
          "AND NOT EXISTS (SELECT 1 FROM offerdecline od WHERE od.order_id = instantorder.id) "
+         # drivercancel.order_id — тот же жёсткий FK: событие «водитель бросил принятый заказ»
+         # живёт 90 дней, заказ — 180. Разница спасает сегодня, но правило не должно держаться
+         # на разнице двух независимых чисел (ровно урок соседней строки выше).
+         "AND NOT EXISTS (SELECT 1 FROM drivercancel dc WHERE dc.order_id = instantorder.id) "
          # pricecomplaint.order_id — тот же жёсткий FK: жалоба на цену живёт 180 дней, столько
          # же, сколько заказ. Без гарда чистка упала бы на внешнем ключе ровно в тот день,
          # когда обе даты сойдутся.

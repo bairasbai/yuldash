@@ -5319,6 +5319,10 @@ data class InstantOrderDto(
     val passengerId: Int? = null,
     val offerExpiresAt: String?,  // ISO — когда протухнет текущий оффер (таймер водителя ведём локально)
     val cancelBy: String,         // "" | passenger | driver
+    // Сколько раз заказ возвращался в поиск после того, как назначенный водитель отменил.
+    // Экрану поиска это нужно, чтобы объяснить человеку, куда делась принятая им машина:
+    // без строки он видит просто «ищем машину» и решает, что приложение сбросилось.
+    val reassigns: Int = 0,
     val cancelReason: String,
     val contactThenCancel: Boolean = false,  // B8-8: отмена после открытия телефона/чата → мягкий баннер
     // Деньги-правила (волна 2 §5): сурж/ожидание/отмены. Всё считает сервер, UI только показывает.
@@ -5457,6 +5461,7 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     passengerId = if (isNull("passenger_id")) null else optInt("passenger_id"),
     offerExpiresAt = if (isNull("offer_expires_at")) null else optString("offer_expires_at").ifBlank { null },
     cancelBy = optString("cancel_by"),
+    reassigns = optInt("reassigns"),
     cancelReason = optString("cancel_reason"),
     contactThenCancel = optBoolean("contact_then_cancel"),
     surgeK = optDouble("surge_k", 1.0),

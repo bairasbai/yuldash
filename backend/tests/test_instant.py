@@ -344,11 +344,23 @@ def test_passenger_cancel(client, user_factory, fake_redis):
 
 
 def test_driver_cancel_after_accept(client, user_factory, fake_redis):
+    """Водитель снимается с принятого заказа — и заказ идёт искать машину дальше.
+
+    Раньше здесь стояло `status == "cancelled"`: заказ хоронили вместе с отменой, и пассажир
+    начинал всё заново. С 2026-08-29 заказ возвращается в поиск с теми же адресами и ценой
+    (`test_dropped_order_keeps_looking.py`), поэтому «отменён» тут проверять больше нечего —
+    проверяем то, что действительно должно случиться: водителя с заказа сняли.
+    """
     d, pax, order = _offered_order(client, user_factory, fake_redis, "DCanDrv", "DCanPax")
     oid = order["id"]
     client.post(f"/instant/orders/{oid}/accept", headers=d["auth"])
     r = client.post(f"/instant/orders/{oid}/cancel", headers=d["auth"], json={"reason": "поломка"})
-    assert r.status_code == 200 and r.json()["status"] == "cancelled" and r.json()["cancel_by"] == "driver"
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] != "cancelled", "заказ похоронили вместе с отменой водителя"
+    with Session(engine) as s:
+        o = s.get(InstantOrder, oid)
+    assert o.driver_id is None, "бросивший всё ещё числится водителем"
+    assert o.reassigns == 1
 
 
 def test_driver_cannot_cancel_before_accept(client, user_factory, fake_redis):

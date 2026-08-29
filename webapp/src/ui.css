@@ -3045,6 +3045,20 @@ button.list-row:active {
   font-size: var(--font-body);
   line-height: 1.45;
 }
+/* «Первый водитель отменил — ищем другую». Заказ вернулся в поиск, и человеку надо
+   объяснить, куда делась принятая им машина: иначе он видит просто «ищем машину» и
+   решает, что приложение сбросило заказ. Цвета — те же warn-переменные, что у остальных
+   предупреждений, чтобы строка читалась как «внимание», а не как ошибка. */
+.taxi-search__note {
+  margin: 0 auto 10px;
+  max-width: 340px;
+  padding: 8px 12px;
+  border-radius: var(--radius-item, 14px);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-caption);
+  line-height: 1.45;
+}
 .taxi-search__pulse {
   width: 92px;
   height: 92px;

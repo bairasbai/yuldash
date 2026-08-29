@@ -105,6 +105,11 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # вообще (152-ФЗ). На SQLite ключи не проверяются — тест поймает это только на Postgres.
         s.add(M.OfferDecline(order_id=order.id, driver_id=uid, reason="far"))
         s.add(M.OfferDecline(order_id=order.id, driver_id=oid, reason="cheap"))
+        # Брошенные принятые заказы: МОЙ поступок и ЧУЖОЙ по МОЕМУ заказу. Вторая строка —
+        # ровно тот же ключевой случай, что у отказов выше: по driver_id она не ловится, но
+        # держит внешний ключ на заказ, который сейчас удалится.
+        s.add(M.DriverCancel(order_id=order.id, driver_id=uid, reason="сломался"))
+        s.add(M.DriverCancel(order_id=order.id, driver_id=oid, reason="далеко"))
         # --- посылка + рейтинг курьера по parcel_id + чат отправитель ↔ курьер ---
         parcel = M.ParcelDelivery(sender_id=uid, from_city="A", to_city="B", courier_id=oid)
         s.add(parcel); s.commit(); s.refresh(parcel)

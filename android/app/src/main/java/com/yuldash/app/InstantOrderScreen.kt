@@ -3306,6 +3306,29 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
             color = CanonText, fontSize = TxTitle, lineHeight = LhTitle,
             fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
         )
+        // Заказ вернулся в поиск после того, как назначенный водитель отменил. Без этой
+        // строки человек видит просто «ищем машину» там, где минуту назад к нему ехала
+        // машина, — и решает, что приложение сбросило заказ. Главное здесь — сказать, что
+        // делать ничего не надо: адрес и цена остались прежними.
+        AnimatedVisibility(
+            visible = order.reassigns > 0,
+            enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL)),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(Modifier.height(CanonSpace.sm))
+                Surface(color = CanonWarnBg, shape = CanonItemShape) {
+                    Text(
+                        appText(
+                            "Первый водитель отменил — ищем другую машину. Адрес и цена те же.",
+                            "Беренсе йөрөтөүсе баш тартты — башҡа машина эҙләйбеҙ. Адрес та, хаҡ та шул уҡ.",
+                        ),
+                        color = CanonWarn, fontSize = TxCaption, lineHeight = LhCaption,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
         MobilityRouteTimeline(
             from = order.fromText,

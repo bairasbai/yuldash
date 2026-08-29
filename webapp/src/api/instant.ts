@@ -70,6 +70,10 @@ export interface InstantOrder {
   driver_id: number | null;
   offer_expires_at: string | null;
   cancel_by: string | null;
+  /** Сколько раз заказ возвращался в поиск после того, как назначенный водитель отменил.
+   *  Экрану поиска это нужно, чтобы объяснить, куда делась принятая машина: без строки
+   *  человек видит просто «ищем машину» и решает, что приложение сбросило заказ. */
+  reassigns?: number;
   cancel_reason: string | null;
   contact_then_cancel: boolean;
   waiting_started_at: string | null;
