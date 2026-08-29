@@ -31,6 +31,23 @@ from app.models import InstantOrder, InstantOrderStatus as S, ParcelDelivery, Us
 from app.timeutil import utcnow
 
 
+def _полдень():
+    """«Сегодня в полдень по Уфе», выраженное в UTC.
+
+    Смена считается за МЕСТНЫЙ день (Уфа = UTC+5). Тесты ниже отматывают от «сейчас»
+    до четырёх часов назад — и если прогон случился между полуночью и пятью утра по Уфе,
+    часть отрезка уезжает во вчерашний день и в счётчик не попадает. Тест краснел бы
+    сам по себе, без единой правки в коде, — ровно тот класс, из-за которого заведён
+    `test_clock_does_not_break_the_run.py`.
+
+    Полдень выбран как момент, от которого четыре часа назад гарантированно лежат
+    в том же дне.
+    """
+    местное = utcnow() + timedelta(hours=settings.local_tz_offset_hours)
+    полдень = местное.replace(hour=12, minute=0, second=0, microsecond=0)
+    return полдень - timedelta(hours=settings.local_tz_offset_hours)
+
+
 @pytest.fixture(autouse=True)
 def _modes_on():
     было = settings.taxi_enabled, settings.courier_enabled
@@ -71,7 +88,7 @@ def test_delivering_parcels_counts_as_being_at_the_wheel(client, user_factory):
     """Два часа с посылками — это два часа работы, а не ноль."""
     drv = user_factory("ВозилПосылки", role=UserRole.driver)
     отправитель = user_factory("ОтправительЧасы")
-    now = utcnow()
+    now = _полдень()
     _посылка(drv["id"], отправитель["id"], now - timedelta(hours=2), now)
 
     with Session(engine) as s:
@@ -83,7 +100,7 @@ def test_taxi_then_delivery_add_up(client, user_factory):
     """Час с пассажиром, потом час с посылкой — это два часа, а не один."""
     drv = user_factory("ТаксиПотомКурьер", role=UserRole.driver)
     pax = user_factory("ПассажирСложение")
-    now = utcnow()
+    now = _полдень()
     _поездка(drv["id"], pax["id"], now - timedelta(hours=4), now - timedelta(hours=3))
     _посылка(drv["id"], pax["id"], now - timedelta(hours=2), now - timedelta(hours=1))
 
@@ -100,7 +117,7 @@ def test_carrying_both_at_once_is_still_one_hour(client, user_factory):
     """
     drv = user_factory("ВёзОбоих", role=UserRole.driver)
     pax = user_factory("ПассажирОдновременно")
-    now = utcnow()
+    now = _полдень()
     начало, конец = now - timedelta(hours=1), now
     _поездка(drv["id"], pax["id"], начало, конец)
     _посылка(drv["id"], pax["id"], начало, конец)
@@ -114,7 +131,7 @@ def test_a_parcel_still_in_transit_counts_up_to_now(client, user_factory):
     """Посылка ещё в пути — время считается до сих пор, а не пропадает."""
     drv = user_factory("ВезётСейчас", role=UserRole.driver)
     отправитель = user_factory("ОтправительВПути")
-    now = utcnow()
+    now = _полдень()
     _посылка(drv["id"], отправитель["id"], now - timedelta(hours=3), None, status="in_transit")
 
     with Session(engine) as s:
