@@ -3487,6 +3487,14 @@ button.list-row:active {
   line-height: 1.4;
   color: var(--muted);
 }
+/* Подсказка внутри карточки: спокойный серый текст под кнопками, не крик. */
+.parcel-card__hint {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: var(--font-caption);
+  line-height: 1.4;
+  color: var(--muted);
+}
 .parcel-card__phone {
   display: inline-flex;
   align-items: center;

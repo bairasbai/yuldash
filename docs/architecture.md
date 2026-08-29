@@ -68,9 +68,18 @@
   Оценка возврата ДО заказа — `breakdown.return_fee_estimate_kop` в `_price` (требование КС РФ
   о предупреждении). Миграция `bk_second_try_before_return`.
 
+- `parcels._guard_really_there` (2026-08-29) — приезд курьера сверяется с живой позицией
+  (`livepos_get("parcel", …)`, её пишет WS-трек доставки) по общему радиусу
+  `arrival_verify_radius_m`. Стоит на `attempt-failed` (попытка = деньги) и на `arrived`
+  (ожидание = деньги). Нет позиции / выключен `arrival_verify_enabled` → пропускаем, как
+  делает такси в `bookings._verify_arrival`.
+- «Я на месте» работает и в статусе `returning`: курьер привёз коробку назад, а отправителя
+  нет дома. Время идёт на `waiting_sender_kop`, добавляется в `return_fee_kop` при закрытии
+  и НЕ прибавляется к `delivery_price_kop` — та цена служит потолком компенсации.
+
 **Тесты:** `test_priority.py` (18), `test_night_surge.py` (12), `test_scheduled_price.py` (8),
 `test_courier_catches_up.py` (14), `test_courier_cancel_pays_the_road.py` (10),
-`test_return_pays_the_road.py` (8), плюс дополненные `test_price_honesty.py`.
+`test_return_pays_the_road.py` (8), `test_the_door_that_never_opened.py` (10), плюс дополненные `test_price_honesty.py`.
 
 ## 💰 Честность счёта: одна точка компенсаций, заморозка цены, курьер (2026-08-28)
 

@@ -490,7 +490,12 @@ def settle_courier_waiting(session: Session, parcel, now=None) -> int:
     """Закрыть открытое ожидание и записать его на нужный конец. Возврат — сколько добавили.
 
     На чьей стороне ждали, решает статус: `accepted` — курьер стоит у отправителя,
-    `in_transit` — у получателя. Ничего не ждали → ноль, счётчик не двигаем.
+    `in_transit` — у получателя, `returning` — снова у отправителя (везёт коробку назад).
+    Ничего не ждали → ноль, счётчик не двигаем.
+
+    При ВОЗВРАТЕ цену доставки не трогаем: услуга не оказана, платить за неё никто не будет,
+    а это число служит потолком компенсации — подними мы его, потолок поехал бы вслед за
+    ожиданием. Само ожидание при возврате попадает в `return_fee_kop` (см. parcel_return_done).
     """
     now = now or utcnow()
     начало = getattr(parcel, "waiting_started_at", None)
@@ -500,11 +505,13 @@ def settle_courier_waiting(session: Session, parcel, now=None) -> int:
     стало = isv.capped_waiting_kop(было, начало, now)
     добавили = max(стало - было, 0)
     if добавили > 0:
-        if (parcel.status or "") == "accepted":
+        возврат = (parcel.status or "") == "returning"
+        if (parcel.status or "") == "accepted" or возврат:
             parcel.waiting_sender_kop = int(parcel.waiting_sender_kop or 0) + добавили
         else:
             parcel.waiting_receiver_kop = int(parcel.waiting_receiver_kop or 0) + добавили
-        parcel.delivery_price_kop = int(parcel.delivery_price_kop or 0) + добавили
+        if not возврат:
+            parcel.delivery_price_kop = int(parcel.delivery_price_kop or 0) + добавили
     parcel.waiting_started_at = None
     session.add(parcel)
     session.commit()
