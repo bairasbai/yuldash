@@ -178,9 +178,17 @@ def week_block_message() -> str:
             f"аҙыраҡ булыу менән линия асыла.")
 
 
-def guard_taxi_rested(session: Session, driver_id: int, now: Optional[datetime] = None) -> None:
-    """Гейт такси (в стиле долгового): блок отдыха → 403 с тёплым текстом.
-    Вешается на presence/offer/accept; переходы активного заказа НЕ трогает."""
+def guard_rested(session: Session, driver_id: int, now: Optional[datetime] = None) -> None:
+    """Гейт отдыха: блок по дневной смене или неделе → 403 с тёплым текстом.
+
+    Стоит на такси (presence/offer/accept) И на приёме курьерских заказов (2026-08-29).
+    Раньше был только на такси, и лимит получался наполовину декоративным: отработал смену
+    таксистом — и весь вечер вози посылки. Усталость не спрашивает, человек в машине или
+    коробка; ночная трасса Сибай–Акъяр одинаковая в обоих случаях.
+
+    Переходы уже принятого заказа НЕ трогает: заказ, начатый до лимита, надо довезти —
+    бросить пассажира или посылку посреди дороги хуже, чем доработать полчаса.
+    """
     now = now or utcnow()
     wd = blocking_workday(session, driver_id, now)
     if wd is None:
@@ -191,6 +199,11 @@ def guard_taxi_rested(session: Session, driver_id: int, now: Optional[datetime] 
         return
     _maybe_winter_advice(session, driver_id, wd, now)
     raise HTTPException(403, rest_block_message())
+
+
+# Старое имя. Гейт перестал быть «только про такси», но зовут его из нескольких мест —
+# переименование одним махом ничего не улучшило бы, а шанс пропустить вызов есть.
+guard_taxi_rested = guard_rested
 
 
 # ------------------------------ вежливые пуши (дедуп флагами) ------------------------------
@@ -298,9 +311,68 @@ def last_online_at(session: Session, driver_id: int, now: Optional[datetime] = N
     return max(stamps) if stamps else None
 
 
-def order_seconds_today(session: Session, driver_id: int,
-                        now: Optional[datetime] = None) -> int:
-    """Сколько водитель фактически вёз пассажиров за местный день, по самим заказам.
+def _union_seconds(интервалы) -> int:
+    """Длина ОБЪЕДИНЕНИЯ интервалов, а не их сумма.
+
+    Человек может везти пассажира и посылку одновременно — и это один час за рулём, а не
+    два. Складывать интервалы значило бы наказывать ровно за то, ради чего он совмещает
+    режимы: он не устал вдвое от того, что в багажнике коробка.
+
+    Обратное тоже важно: час такси и час доставки ПОСЛЕ него — это два часа, и максимум
+    из двух чисел (как считалось раньше между присутствием и заказами) их бы потерял.
+    Объединение отвечает правильно в обоих случаях.
+    """
+    отрезки = sorted((с, по) for с, по in интервалы if по > с)
+    всего = 0
+    конец = None
+    начало = None
+    for с, по in отрезки:
+        if начало is None:
+            начало, конец = с, по
+        elif с <= конец:                 # пересекается или примыкает — растягиваем текущий
+            конец = max(конец, по)
+        else:
+            всего += int((конец - начало).total_seconds())
+            начало, конец = с, по
+    if начало is not None:
+        всего += int((конец - начало).total_seconds())
+    return всего
+
+
+def _courier_intervals_today(session: Session, courier_id: int, начало_дня, конец_дня, now):
+    """Отрезки, когда человек вёз ПОСЫЛКИ, обрезанные границами местного дня.
+
+    Доставка — такая же работа за рулём, как поездка с пассажиром: те же километры, та же
+    ночная трасса, та же усталость. До 29.08 она не считалась никуда, и водитель, упёршийся
+    в восьмичасовой лимит такси, мог весь вечер возить коробки — формально отдыхая.
+    """
+    from .models import ParcelDelivery
+    строки = session.exec(
+        select(ParcelDelivery).where(
+            ParcelDelivery.courier_id == courier_id,
+            ParcelDelivery.accepted_at.is_not(None),
+            ParcelDelivery.accepted_at < конец_дня,
+        )
+    ).all()
+    интервалы = []
+    for p in строки:
+        # Конец работы: вручил, вернул отправителю — или он всё ещё в пути.
+        конец = p.delivered_at or getattr(p, "returned_at", None)
+        if конец is None:
+            if p.status in ("delivered", "canceled", "returned"):
+                continue        # дело закрыто, а метки нет — честно посчитать нечем
+            конец = now
+        интервалы.append((max(p.accepted_at, начало_дня), min(конец, конец_дня, now)))
+    return интервалы
+
+
+def work_seconds_today(session: Session, driver_id: int,
+                       now: Optional[datetime] = None) -> int:
+    """Сколько человек фактически работал за рулём за местный день — по самим заказам.
+
+    Считаем ОБА режима: поездки с пассажирами и доставки. Раньше считались только такси-
+    заказы, и это делало восьмичасовой лимит наполовину декоративным: отработал смену
+    таксистом — и весь вечер вози посылки, счётчик их не видит.
 
     Зачем (аудит 2026-08-08, волна 171). Рабочее время копилось ТОЛЬКО из сигналов присутствия,
     и у каждого сигнала стоит кэп: редкий пинг добавляет не больше минуты. Кэп нужен — иначе
@@ -329,13 +401,15 @@ def order_seconds_today(session: Session, driver_id: int,
                                      InstantOrderStatus.onboard, InstantOrderStatus.done]),
         )
     ).all()
-    всего = 0
+    интервалы = []
     for o in заказы:
         конец = o.done_at or now                 # заказ ещё идёт — считаем до сих пор
-        с, по = max(o.accepted_at, начало_дня), min(конец, конец_дня, now)
-        if по > с:
-            всего += int((по - с).total_seconds())
-    return всего
+        интервалы.append((max(o.accepted_at, начало_дня), min(конец, конец_дня, now)))
+    # Доставки — сюда же, одним списком: час с пассажиром и час с посылкой это два часа за
+    # рулём, а если он вёз их одновременно — один. Объединение отрезков отвечает верно в обоих
+    # случаях, а сумма или максимум ошиблись бы в одном из них.
+    интервалы += _courier_intervals_today(session, driver_id, начало_дня, конец_дня, now)
+    return _union_seconds(интервалы)
 
 
 def shift_seconds(session: Session, driver_id: int, wd: TaxiWorkDay,
@@ -347,7 +421,7 @@ def shift_seconds(session: Session, driver_id: int, wd: TaxiWorkDay,
     и то же время разными приборами, и складывать их значило бы считать один час дважды.
     Прибор, который видит больше, и ближе к правде: сеть могла молчать, а руль — нет.
     """
-    сегодня = max(int(wd.seconds_online or 0), order_seconds_today(session, driver_id, now))
+    сегодня = max(int(wd.seconds_online or 0), work_seconds_today(session, driver_id, now))
     return сегодня + carried_over_seconds(session, driver_id, now)
 
 

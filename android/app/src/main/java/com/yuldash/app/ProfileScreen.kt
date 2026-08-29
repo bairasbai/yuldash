@@ -2305,15 +2305,18 @@ private fun TaxiShiftProgressCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
         border = BorderStroke(1.dp, if (warm) CanonWarn.copy(alpha = 0.35f) else CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Schedule, contentDescription = appText("Смена такси", "Такси сменаһы"),
+                // Не «смена такси»: с 29.08 в это же время считаются и доставки. Руль не
+                // спрашивает, человек в машине или коробка, — а надпись, обещающая одно,
+                // пока счётчик мерит другое, читается как обман, когда приходит блок.
+                Icon(Icons.Default.Schedule, contentDescription = appText("Смена за рулём", "Руль артындағы смена"),
                     tint = accent, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(appText("Смена такси", "Такси сменаһы"), color = CanonText,
+                Text(appText("Смена за рулём", "Руль артындағы смена"), color = CanonText,
                     fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
                 Text(appText("из ${wd.limitHours} ч", "${wd.limitHours} сәғәттән"), color = CanonMuted, fontSize = 14.sp)
             }
             Text(
-                appText("На линии ${shiftTimeRu(wd.secondsOnline)}", "Линияла ${shiftTimeBa(wd.secondsOnline)}"),
+                appText("За рулём ${shiftTimeRu(wd.secondsOnline)}", "Руль артында ${shiftTimeBa(wd.secondsOnline)}"),
                 color = CanonText, fontWeight = FontWeight.Bold, fontSize = 24.sp,
             )
             LinearProgressIndicator(
@@ -2327,8 +2330,10 @@ private fun TaxiShiftProgressCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                     "До отдыха меньше часа 🌙 Спокойно заверши дела на линии.",
                     "Ялға бер сәғәттән дә әҙерәк ҡалды 🌙 Линиялағы эштәреңде тыныс ҡына тамамла."
                 ) else appText(
-                    "После ${wd.limitHours} часов на линии — отдых до утра. Попутка в лимит не входит.",
-                    "Линияла ${wd.limitHours} сәғәттән һуң — иртәнгә тиклем ял. Юлдаш сәфәрҙәре иҫәпкә инмәй."
+                    "Считаем поездки и доставки вместе. После ${wd.limitHours} часов за рулём — " +
+                        "отдых до утра. Попутка в лимит не входит: это твоя дорога, а не работа.",
+                    "Сәфәрҙәрҙе һәм илтеүҙәрҙе бергә иҫәпләйбеҙ. Руль артында ${wd.limitHours} сәғәттән " +
+                        "һуң — иртәнгә тиклем ял. Юлдаш сәфәре иҫәпкә инмәй: был һинең юлың, эш түгел."
                 ),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
             )

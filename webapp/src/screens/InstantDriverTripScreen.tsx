@@ -1033,7 +1033,10 @@ function ShiftCard({ wd }: { wd: Workday }) {
   return (
     <section className="shift-card">
       <div className="shift-card__head">
-        <span className="shift-card__label">{appText("Смена такси", "Такси сменаһы")}</span>
+        {/* Не «смена такси»: с 29.08 в это же время считаются и доставки — руль не
+            спрашивает, человек в машине или коробка. Надпись про такси, пока счётчик
+            мерит общее время, читалась бы как обман в момент блокировки. */}
+        <span className="shift-card__label">{appText("Смена за рулём", "Руль артындағы смена")}</span>
         <span className="shift-card__time">
           {shift} <span className="shift-card__of">{appText(`из ${wd.limit_hours} ч`, `${wd.limit_hours} сәғәттән`)}</span>
         </span>
