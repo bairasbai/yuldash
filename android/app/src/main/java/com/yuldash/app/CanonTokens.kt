@@ -82,6 +82,11 @@ internal val CanonMint: Color @Composable get() = if (appIsDark()) Color(0xFF0F2
 internal val CanonYellow: Color @Composable get() = if (appIsDark()) Color(0xFF4A3A14) else Color(0xFFFFE3A1)
 // Брендовое золото (как дорога на карте/лого) — заливка акцентной кнопки. Золотое в обеих темах → текст фиксированно тёмный.
 internal val CanonGold: Color @Composable get() = if (appIsDark()) Color(0xFFE8C36B) else Color(0xFFF5B301)
+// Фирменный компас остаётся одинаковым в обеих темах: он всегда лежит на собственной
+// светлой платформе и не должен менять узнаваемые цвета при переключении темы.
+internal val CanonCompassSurface: Color = Color(0xFFFAFAF6)
+internal val CanonCompassGold: Color = Color(0xFFF5B301)
+internal val CanonCompassGoldSoft: Color = Color(0xFFFFE3A1)
 // ТОЛЬКО поверх CanonGold. Цвет плоский (одинаков в обеих темах): на тёмной поверхности
 // контраст падает до 1.3 — текст исчезает. Ровно на этом уже обожглись с CanonTaxiInk.
 internal val CanonGoldInk: Color = Color(0xFF0B3D20)

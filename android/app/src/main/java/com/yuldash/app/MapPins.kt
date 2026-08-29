@@ -13,6 +13,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
+import androidx.compose.ui.graphics.toArgb
 
 // Мягкая тень маркера. Раньше тень рисовалась «вторым телом» со сдвигом на 3px — получалась резкая
 // вторая фигура, из-за неё метки выглядели плоско-дёшево. Теперь настоящая размытая тень (shadowLayer)
@@ -125,30 +126,26 @@ internal fun requestPinBitmap(): Bitmap {
     return bmp.also { requestPinCache = it }
 }
 
-// Маркер другого участника (live-позиция) — нав-стрелка курса (как в навигаторах). Остриё = направление
-// движения; MapKit поворачивает её по bearing. Синяя с белой обводкой (контраст на карте).
-private var peerArrowCache: Bitmap? = null
-internal fun peerArrowBitmap(): Bitmap {
-    peerArrowCache?.let { return it }
-    val s = 54
-    val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
-    val c = Canvas(bmp)
-    val cx = s / 2f
-    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#1565C0") }
-    val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 5f; strokeJoin = Paint.Join.ROUND
-    }
-    // Стрелка вверх: остриё сверху, крылья вниз, вырез снизу (классический «курс»).
-    val p = android.graphics.Path().apply {
-        moveTo(cx, 7f)              // остриё (направление)
-        lineTo(s - 11f, s - 9f)     // правое крыло
-        lineTo(cx, s - 19f)         // вырез (вогнутый низ)
-        lineTo(11f, s - 9f)         // левое крыло
-        close()
-    }
-    c.drawPath(p, outline)   // белая обводка под заливкой
-    c.drawPath(p, fill)
-    return bmp.also { peerArrowCache = it }
+// Live-позиция другого участника/машины. Геометрия та же, что у кнопок навигации и моей
+// движущейся позиции; MapKit поворачивает нос по bearing. Цвета входят в ключ кеша, чтобы
+// светлая и тёмная темы получили правильный контрастный кант без новых Bitmap на каждый GPS.
+private data class PeerDirectionKey(val surface: Int, val body: Int, val road: Int)
+private val peerArrowCache = HashMap<PeerDirectionKey, Bitmap>()
+
+internal fun peerArrowBitmap(
+    surface: Int = CanonCompassSurface.toArgb(),
+    body: Int = CanonGreenInk.toArgb(),
+    road: Int = CanonCompassGold.toArgb(),
+): Bitmap {
+    val key = PeerDirectionKey(surface, body, road)
+    peerArrowCache[key]?.let { return it }
+    return yuldashDirectionBitmap(
+        sizePx = 54,
+        surface = surface,
+        body = body,
+        road = road,
+        platform = false,
+    ).also { peerArrowCache[key] = it }
 }
 
 // Ценник-маркер зависит только от (цена, boosted) → кешируем по ключу,

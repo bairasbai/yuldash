@@ -68,6 +68,7 @@ class MapScreenInstrumentedTest {
                     onOpenPopular = {},
                     onDriver = onDriver,
                     onBoost = {},
+                    onClinicRides = {},
                 )
             }
         }

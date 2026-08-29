@@ -114,7 +114,6 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
@@ -612,7 +611,7 @@ internal fun SosContent(
                                 onClick = onLocate,
                                 shape = RoundedCornerShape(14.dp)
                             ) {
-                                Icon(Icons.Default.NearMe, contentDescription = null, modifier = Modifier.size(18.dp))
+                                YuldashDirectionGlyph(contentDescription = null, modifier = Modifier.size(17.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     when {

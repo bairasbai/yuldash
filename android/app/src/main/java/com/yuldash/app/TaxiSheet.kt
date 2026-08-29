@@ -81,6 +81,9 @@ internal fun TaxiSheetScaffold(
     // встроен в хаб), запас под системную навигацию берёт она — и шторке добавлять его нельзя,
     // иначе между содержимым и панелью висит полоса пустоты в палец шириной.
     underSystemBar: Boolean = true,
+    // На мастер-экране заказа карта важнее длинной формы. Остальные состояния такси сохраняют
+    // прежнюю высоту; параметр меняет только явно выбранный экран.
+    halfBodyFraction: Float = 0.38f,
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().background(CanonBg)) {
@@ -146,7 +149,7 @@ internal fun TaxiSheetScaffold(
                         // Полное положение — 0.56, а не 0.70: при 0.70 шапка, содержимое и закреплённый
                         // низ вместе перерастали экран, и кнопка «Вызвать» уезжала за нижний край.
                         // Считать надо не «сколько занять», а «сколько остаётся низу».
-                        .heightIn(max = screenH * (if (stop == TaxiSheetStop.Full) 0.56f else 0.38f))
+                        .heightIn(max = screenH * (if (stop == TaxiSheetStop.Full) 0.56f else halfBodyFraction))
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = CanonSpace.lg)
                         // Воздух снизу: без него прокрутка обрывала карточку ровно посередине,

@@ -2450,15 +2450,14 @@ internal fun HomeShell(
         selectedTab = HomeTab.Map
     }
 
-    // Волна 160: пока человек едет, экран принадлежит поездке — нижнее меню прячется.
-    // Он уже в машине, переключаться между разделами ему не нужно, а пятая часть экрана
-    // на карту и статус нужна.
-    val tripOnScreen = NavSignals.taxiTripOnScreen.value
+    // Пока идёт поиск или сама поездка, нижнее меню прячется. Заказ уже живой: случайный
+    // переход в другой раздел только теряет контекст, а освободившееся место нужно карте.
+    val taxiOrderOnScreen = NavSignals.taxiOrderOnScreen.value
     Scaffold(
         containerColor = CanonBg,
         bottomBar = {
             AnimatedVisibility(
-                visible = !tripOnScreen,
+                visible = !taxiOrderOnScreen,
                 enter = fadeIn(tween(CanonMotion.NORMAL)),
                 exit = fadeOut(tween(CanonMotion.QUICK)),
             ) {

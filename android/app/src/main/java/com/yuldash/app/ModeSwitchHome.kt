@@ -153,12 +153,12 @@ internal fun PassengerModeHome(
     // Аппаратная «Назад» из любого не-основного режима → возвращаемся к попутке (а не выходим из приложения).
     BackHandler(enabled = mode != RideMode.Pooling) { selectMode(RideMode.Pooling) }
 
-    // Волна 160: пока идёт поездка, переключатель сервисов прячется. Человек уже в машине —
-    // выбор между попуткой, такси и курьером он сделал, а место на экране нужнее статусу.
-    val tripOnScreen = NavSignals.taxiTripOnScreen.value
+    // Поиск и поездка — уже начатый заказ. Переключатель сервисов прячется, чтобы человек
+    // не бросил его случайным касанием, а карте и статусу досталось всё свободное место.
+    val taxiOrderOnScreen = NavSignals.taxiOrderOnScreen.value
     Column(Modifier.fillMaxSize()) {
         AnimatedVisibility(
-            visible = !tripOnScreen,
+            visible = !taxiOrderOnScreen,
             enter = fadeIn(tween(CanonMotion.NORMAL)),
             exit = fadeOut(tween(CanonMotion.QUICK)),
         ) {
@@ -275,10 +275,17 @@ private fun ModeSwitchBar(
     // Пауза снизу, а не только сверху: переключатель — отдельная вещь, и содержимое вкладки
     // не должно начинаться впритык к нему. Отступ здесь, а не в каждой вкладке: иначе три
     // экрана разойдутся по воздуху, и это будет видно при переключении.
-    Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 12.dp)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = CanonSpace.md)
+            .padding(top = CanonSpace.xs, bottom = CanonSpace.md),
+    ) {
       Surface(
-          shape = RoundedCornerShape(14.dp),
+          shape = CanonItemShape,
           color = CanonSurface,
+          border = BorderStroke(1.dp, CanonBorder),
+          shadowElevation = CanonDepth.card,
           modifier = Modifier.fillMaxWidth(),
       ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -297,8 +304,9 @@ private fun ModeSwitchBar(
                         .offset(x = offset)
                         .width(segW)
                         .height(MODE_SEG_HEIGHT)
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(CanonFieldShape)
                         .background(activeBg)
+                        .border(BorderStroke(1.dp, accent.copy(alpha = 0.42f)), CanonFieldShape)
                 )
                 Row(Modifier.fillMaxWidth()) {
                     items.forEachIndexed { i, (m, iconRes, title) ->
@@ -312,7 +320,7 @@ private fun ModeSwitchBar(
                             Modifier
                                 .weight(1f)
                                 .height(MODE_SEG_HEIGHT)
-                                .clip(RoundedCornerShape(14.dp))
+                                .clip(CanonFieldShape)
                                 .clickable(onClickLabel = cd) { onSelect(m) }
                                 .semantics { contentDescription = cd },
                             horizontalArrangement = Arrangement.Center,
@@ -324,8 +332,8 @@ private fun ModeSwitchBar(
                             Text(
                                 title,
                                 color = if (on) CanonText else CanonMuted,
-                                fontSize = 14.sp,
-                                fontWeight = if (on) FontWeight.Bold else FontWeight.SemiBold,
+                                style = CanonCaption,
+                                fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -360,7 +368,7 @@ private fun ModeSwitchBar(
                         Modifier
                             .minimumInteractiveComponentSize()
                             .size(MODE_SEG_HEIGHT)
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(CanonFieldShape)
                             .clickable(onClickLabel = explainCd) { onExplain() },
                         contentAlignment = Alignment.Center,
                     ) {

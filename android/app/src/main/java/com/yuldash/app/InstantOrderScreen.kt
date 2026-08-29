@@ -12,11 +12,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -72,12 +68,9 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Redeem
-import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
@@ -109,6 +102,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -127,6 +121,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -147,6 +144,7 @@ import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.map.CameraPosition
 import com.yandex.mapkit.map.IconStyle
+import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.Analytics
@@ -739,20 +737,121 @@ internal fun mmSs(sec: Long): String {
 }
 
 // ------------------------------ Гео: моя позиция ------------------------------
-/** Моя позиция через LocationManager (как на «Карте»). active=false → не подписываемся (экономим батарею). */
+internal data class TaxiLocationFix(
+    val point: Point,
+    val accuracyMeters: Float?,
+    val headingDegrees: Float?,
+    val deviceHeadingDegrees: Float? = null,
+)
+
+internal fun normalizeTaxiHeading(value: Float): Float = ((value % 360f) + 360f) % 360f
+
+/** Сгладить компас через кратчайшую дугу: 359° → 1° не должен делать оборот назад. */
+internal fun smoothTaxiCompassHeading(previous: Float?, next: Float, weight: Float = 0.2f): Float {
+    val normalizedNext = normalizeTaxiHeading(next)
+    val old = previous ?: return normalizedNext
+    val delta = ((normalizedNext - old + 540f) % 360f) - 180f
+    return normalizeTaxiHeading(old + delta * weight.coerceIn(0f, 1f))
+}
+
+internal fun taxiUserLocationVisualFor(
+    selected: Boolean,
+    movingHeadingDegrees: Float?,
+    deviceHeadingDegrees: Float?,
+): TaxiUserLocationVisual = when {
+    selected -> TaxiUserLocationVisual.Selected
+    movingHeadingDegrees != null -> TaxiUserLocationVisual.Arrow
+    deviceHeadingDegrees != null -> TaxiUserLocationVisual.DotWithDirection
+    else -> TaxiUserLocationVisual.Dot
+}
+
+/**
+ * Стрелка появляется только у действительно движущегося телефона: одного GPS-bearing мало —
+ * на месте он скачет. Порог скорости/точности здесь продуктовый, не подменяет данные датчика.
+ */
+internal fun reliableTaxiHeading(
+    hasBearing: Boolean,
+    bearingDegrees: Float,
+    hasSpeed: Boolean,
+    speedMetersPerSecond: Float,
+    accuracyMeters: Float?,
+    bearingAccuracyDegrees: Float?,
+): Float? {
+    if (!hasBearing || !bearingDegrees.isFinite()) return null
+    if (!hasSpeed || speedMetersPerSecond < 1.4f) return null
+    if (accuracyMeters != null && accuracyMeters > 80f) return null
+    if (bearingAccuracyDegrees != null && bearingAccuracyDegrees > 45f) return null
+    return normalizeTaxiHeading(bearingDegrees)
+}
+
+/** GPS-фикс для умной метки: координаты, реальная погрешность и курс только при движении. */
 @Composable
-internal fun rememberMyPoint(active: Boolean = true): State<Point?> {
+internal fun rememberMyLocationFix(active: Boolean = true): State<TaxiLocationFix?> {
     val context = LocalContext.current
-    val state = remember { mutableStateOf<Point?>(LocationPrefs.lastLat?.let { la -> LocationPrefs.lastLng?.let { lo -> Point(la, lo) } }) }
-    DisposableEffect(active) {
+    val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    val state = remember {
+        mutableStateOf<TaxiLocationFix?>(
+            LocationPrefs.lastLat?.let { la ->
+                LocationPrefs.lastLng?.let { lo -> TaxiLocationFix(Point(la, lo), null, null) }
+            },
+        )
+    }
+    // Разрешение может быть выдано, пока экран уже открыт. Поэтому оно — ключ эффекта:
+    // после системного диалога GPS-listener запускается сразу, без перезапуска экрана.
+    DisposableEffect(active, granted) {
         if (!active) return@DisposableEffect onDispose { }
-        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!granted) return@DisposableEffect onDispose { }
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager
+        val rotationSensor = sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR)
+        var latestDeviceHeading: Float? = state.value?.deviceHeadingDegrees
+        val rotationMatrix = FloatArray(9)
+        val orientation = FloatArray(3)
+        val compassListener = object : android.hardware.SensorEventListener {
+            override fun onSensorChanged(event: android.hardware.SensorEvent) {
+                if (event.sensor.type != android.hardware.Sensor.TYPE_ROTATION_VECTOR) return
+                android.hardware.SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+                android.hardware.SensorManager.getOrientation(rotationMatrix, orientation)
+                val measured = Math.toDegrees(orientation[0].toDouble()).toFloat()
+                latestDeviceHeading = smoothTaxiCompassHeading(latestDeviceHeading, measured)
+                state.value = state.value?.copy(deviceHeadingDegrees = latestDeviceHeading)
+            }
+
+            override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {
+                if (accuracy == android.hardware.SensorManager.SENSOR_STATUS_UNRELIABLE) {
+                    latestDeviceHeading = null
+                    state.value = state.value?.copy(deviceHeadingDegrees = null)
+                }
+            }
+        }
+        if (rotationSensor != null) {
+            sensorManager.registerListener(
+                compassListener,
+                rotationSensor,
+                android.hardware.SensorManager.SENSOR_DELAY_UI,
+            )
+        }
         val listener = object : android.location.LocationListener {
             override fun onLocationChanged(loc: android.location.Location) {
-                state.value = Point(loc.latitude, loc.longitude)
+                val accuracy = loc.accuracy.takeIf { loc.hasAccuracy() && it.isFinite() && it > 0f }
+                val bearingAccuracy = if (
+                    android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                    loc.hasBearingAccuracy()
+                ) loc.bearingAccuracyDegrees else null
+                state.value = TaxiLocationFix(
+                    point = Point(loc.latitude, loc.longitude),
+                    accuracyMeters = accuracy,
+                    headingDegrees = reliableTaxiHeading(
+                        hasBearing = loc.hasBearing(),
+                        bearingDegrees = loc.bearing,
+                        hasSpeed = loc.hasSpeed(),
+                        speedMetersPerSecond = loc.speed,
+                        accuracyMeters = accuracy,
+                        bearingAccuracyDegrees = bearingAccuracy,
+                    ),
+                    deviceHeadingDegrees = latestDeviceHeading,
+                )
                 LocationPrefs.lastLat = loc.latitude; LocationPrefs.lastLng = loc.longitude
             }
             override fun onProviderEnabled(provider: String) {}
@@ -763,13 +862,23 @@ internal fun rememberMyPoint(active: Boolean = true): State<Point?> {
             lm.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 3000L, 10f, listener)
             lm.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 3000L, 10f, listener)
             (lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-                ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER))?.let { state.value = Point(it.latitude, it.longitude) }
+                ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER))?.let(listener::onLocationChanged)
         } catch (e: SecurityException) {
         } catch (e: IllegalArgumentException) {
         }
-        onDispose { runCatching { lm.removeUpdates(listener) } }
+        onDispose {
+            runCatching { lm.removeUpdates(listener) }
+            runCatching { sensorManager.unregisterListener(compassListener) }
+        }
     }
     return state
+}
+
+/** Старым потребителям нужна только точка; единый GPS-listener при этом остаётся в одном месте. */
+@Composable
+internal fun rememberMyPoint(active: Boolean = true): State<Point?> {
+    val fix = rememberMyLocationFix(active)
+    return remember(fix) { derivedStateOf { fix.value?.point } }
 }
 
 // ------------------------------ Компактная карта маршрута A→B ------------------------------
@@ -797,6 +906,11 @@ internal fun InstantRouteMap(
     car: Point? = null,
     carBearing: Double? = null,
     nearbyDrivers: List<com.yuldash.app.data.NearbyDriverDto> = emptyList(),
+    userLocationFix: TaxiLocationFix? = null,
+    fromIsLiveLocation: Boolean = false,
+    // Статусная карта поиска не должна уезжать из-под радара случайным свайпом. На всех
+    // остальных экранах жесты остаются включены по умолчанию.
+    interactive: Boolean = true,
     // Счётчик «наведись на маршрут заново». Меняется — камера возвращается к А и Б.
     // Нужен кнопке возврата: увёл карту пальцем — машина пропадала из кадра насовсем.
     recenterTick: Int = 0,
@@ -805,6 +919,13 @@ internal fun InstantRouteMap(
     // Цвет маршрута берём из токена темы, а не из константы: в тёмной теме CanonGreen2 светлее,
     // иначе линия сливается с тёмной картой. Альфа 0.8 = прежняя 0xCC.
     val routeArgb = CanonGreen2.copy(alpha = 0.8f).toArgb()
+    val locationSurfaceArgb = CanonCompassSurface.toArgb()
+    val locationGreenArgb = CanonGreenInk.toArgb()
+    val locationGoldArgb = CanonCompassGold.toArgb()
+    val locationTextArgb = CanonText.toArgb()
+    val locationHaloFillArgb = CanonGreen2.copy(alpha = 0.08f).toArgb()
+    val locationHaloStrokeArgb = CanonGreen2.copy(alpha = 0.24f).toArgb()
+    val youAreHereLabel = appText("Ты здесь", "Һин бында")
     // Подпись минут на машинке считаем ЗДЕСЬ: внутри DisposableEffect appText не позвать
     // (он @Composable), и раньше «мин» уезжало в бабл мимо двуязычия (аудит P1-6).
     val etaMinWord = appText("мин", "мин")
@@ -823,16 +944,25 @@ internal fun InstantRouteMap(
     // Отдельным эффектом, а не только при создании: тему переключают тумблером на ходу,
     // а mapView живёт в remember и заново не создаётся.
     LaunchedEffect(nightMap) { mapView.mapWindow.map.isNightModeEnabled = nightMap }
+    LaunchedEffect(interactive) {
+        mapView.mapWindow.map.apply {
+            isScrollGesturesEnabled = interactive
+            isZoomGesturesEnabled = interactive
+            isRotateGesturesEnabled = interactive
+            isTiltGesturesEnabled = interactive
+        }
+    }
     DisposableEffect(Unit) {
         MapKitFactory.getInstance().onStart(); mapView.onStart()
         onDispose { mapView.onStop(); MapKitFactory.getInstance().onStop() }
     }
     // Перерисовываем маршрут при смене точек. Все объекты снимаем при следующей смене/уходе.
-    DisposableEffect(from, to, routeArgb) {
+    val showSmartLocation = fromIsLiveLocation && userLocationFix != null
+    DisposableEffect(from, to, routeArgb, showSmartLocation) {
         val map = mapView.mapWindow.map
         val added = mutableListOf<com.yandex.mapkit.map.MapObject>()
         var session: com.yandex.mapkit.directions.driving.DrivingSession? = null
-        if (from != null) {
+        if (from != null && !showSmartLocation) {
             added += map.mapObjects.addPlacemark(from).apply { setIcon(ImageProvider.fromBitmap(userPuckBitmap())) }
         }
         if (to != null) {
@@ -876,6 +1006,112 @@ internal fun InstantRouteMap(
             added.forEach { runCatching { map.mapObjects.remove(it) } }
         }
     }
+
+    // «Моя геолокация» в такси — отдельный живой объект, а не декоративный пин точки подачи.
+    // Круг измеряется в метрах самой картой, поэтому честно меняется с GPS-погрешностью.
+    val userLocationPlacemark = remember { mutableStateOf<com.yandex.mapkit.map.PlacemarkMapObject?>(null) }
+    val userAccuracyCircle = remember { mutableStateOf<com.yandex.mapkit.map.CircleMapObject?>(null) }
+    val userLocationSelected = remember { mutableStateOf(false) }
+    val userLocationTapListener = remember {
+        MapObjectTapListener { _, _ ->
+            userLocationSelected.value = !userLocationSelected.value
+            true
+        }
+    }
+    DisposableEffect(showSmartLocation, locationHaloFillArgb, locationHaloStrokeArgb) {
+        if (!showSmartLocation) return@DisposableEffect onDispose { }
+        val firstFix = checkNotNull(userLocationFix)
+        val map = mapView.mapWindow.map
+        val circle = map.mapObjects.addCircle(
+            com.yandex.mapkit.geometry.Circle(firstFix.point, firstFix.accuracyMeters ?: 1f),
+        ).apply {
+            fillColor = locationHaloFillArgb
+            strokeColor = locationHaloStrokeArgb
+            strokeWidth = 1.2f
+            zIndex = -1f
+            isVisible = firstFix.accuracyMeters != null
+        }
+        val placemark = map.mapObjects.addPlacemark(firstFix.point).apply {
+            zIndex = 12f
+            addTapListener(userLocationTapListener)
+        }
+        userAccuracyCircle.value = circle
+        userLocationPlacemark.value = placemark
+        onDispose {
+            userLocationSelected.value = false
+            userAccuracyCircle.value = null
+            userLocationPlacemark.value = null
+            runCatching { map.mapObjects.remove(circle) }
+            runCatching { map.mapObjects.remove(placemark) }
+        }
+    }
+    LaunchedEffect(userLocationFix?.point, userLocationFix?.accuracyMeters, showSmartLocation) {
+        val fix = userLocationFix ?: return@LaunchedEffect
+        if (!showSmartLocation) return@LaunchedEffect
+        userLocationPlacemark.value?.geometry = fix.point
+        userAccuracyCircle.value?.apply {
+            val accuracy = fix.accuracyMeters
+            isVisible = accuracy != null
+            if (accuracy != null) {
+                geometry = com.yandex.mapkit.geometry.Circle(fix.point, accuracy.coerceIn(4f, 1_000f))
+            }
+        }
+    }
+    val userLocationVisual = taxiUserLocationVisualFor(
+        selected = userLocationSelected.value,
+        movingHeadingDegrees = userLocationFix?.headingDegrees,
+        deviceHeadingDegrees = userLocationFix?.deviceHeadingDegrees,
+    )
+    LaunchedEffect(
+        userLocationPlacemark.value,
+        userLocationVisual,
+        locationSurfaceArgb,
+        locationGreenArgb,
+        locationGoldArgb,
+        locationTextArgb,
+        youAreHereLabel,
+    ) {
+        val placemark = userLocationPlacemark.value ?: return@LaunchedEffect
+        val asset = taxiUserLocationBitmap(
+            context = ctx,
+            visual = userLocationVisual,
+            surface = locationSurfaceArgb,
+            green = locationGreenArgb,
+            gold = locationGoldArgb,
+            text = locationTextArgb,
+            selectedLabel = youAreHereLabel,
+        )
+        placemark.setIcon(ImageProvider.fromBitmap(asset.bitmap))
+        val rotates = userLocationVisual == TaxiUserLocationVisual.Arrow ||
+            userLocationVisual == TaxiUserLocationVisual.DotWithDirection
+        // Не резкая подмена: новый знак слегка «вырастает» на месте старого.
+        repeat(8) { frame ->
+            val scale = 0.84f + (frame + 1) / 8f * 0.16f
+            placemark.setIconStyle(
+                IconStyle()
+                    .setAnchor(PointF(0.5f, asset.anchorY))
+                    .setRotationType(
+                        if (rotates) com.yandex.mapkit.map.RotationType.ROTATE
+                        else com.yandex.mapkit.map.RotationType.NO_ROTATION,
+                    )
+                    .setScale(scale),
+            )
+            delay(18)
+        }
+    }
+    LaunchedEffect(
+        userLocationFix?.headingDegrees,
+        userLocationFix?.deviceHeadingDegrees,
+        userLocationVisual,
+    ) {
+        val direction = when (userLocationVisual) {
+            TaxiUserLocationVisual.Arrow -> userLocationFix?.headingDegrees
+            TaxiUserLocationVisual.DotWithDirection -> userLocationFix?.deviceHeadingDegrees
+            TaxiUserLocationVisual.Dot,
+            TaxiUserLocationVisual.Selected -> null
+        }
+        userLocationPlacemark.value?.direction = direction ?: 0f
+    }
     // Кнопка «вернуть карту»: возвращаем камеру к маршруту. Первый проход пропускаем —
     // при создании карта уже наведена, и повторное движение выглядело бы дёрганьем.
     LaunchedEffect(recenterTick) {
@@ -898,7 +1134,15 @@ internal fun InstantRouteMap(
         }
         val pm = carPm.value ?: runCatching {
             map.mapObjects.addPlacemark(point).apply {
-                setIcon(ImageProvider.fromBitmap(peerArrowBitmap()))
+                setIcon(
+                    ImageProvider.fromBitmap(
+                        peerArrowBitmap(
+                            surface = locationSurfaceArgb,
+                            body = locationGreenArgb,
+                            road = locationGoldArgb,
+                        ),
+                    ),
+                )
                 setIconStyle(
                     com.yandex.mapkit.map.IconStyle()
                         .setAnchor(android.graphics.PointF(0.5f, 0.5f))
@@ -984,7 +1228,33 @@ internal fun InstantRouteMap(
         }
         onDispose { carObjs.forEach { runCatching { map.mapObjects.remove(it) } } }
     }
-    AndroidView(factory = { mapView }, modifier = modifier)
+    val mapDescription = if (showSmartLocation) {
+        appText(
+            "Карта заказа. Ваша геолокация отмечена на карте.",
+            "Заказ картаһы. Һинең геолокацияң картала билдәләнгән.",
+        )
+    } else {
+        appText("Карта заказа", "Заказ картаһы")
+    }
+    val locationActionLabel = if (userLocationSelected.value) {
+        appText("Свернуть метку «Ты здесь»", "«Һин бында» билдәһен йыйыу")
+    } else {
+        appText("Показать метку «Ты здесь»", "«Һин бында» билдәһен күрһәтеү")
+    }
+    AndroidView(
+        factory = { mapView },
+        modifier = modifier.semantics {
+            contentDescription = mapDescription
+            if (showSmartLocation) {
+                customActions = listOf(
+                    CustomAccessibilityAction(locationActionLabel) {
+                        userLocationSelected.value = !userLocationSelected.value
+                        true
+                    },
+                )
+            }
+        },
+    )
 }
 
 /**
@@ -1210,7 +1480,20 @@ internal fun InstantOrderScreen(
     // контекст задаёт сам переключатель. Самостоятельный экран (из кабинета) — с шапкой и «Назад».
     Scaffold(
         containerColor = CanonBg,
-        topBar = { if (!embedded) ScreenTopBar(appText("Быстрый заказ", "Тиҙ заказ"), onBack) },
+        topBar = {
+            if (!embedded) {
+                ScreenTopBar(
+                    appText("Быстрый заказ", "Тиҙ заказ"),
+                    onBack = {
+                        // Отдельный вход в такси тоже не должен молча оставить живой поиск
+                        // в фоне: системный Back уже открывает отмену внутри TaxiSearchingScreen,
+                        // шапка обязана вести себя так же.
+                        val active = order
+                        if (active?.isSearching == true) cancelReasonForId = active.id else onBack()
+                    },
+                )
+            }
+        },
         // Встроенный режим: системные отступы уже учёл хаб над нами — второй раз их добавлять
         // нельзя, иначе под переключателем режимов зияет пустая полоса. Отдельный экран (из
         // кабинета) отступы сохраняет, иначе шапка залезет под статус-бар. Так же сделано
@@ -1247,11 +1530,17 @@ internal fun InstantOrderScreen(
                 if (phase == "enroute") NavSignals.activeTaxiTrip.value = current?.id ?: 0
                 else if (current == null || current.isTerminal) NavSignals.activeTaxiTrip.value = 0
             }
-            // А вот «экран поездки прямо сейчас на виду» — состояние ровно этого экрана,
-            // и оно обязано сбрасываться при уходе: иначе полоска не покажется никогда.
+            // Поиск и поездка занимают весь рабочий экран: переключатель сервисов и нижнее
+            // меню там только провоцируют случайно бросить живой заказ. Отдельный сигнал
+            // `taxiTripOnScreen` остаётся уже — он гасит полоску активной поездки только
+            // на самом экране поездки, а не во время поиска.
             DisposableEffect(phase) {
+                NavSignals.taxiOrderOnScreen.value = phase == "searching" || phase == "enroute"
                 if (phase == "enroute") NavSignals.taxiTripOnScreen.value = true
-                onDispose { NavSignals.taxiTripOnScreen.value = false }
+                onDispose {
+                    NavSignals.taxiOrderOnScreen.value = false
+                    NavSignals.taxiTripOnScreen.value = false
+                }
             }
             AnimatedContent(
                 targetState = phase,
@@ -1319,12 +1608,12 @@ internal fun InstantOrderScreen(
                     // В «Водитель едет» перед этим отрабатывает своё предупреждение о платной
                     // подаче — порядок «деньги → причина → отмена» специально не меняем.
                     "searching" -> current?.let { o ->
-                        // Волна 160: поиск машины переехал на общую шторку — карта во весь
-                        // рост с радаром вокруг точки подачи. Старая карточка
-                        // (InstantSearchingCard) пока жива рядом, удалим после проверки.
+                        // Поиск машины живёт на общей шторке: карта во весь рост,
+                        // радар вокруг точки подачи и реальные анонимные машины рядом.
                         TaxiSearchingScreen(
                             order = o,
                             onCancel = { cancelReasonForId = o.id },
+                            embedded = embedded,
                         )
                     }
                     "enroute" -> current?.let { o ->
@@ -1566,17 +1855,22 @@ private fun InstantNearbyBadge(
         exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(),
         modifier = modifier,
     ) {
-        Surface(color = CanonSurface, shape = CircleShape, shadowElevation = CanonDepth.card) {
+        Surface(
+            color = CanonSurface,
+            shape = CircleShape,
+            border = BorderStroke(1.dp, CanonBorder),
+            shadowElevation = CanonDepth.raised,
+        ) {
             Row(
-                Modifier.padding(horizontal = 12.dp, vertical = 4.dp).heightIn(min = 20.dp),
+                Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm).heightIn(min = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    Icons.Default.LocalTaxi,
+                TaxiCarGlyph(
                     contentDescription = appText("Машины рядом", "Яҡындағы машиналар"),
-                    tint = if (count > 0) CanonTaxi else CanonMuted, modifier = Modifier.size(16.dp),
+                    tone = if (count > 0) CanonTaxi else CanonMuted,
+                    modifier = Modifier.size(width = 24.dp, height = 17.dp),
                 )
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(CanonSpace.xs))
                 // Отвечаем на вопрос «когда за мной приедут», а не «сколько машин вокруг».
                 // Счётчик машин человеку ничего не решает: одна в двух минутах лучше пяти
                 // в пятнадцати. Число оставляем только когда минут ещё не знаем.
@@ -1588,7 +1882,7 @@ private fun InstantNearbyBadge(
                             else -> appText("Рядом машин нет — поищем дальше", "Яҡында машина юҡ — арыраҡ ҡарайбыҙ")
                         },
                         color = if (n > 0) CanonText else CanonMuted,
-                        fontSize = TxCaption, lineHeight = LhCaption, fontWeight = FontWeight.Bold,
+                        style = CanonCaption, fontWeight = FontWeight.SemiBold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -1693,7 +1987,8 @@ private fun InstantDestinationPicker(
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val myPoint by rememberMyPoint(active = true)
+    val myLocationFix by rememberMyLocationFix(active = true)
+    val myPoint = myLocationFix?.point
 
     // Подача: сейчас (null) или «на время» (epoch ms выбранного времени). ≤7 суток, не в прошлом.
     var scheduledAtMs by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -1883,6 +2178,9 @@ private fun InstantDestinationPicker(
         // Встроенный в хаб экран стоит НАД нижней панелью приложения — запас под системную
         // навигацию уже взят ею. Отдельный экран такси последний, там запас нужен.
         underSystemBar = !embedded,
+        // A+B: карта остаётся визуальным героем, тарифы прокручиваются в более компактной
+        // средней шторке. Полное положение и все остальные состояния такси не меняются.
+        halfBodyFraction = 0.32f,
         map = { m ->
             // Карта с РЕАЛЬНЫМИ машинами рядом (честно, без выдуманной цены): видно, что
             // помощь близко. Машинки — из presence, ≈ETA до подачи.
@@ -1891,6 +2189,8 @@ private fun InstantDestinationPicker(
                     from = effFrom,
                     to = toPoint,
                     nearbyDrivers = nearbyDrivers,
+                    userLocationFix = myLocationFix.takeUnless { fromManual },
+                    fromIsLiveLocation = !fromManual,
                     recenterTick = mapRecenterTick,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -1901,7 +2201,12 @@ private fun InstantDestinationPicker(
                     // Ближайшая из тех, кто на линии. Не среднее и не «примерно»: человек
                     // планирует по самому раннему сроку, а не по среднему по больнице.
                     etaMin = nearbyDrivers.minOfOrNull { it.etaMin } ?: 0,
-                    modifier = Modifier.align(Alignment.TopStart).padding(CanonSpace.md),
+                    // Справа оставляем кнопку карты + два зазора. На 320dp длинный BA-текст
+                    // раньше уходил под неё и обрывался без многоточия.
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .padding(start = CanonSpace.md, top = CanonSpace.md, end = 80.dp),
                 )
                 // Вернуть карту. Одна кнопка на два случая: маршрут не задан — ведёт к тебе,
                 // задан — показывает всю поездку целиком. Механизм внутри карты сам разбирает,
@@ -1921,21 +2226,27 @@ private fun InstantDestinationPicker(
                     },
                     shape = CircleShape,
                     color = CanonSurface,
-                    shadowElevation = CanonDepth.raised,
+                    border = BorderStroke(1.dp, CanonBorder),
+                    shadowElevation = CanonDepth.card,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(CanonSpace.md)
                         .size(48.dp),   // тач-цель 48dp (a11y §4.5)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            if (hasRoute) Icons.Default.ZoomOutMap else Icons.Default.NearMe,
-                            contentDescription = if (hasRoute)
-                                appText("Показать весь путь", "Бөтә юлды күрһәтеү")
-                            else appText("Где я", "Мин ҡайҙа"),
-                            tint = CanonGreen2,
-                            modifier = Modifier.size(20.dp),
-                        )
+                        if (hasRoute) {
+                            Icon(
+                                Icons.Default.ZoomOutMap,
+                                contentDescription = appText("Показать весь путь", "Бөтә юлды күрһәтеү"),
+                                tint = CanonGreen2,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        } else {
+                            TaxiLocateGlyph(
+                                contentDescription = appText("Где я", "Мин ҡайҙа"),
+                                modifier = Modifier.size(30.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -1945,11 +2256,18 @@ private fun InstantDestinationPicker(
             // отдельными плашками с зазором он читался как два независимых вопроса.
             // Строки разделяет черта, начинающаяся под текстом, а не от края: приём списков,
             // он и говорит, что строки принадлежат одному объекту.
-            Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+            Surface(
+                color = CanonSurface,
+                shape = CanonItemShape,
+                border = BorderStroke(1.dp, CanonBorder),
+                shadowElevation = CanonDepth.card,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Column(Modifier.fillMaxWidth()) {
                     OrderPointRow(
-                        icon = Icons.Default.MyLocation,
-                        tint = CanonGreen2,
+                        leading = {
+                            TaxiPickupGlyph(modifier = Modifier.size(width = 20.dp, height = 23.dp))
+                        },
                         text = when {
                             fromManual && fromText.isNotBlank() -> fromText
                             effFrom != null -> appText("Моя позиция", "Минең урын")
@@ -2157,10 +2475,9 @@ private fun InstantDestinationPicker(
                 }
                 // Оценка цены: одна крупная сумма + три ответа, которые нужны до заказа.
                 //
-                // Показываем только в ПОЛНОМ положении шторки. Та же сумма написана на кнопке
-                // «Вызвать за 100 ₽» и на плитке выбранного тарифа — третий раз крупно она
-                // не нужна, а места занимала столько, что от карты оставалась полоска
-                // в сантиметр. У Яндекса отдельного блока с ценой нет вовсе.
+                // Показываем только в ПОЛНОМ положении шторки. В компактном состоянии сумма
+                // уже видна на плитке выбранного тарифа; повторять подробный расчёт там не нужно,
+                // иначе от карты остаётся лишь узкая полоска.
                 if (toPoint != null && sheetStop == TaxiSheetStop.Full) {
                     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape) {
                         // Три состояния цены сменяются кросс-фейдом и в ОДНОЙ высоте: раньше карточка
@@ -2407,18 +2724,22 @@ private fun InstantDestinationPicker(
                     horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Способ расчёта — слева от главной кнопки (образец Яндекс). Значок
-                    // отвечает на вопрос «чем я плачу» без единого слова; подпись под ним
-                    // нужна потому, что купюра и стрелки перевода в мелком размере
-                    // различаются плохо — особенно у пожилых.
+                    // Способ расчёта — слева от главной кнопки (образец Яндекс). Все три
+                    // действия держим одной высоты; подписи даём собственную ширину и поля,
+                    // чтобы «Наличные» не касались канта даже на узком экране.
                     Surface(
                         onClick = onOpenPayments,
                         shape = InstantControlShape,
-                        color = CanonBg,
-                        modifier = Modifier.minimumInteractiveComponentSize().width(64.dp),
+                        color = CanonSurface,
+                        border = BorderStroke(1.dp, CanonBorder),
+                        shadowElevation = CanonDepth.card,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .width(76.dp)
+                            .height(54.dp),
                     ) {
                         Column(
-                            Modifier.padding(vertical = CanonSpace.xs).heightIn(min = 54.dp),
+                            Modifier.fillMaxSize().padding(horizontal = CanonSpace.xs),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                         ) {
@@ -2479,26 +2800,25 @@ private fun InstantDestinationPicker(
                         // heightIn: на крупном системном шрифте фиксированные 54dp срезали надпись с ценой.
                         modifier = Modifier.weight(1f).heightIn(min = 54.dp),
                         shape = InstantControlShape,
-                        colors = ButtonDefaults.buttonColors(containerColor = CanonTaxi, contentColor = CanonTaxiInk),   // жёлтый — режим такси
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = CanonGreen2,
+                            contentColor = CanonOnFilled,
+                        ),
                     ) {
                         if (creating) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = CanonTaxiInk)
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = CanonOnFilled)
                         } else {
-                            Icon(if (scheduled) Icons.Default.AccessTime else Icons.Default.DirectionsCar, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            val label = when {
+                            val label = if (scheduled) {
                                 // Предзаказ «на время»: показываем время подачи.
-                                scheduled -> appText("Заказать на ${clockHm(scheduledAtMs!!)}", "${clockHm(scheduledAtMs!!)}-ға заказ итеү")
-                                // Глагол-действие: «Вызвать машину» понятнее, чем «Заказать» (эталон Яндекс/inDrive).
-                                // Цена на кнопке — уже со скидкой: человек нажимает ровно ту сумму, что заплатит.
-                                estimate != null -> appText("Вызвать за ${estimate!!.priceToPay} ₽", "${estimate!!.priceToPay} ₽-ға саҡырыу")
-                                else -> appText("Вызвать машину", "Машина саҡырыу")
+                                appText("Заказать на ${clockHm(scheduledAtMs!!)}", "${clockHm(scheduledAtMs!!)}-ға заказ итеү")
+                            } else {
+                                // Цена уже есть в выбранном тарифе. Одна спокойная надпись без
+                                // иконки делает главное действие легче и визуально дороже.
+                                appText("Заказать", "Заказ итеү")
                             }
-                            // Цена в кнопке меняется вместе с классом машины — без анимации это выглядело
-                            // как подмена суммы в последний момент перед нажатием.
                             AnimatedContent(targetState = label, label = "orderCta") { text ->
                                 Text(
-                                    text, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                                    text, style = CanonButton,
                                     maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
                                 )
                             }
@@ -2510,7 +2830,9 @@ private fun InstantDestinationPicker(
                     Surface(
                         onClick = { sheetTouched = true; sheetStop = TaxiSheetStop.Full },
                         shape = InstantControlShape,
-                        color = CanonBg,
+                        color = CanonSurface,
+                        border = BorderStroke(1.dp, CanonBorder),
+                        shadowElevation = CanonDepth.card,
                         modifier = Modifier.minimumInteractiveComponentSize().size(54.dp),
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -2919,9 +3241,8 @@ private fun InstantClassCard(
     iconNightRes: Int? = null,
     pickupEtaMin: Int? = null,
 ) {
-    // Сохраняем общий Mobility-компонент с radio-семантикой и добавляем
-    // мягкий тактильный масштаб из входящей ветки.
-    val scale by animateFloatAsState(if (selected) 1f else 0.98f, tween(CanonMotion.QUICK), label = "clsScale")
+    // Выбор показывают шампань и зелёный кант. Масштаб карточки не меняем: иначе выбранный
+    // Эконом кажется физически крупнее соседних машин, хотя размеры плиток одинаковы.
     // Закрытый класс не прячем и не блокируем: приглушаем и оставляем нажимаемым. Нажатие —
     // это заявка «хочу», по ней мы и поймём, где заводить водителей следующими.
     val alpha by animateFloatAsState(if (enabled) 1f else 0.55f, tween(CanonMotion.QUICK), label = "clsAlpha")
@@ -2931,7 +3252,7 @@ private fun InstantClassCard(
         price = price,
         selected = selected,
         onClick = onClick,
-        modifier = modifier.graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha },
+        modifier = modifier.graphicsLayer { this.alpha = alpha },
         iconRes = iconRes,
         iconNightRes = iconNightRes,
         pickupEtaMin = pickupEtaMin,
@@ -3167,136 +3488,6 @@ internal fun InstantWaitingRow(order: InstantOrderDto) {
     }
 }
 
-// ------------------------------ «Ищем машину» ------------------------------
-@Composable
-private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
-    val infinite = rememberInfiniteTransition(label = "search")
-    val pulse by infinite.animateFloat(
-        initialValue = 0.4f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse), label = "pulse",
-    )
-    // Сколько человек ждёт НА САМОМ ДЕЛЕ. Точку отсчёта даёт сервер (created_at / searching_at):
-    // свой таймер обнулялся при каждом возврате на экран, и после пяти минут ожидания человек
-    // снова читал «обычно машина находится за 1–3 минуты» — это было враньём.
-    // Часы телефона могут врать, поэтому отрицательное и неправдоподобно большое (>2 ч) значение
-    // считаем негодным и откатываемся на локальный отсчёт БЕЗ цифр (см. showElapsed ниже).
-    val serverStartMs = remember(order.id, order.searchClockFrom) {
-        order.searchClockFrom?.let(::parseIsoUtcMillis)
-    }
-    val screenOpenedMs = remember(order.id) { System.currentTimeMillis() }
-    val now by rememberNowMs()
-    val serverSec = serverStartMs?.let { (now - it) / 1000 }?.takeIf { it in 0..7_200L }
-    val watchedSec = serverSec ?: ((now - screenOpenedMs) / 1000).coerceAtLeast(0)
-    val waitStage = when {
-        watchedSec < 25L -> 0
-        watchedSec < 70L -> 1
-        else -> 2
-    }
-    // Цифру показываем только когда ожидание уже затянулось: на двадцатой секунде секундомер
-    // давит, на второй минуте — наоборот, отвечает на «сколько уже?». И только когда время
-    // подтверждено сервером — выдуманных чисел на экране быть не должно.
-    val showElapsed = serverSec != null && serverSec >= 70L
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(120.dp)) {
-            Box(Modifier.size((60 + pulse * 56).dp).background(CanonGreen2.copy(alpha = 0.12f * pulse), CircleShape))
-            Surface(shape = CircleShape, color = CanonGreen2) {
-                Icon(
-                    painterResource(R.drawable.yu_map_car),
-                    contentDescription = appText("Ищем машину", "Машина эҙләйбеҙ"),
-                    tint = CanonBg, modifier = Modifier.padding(16.dp).size(34.dp),
-                )
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-        Text(
-            appText("Ищем машину рядом…", "Яҡында машина эҙләйбеҙ…"),
-            color = CanonText, fontSize = TxTitle, lineHeight = LhTitle,
-            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(8.dp))
-        MobilityRouteTimeline(
-            from = order.fromText,
-            to = order.toText,
-            compact = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(4.dp))
-        // Сумма здесь — та, что человек отдаст водителю: скидка по промокоду уже зафиксирована
-        // в заказе, и показывать полную цену значило бы обещать одно, а взять другое.
-        val payWhileSearching = formatTaxiKop(order.passengerPayKop)
-        Text(
-            appText("≈ $payWhileSearching · подбираем ближайшего водителя", "≈ $payWhileSearching · яҡын йөрөтөүсене табабыҙ"),
-            color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption, textAlign = TextAlign.Center,
-        )
-        if (order.hasPromoDiscount) {
-            Spacer(Modifier.height(CanonSpace.md))
-            TaxiPromoPayRow(order = order, forDriver = false)
-        }
-        // Пауза перед строкой ожидания — самая длинная на карточке: дальше идёт то, ради чего
-        // человек и смотрит в экран («сколько ещё ждать»), и её стоит отделить воздухом.
-        Spacer(Modifier.height(CanonSpace.xl))
-        // Ответ на «сколько ещё ждать». Пустого обещания не даём — по мере ожидания текст
-        // честно меняется, и человек видит, что приложение про него не забыло.
-        AnimatedContent(
-            targetState = waitStage,
-            transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)).togetherWith(fadeOut(tween(CanonMotion.QUICK))) },
-            label = "searchStage",
-        ) { stage ->
-            Text(
-                when (stage) {
-                    0 -> appText("Обычно машина находится за 1–3 минуты",
-                        "Ғәҙәттә машина 1–3 минутта табыла")
-                    1 -> appText("Ещё ищем — свободных машин рядом сейчас мало",
-                        "Әле лә эҙләйбеҙ — яҡында буш машина аҙ")
-                    else -> appText("Ищем дольше обычного. Можно подождать — как найдём, сразу сообщим",
-                        "Ғәҙәттәгенән оҙағыраҡ эҙләйбеҙ. Көтөргә була — тапҡас, шунда уҡ хәбәр итәбеҙ")
-                },
-                color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption, textAlign = TextAlign.Center,
-            )
-        }
-        AnimatedVisibility(visible = showElapsed, enter = fadeIn(tween(CanonMotion.SLOW)), exit = fadeOut(tween(CanonMotion.QUICK))) {
-            Text(
-                appText("Ищем уже ${mmSs(watchedSec)}", "Инде ${mmSs(watchedSec)} эҙләйбеҙ"),
-                color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-        // «В Комфорте сейчас никого» — предложение поискать в соседнем классе.
-        // Появляется не сразу: первые секунды честнее отдать тому классу, что человек выбрал.
-        // Молча класс НЕ подменяем никогда: «заказал Комфорт — приехал Логан» это главная
-        // претензия к агрегаторам, и решать тут должен пассажир, а не мы за него.
-        InstantAlternativesBlock(order = order, watchedSec = watchedSec)
-
-        Spacer(Modifier.height(24.dp))
-        MobilityProgressRail(
-            labels = listOf(
-                appText("Запрос", "Һорау"),
-                appText("Водитель", "Йөрөтөүсе"),
-                appText("Подача", "Килеү"),
-            ),
-            currentIndex = 0,
-            accent = CanonTaxi,
-            modifier = Modifier.padding(horizontal = 8.dp),
-        )
-        Spacer(Modifier.height(24.dp))
-        OutlinedButton(
-            onClick = onCancel,
-            modifier = Modifier.heightIn(min = 48.dp),
-            shape = InstantControlShape,
-        ) {
-            Text(
-                appText("Отменить заказ", "Заказды кире алыу"),
-                color = CanonRed, fontSize = TxBody, lineHeight = LhBody,
-            )
-        }
-    }
-}
-
 // ------------------------------ Соседний класс, когда своих машин нет ------------------------------
 /**
  * Через `after_sec` секунд поиска показываем классы, в которых машины есть, — с ценой.
@@ -3481,7 +3672,7 @@ internal fun InstantDriverEnRouteCard(
                 // «Где я сейчас» одним взглядом — до того, как человек начнёт читать надписи.
                 InstantTripPhaseBar(step = phaseStep)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Navigation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                    YuldashDirectionGlyph(contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     // Смена фазы — главное событие этого экрана. Мгновенная подмена надписи
                     // («едет» → «на месте») читалась как сбой; теперь это движение вверх.
@@ -5682,7 +5873,7 @@ internal fun InstantDriverTripScreen(
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                 shape = RoundedCornerShape(14.dp),
                             ) {
-                                Icon(Icons.Default.Navigation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                                YuldashDirectionGlyph(contentDescription = null, modifier = Modifier.size(17.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     if (current.status == "onboard") appText("Навигатор · к точке Б", "Навигатор · Б нөктәһенә")
@@ -6399,7 +6590,7 @@ private fun OrderDestinationRow(
  */
 @Composable
 private fun OrderInsertStopRow(onClick: () -> Unit) {
-    Surface(onClick = onClick, color = CanonBg, modifier = Modifier.fillMaxWidth()) {
+    Surface(onClick = onClick, color = CanonSurface, modifier = Modifier.fillMaxWidth()) {
         Row(
             // Высота ФИКСИРОВАНА, а не «не меньше»: внутри нить тянется на всю высоту строки,
             // и при открытой границе она растягивала карточку на весь экран.
@@ -6425,7 +6616,7 @@ private fun OrderInsertStopRow(onClick: () -> Unit) {
                     Icons.Default.AddCircleOutline,
                     contentDescription = appText("Заехать по пути", "Юлда инеп сығыу"),
                     tint = CanonGreen2,
-                    modifier = Modifier.size(22.dp).background(CanonBg, CircleShape),
+                    modifier = Modifier.size(22.dp).background(CanonSurface, CircleShape),
                 )
             }
             Spacer(Modifier.width(CanonSpace.md))
@@ -6494,8 +6685,7 @@ private fun OrderStopRow(text: String, onRemove: () -> Unit) {
  */
 @Composable
 private fun OrderPointRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    tint: androidx.compose.ui.graphics.Color,
+    leading: @Composable () -> Unit,
     text: String,
     actionLabel: String,
     onAction: () -> Unit,
@@ -6509,7 +6699,7 @@ private fun OrderPointRow(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = CanonSpace.md, end = CanonSpace.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+            leading()
             Spacer(Modifier.width(CanonSpace.md))
             // «Определяем…» → «Моя позиция» приходило рывком, будто экран моргнул.
             AnimatedContent(targetState = text, label = "orderPoint", modifier = Modifier.weight(1f)) { value ->

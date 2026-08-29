@@ -119,7 +119,6 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
@@ -695,7 +694,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 dto.distanceKm?.let { km ->
-                    Icon(Icons.Default.NearMe, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(14.dp))
+                    YuldashDirectionGlyph(contentDescription = null, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(
                         if (km < 1.0) appText("рядом", "янда") else appText("${fmtKm(km)} км", "${fmtKm(km)} км"),

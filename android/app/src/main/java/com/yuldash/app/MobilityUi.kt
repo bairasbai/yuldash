@@ -248,11 +248,10 @@ internal fun TaxiServiceClassTile(
      *  выдуманное «2 мин» на классе, которого рядом нет, — это обещание, а не подсказка. */
     pickupEtaMin: Int? = null,
 ) {
-    // Выбранный тариф выделяем ПОДЛОЖКОЙ, а не рамкой (образец — Яндекс). Рамка у каждой
-    // плитки превращала ряд тарифов в таблицу: пять прямоугольников с обводкой, где у одного
-    // обводка вдвое толще. Подложка читается мгновенно и не добавляет линий.
+    // Спокойная шампань отделяет выбранный тариф, а тонкий зелёный кант связывает выбор
+    // с главной кнопкой. У остальных карточек кант нейтральный и почти растворяется.
     val bg by animateColorAsState(
-        if (selected) CanonTaxiBg else CanonBg,
+        if (selected) CanonTaxiBg else CanonSurface,
         tween(CanonMotion.QUICK),
         label = "taxiClassBg",
     )
@@ -260,15 +259,26 @@ internal fun TaxiServiceClassTile(
     // Не обесцвечиваем совсем: чёрный седан Бизнеса и жёлтый Эконом обязаны остаться
     // узнаваемыми, иначе картинка перестаёт отвечать на вопрос «что за мной приедет».
     val carAlpha by animateFloatAsState(
-        if (selected) 1f else 0.6f, tween(CanonMotion.QUICK), label = "taxiClassCar")
+        if (selected) 1f else 0.82f, tween(CanonMotion.QUICK), label = "taxiClassCar")
     val selectionState = if (selected) appText("Выбрано", "Һайланған")
     else appText("Не выбрано", "Һайланмаған")
     val dark = appIsDark()
     val car = (if (dark) iconNightRes else null) ?: iconRes
+    // У исходников одинаковая канва 440×240, но разная видимая площадь кузова:
+    // Эконом и Минивэн занимают её заметно плотнее Бизнеса. Нормализуем не размер файла,
+    // а оптическую площадь силуэта — тогда четыре машины выглядят одним ровным рядом.
+    val carVisualScale = when (car) {
+        R.drawable.yuldash_tariff_economy -> 0.90f
+        R.drawable.yuldash_tariff_comfort -> 0.93f
+        R.drawable.yuldash_tariff_minivan -> 0.88f
+        else -> 1f
+    }
     Surface(
         onClick = onClick,
         shape = CanonItemShape,
         color = bg,
+        border = BorderStroke(1.dp, if (selected) CanonGreen2 else CanonBorder),
+        shadowElevation = if (selected) CanonDepth.card else CanonDepth.flat,
         modifier = modifier
             .heightIn(min = 88.dp)
             .semantics(mergeDescendants = true) {
@@ -308,7 +318,10 @@ internal fun TaxiServiceClassTile(
                         painter = painterResource(car),
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize().align(Alignment.Center).alpha(carAlpha),
+                        modifier = Modifier
+                            .fillMaxSize(carVisualScale)
+                            .align(Alignment.BottomCenter)
+                            .alpha(carAlpha),
                     )
                 } else {
                     // Запасной путь: картинки класса нет — рисуем прежний значок, чтобы
@@ -326,14 +339,14 @@ internal fun TaxiServiceClassTile(
                     Surface(
                         color = CanonSurface,
                         shape = CanonTinyShape,
+                        border = BorderStroke(1.dp, CanonBorder),
                         modifier = Modifier.align(Alignment.TopStart),
                     ) {
                         Text(
                             appText("$pickupEtaMin мин", "$pickupEtaMin мин"),
                             color = if (selected) CanonText else CanonMutedStrong,
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp,
-                            fontWeight = FontWeight.Bold,
+                            style = CanonMicro,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             modifier = Modifier.padding(horizontal = CanonSpace.xs),
                         )
@@ -343,19 +356,17 @@ internal fun TaxiServiceClassTile(
             Text(
                 title,
                 color = CanonText,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.Bold,
+                style = CanonCaption,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             // Цена — самое крупное число на карточке: «что» уже сказала картинка.
             if (price != null) {
-                Text("$price ₽", color = CanonText, fontSize = 16.sp, lineHeight = 23.sp,
-                     fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                Text("$price ₽", color = CanonText, style = CanonBodyStrong, maxLines = 1)
             } else if (subtitle.isNotBlank()) {
                 // Подпись остаётся ровно для одного случая — «скоро», когда цены ещё нет.
-                Text(subtitle, color = CanonMutedStrong, fontSize = 12.sp, lineHeight = 17.sp,
+                Text(subtitle, color = CanonMutedStrong, style = CanonMicro,
                      maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }

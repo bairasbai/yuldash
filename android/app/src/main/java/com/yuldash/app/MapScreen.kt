@@ -115,8 +115,6 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.NearMe
-import androidx.compose.material.icons.filled.NearMeDisabled
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
@@ -168,6 +166,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -1300,6 +1299,9 @@ private fun YandexMapCard(
         if (granted) LocationPrefs.sharingEnabled = true
     }
     val nightMap = appIsDark()   // тёмная тема → ночной стиль карты
+    val directionSurfaceArgb = CanonCompassSurface.toArgb()
+    val directionBodyArgb = CanonGreenInk.toArgb()
+    val directionRoadArgb = CanonCompassGold.toArgb()
     // Свежие ссылки на активную поездку/тап, чтобы tap-listener не «застревал» на старых данных.
     val currentTrip by rememberUpdatedState(activeTrip)
     val currentPreview by rememberUpdatedState(previewRide)
@@ -1539,10 +1541,18 @@ private fun YandexMapCard(
     // которая ПЛАВНО «догоняет» новую позицию каждый кадр (как навигаторы), а не телепортируется на каждый
     // GPS-апдейт. Иначе при апдейте раз в ~7с (реальный GPS) или раз в ~0.4с (демо) были бы рывки.
     // Курс (bearing) тоже плавно доводится по кратчайшему углу. Стрелка скрыта, когда позиции нет.
-    LaunchedEffect(Unit) {
+    LaunchedEffect(directionSurfaceArgb, directionBodyArgb, directionRoadArgb) {
         val map = mapView.mapWindow.map
         val pm = map.mapObjects.addPlacemark().apply {
-            setIcon(ImageProvider.fromBitmap(peerArrowBitmap()))
+            setIcon(
+                ImageProvider.fromBitmap(
+                    peerArrowBitmap(
+                        surface = directionSurfaceArgb,
+                        body = directionBodyArgb,
+                        road = directionRoadArgb,
+                    ),
+                ),
+            )
             setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0.5f)).setRotationType(com.yandex.mapkit.map.RotationType.ROTATE))
             isVisible = false
         }
@@ -1782,12 +1792,16 @@ private fun YandexMapCard(
             shadowElevation = CanonDepth.raised
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    // Запрет геолокации → зачёркнутая стрелка; включил в Профиль→Конфиденциальность → обычная.
-                    if (LocationPrefs.sharingEnabled) Icons.Default.NearMe else Icons.Default.NearMeDisabled,
-                    contentDescription = if (LocationPrefs.sharingEnabled) appText("Где я", "Мин ҡайҙа") else appText("Геолокация выключена", "Геолокация һүнгән"),
-                    tint = if (LocationPrefs.sharingEnabled) CanonGreen2 else CanonMutedStrong,
-                    modifier = Modifier.size(20.dp)
+                // Та же фирменная геометрия, что у живого курса. Запрет геолокации —
+                // приглушённый знак с перечёркиванием, а не другая системная иконка.
+                YuldashDirectionGlyph(
+                    contentDescription = if (LocationPrefs.sharingEnabled) {
+                        appText("Где я", "Мин ҡайҙа")
+                    } else {
+                        appText("Геолокация выключена", "Геолокация һүнгән")
+                    },
+                    disabled = !LocationPrefs.sharingEnabled,
+                    modifier = Modifier.size(30.dp),
                 )
             }
         }

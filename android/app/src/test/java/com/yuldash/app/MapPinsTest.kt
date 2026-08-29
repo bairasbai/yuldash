@@ -77,6 +77,84 @@ class MapPinsTest {
         assertSame(peerArrowBitmap(), peerArrowBitmap())
     }
 
+    @Test
+    fun peerArrow_usesBrandBodyAndRoadFaces() {
+        val body = android.graphics.Color.rgb(11, 107, 58)
+        val road = android.graphics.Color.rgb(245, 179, 1)
+        val bitmap = peerArrowBitmap(body = body, road = road)
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        assertTrue("на курсоре должна быть фирменная зелёная грань", pixels.any { it == body })
+        assertTrue("на курсоре должна быть глубокая зелёная грань", pixels.any { it == 0xFF073F25.toInt() })
+        assertTrue("на курсоре должна быть мягкая золотая грань", pixels.any { it == 0xFFFFE3A1.toInt() })
+        assertTrue(
+            "на курсоре должна быть основная золотая грань",
+            pixels.any {
+                android.graphics.Color.alpha(it) > 200 &&
+                    kotlin.math.abs(android.graphics.Color.red(it) - android.graphics.Color.red(road)) < 40 &&
+                    kotlin.math.abs(android.graphics.Color.green(it) - android.graphics.Color.green(road)) < 24 &&
+                    kotlin.math.abs(android.graphics.Color.blue(it) - android.graphics.Color.blue(road)) < 24
+            },
+        )
+    }
+
+    @Test
+    fun peerArrow_isLargeEnoughButKeepsSafeEdges() {
+        val bitmap = peerArrowBitmap()
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        val solidInk = pixels.count { android.graphics.Color.alpha(it) >= 180 }
+        assertTrue(
+            "курсор не должен снова сжаться в маленький лист",
+            solidInk > pixels.size * 0.10f,
+        )
+        assertTrue("курсор не должен касаться верхнего или нижнего края", (0 until bitmap.width).all { x ->
+            android.graphics.Color.alpha(bitmap.getPixel(x, 0)) == 0 &&
+                android.graphics.Color.alpha(bitmap.getPixel(x, bitmap.height - 1)) == 0
+        })
+        assertTrue("курсор не должен касаться левого или правого края", (0 until bitmap.height).all { y ->
+            android.graphics.Color.alpha(bitmap.getPixel(0, y)) == 0 &&
+                android.graphics.Color.alpha(bitmap.getPixel(bitmap.width - 1, y)) == 0
+        })
+    }
+
+    @Test
+    fun ownLocationPlatform_isLargeCenteredAndNotClipped() {
+        val surface = 0xFFFFFFFF.toInt()
+        val bitmap = yuldashDirectionBitmap(
+            sizePx = 100,
+            surface = surface,
+            body = 0xFF0B6B3A.toInt(),
+            road = 0xFFF5B301.toInt(),
+            platform = true,
+        )
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        val solidPlatform = pixels.count { it == surface }
+        assertTrue(
+            "подложка 42 dp должна быть крупной, но оставлять прозрачный край: $solidPlatform/${pixels.size}",
+            // Круг занимает 55,4% поля; точные белые пиксели после зелёно-золотой стрелки,
+            // контура и anti-alias остаются около 38,6%.
+            solidPlatform in (pixels.size * 0.36f).toInt()..(pixels.size * 0.58f).toInt(),
+        )
+        assertTrue("круг не должен обрезаться сверху или снизу", (0 until bitmap.width).all { x ->
+            android.graphics.Color.alpha(bitmap.getPixel(x, 0)) == 0 &&
+                android.graphics.Color.alpha(bitmap.getPixel(x, bitmap.height - 1)) == 0
+        })
+        assertTrue("круг не должен обрезаться слева или справа", (0 until bitmap.height).all { y ->
+            android.graphics.Color.alpha(bitmap.getPixel(0, y)) == 0 &&
+                android.graphics.Color.alpha(bitmap.getPixel(bitmap.width - 1, y)) == 0
+        })
+    }
+
+    @Test
+    fun peerArrow_themeColors_areSeparateCacheKeys() {
+        val light = peerArrowBitmap(surface = 0xFFFFFFFF.toInt(), body = 0xFF0B6B3A.toInt(), road = 0xFFE8A200.toInt())
+        val dark = peerArrowBitmap(surface = 0xFF192420.toInt(), body = 0xFF27A463.toInt(), road = 0xFFF2C14E.toInt())
+        assertNotSame(light, dark)
+        assertSame(dark, peerArrowBitmap(surface = 0xFF192420.toInt(), body = 0xFF27A463.toInt(), road = 0xFFF2C14E.toInt()))
+    }
+
     // --- ridePinBitmap: ценник, кеш по ключу (цена|boosted) ---
 
     @Test
