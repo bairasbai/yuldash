@@ -1334,6 +1334,7 @@ internal fun InstantOrderScreen(
                         TaxiTripScreen(
                             order = o,
                             onCancel = { cancelReasonForId = o.id },
+                            onOpenPayments = onOpenPayments,
                         )
                     }
                     "expired" -> current?.let { o ->
@@ -2002,6 +2003,21 @@ private fun InstantDestinationPicker(
                             tripMin = estimate?.etaMin?.toInt()?.takeIf { it > 0 },
                             onEdit = { toPoint = null; query = ""; estimate = null },
                         )
+                        // Плюс исчез не сам по себе — упёрлись в предел. Молчание тут
+                        // читается как поломка: кнопка была и пропала. Говорим об этом
+                        // ровно в тот момент, когда объяснение нужно, и не раньше.
+                        if (stops.size >= InstantStopsMax) {
+                            Text(
+                                appText(
+                                    "Больше трёх остановок в одну поездку не берём",
+                                    "Бер сәфәргә өстән артыҡ туҡталыш алмайбыҙ",
+                                ),
+                                style = CanonCaption, color = CanonMuted,
+                                modifier = Modifier
+                                    .padding(start = 50.dp, end = CanonSpace.md)
+                                    .padding(bottom = CanonSpace.sm),
+                            )
+                        }
 
                     } else {
                         // Поле «куда» — в шапке, а не в прокрутке. Шапка видна в любом положении
@@ -5598,6 +5614,12 @@ internal fun InstantDriverTripScreen(
                                     }
                                 },
                             )
+                            // Чем рассчитаются. Ниже смены адреса, но выше остального:
+                            // адрес важнее (по нему едут), деньги — сразу за ним.
+                            DriverPayMethodCard(
+                                order = ord,
+                                onAck = { scope.launch { ApiClient.ackPaymentMethod(ord.id) } },
+                            )
                             // Остановки: куда заезжать по пути и отметка стоянки.
                             if (ord.stops.isNotEmpty()) {
                                 Surface(color = CanonMint, shape = CanonItemShape) {
@@ -6027,6 +6049,74 @@ private fun RoundTripWaitChip(
 // что человек видел новый адрес. И сразу за ним открываем навигатор заново — водитель за
 // рулём, лишний тап это лишний взгляд в телефон вместо дороги.
 
+/**
+ * Чем с водителем рассчитаются.
+ *
+ * До этого способ он видел ровно один раз — в предложении заказа, до того как согласился.
+ * Дальше пассажир мог сменить его на ходу (про наличные вспоминают, уже сидя в машине),
+ * водителю уходил пуш, и на этом всё: за рулём уведомления пропускают, а посмотреть глазами
+ * было негде. Приезжают — один достаёт телефон, другой ждёт наличные.
+ *
+ * Для водителя это не мелочь: наличные — сдача в кармане и налог, перевод — банк наготове.
+ *
+ * Обычное состояние спокойное: серая строка, которая просто есть. Сменили на ходу — та же
+ * строка становится жёлтой и просит «Понял», как это сделано со сменой адреса. Пока не
+ * нажал, пассажиру честно говорим, что водитель не в курсе.
+ */
+@Composable
+internal fun DriverPayMethodCard(
+    order: com.yuldash.app.data.InstantOrderDto,
+    onAck: () -> Unit,
+) {
+    val сменили = order.paymentChanged
+    Surface(
+        color = if (сменили) CanonWarnBg else CanonBg,
+        shape = CanonItemShape,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            Modifier.padding(CanonSpace.md),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            ) {
+                Icon(
+                    PayMethods.icon(order.paymentMethod),
+                    contentDescription = null,
+                    tint = if (сменили) CanonWarn else CanonGreen2,
+                    modifier = Modifier.size(22.dp),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (сменили) appText("Способ расчёта изменился", "Түләү ысулы үҙгәрҙе")
+                        else appText("Рассчитаются", "Иҫәпләшәләр"),
+                        style = CanonMicro, color = CanonMuted,
+                    )
+                    Text(
+                        PayMethods.title(order.paymentMethod),
+                        style = CanonBodyStrong, color = CanonText,
+                    )
+                }
+            }
+            // Кнопка только при смене: в спокойном состоянии подтверждать нечего, а лишняя
+            // кнопка на экране за рулём — это лишний повод в него посмотреть.
+            if (сменили) {
+                Button(
+                    onClick = onAck,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = CanonFieldShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonTaxi),
+                ) {
+                    Text(appText("Понял", "Аңланым"),
+                         style = CanonBodyStrong, color = CanonTaxiInk)
+                }
+            }
+        }
+    }
+}
+
 /** Причины, по которым водитель может сойти с маршрута. Список закрытый: свободный текст
  *  никто не читает, а выбор из четырёх — это данные о том, что чинить. */
 private data class DeclineReason(val code: String, val ru: String, val ba: String)
@@ -6304,11 +6394,31 @@ internal fun PickStopSheet(
 ) {
     var query by remember { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<com.yuldash.app.data.GeoHit>>(emptyList()) }
+    // Ищем ли прямо сейчас и нашли ли хоть что-то. Раньше лист молчал в обоих случаях:
+    // набрал адрес, которого нет, — экран не меняется, и непонятно, тормозит приложение
+    // или такого места не существует.
+    var ищем by remember { mutableStateOf(false) }
+    var искали by remember { mutableStateOf(false) }
+    // Дом, работа и недавние — те же, что предлагаются при выборе точки Б. Заезжают чаще
+    // всего в знакомые места, и набирать их руками во второй раз незачем.
+    var savedPlaces by remember { mutableStateOf<List<com.yuldash.app.data.SavedPlaceDto>>(emptyList()) }
+    var recentPlaces by remember { mutableStateOf<List<com.yuldash.app.data.RecentPlaceDto>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        ApiClient.getSavedPlaces().onSuccess { savedPlaces = it }
+        ApiClient.getRecentPlaces().onSuccess { recentPlaces = it }
+    }
 
     LaunchedEffect(query) {
-        if (query.trim().length < 2) { suggestions = emptyList(); return@LaunchedEffect }
+        if (query.trim().length < 2) {
+            suggestions = emptyList(); ищем = false; искали = false
+            return@LaunchedEffect
+        }
+        ищем = true
         delay(350)   // та же пауза, что на экране заказа: запросы к карте платные
         GeocoderClient.suggestResult(query).onSuccess { suggestions = it.take(6) }
+        ищем = false
+        искали = true
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
@@ -6322,16 +6432,45 @@ internal fun PickStopSheet(
                 placeholder = { Text(appText("Адрес остановки", "Туҡталыш адресы"), color = CanonMuted) },
                 singleLine = true, shape = CanonFieldShape, modifier = Modifier.fillMaxWidth(),
             )
-            suggestions.forEach { hit ->
-                Surface(
-                    color = CanonBg, shape = CanonItemShape,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        .clickable { onPicked(hit) },
+            when {
+                ищем -> Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
                 ) {
-                    Box(Modifier.padding(horizontal = CanonSpace.md), contentAlignment = Alignment.CenterStart) {
-                        Text(hit.title, style = CanonBody, color = CanonText, maxLines = 2)
+                    CircularProgressIndicator(Modifier.size(18.dp), color = CanonGreen2, strokeWidth = 2.dp)
+                    Text(appText("Ищем…", "Эҙләйбеҙ…"), style = CanonBody, color = CanonMuted)
+                }
+                искали && suggestions.isEmpty() -> Text(
+                    appText(
+                        "Ничего не нашли. Попробуй улицу и номер дома — так находится точнее.",
+                        "Бер нәмә лә табылманы. Урам менән йорт һанын яҙып ҡара — шулай теүәлерәк.",
+                    ),
+                    style = CanonBody, color = CanonMuted,
+                )
+                else -> suggestions.forEach { hit ->
+                    Surface(
+                        color = CanonBg, shape = CanonItemShape,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .clickable { onPicked(hit) },
+                    ) {
+                        Box(Modifier.padding(horizontal = CanonSpace.md), contentAlignment = Alignment.CenterStart) {
+                            Text(hit.title, style = CanonBody, color = CanonText, maxLines = 2)
+                        }
                     }
                 }
+            }
+            // Поле пустое — показываем знакомые места. Кнопок удаления тут нет намеренно:
+            // это лист на пару секунд, а не управление адресами.
+            if (query.isBlank() && (savedPlaces.isNotEmpty() || recentPlaces.isNotEmpty())) {
+                QuickPlacesBlock(
+                    saved = savedPlaces,
+                    recent = recentPlaces,
+                    onPick = { address, lat, lng ->
+                        onPicked(com.yuldash.app.data.GeoHit(title = address, lat = lat, lon = lng))
+                    },
+                    управление = false,
+                )
             }
         }
     }

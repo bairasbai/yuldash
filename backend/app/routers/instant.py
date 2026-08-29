@@ -1307,6 +1307,12 @@ def set_payment_method(order_id: int, body: PaymentMethodIn,
     if method == (order.payment_method or isv.PAY_NEGOTIATE):
         return {"payment_method": method, "changed": False}
     order.payment_method = method
+    # Помечаем смену только у заказа, который уже везут: до принятия водителя нет, и
+    # «видел / не видел» не про кого. Иначе первый же выбор способа выглядел бы как
+    # непрочитанное сообщение.
+    if order.driver_id:
+        order.payment_changed_at = utcnow()
+        order.payment_ack_at = None
     session.add(order)
     session.commit()
 
@@ -1320,6 +1326,27 @@ def set_payment_method(order_id: int, body: PaymentMethodIn,
             data={"type": "instant_payment", "order_id": str(order.id), "method": method},
         )
     return {"payment_method": method, "changed": True}
+
+
+@router.post("/instant/orders/{order_id}/payment/ack")
+def ack_payment_method(order_id: int, user: User = Depends(current_user),
+                       session: Session = Depends(get_session)):
+    """Водитель подтверждает, что видел новый способ расчёта.
+
+    Пуш за рулём пропускают, и без этой отметки пассажир не знает, дошло ли до водителя,
+    что платить будут переводом. Заставить человека посмотреть в телефон мы не можем —
+    можем честно сказать пассажиру, дошло или нет.
+    """
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if order.driver_id != user.id:
+        raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
+    if order.payment_changed_at is not None and order.payment_ack_at is None:
+        order.payment_ack_at = utcnow()
+        session.add(order)
+        session.commit()
+    return {"payment_method": order.payment_method or isv.PAY_NEGOTIATE, "acked": True}
 
 
 @router.post("/instant/orders/{order_id}/cash-received")

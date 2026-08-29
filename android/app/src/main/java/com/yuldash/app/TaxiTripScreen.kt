@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Close
@@ -118,6 +119,8 @@ internal fun TaxiTripScreen(
     onCancel: () -> Unit,
     onMinimize: () -> Unit = {},
     enableLiveTracking: Boolean = true,
+    /** Открыть выбор способа расчёта. Про наличные человек вспоминает уже сидя в машине. */
+    onOpenPayments: () -> Unit = {},
     mapContent: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
@@ -207,7 +210,7 @@ internal fun TaxiTripScreen(
                     InstantWaitingRow(order)
                     TripImComingButton(order.id)
                 }
-                TripPriceRow(order)
+                TripPriceRow(order, onOpenPayments)
             },
             extra = {
                 TripRouteBlock(
@@ -503,22 +506,53 @@ private fun TripCircleAction(
  * в машину и вспоминал цену по памяти, а со скидкой по промокоду это прямой спор на дороге.
  */
 @Composable
-private fun TripPriceRow(order: InstantOrderDto) {
+private fun TripPriceRow(order: InstantOrderDto, onOpenPayments: () -> Unit = {}) {
     if (order.hasPromoDiscount) {
         TaxiPromoPayRow(order = order, forDriver = false)
         return
     }
-    Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        onClick = onOpenPayments,
+        color = CanonBg, shape = CanonItemShape,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Row(
             Modifier.fillMaxWidth().padding(CanonSpace.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
                 Text(appText("К оплате водителю", "Йөрөтөүсегә түләргә"), style = CanonCaption, color = CanonMuted)
-                Text(appText("наличными или переводом", "аҡсалата йәки күсереп"), style = CanonCaption, color = CanonMuted)
+                // Раньше здесь стояло безликое «наличными или переводом» — при том, что способ
+                // человек уже выбрал. Приложение размывало ту самую договорённость, ради
+                // которой всё и затевалось. Называем её словами.
+                Text(
+                    PayMethods.title(order.paymentMethod),
+                    style = CanonBodyStrong, color = CanonText,
+                )
             }
+            Spacer(Modifier.width(CanonSpace.sm))
             Text(formatTaxiKop(order.passengerPayKop), style = CanonHeading, color = CanonText)
+            Spacer(Modifier.width(CanonSpace.xs))
+            Icon(
+                Icons.Default.KeyboardArrowRight,
+                contentDescription = appText("Сменить способ", "Ысулды алмаштырырға"),
+                tint = CanonMuted, modifier = Modifier.size(20.dp),
+            )
         }
+    }
+    // Сменил способ, а водитель минуту не подтверждает. Галочка на экране говорит «готово»,
+    // и человек уверен, что вопрос закрыт, — а водитель за рулём пуш не открыл и везёт,
+    // рассчитывая на прежнее. Молчать тут — значит готовить спор на высадке.
+    if (order.paymentAckOverdue) {
+        Spacer(Modifier.height(CanonSpace.xs))
+        Text(
+            appText(
+                "Водитель ещё не подтвердил новый способ — скажи ему голосом, так надёжнее.",
+                "Йөрөтөүсе яңы ысулды әле раҫламаны — уға тауыш менән әйт, шулай ышаныслыраҡ.",
+            ),
+            style = CanonCaption, color = CanonWarn,
+            modifier = Modifier.padding(horizontal = CanonSpace.md),
+        )
     }
 }
 

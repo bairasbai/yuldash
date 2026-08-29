@@ -1981,6 +1981,21 @@ def destination_ack_overdue(order: InstantOrder, now: Optional[datetime] = None)
     return (now - order.destination_changed_at).total_seconds() >= DESTINATION_ACK_WAIT_SEC
 
 
+# Столько ждём, пока водитель заметит смену способа расчёта. Та же минута, что и для
+# адреса: раньше поднимать тревогу незачем — он может смотреть на дорогу, а не в телефон.
+PAYMENT_ACK_WAIT_SEC = 60
+
+
+def payment_ack_overdue(order: InstantOrder, now: Optional[datetime] = None) -> bool:
+    """Пора ли сказать пассажиру, что водитель ещё не в курсе смены способа."""
+    if order.payment_ack_at is not None or order.payment_changed_at is None:
+        return False
+    if not order.driver_id:
+        return False        # водителя ещё нет — некому и подтверждать
+    now = now or utcnow()
+    return (now - order.payment_changed_at).total_seconds() >= PAYMENT_ACK_WAIT_SEC
+
+
 def can_change_destination(order: InstantOrder, now: Optional[datetime] = None) -> Optional[str]:
     """Можно ли сейчас менять адрес. None = можно, иначе код причины отказа."""
     now = now or utcnow()
@@ -3337,6 +3352,11 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         # Чем рассчитываются. Видно ОБЕИМ сторонам: спор «я думал, ты переводом» случается
         # ровно потому, что до высадки об этом никто не говорил.
         "payment_method": order.payment_method or PAY_NEGOTIATE,
+        # Способ сменили на ходу, и водитель этого ещё не подтвердил. Водителю по этому
+        # флагу подсвечиваем строку, пассажиру — говорим, что водитель пока не в курсе.
+        "payment_changed": (order.payment_changed_at is not None
+                            and order.payment_ack_at is None),
+        "payment_ack_overdue": payment_ack_overdue(order),
         # «Только женщина за рулём»: экран должен объяснить, ПОЧЕМУ машину не нашли,
         # иначе человек решит, что приложение сломалось, а не что выбор сузил круг.
         "women_only": bool(getattr(order, "women_only", False)),

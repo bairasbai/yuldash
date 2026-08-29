@@ -2556,6 +2556,15 @@ object ApiClient {
         call("GET", "/health", null, auth = false)
             .map { it.optString("payments", "off") != "off" }
 
+    /**
+     * Водитель подтверждает, что видел новый способ расчёта.
+     *
+     * Пуш за рулём пропускают. Без этой отметки пассажир не знает, дошло ли до водителя,
+     * что платить будут переводом, — и узнаёт об этом на высадке.
+     */
+    suspend fun ackPaymentMethod(orderId: Int): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/payment/ack", JSONObject(), auth = true).map { }
+
     suspend fun setInstantPaymentMethod(orderId: Int, method: String): Result<String> =
         call("POST", "/instant/orders/$orderId/payment",
              JSONObject().put("method", method), auth = true)
@@ -5223,6 +5232,11 @@ data class InstantOrderDto(
     val destinationAck: Boolean = false,
     // Минуту молчит — пассажиру пора предложить позвонить, а не крутить спиннер.
     val destinationAckOverdue: Boolean = false,
+    // --- смена способа расчёта на ходу (аддитивно) ---
+    // Пассажир сменил способ, водитель ещё не подтвердил, что видел.
+    val paymentChanged: Boolean = false,
+    // Минуту не подтверждает — пассажиру честно говорим, что водитель не в курсе.
+    val paymentAckOverdue: Boolean = false,
     // Крупная смена ждёт слова водителя: текст адреса, цена, причина (zone|price).
     val pendingToText: String = "",
     val pendingPrice: Int = 0,
@@ -5279,6 +5293,8 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     toText = optString("to_text"),
     category = optString("category"),
     paymentMethod = optString("payment_method").ifBlank { "negotiate" },
+    paymentChanged = optBoolean("payment_changed", false),
+    paymentAckOverdue = optBoolean("payment_ack_overdue", false),
     womenOnly = optBoolean("women_only", false),
     priceEstimate = optInt("price_estimate"),
     priceFinal = if (isNull("price_final")) null else optInt("price_final"),

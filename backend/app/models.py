@@ -953,6 +953,11 @@ class InstantOrder(SQLModel, table=True):
     # нас НЕ идут (ledger не двигаем), безнал (ЮKassa) начисляет водителю через ledger.
     paid: bool = False
     payment_method: str = ""         # "" / cash / card / sbp / yookassa
+    # Когда пассажир последний раз менял способ ПО ХОДУ поездки и видел ли это водитель.
+    # За рулём пуш пропускают, а рассчитываются они лицом к лицу: наличные — это сдача
+    # в кармане, перевод — телефон и банк. Пусто в обоих полях = смены не было.
+    payment_changed_at: Optional[datetime] = None
+    payment_ack_at: Optional[datetime] = None
     # Назначенный водитель (после accept). До accept телефоны скрыты.
     driver_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id")
     # Текущий оффер (кому сейчас предложено) + дедлайн ответа + счётчик кругов подбора.
