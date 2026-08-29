@@ -150,10 +150,9 @@ internal fun taxiUserLocationBitmap(
         }
 
         TaxiUserLocationVisual.Arrow -> {
-            // Утверждённый финал: крупный четырёхгранный курсор Юлдаш внутри светлого круга.
-            // Геометрия общая с кнопками и live-маркерами; MapKit получает нос строго на север.
-            // В 50 dp Bitmap: круг 42 dp, знак 32 dp; по краям остаётся прозрачный запас,
-            // поэтому тень и контур не обрезаются.
+            // На самой карте курсор живёт без круглой кнопочной платформы: лёгкий светлый кант
+            // отделяет грани от карты, но не превращает геолокацию в тяжёлый плавающий контрол.
+            // Кнопка «Где я» сохраняет собственную круглую поверхность отдельно.
             val size = dp(50f).toInt().coerceAtLeast(50)
             TaxiUserLocationBitmap(
                 yuldashDirectionBitmap(
@@ -161,7 +160,7 @@ internal fun taxiUserLocationBitmap(
                     surface = surface,
                     body = green,
                     road = gold,
-                    platform = true,
+                    platform = false,
                 ),
             )
         }

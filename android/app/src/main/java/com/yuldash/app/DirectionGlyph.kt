@@ -178,7 +178,7 @@ internal fun YuldashDirectionGlyph(
     }
 }
 
-/** Один и тот же курсор для MapKit; `platform=true` — утверждённое состояние A моей позиции. */
+/** Один и тот же курсор для MapKit; `platform=true` добавляет круглую подложку для кнопок. */
 internal fun yuldashDirectionBitmap(
     sizePx: Int,
     surface: Int,

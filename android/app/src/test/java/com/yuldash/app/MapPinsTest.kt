@@ -119,29 +119,27 @@ class MapPinsTest {
     }
 
     @Test
-    fun ownLocationPlatform_isLargeCenteredAndNotClipped() {
+    fun ownLocationArrow_hasNoRoundPlatformAndIsNotClipped() {
         val surface = 0xFFFFFFFF.toInt()
         val bitmap = yuldashDirectionBitmap(
             sizePx = 100,
             surface = surface,
             body = 0xFF0B6B3A.toInt(),
             road = 0xFFF5B301.toInt(),
-            platform = true,
+            platform = false,
         )
         val pixels = IntArray(bitmap.width * bitmap.height)
         bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-        val solidPlatform = pixels.count { it == surface }
+        val surfacePixels = pixels.count { it == surface }
         assertTrue(
-            "подложка 42 dp должна быть крупной, но оставлять прозрачный край: $solidPlatform/${pixels.size}",
-            // Круг занимает 55,4% поля; точные белые пиксели после зелёно-золотой стрелки,
-            // контура и anti-alias остаются около 38,6%.
-            solidPlatform in (pixels.size * 0.36f).toInt()..(pixels.size * 0.58f).toInt(),
+            "у стрелки на карте не должно оставаться круглой светлой платформы: $surfacePixels/${pixels.size}",
+            surfacePixels < pixels.size * 0.15f,
         )
-        assertTrue("круг не должен обрезаться сверху или снизу", (0 until bitmap.width).all { x ->
+        assertTrue("стрелка не должна обрезаться сверху или снизу", (0 until bitmap.width).all { x ->
             android.graphics.Color.alpha(bitmap.getPixel(x, 0)) == 0 &&
                 android.graphics.Color.alpha(bitmap.getPixel(x, bitmap.height - 1)) == 0
         })
-        assertTrue("круг не должен обрезаться слева или справа", (0 until bitmap.height).all { y ->
+        assertTrue("стрелка не должна обрезаться слева или справа", (0 until bitmap.height).all { y ->
             android.graphics.Color.alpha(bitmap.getPixel(0, y)) == 0 &&
                 android.graphics.Color.alpha(bitmap.getPixel(bitmap.width - 1, y)) == 0
         })
