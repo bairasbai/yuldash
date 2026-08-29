@@ -31,7 +31,6 @@
 Общий счёт дал бы ему фору в том, чего он ещё не умеет, за счёт того, кто именно это и делает.
 """
 from datetime import timedelta
-from typing import Optional
 
 from sqlalchemy import func
 from sqlmodel import Session, select

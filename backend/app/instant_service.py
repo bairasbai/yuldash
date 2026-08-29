@@ -36,9 +36,9 @@ from .models import (
     Booking, BookingStatus, DriverCancel, DriverProfile, InstantOrder,
     InstantOrderStatus as S, OfferDecline, Tariff, TripShare, TrustedContact, User,
 )
-from .services import (pick_lang, sms_lang_of,
+from .services import (member_since, pick_lang, sms_lang_of,
     blocked_user_ids, haversine_km, may_send_family_sms, push_bilingual, send_push,
-                       send_text, user_rating)
+                       passenger_rating, send_text)
 from .timeutil import utcnow
 
 PRESENCE_KEY = "presence"                    # Redis GEO-множество координат водителей «на линии»
@@ -3186,10 +3186,15 @@ def decline_offer(session: Session, order_id: int, driver_id: int, reason: str =
 # ============================ Push / приватность ============================
 def passenger_stats(session: Session, passenger_id: int) -> tuple:
     """Рейтинг и опыт пассажира для оффера (B7a-4): (средняя★ | None, поездок).
-    Рейтинг — общий анонимный агрегат (Rating по ratee_id: такси + попутка).
-    Поездки = завершённые такси-заказы + завершённые брони попутки.
-    Телефон/имя этим НЕ раскрываются — приватность до accept не тронута."""
-    avg, cnt = user_rating(session, passenger_id)
+    Рейтинг — анонимный агрегат ПАССАЖИРСКИХ оценок (такси + попутка, только те поездки,
+    в которых он ехал). Поездки — по тому же правилу: завершённые такси-заказы и брони.
+    Телефон/имя этим НЕ раскрываются — приватность до accept не тронута.
+
+    Раньше рейтинг тут был ОБЩИЙ, со всеми ролями человека сразу, и половина карточки
+    противоречила второй: поездки считались по-пассажирски, а звёзды — как попало
+    (волна 195). Спокойная пассажирка со старой машиной выглядела для водителя на 3.0
+    вместо 5.0 — а по этому числу он решает, ехать ли за ней ночью."""
+    avg, cnt = passenger_rating(session, passenger_id)
     done_orders = session.exec(
         select(func.count(InstantOrder.id)).where(
             InstantOrder.passenger_id == passenger_id, InstantOrder.status == S.done)
@@ -3765,9 +3770,12 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
                           if (unlocked and driver and role == "passenger") else ""),
         "driver_trips": (int(getattr(prof, "trips_count", 0) or 0)
                          if (unlocked and prof and role == "passenger") else 0),
-        "driver_since": (driver.created_at.strftime("%Y-%m")
-                         if (unlocked and driver and role == "passenger"
-                             and getattr(driver, "created_at", None)) else ""),
+        # Месяц МЕСТНЫЙ, через общую точку (волна 203). Серверный календарь на пять часов
+        # позади уфимского: человек, зарегистрировавшийся первого сентября в 02:30,
+        # показывался бы как «с августа». Это бейдж доверия — по нему решают, садиться
+        # ли в машину.
+        "driver_since": (member_since(driver.created_at)
+                         if (unlocked and driver and role == "passenger") else ""),
         # Землячество — то, чего у федеральной службы быть не может. Берём рабочую географию
         # водителя: город, а если он работает по району — район.
         "driver_from": (((prof.work_city or prof.work_district or "").strip())

@@ -20,7 +20,7 @@
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -32,13 +32,17 @@ from .models import (
     CommissionDebt, DebtStatus, InstantOrder, InstantOrderStatus, LedgerEntry, LedgerKind,
     Report, TaxiApplication, TaxiApplicationStatus, User,
 )
-from .timeutil import local_date, utcnow
+from .timeutil import local_date, local_week_key, utcnow
 
 
 def _week_key(dt) -> str:
-    """ISO-неделя начисления, напр. '2026-W28' — по ней группируем долг для оплаты."""
-    y, w, _ = dt.isocalendar()
-    return f"{y}-W{w:02d}"
+    """ISO-неделя начисления, напр. '2026-W28' — по ней группируем долг для оплаты.
+
+    Неделя МЕСТНАЯ (волна 203): водитель сверяет счёт по своему календарю, и поездка
+    в ночь на понедельник по Уфе для него уже новая неделя. Раньше считалось по серверному
+    UTC, и такой долг попадал в счёт прошлой недели — той, что человек мог уже оплатить.
+    """
+    return local_week_key(dt)
 
 
 def _launch_promo_percent(session: Session, driver_id: int, now) -> Optional[float]:
@@ -704,6 +708,25 @@ def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
     """
     if driver_id is None:
         return 0
+    # Короткий критический участок под row-lock (аудит 2026-08-08, волна 200).
+    #
+    # Что было. Баланс и список долгов читались без блокировки, а потом писалось списание.
+    # Два одновременных вызова получить легко: заказ завершается (`accrue_for_order`) ровно
+    # тогда, когда водитель открыл экран долга, или он просто дважды нажал кнопку. Оба
+    # читают один и тот же баланс, оба видят один и тот же долг — и оба пишут списание.
+    # Долг закрыт один раз, деньги сняты дважды: кошелёк уходит в минус, и это ЕГО деньги.
+    #
+    # Блокируем строку водителя — тот же приём и тот же замок, что у выплат
+    # (`ledger._payout`). Один замок на все денежные операции водителя: иначе выплата
+    # и зачёт долга разъедутся между собой, а не только сами с собой.
+    #
+    # Порядок важен: сперва блокировка, потом чтение. Наоборот — прочитал баланс, подождал
+    # на замке, и к моменту записи число уже другое.
+    #
+    # На SQLite `FOR UPDATE` — пустышка, и сценарием это правило не закрепить (он сериализует
+    # запись сам). Поэтому в тестах проверяется ДОГОВОР: замок взят и взят ДО чтения баланса
+    # (`tests/test_wallet_is_not_charged_twice.py`).
+    session.exec(select(User).where(User.id == driver_id).with_for_update()).one_or_none()
     balance = driver_balance(session, driver_id)
     if balance <= 0:
         return 0
@@ -724,11 +747,22 @@ def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
             continue
         if total + amount > balance:
             break                              # на старейший долг не хватило — дальше не идём
-        d.status = DebtStatus.paid
-        d.confirmed_at = now
-        if not d.note:                         # свой note (напр. админское «простить») не трогаем
-            d.note = WALLET_PAID_NOTE
-        session.add(d)
+        # Закрываем долг АТОМАРНО: условие «он ещё не оплачен» внутри самого UPDATE.
+        #
+        # Замок на строке водителя (выше) сериализует денежные операции на Postgres, но
+        # SQLite его игнорирует — а на SQLite живут все тесты и демо-база. Проба показала:
+        # с чередованием запросов списывалось 400 ₽ при долге 200 ₽. Условие в UPDATE
+        # работает на ОБЕИХ базах и, в отличие от замка, ЛОМАЕТСЯ тестом — то есть его
+        # случайное удаление станет красным (волна 201).
+        закрыт = session.execute(
+            update(CommissionDebt)
+            .where(CommissionDebt.id == d.id, CommissionDebt.status != DebtStatus.paid)
+            .values(status=DebtStatus.paid, confirmed_at=now,
+                    # Свой note (напр. админское «простить») не трогаем.
+                    note=(d.note or WALLET_PAID_NOTE))
+        )
+        if закрыт.rowcount == 0:
+            continue                           # закрыл параллельный проход — деньги не списываем
         total += amount
     if total <= 0:
         return 0

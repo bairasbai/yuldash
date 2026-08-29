@@ -976,6 +976,10 @@ class InstantOrder(SQLModel, table=True):
     waiting_fee_kop: int = Field(default=0, sa_type=BigInteger)         # платное ожидание сверх бесплатного, копейки (фикс на onboard)
     cancel_fee_kop: int = Field(default=0, sa_type=BigInteger)          # штраф за позднюю отмену / no-show = подача, копейки (Модель А: только фиксируем)
     no_show: bool = False            # «пассажир не вышел» — отмена водителем по таймингу
+    # Напоминание «оцени поездку» по этому заказу уже уходило (дедуп, без спама). Такое же
+    # поле есть у брони попутки; у такси его не было вовсе, и после заказа не напоминалось
+    # никому — звёзды терялись, а оценить поездку можно лишь 60 дней (волна 197).
+    rate_reminded: bool = Field(default=False, index=True)
     # Таймстампы переходов (пишутся машиной состояний). created_at индексируем — растущая таблица:
     # сортировка/дневная сводка/будущая чистка по дате (иначе seq-scan по мере роста заказов).
     created_at: datetime = Field(default_factory=utcnow, index=True)
@@ -1733,6 +1737,8 @@ class ParcelDelivery(SQLModel, table=True):
     fee_kop: int = Field(default=0, sa_type=BigInteger)                                                          # символический сервисный сбор платформы (коп), фиксируется при создании
     status: str = Field(default="created", max_length=16, index=True)        # created|accepted|in_transit|delivered|canceled|returning|returned
     confirm_code: str = Field(default="", index=True, max_length=12)         # короткий код вручения (получатель называет курьеру)
+    # Напоминание «оцени доставку» по этой посылке уже уходило (дедуп) — см. волну 197.
+    rate_reminded: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=utcnow, index=True)          # растущая таблица: индекс под сорт/чистку по дате
     accepted_at: Optional[datetime] = None
     # ❄️ Зимний протокол («ты доехал?»). Раньше жил только у попутки, хотя трасса
