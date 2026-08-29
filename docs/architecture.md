@@ -45,9 +45,32 @@
 - Тариф целиком в конфиге (`courier_base_kop` = 15000 и соседние), комиссия 15%, лесенка
   3/8/15 по вручённым доставкам, надбавка buy_bring убрана.
 - Миграция `bi_courier_catches_up` — 10 колонок в `parceldelivery` + `kind` в `pricecomplaint`.
+- `courier_cancel_fee_parts_kop` / `courier_cancel_fee_kop` (2026-08-29) — отмена доставки =
+  штраф + зафиксированная дорога курьера + его ожидание. Своего потолка нет: каждая часть уже
+  ограничена там, где начисляется. `parcels.py` зовёт это в ДВУХ местах — предпросмотр
+  (`cancel_fee_preview_kop` + `cancel_fee_parts` в карточке) и сама отмена, — чтобы показанное
+  число совпадало со списанным. При отмене `waiting_started_at` обнуляется: иначе сумма росла бы
+  при каждом открытии экрана.
+
+- `courier_return_fee_parts_kop` / `courier_return_fee_kop` (2026-08-29) — возврат «получателя
+  не было»: километры маршрута (`distance_km`) + дорога к посылке + ожидание. Только при
+  отмеченной попытке вручения. Фиксируется в `parcels._freeze_return_fee` на `return-start`,
+  ДО того как тот же обработчик добавит свою единицу в `delivery_attempts` — иначе счётчик
+  всегда ≥ 1 и деньги полагались бы каждому. `owed_to_courier_kop` читает готовое
+  `return_fee_kop`. Миграция `bj_return_pays_the_road`.
+
+  Вторая волна (29.08, после разбора Royal Mail / UPS): в ту же сумму входят ПОВТОРНЫЕ ЗАЕЗДЫ
+  по просьбе отправителя — `redeliver_kop` = половина маршрута × число заездов, где заездов не
+  больше `courier_redeliver_max` и не больше пересечения `redeliver_requests` с реальными
+  попытками. Сверху потолок `cap_kop` = цена доставки (`delivery_price_kop`), срезанное видно
+  как `capped_kop`. `next_redeliver_kop` — цена СЛЕДУЮЩЕГО заезда для диалога подтверждения:
+  считает сервер, потому что она зависит от зоны, коэффициента и остатка под потолком.
+  Оценка возврата ДО заказа — `breakdown.return_fee_estimate_kop` в `_price` (требование КС РФ
+  о предупреждении). Миграция `bk_second_try_before_return`.
 
 **Тесты:** `test_priority.py` (18), `test_night_surge.py` (12), `test_scheduled_price.py` (8),
-`test_courier_catches_up.py` (14), плюс дополненные `test_price_honesty.py`.
+`test_courier_catches_up.py` (14), `test_courier_cancel_pays_the_road.py` (10),
+`test_return_pays_the_road.py` (8), плюс дополненные `test_price_honesty.py`.
 
 ## 💰 Честность счёта: одна точка компенсаций, заморозка цены, курьер (2026-08-28)
 
@@ -992,6 +1015,7 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
 | Что | Где | Зачем |
 |---|---|---|
 | `POST /parcels/{id}/attempt-failed` | `routers/parcels.py` | «Приехал, никого нет» — попытка учтена, посылка остаётся у курьера. Возврат — отдельная кнопка |
+| `POST /parcels/{id}/redeliver-request` 🆕 (2026-08-29) | `routers/parcels.py` | **Отправитель просит заехать ещё раз** («получатель уже дома»). Ступенька между «не застал» и возвратом: заезд оплачивается как половина маршрута (`courier_redeliver_km_k`), платит тот, кто попросил (правило UPS). Только отправитель, только после неудачной попытки, одна просьба на попытку, не больше `courier_redeliver_max`. Двигает `redeliver_requests`; заезды по инициативе курьера не считаются. Кнопку открывает СЕРВЕР — `can_request_redelivery` в карточке |
 | `POST /instant/orders/{id}/decline` принимает `reason` | `routers/instant.py` | far / cheap / direction / busy / break / other. Пишется в таблицу `offerdecline` |
 | Таблица `OfferDecline` | `models.py` | Журнал причин отказа. Ретеншен 90 дней (`cleanup.py`), удаляется с аккаунтом (`account.py`) |
 | `instant_service.driver_pause_until / driver_cancel_times / driver_pause_message` | `instant_service.py` | Пауза офферов за брошенные принятые заказы. Гейт — в `eligible()` и в `POST .../accept` |

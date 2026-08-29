@@ -3841,6 +3841,18 @@ object ApiClient {
         deliveryAttempts = o.optInt("delivery_attempts"),
         cancelFeeKop = o.optInt("cancel_fee_kop"),
         cancelFeePreviewKop = o.optInt("cancel_fee_preview_kop"),
+        cancelFineKop = o.optJSONObject("cancel_fee_parts")?.optInt("base_kop") ?: 0,
+        cancelPickupKop = o.optJSONObject("cancel_fee_parts")?.optInt("pickup_kop") ?: 0,
+        cancelWaitingKop = o.optJSONObject("cancel_fee_parts")?.optInt("waiting_kop") ?: 0,
+        returnFeeKop = o.optInt("return_fee_kop"),
+        returnFeePreviewKop = o.optJSONObject("return_fee_parts")?.optInt("total_kop") ?: 0,
+        returnRedeliverKop = o.optJSONObject("return_fee_parts")?.optInt("redeliver_kop") ?: 0,
+        returnRouteKop = o.optJSONObject("return_fee_parts")?.optInt("route_kop") ?: 0,
+        returnCappedKop = o.optJSONObject("return_fee_parts")?.optInt("capped_kop") ?: 0,
+        nextRedeliverKop = o.optJSONObject("return_fee_parts")?.optInt("next_redeliver_kop") ?: 0,
+        redeliverRequests = o.optInt("redeliver_requests"),
+        redeliverMax = o.optInt("redeliver_max"),
+        canRequestRedelivery = o.optBoolean("can_request_redelivery"),
         // Срок «к какому дню нужно» и признак просрочки. Просрочку считает СЕРВЕР: у телефона
         // своя дата и свой часовой пояс, и клиентский подсчёт красил бы карточку по-разному
         // у отправителя и курьера. nStr → null, если срока нет или сервер старый.
@@ -4125,6 +4137,7 @@ object ApiClient {
                     commissionPercent = b.optDouble("commission_percent", 0.0),
                     commissionMinKop = b.optInt("commission_min_kop"),
                     commissionEstimated = b.optBoolean("commission_estimated", false),
+                    returnFeeEstimateKop = b.optInt("return_fee_estimate_kop"),
                 ),
             )
         }
@@ -4748,6 +4761,21 @@ object ApiClient {
 
     suspend fun parcelRelease(parcelId: Int, reason: String = ""): Result<Unit> =
         call("POST", "/parcels/$parcelId/release", JSONObject().put("reason", reason.take(200)), auth = true).map { }
+
+    /** Отправитель просит курьера заехать ещё раз: «получатель уже дома».
+     *
+     *  Ступенька между «не застал» и возвратом. Раньше её не было: посылка либо чудом
+     *  вручалась, либо ехала обратно, и отправитель платил почти полную стоимость доставки
+     *  за то, что человека не оказалось дома. Заезд по просьбе оплачивается как половина
+     *  маршрута — платит тот, кто попросил (правило UPS, забранное себе).
+     *
+     *  Открыта ли просьба прямо сейчас — решает СЕРВЕР (`canRequestRedelivery`): у телефона
+     *  нет ни числа попыток курьера, ни предела из конфига. */
+    suspend fun parcelRedeliverRequest(parcelId: Int, reason: String = ""): Result<ParcelDto> =
+        call("POST", "/parcels/$parcelId/redeliver-request",
+             JSONObject().put("reason", reason.take(200)), auth = true)
+            .map { parseParcel(it) }
+            .onSuccess { Analytics.log("parcel_redeliver_request") }
 
     /** Курьер везёт посылку ОБРАТНО (получателя нет / отказался / не выходит на связь). */
     suspend fun parcelReturnStart(parcelId: Int, reason: String = ""): Result<ParcelDto> =
@@ -6849,6 +6877,30 @@ data class ParcelDto(
     // сумму ДО решения: раньше диалог честно предупреждал «будет компенсация», но саму
     // цифру показывал уже после отмены — человек соглашался на деньги вслепую.
     val cancelFeePreviewKop: Int = 0,
+    // Из ЧЕГО сложится эта сумма. Одно число человек читает как «нас обобрали»; «100 ₽ штраф
+    // + 300 ₽ дорога курьера + 70 ₽ ожидание» — то же самое, но с ним не спорят. Нули =
+    // старый сервер, тогда показываем только итог.
+    val cancelFineKop: Int = 0,
+    val cancelPickupKop: Int = 0,
+    val cancelWaitingKop: Int = 0,
+    // Возврат «получателя не было»: сколько отправитель вернёт курьеру за дорогу и ожидание.
+    // Ноль, пока курьер не отметил ни одной попытки вручения — за слова мы не платим.
+    val returnFeeKop: Int = 0,
+    val returnFeePreviewKop: Int = 0,
+    // Из чего сложится возврат: свой маршрут, повторные заезды по просьбе отправителя и
+    // сколько срезал потолок «не дороже самой доставки». Ноль = старый сервер.
+    val returnRouteKop: Int = 0,
+    val returnRedeliverKop: Int = 0,
+    val returnCappedKop: Int = 0,
+    // Во сколько обойдётся СЛЕДУЮЩИЙ заезд, если попросить его сейчас. Считает сервер:
+    // цена зависит от зоны, коэффициента и потолка — телефон, посчитавший её сам, однажды
+    // показал бы не то число, которое спишется.
+    val nextRedeliverKop: Int = 0,
+    // Повторный заезд «получатель уже дома». Сколько уже попросили, сколько всего можно
+    // и открыта ли кнопка сейчас — считает сервер: у телефона нет ни попыток, ни предела.
+    val redeliverRequests: Int = 0,
+    val redeliverMax: Int = 0,
+    val canRequestRedelivery: Boolean = false,
     // Две границы ответственности: «взял целой» и «отдал целой». Сервер хранил оба снимка,
     // но клиент не показывал ни одного — в споре о повреждении смотреть было не на что.
     val pickupPhotoUrl: String = "",
@@ -6913,6 +6965,10 @@ data class CourierEstimateBreakdown(
     val baseKop: Int, val distanceKop: Int, val sizeKop: Int, val urgencyKop: Int, val commissionPercent: Double,
     val commissionMinKop: Int = 0,            // пол комиссии за доставку (25 ₽)
     val commissionEstimated: Boolean = false, // комиссия до вручения — оценка (финал после вручения)
+    // «Если получателя не будет» — оценка возврата, показанная ДО заказа. Конституционный суд
+    // (декабрь 2022) признал недопустимым брать плату за возврат с человека, которого о ней
+    // заранее не предупредили. Без этой строки на экране заказа наша компенсация висит в воздухе.
+    val returnFeeEstimateKop: Int = 0,
 )
 
 /** Оценка стоимости доставки курьером (сервер считает по своей формуле). */
