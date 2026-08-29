@@ -45,9 +45,41 @@
 - Тариф целиком в конфиге (`courier_base_kop` = 15000 и соседние), комиссия 15%, лесенка
   3/8/15 по вручённым доставкам, надбавка buy_bring убрана.
 - Миграция `bi_courier_catches_up` — 10 колонок в `parceldelivery` + `kind` в `pricecomplaint`.
+- `courier_cancel_fee_parts_kop` / `courier_cancel_fee_kop` (2026-08-29) — отмена доставки =
+  штраф + зафиксированная дорога курьера + его ожидание. Своего потолка нет: каждая часть уже
+  ограничена там, где начисляется. `parcels.py` зовёт это в ДВУХ местах — предпросмотр
+  (`cancel_fee_preview_kop` + `cancel_fee_parts` в карточке) и сама отмена, — чтобы показанное
+  число совпадало со списанным. При отмене `waiting_started_at` обнуляется: иначе сумма росла бы
+  при каждом открытии экрана.
+
+- `courier_return_fee_parts_kop` / `courier_return_fee_kop` (2026-08-29) — возврат «получателя
+  не было»: километры маршрута (`distance_km`) + дорога к посылке + ожидание. Только при
+  отмеченной попытке вручения. Фиксируется в `parcels._freeze_return_fee` на `return-start`,
+  ДО того как тот же обработчик добавит свою единицу в `delivery_attempts` — иначе счётчик
+  всегда ≥ 1 и деньги полагались бы каждому. `owed_to_courier_kop` читает готовое
+  `return_fee_kop`. Миграция `bj_return_pays_the_road`.
+
+  Вторая волна (29.08, после разбора Royal Mail / UPS): в ту же сумму входят ПОВТОРНЫЕ ЗАЕЗДЫ
+  по просьбе отправителя — `redeliver_kop` = половина маршрута × число заездов, где заездов не
+  больше `courier_redeliver_max` и не больше пересечения `redeliver_requests` с реальными
+  попытками. Сверху потолок `cap_kop` = цена доставки (`delivery_price_kop`), срезанное видно
+  как `capped_kop`. `next_redeliver_kop` — цена СЛЕДУЮЩЕГО заезда для диалога подтверждения:
+  считает сервер, потому что она зависит от зоны, коэффициента и остатка под потолком.
+  Оценка возврата ДО заказа — `breakdown.return_fee_estimate_kop` в `_price` (требование КС РФ
+  о предупреждении). Миграция `bk_second_try_before_return`.
+
+- `parcels._guard_really_there` (2026-08-29) — приезд курьера сверяется с живой позицией
+  (`livepos_get("parcel", …)`, её пишет WS-трек доставки) по общему радиусу
+  `arrival_verify_radius_m`. Стоит на `attempt-failed` (попытка = деньги) и на `arrived`
+  (ожидание = деньги). Нет позиции / выключен `arrival_verify_enabled` → пропускаем, как
+  делает такси в `bookings._verify_arrival`.
+- «Я на месте» работает и в статусе `returning`: курьер привёз коробку назад, а отправителя
+  нет дома. Время идёт на `waiting_sender_kop`, добавляется в `return_fee_kop` при закрытии
+  и НЕ прибавляется к `delivery_price_kop` — та цена служит потолком компенсации.
 
 **Тесты:** `test_priority.py` (18), `test_night_surge.py` (12), `test_scheduled_price.py` (8),
-`test_courier_catches_up.py` (14), плюс дополненные `test_price_honesty.py`.
+`test_courier_catches_up.py` (14), `test_courier_cancel_pays_the_road.py` (10),
+`test_return_pays_the_road.py` (8), `test_the_door_that_never_opened.py` (10), плюс дополненные `test_price_honesty.py`.
 
 ## 💰 Честность счёта: одна точка компенсаций, заморозка цены, курьер (2026-08-28)
 
@@ -992,6 +1024,9 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
 | Что | Где | Зачем |
 |---|---|---|
 | `POST /parcels/{id}/attempt-failed` | `routers/parcels.py` | «Приехал, никого нет» — попытка учтена, посылка остаётся у курьера. Возврат — отдельная кнопка |
+| `POST /parcels/{id}/accept` (обновлено 2026-08-29) | `routers/parcels.py` | Приём доставки. Для `courier`/`buy_bring` к прежним гейтам (одобрен, не на паузе, нет долга) добавлены три: **`workday.guard_rested`** — отдых общий на оба режима; **`_guard_no_live_taxi_order`** — нельзя брать доставку с живым заказом такси на руках (крюк за коробкой оплачивает пассажир); **`_guard_papers_not_expired`** — просроченные ОСАГО/разрешение закрывают и доставку, но ТОЛЬКО тому, у кого есть одобренная заявка таксиста: у чистого курьера полис не спрашивали, и требовать его задним числом — продуктовое решение, а не работа гейта. Все три стоят на ПРИЁМЕ: начатую доставку довозят |
+| `POST /instant/orders/{id}/cancel` (обновлено 2026-08-29) | `routers/instant.py` | Отмена заказа. **Водитель бросил принятый заказ → заказ НЕ умирает:** возвращается в поиск с теми же адресами, ценой и промокодом (`isv._reassign_after_driver_cancel`), бросивший уходит в `tried`, счётчик `reassigns`. Не переназначаем из `onboard`, при `no_show` и сверх `taxi_reassign_limit`. Поступок водителя пишется событием `DriverCancel` — на заказе следа не остаётся, его перезапишет следующий водитель. Ответ отдаётся с `actor_authorized=True`: отменивший перестаёт быть участником внутри своего же запроса |
+| `POST /parcels/{id}/redeliver-request` 🆕 (2026-08-29) | `routers/parcels.py` | **Отправитель просит заехать ещё раз** («получатель уже дома»). Ступенька между «не застал» и возвратом: заезд оплачивается как половина маршрута (`courier_redeliver_km_k`), платит тот, кто попросил (правило UPS). Только отправитель, только после неудачной попытки, одна просьба на попытку, не больше `courier_redeliver_max`. Двигает `redeliver_requests`; заезды по инициативе курьера не считаются. Кнопку открывает СЕРВЕР — `can_request_redelivery` в карточке |
 | `POST /instant/orders/{id}/decline` принимает `reason` | `routers/instant.py` | far / cheap / direction / busy / break / other. Пишется в таблицу `offerdecline` |
 | Таблица `OfferDecline` | `models.py` | Журнал причин отказа. Ретеншен 90 дней (`cleanup.py`), удаляется с аккаунтом (`account.py`) |
 | `instant_service.driver_pause_until / driver_cancel_times / driver_pause_message` | `instant_service.py` | Пауза офферов за брошенные принятые заказы. Гейт — в `eligible()` и в `POST .../accept` |
@@ -2236,7 +2271,7 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 
 Четыре части поверх `feat/geo-catalog`. Все цифры — в конфиге (`app/config.py`) или в БД (тарифы): Александр правит без пересборки. ПОПУТКА не затронута. Деньги — только целые копейки (int `*_kop`).
 
-**1. Комиссия лесенкой 3/8/15 по ПОЕЗДКАМ (`app/debt.py`):** `driver_fee_percent(session, driver_id, now)` — ступень по числу done instant-заказов, завершённых СТРОГО ДО `now` (`done_trips_before`): <`fee_tier1_trips`(30) → `fee_tier1_percent`(3%); <`fee_tier2_trips`(100) → `fee_tier2_percent`(8%); дальше `service_fee_percent`(15%). «Строго до» — чтобы заказ не поднимал ставку сам себе: водитель берёт 31-й заказ по 3% и по 3% его и оплачивает (сторож — `test_fee_ladder_trips.py`). Переход с прежней лесенки по дням: `fee_trips_ladder_since` (ISO-дата, `""`=выкл — дефолт, живых водителей нет) — кто начал работать раньше неё, получает ту ступень, что выгоднее ему (`_no_rate_jump`, старые границы `fee_tier1_days`/`fee_tier2_days` остались только для этого). Промо запуска: заявка таксиста approved до `launch_promo_until` (ISO-дата, `""`=выкл — дефолт) → `launch_promo_percent`(0%) первые `launch_promo_days`(90) от одобрения. `accrue_for_order` берёт процент лесенки на момент СОЗДАНИЯ заказа; 0% → долг не создаётся. `/instant/workday` отдаёт `trips_done`, `fee_tier_trips`, `fee_trips_to_next` — кабинет показывает «через N поездок станет Y%».
+**1. Комиссия лесенкой 3/8/15 по ПОЕЗДКАМ (`app/debt.py`):** `driver_fee_percent(session, driver_id, now)` — ступень по числу done instant-заказов, завершённых СТРОГО ДО `now` (`done_trips_before`): <`fee_tier1_trips`(30) → `fee_tier1_percent`(3%); <`fee_tier2_trips`(100) → `fee_tier2_percent`(8%); дальше `service_fee_percent`(15%). «Строго до» — чтобы заказ не поднимал ставку сам себе: водитель берёт 31-й заказ по 3% и по 3% его и оплачивает (сторож — `test_fee_ladder_trips.py`). Переход с прежней лесенки по дням: `fee_trips_ladder_since` (ISO-дата, `""`=выкл — дефолт, живых водителей нет) — кто начал работать раньше неё, получает ту ступень, что выгоднее ему (`_no_rate_jump`, старые границы `fee_tier1_days`/`fee_tier2_days` остались только для этого). Промо запуска: заявка таксиста approved до `launch_promo_until` (ISO-дата, `""`=выкл — дефолт) → `launch_promo_percent`(0%) первые `launch_promo_days`(90) от одобрения. `accrue_for_order` берёт процент лесенки на момент СОЗДАНИЯ заказа; 0% → долг не создаётся. `/instant/workday` отдаёт `trips_done`, `fee_tier_trips`, `fee_trips_to_next` — кабинет показывает «через N поездок станет Y%». **Промо считается по другой шкале (починено 29.08):** пока оно идёт, ставку двигает КАЛЕНДАРЬ, а не поездки, поэтому `fee_next_percent`/`fee_trips_to_next` молчат (оба None), а вместо них приходят `promo_active`, `promo_days_left` и `fee_after_promo_percent` — ставка, на которую водитель попадёт после промо (его СВОЯ ступень через `_no_rate_jump`, а не следующая по лесенке). `launch_promo_ends_at` считает дату конца. В `ProfileScreen` подпись промо стоит ПЕРВОЙ веткой: раньше водителю на промо обещали ступень «через N поездок», а без лесенки он читал «максимальная ставка 0%». Сторож — `test_promo_speaks_by_the_calendar.py`.
 
 **2. Сурж (`app/instant_service.py`):** `surge_k_for(session, lat, lng)` — спрос (`searching/created` заказы за `surge_window_min`=10 мин в радиусе `surge_radius_km`=7 км, haversine) / предложение (живые presence из Redis GEOSEARCH, знаменатель ≥1) → ступени `SURGE_STEPS`: <1→1.0; ≥1→1.1; ≥1.5→1.2; ≥2→1.3; ≥3→1.5; потолок `surge_max_k`=1.5, флаг `surge_enabled`. Без Redis → 1.0 (не падаем и не наживаемся вслепую). Формула цены: `max(min_price, (base+per_km·d+per_min·t) · Tariff.k · surge_k)` — статичный `Tariff.k` остаётся АВАРИЙНЫМ множителем (всегда, дефолт 1.0), двойного счёта нет. `estimate` отдаёт `surge_k`, `surge_note{ru,ba}` (прозрачно ДО заказа) и `options[{category,price}]` (обе цены классов одним запросом); `POST /instant/orders` фиксирует `InstantOrder.surge_k` (price_estimate уже с ним).
 

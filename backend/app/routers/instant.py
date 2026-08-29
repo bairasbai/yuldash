@@ -1150,7 +1150,11 @@ def cancel(order_id: int, body: CancelIn | None = None, user: User = Depends(cur
         raise herr(403, "Нет доступа к заказу", "Заказға рөхсәт юҡ")
     reason = body.reason if body else ""
     order = isv.cancel_order(session, order_id, actor, user.id, reason)
-    return isv.order_payload(session, order, user)
+    # Права проверены выше, ДО отмены. Водитель, бросивший заказ, может перестать быть его
+    # участником прямо в этом вызове: заказ возвращается в поиск и уходит следующему
+    # (`_reassign_after_driver_cancel`). Ответ на собственный запрос он получить обязан —
+    # тот же случай, что у отказа от оффера, ради которого флаг и заведён.
+    return isv.order_payload(session, order, user, actor_authorized=True)
 
 
 @router.get("/instant/orders/{order_id}/receipt")

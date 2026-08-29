@@ -2229,7 +2229,22 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                     }
                 }
                 // Честная подпись: когда ступень поднимется (или уже верхняя).
-                val note = if (wd.feeNextPercent != null && wd.feeTripsToNext != null) {
+                // Промо запуска идёт ПЕРВЫМ: пока оно действует, ставку двигает календарь,
+                // а не поездки. Раньше этой ветки не было, и водителю на промо кабинет
+                // говорил либо «через N поездок станет 8%» (не тот срок, не та причина и
+                // не то число), либо «максимальная ставка 0%» — что просто бессмыслица.
+                val note = if (wd.promoActive) {
+                    val dl = wd.promoDaysLeft ?: 0
+                    val after = wd.feeAfterPromoPercent
+                    val хвостRu = if (after != null) " Потом — ${feePct(after)}." else ""
+                    val хвостBa = if (after != null) " Шунан — ${feePct(after)}." else ""
+                    appText(
+                        "Сейчас ${feePct(wd.feePercent)} — промо для первых водителей. " +
+                            "Осталось $dl ${pluralDaysRu(dl)}.$хвостRu Всё равно ниже, чем у агрегаторов.",
+                        "Хәҙер ${feePct(wd.feePercent)} — беренсе йөрөтөүселәр өсөн промо. " +
+                            "$dl көн ҡалды.$хвостBa Барыбер агрегаторҙарҙан түбәнерәк.",
+                    )
+                } else if (wd.feeNextPercent != null && wd.feeTripsToNext != null) {
                     val tn = wd.feeTripsToNext
                     appText(
                         "Сейчас ${feePct(wd.feePercent)} — стартовая ставка. Через $tn ${pluralTripsRu(tn)} станет ${feePct(wd.feeNextPercent)}. Всё равно ниже, чем у агрегаторов.",
@@ -2252,6 +2267,16 @@ private fun pluralOrdersRu(n: Int): String {
         m10 == 1 && m100 != 11 -> "заказ"
         m10 in 2..4 && m100 !in 12..14 -> "заказа"
         else -> "заказов"
+    }
+}
+
+/** RU-плюрал «день/дня/дней» — промо запуска идёт по календарю, а не по поездкам. */
+private fun pluralDaysRu(n: Int): String {
+    val m10 = n % 10; val m100 = n % 100
+    return when {
+        m10 == 1 && m100 != 11 -> "день"
+        m10 in 2..4 && m100 !in 12..14 -> "дня"
+        else -> "дней"
     }
 }
 
@@ -2280,15 +2305,18 @@ private fun TaxiShiftProgressCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
         border = BorderStroke(1.dp, if (warm) CanonWarn.copy(alpha = 0.35f) else CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Schedule, contentDescription = appText("Смена такси", "Такси сменаһы"),
+                // Не «смена такси»: с 29.08 в это же время считаются и доставки. Руль не
+                // спрашивает, человек в машине или коробка, — а надпись, обещающая одно,
+                // пока счётчик мерит другое, читается как обман, когда приходит блок.
+                Icon(Icons.Default.Schedule, contentDescription = appText("Смена за рулём", "Руль артындағы смена"),
                     tint = accent, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(appText("Смена такси", "Такси сменаһы"), color = CanonText,
+                Text(appText("Смена за рулём", "Руль артындағы смена"), color = CanonText,
                     fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
                 Text(appText("из ${wd.limitHours} ч", "${wd.limitHours} сәғәттән"), color = CanonMuted, fontSize = 14.sp)
             }
             Text(
-                appText("На линии ${shiftTimeRu(wd.secondsOnline)}", "Линияла ${shiftTimeBa(wd.secondsOnline)}"),
+                appText("За рулём ${shiftTimeRu(wd.secondsOnline)}", "Руль артында ${shiftTimeBa(wd.secondsOnline)}"),
                 color = CanonText, fontWeight = FontWeight.Bold, fontSize = 24.sp,
             )
             LinearProgressIndicator(
@@ -2302,8 +2330,10 @@ private fun TaxiShiftProgressCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                     "До отдыха меньше часа 🌙 Спокойно заверши дела на линии.",
                     "Ялға бер сәғәттән дә әҙерәк ҡалды 🌙 Линиялағы эштәреңде тыныс ҡына тамамла."
                 ) else appText(
-                    "После ${wd.limitHours} часов на линии — отдых до утра. Попутка в лимит не входит.",
-                    "Линияла ${wd.limitHours} сәғәттән һуң — иртәнгә тиклем ял. Юлдаш сәфәрҙәре иҫәпкә инмәй."
+                    "Считаем поездки и доставки вместе. После ${wd.limitHours} часов за рулём — " +
+                        "отдых до утра. Попутка в лимит не входит: это твоя дорога, а не работа.",
+                    "Сәфәрҙәрҙе һәм илтеүҙәрҙе бергә иҫәпләйбеҙ. Руль артында ${wd.limitHours} сәғәттән " +
+                        "һуң — иртәнгә тиклем ял. Юлдаш сәфәре иҫәпкә инмәй: был һинең юлың, эш түгел."
                 ),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
             )
