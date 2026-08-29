@@ -70,6 +70,27 @@ def _launch_promo_percent(session: Session, driver_id: int, now) -> Optional[flo
     return settings.launch_promo_percent
 
 
+def launch_promo_ends_at(session: Session, driver_id: int, now):
+    """Когда у этого водителя кончится промо запуска. None — промо на него не действует.
+
+    Нужно кабинету. Промо держится КАЛЕНДАРЁМ (launch_promo_days от одобрения), а лесенка
+    ниже двигается ПОЕЗДКАМИ — это две разные шкалы, и кабинет, показывавший водителю на
+    промо «через N поездок ставка вырастет», называл ему и не тот срок, и не ту причину.
+    """
+    if _launch_promo_percent(session, driver_id, now) is None:
+        return None
+    app = session.exec(select(TaxiApplication).where(
+        TaxiApplication.user_id == driver_id,
+        TaxiApplication.status == TaxiApplicationStatus.approved,
+    )).first()
+    if app is None:
+        return None
+    approved_at = app.reviewed_at or app.created_at
+    if approved_at is None:
+        return None
+    return approved_at + timedelta(days=settings.launch_promo_days)
+
+
 def done_trips_before(session: Session, driver_id: int, when) -> int:
     """Сколько быстрых заказов водитель уже завершил К МОМЕНТУ `when`.
 
@@ -241,6 +262,23 @@ def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] =
         next_percent, trips_to_next = settings.service_fee_percent, settings.fee_tier2_trips - trips_done
     else:
         next_percent, trips_to_next = None, None      # верхняя ступень — дальше не растёт
+    # ПРОМО ЗАПУСКА идёт по другой шкале, и кабинет обязан это различать (аудит 2026-08-23,
+    # починено 29.08). Пока промо действует, ставка не зависит от поездок вообще: она
+    # держится КАЛЕНДАРЁМ и кончится в свой день. Отдавая в этот момент «через N поездок
+    # станет X%», мы называли водителю и не тот срок, и не ту причину, и не то число: после
+    # промо он попадёт на СВОЮ ступень по числу поездок (у новичка это первая, а не вторая).
+    promo_ends_at = launch_promo_ends_at(session, driver_id, now)
+    promo_active = promo_ends_at is not None
+    if promo_active:
+        # Что будет ПОСЛЕ промо — считаем той же лесенкой, что и обычную ставку, включая
+        # защиту от прыжка ставки. Иначе кабинет обещал бы ступень, на которую он не попадёт.
+        fee_after_promo = _no_rate_jump(session, driver_id, now, fee_percent_for_trips(trips_done))
+        promo_days_left = max((promo_ends_at - now).days, 0)
+        # Лесенку по поездкам на время промо не показываем как «следующую ставку»: следующей
+        # будет та, что после промо. Число поездок остаётся в ответе отдельным полем.
+        next_percent, trips_to_next = None, None
+    else:
+        fee_after_promo, promo_days_left = None, None
     return {
         # Backward compatibility: earnings_today остаётся валовой суммой в ₽.
         # Новые поля — точная денежная расшифровка в целых копейках.
@@ -260,6 +298,12 @@ def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] =
         "fee_tier_trips": [settings.fee_tier1_trips, settings.fee_tier2_trips],
         "fee_next_percent": next_percent,
         "fee_trips_to_next": trips_to_next,
+        # Промо запуска «первым водителям — 0%». Пока оно идёт, ставку двигает календарь,
+        # а не поездки: promo_days_left — сколько дней осталось, fee_after_promo_percent —
+        # ставка, на которую водитель попадёт в этот день (его реальная ступень).
+        "promo_active": promo_active,
+        "promo_days_left": promo_days_left,
+        "fee_after_promo_percent": fee_after_promo,
     }
 
 

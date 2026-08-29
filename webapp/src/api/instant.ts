@@ -506,8 +506,15 @@ export interface Workday {
   trips_done: number; // завершённых поездок — позиция на лесенке комиссии
   fee_tiers: number[]; // ступени [3, 8, 15]
   fee_tier_trips: number[]; // границы ступеней в поездках [30, 100]
-  fee_next_percent: number | null; // следующая ставка (null = верхняя ступень)
+  fee_next_percent: number | null; // следующая ставка (null = верхняя ступень ИЛИ идёт промо)
   fee_trips_to_next: number | null; // сколько поездок до неё
+  /** Промо запуска «первым водителям — 0%». Оно идёт по КАЛЕНДАРЮ, а лесенка выше — по
+   *  поездкам: две разные шкалы. Пока `promo_active`, ставку двигает срок, и лесенка молчит
+   *  (оба поля выше null); после промо водитель попадёт на `fee_after_promo_percent` —
+   *  СВОЮ ступень по числу поездок, а не на следующую. */
+  promo_active?: boolean;
+  promo_days_left?: number | null;
+  fee_after_promo_percent?: number | null;
 }
 
 export function fetchWorkday(signal?: AbortSignal): Promise<Workday> {

@@ -3217,6 +3217,10 @@ object ApiClient {
                 feeTierTrips = o.optJSONArray("fee_tier_trips")?.let { a -> (0 until a.length()).map { a.optInt(it) } } ?: emptyList(),
                 feeNextPercent = if (o.isNull("fee_next_percent")) null else o.optDouble("fee_next_percent"),
                 feeTripsToNext = if (o.isNull("fee_trips_to_next")) null else o.optInt("fee_trips_to_next"),
+                promoActive = o.optBoolean("promo_active"),
+                promoDaysLeft = if (o.isNull("promo_days_left")) null else o.optInt("promo_days_left"),
+                feeAfterPromoPercent = if (o.isNull("fee_after_promo_percent")) null
+                                       else o.optDouble("fee_after_promo_percent"),
             )
         }
 
@@ -5715,6 +5719,13 @@ data class TaxiWorkdayDto(
     val feeTierTrips: List<Int> = emptyList(),     // границы ступеней в поездках [30,100]
     val feeNextPercent: Double? = null,            // следующая ступень, % (null = верхняя, дальше не растёт)
     val feeTripsToNext: Int? = null,               // сколько поездок до следующей ступени (null = верхняя)
+    // Промо запуска «первым водителям — 0%». Оно идёт по КАЛЕНДАРЮ, а лесенка выше — по
+    // поездкам: две разные шкалы, и путать их нельзя. Пока промо активно, ставку двигает
+    // срок (promoDaysLeft), а не поездки, и после него водитель попадёт на СВОЮ ступень
+    // (feeAfterPromoPercent), а не на следующую по лесенке.
+    val promoActive: Boolean = false,
+    val promoDaysLeft: Int? = null,
+    val feeAfterPromoPercent: Double? = null,
 )
 
 /** Пресет популярного маршрута (Сибай–Магнитогорск…) — чип, заполняющий «откуда/куда». */

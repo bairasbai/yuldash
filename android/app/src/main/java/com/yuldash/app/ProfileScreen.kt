@@ -2229,7 +2229,22 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                     }
                 }
                 // Честная подпись: когда ступень поднимется (или уже верхняя).
-                val note = if (wd.feeNextPercent != null && wd.feeTripsToNext != null) {
+                // Промо запуска идёт ПЕРВЫМ: пока оно действует, ставку двигает календарь,
+                // а не поездки. Раньше этой ветки не было, и водителю на промо кабинет
+                // говорил либо «через N поездок станет 8%» (не тот срок, не та причина и
+                // не то число), либо «максимальная ставка 0%» — что просто бессмыслица.
+                val note = if (wd.promoActive) {
+                    val dl = wd.promoDaysLeft ?: 0
+                    val after = wd.feeAfterPromoPercent
+                    val хвостRu = if (after != null) " Потом — ${feePct(after)}." else ""
+                    val хвостBa = if (after != null) " Шунан — ${feePct(after)}." else ""
+                    appText(
+                        "Сейчас ${feePct(wd.feePercent)} — промо для первых водителей. " +
+                            "Осталось $dl ${pluralDaysRu(dl)}.$хвостRu Всё равно ниже, чем у агрегаторов.",
+                        "Хәҙер ${feePct(wd.feePercent)} — беренсе йөрөтөүселәр өсөн промо. " +
+                            "$dl көн ҡалды.$хвостBa Барыбер агрегаторҙарҙан түбәнерәк.",
+                    )
+                } else if (wd.feeNextPercent != null && wd.feeTripsToNext != null) {
                     val tn = wd.feeTripsToNext
                     appText(
                         "Сейчас ${feePct(wd.feePercent)} — стартовая ставка. Через $tn ${pluralTripsRu(tn)} станет ${feePct(wd.feeNextPercent)}. Всё равно ниже, чем у агрегаторов.",
@@ -2252,6 +2267,16 @@ private fun pluralOrdersRu(n: Int): String {
         m10 == 1 && m100 != 11 -> "заказ"
         m10 in 2..4 && m100 !in 12..14 -> "заказа"
         else -> "заказов"
+    }
+}
+
+/** RU-плюрал «день/дня/дней» — промо запуска идёт по календарю, а не по поездкам. */
+private fun pluralDaysRu(n: Int): String {
+    val m10 = n % 10; val m100 = n % 100
+    return when {
+        m10 == 1 && m100 != 11 -> "день"
+        m10 in 2..4 && m100 !in 12..14 -> "дня"
+        else -> "дней"
     }
 }
 
