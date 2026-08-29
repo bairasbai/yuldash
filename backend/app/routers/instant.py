@@ -72,6 +72,10 @@ def _guard_taxi_driver(session: Session, driver_id: int, lat: float | None = Non
         # Разный текст важен: первый обвиняет человека, второй объясняет, что делать.
         if taxi_mod.taxi_docs_expired(session, driver_id):
             raise herr(403, taxi_mod.MSG_DOCS_EXPIRED["ru"], taxi_mod.MSG_DOCS_EXPIRED["ba"])
+        # Реестра ФГИС нет действующего разрешения — тоже не обвинение, а путь: получить
+        # его бесплатно за 5–20 дней, а пока возить попуткой, которой разрешение не нужно.
+        if taxi_mod.taxi_permit_missing(session, driver_id):
+            raise herr(403, taxi_mod.MSG_NO_PERMIT["ru"], taxi_mod.MSG_NO_PERMIT["ba"])
         raise herr(403, taxi_mod.TAXI_NOT_APPROVED_MSG, taxi_mod.TAXI_NOT_APPROVED_MSG_BA)
     _guard_taxi_not_blocked(session, driver_id)
     pretrip_mod.guard_pretrip(session, driver_id)   # 580-ФЗ: подтверждение готовности на сегодня

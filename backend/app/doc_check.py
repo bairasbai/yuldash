@@ -298,6 +298,52 @@ def remind_missing(session: Session, dry_run: bool = False) -> list:
     return touched
 
 
+def recheck_registry(session: Session, dry_run: bool = False) -> list:
+    """Переспросить государственный реестр про машины одобренных водителей (580-ФЗ).
+
+    Закон требует от службы заказа проверять наличие разрешения, а не верить один раз при
+    регистрации. Разрешение может кончиться, его могут аннулировать — и узнать об этом на
+    месте ДТП будет поздно и дорого.
+
+    Спрашиваем только про тех, кто реально работает: одобрен и не снят по документам. Сам
+    запрос ограничен по частоте внутри `refresh_permit_from_registry` — каждый стоит денег,
+    а разрешение не меняется по десять раз в сутки.
+
+    Реестр промолчал — не страшно: прежний ответ остаётся в силе, а на допуск это не влияет
+    (см. `taxi.permit_missing`). Ошибка по одному водителю не должна ронять обход остальных.
+    """
+    from . import fgis
+    from . import taxi as taxi_mod
+    if not fgis.enabled():
+        return []
+    rows = session.exec(select(TaxiApplication).where(
+        TaxiApplication.status == TaxiApplicationStatus.approved,
+        TaxiApplication.docs_expired == False,      # noqa: E712 — SQL, не Python
+    )).all()
+    тронули = []
+    for app in rows:
+        было = bool(app.fgis_permit_ok)
+        if dry_run:
+            тронули.append(app.user_id)
+            continue
+        try:
+            if not taxi_mod.refresh_permit_from_registry(session, app):
+                continue
+        except Exception as e:  # noqa: BLE001 — один водитель не валит обход остальных
+            log.warning(f"[FGIS] перепроверка user={app.user_id}: {type(e).__name__}: {e}")
+            continue
+        # Разрешение пропало — говорим человеку сразу, а не в момент отказа на линии.
+        if было and not app.fgis_permit_ok:
+            тронули.append(app.user_id)
+            _push(session, app.user_id,
+                  "Разрешение такси больше не действует", "Такси рөхсәте гәмәлдә түгел",
+                  "В реестре нет действующего разрешения на твою машину. Получи новое через "
+                  "Госуслуги — это бесплатно. Попутка работает как обычно.",
+                  "Реестрҙа машинаңа ғәмәлдәге рөхсәт юҡ. Госуслуги аша яңыһын ал — бушлай. "
+                  "Юлдаш ғәҙәттәгесә эшләй.")
+    return тронули
+
+
 def run_once(session: Session, dry_run: bool = False) -> dict:
     """Один полный обход. Порядок важен: сперва вернуть допуск обновившимся, потом снимать."""
     result = {}
@@ -309,6 +355,9 @@ def run_once(session: Session, dry_run: bool = False) -> dict:
         ("unconfirmed", expire_unconfirmed_docs),
         ("warned", warn_soon),
         ("reminded", remind_missing),
+        # Реестр спрашиваем ПОСЛЕДНИМ: он ходит в сеть, и его медлительность не должна
+        # задерживать напоминания, которые считаются по локальным датам.
+        ("registry", recheck_registry),
     ):
         try:
             result[name] = fn(session, dry_run)

@@ -25,6 +25,8 @@ from ..models import (
 from ..security import current_user
 from ..services import notify_admin_telegram, push_notification
 from ..timeutil import local_date, utcnow
+import logging
+
 from .. import antifraud as af_mod
 from .. import car_class as cc
 from .. import class_rollout
@@ -34,6 +36,8 @@ from .. import instant_service as isv
 from .. import pretrip as pretrip_mod
 from .. import taxi as taxi_mod
 from .drivers import _ensure_owned_doc_url, drop_replaced_doc
+
+log = logging.getLogger("yuldash")
 
 router = APIRouter(tags=["taxi"])
 
@@ -257,6 +261,14 @@ def _doc_dates(app: TaxiApplication) -> dict:
         "docs_missing": [k for k, v in dates.items() if v is None],
         # Сколько дней до ближайшего истечения (None = сроков нет; отрицательное = просрочен).
         "docs_days_left": ((soonest - today).days if soonest else None),
+        # --- Что ответил государственный реестр (580-ФЗ) ---
+        # Три состояния, и клиент обязан их различать: «реестр подтвердил» (зелено),
+        # «реестр сказал нет» (красное, с путём получить), «не спрашивали или реестр молчит»
+        # (ничего не показываем — человек не виноват в нашем таймауте и пугать его нечем).
+        "permit_registry_checked": getattr(app, "fgis_checked_at", None) is not None,
+        "permit_registry_ok": bool(getattr(app, "fgis_permit_ok", False)),
+        "permit_registry_until": (app.fgis_permit_until.isoformat()
+                                  if getattr(app, "fgis_permit_until", None) else None),
     }
 
 
@@ -693,6 +705,13 @@ def admin_approve_taxi(app_id: int, body: ApproveIn | None = None,
     if body is not None:
         _admin_apply_car(session, app.user_id, body)
     session.commit()
+    # Спрашиваем государственный реестр сразу при одобрении: госномер уже известен, а
+    # человек в этот момент как раз готов работать. Реестр промолчал — не беда, фоновая
+    # задача переспросит; допуск от этого не зависит (см. taxi.permit_missing).
+    try:
+        taxi_mod.refresh_permit_from_registry(session, app, force=True)
+    except Exception as e:  # noqa: BLE001 — сбой реестра не должен рвать одобрение заявки
+        log.warning("[FGIS] проверка при одобрении не удалась: %s", type(e).__name__)
     # Допуск к заработку человек ждёт днями — такое нельзя слать так, что оно может не дойти
     # (аудит 2026-08-08, волна 20). Запись остаётся, тап ведёт на экран заявки.
     push_notification(

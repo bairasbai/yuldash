@@ -5597,6 +5597,12 @@ data class TaxiApplicationDto(
     val docsExpired: Boolean = false,      // допуск к такси снят до обновления документа
     val docsMissing: List<String> = emptyList(),   // какие сроки не заполнены (модератору и водителю)
     val docsDaysLeft: Int? = null,         // дней до ближайшего истечения (отрицательное = просрочен)
+    // Что ответил государственный реестр (580-ФЗ). Три состояния, и различать их обязательно:
+    // проверяли и подтвердили; проверяли и разрешения нет; не спрашивали или реестр молчал —
+    // тогда не показываем ничего, человек не виноват в нашем таймауте.
+    val permitRegistryChecked: Boolean = false,
+    val permitRegistryOk: Boolean = false,
+    val permitRegistryUntil: String? = null,
     val comment: String,         // комментарий админа при отклонении
     val createdAt: String,
     val reviewedAt: String?,
@@ -5624,6 +5630,9 @@ private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
     docsExpired = optBoolean("docs_expired"),
     docsMissing = optJSONArray("docs_missing")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
     docsDaysLeft = if (isNull("docs_days_left")) null else optInt("docs_days_left"),
+    permitRegistryChecked = optBoolean("permit_registry_checked"),
+    permitRegistryOk = optBoolean("permit_registry_ok"),
+    permitRegistryUntil = optString("permit_registry_until").ifBlank { null },
     comment = optString("comment"),
     createdAt = optString("created_at"),
     reviewedAt = if (isNull("reviewed_at")) null else optString("reviewed_at").ifBlank { null },
