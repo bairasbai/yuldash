@@ -2930,6 +2930,69 @@ button.list-row:active {
   font-weight: 600;
 }
 
+/* --- Воронка «смотрят цену → заказывают» (пульс такси у админа) --- */
+.funnel {
+  padding: 14px;
+}
+.funnel__top {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.funnel__top b {
+  font-size: var(--font-title);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--green);
+}
+.funnel__top span {
+  font-size: var(--font-caption);
+  color: var(--muted);
+  line-height: 1.45;
+}
+.funnel__period {
+  margin: 8px 0 0;
+  font-size: var(--font-caption);
+  color: var(--muted);
+}
+/* Столбики по дням: высота — просмотры, залитая часть снизу — заказы. */
+.funnel-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+}
+.funnel-bar {
+  flex: 1;
+  text-align: center;
+}
+.funnel-bar__track {
+  display: flex;
+  align-items: flex-end;
+  height: 44px;
+}
+.funnel-bar__views {
+  width: 100%;
+  min-height: 3px;
+  border-radius: var(--radius-tiny, 8px);
+  background: var(--mint, var(--surface-2));
+  display: flex;
+  align-items: flex-end;
+  transition: height var(--motion-slow, 320ms) ease;
+}
+.funnel-bar__orders {
+  width: 100%;
+  border-radius: var(--radius-tiny, 8px);
+  background: var(--green);
+  transition: height var(--motion-slow, 320ms) ease;
+}
+.funnel-bar span {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--font-caption);
+  color: var(--muted);
+}
+
 /* --- Сейчас / На время --- */
 .taxi-when {
   margin-top: 14px;
@@ -2980,6 +3043,20 @@ button.list-row:active {
 .taxi-search p {
   color: var(--muted);
   font-size: var(--font-body);
+  line-height: 1.45;
+}
+/* «Первый водитель отменил — ищем другую». Заказ вернулся в поиск, и человеку надо
+   объяснить, куда делась принятая им машина: иначе он видит просто «ищем машину» и
+   решает, что приложение сбросило заказ. Цвета — те же warn-переменные, что у остальных
+   предупреждений, чтобы строка читалась как «внимание», а не как ошибка. */
+.taxi-search__note {
+  margin: 0 auto 10px;
+  max-width: 340px;
+  padding: 8px 12px;
+  border-radius: var(--radius-item, 14px);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-caption);
   line-height: 1.45;
 }
 .taxi-search__pulse {
@@ -3406,6 +3483,14 @@ button.list-row:active {
   color: var(--green);
 }
 .parcel-card__desc {
+  font-size: var(--font-caption);
+  line-height: 1.4;
+  color: var(--muted);
+}
+/* Подсказка внутри карточки: спокойный серый текст под кнопками, не крик. */
+.parcel-card__hint {
+  flex-basis: 100%;
+  margin: 4px 0 0;
   font-size: var(--font-caption);
   line-height: 1.4;
   color: var(--muted);

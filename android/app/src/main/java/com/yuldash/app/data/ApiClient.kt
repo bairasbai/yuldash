@@ -2364,6 +2364,7 @@ object ApiClient {
         fromText: String, toText: String, category: String,
         roundTrip: Boolean = false, returnWaitMin: Int = 0,
         stops: List<TaxiStop> = emptyList(),
+        scheduledAtIso: String? = null,
     ): JSONObject = JSONObject()
         .put("from_lat", fromLat).put("from_lng", fromLng)
         .put("to_lat", toLat).put("to_lng", toLng)
@@ -2373,6 +2374,10 @@ object ApiClient {
         // проверяет, что это межгород; в городе флаг просто ничего не меняет.
         .put("round_trip", roundTrip)
         .also { if (stops.isNotEmpty()) it.put("waypoints", stopsArray(stops)) }
+        // Время подачи предзаказа: без него экран показывал цену «на сейчас», а заказ
+        // оформлялся по цене на время подачи — заказ на пять утра считался по дневной
+        // ставке, а уезжал по ночной.
+        .also { if (!scheduledAtIso.isNullOrBlank()) it.put("scheduled_at", scheduledAtIso) }
         .put("return_wait_min", returnWaitMin.coerceIn(0, 24 * 60))
 
     /** Водитель «на линии» шлёт координаты (heartbeat ~раз в 12с) → Redis GEO. Координаты не логируем.
@@ -2389,6 +2394,23 @@ object ApiClient {
                 cancelledToday = o.optInt("cancelled_today"),
                 noShowToday = o.optInt("no_show_today"),
                 avgSearchSec = if (o.isNull("avg_search_sec_today")) null else o.optDouble("avg_search_sec_today"),
+                funnel = o.optJSONObject("funnel")?.let { fo ->
+                    val days = fo.optJSONArray("by_day") ?: JSONArray()
+                    TaxiFunnelDto(
+                        windowDays = fo.optInt("window_days", 7),
+                        viewsToday = fo.optInt("views_today"),
+                        ordersToday = fo.optInt("orders_today"),
+                        percentToday = if (fo.isNull("percent_today")) null else fo.optDouble("percent_today"),
+                        viewsPeriod = fo.optInt("views_period"),
+                        ordersPeriod = fo.optInt("orders_period"),
+                        percentPeriod = if (fo.isNull("percent_period")) null else fo.optDouble("percent_period"),
+                        byDay = (0 until days.length()).mapNotNull { i ->
+                            days.optJSONObject(i)?.let { dd ->
+                                TaxiFunnelDayDto(dd.optString("day"), dd.optInt("views"), dd.optInt("orders"))
+                            }
+                        },
+                    )
+                },
                 byCity = (0 until arr.length()).map { i ->
                     val c = arr.getJSONObject(i)
                     TaxiPulseCityDto(c.optString("city"), c.optInt("online"), c.optInt("active"))
@@ -2420,6 +2442,10 @@ object ApiClient {
                         lng = z.optDouble("lng", 0.0),
                         weight = z.optDouble("weight", 0.0),
                         requests = z.optInt("requests", 0),
+                        // Далеко ли зона — считает сервер по живой позиции водителя.
+                        // Нет поля (только вышел на линию / старый сервер) → null, и подпись
+                        // остаётся «Зона N»: выдуманные километры хуже их отсутствия.
+                        distKm = if (z.isNull("dist_km")) null else z.optDouble("dist_km"),
                     )
                 }.sortedByDescending { it.weight },
                 updatedAt = o.optString("updated_at"),
@@ -2433,10 +2459,12 @@ object ApiClient {
         fromText: String = "", toText: String = "", category: String = "standard",
         roundTrip: Boolean = false, returnWaitMin: Int = 0,
         stops: List<TaxiStop> = emptyList(),
+        /** Время подачи предзаказа (ISO-UTC). Пусто = цена «на сейчас». */
+        scheduledAtIso: String? = null,
     ): Result<InstantEstimateDto> =
         call("POST", "/instant/estimate",
             instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
-                roundTrip, returnWaitMin, stops), auth = true).map { o ->
+                roundTrip, returnWaitMin, stops, scheduledAtIso), auth = true).map { o ->
             val note = o.optJSONObject("surge_note")
             val promoNote = o.optJSONObject("promo_note")   // null, когда скидки нет
             val pickupNote = o.optJSONObject("pickup_note") // null, когда подача ничего не стоит
@@ -2495,6 +2523,7 @@ object ApiClient {
                 pickupWaitRu = waitHint?.optString("ru") ?: "",
                 pickupWaitBa = waitHint?.optString("ba") ?: "",
                 optionsFee = o.optInt("options_fee", 0),
+                priceLockedSec = o.optInt("price_locked_sec", 0),
                 weatherFee = o.optInt("weather_fee", 0),
                 weatherKind = o.optString("weather_kind"),
                 optionCatalog = (0 until optionCatalogArr.length()).mapNotNull { i ->
@@ -3192,10 +3221,15 @@ object ApiClient {
                 ordersToday = o.optInt("orders_today"),
                 feePercent = o.optDouble("fee_percent", 0.0),
                 tenureDays = o.optInt("tenure_days"),
+                tripsDone = o.optInt("trips_done"),
                 feeTiers = o.optJSONArray("fee_tiers")?.let { a -> (0 until a.length()).map { a.optDouble(it) } } ?: emptyList(),
-                feeTierDays = o.optJSONArray("fee_tier_days")?.let { a -> (0 until a.length()).map { a.optInt(it) } } ?: emptyList(),
+                feeTierTrips = o.optJSONArray("fee_tier_trips")?.let { a -> (0 until a.length()).map { a.optInt(it) } } ?: emptyList(),
                 feeNextPercent = if (o.isNull("fee_next_percent")) null else o.optDouble("fee_next_percent"),
-                feeDaysToNext = if (o.isNull("fee_days_to_next")) null else o.optInt("fee_days_to_next"),
+                feeTripsToNext = if (o.isNull("fee_trips_to_next")) null else o.optInt("fee_trips_to_next"),
+                promoActive = o.optBoolean("promo_active"),
+                promoDaysLeft = if (o.isNull("promo_days_left")) null else o.optInt("promo_days_left"),
+                feeAfterPromoPercent = if (o.isNull("fee_after_promo_percent")) null
+                                       else o.optDouble("fee_after_promo_percent"),
             )
         }
 
@@ -3820,6 +3854,18 @@ object ApiClient {
         deliveryAttempts = o.optInt("delivery_attempts"),
         cancelFeeKop = o.optInt("cancel_fee_kop"),
         cancelFeePreviewKop = o.optInt("cancel_fee_preview_kop"),
+        cancelFineKop = o.optJSONObject("cancel_fee_parts")?.optInt("base_kop") ?: 0,
+        cancelPickupKop = o.optJSONObject("cancel_fee_parts")?.optInt("pickup_kop") ?: 0,
+        cancelWaitingKop = o.optJSONObject("cancel_fee_parts")?.optInt("waiting_kop") ?: 0,
+        returnFeeKop = o.optInt("return_fee_kop"),
+        returnFeePreviewKop = o.optJSONObject("return_fee_parts")?.optInt("total_kop") ?: 0,
+        returnRedeliverKop = o.optJSONObject("return_fee_parts")?.optInt("redeliver_kop") ?: 0,
+        returnRouteKop = o.optJSONObject("return_fee_parts")?.optInt("route_kop") ?: 0,
+        returnCappedKop = o.optJSONObject("return_fee_parts")?.optInt("capped_kop") ?: 0,
+        nextRedeliverKop = o.optJSONObject("return_fee_parts")?.optInt("next_redeliver_kop") ?: 0,
+        redeliverRequests = o.optInt("redeliver_requests"),
+        redeliverMax = o.optInt("redeliver_max"),
+        canRequestRedelivery = o.optBoolean("can_request_redelivery"),
         // Срок «к какому дню нужно» и признак просрочки. Просрочку считает СЕРВЕР: у телефона
         // своя дата и свой часовой пояс, и клиентский подсчёт красил бы карточку по-разному
         // у отправителя и курьера. nStr → null, если срока нет или сервер старый.
@@ -4104,6 +4150,7 @@ object ApiClient {
                     commissionPercent = b.optDouble("commission_percent", 0.0),
                     commissionMinKop = b.optInt("commission_min_kop"),
                     commissionEstimated = b.optBoolean("commission_estimated", false),
+                    returnFeeEstimateKop = b.optInt("return_fee_estimate_kop"),
                 ),
             )
         }
@@ -4681,8 +4728,67 @@ object ApiClient {
     // ---------- курьер: «что-то пошло не так» ----------
 
     /** Курьер снимает себя с заказа («не смогу везти»): посылка возвращается в общий список. */
+    /**
+     * «Я на месте» — курьер приехал. Одна кнопка на ОБА конца: сервер сам понимает по статусу,
+     * у кого он стоит (у отправителя или у получателя), и с этой минуты идёт платное ожидание
+     * по тем же правилам, что у такси. Повторное нажатие ничего не ломает — счётчик уже идёт.
+     */
+    /** Мой приоритет водителя: сколько баллов, за что и что их отнимает. */
+    suspend fun getDriverPriority(): Result<PriorityDto> =
+        call("GET", "/driver/priority", null, auth = true).map { parsePriority(it) }
+
+    /** Мой приоритет курьера — тот же расклад, но по доставкам (роли считаются раздельно). */
+    suspend fun getCourierPriority(): Result<PriorityDto> =
+        call("GET", "/courier/priority", null, auth = true).map { parsePriority(it) }
+
+    private fun parsePriority(o: JSONObject): PriorityDto {
+        fun rows(key: String): List<PriorityPartDto> {
+            val arr = o.optJSONArray(key) ?: JSONArray()
+            return (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let {
+                    PriorityPartDto(it.optString("code"), it.optInt("points"), it.optDouble("value", 0.0))
+                }
+            }
+        }
+        return PriorityDto(
+            kind = o.optString("kind", "taxi"),
+            points = o.optInt("points"),
+            plus = o.optInt("plus"),
+            minus = o.optInt("minus"),
+            maxPoints = o.optInt("max_points", 3),
+            parts = rows("parts"),
+            rules = rows("rules"),
+            feedDelaySec = o.optInt("feed_delay_sec"),
+        )
+    }
+
+    suspend fun parcelArrived(parcelId: Int): Result<CourierArrivedDto> =
+        call("POST", "/parcels/$parcelId/arrived", null, auth = true).map { o ->
+            CourierArrivedDto(
+                where = o.optString("where"),
+                waitFreeMin = o.optInt("wait_free_min"),
+                waitFeeRubPerMin = o.optInt("wait_fee_rub_per_min"),
+                waitingFeeKop = o.optInt("waiting_fee_kop"),
+            )
+        }
+
     suspend fun parcelRelease(parcelId: Int, reason: String = ""): Result<Unit> =
         call("POST", "/parcels/$parcelId/release", JSONObject().put("reason", reason.take(200)), auth = true).map { }
+
+    /** Отправитель просит курьера заехать ещё раз: «получатель уже дома».
+     *
+     *  Ступенька между «не застал» и возвратом. Раньше её не было: посылка либо чудом
+     *  вручалась, либо ехала обратно, и отправитель платил почти полную стоимость доставки
+     *  за то, что человека не оказалось дома. Заезд по просьбе оплачивается как половина
+     *  маршрута — платит тот, кто попросил (правило UPS, забранное себе).
+     *
+     *  Открыта ли просьба прямо сейчас — решает СЕРВЕР (`canRequestRedelivery`): у телефона
+     *  нет ни числа попыток курьера, ни предела из конфига. */
+    suspend fun parcelRedeliverRequest(parcelId: Int, reason: String = ""): Result<ParcelDto> =
+        call("POST", "/parcels/$parcelId/redeliver-request",
+             JSONObject().put("reason", reason.take(200)), auth = true)
+            .map { parseParcel(it) }
+            .onSuccess { Analytics.log("parcel_redeliver_request") }
 
     /** Курьер везёт посылку ОБРАТНО (получателя нет / отказался / не выходит на связь). */
     suspend fun parcelReturnStart(parcelId: Int, reason: String = ""): Result<ParcelDto> =
@@ -5060,6 +5166,9 @@ data class InstantEstimateDto(
     val pickupWaitSaveRub: Int = 0,
     val pickupWaitRu: String = "",
     val pickupWaitBa: String = "",
+    // На сколько секунд эта цена закреплена: пока человек думает, она не вырастет.
+    // 0 = заморозка выключена или Redis недоступен — тогда про неё молчим, а не обещаем зря.
+    val priceLockedSec: Int = 0,
     // Опции салона деньгами (детское кресло 150 ₽ и т.д.). `optionCatalog` — прайс ВСЕХ опций
     // с сервера: клиент подписывает цену на галочке, не храня второй список у себя.
     val optionsFee: Int = 0,
@@ -5124,7 +5233,58 @@ data class TaxiPulseDto(
     val cancelledToday: Int,
     val noShowToday: Int,
     val avgSearchSec: Double?,    // средний подбор (created→accepted) сегодня; null = не было
+    val funnel: TaxiFunnelDto? = null,   // «посмотрел цену → заказал»; null = сервер не прислал
     val byCity: List<TaxiPulseCityDto>,
+)
+
+/** Одна строка приоритета: за что дали (или сняли) баллы и с какой цифрой. */
+data class PriorityPartDto(val code: String, val points: Int, val value: Double)
+
+/**
+ * Приоритет исполнителя: кому заказ достаётся первым (backend/app/priority.py).
+ *
+ * Показываем ЦЕЛИКОМ и всегда: скрытый приоритет человек читает как «заказы раздают
+ * по блату» — это ровно та боль Яндекса, против которой мы строимся.
+ */
+data class PriorityDto(
+    val kind: String = "taxi",
+    val points: Int = 0,
+    val plus: Int = 0,
+    val minus: Int = 0,
+    val maxPoints: Int = 3,
+    val parts: List<PriorityPartDto> = emptyList(),
+    val rules: List<PriorityPartDto> = emptyList(),
+    /** Курьер: через сколько секунд заказ увидят остальные. 0 = видишь сразу. */
+    val feedDelaySec: Int = 0,
+)
+
+/**
+ * Ответ на «Я на месте» у курьера: где он стоит и по каким правилам пошло ожидание.
+ * `where`: sender — у отправителя, receiver — у получателя.
+ */
+data class CourierArrivedDto(
+    val where: String = "",
+    val waitFreeMin: Int = 0,
+    val waitFeeRubPerMin: Int = 0,
+    val waitingFeeKop: Int = 0,
+)
+
+/** Один день воронки: сколько раз смотрели цену и сколько из этого стало заказом. */
+data class TaxiFunnelDayDto(val day: String, val views: Int, val orders: Int)
+
+/**
+ * Воронка «посмотрел цену → заказал» (backend/app/funnel.py).
+ * Проценты — Double?: null значит «никто не смотрел», и это НЕ то же самое, что 0%.
+ */
+data class TaxiFunnelDto(
+    val windowDays: Int = 7,
+    val viewsToday: Int = 0,
+    val ordersToday: Int = 0,
+    val percentToday: Double? = null,
+    val viewsPeriod: Int = 0,
+    val ordersPeriod: Int = 0,
+    val percentPeriod: Double? = null,
+    val byDay: List<TaxiFunnelDayDto> = emptyList(),
 )
 
 data class InstantOrderDto(
@@ -5168,6 +5328,10 @@ data class InstantOrderDto(
     val passengerId: Int? = null,
     val offerExpiresAt: String?,  // ISO — когда протухнет текущий оффер (таймер водителя ведём локально)
     val cancelBy: String,         // "" | passenger | driver
+    // Сколько раз заказ возвращался в поиск после того, как назначенный водитель отменил.
+    // Экрану поиска это нужно, чтобы объяснить человеку, куда делась принятая им машина:
+    // без строки он видит просто «ищем машину» и решает, что приложение сбросилось.
+    val reassigns: Int = 0,
     val cancelReason: String,
     val contactThenCancel: Boolean = false,  // B8-8: отмена после открытия телефона/чата → мягкий баннер
     // Деньги-правила (волна 2 §5): сурж/ожидание/отмены. Всё считает сервер, UI только показывает.
@@ -5313,6 +5477,7 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     passengerId = if (isNull("passenger_id")) null else optInt("passenger_id"),
     offerExpiresAt = if (isNull("offer_expires_at")) null else optString("offer_expires_at").ifBlank { null },
     cancelBy = optString("cancel_by"),
+    reassigns = optInt("reassigns"),
     cancelReason = optString("cancel_reason"),
     contactThenCancel = optBoolean("contact_then_cancel"),
     surgeK = optDouble("surge_k", 1.0),
@@ -5562,18 +5727,26 @@ data class TaxiWorkdayDto(
     val blocked: Boolean,            // отдых: такси закрыто до unlockAt
     val unlockAt: String?,           // когда снова на линию (ISO, UTC-наивное), null если не заблокирован
     val returnRideUsed: Boolean,     // «один попутчик домой» уже опубликован
-    // Дашборд кабинета (заработок/заказы за сегодня + ступень комиссии по стажу).
+    // Дашборд кабинета (заработок/заказы за сегодня + ступень комиссии по поездкам).
     val earningsToday: Int = 0,      // legacy: валовая сумма за сегодня, ₽
     val grossTodayKop: Int = 0,       // пассажиры заплатили, копейки
     val feeTodayKop: Int = 0,         // комиссия платформы, копейки
     val netTodayKop: Int = 0,         // чистый доход водителя, копейки
     val ordersToday: Int = 0,        // завершённых заказов сегодня
     val feePercent: Double = 0.0,    // текущая комиссия платформы, % (с учётом промо запуска)
-    val tenureDays: Int = 0,         // стаж таксиста, дней (с первого done-заказа) — позиция на лесенке
-    val feeTiers: List<Double> = emptyList(),      // ступени комиссии [3,5,8]
-    val feeTierDays: List<Int> = emptyList(),      // границы ступеней в днях [30,60]
+    val tenureDays: Int = 0,         // стаж таксиста, дней с первого done-заказа (справка, лесенку не двигает)
+    val tripsDone: Int = 0,          // завершённых поездок — позиция на лесенке комиссии
+    val feeTiers: List<Double> = emptyList(),      // ступени комиссии [3,8,15]
+    val feeTierTrips: List<Int> = emptyList(),     // границы ступеней в поездках [30,100]
     val feeNextPercent: Double? = null,            // следующая ступень, % (null = верхняя, дальше не растёт)
-    val feeDaysToNext: Int? = null,                // через сколько дней ступень поднимется (null = верхняя)
+    val feeTripsToNext: Int? = null,               // сколько поездок до следующей ступени (null = верхняя)
+    // Промо запуска «первым водителям — 0%». Оно идёт по КАЛЕНДАРЮ, а лесенка выше — по
+    // поездкам: две разные шкалы, и путать их нельзя. Пока промо активно, ставку двигает
+    // срок (promoDaysLeft), а не поездки, и после него водитель попадёт на СВОЮ ступень
+    // (feeAfterPromoPercent), а не на следующую по лесенке.
+    val promoActive: Boolean = false,
+    val promoDaysLeft: Int? = null,
+    val feeAfterPromoPercent: Double? = null,
 )
 
 /** Пресет популярного маршрута (Сибай–Магнитогорск…) — чип, заполняющий «откуда/куда». */
@@ -6110,7 +6283,8 @@ data class ConversationDto(
 
 data class PopularRouteDto(val from: String, val to: String, val count: Int)
 /** Зона спроса для водителя: где сейчас чаще ищут попутку. Анонимно — только агрегат, без личности. */
-data class DemandZoneDto(val lat: Double, val lng: Double, val weight: Double, val requests: Int)
+data class DemandZoneDto(val lat: Double, val lng: Double, val weight: Double, val requests: Int,
+                         val distKm: Double? = null)
 /** Ответ /instant/demand: список зон спроса + метка времени обновления. */
 data class InstantDemandDto(val zones: List<DemandZoneDto>, val updatedAt: String)
 /** Живая лента карты: счётчики поездок за период + топ-маршрут недели. */
@@ -6735,6 +6909,30 @@ data class ParcelDto(
     // сумму ДО решения: раньше диалог честно предупреждал «будет компенсация», но саму
     // цифру показывал уже после отмены — человек соглашался на деньги вслепую.
     val cancelFeePreviewKop: Int = 0,
+    // Из ЧЕГО сложится эта сумма. Одно число человек читает как «нас обобрали»; «100 ₽ штраф
+    // + 300 ₽ дорога курьера + 70 ₽ ожидание» — то же самое, но с ним не спорят. Нули =
+    // старый сервер, тогда показываем только итог.
+    val cancelFineKop: Int = 0,
+    val cancelPickupKop: Int = 0,
+    val cancelWaitingKop: Int = 0,
+    // Возврат «получателя не было»: сколько отправитель вернёт курьеру за дорогу и ожидание.
+    // Ноль, пока курьер не отметил ни одной попытки вручения — за слова мы не платим.
+    val returnFeeKop: Int = 0,
+    val returnFeePreviewKop: Int = 0,
+    // Из чего сложится возврат: свой маршрут, повторные заезды по просьбе отправителя и
+    // сколько срезал потолок «не дороже самой доставки». Ноль = старый сервер.
+    val returnRouteKop: Int = 0,
+    val returnRedeliverKop: Int = 0,
+    val returnCappedKop: Int = 0,
+    // Во сколько обойдётся СЛЕДУЮЩИЙ заезд, если попросить его сейчас. Считает сервер:
+    // цена зависит от зоны, коэффициента и потолка — телефон, посчитавший её сам, однажды
+    // показал бы не то число, которое спишется.
+    val nextRedeliverKop: Int = 0,
+    // Повторный заезд «получатель уже дома». Сколько уже попросили, сколько всего можно
+    // и открыта ли кнопка сейчас — считает сервер: у телефона нет ни попыток, ни предела.
+    val redeliverRequests: Int = 0,
+    val redeliverMax: Int = 0,
+    val canRequestRedelivery: Boolean = false,
     // Две границы ответственности: «взял целой» и «отдал целой». Сервер хранил оба снимка,
     // но клиент не показывал ни одного — в споре о повреждении смотреть было не на что.
     val pickupPhotoUrl: String = "",
@@ -6799,6 +6997,10 @@ data class CourierEstimateBreakdown(
     val baseKop: Int, val distanceKop: Int, val sizeKop: Int, val urgencyKop: Int, val commissionPercent: Double,
     val commissionMinKop: Int = 0,            // пол комиссии за доставку (25 ₽)
     val commissionEstimated: Boolean = false, // комиссия до вручения — оценка (финал после вручения)
+    // «Если получателя не будет» — оценка возврата, показанная ДО заказа. Конституционный суд
+    // (декабрь 2022) признал недопустимым брать плату за возврат с человека, которого о ней
+    // заранее не предупредили. Без этой строки на экране заказа наша компенсация висит в воздухе.
+    val returnFeeEstimateKop: Int = 0,
 )
 
 /** Оценка стоимости доставки курьером (сервер считает по своей формуле). */

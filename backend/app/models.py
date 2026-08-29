@@ -964,6 +964,11 @@ class InstantOrder(SQLModel, table=True):
     current_offer_driver_id: Optional[int] = Field(default=None, foreign_key="user.id")
     offer_expires_at: Optional[datetime] = None
     search_round: int = 0
+    # Сколько раз заказ возвращали в поиск после того, как назначенный водитель отменил.
+    # Раньше такого пути не было вовсе: водитель бросал принятый заказ — заказ умирал, а
+    # пассажир начинал всё заново, вбивая адреса заново у подъезда. Ограничение сверху
+    # (`taxi_reassign_limit`) — предохранитель: заказ не должен скакать по кругу вечно.
+    reassigns: int = 0
     # Отмена: кто и почему.
     cancel_by: str = ""              # passenger | driver | system
     cancel_reason: str = ""
@@ -976,6 +981,10 @@ class InstantOrder(SQLModel, table=True):
     waiting_fee_kop: int = Field(default=0, sa_type=BigInteger)         # платное ожидание сверх бесплатного, копейки (фикс на onboard)
     cancel_fee_kop: int = Field(default=0, sa_type=BigInteger)          # штраф за позднюю отмену / no-show = подача, копейки (Модель А: только фиксируем)
     no_show: bool = False            # «пассажир не вышел» — отмена водителем по таймингу
+    # Напоминание «оцени поездку» по этому заказу уже уходило (дедуп, без спама). Такое же
+    # поле есть у брони попутки; у такси его не было вовсе, и после заказа не напоминалось
+    # никому — звёзды терялись, а оценить поездку можно лишь 60 дней (волна 197).
+    rate_reminded: bool = Field(default=False, index=True)
     # Таймстампы переходов (пишутся машиной состояний). created_at индексируем — растущая таблица:
     # сортировка/дневная сводка/будущая чистка по дате (иначе seq-scan по мере роста заказов).
     created_at: datetime = Field(default_factory=utcnow, index=True)
@@ -1142,6 +1151,32 @@ class LedgerEntry(SQLModel, table=True):
     # payout: ключ идемпотентности выплаты / id выплаты у провайдера (для earn/fee/adj пусто).
     # Гарантирует, что повторный запрос вывода с тем же ключом НЕ спишет баланс дважды.
     ext_id: str = Field(default="", index=True)
+
+
+class DriverCancel(SQLModel, table=True):
+    """Факт: водитель бросил УЖЕ ПРИНЯТЫЙ заказ. Отдельным событием, а не пометкой на заказе.
+
+    Зачем отдельная запись. Наказание за брошенные заказы (пауза офферов) раньше читалось
+    прямо с заказа: `status == cancelled AND cancel_by == 'driver'`. Пока брошенный заказ
+    так и умирал, этого хватало. Но заказ теперь возвращается в поиск и достаётся другому
+    водителю — поля `driver_id`, `cancelled_at`, `cancel_by` на нём перезаписываются, и след
+    первого бесследно исчезал бы. Водитель мог бы бросать заказы сколько угодно.
+
+    Событие переживает и переназначение, и завершение поездки, и любую судьбу заказа —
+    потому что описывает не заказ, а поступок человека.
+
+    `no_show` = «пассажир не вышел»: водитель как раз всё сделал по правилам (доехал, отждал,
+    честно отметил). Такие события в наказание НЕ идут — иначе учим водителей молча уезжать
+    вместо честной отметки. Храним их всё равно: в разборе спора важно, что он приезжал.
+    """
+    __tablename__ = "drivercancel"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    driver_id: int = Field(index=True, foreign_key="user.id")
+    order_id: int = Field(index=True, foreign_key="instantorder.id")
+    at: datetime = Field(default_factory=utcnow, index=True)
+    no_show: bool = False
+    reason: str = Field(default="", max_length=200)
 
 
 class DebtStatus(str, Enum):
@@ -1707,6 +1742,8 @@ class ParcelDelivery(SQLModel, table=True):
     fee_kop: int = Field(default=0, sa_type=BigInteger)                                                          # символический сервисный сбор платформы (коп), фиксируется при создании
     status: str = Field(default="created", max_length=16, index=True)        # created|accepted|in_transit|delivered|canceled|returning|returned
     confirm_code: str = Field(default="", index=True, max_length=12)         # короткий код вручения (получатель называет курьеру)
+    # Напоминание «оцени доставку» по этой посылке уже уходило (дедуп) — см. волну 197.
+    rate_reminded: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=utcnow, index=True)          # растущая таблица: индекс под сорт/чистку по дате
     accepted_at: Optional[datetime] = None
     # ❄️ Зимний протокол («ты доехал?»). Раньше жил только у попутки, хотя трасса
@@ -1724,6 +1761,36 @@ class ParcelDelivery(SQLModel, table=True):
     # «Купи и привези»: стоимость товара (наложка), которую курьер тратит и получатель возвращает.
     # Ограничена потолком COURIER_COD_CAP_KOP (защита курьера от больших авансов). 0 = не применяется.
     cod_amount_kop: int = Field(default=0, sa_type=BigInteger)
+    # --- Курьер догоняет такси (2026-08-28): те же строки счёта, что у поездки ---
+    # Дорога КУРЬЕРА к посылке. Раньше он ехал за ней даром: 15 км в село — 0 ₽, ровно та же
+    # дыра, которую в такси чинили целой волной. Считается не по GPS (координат курьера у нас
+    # нет), а от города, в котором он работает, — и фиксируется, когда он берёт заказ.
+    pickup_fee_kop: int = Field(default=0, sa_type=BigInteger)
+    pickup_km: float = 0.0
+    # True — курьера ещё нет, сумму назовём при взятии заказа (отправителю показан потолок).
+    pickup_pending: bool = False
+    # Курьеру и так по пути в ту сторону → дорога вдвое дешевле (как у водителя такси).
+    pickup_enroute: bool = False
+    # Зимняя дорога: гололёд не разбирает, человек в машине или коробка.
+    weather_fee_kop: int = Field(default=0, sa_type=BigInteger)
+    weather_kind: str = Field(default="", max_length=16)
+    # Ночная надбавка, зафиксированная на доставке (1.0 = день). Нужна чеку: «ночь +15%».
+    night_k: float = 1.0
+    # Платное ожидание. Курьер ждёт на ДВУХ концах, и виноваты разные люди — поэтому храним
+    # раздельно: в чеке видно, где сколько набежало, а делят это между собой они сами.
+    waiting_started_at: Optional[datetime] = None
+    waiting_sender_kop: int = Field(default=0, sa_type=BigInteger)
+    waiting_receiver_kop: int = Field(default=0, sa_type=BigInteger)
+    # Длина маршрута доставки, км. Раньше растворялась в одной сумме цены, и разложить её
+    # обратно было нечем — а компенсация за возврат считается именно по километрам.
+    distance_km: float = 0.0
+    # Компенсация курьеру за возврат («получателя не было»), зафиксированная при закрытии.
+    # Фиксируем, а не считаем заново: закрытое дело не должно менять сумму само по себе.
+    return_fee_kop: int = Field(default=0, sa_type=BigInteger)
+    # Сколько ПОВТОРНЫХ заездов отправитель попросил сделать («получатель уже дома, заедь
+    # ещё раз»). Правило UPS: платит тот, кто попросил изменение. Курьер, заехавший по
+    # своей инициативе, счётчик не двигает — иначе попытки можно накрутить в одиночку.
+    redeliver_requests: int = 0
     # Комиссия платформы с доставки (коп) — фиксируется при создании (прозрачно, «на доверии»).
     commission_kop: int = Field(default=0, sa_type=BigInteger)
     # C3: комиссия по этой доставке уже оплачена курьером платформе (биллинг «на доверии»).
@@ -1847,6 +1914,9 @@ class PriceComplaint(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
     order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
+    # На чью цену жалуются: taxi | courier. Без этого поля жалобы двух режимов слиплись бы
+    # в одну кучу, и «дорого» про доставку читалось бы как «дорого» про поездку.
+    kind: str = Field(default="taxi", max_length=16, index=True)
     price: int = 0                                    # сумма, на которую жалуются, ₽
     reason: str = Field(default="other", max_length=32)   # перечень — instant.PRICE_COMPLAINT_REASONS
     comment: str = Field(default="", max_length=500)

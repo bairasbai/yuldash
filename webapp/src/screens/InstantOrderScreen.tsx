@@ -314,6 +314,11 @@ function ComposeView({
       from_text: from.text,
       to_text: to.text,
       category,
+      // Предзаказ считаем на время подачи, а не на сейчас: иначе человек запоминает
+      // дневное число, а машина утром приезжает по ночной ставке.
+      ...(when === "later" && schedAt
+        ? { scheduled_at: new Date(schedAt).toISOString() }
+        : {}),
     })
       .then((e) => alive && setEstimate(e))
       .catch((e) => {
@@ -331,7 +336,7 @@ function ComposeView({
     return () => {
       alive = false;
     };
-  }, [from?.lat, from?.lng, to?.lat, to?.lng, category]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [from?.lat, from?.lng, to?.lat, to?.lng, category, when, schedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ❄️ Погода на маршруте заказа — по координатам точек (сервер округляет их до ~5 км).
   const weather = useRouteWeather({
@@ -556,6 +561,17 @@ function ComposeView({
       {to && estimate?.pickup_wait_hint && (
         <div className="taxi-pickup taxi-pickup--win">
           🚗 {ru ? estimate.pickup_wait_hint.ru : estimate.pickup_wait_hint.ba}
+        </div>
+      )}
+
+      {/* Пока человек думает, цена не вырастет. Молчаливая заморозка никого не успокаивает —
+          успокаивает только названная. 0 секунд = выключена, тогда молчим и не обещаем. */}
+      {to && when === "now" && (estimate?.price_locked_sec ?? 0) > 0 && (
+        <div className="taxi-pickup taxi-pickup--win">
+          {appText(
+            `Цена закреплена на ${Math.ceil((estimate!.price_locked_sec ?? 0) / 60)} мин — пока думаешь, не вырастет`,
+            `Хаҡ ${Math.ceil((estimate!.price_locked_sec ?? 0) / 60)} минутҡа беркетелгән — уйлағанда артмай`,
+          )}
         </div>
       )}
 
@@ -1118,6 +1134,18 @@ function TrackingView({
             <IconCar size={40} />
           </div>
           <h2>{appText("Ищем машину рядом…", "Яҡында машина эҙләйбеҙ…")}</h2>
+          {/* Заказ вернулся в поиск после того, как назначенный водитель отменил. Без этой
+              строки человек видит просто «ищем машину» там, где минуту назад к нему ехала
+              машина, — и решает, что приложение сбросило заказ. Главное сказать: делать
+              ничего не надо, адрес и цена прежние. */}
+          {(order.reassigns ?? 0) > 0 && (
+            <div className="taxi-search__note">
+              {appText(
+                "Первый водитель отменил — ищем другую машину. Адрес и цена те же.",
+                "Беренсе йөрөтөүсе баш тартты — башҡа машина эҙләйбеҙ. Адрес та, хаҡ та шул уҡ."
+              )}
+            </div>
+          )}
           <p>
             {appText(
               "Подбираем ближайшего водителя. Обычно это меньше минуты.",

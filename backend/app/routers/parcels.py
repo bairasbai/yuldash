@@ -76,6 +76,91 @@ _RELEASE_STATUSES = ("accepted",)
 _FINAL_STATUSES = ("delivered", "canceled", "returned")
 # Статусы, в которых отмена отправителем даёт курьеру компенсацию (он уже выехал за посылкой).
 _CANCEL_FEE_STATUSES = ("accepted", "in_transit")
+
+
+def _guard_papers_not_expired(session: Session, user_id: int) -> None:
+    """Просроченные документы закрывают и доставку — но только тому, кто их нам сдавал.
+
+    Дыра была зеркальной той, что чинили с усталостью (2026-08-29). У таксиста истекало
+    ОСАГО, гейт закрывал ему такси — и он на ТОЙ ЖЕ машине шёл возить посылки. Полис у
+    машины один, дорога одна, и «страховки нет, но коробки вози» не выдерживает ни одной
+    проверки: ни здравым смыслом, ни первым же ДТП с чужим грузом в багажнике.
+
+    Граница ровно по тому, что мы знаем. Курьеру, который никогда не подавался в такси,
+    ОСАГО никто не показывал — требовать его задним числом значило бы менять условия входа
+    для людей, которых мы уже приняли. Такое решение принимает Александр, а не гейт.
+    А вот про таксиста мы знаем ТОЧНО: полис кончился, он сам вписал дату. Закрывать на это
+    глаза, пока он возит чужие вещи, нельзя.
+
+    Активную доставку не трогаем: гейт стоит на приёме нового заказа. Ту, что уже в машине,
+    надо довезти — бросить чужую посылку посреди дороги хуже.
+    """
+    from .. import taxi as taxi_mod
+    if taxi_mod.taxi_docs_expired(session, user_id):
+        raise herr(403, taxi_mod.MSG_DOCS_EXPIRED["ru"], taxi_mod.MSG_DOCS_EXPIRED["ba"])
+
+
+def _guard_no_live_taxi_order(session: Session, user_id: int) -> None:
+    """Нельзя брать доставку, пока на руках живой заказ такси.
+
+    Раньше между режимами не было ни одной границы: водитель, который едет за пассажиром
+    или уже везёт его, мог взять посылку из ленты — система не мешала. Со стороны пассажира
+    это выглядит просто: машина, за которую он платит поминутно, вдруг едет не туда.
+
+    Граница ровно одна и по делу: активный такси-заказ. Коробка, лежащая в багажнике с
+    прошлой доставки, никому не мешает — её не трогаем. Освободился (высадил, завершил) —
+    бери доставку сколько хочешь.
+    """
+    from ..models import InstantOrder, InstantOrderStatus as S
+    живой = session.exec(
+        select(InstantOrder).where(
+            InstantOrder.driver_id == user_id,
+            InstantOrder.status.in_([S.accepted, S.arriving, S.onboard]),
+        ).limit(1)
+    ).first()
+    if живой is not None:
+        raise herr(409,
+                   "Сначала закончи поездку с пассажиром — потом бери доставку",
+                   "Башта юлаусы менән сәфәрҙе тамамла — аҙаҡ илтеү ал")
+
+
+def _cancel_fee_kop(parcel) -> int:
+    """Компенсация курьеру за отмену: штраф + дорога к посылке + ожидание (см. courier.py).
+    Одна формула на предпросмотр и на саму отмену — иначе человеку показывают одно число,
+    а фиксируют другое."""
+    from .courier import courier_cancel_fee_kop   # ленивый импорт: цикл courier↔parcels
+    return courier_cancel_fee_kop(parcel)
+
+
+def _cancel_fee_parts(parcel) -> dict:
+    """Разбор той же суммы по строкам — для экрана отмены."""
+    from .courier import courier_cancel_fee_parts_kop   # ленивый импорт: цикл courier↔parcels
+    return courier_cancel_fee_parts_kop(parcel)
+
+
+def _return_fee_parts(parcel) -> dict:
+    """Сколько отправитель вернёт курьеру за дорогу, если получателя так и не будет.
+    Ноль, пока курьер не отметил ни одной попытки вручения — см. courier.py."""
+    from .courier import courier_return_fee_parts_kop   # ленивый импорт: цикл courier↔parcels
+    return courier_return_fee_parts_kop(parcel)
+
+
+def _freeze_return_fee(parcel) -> int:
+    """Зафиксировать компенсацию курьеру за возврат, если она ещё не зафиксирована.
+
+    Момент важен. Считаем В НАЧАЛЕ возврата, до того как `return-start` добавит свою единицу
+    в `delivery_attempts`: сам разворот домой — это решение везти коробку назад, а не попытка
+    её вручить. Считай мы после, деньги полагались бы даже тому, кто до двери не доехал.
+
+    Заодно останавливаем часы ожидания: время уже вошло в сумму, а закрытое дело не должно
+    дорожать само по себе.
+    """
+    from .courier import courier_return_fee_kop   # ленивый импорт: цикл courier↔parcels
+    if int(getattr(parcel, "return_fee_kop", 0) or 0) > 0:
+        return int(parcel.return_fee_kop)
+    parcel.return_fee_kop = courier_return_fee_kop(parcel)
+    parcel.waiting_started_at = None
+    return int(parcel.return_fee_kop)
 # Типы доставки, где у комиссии платформы есть РЕАЛЬНЫЙ путь оплаты: одобренный курьер видит
 # долг в кабинете и гасит его через /courier/pay-commission. У «по пути» такого пути нет —
 # поэтому в отчёте админа эти деньги считаются отдельно и не называются «собрано»
@@ -293,7 +378,11 @@ def owed_to_courier_kop(p: ParcelDelivery, session: Optional[Session] = None) ->
     товар = max(int(getattr(p, "goods_actual_kop", 0) or 0), 0)
     тип = getattr(p, "delivery_type", "poputka") or "poputka"
     if p.status == "returned":
-        return товар if тип == "buy_bring" else 0
+        # Возврат «получателя не было» (решение Александра, 29.08): курьер съездил и отстоял,
+        # а раньше получал ноль — Сибай → Акъяр это 180 км туда-обратно за свой счёт.
+        # Сумма зафиксирована при закрытии возврата, здесь её только читаем.
+        возврат = max(int(getattr(p, "return_fee_kop", 0) or 0), 0)
+        return (товар if тип == "buy_bring" else 0) + возврат
     # Второй случай (волна 191): доставку ВРУЧИЛИ, а денег курьеру не отдали, и разбор это
     # подтвердил. Тогда отправитель должен и за товар (это деньги курьера из магазина),
     # и за саму доставку: услуга-то оказана, коробка у получателя.
@@ -364,8 +453,35 @@ def _parcel_base(p: ParcelDelivery, blur_coords: bool = False) -> dict:
         # человек принимал денежное решение вслепую (аудит 2026-08-06). Ноль означает
         # «отмена бесплатна»: курьера ещё нет или посылка уже закрыта.
         "cancel_fee_preview_kop": (
-            settings.courier_cancel_fee_kop
+            _cancel_fee_kop(p)
             if (p.courier_id and p.status in _CANCEL_FEE_STATUSES) else 0
+        ),
+        # Из ЧЕГО сложится эта сумма. Одно число человек читает как «обобрали»;
+        # «100 ₽ штраф + 300 ₽ дорога курьера + 70 ₽ ожидание» — то же самое, но
+        # с ним не спорят. Форма как у такси (`cancel_fee_parts` в заказе).
+        "cancel_fee_parts": (
+            _cancel_fee_parts(p)
+            if (p.courier_id and p.status in _CANCEL_FEE_STATUSES) else None
+        ),
+        # Возврат «получателя не было»: сколько отправитель вернёт курьеру за дорогу.
+        # После закрытия — зафиксированная сумма; до него — сколько выйдет, если вернуть
+        # сейчас (ноль, пока курьер не отметил ни одной попытки вручения).
+        "return_fee_kop": int(getattr(p, "return_fee_kop", 0) or 0),
+        "return_fee_parts": (
+            _return_fee_parts(p)
+            if (p.courier_id and p.status in ("in_transit", "returning")) else None
+        ),
+        # Повторный заезд по просьбе отправителя. Сколько уже попросил, сколько всего можно
+        # и открыта ли кнопка прямо сейчас — считает СЕРВЕР: у клиента нет ни числа попыток
+        # курьера, ни предела из конфига, и две реализации этого правила разошлись бы.
+        "redeliver_requests": int(getattr(p, "redeliver_requests", 0) or 0),
+        "redeliver_max": int(settings.courier_redeliver_max),
+        "can_request_redelivery": bool(
+            p.courier_id
+            and p.status == "in_transit"
+            and int(p.delivery_attempts or 0) > 0
+            and int(getattr(p, "redeliver_requests", 0) or 0) < int(p.delivery_attempts or 0)
+            and int(getattr(p, "redeliver_requests", 0) or 0) < int(settings.courier_redeliver_max)
         ),
     }
 
@@ -756,7 +872,7 @@ def parcel_cancel(parcel_id: int, user: User = Depends(current_user), session: S
                    "Курьер тауарҙы һатып алған — кире алыу тик бәхәс аша")
     prev_courier = parcel.courier_id
     # Курьер уже в пути → фиксируем компенсацию (он потратил время и бензин).
-    fee_kop = settings.courier_cancel_fee_kop if (prev_courier and parcel.status in _CANCEL_FEE_STATUSES) else 0
+    fee_kop = _cancel_fee_kop(parcel) if (prev_courier and parcel.status in _CANCEL_FEE_STATUSES) else 0
     # Коробка УЖЕ в машине курьера — отмена не может просто закрыть дело (аудит 2026-08-08,
     # волна 162). Раньше заказ уходил в `canceled`, и курьер оставался с чужой посылкой без
     # единого пути в приложении: возврат отвечал «возврат доступен, пока посылка у тебя»
@@ -770,6 +886,9 @@ def parcel_cancel(parcel_id: int, user: User = Depends(current_user), session: S
     коробка_у_курьера = bool(prev_courier) and parcel.status == "in_transit"
     parcel.status = "returning" if коробка_у_курьера else "canceled"
     parcel.cancel_fee_kop = fee_kop
+    # Ожидание уже посчитано внутри fee_kop — закрываем счётчик, иначе он остался бы
+    # открытым и сумма «росла» бы каждый раз, когда кто-нибудь откроет экран.
+    parcel.waiting_started_at = None
     session.add(parcel)
     session.commit()
     session.refresh(parcel)
@@ -862,6 +981,104 @@ def parcels_available(
     return [_parcel_available(p) for p in rows]
 
 
+def _settle_waiting_if_courier(session: Session, parcel) -> int:
+    """Закрыть открытое ожидание курьера. Для «по пути» ничего не делаем — там нет тарифа."""
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") == "poputka":
+        return 0
+    from .courier import settle_courier_waiting
+    return settle_courier_waiting(session, parcel)
+
+
+def _far_from_kop(parcel, point) -> float | None:
+    """Далеко ли курьер от точки прямо сейчас, в метрах. None — проверить нечем.
+
+    Ровно тот же приём, что у такси (`bookings._verify_arrival`): живую позицию курьера уже
+    пишет WS-трек доставки (`location.py`, `livepos_set("parcel", …)`). Блокируем ТОЛЬКО когда
+    точно знаем, что он далеко: нет координат, молчит Redis, выключен рубильник — доверяем
+    слову, потому что ложный отказ дороже пропущенного обмана.
+    """
+    if not settings.arrival_verify_enabled:
+        return None
+    if point is None or point[0] is None or point[1] is None:
+        return None
+    try:
+        from .. import livepos
+        поз = livepos.livepos_get("parcel", parcel.id)
+    except Exception:  # noqa: BLE001 — кэш позиции best-effort, он не вправе ронять кнопку
+        return None
+    if not поз or поз.get("lat") is None or поз.get("lng") is None:
+        return None
+    from ..services import haversine_km
+    return haversine_km(float(поз["lat"]), float(поз["lng"]), point[0], point[1]) * 1000.0
+
+
+def _where_point(parcel):
+    """Куда курьер сейчас должен приехать: к отправителю или к получателю.
+
+    `accepted` — едет за посылкой, `returning` — везёт её обратно: оба раза точка отправителя.
+    `in_transit` — везёт получателю.
+    """
+    if (parcel.status or "") == "in_transit":
+        return (parcel.to_lat, parcel.to_lng)
+    return (parcel.from_lat, parcel.from_lng)
+
+
+def _guard_really_there(parcel) -> None:
+    """Не дать отметить приезд, стоя за километры. Молчит, когда проверить нечем."""
+    метры = _far_from_kop(parcel, _where_point(parcel))
+    if метры is not None and метры > float(settings.arrival_verify_radius_m):
+        raise herr(
+            409,
+            "По карте ты ещё не на месте. Подъедь ближе и нажми снова",
+            "Карта буйынса һин әле урында түгел. Яҡыныраҡ кил дә ҡабат бас",
+        )
+
+
+@router.post("/parcels/{parcel_id}/arrived")
+def parcel_arrived(parcel_id: int, user: User = Depends(current_user),
+                   session: Session = Depends(get_session)):
+    """«Я на месте» — одна кнопка на ОБА конца: у отправителя и у получателя.
+
+    Зачем. Чтобы считать платное ожидание, нужен момент «приехал». У такси это кнопка
+    «Я на месте», у курьера её не было вообще: путь шёл «принял → везу → вручил», и оба
+    приезда в нём не отмечались — курьер стоял у двери сорок минут бесплатно.
+
+    Одна кнопка, а не две: сервер сам понимает по статусу, у кого курьер стоит
+    (`accepted` — у отправителя, `in_transit` — у получателя). Курьеру нечего запоминать.
+
+    Правила ожидания — общие с такси: первые минуты бесплатно, дальше поминутно, потолок
+    на всю доставку. Повторное нажатие ничего не ломает: счётчик уже идёт.
+    """
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel:
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    if parcel.courier_id != user.id:
+        raise herr(403, "Это не твоя доставка", "Был һинең илтеүең түгел")
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") == "poputka":
+        raise herr(409, "У доставки «по пути» нет платного ожидания",
+                   "«Юл ыңғайы» илтеүҙә түләүле көтөү юҡ")
+    # `returning` добавлен 29.08: курьер привёз коробку ОБРАТНО, а отправителя нет дома.
+    # Раньше кнопка здесь не работала — курьер стоял у чужой двери бесплатно и не мог
+    # ни закрыть дело, ни получить за это время. Возврат — такая же поездка, как доставка.
+    if parcel.status not in ("accepted", "in_transit", "returning"):
+        raise herr(409, "Сейчас отметить приезд нельзя", "Хәҙер килеүҙе билдәләп булмай")
+    _guard_really_there(parcel)
+    if parcel.waiting_started_at is None:
+        parcel.waiting_started_at = utcnow()
+        session.add(parcel)
+        session.commit()
+        session.refresh(parcel)
+    from .courier import courier_waiting_total_kop
+    return {
+        "ok": True,
+        "where": "receiver" if parcel.status == "in_transit" else "sender",
+        "waiting_started_at": parcel.waiting_started_at.isoformat(),
+        "wait_free_min": settings.wait_free_minutes,
+        "wait_fee_rub_per_min": settings.wait_fee_rub_per_min,
+        "waiting_fee_kop": courier_waiting_total_kop(parcel),
+    }
+
+
 @router.post("/parcels/{parcel_id}/accept")
 def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
                   user: User = Depends(current_user), session: Session = Depends(get_session)):
@@ -912,6 +1129,17 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
         from .courier import (_guard_courier, _guard_courier_debt, _guard_not_paused,
                               _my_profile)
         _guard_courier(user, session)
+        # Отдых — общий на оба режима (2026-08-29). Доставка это те же километры и та же
+        # ночная трасса, что поездка с пассажиром. Пока гейт стоял только на такси, лимит
+        # смены был наполовину декоративным: отработал восемь часов таксистом — и весь
+        # вечер вози посылки, счётчик их не видел.
+        from .. import workday as workday_mod
+        workday_mod.guard_rested(session, user.id)
+        # Заказ такси уже в работе — новую посылку не берём. Крюк за коробкой оплачивает
+        # ПАССАЖИР: он платит за время в пути и ждёт машину, которая едет к нему. Это не
+        # вопрос вместимости багажника, а вопрос того, за что человек отдал деньги.
+        _guard_no_live_taxi_order(session, user.id)
+        _guard_papers_not_expired(session, user.id)
         # Мягкая пауза по качеству стояла на «выйти на линию» и на витрине заказов, но не на
         # самом приёме: витрина отвечала 403, а id заказа курьер уже знал из пуша или с открытого
         # экрана — и «взять» проходило в один запрос. Пауза оставалась декорацией ровно для того,
@@ -938,6 +1166,13 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
     if taken.rowcount == 0:
         session.rollback()
         raise herr(409, "Посылку уже взяли", "Бандерольде инде алғандар")
+    session.commit()
+    session.refresh(parcel)
+    # Дорога КУРЬЕРА к посылке: до этого момента честного числа не было (курьера не было).
+    # Считается от города, где он работает, — координат курьера у нас нет.
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "poputka":
+        from .courier import settle_courier_pickup
+        settle_courier_pickup(session, parcel, user.id, now)
     session.refresh(parcel)
     photo = ((body.pickup_photo_url if body else "") or "").strip()
     # Своё фото, а не чужое: приватный снимок с чужим именем курьер мог бы предъявить админу
@@ -988,6 +1223,9 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
     if new_status == "in_transit":
         if parcel.status != "accepted":
             raise herr(409, "Сначала прими посылку", "Башта бандерольде ал")
+        # Курьер тронулся — закрываем ожидание У ОТПРАВИТЕЛЯ (статус ещё accepted, по нему
+        # функция и понимает, на чьей стороне он стоял).
+        _settle_waiting_if_courier(session, parcel)
         parcel.status = "in_transit"
         # Фото «взял целой» — именно здесь, а не при взятии заказа: это момент, когда курьер
         # реально стоит у посылки. Чужой хост не принимаем (открытие такой ссылки у оппонента
@@ -1020,6 +1258,8 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
         code = (body.code or "").strip().upper()
         if not code or code != (parcel.confirm_code or "").upper():
             raise herr(422, "Неверный код получения", "Ялған алыу коды")
+        # Вручил — закрываем ожидание У ПОЛУЧАТЕЛЯ (статус ещё in_transit).
+        _settle_waiting_if_courier(session, parcel)
         parcel.status = "delivered"
         parcel.delivered_at = utcnow()
         # Фото «отдал целой» — вторая граница ответственности, парная к pickup_photo_url выше.
@@ -1192,6 +1432,10 @@ def parcel_attempt_failed(parcel_id: int, body: Optional[ParcelReasonIn] = None,
     if parcel.status != "in_transit":
         raise herr(409, "Отметить неудачную попытку можно, пока посылка в пути",
                    "Уңышһыҙ барыуҙы бандероль юлда саҡта билдәләп була")
+    # Попытка — это деньги: она открывает компенсацию за возврат. Значит она должна быть
+    # ПОЕЗДКОЙ, а не нажатием кнопки. Сверяем с живой позицией курьера ровно так же, как
+    # такси сверяет «Я на месте»; проверить нечем — засчитываем, как раньше.
+    _guard_really_there(parcel)
     reason = ((body.reason if body else "") or "").strip()[:200]
     parcel.delivery_attempts = (parcel.delivery_attempts or 0) + 1
     if reason:
@@ -1215,6 +1459,71 @@ def parcel_attempt_failed(parcel_id: int, body: Optional[ParcelReasonIn] = None,
     return _parcel_for_courier(parcel, session)
 
 
+@router.post("/parcels/{parcel_id}/redeliver-request")
+def parcel_redeliver_request(parcel_id: int, body: Optional[ParcelReasonIn] = None,
+                             user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отправитель просит курьера заехать ещё раз: «получатель уже дома».
+
+    Зачем отдельной кнопкой (29.08). Между «курьер не застал» и «плати за возврат» не было
+    ни одной ступеньки: посылка либо чудом вручалась, либо ехала обратно, и отправитель
+    платил почти полную стоимость доставки за то, что человека не оказалось дома. У Royal
+    Mail в этом месте восемнадцать дней и заказ передоставки, у UPS — платный повторный
+    выезд. Мы берём от UPS главное: платит тот, кто ПОПРОСИЛ изменение.
+
+    Что это даёт каждому. Отправителю — дешёвый выход: половина маршрута вместо целого
+    возврата. Курьеру — оплаченный крюк вместо «съезди по-человечески» бесплатно. Нам —
+    доставку, которая состоялась, вместо коробки, вернувшейся в никуда.
+
+    Почему просьба, а не автоматика: заезд по инициативе курьера счётчик не двигает.
+    Иначе «заехал ещё разок» можно накрутить в одиночку, а платить будет отправитель.
+
+    Границы: просить можно только после неудачной попытки и только по одной просьбе на
+    попытку — иначе кнопка нажимается десять раз подряд, пока курьер едет. Верхний предел
+    оплачиваемых заездов (`courier_redeliver_max`) курьер и отправитель видят заранее.
+    """
+    parcel = session.exec(
+        select(ParcelDelivery).where(ParcelDelivery.id == parcel_id).with_for_update()
+    ).one_or_none()
+    if not parcel or parcel.sender_id != user.id:
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    if parcel.status != "in_transit" or not parcel.courier_id:
+        raise herr(409, "Попросить заехать снова можно, пока посылка в пути",
+                   "Ҡабаттан инеүҙе бандероль юлда саҡта ғына һорап була")
+    попыток = int(parcel.delivery_attempts or 0)
+    if попыток <= 0:
+        raise herr(409, "Курьер ещё не приезжал — просить заехать снова рано",
+                   "Курьер әле килмәгән — ҡабат инеүҙе һорау иртә")
+    просили = int(getattr(parcel, "redeliver_requests", 0) or 0)
+    if просили >= попыток:
+        raise herr(409, "Курьер уже едет к получателю ещё раз",
+                   "Курьер алыусыға ҡабат бара инде")
+    предел = int(settings.courier_redeliver_max)
+    if просили >= предел:
+        raise herr(409, f"Больше {предел} повторных заездов не оплачиваем — дальше только возврат",
+                   f"{предел} тапҡырҙан күберәк ҡабат инеүгә түләмәйбеҙ — артабан тик кире ҡайтарыу")
+    parcel.redeliver_requests = просили + 1
+    комментарий = ((body.reason if body else "") or "").strip()[:200]
+    session.add(parcel)
+    session.commit()
+    session.refresh(parcel)
+    доплата = _return_fee_parts(parcel).get("redeliver_kop", 0) // 100
+    try:
+        push_notification(
+            session, parcel.courier_id, "parcel",
+            "Отправитель просит заехать ещё раз", "Ебәреүсе ҡабат инеүҙе һорай",
+            (f"«{комментарий}» " if комментарий else "")
+            + (f"Этот заезд оплачивается — {доплата} ₽ сверху. " if доплата else "")
+            + "Не получится и на этот раз — вези обратно, дорога всё равно твоя.",
+            (f"«{комментарий}» " if комментарий else "")
+            + (f"Был инеү түләнә — өҫтәп {доплата} һум. " if доплата else "")
+            + "Был юлы ла булмаһа — кире алып бар, юл барыбер һинеке.",
+            ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
+        )
+    except Exception:  # noqa: BLE001 — уведомление не должно ломать просьбу
+        pass
+    return _parcel_base(parcel)
+
+
 @router.post("/parcels/{parcel_id}/return-start")
 def parcel_return_start(parcel_id: int, body: Optional[ParcelReasonIn] = None,
                         user: User = Depends(current_user), session: Session = Depends(get_session)):
@@ -1232,6 +1541,8 @@ def parcel_return_start(parcel_id: int, body: Optional[ParcelReasonIn] = None,
         raise herr(409, "Возврат доступен, пока посылка у тебя", "Кире ҡайтарыу бандероль һиндә саҡта мөмкин")
     parcel.status = "returning"
     parcel.return_reason = ((body.reason if body else "") or "").strip()[:200]
+    # Сначала деньги, потом счётчик: сам разворот домой попыткой вручения не считается.
+    _freeze_return_fee(parcel)
     parcel.delivery_attempts = (parcel.delivery_attempts or 0) + 1
     session.add(parcel)
     session.commit()
@@ -1266,25 +1577,50 @@ def parcel_return_done(parcel_id: int, user: User = Depends(current_user),
         return _parcel_for_courier(parcel, session)      # идемпотентно
     if parcel.status != "returning":
         raise herr(409, "Сначала начни возврат", "Башта кире ҡайтарыуҙы башла")
+    # Ожидание У ОТПРАВИТЕЛЯ закрываем ДО смены статуса: на чей счёт лечь времени, решает
+    # именно статус (`returning` — отправитель), и после переключения на `returned` оно ушло
+    # бы получателю, которого курьер сегодня даже не видел.
+    #
+    # Компенсацию за дорогу зафиксировал `return-start` — до того как сам разворот домой
+    # добавил свою единицу в счётчик попыток; пересчёт здесь насчитал бы деньги и тому, кто
+    # до двери не доехал. А вот это ожидание наступило ПОСЛЕ фиксации и в неё попасть
+    # не могло: курьер привёз коробку обратно и снова стоял под дверью (29.08).
+    ждал_у_отправителя = _settle_waiting_if_courier(session, parcel)
     parcel.status = "returned"
     parcel.returned_at = utcnow()
     parcel.commission_kop = 0            # услуга не оказана — комиссии нет
     parcel.commission_paid = True        # и в «к оплате» она попасть не должна
+    if ждал_у_отправителя > 0:
+        parcel.return_fee_kop = int(parcel.return_fee_kop or 0) + ждал_у_отправителя
     session.add(parcel)
     session.commit()
     session.refresh(parcel)
     # Деньги курьера, потраченные в магазине, не исчезают вместе со статусом (волна 185).
+    # К ним добавилась компенсация за дорогу, если получателя не оказалось дома (29.08).
     долг = owed_to_courier_kop(parcel)
     рубли = долг // 100
+    возврат = max(int(getattr(parcel, "return_fee_kop", 0) or 0), 0)
+    # Называем деньги своими именами: товар из магазина и дорога курьера — разные вещи,
+    # и «верни 1 230 ₽» без объяснения читается как счёт за услугу, которой не было.
+    за_что_ru = ("за товар и за дорогу курьера" if возврат and рубли > возврат // 100
+                 else "за дорогу курьера" if возврат else "за товар")
+    за_что_ba = ("тауар һәм курьер юлы өсөн" if возврат and рубли > возврат // 100
+                 else "курьер юлы өсөн" if возврат else "тауар өсөн")
     try:
         if долг:
-            # Отправителю: товар у него в руках, деньги — курьера. Мягко, но прямо: это не
-            # штраф и не комиссия, это возврат чужих денег за то, что он сам заказал.
+            # Отправителю: это не штраф и не комиссия, а деньги курьера — потраченные
+            # в магазине и/или проеханные по его заказу.
             push_notification(
                 session, parcel.sender_id, "parcel",
                 "Посылка вернулась к тебе", "Бандероль һиңә ҡайтты",
+                f"Курьер приезжал, но получателя не было. Верни ему {рубли} ₽ {за_что_ru}. "
+                "Саму доставку и комиссию за возврат мы не берём."
+                if возврат else
                 f"Курьер вернул покупку и потратил на неё свои {рубли} ₽ — верни ему эту сумму. "
                 "Комиссию за возврат мы не берём.",
+                f"Курьер килде, әммә алыусы булманы. Уға {рубли} һум {за_что_ba} ҡайтар. "
+                "Илтеү хаҡын һәм кире ҡайтарыу комиссияһын алмайбыҙ."
+                if возврат else
                 f"Курьер һатып алғанды кире ҡайтарҙы һәм уға үҙенең {рубли} һумын тотҡан — "
                 "был сумманы ҡайтар. Кире ҡайтарыу өсөн комиссия алмайбыҙ.",
                 ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
@@ -1295,9 +1631,9 @@ def parcel_return_done(parcel_id: int, user: User = Depends(current_user),
             push_notification(
                 session, parcel.courier_id, "parcel",
                 "Возврат закрыт", "Кире ҡайтарыу ябылды",
-                f"Отправитель должен вернуть тебе {рубли} ₽ за товар. "
+                f"Отправитель должен вернуть тебе {рубли} ₽ {за_что_ru}. "
                 "Не получится договориться — открой спор, там разберёт человек.",
-                f"Ебәреүсе һиңә тауар өсөн {рубли} һум ҡайтарырға тейеш. "
+                f"Ебәреүсе һиңә {рубли} һум {за_что_ba} ҡайтарырға тейеш. "
                 "Килешеп булмаһа — бәхәс ас, кеше ҡарар.",
                 ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
             )
@@ -1640,8 +1976,31 @@ def parcel_receipt(parcel_id: int, user: User = Depends(current_user),
         "commission_kop": int(parcel.commission_kop or 0),
         "commission_paid": bool(parcel.commission_paid),
         "cancel_fee_kop": int(parcel.cancel_fee_kop or 0),
+        # Возврат: за доставку не берём, но дорогу и ожидание курьера отправитель возвращает.
+        # Отдельной строкой, чтобы «Итого» не читалось как счёт за услугу, которой не было.
+        "return_fee_kop": int(getattr(parcel, "return_fee_kop", 0) or 0),
+        "distance_km": float(getattr(parcel, "distance_km", 0.0) or 0.0),
+        "delivery_attempts_final": int(getattr(parcel, "delivery_attempts", 0) or 0),
+        # Сколько повторных заездов попросил сам отправитель — в чеке это его собственное
+        # решение, а не наша надбавка: «два заезда по твоей просьбе» не оспаривают.
+        "redeliver_requests": int(getattr(parcel, "redeliver_requests", 0) or 0),
         "settled": bool(parcel.settled),
         "declared_value_kop": int(parcel.declared_value_kop or 0),
+        # --- Из чего сложилась доставка (2026-08-28, «курьер догоняет такси») ---
+        # Раньше здесь была одна сумма, и на вопрос «за что» ответить было нечем — ровно та
+        # же беда, что была у чека такси. Компенсации курьеру показываем отдельно: с них
+        # комиссия не берётся, и человек должен видеть, что эти деньги идут ему целиком.
+        "pickup_fee_kop": int(getattr(parcel, "pickup_fee_kop", 0) or 0),
+        "pickup_km": float(getattr(parcel, "pickup_km", 0.0) or 0.0),
+        "weather_fee_kop": int(getattr(parcel, "weather_fee_kop", 0) or 0),
+        "weather_kind": str(getattr(parcel, "weather_kind", "") or ""),
+        "night_k": float(getattr(parcel, "night_k", 1.0) or 1.0),
+        # Ожидание — раздельно по концам: задерживают курьера разные люди, и в чеке должно
+        # быть видно, кто именно. Делят это между собой отправитель с получателем сами.
+        "waiting_sender_kop": int(getattr(parcel, "waiting_sender_kop", 0) or 0),
+        "waiting_receiver_kop": int(getattr(parcel, "waiting_receiver_kop", 0) or 0),
+        "waiting_fee_kop": (int(getattr(parcel, "waiting_sender_kop", 0) or 0)
+                            + int(getattr(parcel, "waiting_receiver_kop", 0) or 0)),
         "courier_name": (courier.name if courier and courier.name else "Курьер"),
         "courier_verified": bool(courier.verified) if courier else False,
     }

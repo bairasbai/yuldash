@@ -16,7 +16,7 @@ from .config import settings
 from .errors import herr
 from .models import (Booking, BookingStatus, DriverProfile, Incident, Rating, Ride, RideStatus,
                      SafetyProfile)
-from .services import is_blocked, user_rating
+from .services import driver_rating, is_blocked
 from .timeutil import utcnow
 
 # Коды типов инцидентов. Клиент локализует по коду.
@@ -581,7 +581,9 @@ def _exclude_linked_ratings(session: Session, incident: Incident) -> None:
             affected.add(r.ratee_id)
     session.flush()
     for ratee_id in affected:
-        avg, cnt = user_rating(session, ratee_id)     # уже фильтрует excluded (фаза 1)
+        # Водительским баллом, а не общим (волна 194): это число читает matcher, и в общий
+        # балл человека входят ещё и оценки, полученные им как пассажиром.
+        avg, cnt = driver_rating(session, ratee_id)   # уже фильтрует excluded (фаза 1)
         prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ratee_id)).first()
         if prof:
             prof.rating = round(avg, 1) if cnt > 0 else 5.0   # все сняты → нейтральный сид

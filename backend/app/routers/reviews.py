@@ -228,11 +228,13 @@ def exclude_rating(rating_id: int, body: RatingExcludeIn, user: User = Depends(c
     r.excluded = body.excluded
     session.add(r)
     session.flush()
-    # Пересчёт витринного DriverProfile.rating — как в _exclude_linked_ratings (safety_logic):
-    # без него при cnt=0 карточка падала бы на устаревший prof.rating вместо нейтрального сида.
+    # Пересчёт DriverProfile.rating — как в _exclude_linked_ratings (safety_logic): без него
+    # при cnt=0 карточка падала бы на устаревший prof.rating вместо нейтрального сида.
+    # Считаем ВОДИТЕЛЬСКИМ баллом (волна 194): это число читает matcher, а он решает, кому
+    # дать заказ. Общий балл человека тут не годится — в нём и его роли пассажира.
     from ..models import DriverProfile
-    from ..services import user_rating
-    avg, cnt = user_rating(session, r.ratee_id)
+    from ..services import driver_rating
+    avg, cnt = driver_rating(session, r.ratee_id)
     prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == r.ratee_id)).first()
     if prof:
         prof.rating = round(avg, 1) if cnt > 0 else 5.0

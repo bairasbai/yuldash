@@ -98,3 +98,40 @@ def test_worst_weather_on_the_route_wins(monkeypatch):
     monkeypatch.setattr(weather_warn, "route_weather", lambda *a, **kw: route)
     # Туман денег не стоит и в очереди стоит первым — но выбирается платная метель.
     assert isv.winter_road_kind(None, (52.591, 58.317), (52.716, 58.664)) == "blizzard"
+
+
+# ============================ Спрос: далеко ли зона ============================
+def test_demand_zone_carries_distance_from_the_driver(monkeypatch):
+    """Водителю нужно знать не «Зона 2», а «зона в ≈4 км» — он решает, ехать ли туда.
+
+    Расстояние считает СЕРВЕР по живой позиции водителя (presence): телефон и так шлёт
+    координаты, пока он на линии, и просить у него геолокацию второй раз ради одной
+    подписи незачем. Наружу уходит только расстояние, не его точка."""
+    from app import instant_service as isv2
+
+    zone = (52.60, 58.32)
+    monkeypatch.setattr(isv2, "_active_search_points", lambda session: [zone])
+    monkeypatch.setattr(isv2, "driver_position", lambda did: (52.591, 58.317))
+    from app import taxi as taxi_mod
+    monkeypatch.setattr(taxi_mod, "availability", lambda *a, **kw: {"enabled": True})
+
+    out = isv2.demand_zones(None, driver_id=7)
+    assert out["zones"], "зона должна попасть в ответ"
+    z = out["zones"][0]
+    assert 0.5 <= z["dist_km"] <= 3.0, z
+    # Личности и точки водителя в ответе нет — только агрегат зоны.
+    assert set(z) == {"lat", "lng", "weight", "requests", "dist_km"}
+
+
+def test_demand_without_driver_position_has_no_invented_distance(monkeypatch):
+    """Позиции нет (только вышел на линию, нет Redis) → поля нет вовсе.
+    «Зона 1» честнее выдуманных километров."""
+    from app import instant_service as isv2
+
+    monkeypatch.setattr(isv2, "_active_search_points", lambda session: [(52.60, 58.32)])
+    monkeypatch.setattr(isv2, "driver_position", lambda did: None)
+    from app import taxi as taxi_mod
+    monkeypatch.setattr(taxi_mod, "availability", lambda *a, **kw: {"enabled": True})
+
+    z = isv2.demand_zones(None, driver_id=7)["zones"][0]
+    assert "dist_km" not in z

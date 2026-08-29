@@ -77,6 +77,39 @@ export interface Parcel {
    */
   cancel_fee_kop?: number;
   cancel_fee_preview_kop?: number;
+  /** Из чего сложится компенсация за отмену: штраф + дорога курьера + его ожидание.
+   *  Одно число человек читает как «нас обобрали» — со строками не спорят. */
+  cancel_fee_parts?: {
+    base_kop: number;
+    pickup_kop: number;
+    waiting_kop: number;
+    total_kop: number;
+  } | null;
+  /** Возврат «получателя не было»: сколько отправитель вернёт курьеру за дорогу и ожидание.
+   *  Ноль, пока курьер не отметил ни одной попытки вручения — за слова мы не платим. */
+  return_fee_kop?: number;
+  return_fee_parts?: {
+    attempts: number;
+    /** Заездов по просьбе отправителя, за которые платим. */
+    redeliveries: number;
+    route_kop: number;
+    redeliver_kop: number;
+    /** Во сколько обойдётся СЛЕДУЮЩИЙ заезд, если попросить его сейчас. Считает сервер:
+     *  цена зависит от зоны, коэффициента и потолка. Ноль = предел исчерпан. */
+    next_redeliver_kop: number;
+    pickup_kop: number;
+    waiting_kop: number;
+    /** Потолок «не дороже самой доставки» и сколько он срезал — чтобы «сумма меньше
+     *  слагаемых» не читалась как ошибка. */
+    cap_kop: number;
+    capped_kop: number;
+    total_kop: number;
+  } | null;
+  /** Повторный заезд «получатель уже дома»: сколько попросили, сколько всего можно и
+   *  открыта ли кнопка сейчас. Считает СЕРВЕР — у клиента нет ни попыток, ни предела. */
+  redeliver_requests?: number;
+  redeliver_max?: number;
+  can_request_redelivery?: boolean;
   cod_amount_kop: number;
   commission_kop: number;
   price_kop: number; // цена доставки (courier/buy_bring); 0 для poputka
@@ -180,6 +213,28 @@ export function acceptParcel(id: number, pickupPhotoUrl?: string): Promise<Parce
   );
 }
 
+/** Ответ на «Я на месте»: где курьер стоит и по каким правилам пошло ожидание. */
+export interface ParcelArrived {
+  ok: boolean;
+  /** sender — у отправителя, receiver — у получателя. */
+  where: "sender" | "receiver";
+  waiting_started_at: string;
+  wait_free_min: number;
+  wait_fee_rub_per_min: number;
+  waiting_fee_kop: number;
+}
+
+/**
+ * POST /parcels/{id}/arrived — «Я на месте».
+ *
+ * Одна кнопка на ОБА конца: сервер сам понимает по статусу, у кого курьер стоит. С этой
+ * минуты идёт платное ожидание по тем же правилам, что у такси — раньше курьер стоял
+ * у двери сорок минут бесплатно.
+ */
+export function parcelArrived(id: number): Promise<ParcelArrived> {
+  return apiPost<ParcelArrived>(`/parcels/${id}/arrived`, {});
+}
+
 /**
  * POST /parcels/{id}/status — двигать статус. delivered требует code вручения.
  * deliveryPhotoUrl — снимок «отдал целой», вторая граница ответственности.
@@ -230,6 +285,20 @@ export function rateParcel(
  */
 export function parcelAttemptFailed(id: number, reason = ""): Promise<Parcel> {
   return apiPost<Parcel>(`/parcels/${id}/attempt-failed`, { reason });
+}
+
+/**
+ * Отправитель просит курьера заехать ещё раз: «получатель уже дома».
+ *
+ * Ступенька между «не застал» и возвратом. Раньше её не было: посылка либо чудом вручалась,
+ * либо ехала обратно, и отправитель платил почти полную стоимость доставки за то, что
+ * человека не оказалось дома. Заезд по просьбе оплачивается как половина маршрута — платит
+ * тот, кто попросил (правило UPS, забранное себе).
+ *
+ * Открыта ли просьба прямо сейчас — решает сервер (`can_request_redelivery`).
+ */
+export function parcelRedeliverRequest(id: number, reason = ""): Promise<Parcel> {
+  return apiPost<Parcel>(`/parcels/${id}/redeliver-request`, { reason });
 }
 
 /**

@@ -1,7 +1,7 @@
 """Долг по комиссии за ТАКСИ (Модель А «на доверии», Фаза 3).
 
 Суть: за завершённый быстрый заказ (instant) водитель получает деньги напрямую
-(нал / прямой СБП), а комиссию 8% ДОЛЖЕН платформе. Раз в неделю водитель сам переводит
+(нал / прямой СБП), а комиссию ДОЛЖЕН платформе. Раз в неделю водитель сам переводит
 долг Александру по СБП и жмёт «Я оплатил» (unpaid → pending); Александр (админ) подтверждает
 (pending → paid) или отклоняет (pending → unpaid). Просроченный неоплаченный долг (или сумма
 неоплаченного > порога) → режим ТАКСИ блокируется, пока не погасит.
@@ -20,10 +20,11 @@
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from . import compensation as comp_mod
 from . import promo_ride
 from .config import settings
 from .ledger import driver_balance, fee_kop_for, post_promo_compensation, promo_comp_ext_id
@@ -31,13 +32,17 @@ from .models import (
     CommissionDebt, DebtStatus, InstantOrder, InstantOrderStatus, LedgerEntry, LedgerKind,
     Report, TaxiApplication, TaxiApplicationStatus, User,
 )
-from .timeutil import local_date, utcnow
+from .timeutil import local_date, local_week_key, utcnow
 
 
 def _week_key(dt) -> str:
-    """ISO-неделя начисления, напр. '2026-W28' — по ней группируем долг для оплаты."""
-    y, w, _ = dt.isocalendar()
-    return f"{y}-W{w:02d}"
+    """ISO-неделя начисления, напр. '2026-W28' — по ней группируем долг для оплаты.
+
+    Неделя МЕСТНАЯ (волна 203): водитель сверяет счёт по своему календарю, и поездка
+    в ночь на понедельник по Уфе для него уже новая неделя. Раньше считалось по серверному
+    UTC, и такой долг попадал в счёт прошлой недели — той, что человек мог уже оплатить.
+    """
+    return local_week_key(dt)
 
 
 def _launch_promo_percent(session: Session, driver_id: int, now) -> Optional[float]:
@@ -69,32 +74,102 @@ def _launch_promo_percent(session: Session, driver_id: int, now) -> Optional[flo
     return settings.launch_promo_percent
 
 
-def driver_fee_percent(session: Session, driver_id: int, now=None) -> float:
-    """Процент комиссии для водителя (лесенка 3% → 5% → 8%, §5 Деньги).
+def launch_promo_ends_at(session: Session, driver_id: int, now):
+    """Когда у этого водителя кончится промо запуска. None — промо на него не действует.
 
-    Стаж = дни с ПЕРВОГО его завершённого (done) быстрого заказа:
-    ≤ fee_tier1_days → fee_tier1_percent; ≤ fee_tier2_days → fee_tier2_percent;
+    Нужно кабинету. Промо держится КАЛЕНДАРЁМ (launch_promo_days от одобрения), а лесенка
+    ниже двигается ПОЕЗДКАМИ — это две разные шкалы, и кабинет, показывавший водителю на
+    промо «через N поездок ставка вырастет», называл ему и не тот срок, и не ту причину.
+    """
+    if _launch_promo_percent(session, driver_id, now) is None:
+        return None
+    app = session.exec(select(TaxiApplication).where(
+        TaxiApplication.user_id == driver_id,
+        TaxiApplication.status == TaxiApplicationStatus.approved,
+    )).first()
+    if app is None:
+        return None
+    approved_at = app.reviewed_at or app.created_at
+    if approved_at is None:
+        return None
+    return approved_at + timedelta(days=settings.launch_promo_days)
+
+
+def done_trips_before(session: Session, driver_id: int, when) -> int:
+    """Сколько быстрых заказов водитель уже завершил К МОМЕНТУ `when`.
+
+    Строго ДО момента: ставка заказа не должна зависеть от него самого. Иначе 31-я поездка
+    дорожала бы ровно в ту секунду, когда водитель её заканчивает, — он вёз по обещанным 3%,
+    а удержали бы 8%.
+    """
+    return int(session.exec(
+        select(func.count()).select_from(InstantOrder).where(
+            InstantOrder.driver_id == driver_id,
+            InstantOrder.status == InstantOrderStatus.done,
+            InstantOrder.done_at.is_not(None),
+            InstantOrder.done_at < when,
+        )
+    ).one() or 0)
+
+
+def fee_percent_for_trips(trips: int) -> float:
+    """Ступень лесенки по числу УЖЕ завершённых поездок (0 = водитель едет первую)."""
+    if trips < settings.fee_tier1_trips:
+        return settings.fee_tier1_percent
+    if trips < settings.fee_tier2_trips:
+        return settings.fee_tier2_percent
+    return settings.service_fee_percent
+
+
+def _no_rate_jump(session: Session, driver_id: int, now, trips_percent: float) -> float:
+    """Переход лесенки с дней на поездки не должен утроить ставку тем, кто уже работал.
+
+    Водитель выбирал сервис при старых условиях: «первый месяц 3%». Если к моменту перехода
+    он успел накатать 150 поездок, лесенка по поездкам даёт ему сразу 15% — прыжок втрое за
+    одну ночь, ровно то, от чего люди уходят. Поэтому «старым» (первая поездка раньше даты
+    перехода) считаем обе лесенки и берём ту ступень, что выгоднее ЕМУ.
+
+    fee_trips_ladder_since пуста (дефолт) → таких водителей нет, выходим до единого запроса.
+    """
+    raw = settings.fee_trips_ladder_since.strip()
+    if not raw:
+        return trips_percent
+    try:
+        since = date.fromisoformat(raw)
+    except ValueError:
+        return trips_percent               # кривая дата в конфиге → новая лесенка, не падаем
+    first_done = session.exec(
+        select(InstantOrder.done_at).where(
+            InstantOrder.driver_id == driver_id,
+            InstantOrder.status == InstantOrderStatus.done,
+            InstantOrder.done_at.is_not(None),
+        ).order_by(InstantOrder.done_at)
+    ).first()
+    if first_done is None or local_date(first_done) >= since:
+        return trips_percent               # начал работать уже по новым правилам
+    days = (now - first_done).days
+    if days <= settings.fee_tier1_days:
+        days_percent = settings.fee_tier1_percent
+    elif days <= settings.fee_tier2_days:
+        days_percent = settings.fee_tier2_percent
+    else:
+        days_percent = settings.service_fee_percent
+    return min(trips_percent, days_percent)
+
+
+def driver_fee_percent(session: Session, driver_id: int, now=None) -> float:
+    """Процент комиссии для водителя (лесенка 3% → 8% → 15%, §5 Деньги).
+
+    Ступень — по числу завершённых (done) быстрых заказов К МОМЕНТУ `now`:
+    < fee_tier1_trips → fee_tier1_percent; < fee_tier2_trips → fee_tier2_percent;
     дальше — service_fee_percent (навсегда). Промо запуска (одобрен до launch_promo_until)
     перекрывает лесенку на первые launch_promo_days дней."""
     now = now or utcnow()
     promo = _launch_promo_percent(session, driver_id, now)
     if promo is not None:
         return promo
-    first_done = session.exec(
-        select(InstantOrder.done_at).where(
-            InstantOrder.driver_id == driver_id,
-            InstantOrder.status == InstantOrderStatus.done,
-            InstantOrder.done_at.is_not(None),                     # noqa: E711
-        ).order_by(InstantOrder.done_at)
-    ).first()
-    if first_done is None:
-        return settings.fee_tier1_percent      # первый заказ — стаж 0 дней
-    days = (now - first_done).days
-    if days <= settings.fee_tier1_days:
-        return settings.fee_tier1_percent
-    if days <= settings.fee_tier2_days:
-        return settings.fee_tier2_percent
-    return settings.service_fee_percent
+    trips = done_trips_before(session, driver_id, now)
+    return _no_rate_jump(session, driver_id, now, fee_percent_for_trips(trips))
 
 
 def _promo_comp_kop(session: Session, order_ids: list) -> int:
@@ -137,8 +212,9 @@ def fee_charged_kop(d: Optional[CommissionDebt]) -> int:
 
 def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] = None) -> dict:
     """Данные дашборда таксиста для кабинета: заработок и заказы ЗА СЕГОДНЯ + текущая ступень
-    комиссии. Лесенка комиссии — по СТАЖУ (дни с первого done-заказа), не по деньгам:
-    первый месяц дешевле, потом растёт. Показываем честно, когда ступень поднимется.
+    комиссии. Лесенка комиссии — по ПОЕЗДКАМ (завершённым заказам), не по деньгам и не по
+    календарю: первые 30 поездок дешевле, потом растёт. Показываем честно, сколько поездок
+    осталось до следующей ступени.
 
     earnings_today — сумма фактических цен (price_final, ₽) завершённых такси-заказов за
     местный день; fee_percent — сколько платформа берёт сейчас (с учётом промо запуска)."""
@@ -181,12 +257,32 @@ def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] =
         ).order_by(InstantOrder.done_at.asc()).limit(1)
     ).first()
     tenure_days = (now - first_done).days if first_done else 0
-    if tenure_days <= settings.fee_tier1_days:
-        next_percent, days_to_next = settings.fee_tier2_percent, settings.fee_tier1_days - tenure_days
-    elif tenure_days <= settings.fee_tier2_days:
-        next_percent, days_to_next = settings.service_fee_percent, settings.fee_tier2_days - tenure_days
+    # Ступень — по поездкам, а не по календарю (решение 2026-08-23). tenure_days остаётся
+    # в ответе как справка «сколько он с нами», но лесенку двигают именно поездки.
+    trips_done = done_trips_before(session, driver_id, now)
+    if trips_done < settings.fee_tier1_trips:
+        next_percent, trips_to_next = settings.fee_tier2_percent, settings.fee_tier1_trips - trips_done
+    elif trips_done < settings.fee_tier2_trips:
+        next_percent, trips_to_next = settings.service_fee_percent, settings.fee_tier2_trips - trips_done
     else:
-        next_percent, days_to_next = None, None       # верхняя ступень — дальше не растёт
+        next_percent, trips_to_next = None, None      # верхняя ступень — дальше не растёт
+    # ПРОМО ЗАПУСКА идёт по другой шкале, и кабинет обязан это различать (аудит 2026-08-23,
+    # починено 29.08). Пока промо действует, ставка не зависит от поездок вообще: она
+    # держится КАЛЕНДАРЁМ и кончится в свой день. Отдавая в этот момент «через N поездок
+    # станет X%», мы называли водителю и не тот срок, и не ту причину, и не то число: после
+    # промо он попадёт на СВОЮ ступень по числу поездок (у новичка это первая, а не вторая).
+    promo_ends_at = launch_promo_ends_at(session, driver_id, now)
+    promo_active = promo_ends_at is not None
+    if promo_active:
+        # Что будет ПОСЛЕ промо — считаем той же лесенкой, что и обычную ставку, включая
+        # защиту от прыжка ставки. Иначе кабинет обещал бы ступень, на которую он не попадёт.
+        fee_after_promo = _no_rate_jump(session, driver_id, now, fee_percent_for_trips(trips_done))
+        promo_days_left = max((promo_ends_at - now).days, 0)
+        # Лесенку по поездкам на время промо не показываем как «следующую ставку»: следующей
+        # будет та, что после промо. Число поездок остаётся в ответе отдельным полем.
+        next_percent, trips_to_next = None, None
+    else:
+        fee_after_promo, promo_days_left = None, None
     return {
         # Backward compatibility: earnings_today остаётся валовой суммой в ₽.
         # Новые поля — точная денежная расшифровка в целых копейках.
@@ -201,10 +297,17 @@ def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] =
         "orders_today": len(done_today),
         "fee_percent": percent,
         "tenure_days": tenure_days,
+        "trips_done": trips_done,
         "fee_tiers": [settings.fee_tier1_percent, settings.fee_tier2_percent, settings.service_fee_percent],
-        "fee_tier_days": [settings.fee_tier1_days, settings.fee_tier2_days],
+        "fee_tier_trips": [settings.fee_tier1_trips, settings.fee_tier2_trips],
         "fee_next_percent": next_percent,
-        "fee_days_to_next": days_to_next,
+        "fee_trips_to_next": trips_to_next,
+        # Промо запуска «первым водителям — 0%». Пока оно идёт, ставку двигает календарь,
+        # а не поездки: promo_days_left — сколько дней осталось, fee_after_promo_percent —
+        # ставка, на которую водитель попадёт в этот день (его реальная ступень).
+        "promo_active": promo_active,
+        "promo_days_left": promo_days_left,
+        "fee_after_promo_percent": fee_after_promo,
     }
 
 
@@ -405,11 +508,10 @@ def order_commission_kop(order: InstantOrder, percent: Optional[float] = None) -
     price_rub = int(order.price_final if order.price_final is not None else order.price_estimate)
     if price_rub <= 0:
         return 0
-    # Компенсации читаем прямо с полей заказа: инструмент расчёта комиссии не должен
-    # зависеть от модуля заказов (он сам зависит от этого — вышел бы круг импортов).
-    compensation_rub = (int(getattr(order, "pickup_fee_kop", 0) or 0)
-                        + int(getattr(order, "options_fee_kop", 0) or 0)) // 100
-    base_rub = max(price_rub - compensation_rub, 0)
+    # Список компенсаций — в `app/compensation.py`, общий для чека, комиссии и промокода.
+    # Здесь он когда-то был переписан руками и потерял зимнюю дорогу: чек обещал водителю
+    # «с компенсации комиссия не берётся», а мы её брали.
+    base_rub = max(price_rub - comp_mod.compensation_rub(order), 0)
     if base_rub <= 0:
         return 0
     return fee_kop_for(base_rub * 100, percent)
@@ -606,6 +708,25 @@ def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
     """
     if driver_id is None:
         return 0
+    # Короткий критический участок под row-lock (аудит 2026-08-08, волна 200).
+    #
+    # Что было. Баланс и список долгов читались без блокировки, а потом писалось списание.
+    # Два одновременных вызова получить легко: заказ завершается (`accrue_for_order`) ровно
+    # тогда, когда водитель открыл экран долга, или он просто дважды нажал кнопку. Оба
+    # читают один и тот же баланс, оба видят один и тот же долг — и оба пишут списание.
+    # Долг закрыт один раз, деньги сняты дважды: кошелёк уходит в минус, и это ЕГО деньги.
+    #
+    # Блокируем строку водителя — тот же приём и тот же замок, что у выплат
+    # (`ledger._payout`). Один замок на все денежные операции водителя: иначе выплата
+    # и зачёт долга разъедутся между собой, а не только сами с собой.
+    #
+    # Порядок важен: сперва блокировка, потом чтение. Наоборот — прочитал баланс, подождал
+    # на замке, и к моменту записи число уже другое.
+    #
+    # На SQLite `FOR UPDATE` — пустышка, и сценарием это правило не закрепить (он сериализует
+    # запись сам). Поэтому в тестах проверяется ДОГОВОР: замок взят и взят ДО чтения баланса
+    # (`tests/test_wallet_is_not_charged_twice.py`).
+    session.exec(select(User).where(User.id == driver_id).with_for_update()).one_or_none()
     balance = driver_balance(session, driver_id)
     if balance <= 0:
         return 0
@@ -626,11 +747,22 @@ def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
             continue
         if total + amount > balance:
             break                              # на старейший долг не хватило — дальше не идём
-        d.status = DebtStatus.paid
-        d.confirmed_at = now
-        if not d.note:                         # свой note (напр. админское «простить») не трогаем
-            d.note = WALLET_PAID_NOTE
-        session.add(d)
+        # Закрываем долг АТОМАРНО: условие «он ещё не оплачен» внутри самого UPDATE.
+        #
+        # Замок на строке водителя (выше) сериализует денежные операции на Postgres, но
+        # SQLite его игнорирует — а на SQLite живут все тесты и демо-база. Проба показала:
+        # с чередованием запросов списывалось 400 ₽ при долге 200 ₽. Условие в UPDATE
+        # работает на ОБЕИХ базах и, в отличие от замка, ЛОМАЕТСЯ тестом — то есть его
+        # случайное удаление станет красным (волна 201).
+        закрыт = session.execute(
+            update(CommissionDebt)
+            .where(CommissionDebt.id == d.id, CommissionDebt.status != DebtStatus.paid)
+            .values(status=DebtStatus.paid, confirmed_at=now,
+                    # Свой note (напр. админское «простить») не трогаем.
+                    note=(d.note or WALLET_PAID_NOTE))
+        )
+        if закрыт.rowcount == 0:
+            continue                           # закрыл параллельный проход — деньги не списываем
         total += amount
     if total <= 0:
         return 0

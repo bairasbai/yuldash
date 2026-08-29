@@ -223,6 +223,16 @@ private enum class InstantTone { Good, Bad }
  *
  * @param step 0 = ищем, 1 = водитель едет, 2 = машина на месте, 3 = в пути.
  */
+/** RU-плюрал «минута/минуты/минут» — для строки о заморозке цены. */
+private fun pluralMinutesRu(n: Int): String {
+    val m10 = n % 10; val m100 = n % 100
+    return when {
+        m10 == 1 && m100 != 11 -> "минуту"
+        m10 in 2..4 && m100 !in 12..14 -> "минуты"
+        else -> "минут"
+    }
+}
+
 @Composable
 private fun InstantTripPhaseBar(step: Int, modifier: Modifier = Modifier) {
     val labels = listOf(
@@ -297,8 +307,10 @@ private fun formatTaxiMultiplier(value: Double): String =
 
 /** Прозрачная расшифровка серверной цены: клиент только показывает факторы и не считает цену. */
 @Composable
-private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
+private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?, scheduled: Boolean = false) {
     if (estimate == null || estimate.pricingVersion != "v2") return
+    // Разбор по умолчанию свёрнут: на экране остаётся итог и дорога водителя.
+    var showWhyPrice by remember(estimate.price) { mutableStateOf(false) }
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
@@ -321,6 +333,12 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                     )
                     // Дорога водителя к пассажиру — отдельные деньги, и человек должен видеть
                     // их как слагаемое, а не гадать, почему итог больше цены поездки.
+                    //
+                    // На виду держим ДВЕ вещи: саму поездку и дорогу водителя. Всё остальное —
+                    // кресло, зимняя дорога, база — уезжает под кнопку «Почему такая цена?».
+                    // Шесть строк мелкого серого текста человек из села не читает, а «дорога
+                    // водителя» обязана быть на виду: это самая непривычная часть счёта, и
+                    // именно из-за неё решают, что обманули (решение Александра, 2026-08-28).
                     if (estimate.pickupFee > 0 || estimate.optionsFee > 0 || estimate.weatherFee > 0) {
                         val parts = buildList {
                             add(appText("Поездка ${estimate.ridePrice} ₽", "Сәфәр ${estimate.ridePrice} һум"))
@@ -328,19 +346,44 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                                 add(appText("дорога водителя ${estimate.pickupFee} ₽",
                                     "водитель юлы ${estimate.pickupFee} һум"))
                             }
-                            if (estimate.optionsFee > 0) {
-                                add(appText("опции ${estimate.optionsFee} ₽",
-                                    "өҫтәмәләр ${estimate.optionsFee} һум"))
-                            }
-                            if (estimate.weatherFee > 0) {
-                                add(appText("зимняя дорога ${estimate.weatherFee} ₽",
-                                    "ҡышҡы юл ${estimate.weatherFee} һум"))
-                            }
                         }
                         Text(
                             parts.joinToString(" + "),
                             color = CanonMuted, fontSize = 12.sp,
                         )
+                        val естьЕщё = estimate.optionsFee > 0 || estimate.weatherFee > 0
+                        if (естьЕщё) {
+                            TextButton(
+                                onClick = { showWhyPrice = !showWhyPrice },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            ) {
+                                Text(
+                                    if (showWhyPrice) appText("Свернуть", "Йыйыу")
+                                    else appText("Почему такая цена?", "Ниңә бындай хаҡ?"),
+                                    color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                        AnimatedVisibility(visible = showWhyPrice && естьЕщё) {
+                            Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+                                if (estimate.optionsFee > 0) {
+                                    Text(appText("Опции салона — ${estimate.optionsFee} ₽",
+                                        "Салон өҫтәмәләре — ${estimate.optionsFee} һум"),
+                                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                                }
+                                if (estimate.weatherFee > 0) {
+                                    Text(appText("Зимняя дорога — ${estimate.weatherFee} ₽",
+                                        "Ҡышҡы юл — ${estimate.weatherFee} һум"),
+                                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                                }
+                                Text(
+                                    appText("Эти деньги идут водителю целиком — комиссию с них мы не берём.",
+                                        "Был аҡса тулыһынса водителгә бара — унан комиссия алмайбыҙ."),
+                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp,
+                                )
+                            }
+                        }
                         // Водителю по пути — дорога к пассажиру вдвое дешевле. Показываем
                         // зелёным и со старой цифрой: выгоду надо назвать, иначе человек
                         // видит просто другое число и не понимает, что сэкономил.
@@ -353,6 +396,33 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                                 color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                             )
                         }
+                    }
+                    // Соскользнувший по карте палец — самая дорогая ошибка пассажира: заказ
+                    // Баймак → Владивосток формально корректен, просто человек ткнул не туда.
+                    // Расстояние мы уже ограничиваем сверху, но и внутри лимита стоит спросить.
+                    if (estimate.distanceKm >= 100) {
+                        Text(
+                            appText(
+                                "Это дальняя поездка — ${estimate.distanceKm.toInt()} км. Проверь точку Б на карте.",
+                                "Был алыҫ сәфәр — ${estimate.distanceKm.toInt()} км. Б нөктәһен карталан тикшер.",
+                            ),
+                            color = CanonWarn, fontSize = 12.sp, lineHeight = 17.sp,
+                        )
+                    }
+                    // Пока человек думает, цена не вырастет. Сказать об этом надо ЗДЕСЬ:
+                    // молчаливая заморозка не успокаивает — она успокаивает только названная.
+                    // 0 секунд = заморозка выключена или Redis недоступен, тогда молчим.
+                    // На предзаказе не обещаем: там цена считается на ВРЕМЯ ПОДАЧИ и честно
+                    // уточняется при подаче — обещать «не вырастет» значит соврать.
+                    if (estimate.priceLockedSec > 0 && !scheduled) {
+                        val минут = (estimate.priceLockedSec + 59) / 60
+                        Text(
+                            appText(
+                                "Цена закреплена на $минут ${pluralMinutesRu(минут)} — пока думаешь, не вырастет",
+                                "Хаҡ $минут минутҡа беркетелгән — уйлағанда артмай",
+                            ),
+                            color = CanonGreen2, fontSize = 12.sp,
+                        )
                     }
                 }
                 Column(horizontalAlignment = Alignment.End) {
@@ -1359,7 +1429,18 @@ internal fun InstantOrderScreen(
                                     "Водитель ждал ${o.waitFreeMin}+ минут, но не дождался. Подача — ${formatTaxiKop(o.cancelFeeKop)}, переведи водителю. Частые такие отмены ставят такси на паузу.",
                                     "Йөрөтөүсе ${o.waitFreeMin}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${formatTaxiKop(o.cancelFeeKop)}, йөрөтөүсегә күсер. Йыш улай булһа — такси паузаға китә.")
                                 o.cancelFeeKop > 0 && o.cancelBy == "passenger" -> appText(
-                                    "Отмена была платной: ${formatTaxiKop(o.cancelFeeKop)} (подача) — переведи водителю. Частые платные отмены ставят такси на паузу.",
+                                    buildString {
+                                        append("Отмена была платной: ${formatTaxiKop(o.cancelFeeKop)}")
+                                        // Одна сумма без объяснения читается как «нас обобрали».
+                                        // Те же деньги, но названные по частям, вопросов не вызывают.
+                                        val части = buildList {
+                                            add("подача")
+                                            if (o.pickupFeeKop > 0) add("дорога водителя ${formatTaxiKop(o.pickupFeeKop)}")
+                                            if (o.waitingFeeKop > 0) add("ожидание ${formatTaxiKop(o.waitingFeeKop)}")
+                                        }
+                                        append(" (" + части.joinToString(" + ") + ")")
+                                        append(" — переведи водителю. Частые платные отмены ставят такси на паузу.")
+                                    },
                                     "Кире алыу түләүле булды: ${formatTaxiKop(o.cancelFeeKop)} (килеү хаҡы) — йөрөтөүсегә күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.")
                                 o.cancelBy == "driver" -> appText("Водитель отменил. Попробуй заказать снова.", "Йөрөтөүсе баш тартты. Ҡабат заказ ит.")
                                 else -> appText("Ты отменил заказ — бесплатно.", "Һин заказды кире алдың — бушлай.")
@@ -1816,13 +1897,17 @@ private fun InstantDestinationPicker(
     }
 
     // Оценка цены, когда есть обе точки (и при смене класса — тариф другой).
-    LaunchedEffect(effFrom, toPoint, category, estimateTick, roundTrip, returnWaitMin, stops) {
+    LaunchedEffect(effFrom, toPoint, category, estimateTick, roundTrip, returnWaitMin, stops,
+        scheduledAtMs) {
         val f = effFrom; val t = toPoint
         if (f == null || t == null) { estimate = null; return@LaunchedEffect }
         delay(350)   // дебаунс: позиция уточняется GPS-фиксами — не дёргаем /estimate на каждый
         estimating = true; errorText = null
         ApiClient.instantEstimate(f.latitude, f.longitude, t.latitude, t.longitude, fromText, toText, category,
-            roundTrip = roundTrip, returnWaitMin = returnWaitMin, stops = stops)
+            roundTrip = roundTrip, returnWaitMin = returnWaitMin, stops = stops,
+            // Предзаказ считаем на время подачи: иначе экран покажет дневную цену,
+            // а машина утром приедет по ночной.
+            scheduledAtIso = scheduledAtMs?.let { isoFromMillis(it) })
             .onSuccess { estimate = it }
             .onFailure {
                 estimate = null   // сбрасываем устаревшую цену → кнопка «Вызвать» гаснет, не заказываем по старой оценке
@@ -2286,7 +2371,7 @@ private fun InstantDestinationPicker(
                     TaxiPromoSavingsCard(estimate)
                     // Pricing v2 приходит только с сервера: клиент показывает
                     // базу, факторы и общий потолок, но не пересчитывает сумму сам.
-                    TaxiPricingBreakdown(estimate)
+                    TaxiPricingBreakdown(estimate, scheduled = scheduledAtMs != null)
                 }
             }
         },
@@ -3237,6 +3322,29 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
             color = CanonText, fontSize = TxTitle, lineHeight = LhTitle,
             fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
         )
+        // Заказ вернулся в поиск после того, как назначенный водитель отменил. Без этой
+        // строки человек видит просто «ищем машину» там, где минуту назад к нему ехала
+        // машина, — и решает, что приложение сбросило заказ. Главное здесь — сказать, что
+        // делать ничего не надо: адрес и цена остались прежними.
+        AnimatedVisibility(
+            visible = order.reassigns > 0,
+            enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL)),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(Modifier.height(CanonSpace.sm))
+                Surface(color = CanonWarnBg, shape = CanonItemShape) {
+                    Text(
+                        appText(
+                            "Первый водитель отменил — ищем другую машину. Адрес и цена те же.",
+                            "Беренсе йөрөтөүсе баш тартты — башҡа машина эҙләйбеҙ. Адрес та, хаҡ та шул уҡ.",
+                        ),
+                        color = CanonWarn, fontSize = TxCaption, lineHeight = LhCaption,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
         MobilityRouteTimeline(
             from = order.fromText,
@@ -5271,8 +5379,18 @@ internal fun InstantOfferOverlay(
                                 val km = kotlin.math.round(order.pickupKm).toInt()
                                 Text(
                                     appText(
-                                        "Ехать до пассажира ~$km км · ${formatTaxiKop(order.pickupFeeKop)} тебе сверху, без комиссии",
-                                        "Пассажирға тиклем ~$km км · ${formatTaxiKop(order.pickupFeeKop)} һиңә өҫтәмә, комиссияһыҙ",
+                                        // До принятия — «сколько дадут». После, когда он уже
+                                        // приехал и ждёт, важнее другое: эти деньги у него УЖЕ
+                                        // есть, даже если пассажир не выйдет. Без этой фразы
+                                        // ожидание у подъезда читается как риск потерять всё.
+                                        if (order.status == "arriving")
+                                            "Твоя дорога сюда оплачена: ${formatTaxiKop(order.pickupFeeKop)} — она остаётся тебе, даже если пассажир не выйдет"
+                                        else
+                                            "Ехать до пассажира ~$km км · ${formatTaxiKop(order.pickupFeeKop)} тебе сверху, без комиссии",
+                                        if (order.status == "arriving")
+                                            "Бында килгән юлың түләнгән: ${formatTaxiKop(order.pickupFeeKop)} — юлаусы сыҡмаһа ла һиндә ҡала"
+                                        else
+                                            "Пассажирға тиклем ~$km км · ${formatTaxiKop(order.pickupFeeKop)} һиңә өҫтәмә, комиссияһыҙ",
                                     ),
                                     color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp,
                                     fontWeight = FontWeight.Bold,

@@ -36,7 +36,7 @@ from .errors import herr
 from .timeutil import utcnow
 from .models import (
     Ad, AdEvent, AppReview, Block, Booking, BookingStatus, CommissionDebt, Consent, Coupon,
-    OfferDecline, PriceComplaint,
+    DriverCancel, OfferDecline, PriceComplaint,
     CouponRedemption, CouponReport, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
     DriverProfile, DriverSchedule, FamilySmsLog, Incident, InstantOrder, InstantOrderStatus, InviteCode,
     LedgerEntry, Message,
@@ -469,6 +469,15 @@ def delete_user_account(session: Session, user: User) -> None:
     if order_ids:
         session.execute(delete(OfferDecline).where(OfferDecline.order_id.in_(order_ids)))
     session.execute(delete(OfferDecline).where(OfferDecline.driver_id == uid))
+    # События «водитель бросил принятый заказ» (2026-08-29). Хранятся отдельно от заказа,
+    # потому что заказ после отмены уходит другому водителю и след первого затёрся бы. Здесь
+    # они удаляются по обеим сторонам: и как поступки этого человека (`driver_id`), и как
+    # чужие поступки по ЕГО заказам — иначе внешний ключ на боевом Postgres не даст удалить
+    # аккаунт вообще (152-ФЗ: удаление обязано работать). Наказывать после ухода некого,
+    # держать эти строки незачем.
+    if order_ids:
+        session.execute(delete(DriverCancel).where(DriverCancel.order_id.in_(order_ids)))
+    session.execute(delete(DriverCancel).where(DriverCancel.driver_id == uid))
     # Жалобы на цену. Уходят вместе с человеком: это его слова о его деньгах, а не общий
     # журнал. Тариф мы к этому моменту уже поправили — ценность жалобы в сумме, а не в том,
     # чтобы держать её после того, как человек ушёл. Чужие заказы тут не пострадают: жалоба

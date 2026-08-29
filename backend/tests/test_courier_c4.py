@@ -49,6 +49,22 @@ def _make_courier(client, user_factory, name="Курьер"):
     return c
 
 
+def _set_deliveries(courier_id: int, count: int):
+    """Вручённые доставки курьера — позиция на лесенке (она считает доставки, не дни)."""
+    if count <= 0:
+        return
+    base = utcnow() - timedelta(days=1)
+    with Session(engine) as s:
+        for i in range(count):
+            s.add(ParcelDelivery(
+                sender_id=courier_id, courier_id=courier_id,
+                from_city="Уфа", to_city="Стерлитамак",
+                description="Прошлая доставка", receiver_name="Тест",
+                status="delivered", delivered_at=base + timedelta(seconds=i),
+            ))
+        s.commit()
+
+
 def _set_tenure_days(courier_id: int, days: int):
     """Смещаем reviewed_at курьера в прошлое на N дней — эмулируем стаж для лесенки."""
     with Session(engine) as s:
@@ -99,17 +115,20 @@ def _expect(price_kop: int, percent: float) -> int:
     if percent <= 0:
         return 0
     raw = round(price_kop * percent / 100)
-    return min(price_kop, max(cr.COURIER_COMMISSION_MIN_KOP, raw))
+    return min(price_kop, max(settings.courier_commission_min_kop, raw))
 
 
 # ----------------------------- ЧИСТАЯ ФУНКЦИЯ (минимум/потолок) -----------------------------
 
 def test_commission_kop_formula():
-    MIN = cr.COURIER_COMMISSION_MIN_KOP
-    # мелкая доставка: 8% от 15000 (=150 ₽) = 1200 < пол → комиссия = пол
-    assert cr.courier_commission_kop(15000, 8.0) == MIN
+    MIN = settings.courier_commission_min_kop
+    # 8% от 150 ₽ = 12 ₽ — уже выше пола (10 ₽), берём процент. Пол 25 ₽ раньше отменял
+    # лесенку целиком: новичку обещали 3%, а брали с него 17% (аудит 2026-08-28).
+    assert cr.courier_commission_kop(15000, 8.0) == 1200
+    # совсем мелкая: 3% от 100 ₽ = 3 ₽ < пол → комиссия = пол
+    assert cr.courier_commission_kop(10000, 3.0) == MIN
     # цена доставки МЕНЬШЕ пола → берём всю цену (комиссия не может превышать доставку)
-    assert cr.courier_commission_kop(2000, 8.0) == 2000
+    assert cr.courier_commission_kop(500, 8.0) == 500
     # крупная доставка: 8% выше пола → берём процент
     assert cr.courier_commission_kop(400000, 8.0) == 32000
     # промо 0% → реально 0, без пола (подарок первым)
@@ -121,24 +140,32 @@ def test_commission_kop_formula():
 # ----------------------------- МИНИМУМ на вручении -----------------------------
 
 def test_min_commission_on_small_delivery(client, user_factory):
-    """Мелкая доставка (одна точка → цена = подача 100 ₽): 3% = 3 ₽ < пол → комиссия = 25 ₽."""
+    """Мелкая доставка (одна точка → цена = подача 100 ₽): 3% = 3 ₽ < пол → комиссия = пол."""
     courier = _make_courier(client, user_factory, name="КурьерМинимум")
-    _set_tenure_days(courier["id"], 10)   # tier1 3%
+    _set_deliveries(courier["id"], 5)     # tier1 3%
     sender = user_factory(name="ОтпрМинимум")
     # from == to → distance 0 → цена = только base (100 ₽ = 10000 коп)
     d = _deliver(client, courier, sender, to_lat=54.735, to_lng=55.958, size="small")
-    assert d["order_price_kop"] == 10000                  # только подача
-    assert d["commission_kop"] == cr.COURIER_COMMISSION_MIN_KOP   # 3% (300) < пол → 25 ₽
+    assert d["order_price_kop"] == settings.courier_base_kop   # только подача
+    assert d["commission_kop"] == settings.courier_commission_min_kop   # 3% (3 ₽) < пол
     assert d["commission_kop"] <= d["order_price_kop"]    # ≤ цены доставки
 
 
 # ----------------------------- ЛЕСЕНКА по стажу -----------------------------
 
-@pytest.mark.parametrize("days,percent", [(10, 3.0), (45, 5.0), (90, 8.0)])
-def test_ladder_tiers_finalized_on_delivery(client, user_factory, days, percent):
-    courier = _make_courier(client, user_factory, name=f"КурьерСтаж{days}")
-    _set_tenure_days(courier["id"], days)
-    sender = user_factory(name=f"Отпр{days}")
+@pytest.mark.parametrize("done,ступень", [(0, "tier1"), (45, "tier2"), (120, "tier3")])
+def test_ladder_tiers_finalized_on_delivery(client, user_factory, done, ступень):
+    """Ступень двигают ВРУЧЁННЫЕ ДОСТАВКИ, а не календарь (как у такси — поездки).
+
+    Проценты берём из конфига: лесенка курьера уже менялась (3/5/8 → 3/8/15 вслед за такси),
+    и проверка, зашитая числом, ловила бы не ошибку, а собственную несвежесть.
+    """
+    percent = {"tier1": settings.courier_fee_tier1_percent,
+               "tier2": settings.courier_fee_tier2_percent,
+               "tier3": settings.courier_service_fee_percent}[ступень]
+    courier = _make_courier(client, user_factory, name=f"КурьерДоставки{done}")
+    _set_deliveries(courier["id"], done)
+    sender = user_factory(name=f"Отпр{done}")
     d = _deliver(client, courier, sender)   # межгород → цена большая, ступени различимы
     assert d["commission_kop"] == _expect(d["order_price_kop"], percent)
 
@@ -146,11 +173,11 @@ def test_ladder_tiers_finalized_on_delivery(client, user_factory, days, percent)
 def test_me_shows_current_fee_tier(client, user_factory):
     """/courier/me отдаёт текущую ступень курьера (для UI «сейчас ты платишь N%»)."""
     courier = _make_courier(client, user_factory, name="КурьерСтупень")
-    _set_tenure_days(courier["id"], 45)
+    _set_deliveries(courier["id"], 45)
     st = client.get("/courier/me", headers=courier["auth"]).json()["statement"]
-    assert st["current_fee_percent"] == 5.0
+    assert st["current_fee_percent"] == settings.courier_fee_tier2_percent
     assert st["fee_tier"] == "tier2"
-    assert st["commission_min_kop"] == cr.COURIER_COMMISSION_MIN_KOP
+    assert st["commission_min_kop"] == settings.courier_commission_min_kop
 
 
 # ----------------------------- ПРОМО запуска -----------------------------
@@ -171,37 +198,44 @@ def test_launch_promo_zero_commission(client, user_factory, monkeypatch):
 
 
 def test_promo_expired_falls_back_to_ladder(client, user_factory, monkeypatch):
-    """Промо-дата в прошлом → промо не действует, работает лесенка по стажу."""
+    """Промо-дата в прошлом → промо не действует, работает лесенка по доставкам."""
     past = (utcnow() - timedelta(days=1)).date().isoformat()
     monkeypatch.setattr(cr, "COURIER_LAUNCH_PROMO_UNTIL", past)
     courier = _make_courier(client, user_factory, name="КурьерПромоВышел")
-    _set_tenure_days(courier["id"], 90)   # tier3 8%
+    _set_deliveries(courier["id"], settings.courier_fee_tier2_deliveries)   # tier3 8%
     sender = user_factory(name="ОтпрПромоВышел")
     d = _deliver(client, courier, sender)
-    assert d["commission_kop"] == _expect(d["order_price_kop"], 8.0)
+    assert d["commission_kop"] == _expect(d["order_price_kop"],
+                                          settings.courier_service_fee_percent)
     assert d["commission_kop"] > 0        # не 0 — промо не действует
 
 
 # ----------------------------- «Купи и привези» дороже -----------------------------
 
 def test_buy_bring_higher_than_courier(client, user_factory):
-    """При одинаковом стаже и цене доставки buy_bring-комиссия выше обычной на надбавку."""
-    tenure = 90   # tier3 8% → buy_bring 10%
+    """«Купи и привези» считается по той же ставке, что обычная доставка.
+
+    Надбавку +2% убрали 2026-08-28: при базе 15% она делала самую трудную работу самой
+    дорогой для курьера. Константа осталась нулевой — тест держит её значение честно,
+    а не проверяет вчерашнее правило.
+    """
+    done = settings.courier_fee_tier2_deliveries   # верхняя ступень
     c1 = _make_courier(client, user_factory, name="КурьерОбычный")
-    _set_tenure_days(c1["id"], tenure)
+    _set_deliveries(c1["id"], done)
     c2 = _make_courier(client, user_factory, name="КурьерКупи")
-    _set_tenure_days(c2["id"], tenure)
+    _set_deliveries(c2["id"], done)
     s1 = user_factory(name="ОтпрОбычный")
     s2 = user_factory(name="ОтпрКупи")
 
     d_courier = _deliver(client, c1, s1, delivery_type="courier")
     d_buy = _deliver(client, c2, s2, delivery_type="buy_bring", cod_amount_kop=30000)
 
+    верх = settings.courier_service_fee_percent
     # цена доставки одинаковая (маршрут/размер те же) → сравниваем чистую комиссию
     assert d_courier["order_price_kop"] == d_buy["order_price_kop"]
-    assert d_buy["commission_kop"] > d_courier["commission_kop"]
-    assert d_courier["commission_kop"] == _expect(d_courier["order_price_kop"], 8.0)
-    assert d_buy["commission_kop"] == _expect(d_buy["order_price_kop"], 10.0)
+    assert d_courier["commission_kop"] == _expect(d_courier["order_price_kop"], верх)
+    assert d_buy["commission_kop"] == _expect(
+        d_buy["order_price_kop"], верх + cr.COURIER_BUY_BRING_EXTRA_PERCENT)
 
 
 # ----------------------------- Комиссия ≤ цены доставки (на реальном заказе) -----------------------------
