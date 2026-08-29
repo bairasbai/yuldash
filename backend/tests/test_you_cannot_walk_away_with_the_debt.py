@@ -49,7 +49,7 @@ def _водитель(user_factory, метка: str, кошелёк_коп: int,
         s.commit()
         s.refresh(заказ)
         s.add(LedgerEntry(driver_id=водитель["id"], kind=LedgerKind.adj, amount_kop=кошелёк_коп,
-                          ext_id=f"promo:{заказ.id}", note="Компенсация промокода пассажира"))
+                          ext_id=f"тест-кошелька:{заказ.id}", note="Компенсация промокода пассажира"))
         if долг_коп:
             s.add(CommissionDebt(driver_id=водитель["id"], order_id=заказ.id, week="2026-W34",
                                  amount_kop=долг_коп, status=DebtStatus.unpaid, due_at=utcnow()))

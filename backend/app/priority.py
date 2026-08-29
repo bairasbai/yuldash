@@ -36,7 +36,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from .config import settings
-from .models import (CourierApplication, CourierProfile, DriverProfile, InstantOrder,
+from .models import (CourierApplication, CourierProfile, InstantOrder,
                      InstantOrderStatus, ParcelDelivery, TaxiApplication, TaxiApplicationStatus)
 from .timeutil import utcnow
 
@@ -128,9 +128,22 @@ def taxi_points(session: Session, driver_id: int, now=None) -> dict:
     since = _window_start(now)
     parts, minus = [], 0
 
-    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver_id)).first()
-    рейтинг = float(getattr(prof, "rating", 0.0) or 0.0) if prof else 0.0
-    if рейтинг >= float(settings.priority_rating_min):
+    # Рейтинг считаем ЖИВЬЁМ и требуем хотя бы одну оценку — как у курьера ниже
+    # (аудит 2026-08-08, волна 208).
+    #
+    # Читали `DriverProfile.rating`, а у него по умолчанию 5.0 — это заводской сид
+    # «пока не оценивали», а не заслуга. Водитель без единой оценки получал балл
+    # «рейтинг не ниже порога» и обгонял в очереди того, кто отвозил сотню человек
+    # и заработал настоящие 4.7. Тот же сид кладётся в профиль после «щита рейтинга»,
+    # когда разбор снял все оценки как месть.
+    #
+    # Половины одного правила разошлись молча: у курьера проверка `оценок > 0` была
+    # с самого начала, у таксиста её не написали. Теперь обе половины зовут свой
+    # ролевой расчёт и обе требуют настоящих оценок.
+    from .services import driver_rating
+
+    рейтинг, оценок = driver_rating(session, driver_id)
+    if оценок > 0 and рейтинг >= float(settings.priority_rating_min):
         parts.append({"code": GOOD_RATING, "points": 1, "value": round(рейтинг, 2)})
 
     сделано = int(session.exec(
