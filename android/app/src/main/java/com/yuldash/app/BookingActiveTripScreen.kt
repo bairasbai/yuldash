@@ -1330,6 +1330,7 @@ internal fun ActiveTripScreen(
                         modifier = Modifier.appearIn(1),
                         car = tripPass?.driverCar.orEmpty().ifBlank { ride?.car.orEmpty() },
                         plate = tripPass?.driverPlate.orEmpty(),
+                        isDriver = role == "driver",
                     )
                 }
             }
@@ -2191,13 +2192,22 @@ internal fun DriverApproachingBanner(
     }
 }
 
-/** Плашка кода посадки: пассажир называет код водителю для сверки машины. */
+/**
+ * Плашка кода посадки. У КАЖДОЙ стороны свой текст — раньше он был один на двоих.
+ *
+ * Водитель открывал экран и читал «Назови водителю — сверят»: инструкцию для пассажира,
+ * обращённую к нему самому. Что делать с цифрами, ему никто не говорил, и сверять было
+ * нечем — а весь смысл кода как раз в сверке (аудит сценариев 30.08).
+ *
+ * Блок «сверь машину» — только пассажиру: водитель свою машину знает.
+ */
 @Composable
 internal fun BoardingCodeCard(
     code: String,
     modifier: Modifier = Modifier,
     car: String = "",      // «белая Lada Vesta» — как выглядит машина
     plate: String = "",    // госномер: по нему и сверяют
+    isDriver: Boolean = false,
 ) {
     Surface(modifier = modifier, color = CanonMint, shape = CanonCardShape) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2208,7 +2218,16 @@ internal fun BoardingCodeCard(
                     Text(appText("Код посадки", "Ултырыу коды"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     // «он сверит» → «сверят»: за рулём бывают женщины, род тут не нужен.
                     // Башкирский был на «вы» (әйтегеҙ) — приложение везде обращается на «ты».
-                    Text(appText("Назови водителю — сверят. Это та самая машина.", "Йөрөтөүсегә әйт — тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                    Text(
+                        if (isDriver) appText(
+                            "Спроси код у пассажира — он назовёт эти цифры. Сошлись — сажай.",
+                            "Юлаусынан код һора — ул ошо һандарҙы әйтер. Тап килде — ултырт.",
+                        ) else appText(
+                            "Назови водителю — сверят. Это та самая машина.",
+                            "Йөрөтөүсегә әйт — тикшерер. Тап шул машина.",
+                        ),
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                    )
                 }
                 Spacer(Modifier.width(8.dp))
                 Text(code, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 34.sp, letterSpacing = 4.sp)
@@ -2216,7 +2235,7 @@ internal fun BoardingCodeCard(
             // Обещание «это та самая машина» до сих пор нечем было проверить: пассажир видел
             // марку, но не номер. Разбор конкурентов 2026-08-07 — у BlaBlaCar приезжала другая
             // машина с другим человеком за рулём. Показываем ровно то, что сверяют глазами.
-            if (car.isNotBlank() || plate.isNotBlank()) {
+            if (!isDriver && (car.isNotBlank() || plate.isNotBlank())) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Default.DirectionsCar,

@@ -692,6 +692,7 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     car = driverCar,
     price = price,
     seats = seatsLeft,
+    seatsTotal = seatsTotal,
     rating = driverRating,
     verified = driverVerified,
     boosted = boosted,          // было хардкод false → поднятые (Boost) поездки не подсвечивались на карте/в кабинете водителя

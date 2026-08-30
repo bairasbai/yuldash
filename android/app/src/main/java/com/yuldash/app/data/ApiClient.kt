@@ -2789,6 +2789,24 @@ object ApiClient {
             if (o.isNull("offer")) null else o.optJSONObject("offer")?.toInstantOrderDto()
         }
 
+    /**
+     * Оффер ВМЕСТЕ с причиной, почему его нет.
+     *
+     * Раньше экран водителя знал только «оффера нет» и честно писал «ждём заказ» — хотя ждать
+     * было бессмысленно: линия закрыта долгом, отдыхом, паузой или документами. Человек сидел
+     * и смотрел на надпись, которая обещала то, чего не будет (аудит сценариев 30.08).
+     *
+     * `blocked`: null = всё в порядке, ждём по-настоящему; иначе код причины
+     * (`not_approved` | `debt` | `rest` | `quality_pause` | `review_pause`).
+     */
+    suspend fun getDriverOfferState(): Result<DriverOfferStateDto> =
+        call("GET", "/instant/driver/offer", null, auth = true).map { o ->
+            DriverOfferStateDto(
+                offer = if (o.isNull("offer")) null else o.optJSONObject("offer")?.toInstantOrderDto(),
+                blocked = o.optString("blocked").ifBlank { null },
+            )
+        }
+
     /** Водитель принимает оффер. Гонка/протух → 409 (ApiException) — экран покажет «оффер ушёл». */
     suspend fun instantAccept(id: Int): Result<InstantOrderDto> =
         call("POST", "/instant/orders/$id/accept", JSONObject(), auth = true).map { it.toInstantOrderDto() }
@@ -2816,6 +2834,19 @@ object ApiClient {
     suspend fun instantDone(id: Int): Result<InstantOrderDto> =
         call("POST", "/instant/orders/$id/done", JSONObject(), auth = true).map { it.toInstantOrderDto() }
 
+    /** Пассажир отзывает свой вопрос про новый адрес: едем по старому. */
+    suspend fun withdrawDestination(id: Int): Result<Unit> =
+        call("POST", "/instant/orders/$id/destination/withdraw", JSONObject(), auth = true).map { }
+
+    /**
+     * «Поездка закончилась» — пассажир закрывает поездку, которую водитель не закрыл.
+     * Сервер пускает только после расчётного времени поездки плюс запас.
+     */
+    suspend fun instantPassengerDone(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/passenger-done", JSONObject(), auth = true)
+            .map { it.toInstantOrderDto() }
+            .onSuccess { Analytics.log("instant_passenger_done") }
+
     /** Отмена заказа (пассажир до посадки / водитель после accept). Причина опциональна. */
     suspend fun instantCancel(id: Int, reason: String = ""): Result<InstantOrderDto> =
         call("POST", "/instant/orders/$id/cancel", JSONObject().put("reason", reason), auth = true).map { it.toInstantOrderDto() }
@@ -2826,12 +2857,29 @@ object ApiClient {
     suspend fun scheduleInstantOrder(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
         scheduledAt: String, fromText: String = "", toText: String = "", category: String = "standard",
-    ): Result<InstantOrderDto> =
-        call(
-            "POST", "/instant/schedule",
-            instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category).put("scheduled_at", scheduledAt),
-            auth = true,
-        ).map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_schedule") }
+        comment: String = "", entrance: String = "", forName: String = "", forPhone: String = "",
+        womenOnly: Boolean = false,
+        options: List<String> = emptyList(),
+        roundTrip: Boolean = false, returnWaitMin: Int = 0,
+        stops: List<TaxiStop> = emptyList(),
+        paymentMethod: String = "",
+    ): Result<InstantOrderDto> {
+        // Предзаказ шлёт ТОТ ЖЕ набор полей, что обычный заказ (аудит сценариев 30.08).
+        // Раньше уходили только точки, время и класс: человек выбирал детское кресло,
+        // «только женщина за рулём», остановки и заказ для другого — переключал на «На время»,
+        // и всё это молча пропадало. Сервер эти поля принимал и раньше, терял их клиент.
+        val body = instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
+            roundTrip, returnWaitMin, stops).put("scheduled_at", scheduledAt)
+        if (options.isNotEmpty()) body.put("options", JSONArray(options))
+        if (comment.isNotBlank()) body.put("comment", comment.take(300))
+        if (entrance.isNotBlank()) body.put("entrance", entrance.take(60))
+        if (forName.isNotBlank()) body.put("for_name", forName.take(120))
+        if (forPhone.isNotBlank()) body.put("for_phone", forPhone.take(32))
+        if (womenOnly) body.put("women_only", true)
+        if (paymentMethod.isNotBlank()) body.put("payment_method", paymentMethod)
+        return call("POST", "/instant/schedule", body, auth = true)
+            .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_schedule") }
+    }
 
     /** Мои предзаказы: ещё ждут (scheduled) + только что активированные ко времени (activated). */
     suspend fun getScheduledOrders(): Result<ScheduledOrdersDto> =
@@ -2939,12 +2987,16 @@ object ApiClient {
      *  Пустая строка = поле не трогаем. Все даты снова в будущем → допуск возвращается сразу. */
     suspend fun updateTaxiDocuments(
         osagoUntil: String = "", permitUntil: String = "", inspectionUntil: String = "",
+        osgopUntil: String = "",
         osagoUrl: String = "", permitPhotoUrl: String = "",
     ): Result<TaxiApplicationDto> {
         val body = JSONObject()
         if (osagoUntil.isNotBlank()) body.put("osago_until", osagoUntil)
         if (permitUntil.isNotBlank()) body.put("permit_until", permitUntil)
         if (inspectionUntil.isNotBlank()) body.put("inspection_until", inspectionUntil)
+        // ОСГОП продлевается как ОСАГО, раз в год. Раньше срок можно было указать только при
+        // первой подаче — и больше никогда (аудит сценариев 30.08).
+        if (osgopUntil.isNotBlank()) body.put("osgop_until", osgopUntil)
         if (osagoUrl.isNotBlank()) body.put("osago_url", osagoUrl)
         if (permitPhotoUrl.isNotBlank()) body.put("permit_photo_url", permitPhotoUrl)
         return call("POST", "/taxi/documents", body, auth = true).map { it.toTaxiApplicationDto() }
@@ -3237,6 +3289,9 @@ object ApiClient {
                 limitHours = o.optInt("limit_hours", 8),
                 blocked = o.optBoolean("blocked"),
                 unlockAt = o.optString("unlock_at").ifBlank { null },
+                weekBlocked = o.optBoolean("week_blocked"),
+                weekLimitHours = o.optInt("week_limit_hours", 40),
+                weekSeconds = o.optInt("week_seconds"),
                 returnRideUsed = o.optBoolean("return_ride_used"),
                 earningsToday = o.optInt("earnings_today"),
                 grossTodayKop = o.optInt("gross_today_kop", o.optInt("earnings_today") * 100),
@@ -3975,6 +4030,19 @@ object ApiClient {
     /** Отправитель: отменить свою посылку. 409 — уже доставлена/отменена, 404 — чужая. */
     suspend fun cancelParcel(id: Int): Result<Unit> =
         call("POST", "/parcels/$id/cancel", null, auth = true).map { }
+
+    /**
+     * «Купи и привези»: заказчик поднимает сумму, на которую согласен.
+     *
+     * В аптеке товар оказался дороже сметы — курьер упирался в отказ «сумма выше
+     * согласованной», а поднять её было НЕГДЕ: ручка на сервере жила, кнопки не было ни на
+     * одном экране (аудит сценариев 30.08). Только вверх и только до вручения — это деньги
+     * заказчика и его решение.
+     */
+    suspend fun raiseParcelBudget(id: Int, codAmountKop: Int): Result<Unit> =
+        call("POST", "/courier/orders/$id/raise-budget",
+             JSONObject().put("cod_amount_kop", codAmountKop), auth = true).map { }
+            .onSuccess { Analytics.log("parcel_raise_budget") }
 
     /** Курьер: доступные посылки (без телефона и кода). Опц. фильтр по городам. */
     suspend fun getAvailableParcels(fromCity: String? = null, toCity: String? = null): Result<List<ParcelDto>> {
@@ -5356,6 +5424,13 @@ data class InstantOrderDto(
     // Экрану поиска это нужно, чтобы объяснить человеку, куда делась принятая им машина:
     // без строки он видит просто «ищем машину» и решает, что приложение сбросилось.
     val reassigns: Int = 0,
+    // Водитель довёз и уехал, «Завершил» не нажал — считает сервер, когда пассажиру можно
+    // закрыть поездку самому. Локальный секундомер экрана перезапуск не переживёт.
+    val passengerCanClose: Boolean = false,
+    // Оценка. Звёзды жили только на свежем финальном экране — закрыл его, и оценить поездку
+    // было негде, хотя окно открыто 60 дней (аудит сценариев 30.08). Считает сервер.
+    val myStars: Int = 0,        // сколько звёзд я уже поставил по этой поездке (0 — не оценивал)
+    val canRate: Boolean = false, // окно оценки ещё открыто
     val cancelReason: String,
     val contactThenCancel: Boolean = false,  // B8-8: отмена после открытия телефона/чата → мягкий баннер
     // Деньги-правила (волна 2 §5): сурж/ожидание/отмены. Всё считает сервер, UI только показывает.
@@ -5424,6 +5499,8 @@ data class InstantOrderDto(
     val pendingToText: String = "",
     val pendingPrice: Int = 0,
     val pendingReason: String = "",
+    // Когда спросили водителя — для живого счётчика «ждём N минут».
+    val pendingAskedAt: String? = null,
     // Водитель завершил поездку досрочно и почему: shift_end|out_of_zone|no_fuel|other.
     val earlyFinishReason: String = "",
     // Остановки по пути и признак «сейчас стоим на остановке» (тикает ожидание).
@@ -5505,6 +5582,9 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     offerExpiresAt = if (isNull("offer_expires_at")) null else optString("offer_expires_at").ifBlank { null },
     cancelBy = optString("cancel_by"),
     reassigns = optInt("reassigns"),
+    passengerCanClose = optBoolean("passenger_can_close"),
+    myStars = optInt("my_stars"),
+    canRate = optBoolean("can_rate"),
     cancelReason = optString("cancel_reason"),
     contactThenCancel = optBoolean("contact_then_cancel"),
     surgeK = optDouble("surge_k", 1.0),
@@ -5552,6 +5632,7 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     pendingToText = optJSONObject("pending_destination")?.optString("to_text") ?: "",
     pendingPrice = optJSONObject("pending_destination")?.optInt("price") ?: 0,
     pendingReason = optJSONObject("pending_destination")?.optString("reason") ?: "",
+    pendingAskedAt = optJSONObject("pending_destination")?.optString("asked_at")?.ifBlank { null },
     earlyFinishReason = optString("early_finish_reason"),
     stops = optJSONArray("stops")?.let { arr ->
         (0 until arr.length()).mapNotNull { i ->
@@ -5637,6 +5718,9 @@ data class TaxiApplicationDto(
     val osagoUntil: String? = null,
     val permitUntil: String? = null,
     val inspectionUntil: String? = null,   // диагностическая карта (техосмотр)
+    // ОСГОП — страховка ответственности перевозчика, обязательна с 01.09.2024. Была в базе,
+    // но не доезжала до экрана: не показывалась и никогда не истекала (аудит 30.08).
+    val osgopUntil: String? = null,
     val docsExpired: Boolean = false,      // допуск к такси снят до обновления документа
     val docsMissing: List<String> = emptyList(),   // какие сроки не заполнены (модератору и водителю)
     val docsDaysLeft: Int? = null,         // дней до ближайшего истечения (отрицательное = просрочен)
@@ -5670,6 +5754,7 @@ private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
     osagoUntil = if (isNull("osago_until")) null else optString("osago_until").ifBlank { null },
     permitUntil = if (isNull("permit_until")) null else optString("permit_until").ifBlank { null },
     inspectionUntil = if (isNull("inspection_until")) null else optString("inspection_until").ifBlank { null },
+    osgopUntil = if (isNull("osgop_until")) null else optString("osgop_until").ifBlank { null },
     docsExpired = optBoolean("docs_expired"),
     docsMissing = optJSONArray("docs_missing")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
     docsDaysLeft = if (isNull("docs_days_left")) null else optInt("docs_days_left"),
@@ -5745,6 +5830,12 @@ data class CarPhotoDemandDto(
 
 /** Двуязычная строка правила: сервер шлёт оба языка, экран берёт нужный. */
 data class BiText(val ru: String, val ba: String)
+
+/** Оффер и причина, почему его нет. `blocked = null` — ждём заказ по-настоящему. */
+data class DriverOfferStateDto(
+    val offer: InstantOrderDto? = null,
+    val blocked: String? = null,
+)
 
 /** Ответ на один присланный кадр. */
 data class CarPhotoShotDto(
@@ -5902,6 +5993,11 @@ data class TaxiWorkdayDto(
     val limitHours: Int,             // лимит смены, часов (для текстов «из 8»)
     val blocked: Boolean,            // отдых: такси закрыто до unlockAt
     val unlockAt: String?,           // когда снова на линию (ISO, UTC-наивное), null если не заблокирован
+    // Недельный потолок. Он был невидим: кабинет писал «смена свободна», а линию закрыла
+    // НЕДЕЛЯ, и человек не понимал, почему не идут заказы (аудит сценариев 30.08).
+    val weekBlocked: Boolean = false,   // линия закрыта недельным лимитом
+    val weekLimitHours: Int = 40,       // недельный лимит, часов
+    val weekSeconds: Int = 0,           // сколько уже за рулём за скользящую неделю, секунд
     val returnRideUsed: Boolean,     // «один попутчик домой» уже опубликован
     // Дашборд кабинета (заработок/заказы за сегодня + ступень комиссии по поездкам).
     val earningsToday: Int = 0,      // legacy: валовая сумма за сегодня, ₽

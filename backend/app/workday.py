@@ -24,7 +24,7 @@ workday_step_cap_sec (редкие пинги не накручивают час
 from datetime import date as date_type, datetime, time as time_type, timedelta
 from typing import Optional
 
-from fastapi import HTTPException
+from .errors import herr
 from sqlmodel import Session, select
 
 from .config import settings
@@ -59,16 +59,24 @@ def is_winter_night(now: Optional[datetime] = None) -> bool:
 
 
 # ------------------------------ сообщения (RU + черновой BA, финал — за Александром) ------------------------------
-def rest_block_message() -> str:
+def rest_block_message() -> tuple:
+    """Текст блокировки по дневной смене — ПАРОЙ (ru, ba).
+
+    Раньше оба языка склеивались через « · » в одну строку и уходили обычным
+    HTTPException. Клиент такую строку показать не умеет и подменяет её общим «нет доступа» —
+    башкироязычный водитель видел «Был эшкә рөхсәт юҡ» вместо объяснения про отдых
+    (аудит сценариев 30.08). Теперь отвечаем так же, как остальные гейты такси.
+    """
     h = settings.taxi_shift_limit_hours
     u = settings.rest_unlock_hour
-    return (f"Ты сегодня за рулём {h} часов — отдохни 🌙 Завтра с {u} утра снова на линию."
-            f" · Һин бөгөн {h} сәғәт руль артында — ял ит 🌙 Иртәгә иртәнге {u}-нан йәнә линияға.")
+    return (f"Ты сегодня за рулём {h} часов — отдохни 🌙 Завтра с {u} утра снова на линию.",
+            f"Һин бөгөн {h} сәғәт руль артында — ял ит 🌙 Иртәгә иртәнге {u}-нан йәнә линияға.")
 
 
-def return_ride_message() -> str:
-    return ("Возьми одного попутчика домой и отдохни 🌙 Завтра попутка снова без ограничений."
-            " · Бер юлдашты өйгә алып ҡайт та ял ит 🌙 Иртәгә юлдаш йәнә сикләүһеҙ.")
+def return_ride_message() -> tuple:
+    """«Один попутчик домой» — тоже парой (ru, ba)."""
+    return ("Возьми одного попутчика домой и отдохни 🌙 Завтра попутка снова без ограничений.",
+            "Бер юлдашты өйгә алып ҡайт та ял ит 🌙 Иртәгә юлдаш йәнә сикләүһеҙ.")
 
 
 # ------------------------------ строки учёта ------------------------------
@@ -168,13 +176,13 @@ def week_block_until(session: Session, driver_id: int, now: Optional[datetime] =
     return tomorrow_local - _tz()
 
 
-def week_block_message() -> str:
+def week_block_message() -> tuple:
     h = settings.taxi_week_limit_hours
     # Не обещаем «завтра снова на линию»: окно скользящее, и завтра часы освободятся только
     # если самый старый день выпал из недели. Пообещать и не пустить — хуже, чем не обещать.
     return (f"За неделю уже {h} часов за рулём — сегодня отдыхай 🌙 Линия откроется, "
-            f"как только за последние 7 дней станет меньше {h} часов."
-            f" · Аҙнаға {h} сәғәт руль артында — бөгөн ял ит 🌙 Һуңғы 7 көндә {h} сәғәттән "
+            f"как только за последние 7 дней станет меньше {h} часов.",
+            f"Аҙнаға {h} сәғәт руль артында — бөгөн ял ит 🌙 Һуңғы 7 көндә {h} сәғәттән "
             f"аҙыраҡ булыу менән линия асыла.")
 
 
@@ -195,10 +203,10 @@ def guard_rested(session: Session, driver_id: int, now: Optional[datetime] = Non
         # Дневной лимит не сработал — проверяем недельный. Порядок именно такой: дневной
         # конкретнее и его текст понятнее («ты сегодня 8 часов за рулём»).
         if week_block_until(session, driver_id, now) is not None:
-            raise HTTPException(403, week_block_message())
+            raise herr(403, *week_block_message())
         return
     _maybe_winter_advice(session, driver_id, wd, now)
-    raise HTTPException(403, rest_block_message())
+    raise herr(403, *rest_block_message())
 
 
 # Старое имя. Гейт перестал быть «только про такси», но зовут его из нескольких мест —
@@ -464,14 +472,14 @@ def guard_publish_ride(session: Session, driver_id: int, now: Optional[datetime]
         wd.return_ride_used = True
         session.add(wd)
         return
-    raise HTTPException(403, return_ride_message())
+    raise herr(403, *return_ride_message())
 
 
 def guard_respond_request(session: Session, driver_id: int, now: Optional[datetime] = None) -> None:
     """Отклик на заявку пассажира во время блока отдыха → мягкий 403 («домой — один
     попутчик из своей публикации, а не новые обязательства»). Вне блока — без ограничений."""
     if blocking_workday(session, driver_id, now) is not None:
-        raise HTTPException(403, return_ride_message())
+        raise herr(403, *return_ride_message())
 
 
 # ------------------------------ сводка водителю ------------------------------
@@ -495,4 +503,12 @@ def summary(session: Session, driver_id: int, now: Optional[datetime] = None) ->
         "blocked": blocked_wd is not None,
         "unlock_at": unlock_at(blocked_wd).isoformat() if blocked_wd else None,
         "return_ride_used": bool(blocked_wd.return_ride_used) if blocked_wd else False,
+        # Недельный потолок (аудит сценариев 30.08). Раньше сводка знала только про ДЕНЬ:
+        # кабинет писал «смена свободна», а линия была закрыта неделей, и человек не понимал,
+        # почему не идут заказы. Срок разблокировки честно None: окно скользящее, и час
+        # освободится, только когда самый старый день выпадет из последних семи — обещать
+        # конкретное время значило бы соврать.
+        "week_blocked": week_block_until(session, driver_id, now) is not None,
+        "week_limit_hours": settings.taxi_week_limit_hours,
+        "week_seconds": week_seconds(session, driver_id, now),
     }

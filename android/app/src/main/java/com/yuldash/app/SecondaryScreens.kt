@@ -831,7 +831,30 @@ internal fun SettingsScreen(
             item { CompactProfileBanner() }
             item {
                 SettingsGroup {
-                    SettingSwitchRow(Icons.Default.Notifications, appText("Уведомления", "Хәбәрҙәр"), appText("Получать важные обновления и напоминания", "Мөһим иҫкәртеүҙәр алыу"), notifications) { notifications = it; AppPrefs.setNotifications(ctx, it) }
+                    // Тумблер обязан говорить правду. Раньше он горел «включено», даже когда
+                    // уведомления режет САМА СИСТЕМА: водитель приехал, а пассажир не узнал —
+                    // и был уверен, что его позовут (аудит сценариев 30.08). Теперь при
+                    // системном запрете тумблер выключен, подпись объясняет причину, а нажатие
+                    // ведёт туда, где это чинится, — в настройки телефона.
+                    val системаРежет = !notificationsAllowed(ctx) && notifications
+                    SettingSwitchRow(
+                        Icons.Default.Notifications,
+                        appText("Уведомления", "Хәбәрҙәр"),
+                        if (системаРежет)
+                            appText("Телефон запретил уведомления — нажми, чтобы разрешить",
+                                    "Телефон хәбәрҙәрҙе тыйған — рөхсәт итер өсөн баҫ")
+                        else
+                            appText("Получать важные обновления и напоминания",
+                                    "Мөһим иҫкәртеүҙәр алыу"),
+                        notifications && !системаРежет,
+                    ) {
+                        if (системаРежет) {
+                            openNotificationSettings(ctx)
+                        } else {
+                            notifications = it
+                            AppPrefs.setNotifications(ctx, it)
+                        }
+                    }
                     SettingsNavRow(Icons.Default.Language, appText("Язык", "Тел"), if (isBashkir) "Башҡортса" else "Русский", onClick = onToggleLanguage)
                     SettingsNavRow(Icons.Default.Map, appText("Тема", "Тема"), themeLabel, onClick = { showThemeDialog = true })
                     SettingsNavRow(Icons.Default.FormatSize, appText("Размер текста", "Текст ҙурлығы"), fontLabel, onClick = { showFontDialog = true })

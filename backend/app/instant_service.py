@@ -1735,6 +1735,53 @@ def _minutes_on_board(order: InstantOrder, now: datetime) -> float:
     return max((now - order.onboard_at).total_seconds() / 60.0, 0.0)
 
 
+def my_stars(session: Session, order: InstantOrder, viewer: User) -> int:
+    """Сколько звёзд этот человек уже поставил по этому заказу. 0 — не оценивал."""
+    from .models import Rating
+    if order.status != S.done:
+        return 0
+    row = session.exec(
+        select(Rating).where(Rating.order_id == order.id, Rating.rater_id == viewer.id)
+    ).first()
+    return int(row.stars) if row else 0
+
+
+def can_rate_order(session: Session, order: InstantOrder, viewer: User,
+                   now: Optional[datetime] = None) -> bool:
+    """Открыта ли ещё дверь «оценить эту поездку».
+
+    Оценивать можно завершённую поездку, где есть вторая сторона, и пока не вышло окно
+    (`RATING_WINDOW_DAYS`). Уже оценённую — тоже можно: повтор просто обновляет оценку, и
+    прятать звёзды после первого тапа значило бы «передумать нельзя».
+    """
+    from .rating_service import RATING_WINDOW_DAYS
+    if order.status != S.done or order.driver_id is None or order.passenger_id is None:
+        return False
+    if viewer.id not in (order.driver_id, order.passenger_id):
+        return False
+    случилось = order.done_at or order.created_at
+    if случилось is None:
+        return True
+    now = now or utcnow()
+    return (now - случилось) <= timedelta(days=RATING_WINDOW_DAYS)
+
+
+def passenger_may_close(order: InstantOrder, now: Optional[datetime] = None) -> bool:
+    """Пассажир вправе сам закрыть поездку: едем ДОЛЬШЕ расчётного времени плюс запас.
+
+    Закрывать «поехали» может только водитель — и когда он этого не делает, пассажир заперт:
+    оценить поездку нельзя, заказать новую машину нельзя, а ночная уборка приберёт заказ лишь
+    через `taxi_stale_hours` (аудит сценариев 30.08). Порог считаем от расчётного времени
+    поездки, а не абсолютной цифрой: час для поездки по селу — это давно приехали, а для
+    Уфа→Сибай — середина пути.
+    """
+    if order.status != S.onboard or order.onboard_at is None:
+        return False
+    now = now or utcnow()
+    порог = max(float(order.eta_min or 0.0), 0.0) + float(settings.taxi_passenger_close_slack_min)
+    return _minutes_on_board(order, now) >= порог
+
+
 def destination_quote(session: Session, order: InstantOrder, new_to: tuple,
                       now: Optional[datetime] = None,
                       waypoints_override: Optional[list] = None) -> dict:
@@ -1936,6 +1983,28 @@ def ack_destination(session: Session, order: InstantOrder,
     session.add(order)
     session.commit()
     session.refresh(order)
+    return order
+
+
+def withdraw_pending_destination(session: Session, order: InstantOrder) -> InstantOrder:
+    """Пассажир отозвал свой вопрос про новый адрес. Едем по старому.
+
+    Водителю шлём короткое «вопрос снят»: он мог уже открыть экран решения, и молча убранная
+    из-под пальца кнопка выглядит как сбой приложения.
+    """
+    from .services import push_notification   # локальный импорт: в шапке был бы цикл
+    _clear_pending_destination(order)
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    if order.driver_id:
+        push_notification(
+            session, order.driver_id, "ride",
+            "Пассажир передумал менять адрес", "Юлаусы адресты үҙгәртеүҙән баш тартты",
+            "Едем по прежнему адресу и за прежнюю цену.",
+            "Элекке адрес буйынса һәм элекке хаҡҡа барабыҙ.",
+            ref_kind="instant", ref_id=order.id,
+        )
     return order
 
 
@@ -3683,6 +3752,14 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         "id": order.id,
         "status": order.status.value,
         "role": role,
+        # «Поездка закончилась?» — кнопка пассажира на случай, когда водитель не нажал
+        # «Завершил». Считает сервер: локальный секундомер экрана умирает при перезапуске.
+        "passenger_can_close": role == "passenger" and passenger_may_close(order),
+        # Оценка. Раньше звёзды жили ТОЛЬКО на свежем финальном экране: закрыл его — и оценить
+        # поездку было негде, хотя окно оценки открыто 60 дней (аудит сценариев 30.08).
+        # История поездок теперь спрашивает у сервера, а не гадает.
+        "my_stars": my_stars(session, order, viewer),
+        "can_rate": can_rate_order(session, order, viewer),
         # Сколько раз заказ уже возвращался в поиск после отмены водителем. Нужен экрану:
         # человек, у которого только что была принятая машина, увидит просто «ищем машину»
         # и решит, что приложение сбросилось. Одна строка «первый водитель отменил» снимает
@@ -3727,6 +3804,10 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
             "to_text": order.pending_to_text or "",
             "price": int(order.pending_price or 0),
             "reason": order.pending_reason or "",
+            # Когда спросили. Без этого пассажир видел статичное «ждём», которое через
+            # десять минут читается как зависшее приложение (аудит сценариев 30.08).
+            "asked_at": (order.pending_asked_at.isoformat()
+                         if order.pending_asked_at else None),
         } if order.pending_to_lat is not None else None),
         # Поездку завершил водитель досрочно и почему — пассажир должен видеть причину словами.
         "early_finish_reason": order.early_finish_reason or "",

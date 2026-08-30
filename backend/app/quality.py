@@ -26,6 +26,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from .config import settings
+from .errors import herr
 from .models import DriverProfile, Report, User
 from .services import push_bilingual, push_notification
 from .timeutil import utcnow
@@ -93,11 +94,16 @@ def taxi_pause_until(session: Session, user_id: int, now: Optional[datetime] = N
     return None
 
 
-def taxi_pause_message() -> str:
-    """Тёплый текст гейта (RU + черновой BA одной строкой, detail показывается как есть)."""
+def taxi_pause_message() -> tuple:
+    """Тёплый текст гейта ПАРОЙ (ru, ba).
+
+    Раньше оба языка склеивались через « · » в одну строку и уходили обычным HTTPException.
+    Клиент такую строку показать не умеет и подменяет её общим «нет доступа» — башкироязычный
+    водитель видел «Был эшкә рөхсәт юҡ» вместо объяснения про паузу (аудит сценариев 30.08).
+    """
     return ("Такси на паузе до разбора жалоб. Попутка работает как обычно 💚 "
-            "Детали — в кабинете, вопросы — в поддержку."
-            " · Такси ялыуҙарҙы тикшергәнсе паузала. Юлдаш ғәҙәттәгесә эшләй 💚 "
+            "Детали — в кабинете, вопросы — в поддержку.",
+            "Такси ялыуҙарҙы тикшергәнсе паузала. Юлдаш ғәҙәттәгесә эшләй 💚 "
             "Ентеклеләр — кабинетта, һорауҙар — ярҙам хеҙмәтенә.")
 
 
@@ -105,7 +111,7 @@ def guard_taxi_quality(session: Session, driver_id: int, now: Optional[datetime]
     """Гейт такси по качеству (в стиле долгового/отдыха): presence/offer/accept.
     Активный заказ НЕ рубим (переходы arrived/onboard/done через гейт не ходят)."""
     if taxi_pause_until(session, driver_id, now) is not None:
-        raise HTTPException(403, taxi_pause_message())
+        raise herr(403, *taxi_pause_message())
 
 
 def pause_taxi(session: Session, user_id: int, hours: Optional[int] = None,

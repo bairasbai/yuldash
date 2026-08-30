@@ -2,6 +2,7 @@ package com.yuldash.app
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -60,6 +62,7 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -76,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import com.yandex.mapkit.geometry.Point
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.InstantOrderDto
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -116,6 +120,7 @@ private fun defaultStopFor(status: String): TaxiSheetStop = when (status) {
 internal fun TaxiTripScreen(
     order: InstantOrderDto,
     onCancel: () -> Unit,
+    onOrderUpdated: (InstantOrderDto) -> Unit = {},
     onMinimize: () -> Unit = {},
     enableLiveTracking: Boolean = true,
     mapContent: (@Composable (Modifier) -> Unit)? = null,
@@ -150,6 +155,10 @@ internal fun TaxiTripScreen(
 
     var showChangeDestination by remember { mutableStateOf(false) }
     var addingStop by remember { mutableStateOf(false) }
+    // Правка маршрута в пути молча глотала ошибку сети: человек добавлял остановку, она
+    // не сохранялась, и он узнавал об этом, когда водитель проезжал мимо (аудит 30.08).
+    val stopFailMsg = appText("Остановка не сохранилась. Проверь связь и повтори.",
+                              "Туҡталыш һаҡланманы. Бәйләнеште тикшереп ҡабатла.")
     var showSafety by remember { mutableStateOf(false) }
     var showShare by remember(order.id) { mutableStateOf(false) }
     var confirmPaidCancel by remember { mutableStateOf(false) }
@@ -219,7 +228,10 @@ internal fun TaxiTripScreen(
                             ApiClient.setWaypoints(
                                 order.id,
                                 order.stops.filter { !it.done }.filterIndexed { j, _ -> j != i },
-                            )
+                            ).onFailure {
+                                Toast.makeText(ctx, serverSaid(it, stopFailMsg),
+                                               Toast.LENGTH_LONG).show()
+                            }
                         }
                     },
                 )
@@ -230,6 +242,8 @@ internal fun TaxiTripScreen(
                         onToggle = { wantsLight = !wantsLight },
                     )
                 }
+                TripDestinationPending(order = order, onWithdrawn = onOrderUpdated)
+                TripFinishedPrompt(order = order, onClosed = onOrderUpdated)
                 TripCancelButton(
                     order = order,
                     onCancel = onCancel,
@@ -272,7 +286,9 @@ internal fun TaxiTripScreen(
                         order.id,
                         order.stops.filter { !it.done } +
                             com.yuldash.app.data.TaxiStop(hit.lat, hit.lon, hit.title),
-                    )
+                    ).onFailure {
+                        Toast.makeText(ctx, serverSaid(it, stopFailMsg), Toast.LENGTH_LONG).show()
+                    }
                 }
             },
         )
@@ -621,6 +637,189 @@ private fun TripRouteBlock(
                 }
             }
         }
+    }
+}
+
+/**
+ * «Ждём ответа водителя» по крупной смене адреса — и кнопка передумать.
+ *
+ * Раньше пассажир нажимал «Спросить водителя», шторка закрывалась — и всё. Ни слова о том,
+ * что вопрос ушёл, сколько его ждут и как его снять; человек ехал в тишине к старому адресу,
+ * не понимая, услышали его или нет (аудит сценариев 30.08).
+ *
+ * Живой счётчик «ждём N минут» — единственный честный сигнал: срока ответа мы обещать не
+ * можем, водитель за рулём и смотрит на дорогу, а не в телефон.
+ */
+@Composable
+private fun TripDestinationPending(order: InstantOrderDto, onWithdrawn: (InstantOrderDto) -> Unit) {
+    if (order.pendingToText.isBlank()) return
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var busy by remember(order.id) { mutableStateOf(false) }
+    val failMsg = appText("Не получилось снять вопрос. Проверь связь.",
+                          "Һорауҙы алып ташлап булманы. Бәйләнеште тикшер.")
+
+    // Минуты ожидания тикают сами: статичная надпись «ждём» через десять минут выглядит
+    // как зависшее приложение.
+    val askedMs = remember(order.pendingAskedAt) { order.pendingAskedAt?.let(::parseIsoUtcMillis) }
+    var minutes by remember(order.pendingAskedAt) { mutableIntStateOf(0) }
+    LaunchedEffect(askedMs) {
+        val start = askedMs ?: return@LaunchedEffect
+        while (true) {
+            minutes = ((System.currentTimeMillis() - start) / 60_000L).toInt().coerceAtLeast(0)
+            delay(20_000L)
+        }
+    }
+    // Хвост «· ждём N мин» появляется только со второй минуты: «ждём 0 мин» — это шум.
+    val хвостRu = if (minutes > 0) " · ждём $minutes мин" else ""
+    val хвостBa = if (minutes > 0) " · $minutes мин көтәбеҙ" else ""
+
+    Surface(color = CanonWarnBg, shape = CanonItemShape,
+            border = BorderStroke(1.dp, CanonWarn.copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(CanonSpace.lg),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = CanonWarn)
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text(
+                    appText("Спросили водителя про новый адрес",
+                            "Йөрөтөүсенән яңы адрес хаҡында һораныҡ"),
+                    style = CanonBody, fontWeight = FontWeight.Bold, color = CanonText,
+                )
+            }
+            Text(
+                appText(
+                    "${order.pendingToText} · ${order.pendingPrice} \u20BD$хвостRu",
+                    "${order.pendingToText} · ${order.pendingPrice} һум$хвостBa",
+                ),
+                style = CanonCaption, color = CanonMuted,
+            )
+            Text(
+                appText("Он за рулём и ответит, когда сможет. Пока едем по старому адресу.",
+                        "Ул руль артында, мөмкинлек тыуғас яуап бирер. Әлегә элекке адрес буйынса барабыҙ."),
+                style = CanonCaption, color = CanonMuted,
+            )
+            TextButton(
+                enabled = !busy,
+                onClick = {
+                    busy = true
+                    scope.launch {
+                        ApiClient.withdrawDestination(order.id)
+                            .onSuccess { ApiClient.getInstantOrder(order.id).onSuccess(onWithdrawn) }
+                            .onFailure {
+                                Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show()
+                            }
+                        busy = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Text(appText("Передумал, едем как ехали", "Уйланым, элеккесә барабыҙ"),
+                     style = CanonButton, color = CanonMuted)
+            }
+        }
+    }
+}
+
+/**
+ * «Поездка закончилась?» — выход из «В пути», когда водитель не нажал «Завершил».
+ *
+ * Довёз, высадил, уехал — и не закрыл поездку: сел телефон, отвлёкся, удалил приложение.
+ * Пассажир после этого заперт: оценить нельзя, новую машину заказать нельзя, а само собой
+ * это рассасывалось только ночной уборкой через 12 часов (аудит сценариев 30.08).
+ *
+ * Кнопку показывает СЕРВЕР (`passengerCanClose`) и только после расчётного времени поездки
+ * плюс запас — посреди дороги её не будет. Спрашиваем подтверждением, а не одним тапом:
+ * закрытие поездки необратимо и начисляет водителю комиссию.
+ */
+@Composable
+private fun TripFinishedPrompt(order: InstantOrderDto, onClosed: (InstantOrderDto) -> Unit) {
+    if (!order.passengerCanClose) return
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var ask by remember(order.id) { mutableStateOf(false) }
+    var busy by remember(order.id) { mutableStateOf(false) }
+    val failMsg = appText("Не получилось закрыть поездку. Проверь связь.",
+                          "Сәфәрҙе ябып булманы. Бәйләнеште тикшер.")
+
+    Surface(color = CanonMint, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(CanonSpace.lg),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            Text(
+                appText("Кажется, вы уже приехали", "Күрәһең, барып еттегеҙ"),
+                style = CanonBody, fontWeight = FontWeight.Bold, color = CanonGreen2,
+            )
+            Text(
+                appText(
+                    "Едете дольше расчётного времени. Если поездка закончилась, а водитель " +
+                        "не отметил это — закрой её сам, чтобы оценить поездку и заказать снова.",
+                    "Иҫәпләнгән ваҡыттан оҙағыраҡ бараһығыҙ. Әгәр сәфәр тамамланған, ә водитель " +
+                        "быны билдәләмәгән — үҙең яп, шунан сәфәрҙе баһалап, яңынан заказ итә алаһың.",
+                ),
+                style = CanonCaption, color = CanonMuted,
+            )
+            TextButton(
+                onClick = { if (!busy) ask = true },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Text(
+                    appText("Поездка закончилась", "Сәфәр тамамланды"),
+                    style = CanonButton, color = CanonGreen2,
+                )
+            }
+        }
+    }
+
+    if (ask) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) ask = false },
+            containerColor = CanonSurface,
+            title = {
+                Text(appText("Закрыть поездку?", "Сәфәрҙе ябырғамы?"),
+                     style = CanonHeading, color = CanonText)
+            },
+            text = {
+                Text(
+                    appText(
+                        "Отметим, что вы доехали. Вернуть это уже нельзя — водителю начислится " +
+                            "комиссия за поездку, как при обычном завершении.",
+                        "Барып еткәнегеҙҙе билдәләйбеҙ. Быны кире ҡайтарып булмай — водителгә " +
+                            "ғәҙәти тамамлауҙағы кеүек комиссия иҫәпләнәсәк.",
+                    ),
+                    style = CanonCaption, color = CanonMuted,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !busy,
+                    onClick = {
+                        busy = true
+                        scope.launch {
+                            ApiClient.instantPassengerDone(order.id)
+                                .onSuccess { ask = false; onClosed(it) }
+                                .onFailure {
+                                    Toast.makeText(ctx, serverSaid(it, failMsg),
+                                                   Toast.LENGTH_LONG).show()
+                                }
+                            busy = false
+                        }
+                    },
+                ) {
+                    Text(appText("Да, закончилась", "Эйе, тамамланды"),
+                         style = CanonButton, color = CanonGreen2)
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = !busy, onClick = { ask = false }) {
+                    Text(appText("Ещё едем", "Әле барабыҙ"), style = CanonButton, color = CanonMuted)
+                }
+            },
+        )
     }
 }
 

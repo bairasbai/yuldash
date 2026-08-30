@@ -68,6 +68,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
@@ -82,6 +83,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -666,6 +668,96 @@ private fun ParcelAddressRow(
 }
 
 // ─────────────────── C2: расчёт «купи и привези» + спор (общее для двух экранов) ───────────────────
+
+/**
+ * «Поднять сумму покупки» — выход из тупика «в магазине дороже, чем договаривались».
+ *
+ * Сервер разрешает курьеру потратить согласованную сумму плюс запас (15 %, но не меньше
+ * 100 ₽). Выше — отказ с текстом «пусть заказчик поднимет сумму», и до этого раунда поднять
+ * её было физически негде: товар уже в руках у курьера, расчёт не проходит, оба стоят.
+ *
+ * Шаги вверх, а не поле ввода: человек отвечает курьеру на морозе, у него один палец и
+ * пятнадцать секунд. Точная цифра нужна редко — нужен запас, которого хватит.
+ */
+@Composable
+private fun ParcelRaiseBudgetBlock(p: com.yuldash.app.data.ParcelDto) {
+    if (p.codAmountKop <= 0) return
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var ask by remember(p.id) { mutableStateOf(false) }
+    var busy by remember(p.id) { mutableStateOf(false) }
+    var agreed by remember(p.id, p.codAmountKop) { mutableIntStateOf(p.codAmountKop) }
+    val okMsg = appText("Сумму подняли — курьер уже видит новую",
+                        "Сумма арттырылды — курьер яңыһын күрә инде")
+    val failMsg = appText("Не получилось поднять сумму. Проверь связь.",
+                          "Сумманы арттырып булманы. Бәйләнеште тикшер.")
+
+    AppButton(
+        text = appText("Поднять сумму покупки", "Һатып алыу сумманы арттырыу"),
+        onClick = { ask = true },
+        style = AppButtonStyle.Secondary,
+        icon = Icons.Default.TrendingUp,
+        height = 48.dp,
+    )
+
+    if (ask) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) ask = false },
+            containerColor = CanonSurface,
+            title = {
+                Text(appText("Сколько разрешить потратить?", "Күпме тотонорға рөхсәт итергә?"),
+                     color = CanonText, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        appText(
+                            "Сейчас согласовано " + kopToRub(agreed) + ". Курьер может потратить " +
+                                "чуть больше — запас 15 % уже входит. Если в магазине дороже, " +
+                                "подними сумму: вернуть её потом нельзя.",
+                            "Хәҙер " + kopToRub(agreed) + " килешелгән. Курьер бер аҙ артығыраҡ " +
+                                "тотона ала — 15 % запас инә инде. Кибеттә ҡиммәтерәк булһа, " +
+                                "сумманы арттыр: һуңынан кире кәметеп булмай.",
+                        ),
+                        color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                    )
+                    listOf(20000, 50000, 100000).forEach { шаг ->
+                        val новая = agreed + шаг
+                        AppButton(
+                            text = appText("Поднять до " + kopToRub(новая), kopToRub(новая) + "-ға тиклем"),
+                            onClick = {
+                                if (busy) return@AppButton
+                                busy = true
+                                scope.launch {
+                                    ApiClient.raiseParcelBudget(p.id, новая)
+                                        .onSuccess {
+                                            agreed = новая
+                                            ask = false
+                                            Toast.makeText(ctx, okMsg, Toast.LENGTH_SHORT).show()
+                                        }
+                                        .onFailure {
+                                            Toast.makeText(ctx, serverSaid(it, failMsg),
+                                                           Toast.LENGTH_LONG).show()
+                                        }
+                                    busy = false
+                                }
+                            },
+                            style = AppButtonStyle.Secondary,
+                            enabled = !busy,
+                            height = 48.dp,
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(enabled = !busy, onClick = { ask = false }) {
+                    Text(appText("Не надо", "Кәрәкмәй"), color = CanonMuted)
+                }
+            },
+        )
+    }
+}
 
 /** Блок расчёта «купи и привези»: за товар · доставка · получатель платит.
  *  forCourier=true — подсказка курьеру («укажи, сколько потратил»); false — отправителю. */
@@ -2757,6 +2849,10 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
             if (!terminal) ParcelTrackLinkBlock(p.id)
             if (p.deliveryType == "buy_bring") {
                 p.settlement?.let { ParcelSettlementBlock(it, forCourier = false) }
+                // Курьер стоит у прилавка, товар дороже сметы — и до сих пор это был тупик:
+                // сервер отвечал ему «пусть заказчик поднимет сумму», а у заказчика такой
+                // кнопки не было нигде (аудит сценариев 30.08). Пока заказ живой — есть.
+                if (!terminal) ParcelRaiseBudgetBlock(p)
             }
             if (goodsAlreadyBought && !terminal) {
                 Surface(color = CanonWarnBg, shape = CanonItemShape) {
