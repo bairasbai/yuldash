@@ -2535,7 +2535,17 @@ private fun InstantDestinationPicker(
                                             ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
                                             onScheduled(it)
                                         }
-                                        .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                                        // Ошибку заказа НАДО ВИДЕТЬ (аудит сценариев 30.08, P0).
+                                        // Она рисуется в карточке цены, а карточка живёт только
+                                        // в раскрытой шторке — после выбора адреса шторка уезжает
+                                        // вниз сама. Человек жал «Вызвать», кнопка гасла, и всё:
+                                        // ни машины, ни объяснения. Поднимаем шторку вместе
+                                        // с ошибкой, чтобы слова сервера дошли до глаз.
+                                        .onFailure {
+                                            errorText = (it as? ApiException)?.message ?: createFailMsg
+                                            sheetTouched = true
+                                            sheetStop = TaxiSheetStop.Full
+                                        }
                                 } else {
                                     ApiClient.createInstantOrder(
                                         f.latitude, f.longitude, t.latitude, t.longitude, fText, tText, category,
@@ -2555,7 +2565,17 @@ private fun InstantDestinationPicker(
                                             ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
                                             onOrderCreated(it)
                                         }
-                                        .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                                        // Ошибку заказа НАДО ВИДЕТЬ (аудит сценариев 30.08, P0).
+                                        // Она рисуется в карточке цены, а карточка живёт только
+                                        // в раскрытой шторке — после выбора адреса шторка уезжает
+                                        // вниз сама. Человек жал «Вызвать», кнопка гасла, и всё:
+                                        // ни машины, ни объяснения. Поднимаем шторку вместе
+                                        // с ошибкой, чтобы слова сервера дошли до глаз.
+                                        .onFailure {
+                                            errorText = (it as? ApiException)?.message ?: createFailMsg
+                                            sheetTouched = true
+                                            sheetStop = TaxiSheetStop.Full
+                                        }
                                 }
                                 creating = false
                             }

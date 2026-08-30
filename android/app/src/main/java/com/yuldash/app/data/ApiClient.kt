@@ -5455,7 +5455,17 @@ data class InstantOrderDto(
      * приложение тут же перестало следить за заказом, который вот-вот найдёт машину.
      */
     val isWaitingQueue: Boolean
-        get() = !waitUntil.isNullOrBlank() && status != "done" && status != "cancelled"
+        get() {
+            val до = waitUntil
+            if (до.isNullOrBlank() || status == "done" || status == "cancelled") return false
+            // Срок ожидания СВЕРЯЕМ С ЧАСАМИ (аудит сценариев 30.08, P0). Раньше проверялось
+            // только наличие срока — и когда воркер переставал искать, экран продолжал писать
+            // «ищем машину дальше» до конца времён. Человек ждал машину, которую никто уже
+            // не искал. Не разобрали строку времени — считаем очередь живой: чужой формат
+            // даты не повод обрывать поиск, который, может быть, идёт.
+            val конец = com.yuldash.app.parseIsoUtcMillis(до) ?: return true
+            return конец > System.currentTimeMillis()
+        }
     /** Предзаказ «на время», ещё не отправлен в поиск. */
     val isScheduled: Boolean get() = status == "scheduled"
     /** Идёт подбор водителя (машину ещё ищем). */
