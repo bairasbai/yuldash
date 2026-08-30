@@ -449,6 +449,8 @@ def _courier_intervals_today(session: Session, courier_id: int, начало_д�
     ).all()
     интервалы = []
     for p in строки:
+        if p.accepted_at is None:
+            continue                # см. про кэш ORM в `_work_intervals`
         # Конец работы: вручил, вернул отправителю — или он всё ещё в пути.
         конец = p.delivered_at or getattr(p, "returned_at", None)
         if конец is None:
@@ -511,6 +513,14 @@ def _work_intervals(session: Session, driver_id: int, начало, конец, 
     ).all()
     интервалы = []
     for o in заказы:
+        # Фильтр в запросе говорит «время приёма есть», а объект может прийти БЕЗ него: если
+        # эту же строку сессия уже читала раньше (до того, как заказ приняли), ORM отдаст её
+        # из своего кэша — со старым, пустым значением. Ловится только на гонке двух потоков
+        # за один заказ, и роняло приём заказа целиком (TypeError на сравнении с None).
+        # Нет отметки времени — считать нечего: пропускаем, следующий вызов уже посчитает.
+        # Так же ведёт себя и половина про доставки ниже.
+        if o.accepted_at is None:
+            continue
         конец_рейса = o.done_at or now           # заказ ещё идёт — считаем до сих пор
         интервалы.append((max(o.accepted_at, начало), min(конец_рейса, конец, now)))
     интервалы += _courier_intervals_today(session, driver_id, начало, конец, now)
