@@ -72,6 +72,10 @@ def _guard_taxi_driver(session: Session, driver_id: int, lat: float | None = Non
         # Разный текст важен: первый обвиняет человека, второй объясняет, что делать.
         if taxi_mod.taxi_docs_expired(session, driver_id):
             raise herr(403, taxi_mod.MSG_DOCS_EXPIRED["ru"], taxi_mod.MSG_DOCS_EXPIRED["ba"])
+        # Машина из стоп-списка: не про сроки и не про наши очереди, а про то, на чём
+        # человек собрался возить людей. Текст сразу говорит, что попутка работает.
+        if taxi_mod.car_retired(session, driver_id):
+            raise herr(403, taxi_mod.MSG_CAR_RETIRED["ru"], taxi_mod.MSG_CAR_RETIRED["ba"])
         # Реестра ФГИС нет действующего разрешения — тоже не обвинение, а путь: получить
         # его бесплатно за 5–20 дней, а пока возить попуткой, которой разрешение не нужно.
         if taxi_mod.taxi_permit_missing(session, driver_id):

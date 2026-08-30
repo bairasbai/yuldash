@@ -120,6 +120,10 @@ def is_approved_taxi_driver(session: Session, user_id: int) -> bool:
     app = my_application(session, user_id)
     if app is None or app.status != TaxiApplicationStatus.approved:
         return False
+    # Машина из стоп-списка (решение 30.08). Стоит первым: это самый простой факт из всех —
+    # он не про сроки и не про наши очереди, а про то, на чём человек собрался возить людей.
+    if car_retired(session, user_id):
+        return False
     if _docs_expired_now(app):
         return False
     # Государственный реестр — последнее слово (580-ФЗ). Наше одобрение говорит «мы его
@@ -132,6 +136,33 @@ def is_approved_taxi_driver(session: Session, user_id: int) -> bool:
     # тот, кто не показал машину больше недели. Попутки это не касается.
     from . import carphoto as cp_mod
     return not cp_mod.blocked(session, user_id, cp_mod.TAXI)
+
+
+MSG_CAR_RETIRED = {
+    "ru": "На этой машине такси возить нельзя: пассажир платит за поездку и вправе "
+          "рассчитывать на машину, в которой безопасно и не тесно. Попутка работает как "
+          "обычно — там требований к машине нет.",
+    "ba": "Был машинала такси йөрөтөп булмай: юлаусы сәфәр өсөн түләй һәм именлек менән "
+          "иркенлеккә хаҡлы. Юлдаш ғәҙәттәгесә эшләй — унда машинаға талап юҡ.",
+}
+
+
+def car_retired(session: Session, user_id: int) -> str:
+    """Машина водителя в стоп-списке такси. Возврат — что совпало ("" = всё в порядке).
+
+    Смотрим марку и модель из профиля. После проверки в государственном реестре они приходят
+    из ФГИС, а не со слов человека, — переименовать «копейку» в анкете не поможет.
+
+    ПОПУТКА ЭТИМ НЕ ЗАТРАГИВАЕТСЯ. Там требований к машине нет и не будет: сосед везёт соседа
+    на том, что у него есть, и это нормально. Правило только про такси — работу за деньги,
+    где пассажир выбирал не человека, а услугу.
+    """
+    from . import car_class as cc
+    profile = session.exec(select(DriverProfile).where(
+        DriverProfile.user_id == user_id)).first()
+    if profile is None:
+        return ""
+    return cc.retired_model(profile.car_make, profile.car_model)
 
 
 MSG_NO_PERMIT = {

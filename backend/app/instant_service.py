@@ -3640,7 +3640,13 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
     prof = (session.exec(select(DriverProfile).where(DriverProfile.user_id == order.driver_id)).first()
             if order.driver_id else None)
     passenger = session.get(User, order.passenger_id)
+    # Марка, модель И ГОД (30.08). Год добавлен сюда, а не отдельным полем, намеренно: это
+    # витринная строка («белая Лада Гранта, 2019»), её показывают четыре разных экрана, и
+    # новое поле пришлось бы протянуть в каждый. Пассажир должен видеть возраст машины ДО
+    # того, как она подъедет, — иначе «стрёмно» выясняется у подъезда.
     car = f"{prof.car_make} {prof.car_model}".strip() if prof else ""
+    if car and prof and prof.car_year:
+        car = f"{car}, {int(prof.car_year)}"
     # Приватность: до accept водителю обе точки — округлённые (~1 км), как телефоны.
     #
     # Точку ПОДАЧИ прятали и раньше. Точку НАЗНАЧЕНИЯ — нет, и это была несогласованность:
