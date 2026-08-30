@@ -34,13 +34,27 @@ def session(client):
 
     Зависимость от `client` не декоративная: именно подъём приложения заводит таблицы.
     Без неё файл, запущенный в одиночку, падал на «no such table: instantorder».
+
+    За собой убираем. База у прогона одна на всех, а надбавка к цене считается по числу
+    заказов «в поиске» рядом с точкой подачи. Забытый здесь заказ поднимал цену чужому
+    тесту про подачу за восемь километров — тот ждал ровную цену, а получал ×1,1.
     """
     with Session(engine) as s:
-        yield s
+        try:
+            yield s
+        finally:
+            for obj in reversed(_созданное):
+                try:
+                    s.delete(obj)
+                except Exception:
+                    pass
+            _созданное.clear()
+            s.commit()
 
 
 _UNSET = object()
 _uid = {"n": 0}
+_созданное: list = []   # что завели за тест — то и уберём
 
 
 def _user(session, role: UserRole) -> int:
@@ -56,6 +70,7 @@ def _user(session, role: UserRole) -> int:
     session.add(u)
     session.commit()
     session.refresh(u)
+    _созданное.append(u)
     return u.id
 
 
@@ -78,6 +93,7 @@ def _order(session, **kw) -> InstantOrder:
     session.add(order)
     session.commit()
     session.refresh(order)
+    _созданное.append(order)
     return order
 
 
