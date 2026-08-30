@@ -84,6 +84,18 @@ def test_child_seat_costs_150_and_pets_luggage_100():
     assert cc.options_fee_rub("нет_такой_опции") == 0
 
 
+def test_a_charger_is_an_option_and_costs_nothing():
+    """Зарядка в машине — опция, а не требование класса, и она бесплатна.
+
+    Провод в прикуривателе водителю почти ничего не стоит, а пассажиру с севшим телефоном
+    между сёлами это связь и возможность заплатить за поездку. Требованием класса делать
+    нельзя: у кого зарядки нет, тот просто выпал бы из подбора целиком.
+    """
+    assert "charger" in cc.OPTIONS
+    assert cc.option_price_rub("charger") == 0
+    assert cc.options_fee_rub("charger,seat_1_4") == 150      # платим только за кресло
+
+
 def test_accessibility_is_free_forever_and_config_cannot_change_it(monkeypatch):
     """СТОРОЖ. Плата за инвалидную коляску или собаку-проводника — дискриминация: в 2025
     с водителя взыскали 5 000 ₽ морального вреда и 30 000 ₽ штрафа за отказ везти незрячего

@@ -212,7 +212,7 @@ def test_the_demand_does_not_shadow_the_periodic_check(client, user_factory, к�
         assert cp.current(s, d["id"], cp.TAXI).id == плановый.id, \
             "требование по жалобе подменило плановый контроль"
         assert cp.current_complaint(s, d["id"]).id != плановый.id
-        assert len(cp.check_slots(плановый)) == 5, "у планового обхода остался весь набор кадров"
+        assert len(cp.check_slots(плановый)) == 6, "у планового обхода остался весь набор кадров"
 
 
 # ==================== 3. Чем кончается разбор ====================

@@ -183,7 +183,8 @@ def test_taxi_and_courier_are_counted_separately(client, user_factory, конт�
         такси = cp.ensure(s, d["id"], cp.TAXI)
         курьер = cp.ensure(s, d["id"], cp.COURIER)
     assert такси.id != курьер.id
-    assert [с["code"] for с in cp.slots(cp.TAXI)] == ["front", "back", "left", "right", "salon"]
+    assert [с["code"] for с in cp.slots(cp.TAXI)] == ["front", "back", "left", "right",
+                                                      "trunk", "salon"]
     assert [с["code"] for с in cp.slots(cp.COURIER)] == ["front", "back", "trunk"]
 
 
@@ -307,6 +308,61 @@ def test_no_shot_date_is_not_an_accusation(client):
     assert итог["ok"] is True and итог["reason"] == ""
 
 
+def test_a_dark_frame_is_refused(client):
+    """Снято в темноте — смотреть не на что. Требование «снимай при свете» проверяемо."""
+    from PIL import Image
+    from io import BytesIO as _B
+    buf = _B()
+    Image.new("RGB", (1200, 900), (10, 10, 12)).save(buf, "JPEG")
+    итог = cp.inspect(buf.getvalue(), "jpg")
+    assert итог["ok"] is False and итог["reason"] == "too_dark"
+
+
+def test_a_washed_out_frame_is_refused(client):
+    """Пересвет: белое пятно вместо машины."""
+    from PIL import Image
+    from io import BytesIO as _B
+    buf = _B()
+    Image.new("RGB", (1200, 900), (252, 252, 250)).save(buf, "JPEG")
+    итог = cp.inspect(buf.getvalue(), "jpg")
+    assert итог["ok"] is False and итог["reason"] == "too_bright"
+
+
+def test_a_blurry_frame_is_refused(client):
+    """Смазанный кадр: номер не прочитать, вмятину не увидеть."""
+    from PIL import Image, ImageFilter
+    from io import BytesIO as _B
+    резкий = Image.effect_noise((1200, 900), 60).convert("RGB")
+    buf = _B()
+    резкий.filter(ImageFilter.GaussianBlur(8)).save(buf, "JPEG", quality=88)
+    итог = cp.inspect(buf.getvalue(), "jpg")
+    assert итог["ok"] is False and итог["reason"] == "blurry"
+
+
+def test_a_normal_photo_survives_the_sharpness_check(client):
+    """Обычный снимок порог не задевает — иначе мы заворачивали бы честных.
+
+    Замер: настоящая фактура даёт тысячи единиц резкости, размытая — единицы. Порог стоит
+    на десяти, то есть с многократным запасом в пользу человека.
+    """
+    from PIL import Image
+    from io import BytesIO as _B
+    buf = _B()
+    Image.effect_noise((1200, 900), 60).convert("RGB").save(buf, "JPEG", quality=88)
+    assert cp.inspect(buf.getvalue(), "jpg")["ok"] is True
+    # И наш «нарисованный» кадр из остальных тестов — тоже.
+    assert cp.inspect(_картинка(exif=_exif(utcnow())), "jpg")["ok"] is True
+
+
+def test_the_taxi_shows_its_trunk_too(client, user_factory, контроль_включён):
+    """У такси спрашиваем и багажник: туда едет чемодан, коляска и сумки пассажира."""
+    коды = [с["code"] for с in cp.slots(cp.TAXI)]
+    assert "trunk" in коды
+    assert коды.index("trunk") < коды.index("salon"),         "багажник снаружи — просим его до салона, чтобы человек не бегал вокруг машины дважды"
+    # А по жалобе на грязь по-прежнему только салон: багажник тут ни при чём.
+    assert [с["code"] for с in cp.slots(cp.TAXI, cp.COMPLAINT)] == ["salon"]
+
+
 def test_the_same_photo_twice_is_caught(client):
     """Та же фотография во второй раз — единственный обман, который ловится честно."""
     кадр = _картинка(seed=5, exif=_exif(utcnow()))
@@ -333,7 +389,7 @@ def test_an_incomplete_set_is_not_accepted(client, user_factory, контрол�
         cp.attach(s, проверка, "front", "/secure/carphoto/1_a.jpg", "ok", "aaaa")
         итог = cp.submit(s, проверка)
     assert итог["ok"] is False
-    assert set(итог["missing"]) == {"back", "left", "right", "salon"}
+    assert set(итог["missing"]) == {"back", "left", "right", "trunk", "salon"}
 
 
 def test_a_newcomer_is_looked_at_by_a_human(client, user_factory, контроль_включён):
@@ -464,7 +520,7 @@ def test_the_driver_walks_the_whole_path(client, user_factory, контроль_
     экран = client.get("/carphoto?mode=taxi", headers=d["auth"])
     assert экран.status_code == 200, экран.text
     данные = экран.json()
-    assert данные["required"] is True and len(данные["slots"]) == 5
+    assert данные["required"] is True and len(данные["slots"]) == 6
 
     for i, слот in enumerate(cp.slots(cp.TAXI)):
         r = _прислать(client, d["auth"], _картинка(seed=i + 10, exif=_exif(utcnow())), слот["code"])
@@ -519,7 +575,7 @@ def test_the_admin_queue_shows_what_to_look_at(client, user_factory, контр�
     мой = [r for r in очередь.json() if r["user_id"] == d["id"]]
     assert len(мой) == 1
     assert мой[0]["check_clean_body"] is not мой[0]["winter"]
-    assert set(мой[0]["photos"]) == {"front", "back", "left", "right", "salon"}
+    assert set(мой[0]["photos"]) == {"front", "back", "left", "right", "trunk", "salon"}
 
 
 def test_a_refusal_without_a_reason_is_refused(client, user_factory, контроль_включён):

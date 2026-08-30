@@ -67,10 +67,15 @@ OPT_GUIDE_DOG = "guide_dog"        # везу с собакой-проводни
 OPT_STROLLER = "stroller"          # детская коляска — нужен свободный багажник
 OPT_PETS = "pets"                  # можно с животным
 OPT_BIG_LUGGAGE = "big_luggage"    # большой багаж
+# Зарядка в машине (Type-C / Lightning). Водителю не стоит почти ничего, а пассажиру с
+# севшим телефоном в дороге между сёлами — это связь и деньги за поездку. Поэтому опция,
+# а не требование класса: у кого есть — скажет, у кого нет — не выпадает из подбора.
+OPT_CHARGER = "charger"
 
 OPTIONS: tuple[str, ...] = (
     OPT_SEAT_0_1, OPT_SEAT_1_4, OPT_SEAT_4_7, OPT_BOOSTER,
     OPT_WHEELCHAIR, OPT_GUIDE_DOG, OPT_STROLLER, OPT_PETS, OPT_BIG_LUGGAGE,
+    OPT_CHARGER,
 )
 
 # Детские опции — те, где отсутствие означает «ехать нельзя по закону» (перевозка детей).
@@ -106,6 +111,7 @@ _OPTION_PRICE_RUB: dict[str, int] = {
     OPT_STROLLER: 0,        # коляска: это не услуга, это семья с ребёнком
     OPT_WHEELCHAIR: 0,      # ↓ см. ниже — только ноль
     OPT_GUIDE_DOG: 0,
+    OPT_CHARGER: 0,         # провод в прикуривателе — не услуга, за которую берут деньги
 }
 
 # ⚠️ ДОСТУПНОСТЬ ВСЕГДА БЕСПЛАТНА, И ЭТО НЕ НАСТРОЙКА.

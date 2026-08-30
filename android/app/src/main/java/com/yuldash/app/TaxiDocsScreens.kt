@@ -471,6 +471,10 @@ private fun TaxiPermitRegistryBlock(a: TaxiApplicationDto) {
                     PermitStep(4, appText("Возвращайся — и всё", "Кире ҡайт — бөттө"),
                                appText("Проверим сами в реестре, вписывать ничего не нужно.",
                                        "Реестрҙа үҙебеҙ тикшерәбеҙ, бер нәмә лә яҙырға кәрәкмәй."))
+                    // Предупреждение ДО покупки машины, а не после. Человек в райцентре
+                    // выбирает машину один раз на годы: узнать про локализацию и терминал
+                    // после сделки — значит узнать, что деньги потрачены зря.
+                    PermitWarning()
                     AppButton(
                         text = appText("Открыть Госуслуги", "Госуслуги-ны асыу"),
                         onClick = {
@@ -537,6 +541,47 @@ private fun TaxiCarPhotoBlock(data: CarPhotoDto, onOpen: () -> Unit) {
     }
 }
 
+
+/**
+ * Что узнать ДО покупки машины.
+ *
+ * Оба пункта — про чужие деньги, а не про наши правила. Человек в райцентре покупает машину
+ * один раз на годы, и «выяснилось после сделки» здесь означает потерянные сотни тысяч.
+ * Формулировки осторожные («могут потребовать», «уточни в своём районе»): требования
+ * региональные и меняются, а мы не хотим, чтобы наш экран прозвучал как справка из закона.
+ */
+@Composable
+private fun PermitWarning() {
+    Surface(color = CanonWarnBg, shape = CanonItemShape) {
+        Column(Modifier.fillMaxWidth().padding(CanonSpace.md),
+               verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+            Text(appText("Если только собираешься покупать машину",
+                         "Әгәр машина һатып алырға ғына йыйынаһың"),
+                 color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                 lineHeight = 20.sp)
+            PermitWarningLine(appText(
+                "С 1 марта 2026 новую машину вносят в реестр такси, только если она собрана " +
+                    "в России или ЕАЭС. На другую разрешение могут не дать.",
+                "2026 йылдың 1 мартынан яңы машинаны такси реестрына Рәсәйҙә йәки ЕАЭС-та " +
+                    "йыйылған булһа ғына индерәләр. Башҡаһына рөхсәт бирмәҫкә мөмкиндәр."))
+            PermitWarningLine(appText(
+                "Для нового разрешения могут потребовать ГЛОНАСС-терминал — уточни в своём " +
+                    "районе заранее.",
+                "Яңы рөхсәт өсөн ГЛОНАСС-терминал талап итеүҙәре мөмкин — үҙ районыңда " +
+                    "алдан асыҡла."))
+        }
+    }
+}
+
+/** Строка предупреждения: точка и текст. */
+@Composable
+private fun PermitWarningLine(text: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Text("•", color = CanonWarn, fontSize = 12.sp, lineHeight = 17.sp)
+        Spacer(Modifier.width(CanonSpace.sm))
+        Text(text, color = CanonWarn, fontSize = 12.sp, lineHeight = 17.sp)
+    }
+}
 
 /** Один шаг инструкции: номер в кружке, заголовок и пояснение. */
 @Composable
