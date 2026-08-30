@@ -186,6 +186,9 @@ def _guard_courier_debt(session: Session, courier_id: int) -> None:
     и где оплатить, а не просто отказывает: человек должен понимать, как вернуться в строй.
     Уже взятые заказы не трогаем — довезти надо.
     """
+    # Сначала зачёт (волна 216): снимать человека с работы за долг, который его же деньги
+    # в кошельке покрывают, — то же самое, что отобрать заработок за свои деньги.
+    settle_courier_commission_from_wallet(session, courier_id)
     owed = _commission_owed_kop(session, courier_id)
     if owed < settings.courier_debt_block_threshold_kop:
         return
@@ -1054,6 +1057,11 @@ def courier_online(body: CourierOnlineIn, user: User = Depends(current_user),
         raise herr(422, "Выбери зону работы", "Эш зонаһын һайла")
     prof = _my_profile(session, user.id)
     _guard_not_paused(prof)   # C3: на мягкой паузе по качеству на линию не выходим
+    # Разбор тяжёлой жалобы — на линию не выходим тоже (волна 214). Ставим здесь, а не только
+    # на приёме заказа: соседняя пауза стоит на обеих дверях, и человеку честнее узнать сразу,
+    # а не после того, как он весь вечер прождал заказ, который ему всё равно не дадут.
+    from .. import quality as quality_mod
+    quality_mod.guard_not_under_severe_review(session, user.id)
     _guard_courier_debt(session, user.id)   # неоплаченная комиссия ≥ порога → сначала рассчитайся
     if prof is None:
         prof = CourierProfile(user_id=user.id)
@@ -1526,6 +1534,102 @@ def courier_raise_budget(order_id: int, body: RaiseBudgetIn, user: User = Depend
 # ---------------------------------------------------------------------------
 # Кабинет курьера
 # ---------------------------------------------------------------------------
+def settle_courier_commission_from_wallet(session: Session, courier_id: Optional[int],
+                                          now=None) -> int:
+    """Погасить комиссию курьера тем, что уже лежит у него в кошельке (волна 216).
+
+    Зеркало `debt.settle_debt_from_wallet`, которое волна 154 завела для таксиста с доводом
+    «деньги платформы у водителя и долг водителя платформе гасят друг друга — так это и должно
+    работать, без банковских договоров». У курьера этого не было: тот зачёт ходит по
+    `CommissionDebt`, а он привязан к такси-заказу, тогда как комиссия курьера живёт флагом
+    на самой доставке.
+
+    Раньше это ничего не значило — класть курьеру в кошелёк было нечего. Волна 215 это
+    изменила: туда попадает возврат уже уплаченной комиссии за доставку, по которой курьеру
+    не заплатили. Получалось смешное: платформа держит его 50 ₽, вывести их нельзя (выплаты
+    выключены до оформления ИП), и при этом просит перевести полные 200 ₽ комиссии.
+
+    Правила те же, что у такси, и это не совпадение — два разных правила про одни и те же
+    деньги разъедутся на первой правке:
+      • по старшинству (FIFO) и ТОЛЬКО целиком: суммы на доставке не переписываем, у неё
+        меняется флаг, а не цифра. Не хватило на самую старую — стоим, деньги ждут. Иначе
+        свежая мелочь погасилась бы, а старая продолжила блокировать работу;
+      • списание — отдельная запись fee (−сумма). Без неё долг исчезал бы, а число в кошельке
+        оставалось прежним: человек читает эту историю;
+      • замок на строке пользователя берём ТОТ ЖЕ, что у выплат и у такси-зачёта. Один замок
+        на все денежные операции человека, иначе они разъедутся между собой;
+      • условие «ещё не оплачена» живёт ВНУТРИ UPDATE: на SQLite замок — пустышка, а на нём
+        живут тесты и демо-база (волна 201).
+    """
+    from ..ledger import driver_balance
+    from ..models import LedgerEntry, LedgerKind, User
+    from sqlalchemy import update as _update
+
+    if courier_id is None:
+        return 0
+    session.exec(select(User).where(User.id == courier_id).with_for_update()).one_or_none()
+    balance = driver_balance(session, courier_id)
+    # Ранний выход ниже РАВНОСИЛЬНЫЙ: с нулевым балансом цикл всё равно упёрся бы
+    # в `total + amount > balance` на первой же доставке. Он здесь ради экономии запроса
+    # на горячем пути — гейт долга зовут на каждом приёме заказа. Мутация, которая его
+    # снимает, поведение не меняет, и тестом её ловить нечем (разбор мутаций волны 216,
+    # правило волны 208).
+    if balance <= 0:
+        return 0
+    условия = [
+        ParcelDelivery.courier_id == courier_id,
+        ParcelDelivery.status == "delivered",
+        ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
+        ParcelDelivery.commission_paid == False,              # noqa: E712
+    ]
+    # Доставки, которые человек ПРЯМО СЕЙЧАС оплачивает, кошельком не трогаем (волна 218).
+    # Он нажал «оплатить», перевёл по СБП и ждёт Александра — а это «на доверии» и ждать
+    # можно сутки. Придёт в это окно возврат в кошелёк (волна 215) — и зачёт закроет ими
+    # доставку из снапшота платежа. Александр подтвердит перевод, активация пометит снапшот
+    # оплаченным, и за одну и ту же комиссию человек отдаст и перевод, и деньги из кошелька.
+    #
+    # Граница та же, что у активации платежа: снапшот — это `delivered_at <= created_at`.
+    # Доставки ПОСЛЕ снапшота в платёж не входят, их гасим как обычно: иначе висящий платёж
+    # замораживал бы кошелёк целиком, пока у Александра не дойдут руки.
+    в_оплате = session.exec(
+        select(func.max(Payment.created_at)).where(
+            Payment.user_id == courier_id,
+            Payment.purpose == "courier_commission",
+            Payment.status == "pending",
+        )
+    ).one()
+    снапшот = в_оплате[0] if isinstance(в_оплате, (tuple, list)) else в_оплате
+    if снапшот is not None:
+        условия.append(ParcelDelivery.delivered_at > снапшот)
+    rows = session.exec(
+        select(ParcelDelivery).where(*условия)
+        .order_by(ParcelDelivery.delivered_at, ParcelDelivery.id)
+    ).all()
+    total = 0
+    for p in rows:
+        amount = max(int(p.commission_kop or 0), 0)
+        if amount == 0:
+            continue
+        if total + amount > balance:
+            break                                  # на старейшую не хватило — дальше не идём
+        закрыта = session.execute(
+            _update(ParcelDelivery)
+            .where(ParcelDelivery.id == p.id, ParcelDelivery.commission_paid == False)  # noqa: E712
+            .values(commission_paid=True)
+        )
+        if закрыта.rowcount == 0:
+            continue                               # закрыл параллельный проход — не списываем
+        total += amount
+    if total <= 0:
+        return 0
+    session.add(LedgerEntry(
+        driver_id=courier_id, kind=LedgerKind.fee, amount_kop=-total,
+        note="Комиссия за доставку удержана из кошелька",
+    ))
+    session.commit()
+    return total
+
+
 def _commission_owed_kop(session: Session, courier_id: int) -> int:
     """Комиссия платформы, которую курьер ещё НЕ оплатил: сумма commission_kop по моим
     доставленным курьер-заказам, где commission_paid=False. Единый источник для /courier/me
@@ -1583,6 +1687,9 @@ def courier_me(user: User = Depends(current_user), session: Session = Depends(ge
             ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
         )
     ).one()
+    # Сначала зачёт, потом число: экран, который просит 200 ₽, пока платформа держит его
+    # 50 ₽, — хуже отсутствия экрана. Тот же принцип, что у прогресса смены и осмотра.
+    settle_courier_commission_from_wallet(session, user.id)
     owed = _commission_owed_kop(session, user.id)
     avg, cnt = user_rating(session, user.id)
     # C4: текущая ступень комиссии курьера (для UI — «сейчас ты платишь N%»). Тип courier (база).
@@ -1787,6 +1894,7 @@ def courier_pay_commission(user: User = Depends(current_user), session: Session 
                 return {"status": "succeeded", "method": "yookassa", "payment_id": existing.id}
             return _commission_payment_payload(existing, (info or {}).get("confirmation_url", ""))
         return _commission_payment_payload(existing)
+    settle_courier_commission_from_wallet(session, user.id)   # его деньги идут в счёт первыми
     owed = _commission_owed_kop(session, user.id)
     if owed <= 0:
         raise herr(409, "Нет комиссии к оплате", "Түләргә комиссия юҡ")

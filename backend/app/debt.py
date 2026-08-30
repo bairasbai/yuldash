@@ -631,13 +631,60 @@ def accrue_for_order(session: Session, order: InstantOrder,
     return debt
 
 
-def void_debt_for_order(session: Session, order_id: int, note: str = "") -> bool:
+def refund_ext_id(*, order_id: Optional[int] = None, parcel_id: Optional[int] = None) -> str:
+    """Ключ идемпотентности возврата комиссии: на один заказ (или доставку) — один возврат."""
+    return f"refund:order:{order_id}" if order_id is not None else f"refund:parcel:{parcel_id}"
+
+
+REFUND_NOTE = "Возврат комиссии: разбор подтвердил, что не заплатили"
+
+
+def refund_commission_to_wallet(session: Session, driver_id: Optional[int], amount_kop: int, *,
+                                order_id: Optional[int] = None, parcel_id: Optional[int] = None,
+                                note: str = REFUND_NOTE):
+    """Вернуть человеку комиссию, которую он платформе УЖЕ перевёл (волна 215).
+
+    Зачем. Договор «не заплатили → комиссию снимаем» умел только одно: пометить долг
+    оплаченным. Если человек к моменту разбора уже перевёл деньги, помечать было нечего,
+    и функция честно отвечала «нечего снимать» — а деньги оставались у платформы. Так
+    выходит само собой: долг гасится ПАЧКОЙ за неделю (выбрать «всё, кроме спорной поездки»
+    нельзя, такой ручки нет), а разбор делает живой человек и по тяжёлым делам идёт дольше
+    недели. Водителю при этом приходил пуш «Комиссия за поездку списана» — неправда.
+
+    Куда возвращаем. В кошелёк: выплаты на карту выключены до оформления ИП, но кошелёк
+    для того и есть — компенсацию промо-скидки платформа кладёт туда же, а она потом гасит
+    будущий долг (`settle_debt_from_wallet`, волна 154). Тот же путь и здесь.
+
+    Append-запись kind=adj (+сумма) — историю денег не правим. Идемпотентно по ext_id:
+    повторный разбор той же жалобы второй раз не начислит. НЕ коммитит — зовут внутри
+    чужой транзакции, коммитит вызывающий.
+    """
+    if driver_id is None or amount_kop <= 0:
+        return None
+    ext = refund_ext_id(order_id=order_id, parcel_id=parcel_id)
+    prev = session.exec(
+        select(LedgerEntry).where(LedgerEntry.ext_id == ext, LedgerEntry.kind == LedgerKind.adj)
+    ).first()
+    if prev is not None:
+        return prev
+    entry = LedgerEntry(driver_id=driver_id, order_id=order_id, kind=LedgerKind.adj,
+                        amount_kop=int(amount_kop), ext_id=ext, note=note)
+    session.add(entry)
+    return entry
+
+
+def void_debt_for_order(session: Session, order_id: int, note: str = ""):
     """B2: снять долг по комиссии за заказ, оплаченный ОНЛАЙН (Модель Б).
 
     На done заказа всегда заводится долг Модели А («водитель взял нал напрямую, должен комиссию»).
     Если пассажир затем оплатил заказ картой/СБП через платформу, комиссия уже удержана в ledger
     (fee), а деньги получила платформа — значит долг Модели А фиктивен. Помечаем его paid, иначе
     водитель обложен комиссией дважды, а фантомный unpaid-долг блокирует ему такси.
+
+    Возврат: `"voided"` — долг сняли (деньги ещё не переводили); `"refunded"` — деньги уже
+    были у платформы, вернули в кошелёк (волна 215); `None` — делать нечего. Строки, а не
+    bool: вызывающий показывает человеку РАЗНЫЙ текст, и «списали» вместо «вернули» — это
+    ровно та неправда, из-за которой волна 215 и случилась.
 
     Идемпотентно. НЕ коммитит — вызывается внутри транзакции settle_* (та и коммитит).
 
@@ -648,14 +695,21 @@ def void_debt_for_order(session: Session, order_id: int, note: str = "") -> bool
     debt = session.exec(
         select(CommissionDebt).where(CommissionDebt.order_id == order_id)
     ).first()
-    if debt is None or debt.status == DebtStatus.paid:
-        return False
+    if debt is None:
+        return None
+    if debt.status == DebtStatus.paid:
+        # Деньги платформа УЖЕ получила — снимать нечего, надо возвращать (волна 215).
+        # Только `paid`: это статус «админ подтвердил, что перевод пришёл». `pending` —
+        # ещё слово водителя, и админ может его отклонить; вернуть по слову значило бы
+        # подарить комиссию тому, чей перевод не дошёл.
+        return "refunded" if refund_commission_to_wallet(
+            session, debt.driver_id, debt.amount_kop, order_id=order_id) else None
     debt.status = DebtStatus.paid
     debt.confirmed_at = utcnow()
     if not debt.note:                      # свой note (напр. от админского «простить») не трогаем
         debt.note = note or f"{WRITTEN_OFF_PREFIX}: снят по разбору"
     session.add(debt)
-    return True
+    return "voided"
 
 
 # Причина, по которой долг стал paid без перевода по СБП: его закрыли деньгами, которые уже
@@ -735,7 +789,18 @@ def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
             InstantOrder, InstantOrder.id == CommissionDebt.order_id
         ).where(
             CommissionDebt.driver_id == driver_id,
-            CommissionDebt.status != DebtStatus.paid,
+            # Только `unpaid`. `pending` — это «Я оплатил»: деньги уже в пути, Александр
+            # подтвердит их вечером или завтра. Закрыть такой долг кошельком значит забрать
+            # с человека дважды — перевод придёт всё равно, а подтверждать будет уже нечего
+            # (волна 218). Отклонит админ заявку (деньги не пришли) — долг вернётся в `unpaid`,
+            # и кошелёк заберёт его следующим же проходом.
+            #
+            # Мутация этой строки в одиночку тестом НЕ ловится: её подстраховывает такое же
+            # условие внутри UPDATE ниже. Обе оставлены осознанно и делают разное — эта бережёт
+            # работу (незачем тянуть то, что трогать нельзя), та спасает, когда выборка успела
+            # устареть (`test_такси_заявка_подана_между_чтением_и_записью`). Разбор мутаций
+            # волны 218, правило волны 208.
+            CommissionDebt.status == DebtStatus.unpaid,
             InstantOrder.paid == True,          # noqa: E712 — способ оплаты уже известен
         ).order_by(CommissionDebt.created_at, CommissionDebt.id)
     ).all()
@@ -756,7 +821,7 @@ def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
         # случайное удаление станет красным (волна 201).
         закрыт = session.execute(
             update(CommissionDebt)
-            .where(CommissionDebt.id == d.id, CommissionDebt.status != DebtStatus.paid)
+            .where(CommissionDebt.id == d.id, CommissionDebt.status == DebtStatus.unpaid)
             .values(status=DebtStatus.paid, confirmed_at=now,
                     # Свой note (напр. админское «простить») не трогаем.
                     note=(d.note or WALLET_PAID_NOTE))
