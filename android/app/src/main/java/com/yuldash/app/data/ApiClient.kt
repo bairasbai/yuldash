@@ -122,6 +122,11 @@ object ApiClient {
     /** Разобрать тело ошибки в сообщение по текущему языку.
      *  detail={ru,ba} → берём по языку; строка → русскому как есть, башкиру — общий по коду;
      *  список (валидация FastAPI) / пусто → общий по коду. Русский флоу не меняется. */
+    /** Машинная причина отказа из тела (`detail.code`). Нет — пустая строка. */
+    private fun detailCode(text: String): String =
+        runCatching { (JSONObject(text).opt("detail") as? JSONObject)?.optString("code") }
+            .getOrNull().orEmpty()
+
     private fun errorMessage(status: Int, text: String): String {
         val detail = runCatching { JSONObject(text).opt("detail") }.getOrNull()
         when (detail) {
@@ -3421,7 +3426,7 @@ object ApiClient {
                     sessionExpired.value = true
                     Result.failure(ApiException(401, genericByStatus(401, langBa)))
                 } else {
-                    Result.failure(ApiException(code, errorMessage(code, text)))
+                    Result.failure(ApiException(code, errorMessage(code, text), detailCode(text)))
                 }
             } catch (ce: CancellationException) {
                 testTrace?.invoke("вызов $method $path ОТМЕНЁН (корутину закрыли снаружи)")
@@ -5152,7 +5157,13 @@ object ApiClient {
 }
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
-class ApiException(val status: Int, message: String) : Exception(message)
+/**
+ * Отказ сервера. `status` — код HTTP, `detailCode` — машинная причина, если сервер её прислал
+ * (`detail.code`). Причина нужна там, где от неё зависит СЛЕДУЮЩИЙ шаг клиента: у выплат
+ * «банк отклонил» и «ответ банка непонятен» выглядят одинаково (оба 400), а вести себя после
+ * них надо ровно наоборот — начать новую попытку или не трогать её вовсе (волна 219).
+ */
+class ApiException(val status: Int, message: String, val detailCode: String = "") : Exception(message)
 
 /** Цена одного класса машины в options оценки — все цены одним запросом.
  *  `open=false` — класс есть в тарифах, но в этом городе ещё не набралось водителей. */
