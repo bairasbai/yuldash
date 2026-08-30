@@ -19,6 +19,20 @@ def _accepted_order(client, user_factory, fake_redis, dname, pname):
     return d, pax, r.json()
 
 
+# ============================ «Уже выхожу» до приезда ============================
+def test_passenger_can_warn_driver_while_car_is_coming(client, user_factory, fake_redis):
+    """CTA компактного экрана C работает в accepted, но не до принятия и не от водителя."""
+    d, pax, offered = _offered_order(client, user_factory, fake_redis, "ComingDrv", "ComingPax")
+    url = f"/instant/orders/{offered['id']}/im-coming"
+    assert client.post(url, headers=pax["auth"]).status_code == 409
+
+    accepted = client.post(f"/instant/orders/{offered['id']}/accept", headers=d["auth"])
+    assert accepted.status_code == 200, accepted.text
+    assert "driver_car_color" in accepted.json()
+    assert client.post(url, headers=pax["auth"]).status_code == 200
+    assert client.post(url, headers=d["auth"]).status_code == 403
+
+
 # ============================ WS live-трек такси-заказа ============================
 def test_instant_location_relays_driver_to_passenger(client, user_factory, fake_redis):
     """Водитель шлёт позицию → пассажир получает кадр с role=driver; битые кадры игнорируются."""

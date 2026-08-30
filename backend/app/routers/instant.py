@@ -907,8 +907,10 @@ def im_coming(order_id: int, user: User = Depends(current_user),
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.passenger_id != user.id:      # анти-IDOR: предупредить можно только о своём заказе
         raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
-    if order.status != isv.S.arriving:
-        raise herr(409, "Водитель ещё не на месте", "Йөрөтөүсе әле урынында түгел")
+    # Сказать «выхожу» полезно не только после «Я на месте»: когда машина уже в трёх минутах,
+    # водитель заранее понимает, что пассажир спускается, и не тратит время на звонок.
+    if order.status not in {isv.S.accepted, isv.S.arriving}:
+        raise herr(409, "Водитель ещё не принял заказ", "Водитель заказды әле ҡабул итмәне")
     if order.driver_id:
         from ..services import push_bilingual   # локальный импорт — как в остальном файле
         # Имя не подставляем: водитель и так видит, чей это заказ, а лишнее имя в пуше —
@@ -917,7 +919,7 @@ def im_coming(order_id: int, user: User = Depends(current_user),
                        "Пассажир выходит", "Пассажир сыға",
                        "Уже спускается — подожди пару минут.",
                        "Төшөп килә — бер-ике минут көт.",
-                       ref_kind="instant", ref_id=order.id)
+                       data={"type": "instant_im_coming", "order_id": str(order.id)})
     return {"ok": True}
 
 

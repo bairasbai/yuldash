@@ -3429,6 +3429,7 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         # Раскрывается ТОЛЬКО после accept:
         "driver_name": (driver.name if (unlocked and driver) else ""),
         "driver_car": (car if unlocked else ""),
+        "driver_car_color": ((prof.car_color or "") if (unlocked and prof) else ""),
         # Госномер: поле было в базе, но в заказ не попадало — у подъезда две белые «Лады»,
         # и сверить нечем (кода посадки у такси тоже нет). Отдаём вместе с остальной карточкой.
         "driver_plate": ((prof.car_plate or "") if (unlocked and prof) else ""),

@@ -28,16 +28,18 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Place
@@ -105,8 +107,9 @@ import kotlinx.coroutines.launch
 
 /** Какое положение уместно на этой фазе — то самое «шторка подстраивается сама». */
 private fun defaultStopFor(status: String): TaxiSheetStop = when (status) {
-    // Машину ещё ищут или она едет — главное на экране карта.
-    "searching", "created", "offered" -> TaxiSheetStop.Peek
+    // Машину ещё ищут или она едет — главное на экране карта. В accepted компактная
+    // шторка C уже даёт водителя, связь, оплату и главное действие; держать Half нет причины.
+    "searching", "created", "offered", "accepted" -> TaxiSheetStop.Peek
     // Приехал и ждёт — нужен он сам: имя, номер, кнопка позвонить.
     "arriving" -> TaxiSheetStop.Half
     else -> TaxiSheetStop.Half
@@ -138,14 +141,30 @@ internal fun TaxiTripScreen(
     // Карту можно увести пальцем — и потерять машину из кадра. Кнопка возвращает вид
     // к маршруту: без неё человек оставался с пустым полем вместо своей поездки.
     var recenterTick by remember(order.id) { mutableStateOf(0) }
+    var navigatorFollow by rememberSaveable(order.id) { mutableStateOf(order.status == "onboard") }
 
     // Положение шторки: сначала подходящее фазе, дальше человек командует сам. Смена фазы
     // возвращает подсказку — но только если он не трогал шторку руками: дёргать её под
     // пальцем было бы хамством.
-    var stop by remember { mutableStateOf(defaultStopFor(order.status)) }
+    var stop by remember(order.id) { mutableStateOf(defaultStopFor(order.status)) }
     var userMoved by remember { mutableStateOf(false) }
     LaunchedEffect(order.status) {
-        if (!userMoved) stop = defaultStopFor(order.status)
+        // «Машина на месте» нельзя оставить незаметной в свёрнутой шторке: это новая фаза,
+        // где человеку нужны номер, звонок и таймер ожидания. Раскрываем один раз при переходе.
+        if (order.status == "arriving") {
+            stop = TaxiSheetStop.Half
+            userMoved = false
+            navigatorFollow = false
+        } else if (order.status == "onboard") {
+            // После посадки карта становится навигационной: машина остаётся в поле зрения,
+            // пока пассажир сам не сдвинет карту.
+            stop = TaxiSheetStop.Half
+            userMoved = false
+            navigatorFollow = true
+        } else if (!userMoved) {
+            stop = defaultStopFor(order.status)
+            navigatorFollow = false
+        }
     }
 
     var showChangeDestination by remember { mutableStateOf(false) }
@@ -153,6 +172,14 @@ internal fun TaxiTripScreen(
     var showSafety by remember { mutableStateOf(false) }
     var showShare by remember(order.id) { mutableStateOf(false) }
     var confirmPaidCancel by remember { mutableStateOf(false) }
+
+    val openChat = { NavSignals.openInstantChat.value = order.id }
+    val callDriver = {
+        runCatching {
+            ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${order.driverPhone}")))
+        }
+        Unit
+    }
 
     // Живой трек машины: держим сокет заказа, пока экран на виду. Колбэк приходит с потока
     // OkHttp — snapshot-state потокобезопасен. Ушли с экрана → закрываем, иначе сокет живёт
@@ -185,27 +212,48 @@ internal fun TaxiTripScreen(
                         car = carPoint,
                         carBearing = carBearing,
                         recenterTick = recenterTick,
+                        followPoint = carPoint,
+                        followBearing = carBearing,
+                        followEnabled = order.status == "onboard" && navigatorFollow && carPoint != null,
+                        onFollowInterrupted = { navigatorFollow = false },
                     )
                 }
             },
-            header = { TripStatusHeader(order) },
+            halfBodyFraction = if (order.status == "onboard") 0.44f else 0.36f,
+            header = {
+                AnimatedContent(
+                    targetState = stop == TaxiSheetStop.Peek,
+                    transitionSpec = {
+                        fadeIn(tween(CanonMotion.NORMAL))
+                            .togetherWith(fadeOut(tween(CanonMotion.QUICK)))
+                    },
+                    label = "taxiTripCompactToDetailed",
+                ) { compact ->
+                    if (compact) {
+                        TripCompactHeader(
+                            order = order,
+                            onChat = openChat,
+                            onCall = callDriver,
+                            onSafety = { showSafety = true },
+                        )
+                    } else {
+                        TripStatusHeader(order)
+                    }
+                }
+            },
             body = {
                 TripDriverCard(
                     order = order,
-                    onChat = { NavSignals.openInstantChat.value = order.id },
-                    onCall = {
-                        runCatching {
-                            ctx.startActivity(
-                                Intent(Intent.ACTION_DIAL, Uri.parse("tel:${order.driverPhone}"))
-                            )
-                        }
-                    },
+                    onChat = openChat,
+                    onCall = callDriver,
                     onSafety = { showSafety = true },
                 )
+                if (order.status == "onboard") {
+                    TripOnboardRouteSummary(order)
+                }
                 // «Я на месте» → живой таймер: бесплатное окно, потом платно.
                 if (order.status == "arriving") {
                     InstantWaitingRow(order)
-                    TripImComingButton(order.id)
                 }
                 TripPriceRow(order)
             },
@@ -236,17 +284,46 @@ internal fun TaxiTripScreen(
                     onConfirmNeeded = { confirmPaidCancel = true },
                 )
             },
+            footer = {
+                if (order.status == "accepted" || order.status == "arriving") {
+                    TripImComingButton(order.id)
+                }
+            },
+            hasFooter = order.status == "accepted" || order.status == "arriving",
             overlay = {
+                if (stop == TaxiSheetStop.Peek) {
+                    TripMapStatusPill(
+                        order = order,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .statusBarsPadding()
+                            .padding(horizontal = 84.dp, vertical = CanonSpace.lg),
+                    )
+                }
+                TripMinimizeButton(
+                    onClick = onMinimize,
+                    modifier = Modifier.align(Alignment.TopStart)
+                        .statusBarsPadding()
+                        .padding(CanonSpace.lg),
+                )
                 // SOS — поверх всего и всегда на виду. Единственная кнопка, которую мы НЕ прячем
                 // под «Безопасность»: у Яндекса до 112 два тапа, а это на один больше, чем есть
                 // у человека в беде.
                 TripSosButton(
                     orderId = order.id,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(CanonSpace.lg),
+                    modifier = Modifier.align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(CanonSpace.lg),
                 )
                 TripRecenterButton(
-                    onClick = { recenterTick++ },
-                    modifier = Modifier.align(Alignment.TopStart).padding(CanonSpace.lg),
+                    following = order.status == "onboard" && navigatorFollow,
+                    onClick = {
+                        if (order.status == "onboard") navigatorFollow = true
+                        recenterTick++
+                    },
+                    modifier = Modifier.align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(top = 80.dp, end = CanonSpace.lg),
                 )
             },
         )
@@ -297,21 +374,254 @@ internal fun TaxiTripScreen(
 }
 
 /**
+ * Состояние C: карта остаётся главным экраном, а шторка показывает только то, что нужно
+ * прямо сейчас — кто едет, как связаться, сколько приготовить и где безопасность.
+ */
+@Composable
+private fun TripCompactHeader(
+    order: InstantOrderDto,
+    onChat: () -> Unit,
+    onCall: () -> Unit,
+    onSafety: () -> Unit,
+) {
+    val fallback = appText("Водитель", "Йөрөтөүсе")
+    val verifiedLabel = appText("Проверен", "Тикшерелгән")
+    val chatLabel = appText("Написать", "Яҙырға")
+    val chatDescription = appText("Написать водителю", "Йөрөтөүсегә яҙырға")
+    val callLabel = appText("Позвонить", "Шылтыратыу")
+    val callDescription = appText("Позвонить водителю", "Йөрөтөүсегә шылтыратыу")
+
+    Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            TripDriverAvatar(url = order.driverAvatar, name = order.driverName)
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        order.driverName.ifBlank { fallback },
+                        style = CanonHeading,
+                        color = CanonText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (order.driverVerified) {
+                        Spacer(Modifier.width(CanonSpace.xs))
+                        Icon(
+                            Icons.Default.Verified,
+                            contentDescription = verifiedLabel,
+                            tint = CanonGreen2,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+                val ratingAndCar = buildList {
+                    if (order.driverRating > 0) {
+                        add("★ " + String.format(java.util.Locale.US, "%.1f", order.driverRating))
+                    }
+                    if (order.driverCar.isNotBlank()) add(order.driverCar)
+                }.joinToString("  ·  ")
+                if (ratingAndCar.isNotBlank()) {
+                    Text(
+                        ratingAndCar,
+                        style = CanonMicro,
+                        color = CanonMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                val colorAndPlate = buildList {
+                    if (order.driverCarColor.isNotBlank()) add(order.driverCarColor)
+                    if (order.driverPlate.isNotBlank()) add(order.driverPlate)
+                }.joinToString("  ·  ")
+                if (colorAndPlate.isNotBlank()) {
+                    Text(
+                        colorAndPlate,
+                        style = CanonMicro,
+                        color = CanonMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            TripCompactAction(
+                icon = Icons.Default.ChatBubble,
+                label = chatLabel,
+                description = chatDescription,
+                onClick = onChat,
+            )
+            if (order.driverPhone.isNotBlank()) {
+                TripCompactAction(
+                    icon = Icons.Default.Phone,
+                    label = callLabel,
+                    description = callDescription,
+                    onClick = onCall,
+                )
+            }
+        }
+        TripCompactPaymentSafety(order = order, onSafety = onSafety)
+    }
+}
+
+/** Маленькое действие C: тонкая иконка, но честная тач-цель 48dp и видимая подпись. */
+@Composable
+private fun TripCompactAction(
+    icon: ImageVector,
+    label: String,
+    description: String,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.width(64.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Surface(
+            onClick = onClick,
+            shape = CircleShape,
+            color = CanonMint,
+            modifier = Modifier.minimumInteractiveComponentSize().size(48.dp),
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = description, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+            }
+        }
+        Spacer(Modifier.height(CanonSpace.xs))
+        Text(
+            label,
+            style = CanonMicro,
+            color = CanonMutedStrong,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** Цена и безопасность в одной спокойной строке — две соседние вещи, не две тяжёлые карточки. */
+@Composable
+private fun TripCompactPaymentSafety(order: InstantOrderDto, onSafety: () -> Unit) {
+    val safetyLabel = appText("Безопасность", "Именлек")
+    val payment = "${formatTaxiKop(order.passengerPayKop)}  ·  ${payMethodLabel(order.paymentMethod)}"
+    Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = CanonSpace.md, end = CanonSpace.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                payMethodIcon(order.paymentMethod),
+                contentDescription = null,
+                tint = CanonGreen2,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(CanonSpace.sm))
+            Text(
+                payment,
+                style = CanonBodyStrong,
+                color = CanonText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Surface(
+                onClick = onSafety,
+                shape = CanonFieldShape,
+                color = CanonBg,
+                modifier = Modifier.minimumInteractiveComponentSize().heightIn(min = 48.dp),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = CanonSpace.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+                ) {
+                    Icon(
+                        Icons.Default.Shield,
+                        contentDescription = null,
+                        tint = CanonGreen2,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(safetyLabel, style = CanonMicro, color = CanonGreen2, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+/** Плавающий статус C: не перекрывает маршрут и освобождает шторку от повторного заголовка. */
+@Composable
+private fun TripMapStatusPill(order: InstantOrderDto, modifier: Modifier = Modifier) {
+    val fallback = appText("Водитель", "Йөрөтөүсе")
+    val who = order.driverName.ifBlank { fallback }
+    val status = when (order.status) {
+        "arriving" -> appText("Машина на месте", "Машина урынында")
+        "onboard" -> appText("В пути", "Юлда")
+        else -> appText("$who едет", "$who килә")
+    }
+    Surface(
+        color = CanonSurface,
+        shape = CanonItemShape,
+        shadowElevation = CanonDepth.raised,
+        border = BorderStroke(1.dp, CanonBorder),
+        modifier = modifier,
+    ) {
+        Row(
+            Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            Text(
+                status,
+                style = CanonBodyStrong,
+                color = CanonText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (order.etaMin > 0 && order.status == "accepted") {
+                AnimatedContent(targetState = order.etaMin.toInt(), label = "tripMapEta") { minutes ->
+                    Text(appText("$minutes мин", "$minutes мин"), style = CanonBodyStrong, color = CanonGreen2)
+                }
+            }
+        }
+    }
+}
+
+/**
  * Статус — одной крупной строкой и минутами. Шкалы прогресса убраны обе: их было две подряд,
  * с разными наборами шагов, и человек всё равно следит за одним числом «сколько ждать».
  */
 @Composable
 private fun TripStatusHeader(order: InstantOrderDto) {
+    val fallback = appText("Водитель", "Йөрөтөүсе")
+    val who = order.driverName.ifBlank { fallback }
+    val eta = order.etaMin.toInt().coerceAtLeast(0)
+    val arrivalClock = remember(order.id, eta) {
+        if (eta > 0) {
+            java.time.LocalTime.now().plusMinutes(eta.toLong())
+                .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+        } else null
+    }
     val title = when (order.status) {
-        "accepted" -> appText("Водитель едет к тебе", "Йөрөтөүсе һиңә килә")
+        "accepted" -> if (eta > 0) {
+            appText("$who будет через $eta мин", "$who $eta минуттан була")
+        } else {
+            appText("$who едет к тебе", "$who һиңә килә")
+        }
         "arriving" -> appText("Машина на месте", "Машина урынында")
-        "onboard" -> appText("В пути", "Юлда")
+        "onboard" -> if (eta > 0) appText("В пути · $eta мин", "Юлда · $eta мин")
+                     else appText("В пути", "Юлда")
         else -> appText("Водитель едет", "Йөрөтөүсе килә")
     }
-    Row(
-        Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    val subtitle = when (order.status) {
+        "accepted" -> appText("Едет к тебе", "Һиңә килә")
+        "arriving" -> appText("Можно выходить", "Сығырға була")
+        "onboard" -> arrivalClock?.let {
+            appText("Приедем около $it", "Яҡынса $it-тә барып етәбеҙ")
+        } ?: appText("Следим за маршрутом", "Юлды күҙәтәбеҙ")
+        else -> ""
+    }
+    Column(Modifier.fillMaxWidth()) {
         // Смена фазы — главное событие экрана. Мгновенная подмена надписи читалась как сбой,
         // поэтому это движение вверх, а не щелчок.
         AnimatedContent(
@@ -320,7 +630,6 @@ private fun TripStatusHeader(order: InstantOrderDto) {
                 (fadeIn(tween(CanonMotion.NORMAL)) + slideInVertically(tween(CanonMotion.SLOW)) { it / 3 })
                     .togetherWith(fadeOut(tween(CanonMotion.QUICK)))
             },
-            modifier = Modifier.weight(1f),
             label = "tripPhaseTitle",
         ) { t ->
             Text(
@@ -331,15 +640,32 @@ private fun TripStatusHeader(order: InstantOrderDto) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (order.etaMin > 0 && order.status != "onboard") {
-            Spacer(Modifier.width(CanonSpace.sm))
-            // Минуты меняются плавно: скачущее число выглядит как обрыв связи.
-            AnimatedContent(targetState = order.etaMin.toInt(), label = "tripEta") { m ->
-                Text(
-                    appText("$m мин", "$m мин"),
-                    style = CanonHeading,
-                    color = CanonGreen2,
-                )
+        if (subtitle.isNotBlank()) {
+            Spacer(Modifier.height(CanonSpace.xs))
+            Text(subtitle, style = CanonCaption, color = CanonMuted)
+        }
+    }
+}
+
+/** Вариант B во время движения: адрес назначения виден без раскрытия полной шторки. */
+@Composable
+private fun TripOnboardRouteSummary(order: InstantOrderDto) {
+    val destination = order.toText.ifBlank { appText("Точка назначения", "Барыу нөктәһе") }
+    Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(CanonSpace.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.md),
+        ) {
+            Box(
+                Modifier.size(40.dp).background(CanonTaxiBg, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Place, contentDescription = null, tint = CanonTaxiText, modifier = Modifier.size(20.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+                Text(appText("Едем к месту", "Барыу урынына барабыҙ"), style = CanonMicro, color = CanonMuted)
+                Text(destination, style = CanonBodyStrong, color = CanonText, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -362,8 +688,10 @@ private fun TripDriverCard(
 ) {
     val nameFallback = appText("Водитель", "Йөрөтөүсе")
     val verifiedLabel = appText("Проверен", "Тикшерелгән")
-    val chatLabel = appText("Написать водителю", "Йөрөтөүсегә яҙырға")
-    val callLabel = appText("Позвонить водителю", "Йөрөтөүсегә шылтыратыу")
+    val chatLabel = appText("Написать", "Яҙырға")
+    val chatDescription = appText("Написать водителю", "Йөрөтөүсегә яҙырға")
+    val callLabel = appText("Позвонить", "Шылтыратыу")
+    val callDescription = appText("Позвонить водителю", "Йөрөтөүсегә шылтыратыу")
     val safetyLabel = appText("Безопасность", "Именлек")
     val fromLabel = order.driverFrom.trim()
 
@@ -404,15 +732,18 @@ private fun TripDriverCard(
                     Text(rated, style = CanonCaption, color = CanonMuted,
                          maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                // Машина и откуда водитель. Землячество — то, чего у федеральной службы быть
-                // не может, поэтому оно стоит рядом с маркой, а не теряется в хвосте строки.
-                val carAndHome = buildList {
+                // Марка и цвет остаются одной короткой строкой. Город вынесен ниже отдельно:
+                // рядом с крупным госномером длинная общая строка обрезалась как «Ба…».
+                val car = buildList {
                     if (order.driverCar.isNotBlank()) add(order.driverCar)
-                    if (fromLabel.isNotBlank()) add(fromLabel)
+                    if (order.driverCarColor.isNotBlank()) add(order.driverCarColor)
                 }.joinToString("  ·  ")
-                if (carAndHome.isNotBlank()) {
-                    Text(carAndHome, style = CanonCaption, color = CanonMuted,
+                if (car.isNotBlank()) {
+                    Text(car, style = CanonCaption, color = CanonMuted,
                          maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (fromLabel.isNotBlank()) {
+                    Text(fromLabel, style = CanonMicro, color = CanonGreen2, maxLines = 1)
                 }
             }
             // ГОСНОМЕР — по нему узнают машину во дворе. «Белая Гранта» не помогает, когда
@@ -432,12 +763,33 @@ private fun TripDriverCard(
                 }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
-            TripCircleAction(Icons.Default.ChatBubble, chatLabel, CanonMint, CanonGreen2, onChat)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            TripLabeledAction(
+                icon = Icons.Default.ChatBubble,
+                label = chatLabel,
+                description = chatDescription,
+                onClick = onChat,
+                modifier = Modifier.weight(1f),
+            )
             if (order.driverPhone.isNotBlank()) {
-                TripCircleAction(Icons.Default.Phone, callLabel, CanonGreen2, CanonOnAccent, onCall)
+                TripLabeledAction(
+                    icon = Icons.Default.Phone,
+                    label = callLabel,
+                    description = callDescription,
+                    onClick = onCall,
+                    modifier = Modifier.weight(1f),
+                )
             }
-            TripCircleAction(Icons.Default.Shield, safetyLabel, CanonMint, CanonGreen2, onSafety)
+            TripLabeledAction(
+                icon = Icons.Default.Shield,
+                label = safetyLabel,
+                description = safetyLabel,
+                onClick = onSafety,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -466,24 +818,37 @@ private fun TripDriverAvatar(url: String, name: String) {
     }
 }
 
-/** Круглая кнопка связи. Тач-цель 48dp: пассажир жмёт это на улице, часто в перчатках. */
+/** Действие A: подпись не заставляет угадывать иконку, круг остаётся лёгким, а не кнопкой-плитой. */
 @Composable
-private fun TripCircleAction(
+private fun TripLabeledAction(
     icon: ImageVector,
     label: String,
-    bg: androidx.compose.ui.graphics.Color,
-    tint: androidx.compose.ui.graphics.Color,
+    description: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = bg,
-        modifier = Modifier.minimumInteractiveComponentSize().size(48.dp),
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(20.dp))
+        Surface(
+            onClick = onClick,
+            shape = CircleShape,
+            color = CanonMint,
+            modifier = Modifier.minimumInteractiveComponentSize().size(48.dp),
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = description, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+            }
         }
+        Spacer(Modifier.height(CanonSpace.xs))
+        Text(
+            label,
+            style = CanonMicro,
+            color = CanonMutedStrong,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -501,12 +866,29 @@ private fun TripPriceRow(order: InstantOrderDto) {
         Row(
             Modifier.fillMaxWidth().padding(CanonSpace.md),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(appText("К оплате водителю", "Йөрөтөүсегә түләргә"), style = CanonCaption, color = CanonMuted)
-                Text(appText("наличными или переводом", "аҡсалата йәки күсереп"), style = CanonCaption, color = CanonMuted)
-            }
-            Text(formatTaxiKop(order.passengerPayKop), style = CanonHeading, color = CanonText)
+            Icon(
+                payMethodIcon(order.paymentMethod),
+                contentDescription = null,
+                tint = CanonGreen2,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                formatTaxiKop(order.passengerPayKop),
+                style = CanonHeading,
+                color = CanonText,
+                maxLines = 1,
+            )
+            Text("·", style = CanonBody, color = CanonMuted)
+            Text(
+                payMethodLabel(order.paymentMethod),
+                style = CanonBody,
+                color = CanonMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -514,24 +896,33 @@ private fun TripPriceRow(order: InstantOrderDto) {
 /** «Уже выхожу» — водитель узнаёт, что человек спускается, и не начинает считать простой зря. */
 @Composable
 private fun TripImComingButton(orderId: Int) {
+    val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var sent by remember(orderId) { mutableStateOf(false) }
+    var sending by remember(orderId) { mutableStateOf(false) }
     val label = if (sent) appText("Водитель предупреждён", "Йөрөтөүсегә әйтелде")
                 else appText("Уже выхожу", "Сығып киләм")
-    OutlinedButton(
+    val failed = appText("Не получилось предупредить. Повтори.", "Әйтеп булманы. Ҡабатла.")
+    AppButton(
+        text = label,
         onClick = {
-            if (sent) return@OutlinedButton
-            sent = true
-            scope.launch { runCatching { ApiClient.instantImComing(orderId) } }
+            if (sent || sending) return@AppButton
+            sending = true
+            scope.launch {
+                ApiClient.instantImComing(orderId)
+                    .onSuccess { sent = true }
+                    .onFailure {
+                        android.widget.Toast.makeText(ctx, serverSaid(it, failed), android.widget.Toast.LENGTH_LONG).show()
+                    }
+                sending = false
+            }
         },
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        shape = CanonFieldShape,
-        border = BorderStroke(1.dp, CanonGreen2),
-    ) {
-        Icon(Icons.Default.DirectionsWalk, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(CanonSpace.sm))
-        Text(label, style = CanonButton, color = CanonGreen2)
-    }
+        icon = Icons.AutoMirrored.Filled.DirectionsWalk,
+        loading = sending,
+        enabled = !sent,
+        style = AppButtonStyle.Primary,
+        height = 52.dp,
+    )
 }
 
 /** Маршрут: откуда, остановки, куда. Отсюда же меняют адрес и добавляют остановку. */
@@ -878,10 +1269,37 @@ private fun TripLightSwitch(lightNow: Boolean, onToggle: () -> Unit) {
     }
 }
 
-/** «Вернуть карту» — снова показать весь маршрут, если увёл вид пальцем. */
+/** Свернуть поездку, не отменяя её: активная полоска останется поверх остальных вкладок. */
 @Composable
-private fun TripRecenterButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val label = appText("Показать маршрут", "Юлды күрһәтеү")
+private fun TripMinimizeButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = CanonSurface,
+        shadowElevation = CanonDepth.raised,
+        border = BorderStroke(1.dp, CanonBorder),
+        modifier = modifier.minimumInteractiveComponentSize().size(48.dp),
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(
+                Icons.Default.KeyboardArrowDown,
+                contentDescription = appText("Свернуть поездку", "Сәфәрҙе йыйыу"),
+                tint = CanonText,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+    }
+}
+
+/** «Вернуть карту»: в поездке возвращает слежение, до посадки показывает весь маршрут. */
+@Composable
+private fun TripRecenterButton(
+    following: Boolean = false,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val label = if (following) appText("Камера следует за машиной", "Камера машина артынан бара")
+                else appText("Вернуться к движению", "Хәрәкәткә кире ҡайтыу")
     Surface(
         onClick = onClick,
         shape = CircleShape,
@@ -893,7 +1311,7 @@ private fun TripRecenterButton(onClick: () -> Unit, modifier: Modifier = Modifie
             Icon(
                 Icons.Default.MyLocation,
                 contentDescription = label,
-                tint = CanonGreen2,
+                tint = if (following) CanonTaxiText else CanonGreen2,
                 modifier = Modifier.size(20.dp),
             )
         }

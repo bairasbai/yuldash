@@ -5184,6 +5184,7 @@ data class InstantOrderDto(
     val driverSince: String = "",      // месяц регистрации "YYYY-MM" → «с нами с марта»
     val driverFrom: String = "",       // город или район водителя: «из Баймака» — то, чего у федералов нет
     val driverPlate: String = "",      // госномер — по нему узнают машину во дворе, «белая Гранта» не помогает
+    val driverCarColor: String = "",   // цвет помогает узнать нужную машину среди одинаковых моделей
     val comment: String = "",          // «за магазином, синие ворота» — как найти пассажира
     val entrance: String = "",         // подъезд / квартира / этаж
     val forOther: Boolean = false,     // заказ ДЛЯ ДРУГОГО: имя и телефон в payload — того, кого везём
@@ -5301,6 +5302,7 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     passengerTrips = optInt("passenger_trips"),
     driverName = optString("driver_name"),
     driverCar = optString("driver_car"),
+    driverCarColor = optString("driver_car_color"),
     driverVerified = optBoolean("driver_verified"),
     driverRating = optDouble("driver_rating", 0.0),
     driverPhone = optString("driver_phone"),

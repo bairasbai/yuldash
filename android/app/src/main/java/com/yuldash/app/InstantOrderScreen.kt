@@ -141,8 +141,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.yandex.mapkit.MapKitFactory
+import com.yandex.mapkit.Animation
 import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.map.CameraPosition
+import com.yandex.mapkit.map.CameraUpdateReason
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -914,6 +916,15 @@ internal fun InstantRouteMap(
     // Счётчик «наведись на маршрут заново». Меняется — камера возвращается к А и Б.
     // Нужен кнопке возврата: увёл карту пальцем — машина пропадала из кадра насовсем.
     recenterTick: Int = 0,
+    // Навигационный режим без притворства NaviKit'ом: камера следует за реальной живой
+    // точкой и курсом. Манёвров/голоса здесь нет — текущий MapKit full их не предоставляет.
+    followPoint: Point? = null,
+    followBearing: Double? = null,
+    followEnabled: Boolean = false,
+    // Доля высоты всего MapView, на которой держим машину. Значение меньше 0.5
+    // оставляет больше карты впереди и не прячет маркер под нижней шторкой.
+    followFocusY: Float = 0.34f,
+    onFollowInterrupted: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     // Цвет маршрута берём из токена темы, а не из константы: в тёмной теме CanonGreen2 светлее,
@@ -951,6 +962,17 @@ internal fun InstantRouteMap(
             isRotateGesturesEnabled = interactive
             isTiltGesturesEnabled = interactive
         }
+    }
+    // Как в настоящем навигаторе: пока человек не трогает карту, камера держит машину.
+    // Первый ручной жест переводит карту в свободный режим; отдельная кнопка снаружи снова
+    // включает слежение. Без этого карта либо отбивается от пальца, либо теряет машину.
+    DisposableEffect(followEnabled, onFollowInterrupted) {
+        val map = mapView.mapWindow.map
+        val listener = com.yandex.mapkit.map.CameraListener { _, _, reason, _ ->
+            if (followEnabled && reason == CameraUpdateReason.GESTURES) onFollowInterrupted()
+        }
+        map.addCameraListener(listener)
+        onDispose { runCatching { map.removeCameraListener(listener) } }
     }
     DisposableEffect(Unit) {
         MapKitFactory.getInstance().onStart(); mapView.onStart()
@@ -997,7 +1019,7 @@ internal fun InstantRouteMap(
                     }
                 )
             }.getOrNull()
-            fitRouteCamera(map, from, to)
+            if (!followEnabled || followPoint == null) fitRouteCamera(map, from, to)
         } else {
             (from ?: to)?.let { map.move(CameraPosition(it, 14f, 0f, 0f)) }
         }
@@ -1114,18 +1136,55 @@ internal fun InstantRouteMap(
     }
     // Кнопка «вернуть карту»: возвращаем камеру к маршруту. Первый проход пропускаем —
     // при создании карта уже наведена, и повторное движение выглядело бы дёрганьем.
-    LaunchedEffect(recenterTick) {
+    LaunchedEffect(recenterTick, followFocusY) {
         if (recenterTick > 0) {
             val map = mapView.mapWindow.map
-            if (from != null && to != null) fitRouteCamera(map, from, to)
+            if (followEnabled && followPoint != null) {
+                val window = mapView.mapWindow
+                if (window.width() > 0 && window.height() > 0) {
+                    window.focusPoint = com.yandex.mapkit.ScreenPoint(
+                        window.width() / 2f,
+                        window.height() * followFocusY.coerceIn(0.2f, 0.5f),
+                    )
+                }
+                map.move(
+                    CameraPosition(
+                        followPoint,
+                        16.2f,
+                        (followBearing ?: 0.0).toFloat(),
+                        42f,
+                    ),
+                    Animation(Animation.Type.SMOOTH, 0.45f),
+                    null,
+                )
+            } else if (from != null && to != null) fitRouteCamera(map, from, to)
             else (from ?: to)?.let { map.move(CameraPosition(it, 14f, 0f, 0f)) }
         }
+    }
+
+    // Живое следование. Пять секунд между GPS-фиксами превращаем в мягкий переход камеры,
+    // а не в телепорт. Курс неизвестен — север остаётся сверху, ничего не выдумываем.
+    LaunchedEffect(followPoint, followBearing, followEnabled, followFocusY) {
+        val point = followPoint ?: return@LaunchedEffect
+        if (!followEnabled) return@LaunchedEffect
+        val window = mapView.mapWindow
+        if (window.width() > 0 && window.height() > 0) {
+            window.focusPoint = com.yandex.mapkit.ScreenPoint(
+                window.width() / 2f,
+                window.height() * followFocusY.coerceIn(0.2f, 0.5f),
+            )
+        }
+        mapView.mapWindow.map.move(
+            CameraPosition(point, 16.2f, (followBearing ?: 0.0).toFloat(), 42f),
+            Animation(Animation.Type.SMOOTH, 0.7f),
+            null,
+        )
     }
 
     // Маркер машины (live-трек, B7a-3): нав-стрелка (как стрелка попутчика), поворот по bearing.
     // Placemark один на жизнь карты — обновляем geometry/direction, не пересоздаём (без мигания).
     val carPm = remember { mutableStateOf<com.yandex.mapkit.map.PlacemarkMapObject?>(null) }
-    LaunchedEffect(car, carBearing) {
+    LaunchedEffect(car, carBearing, followEnabled) {
         val map = mapView.mapWindow.map
         val point = car
         if (point == null) {
@@ -1154,6 +1213,12 @@ internal fun InstantRouteMap(
             pm.isVisible = true
             pm.geometry = point
             carBearing?.let { pm.direction = it.toFloat() }
+            pm.setIconStyle(
+                com.yandex.mapkit.map.IconStyle()
+                    .setAnchor(android.graphics.PointF(0.5f, 0.5f))
+                    .setRotationType(com.yandex.mapkit.map.RotationType.ROTATE)
+                    .setScale(if (followEnabled) 1.28f else 1f),
+            )
         }
     }
     DisposableEffect(Unit) {
@@ -1228,7 +1293,12 @@ internal fun InstantRouteMap(
         }
         onDispose { carObjs.forEach { runCatching { map.mapObjects.remove(it) } } }
     }
-    val mapDescription = if (showSmartLocation) {
+    val mapDescription = if (followEnabled) {
+        appText(
+            "Карта поездки. Камера следует за машиной.",
+            "Сәфәр картаһы. Камера машина артынан бара.",
+        )
+    } else if (showSmartLocation) {
         appText(
             "Карта заказа. Ваша геолокация отмечена на карте.",
             "Заказ картаһы. Һинең геолокацияң картала билдәләнгән.",
@@ -1623,6 +1693,7 @@ internal fun InstantOrderScreen(
                         TaxiTripScreen(
                             order = o,
                             onCancel = { cancelReasonForId = o.id },
+                            onMinimize = onBack,
                         )
                     }
                     "expired" -> current?.let { o ->
@@ -5619,7 +5690,8 @@ internal fun InstantDriverTripScreen(
         trackSocket.value = s
         onDispose { s.close(); trackSocket.value = null }
     }
-    val myLivePoint by rememberMyPoint(active = isOrderActive)
+    val myLocationFix by rememberMyLocationFix(active = isOrderActive)
+    val myLivePoint = myLocationFix?.point
     var lastLocSentMs by remember { mutableStateOf(0L) }
     var prevSentPoint by remember { mutableStateOf<Point?>(null) }
     LaunchedEffect(myLivePoint, isOrderActive) {
@@ -5629,7 +5701,7 @@ internal fun InstantDriverTripScreen(
         if (now - lastLocSentMs < 5_000) return@LaunchedEffect
         lastLocSentMs = now
         // Курс из двух последних фиксов (нос стрелки по движению); стоим на месте → без поворота.
-        val bearing = prevSentPoint?.let { q ->
+        val bearing = myLocationFix?.headingDegrees?.toDouble() ?: prevSentPoint?.let { q ->
             val dLat = p.latitude - q.latitude
             val dLng = p.longitude - q.longitude
             if (kotlin.math.abs(dLat) + kotlin.math.abs(dLng) < 0.00005) null
@@ -5639,7 +5711,14 @@ internal fun InstantDriverTripScreen(
         trackSocket.value?.sendLoc(p.latitude, p.longitude, bearing)
     }
 
-    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Поездка", "Сәфәр"), onBack) }) { padding ->
+    Scaffold(
+        containerColor = CanonBg,
+        topBar = {
+            // В движении карта — рабочая поверхность водителя и занимает системно безопасный
+            // полный экран. До посадки сохраняем обычную шапку процесса.
+            if (order?.status != "onboard") ScreenTopBar(appText("Поездка", "Сәфәр"), onBack)
+        },
+    ) { padding ->
         val current = order
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
@@ -5697,6 +5776,33 @@ internal fun InstantDriverTripScreen(
                     },
                     action = appText("К заказам", "Заказдарға"), onAction = onFinished, onSecondary = onFinished,
                     tone = InstantTone.Bad,
+                )
+                current.status == "onboard" -> TaxiDriverOnboardNavigator(
+                    order = current,
+                    locationFix = myLocationFix,
+                    busy = busy,
+                    actionError = actionError,
+                    onBack = onBack,
+                    onChat = { NavSignals.openInstantChat.value = current.id },
+                    onCall = {
+                        if (current.passengerPhone.isNotBlank()) runCatching {
+                            ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${current.passengerPhone}")))
+                        }
+                    },
+                    onSafety = { NavSignals.openSosForOrder.value = current.id },
+                    onOpenExternalNavigator = { openNavigator(ctx, current.toLat, current.toLng) },
+                    onFinish = {
+                        if (!busy) {
+                            busy = true
+                            scope.launch {
+                                ApiClient.instantDone(current.id)
+                                    .onSuccess { order = it; actionError = null }
+                                    .onFailure { actionError = (it as? ApiException)?.message ?: actionFailMsg }
+                                busy = false
+                            }
+                        }
+                    },
+                    mapContent = mapContent,
                 )
                 else -> {
                     val (primaryLabel, nextStatus) = when (current.status) {

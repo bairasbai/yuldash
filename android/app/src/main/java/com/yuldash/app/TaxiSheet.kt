@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
 /**
@@ -113,6 +114,7 @@ internal fun TaxiSheetScaffold(
                 Column(
                     Modifier
                         .fillMaxWidth()
+                        .testTag("taxiSheetDragArea")
                         .draggable(
                             orientation = Orientation.Vertical,
                             state = rememberDraggableState { delta -> swipe += delta },
