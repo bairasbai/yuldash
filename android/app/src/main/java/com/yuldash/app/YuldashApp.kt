@@ -1197,6 +1197,28 @@ internal fun YuldashApp() {
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick,
                 canOpenActiveTrip = activeBookingId == null || bookingStatusAllowsActiveTrip(selectedBookingStatus),
+                bookingStatus = selectedBookingStatus,
+                // Передумал, пока водитель молчит. Место возвращается в поездку, водителю
+                // уходит уведомление — этим занимается сервер.
+                onCancelBooking = {
+                    val id = activeBookingId
+                    if (id != null) appScope.launch {
+                        ApiClient.cancelBooking(id)
+                            .onSuccess {
+                                selectedBookingStatus = "cancelled"
+                                activeBookingId = null
+                                openHome(HomeTab.Rides)
+                            }
+                            .onFailure {
+                                val текст = if (language == AppLanguage.Ba)
+                                    "Кире алып булманы. Селтәрҙе тикшереп ҡабатла."
+                                else "Не получилось отменить. Проверь сеть и повтори."
+                                Toast.makeText(context, serverSaid(it, текст),
+                                               Toast.LENGTH_LONG).show()
+                            }
+                    }
+                },
+                onFindAnotherRide = { openHome(HomeTab.Rides) },
                 onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
                     if (activeBookingId != null) {
                         activeTrip = selectedRide

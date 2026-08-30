@@ -145,17 +145,29 @@ def _my_application(session: Session, user_id: int) -> Optional[CourierApplicati
     ).first()
 
 
-def _guard_courier(user: User, session: Session) -> None:
-    """Полный гейт курьера: режим включён + заявка одобрена + машину показывали.
+def _guard_courier(user: User, session: Session, *, for_work: bool = True) -> None:
+    """Гейт курьера: режим включён + заявка одобрена (+ для РАБОТЫ — машину показывали).
 
-    Фотоконтроль (580-ФЗ) стоит последним и срабатывает только на последней ступени
-    лестницы: первую неделю просрочки человек получает напоминания и падает в подборе.
+    `for_work=False` — только «ты курьер?», без блокировок. Так открыты кабинет, заработок,
+    приоритет, уход с линии и оплата комиссии.
+
+    ЗАЧЕМ ЭТО РАЗДЕЛЕНИЕ (аудит сценариев 30.08, P0). Блокировка по фотоконтролю стояла на
+    ОБЩЕМ гейте, а кабинет курьера жил за тем же гейтом. Получался замкнутый круг: просрочил
+    фото → кабинет закрыт → а войти на экран фотоконтроля можно только из кабинета. Человек
+    оказывался заперт без единого выхода, и мы сами это построили.
+
+    Правило теперь простое: блокировка закрывает РАБОТУ (выход на линию, лента, приём
+    заказа), но никогда не закрывает дверь, через которую человек эту блокировку снимает,
+    и не мешает отдать деньги. То же и с долгом по комиссии: платить можно всегда.
+
     Доставка «по пути» (попутка) этим не затрагивается — она не курьерская работа.
     """
     _guard_courier_enabled()
     app = _my_application(session, user.id)
     if not app or app.status != "approved":
         raise herr(403, *MSG_NOT_COURIER)
+    if not for_work:
+        return
     from .. import carphoto as cp_mod
     if cp_mod.blocked(session, user.id, cp_mod.COURIER):
         raise herr(403, cp_mod.MSG_BLOCKED[cp_mod.COURIER]["ru"],
@@ -1066,7 +1078,7 @@ def courier_online(body: CourierOnlineIn, user: User = Depends(current_user),
 @router.post("/courier/offline")
 def courier_offline(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Уйти с линии."""
-    _guard_courier(user, session)
+    _guard_courier(user, session, for_work=False)
     prof = _my_profile(session, user.id)
     if prof is None:
         prof = CourierProfile(user_id=user.id)
@@ -1537,7 +1549,7 @@ def courier_priority(user: User = Depends(current_user), session: Session = Depe
     это ровно та боль Яндекса, против которой мы и строимся: там человек не понимает,
     почему ему не падают заказы, и уходит.
     """
-    _guard_courier(user, session)
+    _guard_courier(user, session, for_work=False)
     return prio.payload(session, user.id, prio.COURIER)
 
 
@@ -1546,7 +1558,7 @@ def courier_me(user: User = Depends(current_user), session: Session = Depends(ge
     """Кабинет курьера: заявка + профиль + statement (комиссия платформы по моим доставленным
     курьер-заказам: всего заработали / к оплате сейчас / уже оплачено) + мой рейтинг + пауза.
     Гейт курьера (кабинет только одобренным)."""
-    _guard_courier(user, session)
+    _guard_courier(user, session, for_work=False)
     app = _my_application(session, user.id)
     prof = _my_profile(session, user.id)
     earned = session.exec(
@@ -1610,7 +1622,7 @@ def courier_earnings(period: str = "week", user: User = Depends(current_user),
     База — цена доставки за вычетом комиссии платформы: это «чистыми», то есть ровно то,
     что человек оставляет себе. Деньги идут мимо платформы (Модель А) — мы лишь показываем счёт.
     """
-    _guard_courier(user, session)
+    _guard_courier(user, session, for_work=False)
     period = period if period in ("week", "month", "all") else "week"
     conds = [
         ParcelDelivery.courier_id == user.id,
@@ -1747,7 +1759,7 @@ def courier_pay_commission(user: User = Depends(current_user), session: Session 
     иначе → перевод по СБП «на доверии» (админ подтверждает в /admin/payments).
     После оплаты доставки помечаются commission_paid=True. Идемпотентно: есть pending — вернём его.
     Нет комиссии к оплате (owed==0) → 409. Гейт курьера."""
-    _guard_courier(user, session)
+    _guard_courier(user, session, for_work=False)
     from ..payments import fetch_payment
     from .payments import _activate_payment, _start_yookassa
     yk = settings.payments_provider == "yookassa"

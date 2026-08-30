@@ -319,6 +319,12 @@ internal fun BookingScreen(
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
     canOpenActiveTrip: Boolean = true,
+    // Состояние брони (pending | confirmed | cancelled | …). Нужно, чтобы человек, который
+    // ЖДЁТ ответа водителя, мог передумать, а тот, кому отказали, — узнал об этом
+    // (аудит сценариев 30.08, два P0). Пусто = состояние неизвестно, ведём себя как раньше.
+    bookingStatus: String = "",
+    onCancelBooking: () -> Unit = {},
+    onFindAnotherRide: () -> Unit = {},
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
@@ -617,6 +623,65 @@ internal fun BookingScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                            }
+                        }
+                        // Ждём ответа водителя — человек должен иметь право передумать.
+                        // Раньше кнопка «Отменить» жила только на экране активной поездки,
+                        // а он открывается лишь для ПОДТВЕРЖДЁННОЙ брони: пассажир в ожидании
+                        // оказывался заперт (аудит сценариев 30.08, P0).
+                        if (bookingId != null && bookingStatus == "pending") {
+                            var askCancel by remember { mutableStateOf(false) }
+                            TextButton(
+                                onClick = { askCancel = true },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(appText("Отменить бронь", "Урын һаҡлауҙы кире алыу"),
+                                     color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            if (askCancel) {
+                                AlertDialog(
+                                    onDismissRequest = { askCancel = false },
+                                    title = { Text(appText("Отменить бронь?", "Урын һаҡлауҙы кире аларғамы?")) },
+                                    text = {
+                                        Text(appText(
+                                            "Место вернётся в поездку, водитель получит уведомление.",
+                                            "Урын сәфәргә ҡайта, йөрөтөүсегә хәбәр китә."))
+                                    },
+                                    confirmButton = {
+                                        TextButton(onClick = { askCancel = false; onCancelBooking() }) {
+                                            Text(appText("Отменить бронь", "Кире алыу"), color = CanonRed)
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { askCancel = false }) {
+                                            Text(appText("Оставить", "Ҡалдырыу"))
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                        // Водитель отказал. Раньше экран продолжал писать «Ждём водителя» —
+                        // вечно, и человек не понимал, ждать ему или искать другую машину.
+                        if (bookingId != null && bookingStatus == "cancelled") {
+                            Surface(color = CanonWarnBg, shape = CanonItemShape) {
+                                Column(Modifier.fillMaxWidth().padding(CanonSpace.md),
+                                       verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                                    Text(appText("Бронь отменена", "Урын һаҡлау кире алынған"),
+                                         color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text(
+                                        appText(
+                                            "Место в этой поездке не осталось за тобой. Рядом обычно " +
+                                                "есть другие — посмотри.",
+                                            "Был сәфәрҙә урын һиңә ҡалманы. Яҡында ғәҙәттә башҡалар " +
+                                                "бар — ҡарап сыҡ."),
+                                        color = CanonWarn, fontSize = 12.sp, lineHeight = 17.sp,
+                                    )
+                                    AppButton(
+                                        text = appText("Найти другую поездку", "Башҡа сәфәр табырға"),
+                                        onClick = onFindAnotherRide,
+                                        style = AppButtonStyle.Secondary,
+                                    )
+                                }
                             }
                         }
                     }

@@ -138,6 +138,33 @@ export function fetchMyBookings(signal?: AbortSignal): Promise<MyBooking[]> {
   return apiGet<MyBooking[]>("/bookings/mine", { signal });
 }
 
+/** Бронь на поездку водителя: кто, куда и в каком она состоянии (GET /driver/bookings). */
+export interface DriverBooking {
+  booking_id: number;
+  passenger_name: string;
+  passenger_rating: number | null;
+  route: string;
+  status: string;
+  my_stars: number;
+}
+
+export function fetchDriverBookings(signal?: AbortSignal): Promise<{ items: DriverBooking[] }> {
+  return apiGet<{ items: DriverBooking[] }>("/driver/bookings", { signal });
+}
+
+/**
+ * Водитель подтверждает бронь — POST /bookings/{id}/confirm.
+ *
+ * Ручка была с самого начала, а в вебе её не вызывал никто (аудит сценариев 30.08, P0):
+ * бронь приходила, пассажир ждал, а подтвердить её с сайта было нечем. Для пассажира это
+ * выглядело как молчание водителя, для водителя — как будто броней нет.
+ *
+ * После подтверждения пассажиру открываются телефон и точка сбора, и уходит уведомление.
+ */
+export function confirmBooking(bookingId: number): Promise<unknown> {
+  return apiPost(`/bookings/${bookingId}/confirm`);
+}
+
 export function cancelBooking(id: number): Promise<BookingRow> {
   return apiPost<BookingRow>(`/bookings/${id}/cancel`);
 }
