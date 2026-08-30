@@ -52,6 +52,11 @@ WAITLIST_INVITED_DAYS = 90    # позвали → цель достигнута
 WAITLIST_STALE_DAYS = 365     # так и не позвали за год → обещание не сбылось, номер не держим
 # Волна 29 (2026-08-12). Ниже — то, что росло вечно просто потому, что об этом не спрашивали.
 PRETRIP_DAYS = 180   # предрейсовые самопроверки: заявление водителя о себе на конкретный день
+# Фотоконтроль машины: сама СТРОКА («контроль пройден такого-то числа»). Снимки уходят
+# раньше — через `car_photo_keep_days` (90 дней), см. `_clean_carphoto`. Строка живёт дольше,
+# потому что это наш след для проверки: год перекрывает любой разбор и любую жалобу, а
+# «навсегда» превратило бы 26 контролей в год на человека в вечный архив.
+CARPHOTO_DAYS = 400
 WORKDAY_DAYS = 365   # рабочие смены таксиста: год для разбора спорных случаев, дальше не нужны
 DIGESTLOG_DAYS = 90  # журнал отправки дневной сводки — чисто служебный след
 TEXTFLAG_DAYS = 180  # журнал помеченных текстов: тот же срок, что у жалоб (история модерации)
@@ -126,7 +131,7 @@ _ALLOWED_TABLES = frozenset({
     "sosevent", "report", "tripshare", "requestresponse", "riderequest",
     "booking", "ride", "notification", "instantorder", "parceldelivery",
     "analyticsevent", "waitlistentry", "pricecomplaint",
-    "pretripcheck", "taxiworkday", "dailydigestlog", "textflag", "recentplace",
+    "pretripcheck", "carphotocheck", "taxiworkday", "dailydigestlog", "textflag", "recentplace",
     "familysmslog",
 })
 
@@ -252,6 +257,7 @@ def _rules(now):
         # Предрейсовая самопроверка — заявление водителя о себе на конкретный день. Через полгода
         # она не нужна ни ему, ни нам, а строка копится КАЖДЫЙ рабочий день на каждого водителя.
         ("предрейсовые самопроверки >180д", "pretripcheck", "created_at < :c", {"c": cut(PRETRIP_DAYS)}),
+        ("фотоконтроль машины >400д", "carphotocheck", "created_at < :c", {"c": cut(CARPHOTO_DAYS)}),
         # Рабочие смены таксиста: год на разбор спорных случаев (жалоба, долг), дальше — объём.
         ("рабочие смены таксиста >365д", "taxiworkday", "day < :c", {"c": cut(WORKDAY_DAYS)}),
         # Журнал отправки дневной сводки — чисто служебный след, к человеку отношения не имеет.
@@ -313,6 +319,46 @@ def _referenced_media_keys() -> set:
                     if "/secure/evidence/" in one:
                         keys.add("evidence/" + one.rsplit("/secure/evidence/", 1)[1].strip())
     return keys
+
+
+def _clean_carphoto():
+    """Кадры фотоконтроля машины старше `car_photo_keep_days` (90 дней) — удаляем.
+
+    Отличие от документов водителя, которые не чистятся никогда: документ обязан лежать,
+    пока человек работает (580-ФЗ), а снимок его машины у подъезда — нет. Три месяца
+    покрывают любой разбор («вы приняли грязную машину — вот что мы видели»), дальше это
+    просто чужие фотографии в нашем хранилище (152-ФЗ, ст. 5 п. 7).
+
+    ЗДЕСЬ НЕТ СПИСКА ЖИВЫХ ССЫЛОК — и это осознанно. Строка контроля ссылается на файлы
+    всегда, поэтому «пока есть ссылка — храним» означало бы «храним вечно». Срок решает
+    возраст файла, а сама строка (кто, когда, принято ли) остаётся навсегда: она и есть
+    наш след для проверки.
+    """
+    дней = int(settings.car_photo_keep_days)
+    cutoff = time.time() - дней * 86400
+    removed, freed = 0, 0
+    try:
+        storage = get_storage()
+        for key, size in storage.iter_old(["carphoto"], cutoff):
+            if not DRY:
+                storage.delete(key)
+            removed += 1
+            freed += size
+    except StorageError as e:
+        print(f"  кадры фотоконтроля: хранилище недоступно — пропуск ({e})")
+        return
+    # Ссылки на стёртые файлы убираем из строк, иначе экран покажет пустые рамки.
+    if not DRY and removed:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "UPDATE carphotocheck SET photos_json = '' "
+                    "WHERE reviewed_at IS NOT NULL AND reviewed_at < :edge"),
+                    {"edge": utcnow() - timedelta(days=дней)})
+        except Exception as e:  # noqa: BLE001 — файлы уже стёрты, ссылки подчистим в следующий раз
+            print(f"  кадры фотоконтроля: ссылки не обнулились ({type(e).__name__}: {e})")
+    verb = "удалилось бы" if DRY else "удалено"
+    print(f"  кадры фотоконтроля (>{дней}д): {verb} {removed} шт, {freed // (1024 * 1024)} МБ")
 
 
 def _clean_media():
@@ -855,6 +901,7 @@ def main():
         except Exception as e:  # одна таблица упала — не роняем всю чистку
             print(f"  {label}: ОШИБКА {type(e).__name__}: {e}")
     _clean_media()
+    _clean_carphoto()
     _clean_stale_presence()
     # Прошедшие поездки: не удаляем, а закрываем — иначе висят active вечно (см. выше).
     if DRY:

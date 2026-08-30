@@ -23,10 +23,11 @@ import os
 from abc import ABC, abstractmethod
 
 from .config import settings
-from .services import MEDIA_DIR, PRIVATE_DIR, public_media_url, secure_docs_url, secure_evidence_url
+from .services import (MEDIA_DIR, PRIVATE_DIR, public_media_url, secure_carphoto_url,
+                       secure_docs_url, secure_evidence_url)
 
 # Первый сегмент ключа, который считается приватным (лежит вне публичного /media).
-PRIVATE_AREAS = {"docs", "evidence"}
+PRIVATE_AREAS = {"docs", "evidence", "carphoto"}
 
 
 class StorageError(Exception):
@@ -167,6 +168,8 @@ class LocalStorage(Storage):
             parts = _sanitize(key)
             if parts[0] == "evidence":
                 return secure_evidence_url(parts[-1])
+            if parts[0] == "carphoto":
+                return secure_carphoto_url(parts[-1])
             return secure_docs_url(parts[-1])
         return public_media_url("/".join(_sanitize(key)))
 

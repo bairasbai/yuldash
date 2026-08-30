@@ -47,10 +47,13 @@ PRIVATE_DIR = os.path.join(_BASE, "private")
 DOC_DIR = os.path.join(PRIVATE_DIR, "docs")
 # Фото-доказательства споров (порт из pr88): лица/номера/травмы — ПРИВАТНО, ретеншен не трогает.
 EVIDENCE_DIR = os.path.join(PRIVATE_DIR, "evidence")
+# Кадры фотоконтроля машины — ПРИВАТНО и с ретеншеном 90 дней (см. app/cleanup.py).
+CARPHOTO_DIR = os.path.join(PRIVATE_DIR, "carphoto")
 os.makedirs(VOICE_DIR, exist_ok=True)
 os.makedirs(CHAT_DIR, exist_ok=True)
 os.makedirs(DOC_DIR, exist_ok=True)
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
+os.makedirs(CARPHOTO_DIR, exist_ok=True)
 
 
 def public_media_url(path: str) -> str:
@@ -95,6 +98,12 @@ def secure_evidence_url(name: str) -> str:
     return f"{settings.media_base_url.rstrip('/')}/secure/evidence/{name}"
 
 
+def secure_carphoto_url(name: str) -> str:
+    """Ссылка на кадр фотоконтроля. Приватная область: отдаётся владельцу и админу,
+    и живёт 90 дней (`car_photo_keep_days`), в отличие от документов."""
+    return f"{settings.media_base_url.rstrip('/')}/secure/carphoto/{name}"
+
+
 def _detect_image_ext(data: bytes) -> "str | None":
     """Реальный тип изображения по magic-bytes (НЕ по заявленному клиентом расширению).
 
@@ -118,9 +127,16 @@ def _detect_image_ext(data: bytes) -> "str | None":
     return None
 
 
-def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sniff_image: bool) -> tuple[bytes, str]:
+def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sniff_image: bool,
+                    probe=None) -> tuple[bytes, str]:
     """Общая валидация загруженных байтов: непусто + лимит размера + whitelist расширений
-    + (для фото) magic-bytes. Используется и base64-, и multipart-путём."""
+    + (для фото) magic-bytes. Используется и base64-, и multipart-путём.
+
+    `probe` — необязательный взгляд на ИСХОДНЫЕ байты, до пережатия и срезания метаданных.
+    Нужен ровно одному месту (фотоконтроль машины): дата съёмки лежит в тех самых
+    метаданных, которые мы строчкой ниже вырезаем, и посмотреть на неё можно только здесь.
+    Наружу оттуда уходят лишь безобидные факты (когда снято, каким размером), координаты
+    не покидают эту функцию."""
     ext = "".join(c for c in (ext or "").lower() if c.isalnum())
     if not data:
         raise herr(400, f"Файл пустой: {kind}", f"Файл буш: {kind}")
@@ -134,6 +150,8 @@ def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sn
         if detected is None:
             raise herr(400, f"Это не похоже на фото: {kind}", f"Был һүрәткә оҡшамаған: {kind}")
         ext = detected
+        if probe is not None:
+            probe(data, ext)          # исходные байты: дальше они будут ужаты и обезличены
     if ext not in allowed_ext:
         raise herr(400, f"Такой тип файла не подходит: .{ext}", f"Был төр файл ярамай: .{ext}")
     if sniff_image:
@@ -156,7 +174,7 @@ def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sn
 
 
 def decode_upload_b64(raw: str, allowed_ext: set[str], default_ext: str, kind: str,
-                      sniff_image: bool = False) -> tuple[bytes, str]:
+                      sniff_image: bool = False, probe=None) -> tuple[bytes, str]:
     """Безопасная обработка base64 upload: whitelist расширений + лимит размера.
     sniff_image=True — дополнительно проверяем magic-bytes (для фото)."""
     ext = "".join(c for c in default_ext.lower() if c.isalnum()) or default_ext
@@ -166,11 +184,11 @@ def decode_upload_b64(raw: str, allowed_ext: set[str], default_ext: str, kind: s
         data = base64.b64decode(raw, validate=True)
     except Exception:
         raise herr(400, f"Файл не читается: {kind}", f"Файлды уҡып булмай: {kind}")
-    return _validate_upload(data, allowed_ext, ext, kind, sniff_image)
+    return _validate_upload(data, allowed_ext, ext, kind, sniff_image, probe)
 
 
 async def read_upload(request, allowed_ext: set[str], default_ext: str, kind: str,
-                      sniff_image: bool = False) -> tuple[bytes, str]:
+                      sniff_image: bool = False, probe=None) -> tuple[bytes, str]:
     """Прочитать загрузку из multipart/form-data (поле `file` [+ опц. `ext`]) ИЛИ из JSON-base64
     (обратная совместимость со старыми установленными клиентами). multipart не держит весь файл
     как base64-строку в памяти (+33%) — Starlette стримит в SpooledTemporaryFile."""
@@ -184,7 +202,7 @@ async def read_upload(request, allowed_ext: set[str], default_ext: str, kind: st
         ext = (str(form.get("ext") or "")
                or os.path.splitext(getattr(up, "filename", "") or "")[1].lstrip(".")
                or default_ext)
-        return _validate_upload(data, allowed_ext, ext, kind, sniff_image)
+        return _validate_upload(data, allowed_ext, ext, kind, sniff_image, probe)
     # JSON base64 — старый клиент
     try:
         body = await request.json()
@@ -192,7 +210,7 @@ async def read_upload(request, allowed_ext: set[str], default_ext: str, kind: st
         raise herr(400, f"Запрос не понят: {kind}", f"Һорау аңлашылманы: {kind}")
     raw = body.get("photo_b64") or body.get("audio_b64") or ""
     ext = body.get("ext") or default_ext
-    return decode_upload_b64(raw, allowed_ext, ext, kind, sniff_image)
+    return decode_upload_b64(raw, allowed_ext, ext, kind, sniff_image, probe)
 
 
 def enforce_upload_quota(session: Session, user_id: int) -> None:

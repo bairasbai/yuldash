@@ -51,6 +51,23 @@ def test_classes_checked_independently_not_as_hierarchy():
     assert "business" not in _avail(minivan)
 
 
+def test_minivan_needs_a_working_air_conditioner():
+    """Минивэну кондиционер обязателен — как Комфорту, и по той же причине, только сильнее.
+
+    Шесть-восемь человек в салоне нагревают его быстрее четверых, а Минивэн стоит ДОРОЖЕ
+    Комфорта. Класс без кондиционера дороже класса с кондиционером — это обещание, которое
+    пассажир не поймёт и правильно сделает.
+    """
+    без_кондея = _spec(seats=7, has_ac=False)
+    assert "minivan" not in _avail(без_кондея)
+    assert "no_ac" in cc.missing_for("minivan", без_кондея, 2026, comfort_max_age=10,
+                                     business_max_age=9, minivan_max_age=10, minivan_min_seats=6)
+    # Эконом от этого не страдает: там кондиционер никогда не требовался.
+    assert "economy" in _avail(без_кондея)
+    # А с кондиционером класс на месте.
+    assert "minivan" in _avail(_spec(seats=7, has_ac=True))
+
+
 def test_old_car_falls_to_economy_only():
     """Возраст режет Комфорт: машина старше 10 лет остаётся Экономом, сколько бы галочек
     водитель ни поставил."""

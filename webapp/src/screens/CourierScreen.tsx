@@ -42,7 +42,7 @@ import { AvailableParcelCard, CarryParcelCard, CodeDialog } from "../components/
 import ParcelProblemActions from "../components/ParcelProblemActions";
 import ParcelPhoto from "../components/ParcelPhoto";
 import CityField from "../components/CityField";
-import { IconStar, IconCheck, IconCopy, IconBox, IconTrend } from "../components/Icons";
+import { IconStar, IconCheck, IconCopy, IconBox, IconCamera, IconTrend } from "../components/Icons";
 import { YuCourierWalk } from "../components/BrandIcons";
 import { serverMs } from "../utils/serverTime";
 import { rememberPayment } from "../utils/pendingPayment";
@@ -322,6 +322,16 @@ export default function CourierScreen() {
             onClick={() => navigate("/courier-earnings")}
           >
             <IconTrend size={18} /> {appText("Мой заработок", "Минең табыш")}
+          </button>
+          {/* Фотоконтроль машины (580-ФЗ): две стороны кузова и багажник раз в две недели.
+              Здесь дверь, а не сводка — состояние человек видит на самом экране. */}
+          <button
+            type="button"
+            className="btn-soft"
+            style={{ width: "100%", marginTop: 12 }}
+            onClick={() => navigate("/car-photo?mode=courier")}
+          >
+            <IconCamera size={18} /> {appText("Фотоконтроль машины", "Машина фотоконтроле")}
           </button>
         </>
       )}

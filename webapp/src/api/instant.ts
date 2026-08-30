@@ -395,6 +395,12 @@ export interface TaxiApplication {
   docs_expired: boolean; // хоть один срок вышел → допуск снят
   docs_missing: string[]; // какие сроки ещё не заполнены
   docs_days_left: number | null; // до ближайшего истечения; отрицательное = просрочен
+  /** Что ответил государственный реестр такси (580-ФЗ). Три состояния, различать обязательно:
+   *  не спрашивали / реестр молчал (`checked=false`) — не показываем ничего, человек не виноват
+   *  в нашем таймауте; подтверждено; разрешения нет — тогда показываем путь получить. */
+  permit_registry_checked?: boolean;
+  permit_registry_ok?: boolean;
+  permit_registry_until?: string | null;
 }
 
 /** Тело POST /taxi/apply (TaxiApplyIn). */

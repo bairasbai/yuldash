@@ -146,11 +146,20 @@ def _my_application(session: Session, user_id: int) -> Optional[CourierApplicati
 
 
 def _guard_courier(user: User, session: Session) -> None:
-    """Полный гейт курьера: режим включён + заявка курьера одобрена. Иначе herr 403 двуязычно."""
+    """Полный гейт курьера: режим включён + заявка одобрена + машину показывали.
+
+    Фотоконтроль (580-ФЗ) стоит последним и срабатывает только на последней ступени
+    лестницы: первую неделю просрочки человек получает напоминания и падает в подборе.
+    Доставка «по пути» (попутка) этим не затрагивается — она не курьерская работа.
+    """
     _guard_courier_enabled()
     app = _my_application(session, user.id)
     if not app or app.status != "approved":
         raise herr(403, *MSG_NOT_COURIER)
+    from .. import carphoto as cp_mod
+    if cp_mod.blocked(session, user.id, cp_mod.COURIER):
+        raise herr(403, cp_mod.MSG_BLOCKED[cp_mod.COURIER]["ru"],
+                   cp_mod.MSG_BLOCKED[cp_mod.COURIER]["ba"])
 
 
 def _my_profile(session: Session, user_id: int) -> Optional[CourierProfile]:

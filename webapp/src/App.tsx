@@ -86,6 +86,7 @@ const SavedPlacesScreen = lazyScreen(() => import("./screens/SavedPlacesScreen")
 const SimpleModeScreen = lazyScreen(() => import("./screens/SimpleModeScreen"));
 const SupportYuldashScreen = lazyScreen(() => import("./screens/SupportYuldashScreen"));
 const TaxiDocumentsScreen = lazyScreen(() => import("./screens/TaxiDocumentsScreen"));
+const CarPhotoScreen = lazyScreen(() => import("./screens/CarPhotoScreen"));
 const TaxiOnboardingScreen = lazyScreen(() => import("./screens/TaxiOnboardingScreen"));
 const TrustScreen = lazyScreen(() => import("./screens/TrustScreen"));
 const VoiceRequestScreen = lazyScreen(() => import("./screens/VoiceRequestScreen"));
@@ -508,6 +509,15 @@ export default function App() {
           element={
             <RequireAuth>
               <TaxiDocumentsScreen />
+            </RequireAuth>
+          }
+        />
+        {/* Фотоконтроль машины (580-ФЗ). Режим — в адресе: ?mode=courier для доставки. */}
+        <Route
+          path="/car-photo"
+          element={
+            <RequireAuth>
+              <CarPhotoScreen />
             </RequireAuth>
           }
         />

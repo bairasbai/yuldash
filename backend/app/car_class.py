@@ -67,10 +67,15 @@ OPT_GUIDE_DOG = "guide_dog"        # везу с собакой-проводни
 OPT_STROLLER = "stroller"          # детская коляска — нужен свободный багажник
 OPT_PETS = "pets"                  # можно с животным
 OPT_BIG_LUGGAGE = "big_luggage"    # большой багаж
+# Зарядка в машине (Type-C / Lightning). Водителю не стоит почти ничего, а пассажиру с
+# севшим телефоном в дороге между сёлами — это связь и деньги за поездку. Поэтому опция,
+# а не требование класса: у кого есть — скажет, у кого нет — не выпадает из подбора.
+OPT_CHARGER = "charger"
 
 OPTIONS: tuple[str, ...] = (
     OPT_SEAT_0_1, OPT_SEAT_1_4, OPT_SEAT_4_7, OPT_BOOSTER,
     OPT_WHEELCHAIR, OPT_GUIDE_DOG, OPT_STROLLER, OPT_PETS, OPT_BIG_LUGGAGE,
+    OPT_CHARGER,
 )
 
 # Детские опции — те, где отсутствие означает «ехать нельзя по закону» (перевозка детей).
@@ -106,6 +111,7 @@ _OPTION_PRICE_RUB: dict[str, int] = {
     OPT_STROLLER: 0,        # коляска: это не услуга, это семья с ребёнком
     OPT_WHEELCHAIR: 0,      # ↓ см. ниже — только ноль
     OPT_GUIDE_DOG: 0,
+    OPT_CHARGER: 0,         # провод в прикуривателе — не услуга, за которую берут деньги
 }
 
 # ⚠️ ДОСТУПНОСТЬ ВСЕГДА БЕСПЛАТНА, И ЭТО НЕ НАСТРОЙКА.
@@ -229,23 +235,74 @@ def color_allowed(raw: Optional[str], *, region: str = "РБ") -> Optional[bool]
 MAX_PASSENGER_SEATS = 8
 
 
+# --- Машины, на которых такси не возят (решение Александра 30.08) --------------------
+def _model_tokens(text: Optional[str]) -> list:
+    """Марка и модель → отдельные слова и числа. «ВАЗ-21074» → ["ваз", "21074"]."""
+    import re
+    return re.findall(r"[a-zа-яё]+|\d+", (text or "").lower().replace("ё", "е").replace("Ё", "Е"))
+
+
+def retired_model(make: Optional[str], model: Optional[str],
+                  raw_list: Optional[str] = None) -> str:
+    """Попадает ли машина в стоп-список такси. Возврат — что именно совпало ("" = всё в порядке).
+
+    ЗАЧЕМ ВООБЩЕ. Пассажир платит за поездку и вправе рассчитывать на машину, в которой
+    безопасно и не тесно. «Копейка» и «Ока» этому не отвечают ни при каком уходе: у них нет
+    ни подушек, ни нормальной пассивной безопасности, а в Оке взрослому втроём сзади не сесть.
+
+    ПОЧЕМУ СПИСОК, А НЕ ВОЗРАСТ. Возраст задачу не решает: «семёрку» выпускали до 2012 года,
+    Оку — до 2008. Порог, который отсекает их, заодно убивает рабочую «четырнадцатую» 2011
+    года, а на ней в райцентре возят каждый день. Список бьёт точно по цели и не задевает
+    соседа.
+
+    ПОЧЕМУ ЭТО НЕ ТО, ОТ ЧЕГО МЫ ОТКАЗАЛИСЬ 29.08. Тогда отказались от БЕЛОГО списка моделей
+    как замены проверке локализации: какие машины вообще пускать в реестр, решает государство.
+    Здесь чёрный список из двух десятков позиций — другой инструмент и другая задача.
+
+    Числа сверяются и по первым четырём знакам, чтобы 21074 и 21099 попадали по 2107 и 2109.
+    Слово «москвич» в списке НЕ используется: новый «Москвич 3/6» — обычная современная
+    машина, старые ловятся по кодам 2140/2141/412.
+
+    После проверки в государственном реестре (заход 1) марка и модель приходят из ФГИС, а не
+    со слов водителя, — то есть обойти правило переименованием машины в анкете нельзя.
+    """
+    from .config import settings   # локальный импорт: config тянет car_class на старте
+    сырой = settings.taxi_retired_models if raw_list is None else raw_list
+    список = {t.strip().lower() for t in str(сырой or "").split(",") if t.strip()}
+    if not список:
+        return ""                                   # правило выключено целиком
+    слова = {t for t in список if not t.isdigit()}
+    коды = {t for t in список if t.isdigit()}
+    for токен in _model_tokens(f"{make or ''} {model or ''}"):
+        if токен in слова or токен in коды:
+            return токен
+        if токен.isdigit() and len(токен) >= 4 and токен[:4] in коды:
+            return токен
+    return ""
+
+
 class CarSpec:
     """Характеристики машины для расчёта класса. Отдельный объект, чтобы правила можно было
     прогонять и на заявке (её ещё нет в БД), и на профиле водителя."""
 
     __slots__ = ("year", "seats", "has_ac", "clean_salon", "body_ok", "is_sedan",
-                 "leather", "color", "premium")
+                 "leather", "light_salon", "color", "premium")
 
     def __init__(self, *, year: Optional[int] = None, seats: int = 4, has_ac: bool = False,
                  clean_salon: bool = True, body_ok: bool = True, is_sedan: bool = False,
-                 leather: bool = False, color: Optional[str] = None, premium: bool = False):
+                 leather: bool = False, light_salon: bool = False,
+                 color: Optional[str] = None, premium: bool = False):
         self.year = year
         self.seats = seats
         self.has_ac = has_ac
-        self.clean_salon = clean_salon      # салон целый, без чехлов и накидок, без запаха
+        # Салон целый, без чехлов и накидок с рынка. Запах сюда НЕ входит: по фотографии
+        # его не проверить, а требование, которое нельзя проверить, превращает любой разбор
+        # в спор о вкусах (решение 30.08, вместе с фотоконтролем).
+        self.clean_salon = clean_salon
         self.body_ok = body_ok              # кузов без крупных вмятин, ржавчины, «разных» деталей
         self.is_sedan = is_sedan
         self.leather = leather              # кожа или комбинированный салон
+        self.light_salon = light_salon      # светлый салон — равноценная коже дорога в Бизнес
         self.color = color
         self.premium = premium              # премиум-марка; ставит модератор при очном допуске
 
@@ -300,7 +357,10 @@ def missing_for(car_class: str, spec: CarSpec, now_year: int,
             out.append("not_sedan")
         if normalize_color(spec.color) not in ("black", "white"):
             out.append("color_business")
-        if not spec.leather:
+        # Светлый салон ИЛИ кожа (решение 30.08). Кожа в райцентре редкость, а светлый
+        # ухоженный салон читается пассажиром как «дорого» ничуть не хуже; требовать именно
+        # кожу значило бы закрыть Бизнес почти всем, кто его заслужил.
+        if not (spec.leather or spec.light_salon):
             out.append("no_leather")
         if not spec.has_ac:
             out.append("no_ac")
@@ -321,6 +381,12 @@ def missing_for(car_class: str, spec: CarSpec, now_year: int,
             out.append("too_old")
         if seats < minivan_min_seats:
             out.append("few_seats")
+        # Кондиционер обязателен (решение 30.08). Раньше его здесь не было — и получалось,
+        # что шесть человек летом едут без кондиционера, платя ДОРОЖЕ Комфорта, где он
+        # обязателен. Чем больше людей в салоне, тем быстрее в нём нечем дышать: это
+        # ровно тот класс, где кондиционер нужнее всего.
+        if not spec.has_ac:
+            out.append("no_ac")
         if not spec.clean_salon:
             out.append("clean_salon")
         if not spec.body_ok:
