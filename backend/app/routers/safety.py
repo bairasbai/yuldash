@@ -648,6 +648,31 @@ def _dedup_report(session: Session, user: User, body: ReportIn, target_id: int) 
     return session.exec(select(Report).where(*conds).order_by(Report.id.desc())).first()
 
 
+def _maybe_ask_for_salon_photo(session: Session, report: Report) -> None:
+    """Жалоба «грязная машина» → требование фото за сутки. Иначе разбирать нечего.
+
+    Требуем ТОЛЬКО по жалобе, привязанной к реально состоявшейся поездке или доставке —
+    ровно как авто-пауза по тяжёлым категориям (волна 158). Без этого условия любой вошедший
+    одним запросом заставлял бы незнакомого водителя фотографировать машину, а через сутки
+    молчания получал бы ему подтверждённую жалобу. Проверка «стороны действительно ехали
+    вместе» здесь не формальность, а единственное, что отделяет разбор от травли.
+
+    Ошибки глотаем: жалоба уже принята, и падение побочного действия не должно её потерять.
+    """
+    if report.category != "dirty_car" or report.target_user_id is None:
+        return
+    try:
+        from .. import carphoto as cp
+        from ..safety_logic import trip_really_happened
+        if not trip_really_happened(session, booking_id=report.booking_id,
+                                    order_id=report.order_id, parcel_id=report.parcel_id):
+            return
+        mode = cp.COURIER if report.parcel_id else cp.TAXI
+        cp.open_complaint(session, report, mode)
+    except Exception as e:  # noqa: BLE001 — жалоба важнее нашего требования
+        log.warning(f"[carphoto] требование по жалобе {report.id}: {type(e).__name__}: {e}")
+
+
 @router.post("/reports", response_model=ReportCreatedOut)
 def create_report(body: ReportIn,
                   user: User = Depends(current_user), session: Session = Depends(get_session)):
@@ -686,6 +711,10 @@ def create_report(body: ReportIn,
     # ⛔ Тяжёлая — железно и сразу: пауза такси цели до разбора + Telegram админу (синхронно
     # ставим паузу, уведомления — как есть; notify внутри не роняет запрос).
     quality.escalate_severe(session, report, user)
+    # 🧼 «Грязная машина» разбирается не словами, а фотографией: водителю уходит требование
+    # прислать снимок салона за сутки. Прислал чистое — жалоба закрыта без последствий; не
+    # прислал или грязно — обычная лестница. Работу требование не ограничивает (решение 30.08).
+    _maybe_ask_for_salon_photo(session, report)
     # Пуш цели — анонимный (категория БЕЗ автора). send_push без Firebase — мгновенный no-op.
     quality.notify_target_new_report(session, report)
     return ReportCreatedOut(id=report.id, category=report.category,

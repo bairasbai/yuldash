@@ -76,6 +76,12 @@ def _guard_taxi_driver(session: Session, driver_id: int, lat: float | None = Non
         # его бесплатно за 5–20 дней, а пока возить попуткой, которой разрешение не нужно.
         if taxi_mod.taxi_permit_missing(session, driver_id):
             raise herr(403, taxi_mod.MSG_NO_PERMIT["ru"], taxi_mod.MSG_NO_PERMIT["ba"])
+        # Машину давно не показывали — это не про документы и не про реестр, поэтому и
+        # текст свой: что снять и сколько это займёт.
+        if taxi_mod.taxi_car_photo_blocked(session, driver_id):
+            from .. import carphoto as cp_mod
+            raise herr(403, cp_mod.MSG_BLOCKED[cp_mod.TAXI]["ru"],
+                       cp_mod.MSG_BLOCKED[cp_mod.TAXI]["ba"])
         raise herr(403, taxi_mod.TAXI_NOT_APPROVED_MSG, taxi_mod.TAXI_NOT_APPROVED_MSG_BA)
     _guard_taxi_not_blocked(session, driver_id)
     pretrip_mod.guard_pretrip(session, driver_id)   # 580-ФЗ: подтверждение готовности на сегодня

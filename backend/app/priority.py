@@ -48,6 +48,7 @@ ACTIVE_WEEK = "active"          # много выполненных заказо
 HARD_TRIPS = "hard_trips"       # возит туда, куда не хотят: ночь, метель, село
 NEWBIE = "newbie"               # аванс новичку на первую неделю
 DROPPED = "dropped"             # бросил принятый заказ (минус)
+PHOTO_LATE = "photo_late"       # машину давно не показывал: фотоконтроль просрочен (минус)
 
 
 def _window_start(now):
@@ -121,6 +122,18 @@ def _hard_trip_done(session: Session, driver_id: int, since, now) -> bool:
     return False
 
 
+def _photo_late_penalty(session: Session, user_id: int, kind: str, now) -> int:
+    """Минус за просроченный фотоконтроль машины — но только на средней ступени.
+
+    Первые трое суток не стоят человеку ничего (там только напоминание), а после недели
+    работает уже не приоритет, а пауза: отнимать баллы у того, кто и так не берёт заказы,
+    бессмысленно. Считает одна функция `carphoto.slow` — та же, что рисует ступень на
+    экране, чтобы правило и его объяснение не разъехались.
+    """
+    from . import carphoto as cp_mod
+    return int(settings.priority_photo_late_penalty) if cp_mod.slow(session, user_id, kind, now) else 0
+
+
 def taxi_points(session: Session, driver_id: int, now=None) -> dict:
     """Расклад приоритета таксиста. Показывается ему целиком — скрытый приоритет читается
     как «заказы раздают по блату», а это ровно та боль Яндекса, против которой мы строимся."""
@@ -163,6 +176,10 @@ def taxi_points(session: Session, driver_id: int, now=None) -> dict:
     ).one() or 0)
     if брошено > 0:
         minus = int(settings.priority_drop_penalty)
+    # Средняя ступень фотоконтроля (4–7 дней просрочки): заказы идут, но первыми их видит
+    # тот, кто машину показал. Это не про вред другому человеку, поэтому и минус мягче
+    # брошенного заказа — и уходит сам, как только фото пришли.
+    minus += _photo_late_penalty(session, driver_id, TAXI, now)
     return _pack(parts, minus)
 
 
@@ -218,6 +235,7 @@ def courier_points(session: Session, courier_id: int, now=None) -> dict:
     аванс = _newbie_bonus(_courier_approved_at(session, courier_id), now)
     if аванс > 0:
         parts.append({"code": NEWBIE, "points": аванс, "value": int(settings.priority_newbie_days)})
+    minus += _photo_late_penalty(session, courier_id, COURIER, now)
     return _pack(parts, minus)
 
 
@@ -275,6 +293,8 @@ def explain(kind: str = TAXI) -> list[dict]:
         {"code": NEWBIE, "points": int(settings.priority_newbie_points),
          "value": int(settings.priority_newbie_days)},
         {"code": DROPPED, "points": -int(settings.priority_drop_penalty), "value": 1},
+        {"code": PHOTO_LATE, "points": -int(settings.priority_photo_late_penalty),
+         "value": int(settings.car_photo_grace_days)},
     ]
 
 

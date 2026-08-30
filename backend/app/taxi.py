@@ -125,7 +125,13 @@ def is_approved_taxi_driver(session: Session, user_id: int) -> bool:
     # Государственный реестр — последнее слово (580-ФЗ). Наше одобрение говорит «мы его
     # проверили», разрешение в реестре — «государство разрешило ему возить людей». Второе
     # мы не выдаём и отменить не можем, поэтому оно и стоит последним.
-    return not permit_missing(app)
+    if permit_missing(app):
+        return False
+    # Фотоконтроль машины: последняя ступень мягкой лестницы (30.08). Первую неделю
+    # просрочки человек только получает напоминания и падает в подборе — сюда доходит
+    # тот, кто не показал машину больше недели. Попутки это не касается.
+    from . import carphoto as cp_mod
+    return not cp_mod.blocked(session, user_id, cp_mod.TAXI)
 
 
 MSG_NO_PERMIT = {
@@ -214,6 +220,15 @@ def taxi_permit_missing(session: Session, user_id: int) -> bool:
     app = my_application(session, user_id)
     return (app is not None and app.status == TaxiApplicationStatus.approved
             and permit_missing(app))
+
+
+def taxi_car_photo_blocked(session: Session, user_id: int) -> bool:
+    """Пауза из-за фотоконтроля — для честного текста отказа (`carphoto.MSG_BLOCKED`).
+    Отвечает так же, как гейт: одна функция на обоих концах (урок волны 60)."""
+    from . import carphoto as cp_mod
+    app = my_application(session, user_id)
+    return (app is not None and app.status == TaxiApplicationStatus.approved
+            and cp_mod.blocked(session, user_id, cp_mod.TAXI))
 
 
 def taxi_docs_expired(session: Session, user_id: int) -> bool:

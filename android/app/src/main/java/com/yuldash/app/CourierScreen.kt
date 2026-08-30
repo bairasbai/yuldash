@@ -46,6 +46,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.CheckCircle
@@ -201,6 +202,8 @@ internal fun CourierScreen(
     onBecomeCourier: () -> Unit,
     // «Мой заработок» курьера: раньше он видел только «должен Юлдашу столько-то».
     onEarnings: () -> Unit = {},
+    // Фотоконтроль машины (580-ФЗ): две стороны кузова и багажник раз в две недели.
+    onCarPhoto: () -> Unit = {},
 ) {
     var application by remember { mutableStateOf<CourierApplicationDto?>(null) }
     var applicationChecked by remember { mutableStateOf(false) }
@@ -285,7 +288,8 @@ internal fun CourierScreen(
                 m == null -> Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
                     AppErrorState(onRetry = { reloadKey++ })
                 }
-                else -> CourierWorkContent(m, onReloadMe = { reloadKey++ }, onEarnings = onEarnings, reloadingMe = loading)
+                else -> CourierWorkContent(m, onReloadMe = { reloadKey++ }, onEarnings = onEarnings,
+                                           onCarPhoto = onCarPhoto, reloadingMe = loading)
             }
         }
     }
@@ -416,6 +420,7 @@ private fun CourierWorkContent(
     me: CourierMeDto,
     onReloadMe: () -> Unit,
     onEarnings: () -> Unit = {},
+    onCarPhoto: () -> Unit = {},
     reloadingMe: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
@@ -753,7 +758,7 @@ private fun CourierWorkContent(
                     onGoOnline = { setOnline(true) },
                 )
                 1 -> CourierCarryingTab(online = online, list = carrying, onList = { carrying = it }, onGoOrders = { sub = 0 })
-                else -> CourierCabinetTab(me, onReloadMe, onEarnings, reloadingMe)
+                else -> CourierCabinetTab(me, onReloadMe, onEarnings, onCarPhoto, reloadingMe)
             }
         }
         // Живая позиция отправителям. Ничего не рисует — держит каналы открытыми, пока курьер
@@ -2205,6 +2210,7 @@ private fun CourierCabinetTab(
     me: CourierMeDto,
     onReloadMe: () -> Unit,
     onEarnings: () -> Unit = {},
+    onCarPhoto: () -> Unit = {},
     reloading: Boolean = false,
 ) {
     val ctx = LocalContext.current
@@ -2237,6 +2243,16 @@ private fun CourierCabinetTab(
                     onClick = onEarnings,
                     style = AppButtonStyle.Secondary,
                     icon = Icons.Default.Payments,
+                )
+            }
+            // Фотоконтроль машины (580-ФЗ). Состояние показываем на самом экране: здесь
+            // дверь, а не сводка — иначе кабинет превращается в приборную панель.
+            item {
+                AppButton(
+                    text = appText("Фотоконтроль машины", "Машина фотоконтроле"),
+                    onClick = onCarPhoto,
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.PhotoCamera,
                 )
             }
             // ⭐ Мой приоритет: кому заказ падает первым и за что. Считается по ДОСТАВКАМ,

@@ -205,6 +205,9 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # Жалоба на цену (2026-08-23): это слова человека о его деньгах, а не общий журнал —
         # уходит вместе с ним. Тариф к этому моменту мы уже поправили по факту.
         s.add(M.PriceComplaint(user_id=uid, price=450, reason="expensive_for_distance"))
+        # Фотоконтроль машины (580-ФЗ): снимки ЕГО машины и запись о нём самом — уходят
+        # вместе с аккаунтом, как предрейсовые подтверждения.
+        s.add(M.CarPhotoCheck(user_id=uid, mode="taxi", due_at=utcnow()))
         # Жалоба на человека: и моя (reporter_id), и на меня (target_user_id).
         s.add(M.Report(reporter_id=uid, target_user_id=oid, reason="Не приехал"))
         s.add(M.Report(reporter_id=oid, target_user_id=uid, reason="Нахамил"))

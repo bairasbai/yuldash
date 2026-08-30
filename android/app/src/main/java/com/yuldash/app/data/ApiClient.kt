@@ -2905,6 +2905,7 @@ object ApiClient {
         osgopUrl: String = "", osgopUntil: String = "",
         carYear: Int? = null, seats: Int? = null, carColor: String = "",
         carAc: Boolean = false, carSedan: Boolean = false, carLeather: Boolean = false,
+        carLightSalon: Boolean = false,
         carOptions: List<String> = emptyList(), carClassesEnabled: List<String> = emptyList(),
     ): Result<TaxiApplicationDto> {
         val body = JSONObject()
@@ -2925,6 +2926,9 @@ object ApiClient {
         if (seats != null) body.put("seats", seats)
         if (carColor.isNotBlank()) body.put("car_color", carColor.take(40))
         body.put("car_ac", carAc).put("car_sedan", carSedan).put("car_leather", carLeather)
+        // Светлый салон — равноценная коже дорога в Бизнес (решение 30.08): кожа в райцентре
+        // редкость, а светлый ухоженный салон читается пассажиром как «дорого» не хуже.
+        body.put("car_light_salon", carLightSalon)
         if (carOptions.isNotEmpty()) body.put("car_options", JSONArray(carOptions))
         if (carClassesEnabled.isNotEmpty()) body.put("car_classes_enabled", JSONArray(carClassesEnabled))
         return call("POST", "/taxi/apply", body, auth = true)
@@ -2974,6 +2978,35 @@ object ApiClient {
                 note = o.optString("note"),
             )
         }
+
+    // ---------- Фотоконтроль машины (580-ФЗ) ----------
+    /**
+     * Что снять и до какого числа. Такси — четыре стороны кузова и салон, курьер — две
+     * стороны и багажник. `enabled=false` → контроль выключен на сервере, экран не нужен.
+     */
+    suspend fun getCarPhoto(mode: String = "taxi"): Result<CarPhotoDto> =
+        call("GET", "/carphoto?mode=$mode", null, auth = true).map { it.toCarPhotoDto() }
+
+    /**
+     * Прислать ОДИН кадр. Ответ приходит сразу: подошёл или что переснять — человек в этот
+     * момент стоит у машины с телефоном, и переснять он может прямо сейчас.
+     */
+    suspend fun uploadCarPhoto(mode: String, slot: String, bytes: ByteArray, ext: String = "jpg",
+                               kind: String = "periodic"): Result<CarPhotoShotDto> =
+        callMultipart("/carphoto/photo?mode=$mode&slot=$slot&kind=$kind", bytes, ext, "photo.$ext").map { o ->
+            CarPhotoShotDto(
+                url = o.optString("url"),
+                slot = o.optString("slot"),
+                ok = o.optBoolean("ok"),
+                reason = o.optString("reason"),
+                missing = o.optJSONArray("missing")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
+            )
+        }
+
+    /** Отправить набор кадров. Принято сразу или ушло человеку на просмотр. */
+    suspend fun submitCarPhoto(mode: String = "taxi", kind: String = "periodic"): Result<CarPhotoDto> =
+        call("POST", "/carphoto/submit", JSONObject().put("mode", mode).put("kind", kind), auth = true)
+            .map { it.toCarPhotoDto() }
 
     /** Моя заявка таксиста. Не подавал → failure с ApiException(404) — экран трактует как «нет заявки». */
     suspend fun getMyTaxiApplication(): Result<TaxiApplicationDto> =
@@ -5641,6 +5674,146 @@ private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
     phone = optString("phone"),
     invitedBy = if (isNull("invited_by")) null else optString("invited_by").ifBlank { null },
 )
+
+/** Один кадр фотоконтроля: что снять, подсказка и что уже прислано. */
+data class CarPhotoSlotDto(
+    val code: String,          // front | back | left | right | salon | trunk
+    val ru: String,
+    val ba: String,
+    val hintRu: String,
+    val hintBa: String,
+    val url: String? = null,   // уже присланный кадр (приватная ссылка)
+    val verdict: String = "",  // "ok" или код причины: too_small | screenshot | stale | duplicate
+)
+
+/**
+ * Состояние фотоконтроля машины (580-ФЗ).
+ *
+ * `stage` — ступень мягкой лестницы: ok (срок не вышел) → remind (1–3 дня) →
+ * slow (4–7 дней, приоритет вниз) → blocked (пауза до фото). Экран показывает её словами,
+ * а не цифрами: человек должен понимать, что будет дальше, до того как это случится.
+ */
+data class CarPhotoDto(
+    val mode: String = "taxi",
+    val enabled: Boolean = false,      // контроль включён на сервере
+    val required: Boolean = false,     // прямо сейчас есть открытый контроль
+    val status: String = "",           // waiting | review | passed | failed
+    val seq: Int = 0,                  // номер контроля: первый — с «шашечками»
+    val dueAt: String? = null,
+    val daysLeft: Int = 0,             // отрицательное = просрочен
+    val stage: String = "ok",
+    val lateDays: Int = 0,
+    val winter: Boolean = false,       // зимой чистый кузов не требуем
+    val checkSigns: Boolean = false,   // первый контроль такси: фонарь и «шашечки»
+    val manual: Boolean = false,       // смотрит человек
+    val rejectReason: String = "",     // что переснять после отказа
+    val slots: List<CarPhotoSlotDto> = emptyList(),
+    val missing: List<String> = emptyList(),
+    val lastPassedAt: String? = null,
+    val keepDays: Int = 90,            // сколько живут сами снимки
+    // Требование по жалобе «грязная машина» — если оно сейчас открыто.
+    val demand: CarPhotoDemandDto? = null,
+    // По каким пунктам смотрят салон. Все три видны на фото; запаха среди них нет.
+    val cleanRules: List<BiText> = emptyList(),
+)
+
+/**
+ * Требование фото по жалобе «грязная машина»: сутки на снимок салона.
+ *
+ * Отдельно от планового контроля намеренно: плановый — обязанность с лестницей и паузой,
+ * требование — просьба показать то, о чём написали. Работу оно не ограничивает вообще.
+ */
+data class CarPhotoDemandDto(
+    val id: Int = 0,
+    val status: String = "",          // waiting | review
+    val dueAt: String? = null,
+    val hoursLeft: Int = 0,
+    val overdue: Boolean = false,
+    val slots: List<CarPhotoSlotDto> = emptyList(),
+    val missing: List<String> = emptyList(),
+)
+
+/** Двуязычная строка правила: сервер шлёт оба языка, экран берёт нужный. */
+data class BiText(val ru: String, val ba: String)
+
+/** Ответ на один присланный кадр. */
+data class CarPhotoShotDto(
+    val url: String,
+    val slot: String,
+    val ok: Boolean,
+    val reason: String,
+    val missing: List<String>,
+)
+
+private fun JSONObject.toCarPhotoSlots(): List<CarPhotoSlotDto> =
+    optJSONArray("slots")?.let { arr ->
+        (0 until arr.length()).mapNotNull { i ->
+            arr.optJSONObject(i)?.let { o ->
+                CarPhotoSlotDto(
+                    code = o.optString("code"),
+                    ru = o.optString("ru"),
+                    ba = o.optString("ba"),
+                    hintRu = o.optString("hint_ru"),
+                    hintBa = o.optString("hint_ba"),
+                    url = if (o.isNull("url")) null else o.optString("url").ifBlank { null },
+                    verdict = o.optString("verdict"),
+                )
+            }
+        }
+    } ?: emptyList()
+
+private fun JSONObject.toCarPhotoDto(): CarPhotoDto {
+    val slots = optJSONArray("slots")?.let { arr ->
+        (0 until arr.length()).mapNotNull { i ->
+            arr.optJSONObject(i)?.let { o ->
+                CarPhotoSlotDto(
+                    code = o.optString("code"),
+                    ru = o.optString("ru"),
+                    ba = o.optString("ba"),
+                    hintRu = o.optString("hint_ru"),
+                    hintBa = o.optString("hint_ba"),
+                    url = if (o.isNull("url")) null else o.optString("url").ifBlank { null },
+                    verdict = o.optString("verdict"),
+                )
+            }
+        }
+    } ?: emptyList()
+    return CarPhotoDto(
+        mode = optString("mode", "taxi"),
+        enabled = optBoolean("enabled"),
+        required = optBoolean("required"),
+        status = optString("status"),
+        seq = optInt("seq"),
+        dueAt = if (isNull("due_at")) null else optString("due_at").ifBlank { null },
+        daysLeft = optInt("days_left"),
+        stage = optString("stage", "ok"),
+        lateDays = optInt("late_days"),
+        winter = optBoolean("winter"),
+        checkSigns = optBoolean("check_signs"),
+        manual = optBoolean("manual"),
+        rejectReason = optString("reject_reason"),
+        slots = slots,
+        missing = optJSONArray("missing")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
+        lastPassedAt = if (isNull("last_passed_at")) null else optString("last_passed_at").ifBlank { null },
+        keepDays = if (optInt("keep_days") > 0) optInt("keep_days") else 90,
+        demand = optJSONObject("demand")?.let { d ->
+            CarPhotoDemandDto(
+                id = d.optInt("id"),
+                status = d.optString("status"),
+                dueAt = if (d.isNull("due_at")) null else d.optString("due_at").ifBlank { null },
+                hoursLeft = d.optInt("hours_left"),
+                overdue = d.optBoolean("overdue"),
+                slots = d.toCarPhotoSlots(),
+                missing = d.optJSONArray("missing")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
+            )
+        },
+        cleanRules = optJSONArray("clean_rules")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let { o -> BiText(o.optString("ru"), o.optString("ba")) }
+            }
+        } ?: emptyList(),
+    )
+}
 
 /** Предрейсовое подтверждение на сегодня (580-ФЗ, честный минимум — самодекларация, не медосмотр).
  *  required=false → гейт выключен на сервере (пока не выкачено приложение с экраном). */

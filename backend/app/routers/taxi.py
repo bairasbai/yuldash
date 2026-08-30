@@ -95,6 +95,7 @@ class TaxiApplyIn(BaseModel):
     car_ac: bool = False                              # рабочий кондиционер
     car_sedan: bool = False                           # кузов седан (нужно Бизнесу)
     car_leather: bool = False                         # кожа или комбинированный салон (Бизнес)
+    car_light_salon: bool = False                     # светлый салон — альтернатива коже (Бизнес)
     # Опции салона и классы, которые водитель хочет брать (коды из app/car_class.py).
     # Пустой список классов = берёт все доступные ему.
     car_options: list[str] = Field(default_factory=list)
@@ -126,6 +127,7 @@ def recalc_classes(dp: DriverProfile) -> None:
         year=dp.car_year, seats=dp.seats or 0, has_ac=bool(dp.car_ac),
         clean_salon=bool(dp.car_clean), body_ok=bool(dp.car_body_ok),
         is_sedan=bool(dp.car_sedan), leather=bool(dp.car_leather),
+        light_salon=bool(dp.car_light_salon),
         color=dp.car_color, premium=bool(dp.car_premium_verified),
     )
     avail = cc.available_classes(
@@ -156,6 +158,7 @@ def _apply_car(session: Session, user_id: int, body: "TaxiApplyIn") -> None:
     dp.car_ac = bool(body.car_ac)
     dp.car_sedan = bool(body.car_sedan)
     dp.car_leather = bool(body.car_leather)
+    dp.car_light_salon = bool(body.car_light_salon)
     dp.car_options = cc.dump_options(body.car_options)
     dp.car_classes_enabled = cc.dump_classes(body.car_classes_enabled)
     recalc_classes(dp)
@@ -462,6 +465,7 @@ def _classes_payload(session: Session, dp: Optional[DriverProfile]) -> dict:
         year=dp.car_year, seats=dp.seats or 0, has_ac=bool(dp.car_ac),
         clean_salon=bool(dp.car_clean), body_ok=bool(dp.car_body_ok),
         is_sedan=bool(dp.car_sedan), leather=bool(dp.car_leather),
+        light_salon=bool(dp.car_light_salon),
         color=dp.car_color, premium=bool(dp.car_premium_verified),
     )
     year_now = utcnow().year
@@ -498,7 +502,8 @@ def _classes_payload(session: Session, dp: Optional[DriverProfile]) -> dict:
         "car": {
             "year": dp.car_year, "seats": dp.seats, "color": dp.car_color,
             "ac": bool(dp.car_ac), "sedan": bool(dp.car_sedan),
-            "leather": bool(dp.car_leather), "premium": bool(dp.car_premium_verified),
+            "leather": bool(dp.car_leather), "light_salon": bool(dp.car_light_salon),
+            "premium": bool(dp.car_premium_verified),
             "clean": bool(dp.car_clean), "body_ok": bool(dp.car_body_ok),
             "color_ok": cc.color_allowed(dp.car_color),
         },
@@ -661,6 +666,7 @@ class ApproveIn(BaseModel):
     car_ac: Optional[bool] = None
     car_sedan: Optional[bool] = None
     car_leather: Optional[bool] = None
+    car_light_salon: Optional[bool] = None
 
 
 def _admin_apply_car(session: Session, user_id: int, body: ApproveIn) -> None:
@@ -673,7 +679,7 @@ def _admin_apply_car(session: Session, user_id: int, body: ApproveIn) -> None:
     if dp is None:
         dp = DriverProfile(user_id=user_id, online=False)
     for field in ("car_premium_verified", "car_clean", "car_body_ok",
-                  "car_ac", "car_sedan", "car_leather"):
+                  "car_ac", "car_sedan", "car_leather", "car_light_salon"):
         val = getattr(body, field)
         if val is not None:
             setattr(dp, field, bool(val))

@@ -3049,6 +3049,102 @@ button.list-row:active {
    объяснить, куда делась принятая им машина: иначе он видит просто «ищем машину» и
    решает, что приложение сбросило заказ. Цвета — те же warn-переменные, что у остальных
    предупреждений, чтобы строка читалась как «внимание», а не как ошибка. */
+/* ---- Фотоконтроль машины (580-ФЗ) ----
+   Список кадров — крупные строки с миниатюрой: человек снимает по кругу и должен видеть,
+   что уже сделано, не вчитываясь. Принятый кадр обведён зелёным, непринятый — красным,
+   и причина написана прямо под названием, а не спрятана в тост. */
+.car-rules {
+  margin: 14px 0 4px;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+}
+.car-rules li {
+  margin-bottom: 6px;
+}
+.car-shots {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 14px 0;
+}
+.car-shot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--motion-normal) ease, transform var(--motion-quick) ease;
+}
+.car-shot:active {
+  transform: scale(0.99);
+}
+.car-shot:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.car-shot.is-done {
+  border-color: var(--green);
+}
+.car-shot.is-bad {
+  border-color: var(--danger);
+}
+.car-shot__thumb {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: var(--radius-field);
+  background: var(--mint);
+}
+.car-shot__thumb--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--green);
+}
+.car-shot__text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+.car-shot__name {
+  font-size: var(--font-body);
+  font-weight: 600;
+  color: var(--text);
+}
+.car-shot__hint {
+  font-size: var(--font-caption);
+  line-height: 1.4;
+  color: var(--muted);
+}
+.car-shot.is-bad .car-shot__hint {
+  color: var(--danger);
+}
+/* Карточка-дверь на экране документов: та же act-card, но кликабельная целиком —
+   человек тянется к плашке, а не ищет в ней ссылку. */
+.car-photo-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.car-shots__note {
+  margin: 10px 0 24px;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+}
+
 /* Пошаговая инструкция «как получить разрешение на такси». Нумерованный список, где номер
    виден отдельно от текста: человек читает это, когда его только что не пустили на линию,
    и ему нужен путь, а не сплошная стена. */

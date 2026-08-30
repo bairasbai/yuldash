@@ -17,9 +17,10 @@ import {
   updateTaxiDocuments,
   type TaxiApplication,
 } from "../api/instant";
+import { fetchCarPhoto, type CarPhotoState } from "../api/carphoto";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCheck, IconIdCard, IconShield, IconWarn, IconWheel } from "../components/Icons";
+import { IconCamera, IconCheck, IconIdCard, IconShield, IconWarn, IconWheel } from "../components/Icons";
 
 type Status = "loading" | "error" | "none" | "ready";
 type DocKey = "osago_until" | "permit_until" | "inspection_until";
@@ -48,6 +49,9 @@ export default function TaxiDocumentsScreen() {
 
   const [status, setStatus] = useState<Status>("loading");
   const [app, setApp] = useState<TaxiApplication | null>(null);
+  // Фотоконтроль машины (580-ФЗ): свой флаг и свой срок, поэтому отдельный запрос.
+  // Ошибку его НЕ показываем — это дополнение к экрану, а не его суть.
+  const [carPhoto, setCarPhoto] = useState<CarPhotoState | null>(null);
   const [editing, setEditing] = useState<DocKey | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,6 +59,9 @@ export default function TaxiDocumentsScreen() {
 
   const load = useCallback((signal?: AbortSignal) => {
     setStatus("loading");
+    fetchCarPhoto("taxi", signal)
+      .then((c) => setCarPhoto(c))
+      .catch(() => undefined);
     fetchTaxiApplication(signal)
       .then((a) => {
         setApp(a);
@@ -251,6 +258,41 @@ export default function TaxiDocumentsScreen() {
                 </a>
               </div>
             )
+          )}
+
+          {/* Фотоконтроль машины — рядом с реестром, до сроков: если машину давно не
+              показывали, линия встанет так же, как без разрешения. */}
+          {carPhoto?.enabled && (
+            <button
+              type="button"
+              className={
+                "act-card car-photo-link" +
+                (carPhoto.required && carPhoto.stage !== "ok" ? " act-card--warn" : " act-card--mint")
+              }
+              onClick={() => navigate("/car-photo")}
+            >
+              <div className="act-card__title">
+                <IconCamera size={18} />
+                {!carPhoto.required
+                  ? appText("Фотоконтроль пройден", "Фотоконтроль үтелгән")
+                  : carPhoto.status === "review"
+                    ? appText("Кадры у нас — смотрим", "Кадрҙар беҙҙә — ҡарайбыҙ")
+                    : carPhoto.stage === "blocked"
+                      ? appText("Заказы на паузе: нужно фото машины", "Заказдар паузала: машина фотоһы кәрәк")
+                      : carPhoto.stage === "slow"
+                        ? appText("Фото машины просрочено — заказы уходят другим",
+                                  "Машина фотоһы һуңлаған — заказдар башҡаларға китә")
+                        : carPhoto.stage === "remind"
+                          ? appText("Фото машины просрочено", "Машина фотоһы ваҡытында түгел")
+                          : appText("Покажи машину", "Машинаны күрһәт")}
+              </div>
+              <p className="act-card__text" style={{ margin: "6px 0 0" }}>
+                {!carPhoto.required || carPhoto.status === "review"
+                  ? appText("Работать можно как обычно.", "Ғәҙәттәгесә эшләргә була.")
+                  : appText("Несколько кадров с телефона — это пара минут.",
+                            "Телефондан бер нисә кадр — ике минутлыҡ эш.")}
+              </p>
+            </button>
           )}
 
           <h2 className="section-title">{appText("Документы", "Документтар")}</h2>

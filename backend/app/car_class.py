@@ -234,18 +234,23 @@ class CarSpec:
     прогонять и на заявке (её ещё нет в БД), и на профиле водителя."""
 
     __slots__ = ("year", "seats", "has_ac", "clean_salon", "body_ok", "is_sedan",
-                 "leather", "color", "premium")
+                 "leather", "light_salon", "color", "premium")
 
     def __init__(self, *, year: Optional[int] = None, seats: int = 4, has_ac: bool = False,
                  clean_salon: bool = True, body_ok: bool = True, is_sedan: bool = False,
-                 leather: bool = False, color: Optional[str] = None, premium: bool = False):
+                 leather: bool = False, light_salon: bool = False,
+                 color: Optional[str] = None, premium: bool = False):
         self.year = year
         self.seats = seats
         self.has_ac = has_ac
-        self.clean_salon = clean_salon      # салон целый, без чехлов и накидок, без запаха
+        # Салон целый, без чехлов и накидок с рынка. Запах сюда НЕ входит: по фотографии
+        # его не проверить, а требование, которое нельзя проверить, превращает любой разбор
+        # в спор о вкусах (решение 30.08, вместе с фотоконтролем).
+        self.clean_salon = clean_salon
         self.body_ok = body_ok              # кузов без крупных вмятин, ржавчины, «разных» деталей
         self.is_sedan = is_sedan
         self.leather = leather              # кожа или комбинированный салон
+        self.light_salon = light_salon      # светлый салон — равноценная коже дорога в Бизнес
         self.color = color
         self.premium = premium              # премиум-марка; ставит модератор при очном допуске
 
@@ -300,7 +305,10 @@ def missing_for(car_class: str, spec: CarSpec, now_year: int,
             out.append("not_sedan")
         if normalize_color(spec.color) not in ("black", "white"):
             out.append("color_business")
-        if not spec.leather:
+        # Светлый салон ИЛИ кожа (решение 30.08). Кожа в райцентре редкость, а светлый
+        # ухоженный салон читается пассажиром как «дорого» ничуть не хуже; требовать именно
+        # кожу значило бы закрыть Бизнес почти всем, кто его заслужил.
+        if not (spec.leather or spec.light_salon):
             out.append("no_leather")
         if not spec.has_ac:
             out.append("no_ac")
