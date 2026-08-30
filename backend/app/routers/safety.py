@@ -737,19 +737,33 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
     if r.category == "unpaid" and r.order_id:
         from .. import debt as debt_mod
         try:
-            if debt_mod.void_debt_for_order(session, r.order_id):
+            исход = debt_mod.void_debt_for_order(session, r.order_id)
+            if исход:
                 session.commit()
                 order = session.get(InstantOrder, r.order_id)
                 if order and order.driver_id:
-                    push_notification(
-                        session, order.driver_id, "money",
-                        "Комиссия за поездку списана", "Сәфәр комиссияһы алып ташланды",
-                        "Жалоба «пассажир не заплатил» подтверждена — комиссию за эту "
-                        "поездку с тебя сняли.",
-                        "«Пассажир түләмәне» ялыуы раҫланды — был сәфәр өсөн комиссия "
-                        "һинән алып ташланды.",
-                        ref_kind="debt", ref_id=order.driver_id,
-                    )
+                    # Текст зависит от того, успел ли человек перевести деньги. «Списали»
+                    # тому, кто уже заплатил, — неправда, из-за которой волна 215 и была.
+                    if исход == "refunded":
+                        push_notification(
+                            session, order.driver_id, "money",
+                            "Комиссия за поездку возвращена", "Сәфәр комиссияһы ҡайтарылды",
+                            "Жалоба «пассажир не заплатил» подтверждена. Комиссию за эту "
+                            "поездку ты уже перевёл — вернули её в кошелёк.",
+                            "«Пассажир түләмәне» ялыуы раҫланды. Был сәфәр өсөн комиссияны "
+                            "һин күсергәйнең — кошелекка ҡайтарҙыҡ.",
+                            ref_kind="debt", ref_id=order.driver_id,
+                        )
+                    else:
+                        push_notification(
+                            session, order.driver_id, "money",
+                            "Комиссия за поездку списана", "Сәфәр комиссияһы алып ташланды",
+                            "Жалоба «пассажир не заплатил» подтверждена — комиссию за эту "
+                            "поездку с тебя сняли.",
+                            "«Пассажир түләмәне» ялыуы раҫланды — был сәфәр өсөн комиссия "
+                            "һинән алып ташланды.",
+                            ref_kind="debt", ref_id=order.driver_id,
+                        )
         except Exception as e:  # noqa: BLE001 — разбор жалобы важнее, чем побочка со списанием
             log.warning(f"[DEBT] списание долга по заказу {r.order_id}: {type(e).__name__}: {e}")
     # 💸 То же для доставки (волна 191): подтвердили «не заплатили» → снимаем с курьера
@@ -760,18 +774,37 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
         try:
             parcel = session.get(ParcelDelivery, r.parcel_id)
             if parcel is not None and parcel.courier_id:
+                # Уже оплаченную комиссию обнулением поля не вернёшь: деньги у платформы
+                # (волна 215). Возвращаем в кошелёк тем же путём, что и у такси.
+                уже_платил = bool(parcel.commission_paid) and int(parcel.commission_kop or 0) > 0
+                if уже_платил:
+                    from .. import debt as debt_mod
+                    debt_mod.refund_commission_to_wallet(
+                        session, parcel.courier_id, int(parcel.commission_kop),
+                        parcel_id=parcel.id)
                 parcel.commission_kop = 0
                 parcel.commission_paid = True      # в «к оплате» она попасть не должна
                 parcel.settled = False             # получатель НЕ рассчитался
                 session.add(parcel)
                 session.commit()
-                push_notification(
-                    session, parcel.courier_id, "money",
-                    "Комиссия за доставку списана", "Илтеү комиссияһы алып ташланды",
-                    "Жалоба «не заплатили» подтверждена — комиссию за эту доставку с тебя сняли.",
-                    "«Түләмәнеләр» ялыуы раҫланды — был илтеү өсөн комиссия һинән алып ташланды.",
-                    ref_kind="parcel", ref_id=parcel.id,
-                )
+                if уже_платил:
+                    push_notification(
+                        session, parcel.courier_id, "money",
+                        "Комиссия за доставку возвращена", "Илтеү комиссияһы ҡайтарылды",
+                        "Жалоба «не заплатили» подтверждена. Комиссию за эту доставку ты уже "
+                        "перевёл — вернули её в кошелёк.",
+                        "«Түләмәнеләр» ялыуы раҫланды. Был илтеү өсөн комиссияны һин "
+                        "күсергәйнең — кошелекка ҡайтарҙыҡ.",
+                        ref_kind="parcel", ref_id=parcel.id,
+                    )
+                else:
+                    push_notification(
+                        session, parcel.courier_id, "money",
+                        "Комиссия за доставку списана", "Илтеү комиссияһы алып ташланды",
+                        "Жалоба «не заплатили» подтверждена — комиссию за эту доставку с тебя сняли.",
+                        "«Түләмәнеләр» ялыуы раҫланды — был илтеү өсөн комиссия һинән алып ташланды.",
+                        ref_kind="parcel", ref_id=parcel.id,
+                    )
         except Exception as e:  # noqa: BLE001 — разбор важнее побочки со списанием
             log.warning(f"[DEBT] списание комиссии по доставке {r.parcel_id}: {type(e).__name__}: {e}")
     # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).

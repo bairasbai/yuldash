@@ -421,15 +421,24 @@ def reconcile(session: Session, date_from, date_to) -> dict:
     # Сколько платформа ДОПЛАТИЛА за период — компенсации промо-скидок водителям (волна 153).
     # Раньше единственный денежный отчёт показывал доход и молчал про расход: кампания
     # «300 ₽ каждому» выглядела по нему бесплатной, хотя каждую скидку оплачиваем мы.
+    # Разбираем доплаты ПО КЛЮЧУ, а не по знаку (волна 217). `adj` — кухонный ящик кошелька:
+    # туда падает и компенсация промо-скидки, и возврат уже уплаченной комиссии (волна 215),
+    # и ручная доплата админа. Пока считалось «всё положительное = промо», строка расхода
+    # на кампании росла от чужих денег, а по ней решают, окупается ли кампания.
     adj_rows = session.exec(
-        select(LedgerEntry.amount_kop).where(
+        select(LedgerEntry.amount_kop, LedgerEntry.ext_id).where(
             LedgerEntry.kind == LedgerKind.adj, *_in_period(LedgerEntry.created_at)
         )
     ).all()
 
     earn_kop = int(sum(earn_rows))
     fee_kop = int(-sum(fee_rows))               # fee хранится отрицательным → комиссия = −сумма
-    promo_comp_kop = int(sum(a for a in adj_rows if a > 0))
+    promo_comp_kop = int(sum(a for a, ext in adj_rows if a > 0 and (ext or "").startswith("promo:")))
+    refund_kop = int(sum(a for a, ext in adj_rows if a > 0 and (ext or "").startswith("refund:")))
+    # Всё остальное с плюсом — ручные доплаты админа: извинение за сбой, возврат за отменённую
+    # поездку. Это тоже наши деньги, и прятать их нельзя, но и в маркетинг записывать нечестно.
+    adj_other_kop = int(sum(a for a, ext in adj_rows
+                            if a > 0 and not (ext or "").startswith(("promo:", "refund:"))))
     payments_kop = int(sum(pay_rows))
     diff_kop = earn_kop - payments_kop
     return {
@@ -438,8 +447,12 @@ def reconcile(session: Session, date_from, date_to) -> dict:
         "earn_kop": earn_kop,                   # начислено водителям (полные суммы поездок)
         "fee_kop": fee_kop,                     # комиссия сервиса за период
         "net_drivers_kop": earn_kop - fee_kop,  # чистыми водителям
-        "promo_comp_kop": promo_comp_kop,       # доплачено водителям за промо-скидки (наш расход)
-        "platform_net_kop": fee_kop - promo_comp_kop,   # доход минус расход по кампаниям
+        "promo_comp_kop": promo_comp_kop,       # доплачено водителям за промо-скидки (маркетинг)
+        "refund_kop": refund_kop,               # возвращено комиссии по разбору «не заплатили»
+        "adj_other_kop": adj_other_kop,         # прочие ручные доплаты админа
+        # Доход минус ВСЕ три расхода. Вычитать только промо значило бы показать доход выше
+        # настоящего ровно на те деньги, которые платформа отдала (волна 217).
+        "platform_net_kop": fee_kop - promo_comp_kop - refund_kop - adj_other_kop,
         "payments_kop": payments_kop,           # прошло безналом через ЮKassa (отчёт)
         "diff_kop": diff_kop,                   # расхождение ledger↔оплаты (0 = сходится)
         "ok": diff_kop == 0,
