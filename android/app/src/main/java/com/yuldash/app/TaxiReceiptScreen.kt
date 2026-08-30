@@ -9,7 +9,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,27 +20,42 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.outlined.ReportProblem
+import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -81,13 +98,20 @@ import kotlinx.coroutines.launch
  */
 
 @Composable
-internal fun TaxiReceiptScreen(orderId: Int, onBack: () -> Unit, onOpenChat: (Int) -> Unit = {}) {
-    var receipt by remember(orderId) { mutableStateOf<InstantReceiptDto?>(null) }
-    var loading by remember(orderId) { mutableStateOf(true) }
+internal fun TaxiReceiptScreen(
+    orderId: Int,
+    onBack: () -> Unit,
+    onOpenChat: (Int) -> Unit = {},
+    initialReceipt: InstantReceiptDto? = null,
+    loadRemote: Boolean = true,
+) {
+    var receipt by remember(orderId, initialReceipt) { mutableStateOf(initialReceipt) }
+    var loading by remember(orderId, initialReceipt) { mutableStateOf(initialReceipt == null && loadRemote) }
     var errorStatus by remember(orderId) { mutableStateOf<Int?>(null) }   // null = нет ошибки; 409 = ещё не завершена
     var reload by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(orderId, reload) {
+    LaunchedEffect(orderId, reload, loadRemote) {
+        if (!loadRemote) return@LaunchedEffect
         if (orderId <= 0) { loading = false; errorStatus = -1; return@LaunchedEffect }
         loading = true; errorStatus = null
         ApiClient.getInstantReceipt(orderId)
@@ -96,12 +120,37 @@ internal fun TaxiReceiptScreen(orderId: Int, onBack: () -> Unit, onOpenChat: (In
         loading = false
     }
 
+    val context = LocalContext.current
+    val shareChooser = appText("Поделиться чеком", "Чек менән бүлешеү")
+    val shareTitle = appText("Юлдаш · Чек за поездку", "Юлдаш · Сәфәр чегы")
+    val shareAmount = appText("Сумма", "Сумма")
+    val shareDriver = appText("Водитель", "Йөрөтөүсе")
+    val sharePayment = receipt?.let { payMethodLabel(it.paymentMethod) }.orEmpty()
+    val shareOrder = receipt?.let { appText("Заказ № ${it.orderId}", "Заказ № ${it.orderId}") }.orEmpty()
+    val shareText = receipt?.let { r ->
+        remember(r, shareTitle, shareAmount, shareDriver, shareOrder) {
+            buildString {
+                appendLine(shareTitle)
+                appendLine(shareOrder)
+                appendLine("${r.fromText.ifBlank { "—" }} → ${r.toText.ifBlank { "—" }}")
+                appendLine(formatDepart(r.doneAt))
+                appendLine("$shareAmount: ${kopToRub(r.amountKop)} · $sharePayment")
+                if (r.driverName.isNotBlank()) appendLine("$shareDriver: ${r.driverName}")
+            }
+        }
+    }
+    val onShare = {
+        shareText?.let { shareRide(context, it, shareChooser) }
+        Unit
+    }
+
     Scaffold(
         containerColor = CanonBg,
-        topBar = { ScreenTopBar(appText("Чек за поездку", "Сәфәр чегы"), onBack) },
+        topBar = { TaxiReceiptTopBar(onBack = onBack, onShare = onShare.takeIf { shareText != null }) },
     ) { padding ->
         Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())
+                .navigationBarsPadding().padding(CanonSpace.md),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             val r = receipt
@@ -111,125 +160,193 @@ internal fun TaxiReceiptScreen(orderId: Int, onBack: () -> Unit, onOpenChat: (In
                 r == null -> AppErrorState(onRetry = { reload++ })
                 else -> {
                     TaxiReceiptCard(r)
-                    TaxiAfterRideActions(r, onOpenChat = onOpenChat, onPaidLocally = { reload++ })
+                    TaxiAfterRideActions(
+                        r,
+                        onOpenChat = onOpenChat,
+                        onPaidLocally = { reload++ },
+                        onShare = onShare,
+                    )
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TaxiReceiptTopBar(onBack: () -> Unit, onShare: (() -> Unit)?) {
+    TopAppBar(
+        title = {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text(appText("Детали поездки", "Сәфәр ентеклектәре"), style = CanonHeading, color = CanonText)
+            }
+        },
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Артҡа"), tint = CanonText)
+            }
+        },
+        actions = {
+            IconButton(onClick = { onShare?.invoke() }, enabled = onShare != null) {
+                Icon(
+                    Icons.Default.IosShare,
+                    contentDescription = appText("Поделиться чеком", "Чек менән бүлешеү"),
+                    tint = if (onShare != null) CanonText else CanonMuted,
+                )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = CanonBg),
+    )
+}
+
+
 // ─────────────────── Карточка чека ───────────────────
 
 @Composable
 private fun TaxiReceiptCard(r: InstantReceiptDto) {
-    val ctx = LocalContext.current
-    val payLabel = payMethodLabel(r.paymentMethod)
-    val route = "${r.fromText.ifBlank { "—" }} → ${r.toText.ifBlank { "—" }}"
-    val orderLabel = appText("Заказ № ${r.orderId}", "Заказ № ${r.orderId}")
-    val shareChooser = appText("Поделиться чеком", "Чек менән бүлешеү")
-    // Строки для шеринга считаем ЗАРАНЕЕ: appText — @Composable, внутри buildString его не позвать.
-    val shTitle = appText("Юлдаш · Чек за поездку", "Юлдаш · Сәфәр чегы")
-    val shAmount = appText("Сумма", "Сумма")
-    val shDriver = appText("Водитель", "Йөрөтөүсе")
-    val shareText = buildString {
-        appendLine(shTitle)
-        appendLine(orderLabel)
-        appendLine(route)
-        appendLine(formatDepart(r.doneAt))
-        appendLine("$shAmount: ${kopToRub(r.amountKop)} · $payLabel")
-        if (r.driverName.isNotBlank()) appendLine("$shDriver: ${r.driverName}")
-    }
-
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        TaxiReceiptHeader(route = route, orderLabel = orderLabel)
+        TaxiReceiptDocument(r, modifier = Modifier.appearIn(0))
+        TaxiReceiptCompactRating(r, modifier = Modifier.appearIn(1))
+    }
+}
 
-        // Таблица деталей. Маршрут не повторяем — он уже крупно стоит в шапке.
-        AppCard(modifier = Modifier.appearIn(1)) {
-            Column(Modifier.padding(vertical = 4.dp)) {
-                TaxiReceiptLine(Icons.Default.Schedule, appText("Дата и время", "Көн һәм ваҡыт"), formatDepart(r.doneAt))
-                if (r.distanceKm > 0) {
-                    TaxiReceiptHairline()
-                    TaxiReceiptLine(
-                        Icons.Default.Route,
-                        appText("Расстояние", "Ара"),
-                        // Дробь пишем через запятую: и по-русски, и по-башкирски «12,5 км».
-                        // Locale.US тут нужен только чтобы число не поехало на чужом телефоне —
-                        // вид разделителя задаём сами, а не отдаём на волю системной локали.
-                        String.format(java.util.Locale.US, "%.1f", r.distanceKm).replace('.', ',') +
-                            " " + appText("км", "км"),
-                    )
-                }
-                if (r.driverName.isNotBlank()) {
-                    TaxiReceiptHairline()
-                    TaxiReceiptDriverLine(r.driverName, r.driverVerified)
+@Composable
+private fun TaxiReceiptDocument(r: InstantReceiptDto, modifier: Modifier = Modifier) {
+    val paidSuffix = if (r.paid) appText(" · Оплачено", " · Түләнгән") else ""
+    val payment = payMethodLabel(r.paymentMethod) + paidSuffix
+    val distanceText = if (r.distanceKm > 0) {
+        String.format(java.util.Locale.US, "%.1f", r.distanceKm).replace('.', ',') +
+            " " + appText("км", "км")
+    } else ""
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = CanonSurface,
+        shape = CanonCardShape,
+        border = BorderStroke(1.dp, CanonBorder),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(CanonSpace.lg),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
+        ) {
+            Surface(shape = CircleShape, color = CanonMint) {
+                Row(
+                    Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                ) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                    Text(appText("Поездка завершена", "Сәфәр тамамланды"), style = CanonBodyStrong, color = CanonGreen2)
                 }
             }
-        }
+            Text(kopToRub(r.amountKop), style = CanonDisplay, color = CanonText)
+            Text(payment, style = CanonBody, color = CanonMuted, textAlign = TextAlign.Center)
 
-        // Сумма + способ оплаты. Одна крупная цифра на экран — она и есть ответ на вопрос
-        // «сколько с меня взяли».
-        AppCard(modifier = Modifier.appearIn(2)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        appText("Сумма поездки", "Сәфәр суммаһы"),
-                        color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (r.paid) {
-                        Spacer(Modifier.width(12.dp))
-                        Surface(shape = RoundedCornerShape(999.dp), color = CanonMint) {
-                            Row(
-                                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    appText("Оплачено", "Түләнгән"),
-                                    color = CanonGreen2, fontSize = MoneyType.Caption, fontWeight = FontWeight.Bold, maxLines = 1,
-                                )
-                            }
-                        }
+            TaxiReceiptHairline()
+            TaxiReceiptBreakdown(r)
+            if (r.waitingFeeKop > 0) {
+                TaxiReceiptLine(
+                    appText("Ожидание", "Көтөү"),
+                    kopToRub(r.waitingFeeKop),
+                    CanonWarn,
+                )
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(appText("Итого", "Бөтәһе"), style = CanonBodyStrong, color = CanonText, modifier = Modifier.weight(1f))
+                Text(kopToRub(r.amountKop), style = CanonHeading, color = CanonTaxiText)
+            }
+
+            TaxiReceiptHairline()
+            MobilityRouteTimeline(
+                from = r.fromText.ifBlank { appText("Точка отправления", "Китеү нөктәһе") },
+                to = r.toText.ifBlank { appText("Точка назначения", "Барыу нөктәһе") },
+                compact = true,
+            )
+            TaxiReceiptHairline()
+
+            val meta = listOf(formatDepart(r.doneAt).takeIf { r.doneAt.isNotBlank() }, distanceText.takeIf { it.isNotBlank() })
+                .filterNotNull().joinToString("  ·  ")
+            if (meta.isNotBlank()) {
+                Text(meta, style = CanonCaption, color = CanonMuted, modifier = Modifier.fillMaxWidth())
+            }
+            if (r.driverName.isNotBlank()) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(r.driverName, style = CanonBodyStrong, color = CanonText)
+                    if (r.driverVerified) {
+                        Spacer(Modifier.width(CanonSpace.xs))
+                        Icon(
+                            Icons.Default.Verified,
+                            contentDescription = appText("Водитель проверен", "Йөрөтөүсе тикшерелгән"),
+                            tint = CanonGreen2,
+                            modifier = Modifier.size(17.dp),
+                        )
                     }
+                    Spacer(Modifier.weight(1f))
+                    Text(appText("Заказ № ${r.orderId}", "Заказ № ${r.orderId}"), style = CanonMicro, color = CanonMuted)
                 }
-                Text(
-                    // Главная цифра чека — с копейками: по ней сверяют, сколько отдали.
-                    kopToRub(r.amountKop),
-                    color = CanonText,
-                    fontSize = MoneyType.Hero,
-                    lineHeight = MoneyType.HeroLine,
-                    letterSpacing = MoneyType.HeroTracking,
-                    fontWeight = FontWeight.Bold,
-                )
-                // Из чего сложилась сумма. Раньше здесь было одно число и «в том числе
-                // ожидание» — на вопрос «куда делись деньги» ответить было нечем.
-                TaxiReceiptBreakdown(r)
-                // Платное ожидание показываем отдельной строкой — иначе «почему больше, чем в оценке?».
-                if (r.waitingFeeKop > 0) {
-                    TaxiReceiptNote(
-                        Icons.Default.Schedule, CanonWarn,
-                        appText("В том числе ожидание: ", "Шул иҫәптән көтөү: ") + kopToRub(r.waitingFeeKop),
+            }
+            Text(
+                appText(
+                    "Деньги идут напрямую водителю — Юлдаш их не держит.",
+                    "Аҡса туранан-тура йөрөтөүсегә бара — Юлдаш уны тотмай.",
+                ),
+                style = CanonMicro,
+                color = CanonMuted,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun TaxiReceiptCompactRating(r: InstantReceiptDto, modifier: Modifier = Modifier) {
+    val scope = rememberCoroutineScope()
+    var stars by remember(r.orderId, r.myStars) { mutableIntStateOf(r.myStars) }
+    var pending by remember(r.orderId) { mutableIntStateOf(0) }
+    var busy by remember(r.orderId) { mutableStateOf(false) }
+    var error by remember(r.orderId) { mutableStateOf<String?>(null) }
+    val fail = appText("Не получилось сохранить оценку.", "Баһаны һаҡлап булманы.")
+
+    Column(
+        modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+    ) {
+        Text(
+            if (r.role == "driver") appText("Оценить пассажира", "Пассажирҙы баһалау")
+            else appText("Оценить водителя", "Йөрөтөүсене баһалау"),
+            style = CanonBody,
+            color = CanonMuted,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            (1..5).forEach { value ->
+                val shown = pending.takeIf { it > 0 } ?: stars
+                Box(
+                    Modifier.size(48.dp).clickable(enabled = !busy) {
+                        pending = value
+                        busy = true
+                        scope.launch {
+                            ApiClient.rateInstantOrder(r.orderId, value, r.myRatingTags)
+                                .onSuccess { stars = value; pending = 0; error = null }
+                                .onFailure { pending = 0; error = serverSaid(it, fail) }
+                            busy = false
+                        }
+                    },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (value <= shown) Icons.Default.Star else Icons.Outlined.StarOutline,
+                        contentDescription = starsText(value),
+                        tint = if (value <= shown) CanonStar else CanonMuted,
+                        modifier = Modifier.size(34.dp),
                     )
                 }
-                TaxiReceiptNote(Icons.Default.Payments, CanonMuted, payLabel)
-                Text(
-                    appText(
-                        "Это запись о поездке. Деньги идут напрямую водителю — Юлдаш их не держит.",
-                        "Был — сәфәр яҙмаһы. Аҡса туранан-тура йөрөтөүсегә бара — Юлдаш уны тотмай.",
-                    ),
-                    color = CanonMuted, fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine,
-                )
             }
         }
-
-        AppButton(
-            text = appText("Поделиться", "Бүлешеү"),
-            onClick = { shareRide(ctx, shareText, shareChooser) },
-            modifier = Modifier.appearIn(3),
-            style = AppButtonStyle.Secondary,
-            icon = Icons.Default.IosShare,
-        )
+        if (stars > 0 && error == null) {
+            Text(appText("Твоя оценка сохранена", "Һинең баһаң һаҡланды"), style = CanonMicro, color = CanonGreen2)
+        }
+        if (error != null) Text(error.orEmpty(), style = CanonMicro, color = CanonRed)
     }
 }
 
@@ -437,6 +554,17 @@ private fun TaxiReceiptBreakdown(r: InstantReceiptDto) {
                 hint = appText("Уходит водителю целиком", "Тулыһынса водителгә бара"),
             )
         }
+        if (r.promoDiscountKop > 0) {
+            TaxiReceiptLine(
+                appText("Скидка Юлдаша", "Юлдаш ташламаһы"),
+                "−" + kopToRub(r.promoDiscountKop),
+                CanonGreen2,
+                hint = appText(
+                    "Водитель получил полную сумму — скидку оплатил Юлдаш",
+                    "Йөрөтөүсе тулы сумманы алды — ташламаны Юлдаш түләне",
+                ),
+            )
+        }
         if (r.role == "driver" && r.driverGrossKop > 0) {
             val feeLabel = if (r.driverFeePercent % 1.0 == 0.0) r.driverFeePercent.toInt().toString()
             else String.format(java.util.Locale.US, "%.1f", r.driverFeePercent)
@@ -490,6 +618,7 @@ private fun TaxiAfterRideActions(
     r: InstantReceiptDto,
     onOpenChat: (Int) -> Unit,
     onPaidLocally: () -> Unit,
+    onShare: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val isDriver = r.role == "driver"
@@ -498,9 +627,18 @@ private fun TaxiAfterRideActions(
     var cashBusy by remember(r.orderId) { mutableStateOf(false) }
     var lostBusy by remember(r.orderId) { mutableStateOf(false) }
     var lostOpened by remember(r.orderId) { mutableStateOf(false) }
+    var showProblemChoice by remember(r.orderId) { mutableStateOf(false) }
+    var showReport by remember(r.orderId) { mutableStateOf(false) }
+    var showDispute by remember(r.orderId) { mutableStateOf(false) }
+    var disputeFiled by remember(r.orderId) { mutableStateOf(false) }
     var errText by remember(r.orderId) { mutableStateOf<String?>(null) }
+    var successText by remember(r.orderId) { mutableStateOf<String?>(null) }
 
     val errFallback = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
+    val thanksSentMessage = appText("Спасибо передано водителю", "Рәхмәт йөрөтөүсегә тапшырылды")
+    val reportSentMessage = appText("Спасибо. Мы проверим обращение.", "Рәхмәт. Мөрәжәғәтте тикшерәсәкбеҙ.")
+    val disputeSentMessage = appText("Разбор открыт. Мы сообщим о решении.", "Ҡарау асылды. Ҡарар тураһында хәбәр итербеҙ.")
+    val counterpartyFallback = appText("Участник поездки", "Сәфәрҙә ҡатнашыусы")
 
     // Уже сказал «рәхмәт» раньше — узнаём у сервера, чтобы не предлагать второй раз.
     LaunchedEffect(r.orderId, isDriver) {
@@ -508,38 +646,40 @@ private fun TaxiAfterRideActions(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            appText("Ещё можно", "Тағы мөмкин"),
+            color = CanonText,
+            fontSize = MoneyType.Value,
+            lineHeight = MoneyType.ValueLine,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+
         // Пассажир: тёплое спасибо. Денег не двигаем — это жест, а не чаевые.
         if (!isDriver) {
-            AppCard(modifier = Modifier.appearIn(4)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TaxiActionHead(
-                        icon = Icons.Default.Favorite,
-                        iconBg = CanonMint,
-                        iconTint = CanonGreen2,
-                        title = if (thanked) appText("«Рәхмәт» сказан 💚", "Рәхмәт әйтелде 💚")
-                        else appText("Сказать «рәхмәт»", "Рәхмәт әйтеү"),
-                        text = appText("Тёплое спасибо водителю — без денег.", "Йөрөтөүсегә йылы рәхмәт — аҡсаһыҙ."),
-                    )
-                    if (!thanked) {
-                        AppButton(
-                            text = appText("Сказать «рәхмәт»", "Рәхмәт әйтеү"),
-                            onClick = {
-                                if (thanksBusy) return@AppButton
-                                thanksBusy = true
-                                scope.launch {
-                                    ApiClient.sayInstantThanks(r.orderId)
-                                        .onSuccess { thanked = true; errText = null }
-                                        .onFailure { errText = (it as? ApiException)?.message ?: errFallback }
-                                    thanksBusy = false
-                                }
-                            },
-                            style = AppButtonStyle.Accent,
-                            icon = Icons.Default.Favorite,
-                            loading = thanksBusy,
-                        )
+            TaxiReceiptActionRow(
+                icon = if (thanked) Icons.Default.CheckCircle else Icons.Default.Favorite,
+                title = if (thanked) appText("«Рәхмәт» сказан", "Рәхмәт әйтелде")
+                else appText("Сказать «рәхмәт»", "Рәхмәт әйтеү"),
+                text = if (thanked) appText("Водитель получил твоё спасибо", "Йөрөтөүсе һинең рәхмәтеңде алды")
+                else appText("Тёплое спасибо водителю — без денег", "Йөрөтөүсегә йылы рәхмәт — аҡсаһыҙ"),
+                busy = thanksBusy,
+                enabled = !thanked,
+                onClick = {
+                    if (thanksBusy || thanked) return@TaxiReceiptActionRow
+                    thanksBusy = true
+                    scope.launch {
+                        ApiClient.sayInstantThanks(r.orderId)
+                            .onSuccess {
+                                thanked = true
+                                errText = null
+                                successText = thanksSentMessage
+                            }
+                            .onFailure { errText = (it as? ApiException)?.message ?: errFallback }
+                        thanksBusy = false
                     }
-                }
-            }
+                },
+            )
         }
 
         // Водитель: отметить наличные. Без этой кнопки заказ навсегда «не оплачен», если
@@ -576,44 +716,69 @@ private fun TaxiAfterRideActions(
             }
         }
 
+        TaxiReceiptActionRow(
+            icon = Icons.Default.IosShare,
+            title = appText("Поделиться чеком", "Чек менән бүлешеү"),
+            text = appText("Отправить маршрут и сумму поездки", "Сәфәр юлын һәм суммаһын ебәреү"),
+            onClick = onShare,
+        )
+
         // Забытая вещь — обеим сторонам. Телефон второй стороны после поездки скрыт,
         // а чат был только на чтение: телефон с заднего сиденья терялся навсегда.
-        AppCard(modifier = Modifier.appearIn(5)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                TaxiActionHead(
-                    icon = Icons.Default.Search,
-                    iconBg = CanonWarnBg,
-                    iconTint = CanonWarn,
-                    title = appText("Забыли вещь?", "Әйбер онотолдомо?"),
-                    text = if (lostOpened)
-                        appText("Чат снова открыт на 48 часов — напиши, что искать.", "Чат 48 сәғәткә кире асыҡ — нимә эҙләргә, яҙ.")
-                    else
-                        appText("Откроем чат этой поездки на 48 часов, чтобы вы связались.", "Бәйләнешер өсөн был сәфәр чатын 48 сәғәткә асабыҙ."),
-                )
+        TaxiReceiptActionRow(
+            icon = if (lostOpened) Icons.Default.ChatBubble else Icons.Default.Search,
+            title = if (lostOpened) appText("Открыть чат поездки", "Сәфәр чатын асыу")
+            else appText("Забыли вещь?", "Әйбер онотолдомо?"),
+            text = if (lostOpened)
+                appText("Чат открыт на 48 часов", "Чат 48 сәғәткә асылды")
+            else appText("Связаться по этой поездке", "Был сәфәр буйынса бәйләнешеү"),
+            busy = lostBusy,
+            onClick = {
                 if (lostOpened) {
-                    AppButton(
-                        text = appText("Открыть чат поездки", "Сәфәр чатын асыу"),
-                        onClick = { onOpenChat(r.orderId) },
-                        style = AppButtonStyle.Secondary,
-                    )
-                } else {
-                    AppButton(
-                        text = appText("Я забыл вещь в машине", "Машинала әйбер ҡалдырҙым"),
-                        onClick = {
-                            if (lostBusy) return@AppButton
-                            lostBusy = true
-                            scope.launch {
-                                ApiClient.instantLostItem(r.orderId)
-                                    .onSuccess { lostOpened = true; errText = null }
-                                    .onFailure { errText = (it as? ApiException)?.message ?: errFallback }
-                                lostBusy = false
+                    onOpenChat(r.orderId)
+                } else if (!lostBusy) {
+                    lostBusy = true
+                    scope.launch {
+                        ApiClient.instantLostItem(r.orderId)
+                            .onSuccess {
+                                lostOpened = true
+                                errText = null
+                                onOpenChat(r.orderId)
                             }
-                        },
-                        style = AppButtonStyle.Secondary,
-                        icon = Icons.Default.Search,
-                        loading = lostBusy,
-                    )
+                            .onFailure { errText = (it as? ApiException)?.message ?: errFallback }
+                        lostBusy = false
+                    }
                 }
+            },
+        )
+
+        TaxiReceiptActionRow(
+            icon = Icons.Outlined.ReportProblem,
+            title = appText("Проблема с поездкой", "Сәфәр менән проблема"),
+            text = if (disputeFiled) appText("Разбор уже открыт", "Ҡарау асылған")
+            else appText("Сообщить или открыть разбор", "Хәбәр итеү йәки ҡарау асыу"),
+            onClick = { showProblemChoice = true },
+        )
+
+        // Пассажир может завершить оплату прямо из чека, если закрыл финальный экран.
+        if (!isDriver && !r.paid) {
+            PayOnlineCard(
+                amountKop = r.amountKop,
+                pay = { method -> ApiClient.payInstantOrder(r.orderId, method) },
+            )
+        }
+
+        AnimatedVisibility(
+            visible = successText != null,
+            enter = fadeIn(tween(CanonMotion.QUICK)) + expandVertically(tween(CanonMotion.QUICK)),
+            exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
+        ) {
+            Surface(color = CanonMint, shape = CanonItemShape) {
+                Text(
+                    successText.orEmpty(), color = CanonGreen2, fontSize = MoneyType.Body,
+                    lineHeight = MoneyType.BodyLine, fontWeight = FontWeight.Medium,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                )
             }
         }
 
@@ -628,6 +793,137 @@ private fun TaxiAfterRideActions(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                 )
             }
+        }
+    }
+
+    if (showProblemChoice) {
+        AlertDialog(
+            onDismissRequest = { showProblemChoice = false },
+            containerColor = CanonSurface,
+            shape = CanonCardShape,
+            title = {
+                Text(
+                    appText("Что случилось?", "Нимә булды?"),
+                    color = CanonText,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TaxiReceiptActionRow(
+                        icon = Icons.Outlined.ReportProblem,
+                        title = appText("Сообщить о нарушении", "Боҙоу тураһында хәбәр итеү"),
+                        text = appText("Анонимно, проверит человек", "Аноним, кеше тикшерәсәк"),
+                        onClick = { showProblemChoice = false; showReport = true },
+                    )
+                    if (r.counterpartyId > 0) {
+                        TaxiReceiptActionRow(
+                            icon = Icons.Default.Verified,
+                            title = appText("Открыть разбор", "Ҡарауҙы асыу"),
+                            text = appText("Выслушаем обе стороны", "Ике яҡты ла тыңлаясаҡбыҙ"),
+                            onClick = { showProblemChoice = false; showDispute = true },
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showProblemChoice = false }) {
+                    Text(appText("Закрыть", "Ябыу"), color = CanonGreen2)
+                }
+            },
+        )
+    }
+
+    if (showReport) {
+        ReportCategoryDialog(
+            title = appText("Сообщить о нарушении", "Боҙоу тураһында хәбәр итеү"),
+            categories = if (isDriver) reportCategoriesPassenger() else reportCategoriesDriver(),
+            onDismiss = { showReport = false },
+            onSend = { category, details ->
+                showReport = false
+                scope.launch {
+                    ApiClient.reportUser(reason = details, category = category, orderId = r.orderId)
+                        .onSuccess {
+                            errText = null
+                            successText = reportSentMessage
+                        }
+                        .onFailure { errText = (it as? ApiException)?.message ?: errFallback }
+                }
+            },
+        )
+    }
+
+    if (showDispute && r.counterpartyId > 0) {
+        FileIncidentDialog(
+            respondentId = r.counterpartyId,
+            respondentName = r.counterpartyName.ifBlank { counterpartyFallback },
+            orderId = r.orderId,
+            onDismiss = { showDispute = false },
+            onFiled = {
+                showDispute = false
+                disputeFiled = true
+                successText = disputeSentMessage
+            },
+        )
+    }
+}
+
+@Composable
+private fun TaxiReceiptActionRow(
+    icon: ImageVector,
+    title: String,
+    text: String,
+    onClick: () -> Unit,
+    busy: Boolean = false,
+    enabled: Boolean = true,
+) {
+    val alpha by animateFloatAsState(if (enabled) 1f else 0.64f, label = "receipt-action-alpha")
+    Surface(
+        modifier = Modifier.fillMaxWidth().graphicsLayer { this.alpha = alpha },
+        shape = CanonItemShape,
+        color = CanonSurface,
+        border = BorderStroke(1.dp, CanonBorder),
+        onClick = onClick,
+        enabled = enabled && !busy,
+    ) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(color = CanonMint, shape = CircleShape) {
+                Icon(
+                    icon,
+                    contentDescription = title,
+                    tint = CanonGreen2,
+                    modifier = Modifier.padding(10.dp).size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    title,
+                    color = CanonText,
+                    fontSize = MoneyType.Body,
+                    lineHeight = MoneyType.BodyLine,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    if (busy) appText("Подождите…", "Көтөгөҙ…") else text,
+                    color = CanonMuted,
+                    fontSize = MoneyType.Caption,
+                    lineHeight = MoneyType.CaptionLine,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                Icons.Default.KeyboardArrowRight,
+                contentDescription = null,
+                tint = CanonMuted,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }

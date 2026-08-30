@@ -1732,37 +1732,12 @@ internal fun InstantOrderScreen(
                         )
                     }
                     else -> current?.let { o ->   // done
-                        InstantFinalCard(
-                            icon = Icons.Default.CheckCircle,
-                            title = appText("Поездка завершена", "Сәфәр тамамланды"),
-                            // Цена — доминанта итога, маршрут под ней подписью: человек проверяет
-                            // «сколько», а не перечитывает адреса. Со скидкой по промокоду тут
-                            // стоит сумма, которую он реально отдал водителю, — иначе чек спорит
-                            // с кошельком.
-                            hero = formatTaxiKop(o.passengerPayKop),
-                            subtitle = appText(
-                                "${o.fromText.ifBlank { "Точка А" }} → ${o.toText.ifBlank { "Точка Б" }}",
-                                "${o.fromText.ifBlank { "А нөктәһе" }} → ${o.toText.ifBlank { "Б нөктәһе" }}"),
-                            action = appText("Новый заказ", "Яңы заказ"),
-                            onAction = { order = null },
-                            onSecondary = onBack,
-                            extra = {
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    // Скидка сработала → говорим, сколько сэкономлено и чьи это деньги.
-                                    TaxiPromoPayRow(order = o, forDriver = false)
-                                    // Онлайн-оплата завершённого такси-заказа (карта/СБП через ЮKassa, за флагом).
-                                    // 503 (провайдер выключен) → карточка тихо исчезает на сессию (OnlinePayGate).
-                                    // Платим ровно ту сумму, что человек и должен: со скидкой, а не полную.
-                                    PayOnlineCard(
-                                        amountKop = o.passengerPayKop.takeIf { it > 0 },
-                                        pay = { m -> ApiClient.payInstantOrder(o.id, m) },
-                                    )
-                                    InstantRateAndReport(o, isDriver = false)   // §9: оценить/пожаловаться
-                                    // Чек за поездку: справка на работу, «рәхмәт» водителю и «забыл вещь».
-                                    TaxiReceiptLink(o.id)
-                                    TaxiDisputeLink(o, isDriver = false)
-                                }
-                            },
+                        TaxiPassengerCompletedScreen(
+                            order = o,
+                            onClose = onBack,
+                            onNewOrder = { order = null },
+                            onOpenReceipt = { NavSignals.openTaxiReceipt.value = o.id },
+                            onOpenChat = { NavSignals.openInstantChat.value = o.id },
                         )
                     }
                 }
@@ -5419,196 +5394,361 @@ internal fun InstantOfferOverlay(
             onDecline() // серверный дедлайн истёк (или был некорректным) — безопасно пропускаем
         }
     }
-    Box(Modifier.fillMaxSize().background(CanonBg).statusBarsPadding()) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+    val timerProgress = (remainingMillis.toDouble() / initialWindowMillis.toDouble())
+        .toFloat().coerceIn(0f, 1f)
+    val from = remember(order.fromLat, order.fromLng) {
+        Point(order.fromLat, order.fromLng).takeIf { order.fromLat != 0.0 || order.fromLng != 0.0 }
+    }
+    val to = remember(order.toLat, order.toLng) {
+        Point(order.toLat, order.toLng).takeIf { order.toLat != 0.0 || order.toLng != 0.0 }
+    }
+    var sheetShown by remember(order.id) { mutableStateOf(false) }
+    LaunchedEffect(order.id) { sheetShown = true }
+    val sheetProgress by animateFloatAsState(
+        if (sheetShown) 1f else 0f,
+        tween(CanonMotion.SLOW),
+        label = "offer-sheet-appear",
+    )
+
+    Box(Modifier.fillMaxSize().background(CanonBg)) {
+        // Вариант A: маршрут — первый слой решения. Карта не интерактивна, чтобы случайный
+        // свайп в последние секунды не отнял у водителя возможность принять заказ.
+        InstantRouteMap(
+            from = from,
+            to = to,
+            interactive = false,
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.48f),
+        )
+
+        Surface(
+            color = CanonSurface.copy(alpha = 0.94f),
+            shape = CanonItemShape,
+            border = BorderStroke(1.dp, CanonBorder),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = CanonSpace.sm),
+        ) {
+            Row(
+                Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+                horizontalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = CircleShape, color = CanonGreen2) {
-                    Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonBg, modifier = Modifier.padding(12.dp).size(24.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(appText("Новый заказ!", "Яңы заказ!"), color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        if (canAccept) appText("Ответь за $secondsLeft с", "$secondsLeft секундта яуап бир")
-                        else appText("Время вышло", "Ваҡыт үтте"),
-                        color = CanonMuted, fontSize = 14.sp,
-                    )
-                }
-                Surface(shape = CircleShape, color = CanonSurface) {
-                    // Плавная смена цифры таймера (в такт анимированной полоске), без рывка.
-                    AnimatedContent(targetState = secondsLeft, label = "offerTimer") { s ->
-                        Text("$s", color = CanonGreen2, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                    }
-                }
+                Icon(Icons.Default.Map, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                Text(appText("Маршрут A → Б", "Маршрут A → Б"), style = CanonCaption, color = CanonText,
+                    fontWeight = FontWeight.Bold)
             }
-            LinearProgressIndicator(
-                progress = { (remainingMillis.toDouble() / initialWindowMillis.toDouble()).toFloat().coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().height(6.dp),
-                color = CanonGreen2, trackColor = CanonSurface,
-            )
-            Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            val hasServerNet = order.driverGrossKop > 0
-                            Text(
-                                if (hasServerNet) appText("Тебе чистыми", "Һиңә таҙа килем")
-                                else appText("Цена поездки", "Сәфәр хаҡы"),
-                                color = CanonMuted,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(
-                                if (hasServerNet) formatTaxiKop(order.driverNetKop) else "${order.priceEstimate} ₽",
-                                color = CanonText,
-                                fontSize = 34.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            if (hasServerNet) {
-                                Text(
-                                    appText(
-                                        "Пассажир: ${formatTaxiKop(order.driverGrossKop)} · комиссия ${formatTaxiKop(order.driverFeeKop)} (${formatTaxiMultiplier(order.driverFeePercent)}%)",
-                                        "Пассажир: ${formatTaxiKop(order.driverGrossKop)} · комиссия ${formatTaxiKop(order.driverFeeKop)} (${formatTaxiMultiplier(order.driverFeePercent)}%)",
-                                    ),
-                                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
-                                )
-                            }
-                            // Дорога до пассажира. Раньше за неё платили множителем ко всей цене
-                            // (+12% максимум), и водитель молча ехал двадцать километров себе
-                            // в убыток. Теперь это отдельные деньги, и он видит их ДО принятия —
-                            // иначе решение «брать или нет» принимается вслепую.
-                            if (order.pickupFeeKop > 0) {
-                                val km = kotlin.math.round(order.pickupKm).toInt()
-                                Text(
-                                    appText(
-                                        "Ехать до пассажира ~$km км · ${formatTaxiKop(order.pickupFeeKop)} тебе сверху, без комиссии",
-                                        "Пассажирға тиклем ~$km км · ${formatTaxiKop(order.pickupFeeKop)} һиңә өҫтәмә, комиссияһыҙ",
-                                    ),
-                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                // Половинная надбавка — не молча. Водитель должен понимать,
-                                // почему за ту же дорогу сегодня меньше: он и так едет в эту
-                                // сторону, и решение брать заказ остаётся за ним.
-                                if (order.pickupEnroute) {
-                                    Text(
-                                        appText(
-                                            "Тебе в эту сторону по пути — надбавка половинная",
-                                            "Һиңә был яҡҡа юл ыңғайы — өҫтәмә яртылаш",
-                                        ),
-                                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
-                                    )
-                                }
-                            }
-                            // Кресло, животное, багаж — тоже его деньги, без комиссии. Водитель
-                            // должен видеть это ДО принятия: возня с креслом занимает время,
-                            // и решение «брать или нет» он принимает с этой суммой в уме.
-                            if (order.weatherFeeKop > 0) {
-                                Text(
-                                    appText(
-                                        "Тяжёлая дорога · ${formatTaxiKop(order.weatherFeeKop)} тебе сверху, без комиссии",
-                                        "Ауыр юл · ${formatTaxiKop(order.weatherFeeKop)} һиңә өҫтәмә, комиссияһыҙ",
-                                    ),
-                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                            if (order.optionsFeeKop > 0) {
-                                Text(
-                                    appText(
-                                        "Кресло и опции · ${formatTaxiKop(order.optionsFeeKop)} тебе сверху, без комиссии",
-                                        "Ултырғыс һәм өҫтәмәләр · ${formatTaxiKop(order.optionsFeeKop)} һиңә өҫтәмә, комиссияһыҙ",
-                                    ),
-                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                            // «Тебе чистыми» посчитано с полной цены — и это верно: скидку пассажира
-                            // оплачивает Юлдаш. Но на руки водитель получит меньше, и узнать об
-                            // этом он должен ДО того, как возьмёт заказ, а не в машине.
-                            if (order.hasPromoDiscount) {
-                                Text(
-                                    appText(
-                                        "На руки от пассажира: ${formatTaxiKop(order.passengerPayKop)} — у него промокод −${formatTaxiKop(order.promoDiscountKop)}, разницу платит Юлдаш. Твой доход прежний.",
-                                        "Пассажирҙан ҡулға: ${formatTaxiKop(order.passengerPayKop)} — унда промокод −${formatTaxiKop(order.promoDiscountKop)}, айырманы Юлдаш түләй. Һинең килемең үҙгәрмәй.",
-                                    ),
-                                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold,
-                                )
-                            }
-                        }
-                        if (order.category == "comfort") {
-                            Surface(shape = RoundedCornerShape(8.dp), color = CanonMint) {
-                                Text(appText("Комфорт", "Комфорт"), color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-                            }
-                        }
-                    }
-                    MobilityRouteTimeline(
-                        from = order.fromText,
-                        to = order.toText,
-                        fromLabel = appText("Подача", "Килеп алыу"),
-                        toLabel = appText("Назначение", "Барыр урын"),
-                        compact = true,
-                    )
-                    // Чем рассчитаются. Для водителя это не мелочь: наличные — сдача и налог,
-                    // перевод — банк и телефон под рукой. Знать надо ДО того, как взял заказ.
-                    InstantPayMethodRow(order.paymentMethod)
-                    // Пассажир (B7a-4): рейтинг + опыт — водитель решает по данным; новичок — честно.
-                    // Агрегат анонимен; имя/телефон откроются только после «Взять заказ».
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        val rating = order.passengerRating
+        }
+
+        Surface(
+            color = CanonBg,
+            shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+            shadowElevation = 18.dp,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .fillMaxHeight(0.66f)
+                .graphicsLayer {
+                    alpha = sheetProgress
+                    translationY = (1f - sheetProgress) * 64.dp.toPx()
+                },
+        ) {
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = CanonSpace.md),
+                verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            ) {
+                Box(
+                    Modifier.fillMaxWidth().padding(top = CanonSpace.sm),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(Modifier.width(42.dp).height(4.dp).clip(CircleShape).background(CanonBorder))
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(appText("Входящий заказ", "Яңы заказ"), style = CanonTitle, color = CanonText)
                         Text(
-                            if (rating != null) {
-                                val stars = String.format(java.util.Locale.US, "%.1f", rating)
-                                appText("Пассажир: ★ $stars · ${order.passengerTrips} поездок",
-                                    "Пассажир: ★ $stars · ${order.passengerTrips} сәфәр")
-                            } else appText("Пассажир: новичок 🌱", "Пассажир: яңы юлсы 🌱"),
-                            color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                            if (canAccept) appText("Решение за $secondsLeft сек", "$secondsLeft секундта хәл ит")
+                            else appText("Время вышло", "Ваҡыт үтте"),
+                            style = CanonCaption,
+                            color = if (canAccept) CanonMutedStrong else CanonRed,
                         )
                     }
-                    val meta = buildList {
-                        if (order.distanceKm > 0) add(appText("≈ ${order.distanceKm.toInt()} км поездка", "≈ ${order.distanceKm.toInt()} км сәфәр"))
-                        if (order.etaMin > 0) add(appText("≈ ${order.etaMin.toInt()} мин", "≈ ${order.etaMin.toInt()} мин"))
-                    }.joinToString("  ·  ")
-                    if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 14.sp)
+                    InstantOfferTimer(secondsLeft, timerProgress, canAccept)
                 }
-            }
-                Spacer(Modifier.height(4.dp))
-            }
-            Spacer(Modifier.height(12.dp))
-            // Решение всегда остаётся под пальцем; детали заказа прокручиваются независимо.
-            Column(
-                Modifier.navigationBarsPadding(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                AppButton(
-                    text = appText("Взять заказ", "Заказды алыу"),
-                    onClick = { if (canAccept) onAccept() },
-                    style = AppButtonStyle.Primary,
-                    icon = Icons.Default.CheckCircle,
-                    loading = accepting,
-                    enabled = !accepting && canAccept,
-                    height = 56.dp,
-                )
-                AppButton(
-                    text = appText("Пропустить", "Үткәреп ебәреү"),
-                    // Скорость отказа не трогаем: тап отдаёт заказ дальше немедленно, а причину
-                    // (если водитель захочет) спрашивает уже панель поверх кабинета.
-                    onClick = { if (onSkipTap != null) onSkipTap() else onDecline() },
-                    style = AppButtonStyle.Secondary,
-                    enabled = !accepting,
-                    height = 48.dp,
-                )
+
+                Column(
+                    Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                ) {
+                    InstantOfferRouteCard(order)
+                    InstantOfferMoneyAndClass(order)
+                    InstantOfferPassengerTrust(order)
+                    InstantOfferHonestDetails(order)
+                    Spacer(Modifier.height(CanonSpace.xs))
+                }
+
+                // Решение закреплено вне прокрутки. Две кнопки рядом соответствуют задаче:
+                // отказ не выглядит опасным, принятие остаётся самым заметным действием.
+                Row(
+                    Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = CanonSpace.sm),
+                    horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                ) {
+                    AppButton(
+                        text = appText("Пропустить", "Үткәреп ебәреү"),
+                        onClick = { if (onSkipTap != null) onSkipTap() else onDecline() },
+                        modifier = Modifier.weight(1f),
+                        style = AppButtonStyle.Secondary,
+                        enabled = !accepting,
+                        fillWidth = false,
+                        height = 56.dp,
+                    )
+                    AppButton(
+                        text = appText("Принять", "Ҡабул итеү"),
+                        onClick = { if (canAccept) onAccept() },
+                        modifier = Modifier.weight(1f),
+                        style = AppButtonStyle.Primary,
+                        loading = accepting,
+                        enabled = !accepting && canAccept,
+                        fillWidth = false,
+                        height = 56.dp,
+                    )
+                }
             }
         }
     }
 }
+
+@Composable
+private fun InstantOfferTimer(secondsLeft: Int, progress: Float, active: Boolean) {
+    val accent = if (!active || secondsLeft <= 5) CanonRed else CanonGreen2
+    Box(Modifier.size(62.dp), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(
+            progress = { progress },
+            modifier = Modifier.fillMaxSize(),
+            color = accent,
+            trackColor = CanonBorder,
+            strokeWidth = 4.dp,
+        )
+        AnimatedContent(targetState = secondsLeft, label = "offerTimer") { seconds ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(seconds.toString(), style = CanonBody, color = accent, fontWeight = FontWeight.Bold)
+                Text(appText("сек", "сек"), style = CanonMicro, color = CanonMuted)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstantOfferRouteCard(order: InstantOrderDto) {
+    val km = order.offerPickupKm
+    val eta = order.offerPickupEtaMin
+    val pickupLine = when {
+        km != null && eta != null -> appText(
+            "${formatOfferKm(km)} км · $eta мин до пассажира",
+            "Пассажирға тиклем ${formatOfferKm(km)} км · $eta мин",
+        )
+        km != null -> appText(
+            "${formatOfferKm(km)} км до пассажира · время уточняется",
+            "Пассажирға тиклем ${formatOfferKm(km)} км · ваҡыт асыҡлана",
+        )
+        else -> appText("Время подачи уточняется", "Килеп етеү ваҡыты асыҡлана")
+    }
+    Surface(
+        color = CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(CanonSpace.md),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = CircleShape, color = CanonMint, modifier = Modifier.size(40.dp)) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2,
+                            modifier = Modifier.size(22.dp))
+                    }
+                }
+                Spacer(Modifier.width(CanonSpace.sm))
+                Column(Modifier.weight(1f)) {
+                    Text(appText("До пассажира", "Пассажирға тиклем"), style = CanonMicro, color = CanonMuted)
+                    Text(pickupLine, style = CanonBody, color = CanonText, fontWeight = FontWeight.Bold)
+                }
+            }
+            MobilityRouteTimeline(
+                from = order.fromText,
+                to = order.toText,
+                fromLabel = appText("Точка A", "A нөктәһе"),
+                toLabel = appText("Точка Б", "Б нөктәһе"),
+                compact = true,
+            )
+            val tripMeta = buildList {
+                if (order.distanceKm > 0) add(appText("${formatOfferKm(order.distanceKm)} км поездка", "${formatOfferKm(order.distanceKm)} км сәфәр"))
+                if (order.etaMin > 0) add(appText("≈ ${order.etaMin.toInt()} мин в пути", "Юлда ≈ ${order.etaMin.toInt()} мин"))
+            }.joinToString("  ·  ")
+            if (tripMeta.isNotBlank()) Text(tripMeta, style = CanonMicro, color = CanonMutedStrong)
+        }
+    }
+}
+
+@Composable
+private fun InstantOfferMoneyAndClass(order: InstantOrderDto) {
+    val hasServerNet = order.driverGrossKop > 0
+    val income = if (hasServerNet) formatTaxiKop(order.driverNetKop) else "${order.priceEstimate} ₽"
+    val category = InstantClasses.firstOrNull { it.category == order.category }
+    val categoryName = category?.let { appText(it.titleRu, it.titleBa) }
+        ?: appText("Эконом", "Эконом")
+    // Две равные колонки и одна общая высота: блок читается как строгая сетка,
+    // а не как большая карточка рядом с двумя случайными плашками.
+    val summaryHeight = 116.dp
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+        Surface(
+            color = CanonMint,
+            shape = CanonItemShape,
+            border = BorderStroke(1.dp, CanonGreen2.copy(alpha = 0.18f)),
+            modifier = Modifier.weight(1f).height(summaryHeight),
+        ) {
+            Column(
+                Modifier.fillMaxSize().padding(CanonSpace.md),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(appText("Предполагаемый доход", "Көтөлгән килем"), style = CanonMicro, color = CanonMutedStrong)
+                Text(income, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, color = CanonText)
+            }
+        }
+        Column(
+            Modifier.weight(1f).height(summaryHeight),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            InstantOfferSmallFact(Icons.Default.LocalTaxi, categoryName, Modifier.weight(1f))
+            InstantOfferSmallFact(
+                PayMethods.icon(order.paymentMethod),
+                payMethodLabel(order.paymentMethod),
+                Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun InstantOfferSmallFact(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.fillMaxSize().padding(horizontal = CanonSpace.sm),
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(19.dp))
+            Text(value, style = CanonCaption, color = CanonText, fontWeight = FontWeight.Bold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun InstantOfferPassengerTrust(order: InstantOrderDto) {
+    val rating = order.passengerRating
+    val headline = if (rating != null) {
+        val stars = String.format(java.util.Locale.US, "%.1f", rating).replace('.', ',')
+        appText("Пассажир ★ $stars", "Пассажир ★ $stars")
+    } else appText("Пассажир · новичок", "Пассажир · яңы юлсы")
+    val detail = if (order.passengerTrips > 0) {
+        appText("${order.passengerTrips} завершённых поездок", "${order.passengerTrips} тамамланған сәфәр")
+    } else appText("Первая поездка в Юлдаш", "Юлдашта тәүге сәфәр")
+    Surface(
+        color = CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, CanonGold.copy(alpha = 0.45f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(CanonSpace.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(shape = CircleShape, color = CanonGold.copy(alpha = 0.14f), modifier = Modifier.size(46.dp)) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Shield, contentDescription = null, tint = CanonGoldInk,
+                        modifier = Modifier.size(24.dp))
+                }
+            }
+            Spacer(Modifier.width(CanonSpace.sm))
+            Column(Modifier.weight(1f)) {
+                Text(headline, style = CanonBody, color = CanonText, fontWeight = FontWeight.Bold)
+                Text(detail, style = CanonMicro, color = CanonMutedStrong)
+            }
+            Icon(Icons.Default.Star, contentDescription = appText("Рейтинг пассажира", "Пассажир рейтингы"),
+                tint = CanonGold, modifier = Modifier.size(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun InstantOfferHonestDetails(order: InstantOrderDto) {
+    val notes = buildList {
+        if (order.driverGrossKop > 0) add(
+            appText(
+                "Пассажир платит ${formatTaxiKop(order.driverGrossKop)} · комиссия ${formatTaxiKop(order.driverFeeKop)} (${formatTaxiMultiplier(order.driverFeePercent)}%)",
+                "Пассажир ${formatTaxiKop(order.driverGrossKop)} түләй · комиссия ${formatTaxiKop(order.driverFeeKop)} (${formatTaxiMultiplier(order.driverFeePercent)}%)",
+            )
+        )
+        if (order.pickupFeeKop > 0) add(
+            appText(
+                "Подача: ${formatTaxiKop(order.pickupFeeKop)} тебе сверху, без комиссии",
+                "Килеп алыу: ${formatTaxiKop(order.pickupFeeKop)} һиңә өҫтәмә, комиссияһыҙ",
+            )
+        )
+        if (order.pickupEnroute) add(
+            appText("Тебе по пути — надбавка за подачу половинная", "Юл ыңғайы — килеп алыу өҫтәмәһе яртылаш")
+        )
+        if (order.weatherFeeKop > 0) add(
+            appText(
+                "Тяжёлая дорога: +${formatTaxiKop(order.weatherFeeKop)}, без комиссии",
+                "Ауыр юл: +${formatTaxiKop(order.weatherFeeKop)}, комиссияһыҙ",
+            )
+        )
+        if (order.optionsFeeKop > 0) add(
+            appText(
+                "Кресло и опции: +${formatTaxiKop(order.optionsFeeKop)}, без комиссии",
+                "Ултырғыс һәм өҫтәмәләр: +${formatTaxiKop(order.optionsFeeKop)}, комиссияһыҙ",
+            )
+        )
+        if (order.hasPromoDiscount) add(
+            appText(
+                "Пассажир отдаст ${formatTaxiKop(order.passengerPayKop)}: скидку оплачивает Юлдаш, твой доход не меняется",
+                "Пассажир ${formatTaxiKop(order.passengerPayKop)} бирә: ташламаны Юлдаш түләй, һинең килем үҙгәрмәй",
+            )
+        )
+    }
+    if (notes.isEmpty()) return
+    Surface(color = CanonSurface, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().padding(CanonSpace.md),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+        ) {
+            notes.forEach { note ->
+                Row(verticalAlignment = Alignment.Top) {
+                    Box(Modifier.padding(top = 7.dp).size(5.dp).background(CanonGreen2, CircleShape))
+                    Spacer(Modifier.width(CanonSpace.xs))
+                    Text(note, style = CanonMicro, color = CanonMutedStrong, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+private fun formatOfferKm(value: Double): String =
+    String.format(java.util.Locale.US, "%.1f", value).replace('.', ',')
 
 @Composable
 private fun InstantPointRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String) {

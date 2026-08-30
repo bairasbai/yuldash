@@ -1199,8 +1199,13 @@ object ApiClient {
 
     /** Оценить вторую сторону завершённого быстрого заказа (1..5). Оценка анонимна —
      *  в рейтинг идёт только агрегат, «кто поставил» не раскрывается. */
-    suspend fun rateInstantOrder(orderId: Int, stars: Int): Result<Unit> =
-        call("POST", "/instant/orders/$orderId/rate", JSONObject().put("stars", stars), auth = true).map { }
+    suspend fun rateInstantOrder(orderId: Int, stars: Int, tags: String = ""): Result<Unit> =
+        call(
+            "POST",
+            "/instant/orders/$orderId/rate",
+            JSONObject().put("stars", stars).put("tags", tags),
+            auth = true,
+        ).map { }
             .onSuccess { Analytics.log("instant_order_rate") }
 
     suspend fun blockUser(userId: Int): Result<Unit> =
@@ -4488,11 +4493,17 @@ object ApiClient {
                 // округлённое `amount` и показывал 188,50 ₽ как «188 ₽». Фолбэк на старое
                 // поле — на случай сервера, который ещё не отдаёт amount_kop.
                 amountKop = o.optInt("amount_kop", o.optInt("amount") * 100),
+                priceKop = o.optInt("price_kop", o.optInt("amount_kop", o.optInt("amount") * 100)),
+                promoDiscountKop = o.optInt("promo_discount_kop"),
                 waitingFeeKop = o.optInt("waiting_fee_kop"),
                 paymentMethod = o.optString("payment_method"),
                 paid = o.optBoolean("paid"),
                 driverName = o.optString("driver_name"),
                 driverVerified = o.optBoolean("driver_verified"),
+                counterpartyId = o.optInt("counterparty_id"),
+                counterpartyName = o.optString("counterparty_name"),
+                myStars = o.optInt("my_stars"),
+                myRatingTags = o.optString("my_rating_tags"),
                 ridePrice = o.optInt("ride_price"),
                 rideBasePrice = o.optInt("ride_base_price"),
                 surgeRub = o.optInt("surge_rub"),
@@ -5130,6 +5141,10 @@ data class InstantOrderDto(
     val ridePrice: Int = 0,
     val pickupFeeKop: Int = 0,
     val pickupKm: Double = 0.0,
+    /** Живые расстояние/ETA именно текущего кандидата до пассажира. Сервер считает по
+     *  presence и не раскрывает координаты водителя; null = свежей точки нет. */
+    val offerPickupKm: Double? = null,
+    val offerPickupEtaMin: Int? = null,
     // Заказ создавался, когда рядом не было машин: сумма подачи появится при принятии.
     val pickupPending: Boolean = false,
     // Водителю было по пути → подача вдвое дешевле. Нужен в чеке: иначе не объяснить,
@@ -5276,6 +5291,8 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     ridePrice = optInt("ride_price", optInt("price_estimate")),
     pickupFeeKop = optInt("pickup_fee_kop"),
     pickupKm = optDouble("pickup_km", 0.0),
+    offerPickupKm = if (isNull("offer_pickup_km")) null else optDouble("offer_pickup_km"),
+    offerPickupEtaMin = if (isNull("offer_pickup_eta_min")) null else optInt("offer_pickup_eta_min"),
     pickupPending = optBoolean("pickup_pending", false),
     pickupEnroute = optBoolean("pickup_enroute", false),
     optionsFeeKop = optInt("options_fee_kop"),
@@ -6283,8 +6300,16 @@ data class InstantReceiptDto(
     val fromText: String, val toText: String, val doneAt: String,
     /** amount — рубли (для старых экранов), amountKop — точная сумма: её и показываем в чеке. */
     val distanceKm: Double, val amount: Int, val amountKop: Int, val waitingFeeKop: Int,
+    val priceKop: Int = amountKop,
+    val promoDiscountKop: Int = 0,
     val paymentMethod: String, val paid: Boolean,
     val driverName: String, val driverVerified: Boolean,
+    val counterpartyId: Int = 0,
+    val counterpartyName: String = "",
+    /** Моя собственная оценка этой поездки. Ноль — ещё не оценивал. Нужна чеку: повторное
+     *  открытие не должно показывать пустые звёзды после уже отправленной оценки. */
+    val myStars: Int = 0,
+    val myRatingTags: String = "",
     // --- Из чего сложилась сумма (2026-08-23). Раньше в чеке была одна цифра, и на вопрос
     // «куда делись деньги» ответить было нечем. Старый сервер полей не шлёт → нули, и чек
     // выглядит как прежде.

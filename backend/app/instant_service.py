@@ -3311,6 +3311,7 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
     # Пассажиру комиссию водителя не раскрываем: его источник правды — итоговая цена поездки.
     driver_gross_kop = driver_fee_kop = driver_net_kop = 0
     driver_fee_percent = 0.0
+    offer_pickup_km = offer_pickup_eta_min = None
     if role == "driver":
         from . import debt as debt_mod
         price_rub = int(order.price_final if order.price_final is not None else order.price_estimate)
@@ -3321,6 +3322,18 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         )
         driver_fee_kop = debt_mod.order_commission_kop(order, driver_fee_percent)
         driver_net_kop = max(driver_gross_kop - driver_fee_kop, 0)
+        # Оффер должен отвечать на главный вопрос водителя: сколько ехать ДО пассажира.
+        # `pickup_km` в заказе относится к цене и мог быть рассчитан по другой ближайшей
+        # машине при создании. Здесь берём живую presence-точку именно текущего кандидата.
+        # Наружу координаты не отдаём — только дорожное расстояние и честный fallback-ETA.
+        if order.status == S.offered and order.current_offer_driver_id == viewer.id:
+            straight_km = driver_straight_km(viewer.id, order.from_lat, order.from_lng)
+            if straight_km is not None:
+                offer_pickup_km = round(pickup_road_km(straight_km), 2)
+                offer_pickup_eta_min = max(
+                    1,
+                    round(offer_pickup_km / max(settings.instant_avg_speed_kmh, 1.0) * 60),
+                )
 
     return {
         "id": order.id,
@@ -3348,6 +3361,8 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         "ride_price": order_ride_price(order),
         "pickup_fee_kop": int(order.pickup_fee_kop or 0),
         "pickup_km": float(order.pickup_km or 0.0),
+        "offer_pickup_km": offer_pickup_km,
+        "offer_pickup_eta_min": offer_pickup_eta_min,
         "pickup_pending": bool(getattr(order, "pickup_pending", False)),
         "pickup_enroute": bool(getattr(order, "pickup_enroute", False)),
         "options_fee_kop": int(getattr(order, "options_fee_kop", 0) or 0),

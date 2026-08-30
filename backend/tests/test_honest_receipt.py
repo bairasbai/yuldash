@@ -117,6 +117,29 @@ def test_receipt_is_only_for_its_own_participants(client, user_factory, fake_red
                       headers=stranger["auth"]).status_code == 403
 
 
+def test_receipt_remembers_only_my_own_rating_and_counterparty(client, user_factory, fake_redis):
+    """После повторного открытия чека звёзды не обнуляются, но чужую оценку за свою не выдаём."""
+    driver, pax, oid = _ride_to_done(client, user_factory, fake_redis,
+                                     "OwnRatingDrv", "OwnRatingPax")
+
+    rated = client.post(
+        f"/instant/orders/{oid}/rate",
+        headers=pax["auth"],
+        json={"stars": 5, "tags": "polite,safe"},
+    )
+    assert rated.status_code == 200, rated.text
+
+    passenger_receipt = client.get(f"/instant/orders/{oid}/receipt", headers=pax["auth"]).json()
+    driver_receipt = client.get(f"/instant/orders/{oid}/receipt", headers=driver["auth"]).json()
+
+    assert passenger_receipt["my_stars"] == 5
+    assert passenger_receipt["my_rating_tags"] == "polite,safe"
+    assert passenger_receipt["counterparty_id"] == driver["id"]
+    assert driver_receipt["my_stars"] == 0, "водителю показали оценку пассажира как свою"
+    assert driver_receipt["my_rating_tags"] == ""
+    assert driver_receipt["counterparty_id"] == pax["id"]
+
+
 # ============================ «Что-то не так с ценой» ============================
 def test_price_complaint_works_without_an_order(client, user_factory):
     """Человек увидел 450 ₽ и закрыл приложение — именно эти случаи мы иначе не увидим."""

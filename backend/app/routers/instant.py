@@ -18,7 +18,7 @@ from ..db import get_session
 from ..errors import herr
 from ..middleware import user_over_limit
 from ..models import (DriverProfile, InstantOrder, InstantOrderStatus as S, PriceComplaint,
-                      Settlement, User, UserRole)
+                      Rating, Settlement, User, UserRole)
 from ..safety_logic import account_paused, ensure_active
 from ..security import current_user
 from ..timeutil import utcnow
@@ -1140,8 +1140,12 @@ def order_receipt(order_id: int, user: User = Depends(current_user),
         raise herr(409, "Квитанция появится после завершения поездки",
                    "Квитанция сәфәр тамамланғандан һуң күренәсәк")
     driver = session.get(User, order.driver_id) if order.driver_id else None
+    passenger = session.get(User, order.passenger_id)
     payable = promo_ride.payable_kop(order)   # цена минус скидка по промокоду
     role = "driver" if order.driver_id == user.id else "passenger"
+    my_rating = session.exec(
+        select(Rating).where(Rating.order_id == order.id, Rating.rater_id == user.id)
+    ).first()
 
     # Строки счёта. Раньше в чеке была одна сумма и «в том числе ожидание» — на вопрос
     # «куда делись деньги» ответить было нечем. Теперь видно каждую часть.
@@ -1176,6 +1180,16 @@ def order_receipt(order_id: int, user: User = Depends(current_user),
         "paid": bool(order.paid),
         "driver_name": (driver.name if driver and driver.name else "Водитель"),
         "driver_verified": bool(driver.verified) if driver else False,
+        "counterparty_id": int(order.passenger_id if role == "driver" else (order.driver_id or 0)),
+        "counterparty_name": (
+            (passenger.name if passenger and passenger.name else "Пассажир") if role == "driver"
+            else (driver.name if driver and driver.name else "Водитель")
+        ),
+        # Чек может открываться через неделю. Пустые звёзды после уже отправленной оценки
+        # выглядели как потеря данных и провоцировали повторный тап. Возвращаем только СВОЮ
+        # оценку; чужая остаётся анонимной, как и раньше.
+        "my_stars": int(my_rating.stars) if my_rating else 0,
+        "my_rating_tags": (my_rating.tags or "") if my_rating else "",
     }
 
     # Комиссию видит ТОЛЬКО водитель — он её реально платит. Пассажиру её показывать нельзя:

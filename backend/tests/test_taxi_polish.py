@@ -158,6 +158,25 @@ def test_offer_payload_passenger_rating_null_for_newbie(client, user_factory, fa
     assert offer["passenger_phone"] == "" and offer["passenger_name"] == ""
 
 
+def test_offer_payload_has_live_distance_and_eta_to_passenger(client, user_factory, fake_redis):
+    """Подача в оффере относится к ЭТОМУ водителю, а не к машине, по которой считали цену."""
+    from app.config import settings
+    from test_instant import _create_order, _driver_online, _heartbeat, ORIG
+
+    driver = _driver_online(client, user_factory, "PickupEtaDrv")
+    # Около двух километров по прямой: внутри первого радиуса matcher, но не «у пассажира».
+    _heartbeat(client, driver, (ORIG[0] + 0.018, ORIG[1]))
+    passenger = user_factory("PickupEtaPax")
+    order = _create_order(client, passenger)
+    assert order["status"] == "offered"
+
+    offer = client.get("/instant/driver/offer", headers=driver["auth"]).json()["offer"]
+    assert offer is not None and offer["id"] == order["id"]
+    assert offer["offer_pickup_km"] > 1.0
+    expected_eta = max(1, round(offer["offer_pickup_km"] / settings.instant_avg_speed_kmh * 60))
+    assert offer["offer_pickup_eta_min"] == expected_eta
+
+
 def test_passenger_view_has_no_rating_computation(client, user_factory, fake_redis):
     """Витрина пассажира: агрегат «про себя» не считаем (лишние запросы) — схема стабильна
     (passenger_rating присутствует, но None/0)."""
