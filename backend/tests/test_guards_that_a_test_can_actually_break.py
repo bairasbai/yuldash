@@ -134,7 +134,7 @@ def _водитель_с_долгом(user_factory, имя: str, кошелёк_
         s.refresh(o)
         oid = o.id
         s.add(LedgerEntry(driver_id=водитель["id"], kind=LedgerKind.adj,
-                          amount_kop=кошелёк_коп, ext_id=f"promo:{oid}", note="Компенсация"))
+                          amount_kop=кошелёк_коп, ext_id=f"тест-кошелька:{oid}", note="Компенсация"))
         s.add(CommissionDebt(driver_id=водитель["id"], order_id=oid, week="2026-W35",
                              amount_kop=долг_коп, status=DebtStatus.unpaid,
                              created_at=utcnow(), due_at=utcnow()))
@@ -253,7 +253,7 @@ def test_a_debt_closed_by_someone_else_does_not_block_the_next_one(client, user_
                                  amount_kop=сумма, status=DebtStatus.unpaid,
                                  created_at=utcnow() - timedelta(days=дней), due_at=utcnow()))
         s.add(LedgerEntry(driver_id=водитель["id"], kind=LedgerKind.adj,
-                          amount_kop=30_000, ext_id="promo:двадолга", note="Компенсация"))
+                          amount_kop=30_000, ext_id="тест-кошелька:двадолга", note="Компенсация"))
         s.commit()
     старший, младший = номера
 

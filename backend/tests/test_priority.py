@@ -21,7 +21,7 @@ from app import instant_service as isv
 from app.config import settings
 from app.db import engine
 from app.models import (DriverProfile, InstantOrder, InstantOrderStatus, TaxiApplication,
-                        TaxiApplicationStatus, UserRole)
+                        TaxiApplicationStatus, User, UserRole)
 from app.timeutil import utcnow
 
 
@@ -44,7 +44,36 @@ def _driver(user_factory, name: str, rating: float = 5.0, approved_days_ago: int
         prof.rating = rating
         s.add(prof)
         s.commit()
+        # Балл за рейтинг считается по ЗАРАБОТАННЫМ оценкам, а не по числу в профиле
+        # (волна 208): заводские 5.0 в профиле — это «пока не оценивали», а не заслуга.
+        # Поэтому здесь же заводим настоящие оценки на нужный балл: смысл тестов ниже
+        # («4.9 → балл», «4.2 → балла нет») сохраняется дословно.
+        _rate_driver(d["id"], rating)
     return d
+
+
+def _rate_driver(driver_id: int, rating: float, count: int = 4) -> None:
+    """Настоящие оценки за поездки, где он был за рулём, со средним ≈ `rating`."""
+    from app.models import Rating
+
+    звёзды = max(1, min(5, round(rating)))
+    with Session(engine) as s:
+        for i in range(count):
+            пассажир = User(phone=f"tg-prio-{driver_id}-{i}", name=f"Оценщик{i}",
+                            telegram_id=f"prio{driver_id}x{i}", verified=True)
+            s.add(пассажир)
+            s.commit()
+            s.refresh(пассажир)
+            o = InstantOrder(passenger_id=пассажир.id, driver_id=driver_id,
+                             from_lat=54.735, from_lng=55.958, to_lat=54.75, to_lng=55.97,
+                             status=InstantOrderStatus.done, price_estimate=200,
+                             done_at=utcnow() - timedelta(days=30))
+            s.add(o)
+            s.commit()
+            s.refresh(o)
+            s.add(Rating(order_id=o.id, rater_id=пассажир.id, ratee_id=driver_id,
+                         stars=звёзды))
+        s.commit()
 
 
 def _done_orders(driver_id: int, count: int, **поля) -> None:
