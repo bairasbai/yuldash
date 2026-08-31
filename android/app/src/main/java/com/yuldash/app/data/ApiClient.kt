@@ -2349,11 +2349,20 @@ object ApiClient {
             }
         }
 
-    suspend fun confirmDebt(debtId: Int): Result<Unit> =
-        call("POST", "/admin/debts/$debtId/confirm", JSONObject(), auth = true).map { }
+    /**
+     * Подтвердить/отклонить перевод долга. `amountKop` — сумма, которую админ ВИДИТ в строке.
+     *
+     * Сервер сверяет её с текущей и при расхождении отвечает 409, ничего не меняя. Между
+     * «увидел строку» и «нажал кнопку» проходит время, и водитель успевает заявить оплату по
+     * новым поездкам: раньше одно нажатие закрывало обе заявки (волна 220).
+     */
+    suspend fun confirmDebt(debtId: Int, amountKop: Int): Result<Unit> =
+        call("POST", "/admin/debts/$debtId/confirm",
+             JSONObject().put("amount_kop", amountKop), auth = true).map { }
 
-    suspend fun rejectDebt(debtId: Int): Result<Unit> =
-        call("POST", "/admin/debts/$debtId/reject", JSONObject(), auth = true).map { }
+    suspend fun rejectDebt(debtId: Int, amountKop: Int): Result<Unit> =
+        call("POST", "/admin/debts/$debtId/reject",
+             JSONObject().put("amount_kop", amountKop), auth = true).map { }
 
     // ---------- Быстрый заказ (такси-режим, Фаза 2) ----------
     // Отдельный поток от плановых поездок (Ride/Booking) — те не трогаем. Приватность: телефоны/имя

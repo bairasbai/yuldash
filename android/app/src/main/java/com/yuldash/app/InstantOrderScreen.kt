@@ -5186,7 +5186,11 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
                             if (st == 409 || st == 410) {
                                 Toast.makeText(ctx, acceptTakenMsg, Toast.LENGTH_SHORT).show(); offer = null
                             } else {
-                                Toast.makeText(ctx, acceptNetMsg, Toast.LENGTH_SHORT).show()
+                                // Не 409/410 — это 403 с НАСТОЯЩЕЙ причиной: долг сервису, дневной
+                                // отдых, пауза по качеству, разбор жалобы. Все они объяснены на двух
+                                // языках, а водитель видел «не взяли, проверь сеть» и не понимал,
+                                // почему заказы уходят мимо.
+                                Toast.makeText(ctx, serverSaid(e, acceptNetMsg), Toast.LENGTH_LONG).show()
                             }
                         }
                     accepting = false

@@ -1095,15 +1095,61 @@ def mark_all_paid(session: Session, driver_id: int, up_to: Optional[datetime] = 
     return total
 
 
-def admin_confirm(session: Session, debt_id: int) -> Optional[int]:
+class DebtChanged(Exception):
+    """Сумма долга изменилась с тех пор, как админ увидел строку.
+
+    Экран админа не обновляется сам: он открывает список утром, а нажимает днём. За это время
+    водитель может заявить оплату ещё раз — по новым поездкам. Одно нажатие закрывало обе
+    заявки, и платформа прощала деньги, которых не получала (волна 220).
+    """
+    def __init__(self, expected_kop: int, actual_kop: int):
+        self.expected_kop = expected_kop
+        self.actual_kop = actual_kop
+        super().__init__(f"ожидали {expected_kop}, сейчас {actual_kop}")
+
+
+def _batch_admin_saw(session: Session, debt: CommissionDebt,
+                     expected_kop: Optional[int]) -> list:
+    """Какие именно долги закрывает это нажатие. Два пути, и оба безопасны.
+
+    **Клиент прислал сумму** — сверяем её с текущим pending точно. Не сошлась → `DebtChanged`,
+    и не трогаем НИЧЕГО: пусть админ обновит список и сверит поступление заново. Это честный
+    путь, и по нему ходит приложение.
+
+    **Суммы нет** (старая версия админки — например, веб) — сужаем батч до ОДНОЙ заявки: тех
+    долгов, что заявлены тем же нажатием «Я оплатил», что и строка, на которую админ кликнул
+    (`paid_declared_at`). Долг, заявленный позже, в этот батч не попадает — а именно он и
+    закрывался бесплатно, когда админ возвращался к странице, открытой полчаса назад
+    (волна 220). Ломать чужой клиент ради этого не нужно: он просто закрывает меньше.
+    """
+    pending = _pending(session, debt.driver_id)
+    if not pending:
+        return pending
+    if expected_kop is not None:
+        сейчас = sum(d.amount_kop for d in pending)
+        if int(expected_kop) != сейчас:
+            raise DebtChanged(int(expected_kop), сейчас)
+        return pending
+    момент = debt.paid_declared_at
+    if момент is None:
+        return pending          # заявки без отметки времени — как раньше, целиком
+    return [d for d in pending if d.paid_declared_at == момент]
+
+
+def admin_confirm(session: Session, debt_id: int,
+                  expected_kop: Optional[int] = None) -> Optional[int]:
     """Админ подтвердил перевод: ВЕСЬ pending-долг этого водителя → paid (блок снят).
     debt_id — любая запись из батча водителя (в /admin/debts группируем по водителю).
-    Возврат: подтверждённая сумma (копейки) или None, если долг не найден."""
+    Возврат: подтверждённая сумма (копейки) или None, если долг не найден.
+
+    `expected_kop` — сумма, которую админ ВИДИТ на экране. Не сошлась с текущей → DebtChanged
+    и ничего не меняется: между «увидел» и «нажал» водитель мог заявить оплату по новым
+    поездкам, и одно нажатие закрывало бы обе (волна 220)."""
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
         return None
     now = utcnow()
-    pending = _pending(session, debt.driver_id)
+    pending = _batch_admin_saw(session, debt, expected_kop)
     total = 0
     for d in pending:
         d.status = DebtStatus.paid
@@ -1115,13 +1161,19 @@ def admin_confirm(session: Session, debt_id: int) -> Optional[int]:
     return total
 
 
-def admin_reject(session: Session, debt_id: int) -> Optional[int]:
+def admin_reject(session: Session, debt_id: int,
+                 expected_kop: Optional[int] = None) -> Optional[int]:
     """Админ отклонил (деньги не пришли): pending-долг водителя → обратно unpaid.
-    Возврат: сумма возвращённого в unpaid (копейки) или None, если долг не найден."""
+    Возврат: сумма возвращённого в unpaid (копейки) или None, если долг не найден.
+
+    Сверка суммы нужна и здесь, и по той же причине, но бьёт она в другую сторону. Отказ
+    возвращает в неоплаченные ВЕСЬ батч и тратит обещание (`declare_count`). Честный водитель,
+    чей первый перевод дошёл, а второй — нет, терял бы оба сразу и приближался к
+    `declare_abuse`, где такси закрывается до разбора с человеком (волна 220)."""
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
         return None
-    pending = _pending(session, debt.driver_id)
+    pending = _batch_admin_saw(session, debt, expected_kop)
     total = 0
     for d in pending:
         d.status = DebtStatus.unpaid

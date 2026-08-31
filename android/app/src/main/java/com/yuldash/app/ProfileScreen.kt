@@ -1698,7 +1698,9 @@ internal fun DriverCabinetScreen(
                             val msg = when ((e as? ApiException)?.status) {
                                 409 -> editPriceDownMsg
                                 400 -> editNotActiveMsg
-                                else -> editNetMsg
+                                // Всё остальное (403 «не твоя поездка», 422) сервер объясняет
+                                // сам — своё «проверь сеть» тут врало бы при работающей сети.
+                                else -> serverSaid(e, editNetMsg)
                             }
                             Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
                         }

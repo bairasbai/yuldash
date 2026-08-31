@@ -1235,7 +1235,9 @@ internal fun ActiveTripScreen(
                 .onFailure { e ->
                     if (e is ApiException) {
                         failedIds = failedIds + tempId
-                        Toast.makeText(context, sendFailMsg, Toast.LENGTH_SHORT).show()
+                        // Сервер знает причину: чат закрылся после поездки, собеседник в блокировке.
+                        // «Не отправилось» об этом молчало, и человек писал в пустоту.
+                        Toast.makeText(context, serverSaid(e, sendFailMsg), Toast.LENGTH_LONG).show()
                     } else {
                         // Нет сети → в очередь на авто-ретрай. Сообщение остаётся на экране с меткой «в очереди».
                         Outbox.enqueue(context, Outbox.newMessage(bid, text))
@@ -1374,7 +1376,14 @@ internal fun ActiveTripScreen(
                                             if (e !is ApiException) {   // нет сети → статус в очередь на авто-ретрай (F11)
                                                 Outbox.enqueue(context, Outbox.newDriverStatus(bid, st))
                                                 Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
-                                            } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                // Сервер объясняет отказ подробно: «ты ещё далеко от места
+                                                // подачи (≈1.4 км) — нажми «Подъезжаю», когда будешь рядом».
+                                                // Своё «проверь сеть» здесь было прямой неправдой: сеть
+                                                // работает, а водитель жал кнопку снова и снова.
+                                                Toast.makeText(context, serverSaid(e, statusErrMsg),
+                                                               Toast.LENGTH_LONG).show()
+                                            }
                                         }
                                 }
                             } else {
@@ -1391,7 +1400,14 @@ internal fun ActiveTripScreen(
                                             if (e !is ApiException) {   // нет сети → статус «сел/доехал» в очередь на авто-ретрай (F11)
                                                 Outbox.enqueue(context, Outbox.newTripStatus(bid, st))
                                                 Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
-                                            } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                // Сервер объясняет отказ подробно: «ты ещё далеко от места
+                                                // подачи (≈1.4 км) — нажми «Подъезжаю», когда будешь рядом».
+                                                // Своё «проверь сеть» здесь было прямой неправдой: сеть
+                                                // работает, а водитель жал кнопку снова и снова.
+                                                Toast.makeText(context, serverSaid(e, statusErrMsg),
+                                                               Toast.LENGTH_LONG).show()
+                                            }
                                         }
                                 }
                             }

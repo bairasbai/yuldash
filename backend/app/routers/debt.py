@@ -140,15 +140,38 @@ def admin_debts(user: User = Depends(current_user), session: Session = Depends(g
     return list(groups.values())
 
 
+class DebtActionIn(BaseModel):
+    """Сумма, которую админ ВИДИТ в строке списка. Сверяется перед закрытием батча."""
+    amount_kop: int | None = None
+
+
+def _debt_changed(e: debt_mod.DebtChanged):
+    """Отказ «сумма изменилась». Не тупик: обновил список — и подтверждай дальше."""
+    return herr(409,
+                f"Сумма изменилась: было {e.expected_kop // 100} ₽, стало {e.actual_kop // 100} ₽. "
+                "Водитель заявил оплату ещё раз — обнови список и сверь поступление.",
+                f"Сумма үҙгәрҙе: {e.expected_kop // 100} һум ине, {e.actual_kop // 100} һум булды. "
+                "Водитель яңынан түләү белдергән — исемлекте яңырт һәм килгән аҡсаны тикшер.")
+
+
 @router.post("/admin/debts/{debt_id}/confirm")
-def admin_confirm(debt_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Подтвердить перевод долга: весь pending этого водителя → paid, блок такси снят. Админ."""
+def admin_confirm(debt_id: int, body: DebtActionIn | None = None,
+                  user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Подтвердить перевод долга: весь pending этого водителя → paid, блок такси снят. Админ.
+
+    Сумма из тела запроса — то, что админ видит на экране. Не сошлась с текущей → 409 и
+    НИЧЕГО не меняется: пока он смотрел на строку, водитель мог заявить оплату по новым
+    поездкам, и одно нажатие закрывало бы обе (волна 220)."""
     _require_admin(user)
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
         raise herr(404, "Долг не найден", "Бурыс табылманы")
     driver_id = debt.driver_id
-    paid_kop = debt_mod.admin_confirm(session, debt_id)
+    try:
+        paid_kop = debt_mod.admin_confirm(session, debt_id,
+                                          body.amount_kop if body else None)
+    except debt_mod.DebtChanged as e:
+        raise _debt_changed(e)
     admin_action(user.id, "debt.confirm", debt_id=debt_id, driver=driver_id, amount_kop=paid_kop)
     if paid_kop:
         # Запись, а не голый пуш: это снятие блокировки — человек должен узнать о нём даже
@@ -212,14 +235,22 @@ def admin_forgive(debt_id: int, body: ForgiveIn | None = None,
 
 
 @router.post("/admin/debts/{debt_id}/reject")
-def admin_reject(debt_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Отклонить (деньги не пришли): pending этого водителя → обратно unpaid. Админ."""
+def admin_reject(debt_id: int, body: DebtActionIn | None = None,
+                 user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отклонить (деньги не пришли): pending этого водителя → обратно unpaid. Админ.
+
+    Сверка суммы обязательна и здесь: отказ возвращает в неоплаченные ВЕСЬ батч и тратит
+    обещание. Честный водитель, чей первый перевод дошёл, а второй нет, терял бы оба."""
     _require_admin(user)
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
         raise herr(404, "Долг не найден", "Бурыс табылманы")
     driver_id = debt.driver_id
-    back_kop = debt_mod.admin_reject(session, debt_id)
+    try:
+        back_kop = debt_mod.admin_reject(session, debt_id,
+                                         body.amount_kop if body else None)
+    except debt_mod.DebtChanged as e:
+        raise _debt_changed(e)
     admin_action(user.id, "debt.reject", debt_id=debt_id, driver=driver_id, amount_kop=back_kop)
     if back_kop:
         # Самое важное из трёх: долг вернулся в неоплаченные, такси снова закрыто. Проверено

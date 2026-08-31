@@ -2192,7 +2192,10 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
                             .onFailure { e ->
                                 withdrawing = false
                                 val taken = (e as? com.yuldash.app.data.ApiException)?.status == 409
-                                Toast.makeText(ctx, if (taken) withdrawTakenErr else withdrawErr, Toast.LENGTH_LONG).show()
+                                // 409 = отклик уже приняли, и наш текст об этом точнее. Любая другая
+                        // причина у сервера своя — её и показываем, а не «проверь сеть».
+                        Toast.makeText(ctx, if (taken) withdrawTakenErr else serverSaid(e, withdrawErr),
+                                       Toast.LENGTH_LONG).show()
                                 if (taken) { withdrawTarget = null; reload() }   // уже принят → обновим ленту, кнопки отзыва там уже не будет
                             }
                     }
