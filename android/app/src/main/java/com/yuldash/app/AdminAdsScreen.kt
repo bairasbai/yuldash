@@ -204,6 +204,17 @@ internal fun AdAdminCard(
                 }
             }
             Text("${ad.partner.ifBlank { if (ad.ownerId != null) appText("Партнёр", "Партнёр") else "—" }} · ${planLabel(ad.plan)}", color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            // Без маркировки объявление в эфир не идёт: показ без erid — нарушение закона
+            // о рекламе. Админ должен увидеть это здесь, а не узнать от проверяющего.
+            if (ad.erid.isBlank()) {
+                Surface(color = CanonRed.copy(alpha = 0.14f), shape = RoundedCornerShape(999.dp)) {
+                    Text(
+                        appText("Нет erid — не показывается", "erid юҡ — күрһәтелмәй"),
+                        color = canonChipInk(CanonRed), fontWeight = FontWeight.Bold, fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
             if (ad.text.isNotBlank()) Text(ad.text, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
             Text(
                 appText("Места: ${ad.placements.ifBlank { "—" }}", "Урын: ${ad.placements.ifBlank { "—" }}") +
