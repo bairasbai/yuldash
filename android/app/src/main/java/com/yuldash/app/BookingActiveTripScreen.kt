@@ -309,7 +309,7 @@ private suspend fun saveTripPass(context: android.content.Context, d: com.yuldas
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BookingScreen(
-    ride: Ride,
+    ride: Ride?,
     bookingId: Int? = null,
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
@@ -327,6 +327,12 @@ internal fun BookingScreen(
     onFindAnotherRide: () -> Unit = {},
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
+    // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
+    // не подставляем — молча возвращаемся назад.
+    if (ride == null) {
+        LaunchedEffect(Unit) { onBack() }
+        return
+    }
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
     val context = LocalContext.current
     var details by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
