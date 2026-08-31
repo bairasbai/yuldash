@@ -1491,6 +1491,17 @@ internal fun DriverCabinetScreen(
         }
         if (zone?.workZone == null) showZoneSheet = true
     }
+    fun goOffline() {
+        val prev = online
+        online = false
+        onlineLoaded = true
+        rateScope.launch {
+            ApiClient.setOnline(false).onFailure {
+                online = prev
+                Toast.makeText(ctx, serverSaid(it, onlineErrMsg), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     // Отдельный текст под «Примерное» (Android 12+): общий «включи геолокацию» тут врал бы —
     // геолокация-то включена, не хватает именно точности.
     val geoCoarseMsg = appText(
@@ -1595,14 +1606,7 @@ internal fun DriverCabinetScreen(
                     return@onToggleOnline
                 }
                 if (!v) {   // выключение — просто оффлайн, без проверок
-                    val prev = online
-                    online = false; onlineLoaded = true
-                    rateScope.launch {
-                        ApiClient.setOnline(false).onFailure {
-                            online = prev
-                            Toast.makeText(ctx, serverSaid(it, onlineErrMsg), Toast.LENGTH_LONG).show()
-                        }
-                    }
+                    goOffline()
                     return@onToggleOnline
                 }
                 // D1: линия без ТОЧНОЙ геолокации = водитель невидим и молча без заказов.
@@ -1729,7 +1733,13 @@ internal fun DriverCabinetScreen(
     // Пока водитель «на линии» — presence-heartbeat + опрос входящего оффера; оффер рисуется поверх.
     // Гейт (580-ФЗ): точно знаем, что заявки-approved нет → зря сервер не дёргаем (там всё равно 403).
     val taxiAllowed = !taxiAppLoaded || taxiApp?.status == "approved"
-    InstantDriverOnlineController(online = online && taxiAllowed, onOpenTrip = onInstantTrip)
+    InstantDriverOnlineController(
+        online = online && taxiAllowed,
+        workday = workday,
+        zone = zone,
+        onGoOffline = { goOffline() },
+        onOpenTrip = onInstantTrip,
+    )
     // Фоновый режим линии (B7a-1): экран погас/приложение свёрнуто → TaxiLineService держит
     // presence (~15с) и ловит офферы (~5с). Синкаем ТОЛЬКО после ответа сервера (onlineLoaded),
     // чтобы не глушить живой сервис из-за ещё не загрузившегося статуса. Тумблер выключен /

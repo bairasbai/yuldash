@@ -12,7 +12,11 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -68,6 +72,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Redeem
@@ -908,6 +913,7 @@ internal fun InstantRouteMap(
     car: Point? = null,
     carBearing: Double? = null,
     nearbyDrivers: List<com.yuldash.app.data.NearbyDriverDto> = emptyList(),
+    demandZones: List<com.yuldash.app.data.DemandZoneDto> = emptyList(),
     userLocationFix: TaxiLocationFix? = null,
     fromIsLiveLocation: Boolean = false,
     // Статусная карта поиска не должна уезжать из-под радара случайным свайпом. На всех
@@ -936,6 +942,10 @@ internal fun InstantRouteMap(
     val locationTextArgb = CanonText.toArgb()
     val locationHaloFillArgb = CanonGreen2.copy(alpha = 0.08f).toArgb()
     val locationHaloStrokeArgb = CanonGreen2.copy(alpha = 0.24f).toArgb()
+    val demandGreenFillArgb = CanonGreen2.copy(alpha = 0.13f).toArgb()
+    val demandGreenStrokeArgb = CanonGreen2.copy(alpha = 0.38f).toArgb()
+    val demandGoldFillArgb = CanonGold.copy(alpha = 0.12f).toArgb()
+    val demandGoldStrokeArgb = CanonGold.copy(alpha = 0.42f).toArgb()
     val youAreHereLabel = appText("Ты здесь", "Һин бында")
     // Подпись минут на машинке считаем ЗДЕСЬ: внутри DisposableEffect appText не позвать
     // (он @Composable), и раньше «мин» уезжало в бабл мимо двуязычия (аудит P1-6).
@@ -1226,6 +1236,37 @@ internal fun InstantRouteMap(
             carPm.value?.let { runCatching { mapView.mapWindow.map.mapObjects.remove(it) } }
             carPm.value = null
         }
+    }
+    // Агрегированный спрос: только круги районов, без адресов и личностей пассажиров.
+    // Радиус и насыщенность зависят от серверного веса; отдельные точки заказа намеренно
+    // не рисуем, чтобы карта ожидания не превращалась в инструмент слежения.
+    DisposableEffect(
+        demandZones,
+        demandGreenFillArgb,
+        demandGreenStrokeArgb,
+        demandGoldFillArgb,
+        demandGoldStrokeArgb,
+    ) {
+        val map = mapView.mapWindow.map
+        val objects = mutableListOf<com.yandex.mapkit.map.MapObject>()
+        val valid = demandZones.filter { it.lat != 0.0 || it.lng != 0.0 }.take(6)
+        val maxWeight = valid.maxOfOrNull { it.weight }?.coerceAtLeast(0.0001) ?: 1.0
+        valid.forEachIndexed { index, zone ->
+            val weight = (zone.weight / maxWeight).toFloat().coerceIn(0.15f, 1f)
+            val radius = 420f + 880f * weight
+            runCatching {
+                objects += map.mapObjects.addCircle(
+                    com.yandex.mapkit.geometry.Circle(Point(zone.lat, zone.lng), radius),
+                ).apply {
+                    val gold = index == 1
+                    fillColor = if (gold) demandGoldFillArgb else demandGreenFillArgb
+                    strokeColor = if (gold) demandGoldStrokeArgb else demandGreenStrokeArgb
+                    strokeWidth = 1.2f + weight
+                    zIndex = -2f
+                }
+            }
+        }
+        onDispose { objects.forEach { runCatching { map.mapObjects.remove(it) } } }
     }
     // «Честные машины рядом»: показываем ТОЛЬКО до выбора адреса (to == null), чтобы не мешать
     // маршруту. Каждая машинка — реальная точка из presence (без цены и без личности).
@@ -5101,13 +5142,23 @@ private fun InstantLoginNeeded(onLoginRequired: () -> Unit) {
  * «Взять» → accept → onOpenTrip(orderId); «Пропустить» → decline. Встраивается в кабинет водителя.
  */
 @Composable
-internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) -> Unit) {
+internal fun InstantDriverOnlineController(
+    online: Boolean,
+    workday: com.yuldash.app.data.TaxiWorkdayDto? = null,
+    zone: com.yuldash.app.data.InstantZoneDto? = null,
+    onGoOffline: () -> Unit = {},
+    onOpenTrip: (Int) -> Unit,
+) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    val myPoint by rememberMyPoint(active = online)
+    val locationFix by rememberMyLocationFix(active = online)
+    val myPoint = locationFix?.point
     var offer by remember { mutableStateOf<InstantOrderDto?>(null) }
     var accepting by remember { mutableStateOf(false) }
     var presenceFails by remember { mutableIntStateOf(0) }   // подряд-неудачи heartbeat → «нет связи»
+    var demandZones by remember { mutableStateOf<List<com.yuldash.app.data.DemandZoneDto>>(emptyList()) }
+    var demandLoading by remember { mutableStateOf(false) }
+    var demandError by remember { mutableStateOf(false) }
     // Заказ, от которого водитель ТОЛЬКО ЧТО отказался и по которому мы необязательным шагом
     // спрашиваем «почему». Отказ уже ушёл на сервер — тут остался один вопрос, не блокирующий.
     var declineAskFor by remember { mutableStateOf<Int?>(null) }
@@ -5154,8 +5205,38 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
             delay(4_000)
         }
     }
+    // Спрос обновляется только пока экран виден. Сервер отдаёт агрегированные круги районов —
+    // адресов и пользователей здесь нет. Старые успешные данные не стираем при разовом сбое.
+    RepeatWhileVisible(online) {
+        if (!online) {
+            demandZones = emptyList()
+            demandLoading = false
+            demandError = false
+            return@RepeatWhileVisible
+        }
+        while (isActive) {
+            demandLoading = demandZones.isEmpty()
+            ApiClient.getInstantDemand()
+                .onSuccess { demandZones = it.zones; demandError = false }
+                .onFailure { if (demandZones.isEmpty()) demandError = true }
+            demandLoading = false
+            delay(60_000)
+        }
+    }
 
     val current = offer
+    if (online && current == null) {
+        InstantDriverWaitingScreen(
+            locationFix = locationFix,
+            demandZones = demandZones,
+            demandLoading = demandLoading,
+            demandError = demandError,
+            workday = workday,
+            zone = zone,
+            connectionLost = presenceFails >= 2,
+            onGoOffline = onGoOffline,
+        )
+    }
     // Вопрос «почему не взял» рисуем ДО оверлея: сиблинги в Box накладываются по порядку, и
     // пришедший следом новый оффер обязан перекрыть панель целиком, а не наоборот — иначе она
     // на доли секунды висит над кнопкой «Взять заказ».
@@ -5217,32 +5298,389 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
         )
     }
 
-    // Связь потеряна, пока «на линии» и нет оффера на экране: мягкий чип «нет связи».
-    // Не молчим — иначе водитель ждёт заказы, а сервер его не видит. Восстановится сам.
-    AnimatedVisibility(
-        visible = online && current == null && presenceFails >= 2,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            Surface(shape = CircleShape, color = CanonGold.copy(alpha = 0.16f)) {
-                Row(
-                    Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonGold, modifier = Modifier.size(16.dp))
-                    Text(
-                        appText("Нет связи — переподключаемся…", "Бәйләнеш юҡ — ҡабат тоташабыҙ…"),
-                        color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+}
+
+/**
+ * Полноэкранное ожидание заказа. C = карта и короткая сводка по умолчанию;
+ * A = подробности смены после свайпа вверх. Сеть и бизнес-состояние остаются в контроллере,
+ * поэтому этот рендер можно честно проверить отдельно, не подменяя сервер моками в приложении.
+ */
+@Composable
+internal fun InstantDriverWaitingScreen(
+    locationFix: TaxiLocationFix?,
+    demandZones: List<com.yuldash.app.data.DemandZoneDto>,
+    demandLoading: Boolean,
+    demandError: Boolean,
+    workday: com.yuldash.app.data.TaxiWorkdayDto?,
+    zone: com.yuldash.app.data.InstantZoneDto?,
+    connectionLost: Boolean,
+    onGoOffline: () -> Unit,
+    initialStop: TaxiSheetStop = TaxiSheetStop.Peek,
+    mapContent: (@Composable (Modifier) -> Unit)? = null,
+) {
+    var stop by remember { mutableStateOf(initialStop) }
+    var recenterTick by remember { mutableIntStateOf(0) }
+
+    TaxiSheetScaffold(
+        stop = stop,
+        onStopChange = { requested ->
+            // Здесь ровно два осмысленных состояния: компактное C и подробное A.
+            stop = if (requested == TaxiSheetStop.Full) TaxiSheetStop.Half else requested
+        },
+        map = { modifier ->
+            if (mapContent != null) {
+                mapContent(modifier)
+            } else {
+                InstantRouteMap(
+                    from = locationFix?.point,
+                    to = null,
+                    modifier = modifier,
+                    demandZones = demandZones,
+                    userLocationFix = locationFix,
+                    fromIsLiveLocation = true,
+                    recenterTick = recenterTick,
+                )
+            }
+        },
+        halfBodyFraction = 0.43f,
+        header = {
+            AnimatedContent(
+                targetState = stop == TaxiSheetStop.Peek,
+                transitionSpec = {
+                    fadeIn(tween(CanonMotion.NORMAL))
+                        .togetherWith(fadeOut(tween(CanonMotion.QUICK)))
+                },
+                label = "driverWaitingCompactToDetailed",
+            ) { compact ->
+                if (compact) {
+                    InstantWaitingCompactHeader(workday = workday, zone = zone)
+                } else {
+                    InstantWaitingDetailedHeader(connectionLost = connectionLost)
+                }
+            }
+        },
+        body = {
+            InstantWaitingDemandCard(
+                zones = demandZones,
+                loading = demandLoading,
+                error = demandError,
+                connectionLost = connectionLost,
+            )
+            if (workday == null) SkeletonCard(lines = 2) else InstantWaitingMetrics(workday)
+            InstantWaitingZoneRow(zone)
+        },
+        footer = {
+            AppButton(
+                text = appText("Уйти с линии", "Линиянан сығыу"),
+                onClick = onGoOffline,
+                style = AppButtonStyle.Secondary,
+                height = 56.dp,
+            )
+        },
+        hasFooter = true,
+        overlay = {
+            InstantWaitingOnlinePill(
+                connectionLost = connectionLost,
+                locationReady = locationFix != null,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = CanonSpace.lg, start = CanonSpace.lg, end = CanonSpace.lg),
+            )
+            Surface(
+                onClick = { recenterTick++ },
+                shape = CircleShape,
+                color = CanonSurface,
+                border = BorderStroke(1.dp, CanonBorder),
+                shadowElevation = CanonDepth.card,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 78.dp, end = CanonSpace.lg)
+                    .size(48.dp),
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.MyLocation,
+                        contentDescription = appText("Вернуться к себе", "Үҙеңә ҡайтыу"),
+                        tint = CanonGreen2,
+                        modifier = Modifier.size(21.dp),
                     )
                 }
             }
+        },
+    )
+}
+
+@Composable
+private fun InstantWaitingOnlinePill(
+    connectionLost: Boolean,
+    locationReady: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val transition = rememberInfiniteTransition(label = "driverOnlinePulse")
+    val pulse by transition.animateFloat(
+        initialValue = 0.82f,
+        targetValue = 1.18f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1_100, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "driverOnlinePulseScale",
+    )
+    val text = when {
+        connectionLost -> appText("Нет связи · переподключаемся", "Бәйләнеш юҡ · ҡабат тоташабыҙ")
+        !locationReady -> appText("Уточняем геолокацию", "Геолокацияны асыҡлайбыҙ")
+        else -> appText("На линии · ищем заказ", "Линияла · заказ эҙләйбеҙ")
+    }
+    val accent = if (connectionLost || !locationReady) CanonGold else CanonGreen2
+    Surface(
+        color = CanonSurface,
+        shape = CircleShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        shadowElevation = CanonDepth.card,
+        modifier = modifier,
+    ) {
+        Row(
+            Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier.size(18.dp).graphicsLayer {
+                        scaleX = pulse
+                        scaleY = pulse
+                        alpha = 1.25f - pulse
+                    }.background(accent.copy(alpha = 0.22f), CircleShape),
+                )
+                Box(Modifier.size(9.dp).background(accent, CircleShape))
+            }
+            Text(text, style = CanonCaption, color = CanonText, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
+}
+
+@Composable
+private fun InstantWaitingCompactHeader(
+    workday: com.yuldash.app.data.TaxiWorkdayDto?,
+    zone: com.yuldash.app.data.InstantZoneDto?,
+) {
+    val income = workday?.let { instantWaitingIncome(it.netTodayKop) } ?: "—"
+    val trips = workday?.ordersToday
+    val todayLine = if (trips == null) {
+        appText("Сегодня —", "Бөгөн —")
+    } else {
+        appText(
+            "Сегодня $income · ${instantWaitingTripsRu(trips)}",
+            "Бөгөн $income · $trips сәфәр",
+        )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+        Text(todayLine, style = CanonTitle, color = CanonText)
+        Text(
+            workday?.let {
+                appText(
+                    "Смена ${instantWaitingDurationRu(it.secondsOnline)} · отдых через ${instantWaitingDurationRu(it.remainingSec)}",
+                    "Смена ${instantWaitingDurationBa(it.secondsOnline)} · ялға тиклем ${instantWaitingDurationBa(it.remainingSec)}",
+                )
+            } ?: appText("Загружаем смену…", "Сменаны йөкләйбеҙ…"),
+            style = CanonCaption,
+            color = CanonMutedStrong,
+        )
+        Text(
+            appText("Зона: ${instantWaitingZoneName(zone)}", "Зона: ${instantWaitingZoneName(zone)}"),
+            style = CanonMicro,
+            color = CanonGreen2,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun InstantWaitingDetailedHeader(connectionLost: Boolean) {
+    Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+        Text(appText("Ищем заказ рядом", "Яҡында заказ эҙләйбеҙ"), style = CanonTitle, color = CanonText)
+        Text(
+            if (connectionLost) {
+                appText("Восстанавливаем связь с сервером", "Сервер менән бәйләнеште тергеҙәбеҙ")
+            } else {
+                appText("Можно заниматься своими делами — позовём", "Үҙ эшең менән бул — заказ килһә саҡырырбыҙ")
+            },
+            style = CanonCaption,
+            color = CanonMutedStrong,
+        )
+    }
+}
+
+@Composable
+private fun InstantWaitingDemandCard(
+    zones: List<com.yuldash.app.data.DemandZoneDto>,
+    loading: Boolean,
+    error: Boolean,
+    connectionLost: Boolean,
+) {
+    val requests = zones.sumOf { it.requests }
+    val headline = when {
+        connectionLost -> appText("Нет связи", "Бәйләнеш юҡ")
+        loading -> appText("Обновляем спрос рядом", "Яҡындағы ихтыяжды яңыртабыҙ")
+        error -> appText("Спрос пока не обновился", "Ихтыяж әлегә яңырманы")
+        zones.isEmpty() -> appText("Пока тихо рядом", "Яҡында әлегә тыныс")
+        else -> appText("Спрос выше рядом", "Яҡында ихтыяж юғары")
+    }
+    val detail = when {
+        connectionLost || error -> appText("Повторим автоматически", "Үҙебеҙ ҡабатлап ҡарарбыҙ")
+        loading -> appText("Никого не показываем — только общие зоны", "Кешеләрҙе күрһәтмәйбеҙ — тик дөйөм зоналар")
+        zones.isEmpty() -> appText("Сообщим, когда появится заказ", "Заказ барлыҡҡа килһә хәбәр итербеҙ")
+        else -> appText("Активных зон: ${zones.size} · запросов: $requests", "Әүҙем зоналар: ${zones.size} · һорауҙар: $requests")
+    }
+    Surface(
+        color = if (connectionLost || error) CanonGold.copy(alpha = 0.12f) else CanonMint,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, if (connectionLost || error) CanonGold.copy(alpha = 0.4f) else CanonGreen2.copy(alpha = 0.18f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(CanonSpace.md),
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (connectionLost || error) Icons.Default.CloudOff else Icons.Default.Search,
+                contentDescription = null,
+                tint = if (connectionLost || error) CanonGoldInk else CanonGreen2,
+                modifier = Modifier.size(24.dp),
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(headline, style = CanonBody, color = CanonText, fontWeight = FontWeight.Bold)
+                Text(detail, style = CanonMicro, color = CanonMutedStrong)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstantWaitingMetrics(workday: com.yuldash.app.data.TaxiWorkdayDto) {
+    Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            InstantWaitingMetric(
+                label = appText("Смена", "Смена"),
+                value = appText(instantWaitingDurationRu(workday.secondsOnline), instantWaitingDurationBa(workday.secondsOnline)),
+                icon = Icons.Default.AccessTime,
+                modifier = Modifier.weight(1f),
+            )
+            InstantWaitingMetric(
+                label = appText("До отдыха", "Ялға тиклем"),
+                value = appText(instantWaitingDurationRu(workday.remainingSec), instantWaitingDurationBa(workday.remainingSec)),
+                icon = Icons.Default.Shield,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            InstantWaitingMetric(
+                label = appText("Сегодня", "Бөгөн"),
+                value = instantWaitingIncome(workday.netTodayKop),
+                icon = Icons.Default.Redeem,
+                highlighted = true,
+                modifier = Modifier.weight(1f),
+            )
+            InstantWaitingMetric(
+                label = appText("Поездок", "Сәфәр"),
+                value = workday.ordersToday.toString(),
+                icon = Icons.Default.LocalTaxi,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun InstantWaitingMetric(
+    label: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    highlighted: Boolean = false,
+) {
+    Surface(
+        color = if (highlighted) CanonMint else CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, if (highlighted) CanonGreen2.copy(alpha = 0.2f) else CanonBorder),
+        modifier = modifier.height(92.dp),
+    ) {
+        Row(
+            Modifier.fillMaxSize().padding(CanonSpace.sm),
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(21.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(label, style = CanonMicro, color = CanonMutedStrong, maxLines = 1)
+                Text(value, style = CanonBody, color = CanonText, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstantWaitingZoneRow(zone: com.yuldash.app.data.InstantZoneDto?) {
+    Surface(
+        color = CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(CanonSpace.md),
+            horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
+            Column(Modifier.weight(1f)) {
+                Text(appText("Рабочая зона", "Эш зонаһы"), style = CanonMicro, color = CanonMutedStrong)
+                Text(
+                    appText(instantWaitingZoneName(zone), instantWaitingZoneName(zone)),
+                    style = CanonBody,
+                    color = CanonText,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun instantWaitingZoneName(zone: com.yuldash.app.data.InstantZoneDto?): String =
+    zone?.workDistrict?.takeIf { it.isNotBlank() }
+        ?: zone?.workCity?.takeIf { it.isNotBlank() }
+        ?: appText("Рядом", "Яҡында")
+
+private fun instantWaitingDurationRu(seconds: Int): String {
+    val safe = seconds.coerceAtLeast(0)
+    return "${safe / 3600} ч ${(safe % 3600) / 60} мин"
+}
+
+private fun instantWaitingDurationBa(seconds: Int): String {
+    val safe = seconds.coerceAtLeast(0)
+    return "${safe / 3600} сәғ ${(safe % 3600) / 60} мин"
+}
+
+private fun instantWaitingIncome(kop: Int): String {
+    val safe = kop.coerceAtLeast(0)
+    val rubles = safe / 100
+    val coins = safe % 100
+    val grouped = fmtRub(rubles)
+    return if (coins == 0) "$grouped ₽" else "$grouped,${coins.toString().padStart(2, '0')} ₽"
+}
+
+private fun instantWaitingTripsRu(count: Int): String {
+    val word = when {
+        count % 100 in 11..14 -> "поездок"
+        count % 10 == 1 -> "поездка"
+        count % 10 in 2..4 -> "поездки"
+        else -> "поездок"
+    }
+    return "$count $word"
 }
 
 /** Причины отказа водителя: код уходит на сервер, подпись — человеку. Порядок — от самого
@@ -5856,7 +6294,9 @@ internal fun InstantDriverTripScreen(
         topBar = {
             // В движении карта — рабочая поверхность водителя и занимает системно безопасный
             // полный экран. До посадки сохраняем обычную шапку процесса.
-            if (order?.status != "onboard") ScreenTopBar(appText("Поездка", "Сәфәр"), onBack)
+            if (order?.status != "onboard" && order?.status != "done" && order?.status != "cancelled") {
+                ScreenTopBar(appText("Поездка", "Сәфәр"), onBack)
+            }
         },
     ) { padding ->
         val current = order
@@ -5872,50 +6312,16 @@ internal fun InstantDriverTripScreen(
                     action = appText("К заказам", "Заказдарға"), onAction = onBack, onSecondary = onBack,
                     tone = InstantTone.Bad,
                 )
-                current.status == "done" -> InstantFinalCard(
-                    icon = Icons.Default.CheckCircle,
-                    title = appText("Поездка завершена", "Сәфәр тамамланды"),
-                    // «Заплатил» — то, что реально легло в руку (со скидкой пассажира это меньше
-                    // полной цены). «Чистыми» при этом не падает: скидку оплатил Юлдаш.
-                    subtitle = if (current.driverGrossKop > 0) appText(
-                        "Пассажир заплатил ${formatTaxiKop(current.passengerPayKop)} · чистыми ${formatTaxiKop(current.driverNetKop)}",
-                        "Пассажир ${formatTaxiKop(current.passengerPayKop)} түләне · таҙа килем ${formatTaxiKop(current.driverNetKop)}",
-                    ) else appText(
-                        "Получено ${formatTaxiKop(current.passengerPayKop)}. Спасибо!",
-                        "${formatTaxiKop(current.passengerPayKop)} алынды. Рәхмәт!",
-                    ),
-                    action = appText("Готово", "Әҙер"), onAction = onFinished, onSecondary = onFinished,
-                    extra = {
-                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            // Промокод пассажира: почему на руки пришло меньше и где остальное.
-                            TaxiPromoPayRow(order = current, forDriver = true)
-                            InstantReceiptReminder()   // B7b-4: чек самозанятого — мягко, не назидательно
-                            InstantRateAndReport(current, isDriver = true)   // §9: оценить/пожаловаться
-                            UnpaidReportButton(orderId = current.id)   // B8-7: «пассажир не заплатил» одним тапом
-                            // Чек поездки: там же водитель отмечает «наличные получил» и «нашёл вещь».
-                            TaxiReceiptLink(current.id)
-                            TaxiDisputeLink(current, isDriver = true)
-                        }
-                    },
+                current.status == "done" -> TaxiDriverCompletedScreen(
+                    order = current,
+                    onReturnToLine = onFinished,
+                    onShiftFinished = onFinished,
+                    onOpenReceipt = { NavSignals.openTaxiReceipt.value = current.id },
                 )
-                current.status == "cancelled" -> InstantFinalCard(
-                    icon = Icons.Default.Close,
-                    title = if (current.noShow) appText("Пассажир не вышел", "Пассажир сыҡманы")
-                    else appText("Заказ отменён", "Заказ кире алынды"),
-                    subtitle = when {
-                        // Водитель видит ту же сумму, что и пассажир на своём экране: расходиться
-                        // на копейки нельзя — по ней они и рассчитываются между собой.
-                        current.noShow -> appText(
-                            "Заказ закрыт. Пассажиру зафиксирована плата за подачу — ${formatTaxiKop(current.cancelFeeKop)}.",
-                            "Заказ ябылды. Пассажирға килеү хаҡы яҙылды — ${formatTaxiKop(current.cancelFeeKop)}.")
-                        current.cancelBy == "passenger" && current.cancelFeeKop > 0 -> appText(
-                            "Пассажир отменил поздно — ему зафиксирована подача ${formatTaxiKop(current.cancelFeeKop)}.",
-                            "Пассажир һуң кире алды — уға килеү хаҡы яҙылды: ${formatTaxiKop(current.cancelFeeKop)}.")
-                        current.cancelBy == "passenger" -> appText("Пассажир отменил заказ.", "Пассажир заказды кире алды.")
-                        else -> appText("Заказ отменён.", "Заказ кире алынды.")
-                    },
-                    action = appText("К заказам", "Заказдарға"), onAction = onFinished, onSecondary = onFinished,
-                    tone = InstantTone.Bad,
+                current.status == "cancelled" -> TaxiDriverCancelledScreen(
+                    order = current,
+                    onReturnToLine = onFinished,
+                    onShiftFinished = onFinished,
                 )
                 current.status == "onboard" -> TaxiDriverOnboardNavigator(
                     order = current,
