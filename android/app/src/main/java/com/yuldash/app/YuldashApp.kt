@@ -1036,6 +1036,7 @@ internal fun YuldashApp() {
                 onParcels = { screen = Screen.Parcels },
                 onCourier = { screen = Screen.Courier },
                 onPartnerCabinet = { screen = Screen.PartnerCabinet },
+                onMyData = { screen = Screen.MyData },
                 onReview = { screen = Screen.AppReview },
                 onAdminReviews = { screen = Screen.AdminReviews },
                 onAdminAds = { screen = Screen.AdminAds },
@@ -1326,6 +1327,7 @@ internal fun YuldashApp() {
                 prefillTo = routeWatchPrefillTo,
             )
             Screen.Privacy -> PrivacyScreen(onBack = { goBack() })
+            Screen.MyData -> MyDataScreen(onBack = { goBack() })
             Screen.Rules -> RulesScreen(onBack = { goBack() })
             Screen.PaymentInfo -> PaymentInfoScreen(onBack = { goBack() }, onOpenPricing = { screen = Screen.PricingInfo })
             Screen.PaymentMethods -> PaymentMethodsScreen(
@@ -2342,6 +2344,7 @@ internal fun HomeScreen(
     onMyStats: () -> Unit = {},
     onCoupons: () -> Unit = {},
     onPartnerCabinet: () -> Unit = {},
+    onMyData: () -> Unit = {},
     onPromo: () -> Unit = {},
     onParcels: () -> Unit = {},
     onCourier: () -> Unit = {},
@@ -2456,6 +2459,7 @@ internal fun HomeScreen(
                     onParcels = onParcels,
                     onCourier = onCourier,
                     onPartnerCabinet = onPartnerCabinet,
+                    onMyData = onMyData,
                     onToggleLanguage = onToggleLanguage,
                     onAccountDeleted = onAccountDeleted,
                     onAdImpression = onAdImpression,
