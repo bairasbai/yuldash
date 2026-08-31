@@ -1030,15 +1030,35 @@ def mark_all_paid(session: Session, driver_id: int, up_to: Optional[datetime] = 
     return total
 
 
+def _declared_batch(session: Session, driver_id: int, declared_at) -> list[CommissionDebt]:
+    """Долги ОДНОГО заявления «Я оплатил» — тех, что ушли в pending одним нажатием.
+
+    Одно нажатие = один перевод = один батч: `declare_paid` проставляет всем затронутым
+    долгам ОДИН и тот же `paid_declared_at`, а уже висящий pending второй раз не трогает.
+    Поэтому метка времени и есть удостоверение батча.
+
+    Зачем граница (волна 220). Раньше подтверждение и отказ работали по ВСЕМУ pending
+    водителя. Александр видел в списке «Ильдар — 500 ₽», шёл сверять банк, а Ильдар за это
+    время довозил пассажира и заявлял оплату второй раз, ничего не переведя. Нажатие
+    «Подтвердить» на странице, где написано 500, гасило 800 — и заметить это было нельзя.
+    У оплаты картой такая же граница уже стояла (`mark_all_paid(up_to=…)`), у ручной — нет.
+
+    Строки без заявления (ручной pending из админки/миграции, `paid_declared_at is None`)
+    образуют свой батч: сравнение `is` по `None` их собирает вместе и не подмешивает
+    к настоящим заявлениям.
+    """
+    return [d for d in _pending(session, driver_id) if d.paid_declared_at == declared_at]
+
+
 def admin_confirm(session: Session, debt_id: int) -> Optional[int]:
-    """Админ подтвердил перевод: ВЕСЬ pending-долг этого водителя → paid (блок снят).
-    debt_id — любая запись из батча водителя (в /admin/debts группируем по водителю).
+    """Админ подтвердил перевод: pending-долг ОДНОГО заявления → paid (блок снят).
+    debt_id — любая запись из этого заявления (в /admin/debts группируем по заявлению).
     Возврат: подтверждённая сумma (копейки) или None, если долг не найден."""
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
         return None
     now = utcnow()
-    pending = _pending(session, debt.driver_id)
+    pending = _declared_batch(session, debt.driver_id, debt.paid_declared_at)
     total = 0
     for d in pending:
         d.status = DebtStatus.paid
@@ -1051,12 +1071,16 @@ def admin_confirm(session: Session, debt_id: int) -> Optional[int]:
 
 
 def admin_reject(session: Session, debt_id: int) -> Optional[int]:
-    """Админ отклонил (деньги не пришли): pending-долг водителя → обратно unpaid.
-    Возврат: сумма возвращённого в unpaid (копейки) или None, если долг не найден."""
+    """Админ отклонил (деньги не пришли): pending-долг ОДНОГО заявления → обратно unpaid.
+    Возврат: сумма возвращённого в unpaid (копейки) или None, если долг не найден.
+
+    Граница та же, что у подтверждения (волна 220): «деньги не пришли» сказано про один
+    перевод. Сбросив заодно заявление, поданное позже, мы отменили бы ответ на вопрос,
+    которого админ ещё не видел, — водитель ждал бы решения, которого уже никто не примет."""
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
         return None
-    pending = _pending(session, debt.driver_id)
+    pending = _declared_batch(session, debt.driver_id, debt.paid_declared_at)
     total = 0
     for d in pending:
         d.status = DebtStatus.unpaid

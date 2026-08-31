@@ -424,6 +424,27 @@ def blocked(session: Session, user_id: int, mode: str, now: Optional[datetime] =
     return stage(current(session, user_id, mode), now) == "blocked"
 
 
+def blocked_user_ids(session: Session, user_ids: list, mode: str,
+                     now: Optional[datetime] = None) -> set:
+    """Кто из этих людей на паузе до фото — ОДНИМ запросом на весь круг (волна 221).
+
+    Нужна подбору такси: там до полутора десятков кандидатов, и спрашивать про каждого
+    отдельно значило бы десятки запросов на каждый заказ. Ступень определяет тот же `stage`,
+    что и одиночный `blocked`, и берётся тот же ПЛАНОВЫЙ контроль, — разъехаться они
+    не могут (урок волны 60).
+    """
+    if not user_ids or not enabled(mode):
+        return set()
+    rows = session.exec(select(CarPhotoCheck).where(
+        CarPhotoCheck.user_id.in_(list(user_ids)), CarPhotoCheck.mode == mode,
+        CarPhotoCheck.kind == PERIODIC,
+        CarPhotoCheck.status.in_(OPEN)).order_by(CarPhotoCheck.id.desc())).all()
+    свежий: dict = {}
+    for c in rows:                     # строки отсортированы: первая на человека — самая свежая
+        свежий.setdefault(c.user_id, c)
+    return {uid for uid, c in свежий.items() if stage(c, now) == "blocked"}
+
+
 def slow(session: Session, user_id: int, mode: str, now: Optional[datetime] = None) -> bool:
     """Средняя ступень: заказы идут, но первыми их видит тот, кто машину показал."""
     if not enabled(mode):

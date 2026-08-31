@@ -305,7 +305,7 @@ def test_courier_push_uses_same_zone_rules_as_list(client, user_factory, monkeyp
     """Пуш о новой посылке зовёт только тех курьеров, кто увидит её и в списке.
     Раньше пуш сверял город строкой: звал на заказ, которого человек потом не находил."""
     from app.routers import parcels as parcels_mod
-    from app.models import CourierProfile, ParcelDelivery
+    from app.models import CourierApplication, CourierProfile, ParcelDelivery
     sent: list = []
     monkeypatch.setattr(parcels_mod, "push_notification",
                         lambda session, user_id, *a, **kw: sent.append(user_id))
@@ -313,6 +313,12 @@ def test_courier_push_uses_same_zone_rules_as_list(client, user_factory, monkeyp
         near = user_factory("CourierNear")["id"]
         far = user_factory("CourierFar")["id"]
         sender = user_factory("ParcelSender")["id"]
+        # Рассылка спрашивает и про ДОПУСК курьера (волна 222): на линии без одобренной
+        # заявки в проде оказаться нельзя. Тест про зоны — заявку заводим обоим.
+        for uid in (near, far):
+            s.add(CourierApplication(user_id=uid, status="approved",
+                                     full_name="Курьер Курьеров", transport="car",
+                                     rules_accepted=True))
         s.add(CourierProfile(user_id=near, online=True, zone="district",
                              work_district="Ишимбайский р-н"))
         s.add(CourierProfile(user_id=far, online=True, zone="district",

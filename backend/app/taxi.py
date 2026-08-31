@@ -138,6 +138,56 @@ def is_approved_taxi_driver(session: Session, user_id: int) -> bool:
     return not cp_mod.blocked(session, user_id, cp_mod.TAXI)
 
 
+def approved_taxi_driver_ids(session: Session, driver_ids: list, now=None) -> set:
+    """Кто из этих водителей ДОПУЩЕН возить такси — одним кругом запросов (волна 221).
+
+    Нужна подбору такси. Волна 60 донесла до него все четыре НАКАЗАНИЯ водителя (пауза
+    «Справедливости», пауза качества, отдых, долг), а про ДОПУСК не вспомнила: гейт линии
+    спрашивает ещё и `is_approved_taxi_driver`. Разница важна тем, что допуск истекает САМ,
+    по календарю, посреди смены: вышел в 22:00 со свежим ОСАГО, в полночь оно кончилось,
+    а присутствие на линии живёт своим сроком — водитель остался `online`.
+
+    Подбор продолжал слать ему офферы. В пуше оффера едет АДРЕС ПОДАЧИ пассажира, то есть
+    адрес уходил тому, кому мы сами запретили работать; принять заказ он всё равно не мог
+    (`accept` идёт через тот же гейт и отвечает 403), оффер сгорал по таймауту, и подбор
+    шёл к следующему. Ночью в райцентре следующего может не быть.
+
+    Решения принимают ТЕ ЖЕ функции, что и одиночный гейт (`retired_model`,
+    `_docs_expired_now`, `permit_missing`, фотоконтроль), — иначе гейт и фильтр разъедутся,
+    а такие пары разъезжаются всегда.
+    """
+    if not driver_ids:
+        return set()
+    from . import car_class as cc
+    from . import carphoto as cp_mod
+
+    ids = list(driver_ids)
+    заявки = {a.user_id: a for a in session.exec(
+        select(TaxiApplication).where(TaxiApplication.user_id.in_(ids))).all()}
+    профили = {p.user_id: p for p in session.exec(
+        select(DriverProfile).where(DriverProfile.user_id.in_(ids))).all()}
+    без_фото = cp_mod.blocked_user_ids(session, ids, cp_mod.TAXI, now)
+
+    годные = set()
+    for did in ids:
+        app = заявки.get(did)
+        if app is None or app.status != TaxiApplicationStatus.approved:
+            continue
+        p = профили.get(did)
+        # Профиля нет — машину не с чем сверять; одиночный `car_retired` в этом случае тоже
+        # отвечает «всё в порядке».
+        if p is not None and cc.retired_model(p.car_make, p.car_model):
+            continue
+        if _docs_expired_now(app):
+            continue
+        if permit_missing(app, now):
+            continue
+        if did in без_фото:
+            continue
+        годные.add(did)
+    return годные
+
+
 MSG_CAR_RETIRED = {
     "ru": "На этой машине такси возить нельзя: пассажир платит за поездку и вправе "
           "рассчитывать на машину, в которой безопасно и не тесно. Попутка работает как "

@@ -2851,6 +2851,16 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
     from . import workday as workday_mod
     resting = workday_mod.resting_driver_ids(session, ids)
     in_debt = debt_mod.blocked_driver_ids(session, ids)
+    # …и ДОПУСК к работе — то, чего волна 60 не донесла (волна 221). Наказание накладываем мы,
+    # а допуск истекает САМ, по календарю, посреди смены: ОСАГО кончилось в местную полночь,
+    # разрешение пропало из реестра, машину внесли в стоп-список, фотоконтроль просрочен.
+    # Присутствие на линии живёт своим сроком, поэтому водитель остаётся `online` — и подбор
+    # слал ему офферы с адресом подачи пассажира, хотя принять заказ он уже не мог (403
+    # на том же гейте). Оффер сгорал по таймауту, круг терялся; ночью в райцентре следующего
+    # водителя может не быть.
+    from . import pretrip as pretrip_mod
+    from . import taxi as taxi_mod
+    допущены = taxi_mod.approved_taxi_driver_ids(session, ids)
     area_a, area_b = _order_zone_ctx(session, order)
     out = []
     for did in ids:
@@ -2863,6 +2873,8 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
             continue
         if did in resting or did in in_debt:
             continue          # отдых (§8) и долг: те же гейты, что на выходе на линию
+        if did not in допущены:
+            continue          # допуск к такси (580-ФЗ): тот же гейт, что на выходе на линию
         if not _zone_ok(session, p, area_a, area_b):
             continue
         avail = cc.available_or_legacy(getattr(p, "car_classes_available", ""), p.car_class)
@@ -2881,6 +2893,13 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
             continue
         if driver_pause_until(session, did) is not None:
             continue          # бросал принятые заказы — пауза офферов (разбор №2)
+        # Предрейсовый осмотр (580-ФЗ, волна 221). Спрашиваем ПОИМЁННО и последним: ответ
+        # зависит от последнего выхода водителя на линию (`pretrip._still_this_shift`),
+        # одним запросом на круг это честно не собрать, а разъехаться с гейтом линии
+        # нельзя ни при каких условиях. Здесь до проверки доходят единицы — все дешёвые
+        # фильтры уже отработали. Тот же приём, что у паузы качества строкой выше.
+        if pretrip_mod.blocks_line(session, did):
+            continue
         out.append(did)
     return out
 

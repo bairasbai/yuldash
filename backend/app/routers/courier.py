@@ -145,6 +145,52 @@ def _my_application(session: Session, user_id: int) -> Optional[CourierApplicati
     ).first()
 
 
+def courier_not_allowed_reason(session: Session, user_id: int) -> Optional[str]:
+    """Почему человек не может брать курьерские заказы ПРЯМО СЕЙЧАС. None — может (волна 222).
+
+    Персональная половина гейта, вынесенная отдельно, чтобы её мог спросить не только гейт,
+    но и РАССЫЛКА «новая доставка рядом». Волна 61 донесла до рассылки все три наказания
+    курьера (пауза §2, пауза качества, долг), а про ДОПУСК не вспомнила — и пуш с городами
+    доставки уходил тому, кому мы сами работу закрыли. Взять заказ он не мог (403 на этом
+    же гейте), а бабушкина заявка тем временем ждала того, кто действительно приедет.
+
+    Разница с наказаниями та же, что у такси (волна 221): наказание накладываем мы, а допуск
+    отваливается САМ — фотоконтроль просрочивается по календарю, заявку модератор отзывает
+    в любой момент. Присутствие на линии живёт своим сроком, человек остаётся `online`.
+
+    Мастер-флаг режима (`courier_enabled`) сюда НЕ входит намеренно: он не про человека,
+    а про весь сервис, и стоит отдельной строкой в `_guard_courier`. Всё остальное условие
+    двери — здесь целиком, включая флаг включённости фотоконтроля внутри `carphoto.blocked`
+    (урок волны 221: пакетный близнец обязан копировать условие целиком, а не «главную
+    проверку»).
+
+    Возврат — код причины: "not_courier" | "car_photo".
+    """
+    app = _my_application(session, user_id)
+    if not app or app.status != "approved":
+        return "not_courier"
+    from .. import carphoto as cp_mod
+    if cp_mod.blocked(session, user_id, cp_mod.COURIER):
+        return "car_photo"
+    return None
+
+
+def guard_courier_person(session: Session, user_id: int) -> None:
+    """Проверки ЧЕЛОВЕКА: заявка одобрена + машину показывали. Поднимает herr (волна 223).
+
+    Отдельно от мастер-флага режима (`_guard_courier_enabled`) намеренно: флаг про весь
+    сервис, а не про человека, и вызывающему бывает нужна только персональная половина —
+    например рассылке «новая доставка рядом» (`parcels.courier_can_take_now`).
+    """
+    причина = courier_not_allowed_reason(session, user_id)
+    if причина == "not_courier":
+        raise herr(403, *MSG_NOT_COURIER)
+    if причина == "car_photo":
+        from .. import carphoto as cp_mod
+        raise herr(403, cp_mod.MSG_BLOCKED[cp_mod.COURIER]["ru"],
+                   cp_mod.MSG_BLOCKED[cp_mod.COURIER]["ba"])
+
+
 def _guard_courier(user: User, session: Session) -> None:
     """Полный гейт курьера: режим включён + заявка одобрена + машину показывали.
 
@@ -153,13 +199,7 @@ def _guard_courier(user: User, session: Session) -> None:
     Доставка «по пути» (попутка) этим не затрагивается — она не курьерская работа.
     """
     _guard_courier_enabled()
-    app = _my_application(session, user.id)
-    if not app or app.status != "approved":
-        raise herr(403, *MSG_NOT_COURIER)
-    from .. import carphoto as cp_mod
-    if cp_mod.blocked(session, user.id, cp_mod.COURIER):
-        raise herr(403, cp_mod.MSG_BLOCKED[cp_mod.COURIER]["ru"],
-                   cp_mod.MSG_BLOCKED[cp_mod.COURIER]["ba"])
+    guard_courier_person(session, user.id)
 
 
 def _my_profile(session: Session, user_id: int) -> Optional[CourierProfile]:

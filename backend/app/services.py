@@ -1331,6 +1331,20 @@ def _is_verified_female_driver(drv, prof) -> bool:
     return bool(drv is not None and prof is not None and is_verified_female_driver(drv, prof))
 
 
+def _women_only_in_force(ride, drv, prof) -> bool:
+    """Обёртка над правилом из `safety_logic` — импорт локальный, там цикл (он тянет services).
+
+    ⚠️ Проверка `drv/prof is not None` РАВНОСИЛЬНА (разбор мутаций, волна 219): правило читает
+    водителя только через `is_verified_female_driver`, а тот берёт оба поля через `getattr`
+    с запасным значением и на `None` честно возвращает False. Строку держим намеренно — это
+    страховка на чужом допущении (что `gender_of` и `getattr` останутся терпимыми к `None`),
+    и такая же стоит у соседнего `_is_verified_female_driver`; расходиться им нельзя.
+    Само допущение закреплено тестом `test_поездка_без_водителя_не_обещает_и_не_падает`.
+    """
+    from .safety_logic import women_only_in_force
+    return bool(drv is not None and prof is not None and women_only_in_force(ride, drv, prof))
+
+
 def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, trips_agg: dict | None = None) -> RideOut:
     """RideOut из предзагруженных батчей (без запросов в БД)."""
     drv = users.get(ride.driver_id)
@@ -1341,7 +1355,12 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
     trips = (trips_agg or {}).get(ride.driver_id, 0)                       # F8: завершённых поездок водителя
     since = member_since(drv.created_at if drv else None)   # F8: «С нами с <мес год>», месяц местный
     return RideOut(
-        **ride.model_dump(exclude={"created_at"}),
+        **ride.model_dump(exclude={"created_at", "women_only"}),
+        # Отметка «только женщины» — не поле, а ОБЕЩАНИЕ, и держится оно на подтверждении
+        # модератора. Подтверждение сгорает (отклонили документы, переписали пол), а отметка
+        # в базе остаётся — и карточка продолжала обещать то, чего никто уже не проверял
+        # (волна 219). Спрашиваем у того же правила, что и бейдж строкой ниже.
+        women_only=_women_only_in_force(ride, drv, prof),
         boosted=(ride.boosted_until is not None and ride.boosted_until > utcnow()),
         driver_name=(drv.name if drv else "Водитель"),
         driver_rating=rating,

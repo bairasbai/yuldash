@@ -111,19 +111,25 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
 # ------------------------------ админ ------------------------------
 @router.get("/admin/debts")
 def admin_debts(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Долги на подтверждении (pending), сгруппированные по водителю. Для админа.
-    У каждого водителя один representative debt_id — по нему confirm/reject подтверждает батч."""
+    """Долги на подтверждении (pending), сгруппированные по ЗАЯВЛЕНИЮ «Я оплатил». Для админа.
+    У каждого заявления свой representative debt_id — по нему confirm/reject закрывает батч.
+
+    Группируем по (водитель, момент заявления), а не по водителю (волна 220): одно нажатие
+    «Я оплатил» = один перевод = одна строка. Пока группировали по водителю, сумма в строке
+    росла от второго заявления, поданного уже после того, как админ на неё посмотрел, —
+    и кнопка гасила больше, чем он проверил в банке."""
     _require_admin(user)
     rows = session.exec(
         select(CommissionDebt).where(CommissionDebt.status == DebtStatus.pending)
         .order_by(CommissionDebt.id.desc())
     ).all()
-    groups: dict[int, dict] = {}
+    groups: dict[tuple, dict] = {}
     for d in rows:
-        g = groups.get(d.driver_id)
+        ключ = (d.driver_id, d.paid_declared_at)
+        g = groups.get(ключ)
         if g is None:
             drv = session.get(User, d.driver_id)
-            g = groups[d.driver_id] = {
+            g = groups[ключ] = {
                 "debt_id": d.id,                       # representative id для confirm/reject
                 "driver_id": d.driver_id,
                 "driver_name": (drv.name if drv else ""),
