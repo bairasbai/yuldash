@@ -37,6 +37,7 @@ import {
   IconPhone,
   IconFlag,
 } from "../components/Icons";
+import { track } from "../analytics";
 
 type Tab = "near" | "mine";
 type Status = "loading" | "error" | "soon" | "ready";
@@ -173,6 +174,7 @@ export default function CouponsScreen() {
     setActError(null);
     try {
       const res = await activateCoupon(c.id);
+      track("coupon_activate");
       setActivated(res);
       setCopied(false);
     } catch (e) {

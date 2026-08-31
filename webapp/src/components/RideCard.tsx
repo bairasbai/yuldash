@@ -61,6 +61,14 @@ export default function RideCard({ ride, index }: { ride: Ride; index: number })
             {appText("Только для женщин", "Тик ҡатын-ҡыҙ өсөн")}
           </span>
         )}
+        {/* «За рулём женщина» — не то же самое, что «только для женщин»: первое про то,
+            КТО везёт, второе про то, кого берут. Пассажирке важно и то и другое. */}
+        {ride.driver_is_woman && !ride.women_only && (
+          <span className="badge badge--woman">
+            <YuWomenOnly size={12} className="amenity-ic" />
+            {appText("За рулём женщина", "Рулдә ҡатын-ҡыҙ")}
+          </span>
+        )}
         {ride.boosted && (
           <span className="badge badge--boost">
             {appText("Поднято", "Күтәрелгән")}

@@ -18,6 +18,7 @@ import {
 import { geocode, type GeoHit } from "../api/discovery";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
+import RecentPlaces from "../components/RecentPlaces";
 import { IconHome, IconWork, IconPin, IconTrash, IconCheck } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
@@ -269,6 +270,10 @@ export default function SavedPlacesScreen() {
               )}
             </button>
           </div>
+
+          {/* Недавние адреса копятся сами — значит и убирать их человек должен уметь.
+              Это его история поездок, а не наша база. */}
+          <RecentPlaces />
         </>
       )}
     </>

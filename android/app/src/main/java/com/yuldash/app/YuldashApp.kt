@@ -1354,6 +1354,7 @@ internal fun YuldashApp() {
                 onDrivers = { screen = Screen.AdminDrivers },
                 onReports = { screen = Screen.AdminReports },
                 onTextFlags = { screen = Screen.AdminTextFlags },
+                onSupportAdmin = { screen = Screen.AdminSupport },
                 onPaymentRequests = { screen = Screen.AdminPaymentRequests },
                 onTaxi = { screen = Screen.AdminTaxi },
                 onWaitlist = { screen = Screen.AdminWaitlist },
@@ -1372,6 +1373,7 @@ internal fun YuldashApp() {
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
             Screen.AdminTextFlags -> AdminTextFlagsScreen(onBack = { goBack() })
+            Screen.AdminSupport -> AdminSupportScreen(onBack = { goBack() })
             Screen.AdminPaymentRequests -> AdminPaymentRequestsScreen(onBack = { goBack() })
             Screen.AdminRequest -> AdminRequestScreen(onBack = { goBack() })
             Screen.AdminResponses -> AdminResponsesScreen(onBack = { goBack() })

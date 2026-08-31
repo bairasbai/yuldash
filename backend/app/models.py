@@ -150,6 +150,32 @@ class DeviceToken(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class WebPushSubscription(SQLModel, table=True):
+    """Подписка браузера на Web Push (стандарт RFC 8291): endpoint + два ключа.
+
+    Зачем отдельная таблица, а не `DeviceToken`. У FCM устройство — это одна строка-токен,
+    и её достаточно, чтобы отправить сообщение. У браузера всё иначе: сообщение шифруется
+    ключами САМОЙ подписки (`p256dh` — публичный ключ браузера, `auth` — общий секрет),
+    и без них отправить нельзя ничего. Склеивать это в поле `token` значило бы хранить
+    три разные вещи в одной строке и разбирать её на каждой отправке.
+
+    Приватность: `endpoint` — это адрес пуш-сервиса браузера (Google/Mozilla/Apple).
+    По нему можно слать уведомления конкретному человеку, поэтому при выходе из аккаунта
+    подписка удаляется — на общем телефоне следующий вошедший не должен получать чужое.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    # Адрес пуш-сервиса браузера. Уникален: одна подписка живёт у одного человека.
+    endpoint: str = Field(index=True, unique=True)
+    p256dh: str = ""
+    auth: str = ""
+    # aes128gcm (современные браузеры) или aesgcm (старые). Отдаёт сам браузер.
+    content_encoding: str = "aes128gcm"
+    # С какого устройства подписка — тем же смыслом, что device_id у FCM-токена.
+    device_id: str = Field(default="", index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class TgAuth(SQLModel, table=True):
     """Сессия входа через Telegram-бота: request_id ↔ telegram_id ↔ 6-значный код."""
     id: Optional[int] = Field(default=None, primary_key=True)

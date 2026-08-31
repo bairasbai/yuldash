@@ -211,3 +211,137 @@ export function fetchDriverPriority(signal?: AbortSignal): Promise<Priority> {
 export function fetchCourierPriority(signal?: AbortSignal): Promise<Priority> {
   return apiGet<Priority>("/courier/priority", { signal });
 }
+
+// ================================================================
+//  Заказать курьера: оценка цены и создание заказа (courier.py:
+//  GET /courier/estimate, POST /courier/orders).
+//
+//  В вебе «Посылки» умели только попутную отправку — платного курьера
+//  нельзя было ни оценить, ни заказать (сверка с Android, 2026-08-30).
+// ================================================================
+
+/** Размер посылки: цена растёт ступенями, а не по весу — так понятнее человеку. */
+export type ParcelSize = "small" | "medium" | "large";
+/** bypath — «по пути, когда получится», now — «нужно сейчас» (дороже). */
+export type CourierUrgency = "bypath" | "now";
+/** courier — просто отвезти, buy_bring — «купи и привези» (курьер платит своими). */
+export type DeliveryType = "courier" | "buy_bring";
+
+/**
+ * Оценка доставки. Всё в копейках — деньги на клиенте не пересчитываем.
+ *
+ * Комиссия здесь ОРИЕНТИРОВОЧНАЯ: точный процент зависит от стажа курьера, который заказ
+ * ещё не взял. Дорога курьера к посылке — тоже: пока его нет, честного числа не существует,
+ * поэтому `pickup_pending` и потолок `pickup_max_kop`.
+ */
+export interface CourierEstimate {
+  price_kop: number;
+  commission_kop: number;
+  distance_km: number;
+  zone: "city" | "intercity" | string;
+  delivery_kop: number;
+  pickup_kop: number;
+  pickup_pending: boolean;
+  pickup_max_kop: number;
+  /** Зимняя дорога: гололёд не разбирает, человек в машине или коробка. */
+  weather_kop: number;
+  weather_kind: string;
+  night_k: number;
+  /** На сколько секунд цена закреплена, пока человек думает. */
+  price_locked_sec?: number;
+  /**
+   * Комиссия здесь ОРИЕНТИРОВОЧНАЯ: точный процент зависит от стажа курьера,
+   * который заказ ещё не взял. Финал считается при вручении.
+   */
+  commission_estimated?: boolean;
+  /**
+   * Во сколько обойдётся возврат, если получателя не найдут.
+   *
+   * Не украшение: Конституционный суд признал недопустимым брать плату за возврат
+   * с человека, которого о ней заранее не предупредили. Без этой строки наша
+   * компенсация курьеру юридически висит в воздухе.
+   */
+  return_fee_estimate_kop?: number;
+  breakdown?: Record<string, number | string | boolean>;
+}
+
+export function estimateCourier(
+  q: {
+    from_lat: number;
+    from_lng: number;
+    to_lat: number;
+    to_lng: number;
+    size?: ParcelSize;
+    urgency?: CourierUrgency;
+    delivery_type?: DeliveryType;
+  },
+  signal?: AbortSignal
+): Promise<CourierEstimate> {
+  const s = new URLSearchParams({
+    from_lat: String(q.from_lat),
+    from_lng: String(q.from_lng),
+    to_lat: String(q.to_lat),
+    to_lng: String(q.to_lng),
+    size: q.size ?? "small",
+    urgency: q.urgency ?? "bypath",
+    delivery_type: q.delivery_type ?? "courier",
+  });
+  return apiGet<CourierEstimate>(`/courier/estimate?${s}`, { signal });
+}
+
+/** Тело POST /courier/orders (CourierOrderIn). Цену считает сервер — из клиента её не берут. */
+export interface CourierOrderInput {
+  from_city?: string;
+  to_city?: string;
+  from_address?: string;
+  to_address?: string;
+  from_lat?: number | null;
+  from_lng?: number | null;
+  to_lat?: number | null;
+  to_lng?: number | null;
+  size?: ParcelSize;
+  description?: string;
+  receiver_name?: string;
+  receiver_phone?: string;
+  rules_accepted?: boolean;
+  delivery_type?: DeliveryType;
+  urgency?: CourierUrgency;
+  /** Объявленная ценность — по ней считают возмещение при утрате. */
+  declared_value_kop?: number;
+  /** «Купи и привези»: сколько курьер потратит своими и получит на руки. Обязательно. */
+  cod_amount_kop?: number;
+  shopping_list?: string;
+  /** «Не позже этого дня» (ГГГГ-ММ-ДД). Пусто = «когда получится». */
+  deliver_by?: string | null;
+  weight_kg?: number;
+  cargo_type?: string;
+  fragile?: boolean;
+}
+
+/**
+ * Создать заказ курьера. В ответ приходит заявка и код подтверждения:
+ * отправитель передаёт его получателю, курьер без кода вещь не отдаст.
+ */
+export function createCourierOrder(
+  body: CourierOrderInput
+): Promise<{ id: number; confirm_code?: string; [k: string]: unknown }> {
+  return apiPost(`/courier/orders`, body);
+}
+
+/**
+ * Заказчик поднимает сумму, на которую согласен: «в аптеке дороже — ладно, бери».
+ *
+ * Без этой двери отказ курьеру («сумма выше согласованной») превращался в тупик:
+ * товар уже куплен на его деньги, провести расчёт нельзя, и оба висят. Поднимать
+ * может ТОЛЬКО заказчик и только вверх — курьер сумму своего же счёта не двигает.
+ *
+ * Правила держит сервер: до вручения, только «купи и привези», не выше потолка.
+ */
+export function raiseCourierBudget(
+  parcelId: number,
+  codAmountKop: number
+): Promise<{ ok?: boolean; cod_amount_kop?: number }> {
+  return apiPost(`/courier/orders/${parcelId}/raise-budget`, {
+    cod_amount_kop: Math.max(0, Math.round(codAmountKop)),
+  });
+}

@@ -178,6 +178,10 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         s.add(M.RefreshToken(user_id=uid, token_hash="hash-of-refresh",
                              expires_at=utcnow() + timedelta(days=30)))
         s.add(M.DeviceToken(user_id=uid, token=f"fcm-{uid}"))
+        # Подписка браузера на уведомления — то же, что FCM-токен, но для веб-версии.
+        s.add(M.WebPushSubscription(
+            user_id=uid, endpoint=f"https://push.example/{uid}", p256dh="k", auth="a",
+        ))
         s.add(M.DriverProfile(user_id=uid, car_make="Lada", car_number="А001АА102"))
         s.add(M.SavedPlace(user_id=uid, label="Дом", address="Уфа, Ленина 1"))
         s.add(M.RecentPlace(user_id=uid, address="Уфа, вокзал"))

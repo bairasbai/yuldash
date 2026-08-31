@@ -47,7 +47,9 @@ import { YuMoon } from "../components/BrandIcons";
 import { priceLabel, formatWhen, kopExactLabel } from "../utils/format";
 import DebtCard from "../components/DebtCard";
 import WorkZoneCard from "../components/WorkZoneCard";
+import TaxiDriverTripActions from "../components/TaxiDriverTripActions";
 import { serverMs } from "../utils/serverTime";
+import { track } from "../analytics";
 
 type Boot = "loading" | "error" | "need-approval" | "ready";
 const PRESENCE_MS = 15000;
@@ -333,6 +335,20 @@ export default function InstantDriverTripScreen() {
   }
 
   // ---------------- Активная поездка ----------------
+  /**
+   * Перечитать поездку сразу после действия, не дожидаясь круга поллинга.
+   *
+   * Нужно после ответа на смену адреса и после «Стоим»: водитель нажал — и должен
+   * увидеть новое состояние, а не гадать, прошло ли. Ошибку глотаем: поездка жива,
+   * следующий круг поллинга подтянет её сам.
+   */
+  function refreshActive() {
+    if (!active) return;
+    fetchInstantOrder(active.id)
+      .then(setActive)
+      .catch(() => {});
+  }
+
   async function advance(next: "arrived" | "onboard" | "done") {
     if (!active) return;
     try {
@@ -362,6 +378,7 @@ export default function InstantDriverTripScreen() {
     setTripNote("");
     try {
       await cancelInstantOrder(active.id);
+      track("instant_order_cancel");
     } catch (e) {
       // Обрыв связи: выходить НЕЛЬЗЯ. Раньше экран закрывался в любом случае —
       // заказ оставался живым, а пассажир ждал машину, которая не приедет.
@@ -434,6 +451,7 @@ export default function InstantDriverTripScreen() {
         note={tripNote}
         onAdvance={advance}
         onCancel={cancelActive}
+        onRefresh={refreshActive}
         onChat={() => navigate(`/taxi-chat/${active.id}`)}
       />
     );
@@ -683,7 +701,9 @@ function DemandNearby({ getPos }: { getPos: () => GeoPoint | null }) {
       ) : (
         <div className="list">
           {zones.slice(0, 6).map((z, i) => {
-            const km = pos ? distanceKm(pos.lat, pos.lng, z.lat, z.lng) : null;
+            // Сервер считает расстояние от позиции, которую сам знает; клиентская может
+            // отстать на несколько километров, пока водитель едет. Своё — только запасной путь.
+            const km = z.dist_km ?? (pos ? distanceKm(pos.lat, pos.lng, z.lat, z.lng) : null);
             return (
               <div key={`${z.lat},${z.lng}`} className="demand-row">
                 <div className="demand-row__top">
@@ -836,6 +856,7 @@ function DriverTrip({
   note,
   onAdvance,
   onCancel,
+  onRefresh,
   onChat,
 }: {
   order: InstantOrder;
@@ -844,6 +865,8 @@ function DriverTrip({
   note: string;
   onAdvance: (n: "arrived" | "onboard" | "done") => void;
   onCancel: () => void;
+  /** Перечитать заказ сразу после ответа на смену адреса или «Стоим». */
+  onRefresh: () => void;
   onChat: () => void;
 }) {
   const { appText, lang } = useLang();
@@ -905,6 +928,14 @@ function DriverTrip({
         <div className="taxi-driver__info">
           <div className="taxi-driver__name">
             {order.passenger_name || appText("Пассажир", "Юлаусы")}
+            {/* Заказ сделан для другого человека: сын из Уфы вызвал такси маме в Баймаке.
+                Имя и телефон в карточке — ТОГО, КОГО ВЕЗЁМ; звонить надо туда, а не заказчику
+                в другой город. Без этой пометки водитель звонил не тому и стоял у ворот. */}
+            {order.for_other && (
+              <span className="badge badge--gold" style={{ marginLeft: 8 }}>
+                {appText("заказ для него", "уның өсөн заказ")}
+              </span>
+            )}
           </div>
           <div className="taxi-driver__meta">
             {order.passenger_rating != null && (
@@ -956,6 +987,10 @@ function DriverTrip({
           {note}
         </div>
       )}
+
+      {/* Смена адреса, заезды по пути, «Стоим», помощь на трассе. Блок сам решает,
+          что показать: на подаче нужен ответ про адрес, в пути — остановка и помощь. */}
+      <TaxiDriverTripActions order={order} onChanged={onRefresh} />
 
       {(s === "accepted" || s === "arriving") && (
         <button type="button" className="btn-ghost" style={{ marginTop: 10 }} onClick={() => setConfirm(true)}>

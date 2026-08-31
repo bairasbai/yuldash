@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
+import { enqueue } from "../utils/outbox";
 import {
   fetchBookingShares,
   fetchOrderShares,
@@ -27,6 +28,7 @@ import {
   type TripStatus,
 } from "../api/family";
 import { IconCheck, IconShare, IconTrash, IconUsers } from "./Icons";
+import { track } from "../analytics";
 
 export default function ShareTripCard({
   bookingId,
@@ -104,6 +106,8 @@ export default function ShareTripCard({
     try {
       if (bookingId) await revokeBookingShare(bookingId, shareId);
       else if (orderId) await revokeOrderShare(orderId, shareId);
+      track("revoke_share");
+      track("revoke_share");
     } catch {
       setShares(prev); // откат
       setNote(appText("Не получилось отозвать доступ.", "Рөхсәтте кире алып булманы."));
@@ -117,8 +121,19 @@ export default function ShareTripCard({
       const updated = await setTripStatus(bookingId, status);
       setShares(updated);
       setNote(appText("Близкие получили сообщение", "Яҡындарға хәбәр китте"));
-    } catch {
-      setNote(appText("Не получилось отправить статус.", "Хәлде ебәреп булманы."));
+    } catch (e) {
+      // Трасса без связи — это норма, а не сбой. «Я сел» и «доехал» — ровно те отметки,
+      // которые человек делает в дороге между сёлами, и терять их нельзя: близкие ждут
+      // именно их. Кладём в очередь — уйдёт само, когда сеть вернётся.
+      //
+      // Отличаем обрыв связи от отказа сервера: `status === 0` — до сервера не достучались.
+      // Ответ сервера («поездка уже завершена») повторять бессмысленно, он не изменится.
+      if (e instanceof ApiError && e.status === 0) {
+        enqueue(bookingId, "trip_status", status);
+        setNote(appText("Нет сети — отправим позже", "Селтәр юҡ — һуңыраҡ ебәрербеҙ"));
+      } else {
+        setNote(appText("Не получилось отправить статус.", "Хәлде ебәреп булманы."));
+      }
     } finally {
       setBusy(false);
     }

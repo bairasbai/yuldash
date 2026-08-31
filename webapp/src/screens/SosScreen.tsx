@@ -12,6 +12,7 @@ import { ApiError } from "../api/client";
 import { sendSos, type SosCategory } from "../api/safety";
 import { SubHeader } from "./ConsentsScreen";
 import { IconPhone, IconShield, IconCheck, IconWarn, IconHospital, IconHeart, IconCar, IconCopy } from "../components/Icons";
+import { track } from "../analytics";
 
 type SendState = "idle" | "sending" | "sent" | "error";
 type IconCmp = ComponentType<{ size?: number }>;
@@ -87,6 +88,7 @@ export default function SosScreen() {
       // Координаты кладём, если они уже есть: ждать GPS в экстренной ситуации нельзя,
       // сигнал без места всё равно лучше, чем ничего.
       await sendSos({ category, note: note.trim(), lat: pos?.lat, lng: pos?.lng });
+      track("sos");
       setState("sent");
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {

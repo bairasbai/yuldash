@@ -27,6 +27,7 @@ import { SubHeader } from "./ConsentsScreen";
 import { IconBolt, IconCheck, IconRequest, IconTrash } from "../components/Icons";
 import { priceLabel } from "../utils/format";
 import BargainTrail from "../components/BargainTrail";
+import { track } from "../analytics";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -69,6 +70,7 @@ export default function DriverResponsesScreen() {
     setErr("");
     try {
       const { booking_id } = await acceptResponse(r.id);
+      track("accept_response");
       navigate(`/trip/${booking_id}`);
     } catch (e) {
       setErr(
@@ -111,6 +113,7 @@ export default function DriverResponsesScreen() {
       // Пока идёт торг — «отказаться»; после закрытия отклик убирается совсем.
       if (r.status === "offered") await declineResponse(r.id);
       else await withdrawResponse(r.id);
+      track("withdraw_response");
     } catch {
       setRows(prev); // откат
       setErr(appText("Не получилось отменить отклик.", "Яуапты кире алып булманы."));

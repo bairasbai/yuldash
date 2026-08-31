@@ -31,7 +31,7 @@ from .observability import scrub_text
 from .models import (
     Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, InstantOrder,
     Notification, PickupPoint, Rating, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent,
-    User, UserRole,
+    User, UserRole, WebPushSubscription,
 )
 from .schemas import RideOut
 from .timeutil import local_date, local_month, utcnow
@@ -389,13 +389,22 @@ _fcm_app = None
 
 def send_push(session: Session, user_id: int, title: str, body: str,
               data: dict | None = None, data_only: bool = False) -> None:
-    """Push на все устройства пользователя. Тихо ничего, если Firebase не настроен (нет ключа).
+    """Push на все устройства пользователя — и в приложение (FCM), и в браузер (Web Push).
+
+    Два канала намеренно: Firebase доставляет только в приложение из магазина, а человек,
+    открывший сайт, тоже должен узнать, что водитель подъехал. Каналы независимы —
+    выключенный или сломанный один не мешает другому.
+
     `data` — необязательный data-payload (напр. оффер «Быстрого заказа» → полноэкранная карточка
     на клиенте). FCM требует строковые значения в data — приводим к str на всякий случай.
 
     `data_only=True` (оффер такси, B7a-2): БЕЗ блока notification + AndroidConfig(priority=high).
     Иначе свёрнутое приложение получает системную плашку вместо onMessageReceived → полноэкранная
-    карточка «Новый заказ» не всплывает. title/body кладём в data — клиент сам рисует уведомление."""
+    карточка «Новый заказ» не всплывает. title/body кладём в data — клиент сам рисует уведомление.
+    В браузере такого различия нет: там уведомление рисует service worker в любом случае."""
+    # Браузер — ПЕРВЫМ и отдельно: раньше функция выходила на первой же строке, когда
+    # Firebase не настроен, и веб-подписки не получали вообще ничего.
+    _send_web_push(session, user_id, title, body, data)
     if not settings.firebase_credentials:
         return
     try:
@@ -435,6 +444,107 @@ def send_push(session: Session, user_id: int, title: str, body: str,
                 s2.commit()
     except Exception as e:  # noqa: BLE001
         log.warning(f"[FCM] send error: {e}")
+
+
+def _web_push_url(data: dict | None) -> str:
+    """Куда вести человека по клику на уведомление в браузере.
+
+    В `data` лежит та же пара `ref_kind`/`ref_id`, что уходит и в приложение, — здесь она
+    превращается в адрес страницы. Соответствие ровно то же, что на экране уведомлений
+    в `webapp`: событие без своей страницы ведёт туда, где оно видно целиком.
+
+    Неизвестный вид → корень. Открыть приложение и не угадать экран лучше, чем не открыть.
+    """
+    kind = str((data or {}).get("ref_kind") or "")
+    ref = (data or {}).get("ref_id")
+    if ref:
+        with_page = {
+            "booking": f"/booking/{ref}",
+            "request": f"/requests/{ref}/responses",
+            "support": f"/support/{ref}",
+            "incident": f"/incidents/{ref}",
+        }
+        if kind in with_page:
+            return with_page[kind]
+    return {
+        "parcel": "/parcels",
+        "instant": "/taxi",
+        "ride": "/driver",
+        "debt": "/driver",
+        "taxi_apply": "/taxi-onboarding",
+        "courier_apply": "/courier-onboarding",
+        "partner": "/partner",
+        "ad": "/ads",
+    }.get(kind, "/")
+
+
+def _send_web_push(session: Session, user_id: int, title: str, body: str,
+                   data: dict | None = None) -> None:
+    """Web Push во все браузеры человека. Тихо ничего, если VAPID-ключи не настроены.
+
+    Сообщение шифруется ключами САМОЙ подписки (`p256dh` + `auth`) — этим занимается
+    `pywebpush`. Своими руками такое не пишут: там AES-GCM и обмен ключами по RFC 8291,
+    а ошибка в криптографии выглядит как «иногда не приходит».
+
+    Мёртвые подписки чистим сразу. Пуш-сервис отвечает 404 или 410, когда человек отозвал
+    разрешение или удалил сайт с телефона; без чистки таблица растёт вечно, а мы каждый раз
+    ходим в сеть впустую.
+    """
+    if not (settings.vapid_private_key and settings.vapid_public_key):
+        return
+    try:
+        from pywebpush import WebPushException, webpush
+    except Exception as e:  # noqa: BLE001
+        log.warning(f"[WEBPUSH] библиотека недоступна: {e}")
+        return
+
+    subs = session.exec(
+        select(WebPushSubscription).where(WebPushSubscription.user_id == user_id)
+    ).all()
+    if not subs:
+        return
+
+    tag_parts = [str((data or {}).get("ref_kind") or ""), str((data or {}).get("ref_id") or "")]
+    tag = "-".join([x for x in tag_parts if x])
+    payload = json.dumps({
+        "title": title,
+        "body": body,
+        # Тег склеивает повторы об одном событии в одно уведомление: пять сообщений
+        # в чате не должны превращаться в пять плашек на экране.
+        "tag": tag or None,
+        "url": _web_push_url(data),
+    }, ensure_ascii=False)
+
+    dead: list[str] = []
+    for s in subs:
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": s.endpoint,
+                    "keys": {"p256dh": s.p256dh, "auth": s.auth},
+                },
+                data=payload,
+                vapid_private_key=settings.vapid_private_key,
+                vapid_claims={"sub": settings.vapid_subject},
+                content_encoding=(s.content_encoding or "aes128gcm"),
+                timeout=10,
+            )
+        except WebPushException as e:  # noqa: PERF203
+            code = getattr(getattr(e, "response", None), "status_code", 0)
+            if code in (404, 410):
+                dead.append(s.endpoint)
+            else:
+                # Адрес пуш-сервиса в лог НЕ пишем: по нему можно слать уведомления человеку.
+                log.warning(f"[WEBPUSH] отправка не прошла, код {code}")
+        except Exception as e:  # noqa: BLE001
+            log.warning(f"[WEBPUSH] отправка не прошла: {type(e).__name__}")
+
+    if dead:
+        # В ОТДЕЛЬНОЙ сессии — по той же причине, что и у FCM: commit в переданную session
+        # сбросил бы ORM-объекты вызывающего.
+        with Session(engine) as s2:
+            s2.execute(delete(WebPushSubscription).where(WebPushSubscription.endpoint.in_(dead)))
+            s2.commit()
 
 
 def push_bilingual(session: Session, user_id: int, title_ru: str, title_ba: str,

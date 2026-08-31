@@ -469,6 +469,7 @@ internal enum class Screen {
     AdminDrivers,
     AdminReports,
     AdminTextFlags,   // помеченные тексты: кто и за что (модерация стала видимой)
+    AdminSupport,     // обращения в поддержку: очередь, тред, ответ и закрытие
     AdminPaymentRequests,
     RequestsFeed,
     RequestResponses,

@@ -31,6 +31,8 @@ import {
 import type { Ride } from "../api/rides";
 import { LoadingList, ErrorState } from "../components/States";
 import { StatusPill } from "../components/StatusPill";
+import RideEditActions from "../components/RideEditActions";
+import DriverPassengers from "../components/DriverPassengers";
 import ScreenHeader from "../components/ScreenHeader";
 import { formatWhen, priceLabel } from "../utils/format";
 import {
@@ -370,6 +372,12 @@ export default function DriverCabinetScreen() {
               <span className="cabinet-tile__icon"><IconShield size={22} /></span>
               <span className="cabinet-tile__title">{appText("Готовность к работе", "Эшкә әҙерлек")}</span>
             </button>
+            {/* Классы машины и опции салона: видно, чего не хватает до Комфорта,
+                и можно включить кресло, не пере-подавая заявку. */}
+            <button type="button" className="cabinet-tile" onClick={() => navigate("/taxi-classes")}>
+              <span className="cabinet-tile__icon"><IconCar size={22} /></span>
+              <span className="cabinet-tile__title">{appText("Что я вожу", "Нимә йөрөтәм")}</span>
+            </button>
           </div>
 
           {/* Регулярные маршруты */}
@@ -380,6 +388,11 @@ export default function DriverCabinetScreen() {
           />
 
 {finishNote && <p className="taxi-note">{finishNote}</p>}
+
+          {/* Кто едет со мной: подтвердить бронь, отметить неявку, поставить оценку.
+              До подтверждения пассажир не видит ни телефона, ни точки сбора — значит
+              кнопка «Подтвердить» это не формальность, а то, с чего начинается поездка. */}
+          <DriverPassengers />
 
                     {/* Мои поездки / Архив */}
           <h2 className="section-title">{appText("Мои поездки", "Сәфәрҙәрем")}</h2>
@@ -458,6 +471,20 @@ export default function DriverCabinetScreen() {
                           ? appText("Завершаем…", "Тамамлайбыҙ…")
                           : appText("Завершить", "Тамамлау")}
                       </button>
+                    )}
+
+                    {/* Исправить опечатку в цене и снять рейс. Раньше ни того, ни другого
+                        в вебе не было: «300 ₽» вместо «30 ₽» жило до самого выезда, а
+                        сломавшийся водитель просто не приезжал. */}
+                    {st !== "done" && st !== "cancelled" && (
+                      <RideEditActions
+                        ride={r}
+                        onChanged={(next) =>
+                          setRides((prev) =>
+                            prev.map((x) => (x.id === r.id ? (next ?? x) : x))
+                          )
+                        }
+                      />
                     )}
 
                     {/* Поездка висит без броней — сервер знает почему: нет фото,

@@ -50,6 +50,13 @@ export default function OnboardingScreen() {
   }, []);
 
   const finish = () => {
+    // Имя как в приложении: без него веб-онбординг не виден в общей воронке.
+    // Имя как в приложении: без него веб-онбординг не виден в общей воронке.
+    track("onboarding_complete");
+    // Выбор простого режима считаем отдельно — по нему видно, сколько людей приходит
+    // за крупными кнопками. Это не «настройка», а половина ответа на вопрос,
+    // для кого мы делаем интерфейс.
+    if (simple) track("onboarding_simple_mode");
     track("onboarding_done", { chosen_role: role, simple });
     flags.setRole(role);
     flags.setSimpleMode(simple);

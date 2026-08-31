@@ -46,6 +46,7 @@ from .models import (
     CarPhotoCheck, PreTripCheck, TaxiApplication, TaxiWorkDay, TextFlag, TgAuth, Trust, TripShare, TrustedContact,
     UploadEvent, User,
     WaitlistEntry,
+    WebPushSubscription,
 )
 from .storage import get_storage
 
@@ -561,6 +562,9 @@ def delete_user_account(session: Session, user: User) -> None:
     dele(Block, Block.user_id == uid, Block.blocked_user_id == uid)
     # 3.20 Токены/коды/сессии/загрузки/отзывы/профиль водителя/лист ожидания.
     session.execute(delete(DeviceToken).where(DeviceToken.user_id == uid))
+    # Подписка браузера на уведомления — то же самое, что FCM-токен, только для веб-версии.
+    # Без этой строки человек удалял аккаунт, а пуши на его телефон продолжали приходить.
+    session.execute(delete(WebPushSubscription).where(WebPushSubscription.user_id == uid))
     session.execute(delete(RefreshToken).where(RefreshToken.user_id == uid))
     if phone:
         session.execute(delete(OtpCode).where(OtpCode.phone == phone))

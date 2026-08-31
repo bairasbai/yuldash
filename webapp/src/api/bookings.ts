@@ -22,6 +22,17 @@ export interface CreateBookingInput {
   seats?: number;
   pay_method?: PayMethod;
   pay_amount?: number;
+  /**
+   * Едет пассажир младше 18. Тогда взрослый обязателен и назван поимённо — это не
+   * бюрократия: без имени и телефона взрослого за ребёнка в дороге не отвечает никто,
+   * а водитель узнаёт о подростке, только когда тот сядет в машину.
+   *
+   * Сервер отклонит бронь без этих полей и не даст забронировать поездку, где водитель
+   * подростков без сопровождения не берёт.
+   */
+  minor_passenger?: boolean;
+  minor_guardian_name?: string;
+  minor_guardian_phone?: string;
 }
 
 /** Полная строка брони (ответ POST /bookings). */
@@ -61,6 +72,16 @@ export interface BookingDetails {
   /** Госномер и цвет — чтобы сверить машину у обочины. Пусто до подтверждения брони (ПДн). */
   driver_plate?: string;
   driver_car_color?: string;
+  /**
+   * Едет пассажир младше 18 и кто из взрослых за него отвечает.
+   *
+   * Телефон взрослого приходит ТОЛЬКО водителю этой брони и только пока сделка жива:
+   * отменил — номер закрывается. Это телефон человека, который в приложении не
+   * зарегистрирован, согласия не давал и удалить свои данные не может.
+   */
+  minor_passenger?: boolean;
+  minor_guardian_name?: string;
+  minor_guardian_phone?: string;
   pickup: string; // пусто до разблокировки
   pickup_lat?: number | null;
   pickup_lng?: number | null;
@@ -77,6 +98,15 @@ export interface TripState {
   driver_phase: DriverPhase;
   /** Сервер сверил «подъезжаю» с живым GPS водителя: машина правда рядом с точкой подачи. */
   arrival_verified?: boolean;
+  /**
+   * Ехали не одни, а теперь остались в машине вдвоём с водителем.
+   *
+   * Момент, когда салон пустеет, и есть точка, где человек становится уязвим, — а SOS
+   * в этот момент как раз не нажимают: боятся «поднимать шум из-за слов». Поэтому здесь
+   * не тревога, а тихое предложение отправить близкому ссылку. Водителю флаг не приходит
+   * и обвинением не является.
+   */
+  alone_with_driver?: boolean;
 }
 
 /** Квитанция завершённой поездки (GET /trips/{id}/receipt). */
@@ -208,4 +238,55 @@ export function ratingTags(
 /** Квитанция. 404 (нет эндпоинта на проде) / 409 (не завершена) → мягкая деградация. */
 export function fetchReceipt(id: number, signal?: AbortSignal): Promise<TripReceipt> {
   return apiGet<TripReceipt>(`/trips/${id}/receipt`, { signal });
+}
+
+// ================================================================
+//  Что делает ВОДИТЕЛЬ со своими бронями (bookings.py: /confirm,
+//  /no-show, /driver/bookings) и что делает любая сторона, когда
+//  вещь осталась в машине (/lost-item).
+//
+//  В вебе этого не было совсем: водитель не мог ни подтвердить
+//  бронь, ни отметить неявку, ни оценить пассажира после поездки
+//  (сверка с Android, 2026-08-30).
+// ================================================================
+
+/** Строка списка «мои пассажиры» (GET /driver/bookings). Телефонов тут нет. */
+export interface DriverBookingRow {
+  booking_id: number;
+  passenger_name: string;
+  passenger_rating: number | null;
+  route: string;
+  status: BookingStatus | string;
+  /** 0 = ещё не оценивал. Иначе — сколько звёзд поставил (оценку можно изменить). */
+  my_stars: number;
+}
+
+/** Брони на поездки текущего водителя — чтобы оценить пассажиров после поездки. */
+export function fetchDriverBookings(signal?: AbortSignal): Promise<DriverBookingRow[]> {
+  return apiGet<DriverBookingRow[]>("/driver/bookings", { signal });
+}
+
+/** Водитель подтверждает бронь: пассажиру открываются телефон и точка сбора. Идемпотентно. */
+export function confirmBooking(id: number): Promise<BookingRow> {
+  return apiPost<BookingRow>(`/bookings/${id}/confirm`);
+}
+
+/**
+ * «Пассажир не вышел» — бронь отменяется, места возвращаются в поездку.
+ *
+ * Отдельно от обычной отмены намеренно: это сигнал доверия «между своими», и водитель
+ * не должен выбирать между «соврать, что отменил сам» и «промолчать».
+ */
+export function markNoShow(id: number): Promise<BookingRow> {
+  return apiPost<BookingRow>(`/bookings/${id}/no-show`);
+}
+
+/**
+ * «Забыл вещь в машине» — открывает чат брони на запись ещё на 48 часов.
+ *
+ * У такси такой выход был давно, у попутки — нет: после того как чат стали закрывать
+ * через сутки, забытая сумка означала «связи с водителем больше нет».
+ */
+export function reportBookingLostItem(id: number): Promise<{ ok?: boolean; until?: string }> {
+  return apiPost(`/bookings/${id}/lost-item`);
 }

@@ -23,6 +23,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import HTTPException
+
+from .errors import herr
 from sqlmodel import Session, select
 
 from .config import settings
@@ -93,19 +95,21 @@ def taxi_pause_until(session: Session, user_id: int, now: Optional[datetime] = N
     return None
 
 
-def taxi_pause_message() -> str:
-    """Тёплый текст гейта (RU + черновой BA одной строкой, detail показывается как есть)."""
-    return ("Такси на паузе до разбора жалоб. Попутка работает как обычно 💚 "
-            "Детали — в кабинете, вопросы — в поддержку."
-            " · Такси ялыуҙарҙы тикшергәнсе паузала. Юлдаш ғәҙәттәгесә эшләй 💚 "
-            "Ентеклеләр — кабинетта, һорауҙар — ярҙам хеҙмәтенә.")
+def taxi_pause_message() -> tuple[str, str]:
+    """Тёплый текст гейта — двумя отдельными языками."""
+    return (
+        "Такси на паузе до разбора жалоб. Попутка работает как обычно 💚 "
+        "Детали — в кабинете, вопросы — в поддержку.",
+        "Такси ялыуҙарҙы тикшергәнсе паузала. Юлдаш ғәҙәттәгесә эшләй 💚 "
+        "Ентеклеләр — кабинетта, һорауҙар — ярҙам хеҙмәтенә.",
+    )
 
 
 def guard_taxi_quality(session: Session, driver_id: int, now: Optional[datetime] = None) -> None:
     """Гейт такси по качеству (в стиле долгового/отдыха): presence/offer/accept.
     Активный заказ НЕ рубим (переходы arrived/onboard/done через гейт не ходят)."""
     if taxi_pause_until(session, driver_id, now) is not None:
-        raise HTTPException(403, taxi_pause_message())
+        raise herr(403, *taxi_pause_message())
 
 
 def pause_taxi(session: Session, user_id: int, hours: Optional[int] = None,

@@ -45,8 +45,18 @@ def _отказы_на_одном_языке(текст_файла: str, имя:
     словарь = _русские_константы(текст_файла)
     найдено = []
     for i, строка in enumerate(строки, 1):
-        m = re.search(r'HTTPException\(\s*(\d{3})\s*,\s*["\']([^"\']{4,})', строка)
-        текст = m.group(2) if m else None
+        # Позиционная форма — `HTTPException(403, "Пройди проверку")`.
+        m = re.search(r'HTTPException\(\s*\d{3}\s*,\s*["\']([^"\']{4,})', строка)
+        # Именованная — `HTTPException(status_code=404, detail="Бронь не найдена")`.
+        # Слепое пятно, через которое проскочили три отказа на экране оценки поездки
+        # (сверка двуязычия, 2026-08-31): человек оценивал поездку и читал русский текст.
+        if m is None:
+            m = re.search(
+                r'HTTPException\(\s*status_code\s*=\s*\d{3}\s*,\s*'
+                r'detail\s*=\s*["\']([^"\']{4,})',
+                строка,
+            )
+        текст = m.group(1) if m else None
         if текст is None:
             k = re.search(r'HTTPException\(\s*\d{3}\s*,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*[,)]',
                           строка)

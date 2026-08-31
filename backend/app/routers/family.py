@@ -471,19 +471,20 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
     метки — сразу: они из закрытого списка, оскорбить ими нельзя."""
     b = session.get(Booking, booking_id)
     if not b:
-        raise HTTPException(status_code=404, detail="Бронь не найдена")
+        raise herr(404, "Бронь не найдена", "Бронь табылманы")
     ride = session.get(Ride, b.ride_id)
     if user.id == b.passenger_id and ride:
         ratee_id = ride.driver_id          # пассажир → водитель
     elif ride and user.id == ride.driver_id:
         ratee_id = b.passenger_id          # водитель → пассажир
     else:
-        raise HTTPException(status_code=403, detail="Нельзя оценить эту поездку")
+        raise herr(403, "Нельзя оценить эту поездку", "Был сәфәрҙе баһалап булмай")
     # Оценить можно только ЗАВЕРШЁННУЮ поездку — иначе можно забронировать и сразу накрутить
     # рейтинг водителю, не съездив (репутация «между своими» = продукт). Проверка ПОСЛЕ участника:
     # чужой получает 403, а участник недозавершённой — 409.
     if b.status != BookingStatus.done:
-        raise HTTPException(status_code=409, detail="Оценить можно только завершённую поездку")
+        raise herr(409, "Оценить можно только завершённую поездку",
+                   "Тик тамамланған сәфәрҙе генә баһаларға була")
     # Срок на оценку. Считаем от времени выезда: у брони своего «завершено в» нет, а поездка —
     # это про день выезда. Оценка через год говорит уже не о поездке (волна 57).
     guard_rating_window(ride.depart_at if ride else None)
