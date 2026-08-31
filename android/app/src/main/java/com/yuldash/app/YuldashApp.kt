@@ -1189,7 +1189,6 @@ internal fun YuldashApp() {
                 ads = partnerAds,
                 adStats = adStats,
                 onBack = { goBack() },
-                onSelectTab = { tab -> openHome(tab) },
                 onMessage = { openHome(HomeTab.Chat) },
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick,

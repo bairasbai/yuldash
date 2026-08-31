@@ -19,7 +19,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
@@ -48,7 +50,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -61,6 +65,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -314,7 +319,6 @@ internal fun BookingScreen(
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
     onBack: () -> Unit,
-    onSelectTab: (HomeTab) -> Unit,
     onMessage: () -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
@@ -369,56 +373,58 @@ internal fun BookingScreen(
     val exactPickup = if (contactUnlocked) displayRide.pickup else ""
     val pickupLat = if (contactUnlocked) displayRide.pickupLat else null
     val pickupLng = if (contactUnlocked) displayRide.pickupLng else null
+    // Для ещё не созданной брони серверных координат деталей нет. Известные города берём из
+    // локального справочника: это публичные центры городов, не скрытая точка встречи пассажира.
+    // Поэтому вариант B показывает честную карту уже до нажатия «Забронировать место».
     val routeFromPoint = details?.let { d -> d.fromLat?.let { lat -> d.fromLng?.let { lng -> Point(lat, lng) } } }
+        ?: cityPoint(displayRide.from)
     val routeToPoint = details?.let { d -> d.toLat?.let { lat -> d.toLng?.let { lng -> Point(lat, lng) } } }
+        ?: cityPoint(displayRide.to)
+    val distanceText = cityDistanceText(displayRide.from, displayRide.to)
+    val driverFallback = appText("Водитель", "Йөрөтөүсе")
+    val driverName = displayRide.driver.ifBlank { driverFallback }
+    val driverRating = displayRide.rating.takeIf { it > 0.0 }
+        ?.let { String.format(java.util.Locale.US, "%.1f", it).replace('.', ',') }
+    val carSummary = buildList {
+        details?.driverCarColor?.takeIf { it.isNotBlank() }?.let(::add)
+        displayRide.carText().takeIf { it.isNotBlank() }?.let(::add)
+        details?.driverPlate?.takeIf { it.isNotBlank() }?.let(::add)
+    }.joinToString(" · ")
+    val shareTitle = appText("Позвать соседа", "Күршене саҡырырға")
+    val shareText = appText(
+        "Еду ${displayRide.from} → ${displayRide.to}, ${displayRide.timeText()}. ${displayRide.price} ₽. Поехали вместе в Юлдаше 👇\nhttps://yulbash.ru",
+        "${displayRide.from} → ${displayRide.to}, ${displayRide.timeText()}. ${displayRide.price} ₽. Әйҙә бергә — Юлдашта 👇\nhttps://yulbash.ru"
+    )
+    val primaryLabel = when {
+        bookingId == null -> appText("Забронировать место", "Урынды бронләү")
+        canOpenActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
+        else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
+    }
     Scaffold(
         containerColor = CanonBg,
-        bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Rides, onSelect = onSelectTab) }
+        topBar = { ScreenTopBar(appText("Детали поездки", "Сәфәр тураһында"), onBack) },
+        bottomBar = {
+            BookingDecisionBar(
+                primaryText = primaryLabel,
+                primaryEnabled = bookingId == null || canOpenActiveTrip,
+                onMessage = onMessage,
+                onPrimary = {
+                    onConfirmRide(
+                        payMethod,
+                        payAmountText.trim().toIntOrNull(),
+                        minorPassenger,
+                        guardianName.trim(),
+                        guardianPhone.trim(),
+                    )
+                },
+            )
+        },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(bottom = 116.dp)
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
-            item {
-                Spacer(Modifier.height(8.dp))
-            }
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Артҡа"), tint = CanonText)
-                    }
-                    Text(appText("Детали поездки", "Сәфәр тураһында"), modifier = Modifier.weight(1f), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
-                    val shareTitle = appText("Позвать соседа", "Күршене саҡырырға")
-                    val shareText = appText(
-                        "Еду ${displayRide.from} → ${displayRide.to}, ${displayRide.timeText()}. ${displayRide.price} ₽. Поехали вместе в Юлдаше 👇\nhttps://yulbash.ru",
-                        "${displayRide.from} → ${displayRide.to}, ${displayRide.timeText()}. ${displayRide.price} ₽. Әйҙә бергә — Юлдашта 👇\nhttps://yulbash.ru"
-                    )
-                    IconButton(onClick = { shareRide(context, shareText, shareTitle) }) {
-                        Icon(Icons.Default.Share, contentDescription = shareTitle, tint = CanonGreen2)
-                    }
-                }
-            }
-            item {
-                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        RouteMiniIcon()
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("${displayRide.from}  →  ${displayRide.to}", color = CanonText, fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                DetailMeta(Icons.Default.CalendarMonth, displayRide.timeText(), modifier = Modifier.weight(1.45f))
-                                DetailMeta(Icons.Default.Person, seatsText(displayRide.seats), modifier = Modifier.weight(0.8f))
-                            }
-                        }
-                        Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
-                            Text("${displayRide.price} ₽", modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
-                    }
-                }
-            }
             if (detailsLoading) {
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
@@ -441,185 +447,93 @@ internal fun BookingScreen(
                 }
             }
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        // Двуязычный дефолт имени водителя (toUiRide больше не кладёт русский литерал). BA-draft: «Йөрөтөүсе».
-                        val driverFallback = appText("Водитель", "Йөрөтөүсе")
-                        val driverName = displayRide.driver.ifBlank { driverFallback }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(color = CanonMint, shape = CircleShape) {
-                                Text(driverName.firstOrNull()?.uppercase() ?: "?", modifier = Modifier.padding(24.dp), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 24.sp)
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(driverName, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                                    if (displayRide.verified) {
-                                        Spacer(Modifier.width(4.dp))
-                                        Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
-                                    }
-                                }
-                                Text(appText("Опытный водитель", "Тәжрибәле йөрөтөүсе"), color = CanonMuted, fontSize = 14.sp)
-                                DetailMeta(Icons.Default.DirectionsCar, displayRide.carText())
-                            }
-                            Surface(
-                                color = CanonMint,
-                                shape = CircleShape,
-                                modifier = if (contactUnlocked && driverPhone.isNotBlank()) Modifier.bounceClick {
-                                    runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$driverPhone"))) }
-                                } else Modifier
-                            ) {
-                                Icon(
-                                    if (contactUnlocked && driverPhone.isNotBlank()) Icons.Default.Phone else Icons.Default.PhoneLocked,
-                                    contentDescription = if (contactUnlocked && driverPhone.isNotBlank())
-                                        appText("Позвонить", "Шылтыратыу")          // BA-draft
-                                    else appText("Телефон пока скрыт", "Телефон әлегә йәшерелгән"),  // BA-draft
-                                    tint = CanonGreen2,
-                                    modifier = Modifier.padding(16.dp)
-                                )
-                            }
-                        }
-                        TripInfoRow(
-                            Icons.Default.LocationOn,
-                            appText("Место встречи", "Осрашыу урыны"),
-                            when {
-                                contactUnlocked && exactPickup.isNotBlank() -> exactPickup
-                                contactUnlocked -> appText("Уточни точку в чате", "Нөктәне чатта асыҡлағыҙ")
-                                bookingId != null -> appText("Откроется после подтверждения водителем", "Йөрөтөүсе раҫлағас асыла")
-                                else -> appText("Откроется после подтверждения поездки", "Сәфәр раҫланғас асыла")
-                            }
+                BookingDriverHeroCard(
+                    driverName = driverName,
+                    avatarUrl = displayRide.driverAvatar,
+                    rating = driverRating,
+                    verified = displayRide.verified,
+                    trips = displayRide.driverTrips,
+                    since = displayRide.driverSince,
+                    carSummary = carSummary,
+                    phoneUnlocked = contactUnlocked && driverPhone.isNotBlank(),
+                    onCall = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$driverPhone"))) }
+                    },
+                )
+            }
+            item {
+                BookingRouteDecisionCard(
+                    ride = displayRide,
+                    distanceText = distanceText,
+                    fromPoint = routeFromPoint,
+                    toPoint = routeToPoint,
+                    contactUnlocked = contactUnlocked,
+                    onShare = { shareRide(context, shareText, shareTitle) },
+                )
+            }
+            routeAd?.let { ad ->
+                item {
+                    PartnerAdCard(
+                        ad = ad,
+                        stats = adStats[ad.id] ?: AdStats(),
+                        compact = true,
+                        label = appText("По маршруту", "Маршрут буйынса"),
+                        onImpression = onAdImpression,
+                        onClick = onAdClick,
+                    )
+                }
+            }
+            item {
+                BookingMeetingCard(
+                    contactUnlocked = contactUnlocked,
+                    bookingExists = bookingId != null,
+                    exactPickup = exactPickup,
+                    pickupLat = pickupLat,
+                    pickupLng = pickupLng,
+                )
+            }
+            item {
+                PayAgreementBlock(
+                    editable = bookingId == null,
+                    method = if (bookingId == null) payMethod else (details?.payMethod ?: "negotiate"),
+                    amountText = payAmountText,
+                    summaryAmount = details?.payAmount,
+                    onMethod = { payMethod = it },
+                    onAmount = { payAmountText = it },
+                )
+            }
+            // Едет подросток: до брони — форма со взрослым, после — только подтверждённая пометка.
+            if (bookingId == null) {
+                item {
+                    if (!ride.noMinors) {
+                        MinorPassengerBlock(
+                            checked = minorPassenger,
+                            guardianName = guardianName,
+                            guardianPhone = guardianPhone,
+                            onChecked = { minorPassenger = it },
+                            onName = { guardianName = it },
+                            onPhone = { guardianPhone = it },
                         )
-                        if (pickupLat != null && pickupLng != null) {
-                            val la = pickupLat
-                            val ln = pickupLng
-                            val meet = appText("Место встречи", "Осрашыу урыны")
-                            OutlinedButton(
-                                onClick = {
-                                    val uri = android.net.Uri.parse("geo:$la,$ln?q=$la,$ln(" + android.net.Uri.encode(meet) + ")")
-                                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
-                                },
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, CanonGreen2)
-                            ) {
-                                Icon(Icons.Default.Map, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(appText("Открыть точку на карте", "Нөктәне картала асырға"), color = CanonGreen2)
-                            }
-                        }
-                        if (routeFromPoint != null && routeToPoint != null) {
-                            BookingRouteMapPreview(
-                                modifier = Modifier.height(170.dp),
-                                from = displayRide.from,
-                                to = displayRide.to,
-                                fromPoint = routeFromPoint,
-                                toPoint = routeToPoint,
-                                contactUnlocked = contactUnlocked
-                            )
-                        } else {
-                            RouteMapUnavailableCard(Modifier.height(170.dp))
-                        }
-                        routeAd?.let { ad ->
-                            PartnerAdCard(
-                                ad = ad,
-                                stats = adStats[ad.id] ?: AdStats(),
-                                compact = true,
-                                label = appText("По маршруту", "Маршрут буйынса"),
-                                onImpression = onAdImpression,
-                                onClick = onAdClick
-                            )
-                        }
-                        if (contactUnlocked && driverPhone.isNotBlank()) {
-                            InfoCard(
-                                title = appText("Телефон водителя открыт", "Йөрөтөүсенең телефоны асылды"),
-                                text = driverPhone,
-                                icon = Icons.Default.Phone
-                            )
-                        } else {
-                            InfoCard(
-                                title = if (bookingId != null)
-                                    appText("Телефон откроется после подтверждения водителем", "Телефон йөрөтөүсе раҫлағас асыла")
-                                else
-                                    appText("Телефон откроется после подтверждения поездки", "Телефон сәфәр раҫланғандан һуң асыла"),
-                                text = appText("Так мы защищаем номер и точную геолокацию до взаимного согласия.", "Шулай итеп номерҙы һәм теүәл геолокацияны ике яҡ ризалығына тиклем һаҡлайбыҙ."),
-                                icon = Icons.Default.Lock
-                            )
-                        }
-                        PayAgreementBlock(
-                            editable = bookingId == null,
-                            method = if (bookingId == null) payMethod else (details?.payMethod ?: "negotiate"),
-                            amountText = payAmountText,
-                            summaryAmount = details?.payAmount,
-                            onMethod = { payMethod = it },
-                            onAmount = { payAmountText = it }
+                    } else {
+                        InfoCard(
+                            title = appText("Водитель берёт только 18+", "Йөрөтөүсе тик 18+ ала"),
+                            text = appText(
+                                "Этот водитель не везёт пассажиров младше 18 без взрослого. Поищи другую поездку — их много.",
+                                "Был йөрөтөүсе 18-ҙән кесе юлсыларҙы оло кешеһеҙ йөрөтмәй. Башҡа сәфәр эҙлә — улар күп.",
+                            ),
+                            icon = Icons.Default.EscalatorWarning,
                         )
-                        // Едет подросток: до брони — форма со взрослым, после — просто пометка.
-                        // Водителю она приходит вместе с бронью, чтобы он решал заранее.
-                        if (bookingId == null) {
-                            if (!ride.noMinors) {
-                                MinorPassengerBlock(
-                                    checked = minorPassenger,
-                                    guardianName = guardianName,
-                                    guardianPhone = guardianPhone,
-                                    onChecked = { minorPassenger = it },
-                                    onName = { guardianName = it },
-                                    onPhone = { guardianPhone = it },
-                                )
-                            } else {
-                                InfoCard(
-                                    title = appText("Водитель берёт только 18+", "Йөрөтөүсе тик 18+ ала"),
-                                    text = appText("Этот водитель не везёт пассажиров младше 18 без взрослого. Поищи другую поездку — их много.",
-                                        "Был йөрөтөүсе 18-ҙән кесе юлсыларҙы оло кешеһеҙ йөрөтмәй. Башҡа сәфәр эҙлә — улар күп."),
-                                    icon = Icons.Default.EscalatorWarning,
-                                )
-                            }
-                        } else if (details?.minorPassenger == true) {
-                            InfoCard(
-                                title = appText("Едет пассажир младше 18", "18-ҙән кесе юлсы бара"),
-                                text = listOf(details?.minorGuardianName.orEmpty(), details?.minorGuardianPhone.orEmpty())
-                                    .filter { it.isNotBlank() }.joinToString(" · ")
-                                    .ifBlank { appText("Взрослый на связи указан", "Оло кеше күрһәтелгән") },
-                                icon = Icons.Default.EscalatorWarning,
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            OutlinedButton(
-                                onClick = onMessage,
-                                modifier = Modifier.weight(1f).heightIn(min = 54.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, CanonGreen2)
-                            ) {
-                                Icon(Icons.Default.ChatBubble, contentDescription = null, tint = CanonGreen2)
-                                Spacer(Modifier.width(8.dp))
-                                Text(appText("Написать", "Яҙырға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
-                            }
-                            Button(
-                                onClick = { onConfirmRide(payMethod, payAmountText.trim().toIntOrNull(), minorPassenger, guardianName.trim(), guardianPhone.trim()) },
-                                enabled = bookingId == null || canOpenActiveTrip,
-                                modifier = Modifier.weight(1.15f).heightIn(min = 54.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = CanonGreen2,
-                                    disabledContainerColor = CanonMint,
-                                    disabledContentColor = CanonGreen2.copy(alpha = 0.68f)
-                                )
-                            ) {
-                                Icon(if (bookingId != null && !canOpenActiveTrip) Icons.Default.Schedule else Icons.Default.Route, contentDescription = null)
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    when {
-                                        bookingId == null -> appText("Поехать", "Барырға")
-                                        canOpenActiveTrip -> appText("Открыть", "Асырға")
-                                        else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
-                                    },
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
                     }
+                }
+            } else if (details?.minorPassenger == true) {
+                item {
+                    InfoCard(
+                        title = appText("Едет пассажир младше 18", "18-ҙән кесе юлсы бара"),
+                        text = listOf(details?.minorGuardianName.orEmpty(), details?.minorGuardianPhone.orEmpty())
+                            .filter { it.isNotBlank() }.joinToString(" · ")
+                            .ifBlank { appText("Взрослый на связи указан", "Оло кеше күрһәтелгән") },
+                        icon = Icons.Default.EscalatorWarning,
+                    )
                 }
             }
             item {
@@ -627,6 +541,282 @@ internal fun BookingScreen(
                     title = appText("Мы бережём твою безопасность", "Беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ"),
                     text = appText("Все поездки защищены и отслеживаются службой поддержки Юлдаш.", "Бөтә сәфәрҙәр Юлдаш ярҙам хеҙмәте тарафынан күҙәтелә."),
                     icon = Icons.Default.Shield
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookingDecisionBar(
+    primaryText: String,
+    primaryEnabled: Boolean,
+    onMessage: () -> Unit,
+    onPrimary: () -> Unit,
+) {
+    val largeText = LocalDensity.current.fontScale >= 1.2f
+    Surface(color = CanonSurface, shadowElevation = CanonDepth.sheet) {
+        val barModifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)
+        if (largeText) {
+            Column(barModifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppButton(
+                    text = appText("Написать", "Яҙырға"),
+                    onClick = onMessage,
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.ChatBubbleOutline,
+                )
+                AppButton(
+                    text = primaryText,
+                    onClick = onPrimary,
+                    enabled = primaryEnabled,
+                    icon = if (primaryEnabled) Icons.Default.EventSeat else Icons.Default.Schedule,
+                )
+            }
+        } else {
+            Row(
+                barModifier.height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AppButton(
+                    text = appText("Написать", "Яҙырға"),
+                    onClick = onMessage,
+                    modifier = Modifier.weight(0.9f).fillMaxHeight(),
+                    style = AppButtonStyle.Secondary,
+                    fillWidth = false,
+                )
+                AppButton(
+                    text = primaryText,
+                    onClick = onPrimary,
+                    modifier = Modifier.weight(1.35f).fillMaxHeight(),
+                    enabled = primaryEnabled,
+                    icon = if (primaryEnabled) Icons.Default.EventSeat else Icons.Default.Schedule,
+                    fillWidth = false,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookingDriverHeroCard(
+    driverName: String,
+    avatarUrl: String,
+    rating: String?,
+    verified: Boolean,
+    trips: Int,
+    since: String,
+    carSummary: String,
+    phoneUnlocked: Boolean,
+    onCall: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        colors = CardDefaults.cardColors(containerColor = CanonMint),
+        shape = CanonCardShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SmallAvatar(avatarUrl, driverName, 76)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        driverName,
+                        color = CanonText,
+                        fontSize = 21.sp,
+                        lineHeight = 27.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (rating != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(19.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text(rating, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                    }
+                    DriverTrustBadges(verified = verified, trips = trips, since = since)
+                }
+                if (phoneUnlocked) {
+                    Surface(
+                        color = CanonSurface,
+                        shape = CircleShape,
+                        border = BorderStroke(1.dp, CanonBorder),
+                        modifier = Modifier.size(48.dp).bounceClick(onCall),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Phone,
+                                contentDescription = appText("Позвонить", "Шылтыратыу"),
+                                tint = CanonGreen2,
+                                modifier = Modifier.size(21.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            if (carSummary.isNotBlank()) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(CanonHairlineGreen))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = CanonSurface, shape = CircleShape) {
+                        Icon(
+                            Icons.Default.DirectionsCar,
+                            contentDescription = null,
+                            tint = CanonGreen2,
+                            modifier = Modifier.padding(9.dp).size(19.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        carSummary,
+                        color = CanonText,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookingRouteDecisionCard(
+    ride: Ride,
+    distanceText: String?,
+    fromPoint: Point?,
+    toPoint: Point?,
+    contactUnlocked: Boolean,
+    onShare: () -> Unit,
+) {
+    AppCard {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "${ride.from} → ${ride.to}",
+                        color = CanonText,
+                        fontSize = 23.sp,
+                        lineHeight = 29.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            listOfNotNull(ride.timeText(), distanceText).filter { it.isNotBlank() }.joinToString(" · "),
+                            color = CanonMuted,
+                            fontSize = 14.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                IconButton(onClick = onShare) {
+                    Icon(Icons.Default.Share, contentDescription = appText("Поделиться", "Бүлешеү"), tint = CanonGreen2)
+                }
+            }
+            if (fromPoint != null && toPoint != null) {
+                BookingRouteMapPreview(
+                    modifier = Modifier.height(184.dp),
+                    from = ride.from,
+                    to = ride.to,
+                    fromPoint = fromPoint,
+                    toPoint = toPoint,
+                    contactUnlocked = contactUnlocked,
+                    showPrivacyNotice = false,
+                )
+            } else {
+                RouteMapUnavailableCard(Modifier.height(148.dp))
+            }
+            Row(
+                Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                BookingDecisionMetric(
+                    icon = Icons.Default.Payments,
+                    value = "${ride.price} ₽",
+                    label = appText("Цена за место", "Урын хаҡы"),
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+                BookingDecisionMetric(
+                    icon = Icons.Default.EventSeat,
+                    value = ride.seats.toString(),
+                    label = appText("Свободных мест", "Буш урын"),
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookingDecisionMetric(
+    icon: ImageVector,
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(modifier = modifier, color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 13.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(19.dp))
+            Text(value, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(label, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp, textAlign = TextAlign.Center, maxLines = 2)
+        }
+    }
+}
+
+@Composable
+private fun BookingMeetingCard(
+    contactUnlocked: Boolean,
+    bookingExists: Boolean,
+    exactPickup: String,
+    pickupLat: Double?,
+    pickupLng: Double?,
+) {
+    val context = LocalContext.current
+    AppCard {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            TripInfoRow(
+                if (contactUnlocked) Icons.Default.LocationOn else Icons.Default.Lock,
+                appText("Место встречи", "Осрашыу урыны"),
+                when {
+                    contactUnlocked && exactPickup.isNotBlank() -> exactPickup
+                    contactUnlocked -> appText("Уточни точку в чате", "Нөктәне чатта асыҡла")
+                    bookingExists -> appText("Откроется после подтверждения водителем", "Йөрөтөүсе раҫлағас асыла")
+                    else -> appText("Откроется после подтверждения поездки", "Сәфәр раҫланғас асыла")
+                },
+            )
+            if (!contactUnlocked) {
+                Text(
+                    appText(
+                        "Номер и точная геолокация скрыты до взаимного согласия.",
+                        "Номер һәм теүәл геолокация ике яҡ ризалығына тиклем йәшерелгән.",
+                    ),
+                    color = CanonMuted,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+            }
+            if (pickupLat != null && pickupLng != null) {
+                val meet = appText("Место встречи", "Осрашыу урыны")
+                AppButton(
+                    text = appText("Открыть точку на карте", "Нөктәне картала асыу"),
+                    onClick = {
+                        val uri = Uri.parse("geo:$pickupLat,$pickupLng?q=$pickupLat,$pickupLng(" + Uri.encode(meet) + ")")
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                    },
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.Map,
                 )
             }
         }
@@ -730,7 +920,9 @@ internal fun BookingRouteMapPreview(   // internal: живой MapKit-ренде
     to: String,
     fromPoint: Point,
     toPoint: Point,
-    contactUnlocked: Boolean
+    contactUnlocked: Boolean,
+    showPrivacyNotice: Boolean = true,
+    liveBookingId: Int? = null,
 ) {
     val context = LocalContext.current
     val mapView = remember(fromPoint, toPoint) {
@@ -764,6 +956,63 @@ internal fun BookingRouteMapPreview(   // internal: живой MapKit-ренде
         map.mapObjects.addPlacemark().apply { geometry = fromPoint }
         map.mapObjects.addPlacemark().apply { geometry = toPoint }
     }
+    // На активной поездке эта же карта показывает живую позицию второго участника.
+    // Маркер разрешён только для текущей брони: сохранённая точка другой поездки не должна
+    // на мгновение появляться на новом экране. Первая точка ставится сразу, следующие мягко
+    // догоняются каждый кадр — без рывков между редкими GPS-обновлениями.
+    LaunchedEffect(mapView, liveBookingId) {
+        if (liveBookingId == null) return@LaunchedEffect
+        val map = mapView.mapWindow.map
+        val marker = map.mapObjects.addPlacemark().apply {
+            setIcon(ImageProvider.fromBitmap(peerArrowBitmap()))
+            setIconStyle(
+                IconStyle()
+                    .setAnchor(PointF(0.5f, 0.5f))
+                    .setRotationType(com.yandex.mapkit.map.RotationType.ROTATE)
+            )
+            isVisible = false
+        }
+        try {
+            var currentLat = 0.0
+            var currentLng = 0.0
+            var currentBearing = 0f
+            var hasPosition = false
+            while (true) {
+                androidx.compose.runtime.withFrameNanos { }
+                val peer = com.yuldash.app.data.TripLocationBus.peer
+                    ?.takeIf { com.yuldash.app.data.TripLocationBus.bookingId == liveBookingId }
+                if (peer == null) {
+                    if (hasPosition) {
+                        marker.isVisible = false
+                        hasPosition = false
+                    }
+                    kotlinx.coroutines.delay(200)
+                    continue
+                }
+                if (!hasPosition) {
+                    currentLat = peer.lat
+                    currentLng = peer.lng
+                    currentBearing = (peer.bearing ?: 0.0).toFloat()
+                    marker.geometry = Point(currentLat, currentLng)
+                    marker.setDirection(currentBearing)
+                    marker.isVisible = true
+                    hasPosition = true
+                    continue
+                }
+                val alpha = 0.16f
+                currentLat += (peer.lat - currentLat) * alpha
+                currentLng += (peer.lng - currentLng) * alpha
+                marker.geometry = Point(currentLat, currentLng)
+                peer.bearing?.let { target ->
+                    val delta = ((target.toFloat() - currentBearing) % 360f + 540f) % 360f - 180f
+                    currentBearing = ((currentBearing + delta * alpha) % 360f + 360f) % 360f
+                    marker.setDirection(currentBearing)
+                }
+            }
+        } finally {
+            runCatching { map.mapObjects.remove(marker) }
+        }
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -773,7 +1022,7 @@ internal fun BookingRouteMapPreview(   // internal: живой MapKit-ренде
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
         BookingMapLabel(from, Modifier.align(Alignment.TopStart).padding(12.dp))
         BookingMapLabel(to, Modifier.align(Alignment.CenterEnd).padding(12.dp))
-        if (!contactUnlocked) {
+        if (!contactUnlocked && showPrivacyNotice) {
             Card(
                 modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
                 colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -1050,6 +1299,10 @@ internal fun ActiveTripScreen(
     // Договорённость об оплате (ЗАПИСЬ, не платёж) — показываем обеим сторонам в активной поездке.
     var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
     var payAmount by remember(bookingId) { mutableStateOf<Int?>(null) }
+    // Точки маршрута для новой B-карты. Берём точные координаты из деталей брони; если
+    // старый сервер их не отдаёт, ниже остаётся безопасный фолбэк на публичные центры городов.
+    var routeFromPoint by remember(bookingId) { mutableStateOf<Point?>(null) }
+    var routeToPoint by remember(bookingId) { mutableStateOf<Point?>(null) }
     val sendFailMsg = appText("Сообщение не отправлено", "Хәбәр ебәрелмәне")
     val tooFastMsg = appText("Слишком быстро. Подожди минуту и продолжи.",
                              "Артыҡ тиҙ. Бер минут көт тә дауам ит.")
@@ -1074,7 +1327,14 @@ internal fun ActiveTripScreen(
             TripPassStore.updateBoardingCode(context, id, code)
             tripPass = TripPassStore.load(context, id)
         }
-        ApiClient.getBookingDetails(id).onSuccess { d -> payMethod = d.payMethod; payAmount = d.payAmount; if (d.departAt.isNotBlank()) departIso = d.departAt; armAfterMs = arrivalCheckAfterMs(d.fromLat, d.fromLng, d.toLat, d.toLng) }
+        ApiClient.getBookingDetails(id).onSuccess { d ->
+            payMethod = d.payMethod
+            payAmount = d.payAmount
+            if (d.departAt.isNotBlank()) departIso = d.departAt
+            routeFromPoint = d.fromLat?.let { lat -> d.fromLng?.let { lng -> Point(lat, lng) } }
+            routeToPoint = d.toLat?.let { lat -> d.toLng?.let { lng -> Point(lat, lng) } }
+            armAfterMs = arrivalCheckAfterMs(d.fromLat, d.fromLng, d.toLat, d.toLng)
+        }
     }
 
     // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.
@@ -1195,23 +1455,130 @@ internal fun ActiveTripScreen(
         deliver(tempId, text)
     }
     val visibleMessages = messages.filter { it.deleted || it.voiceUrl != null || it.text.isNotBlank() }
+    val activeFromCity = ride?.from ?: tripPass?.fromCity.orEmpty()
+    val activeToCity = ride?.to ?: tripPass?.toCity.orEmpty()
+    val activeFromPoint = routeFromPoint ?: activeFromCity.takeIf { it.isNotBlank() }?.let(::cityPoint)
+    val activeToPoint = routeToPoint ?: activeToCity.takeIf { it.isNotBlank() }?.let(::cityPoint)
+    val canChangeTripStatus = bookingId == null || (role.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus))
+    val nextTripStatus = activeTripNextStatus(role = role, driverPhase = driverPhase, passengerStatus = status)
+    val activeTripListState = rememberLazyListState()
+
+    // Один шов для всех status-CTA: новая закреплённая кнопка B и старые сценарии используют
+    // тот же серверный переход, очередь без сети и очистку офлайн-паспорта.
+    fun updateTripStatus(st: String) {
+        val bid = bookingId
+        if (role == "driver") {
+            if (bid == null) {
+                if (st == "done") onTripEnd()
+            } else voiceScope.launch {
+                ApiClient.driverStatus(bid, st)
+                    .onSuccess {
+                        if (st == "done") {
+                            TripPassStore.remove(context, bid)
+                            onTripEnd()
+                        } else {
+                            Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
+                            ApiClient.getTripState(bid).onSuccess { s ->
+                                role = s.role
+                                driverPhase = s.driverPhase
+                                arrivalVerified = s.arrivalVerified
+                                aloneWithDriver = s.aloneWithDriver
+                                bookingStatus = s.status
+                            }
+                        }
+                    }
+                    .onFailure { e ->
+                        if (e !is ApiException) {
+                            Outbox.enqueue(context, Outbox.newDriverStatus(bid, st))
+                            Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
+                        } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
+                    }
+            }
+        } else {
+            status = st
+            if (bid == null) {
+                if (st == "done") onTripEnd()
+            } else voiceScope.launch {
+                ApiClient.setTripStatus(bid, st)
+                    .onSuccess {
+                        if (st == "done") {
+                            TripPassStore.remove(context, bid)
+                            onTripEnd()
+                        } else ApiClient.getTripState(bid).onSuccess { s ->
+                            role = s.role
+                            driverPhase = s.driverPhase
+                            arrivalVerified = s.arrivalVerified
+                            aloneWithDriver = s.aloneWithDriver
+                            bookingStatus = s.status
+                        }
+                    }
+                    .onFailure { e ->
+                        if (e !is ApiException) {
+                            Outbox.enqueue(context, Outbox.newTripStatus(bid, st))
+                            Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
+                        } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
+                    }
+            }
+        }
+    }
 
     Scaffold(
         containerColor = CanonBg,
-        topBar = { ScreenTopBar(appText("Моя поездка", "Минең сәфәр"), onBack) }
+        topBar = { ScreenTopBar(appText("Моя поездка", "Минең сәфәр"), onBack) },
+        bottomBar = {
+            if (canChangeTripStatus) {
+                ActiveTripDecisionBar(
+                    primaryText = activeTripActionLabel(nextTripStatus),
+                    onMessage = {
+                        voiceScope.launch {
+                            val total = activeTripListState.layoutInfo.totalItemsCount
+                            if (total > 0) {
+                                val trailing = 1 + if (bookingId != null && bookingStatusAllowsBoarding(bookingStatus)) 1 else 0
+                                activeTripListState.animateScrollToItem((total - trailing - 1).coerceAtLeast(0))
+                            }
+                        }
+                    },
+                    onPrimary = { updateTripStatus(nextTripStatus) },
+                )
+            }
+        },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp).imePadding(),  // поднимаем контент над клавиатурой (композер чата не перекрывается)
+            state = activeTripListState,
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             item {
-                TripRouteHeaderCard(
-                    // Без сети ride может быть null (холодный старт по bookingId) — берём из офлайн-паспорта.
-                    from = ride?.from ?: tripPass?.fromCity,
-                    to = ride?.to ?: tripPass?.toCity,
-                    driver = ride?.driver ?: tripPass?.driverName,
-                    time = ride?.time ?: tripPass?.departAt?.let { formatDepart(it) },
+                ActiveTripOptionBHero(
+                    driverName = ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() },
+                    avatarUrl = ride?.driverAvatar.orEmpty(),
+                    rating = ride?.rating?.takeIf { it > 0.0 }
+                        ?.let { String.format(java.util.Locale.US, "%.1f", it).replace('.', ',') },
+                    verified = ride?.verified == true,
+                    trips = ride?.driverTrips ?: 0,
+                    since = ride?.driverSince.orEmpty(),
+                    carSummary = listOf(
+                        tripPass?.driverCar.orEmpty().ifBlank { ride?.car.orEmpty() },
+                        tripPass?.driverPlate.orEmpty(),
+                    ).filter { it.isNotBlank() }.joinToString(" · "),
+                    phoneUnlocked = !tripPass?.driverPhone.isNullOrBlank(),
+                    onCall = {
+                        tripPass?.driverPhone?.takeIf { it.isNotBlank() }?.let { phone ->
+                            runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))) }
+                        }
+                    },
+                    boardingCode = boardingCode,
+                    role = role,
+                    driverPhase = driverPhase,
+                    passengerStatus = status,
+                    bookingStatus = bookingStatus,
+                    arrivalVerified = arrivalVerified,
+                    from = activeFromCity,
+                    to = activeToCity,
+                    fromPoint = activeFromPoint,
+                    toPoint = activeToPoint,
+                    liveBookingId = bookingId,
                     modifier = Modifier.appearIn(0),
                 )
             }
@@ -1239,33 +1606,10 @@ internal fun ActiveTripScreen(
                     }
                 }
             }
-            // Live-баннер пассажиру: водитель выехал/подъезжает (опрос статуса раз в ~12с, не только пуш).
-            if (role == "passenger" && (driverPhase == "departed" || driverPhase == "arriving")) {
-                item {
-                    DriverApproachingBanner(
-                        arriving = driverPhase == "arriving",
-                        modifier = Modifier.appearIn(1),
-                        verified = arrivalVerified,
-                    )
-                }
-            }
             // Подсказка только пассажиру и только когда салон реально опустел. Водителю её нет.
             if (role == "passenger" && aloneWithDriver) {
                 item {
                     AlonePassengerHint(onShare = { showShare = true }, modifier = Modifier.appearIn(1))
-                }
-            }
-            if (boardingCode.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus)) {
-                item {
-                    // Машину берём из офлайн-паспорта: он пишется при подтверждении брони и
-                    // доступен без сети — а сверяют машину как раз у дороги, где связи может
-                    // не быть. Госномера в публичной карточке поездки нет и быть не должно.
-                    BoardingCodeCard(
-                        code = boardingCode,
-                        modifier = Modifier.appearIn(1),
-                        car = tripPass?.driverCar.orEmpty().ifBlank { ride?.car.orEmpty() },
-                        plate = tripPass?.driverPlate.orEmpty(),
-                    )
                 }
             }
             if (bookingId != null) {
@@ -1280,57 +1624,6 @@ internal fun ActiveTripScreen(
                             onAmount = {}
                         )
                     }
-                }
-            }
-            val canChangeTripStatus = bookingId == null || (role.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus))
-            if (canChangeTripStatus) {
-                item { Text(if (role == "driver") appText("Сообщить пассажиру", "Пассажирға хәбәр итеү") else appText("Статус поездки", "Сәфәр хәле"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(2)) }
-                item {
-                    TripStatusButtons(
-                        role = role,
-                        selectedStatus = status,
-                        modifier = Modifier.appearIn(2),
-                        onStatus = { st ->
-                            val bid = bookingId
-                            if (role == "driver") {
-                                // Водитель: «выехал/подъезжаю» → push пассажиру; «Завершить» → закрывает бронь на сервере.
-                                if (bid == null) { if (st == "done") onTripEnd() }   // демо/нет брони → просто закрываем экран
-                                else voiceScope.launch {
-                                    ApiClient.driverStatus(bid, st)
-                                        .onSuccess {
-                                            if (st == "done") { TripPassStore.remove(context, bid); onTripEnd() }   // уходим с экрана только при реальном закрытии брони + чистим ПДн из паспорта
-                                            else {
-                                                Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
-                                                ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; arrivalVerified = s.arrivalVerified; aloneWithDriver = s.aloneWithDriver; bookingStatus = s.status }   // сразу синхроним UI, не ждём 12с поллинга
-                                            }
-                                        }
-                                        .onFailure { e ->
-                                            if (e !is ApiException) {   // нет сети → статус в очередь на авто-ретрай (F11)
-                                                Outbox.enqueue(context, Outbox.newDriverStatus(bid, st))
-                                                Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
-                                            } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
-                                        }
-                                }
-                            } else {
-                                status = st
-                                if (bid == null) { if (st == "done") onTripEnd() }   // демо/нет брони → просто закрываем
-                                else voiceScope.launch {
-                                    ApiClient.setTripStatus(bid, st)
-                                        // «Завершить» уходит с экрана только при реальном закрытии брони на сервере.
-                                        .onSuccess {
-                                            if (st == "done") { TripPassStore.remove(context, bid); onTripEnd() }
-                                            else ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; arrivalVerified = s.arrivalVerified; aloneWithDriver = s.aloneWithDriver; bookingStatus = s.status }   // сразу синхроним статус/код посадки
-                                        }
-                                        .onFailure { e ->
-                                            if (e !is ApiException) {   // нет сети → статус «сел/доехал» в очередь на авто-ретрай (F11)
-                                                Outbox.enqueue(context, Outbox.newTripStatus(bid, st))
-                                                Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
-                                            } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
-                                        }
-                                }
-                            }
-                        },
-                    )
                 }
             }
             if (bookingStatus == "done") item {
@@ -2055,6 +2348,439 @@ internal fun RoadsideHelpButton(sending: Boolean, sent: Boolean, onClick: () -> 
                 if (sent) appText("Помощь позвана", "Ярҙам саҡырылды") else appText("Застрял на трассе", "Юлда ҡалдым"),
                 color = CanonWarn, fontWeight = FontWeight.Bold,
             )
+        }
+    }
+}
+
+/** Следующий РЕАЛЬНЫЙ серверный переход для одной закреплённой CTA варианта B. */
+internal fun activeTripNextStatus(role: String, driverPhase: String, passengerStatus: String?): String =
+    if (role == "driver") {
+        when (driverPhase) {
+            "departed" -> "arriving"
+            "arriving", "done" -> "done"
+            else -> "departed"
+        }
+    } else {
+        when (passengerStatus) {
+            "sat" -> "arrived"
+            "arrived", "done" -> "done"
+            else -> "sat"
+        }
+    }
+
+@Composable
+internal fun activeTripActionLabel(status: String): String = when (status) {
+    "departed" -> appText("Я выехал", "Мин сыҡтым")
+    "arriving" -> appText("Подъезжаю", "Яҡынлашам")
+    "sat" -> appText("Я сел", "Мин ултырҙым")
+    "arrived" -> appText("Доехал", "Барып еттем")
+    else -> appText("Завершить", "Тамамлау")
+}
+
+/** Утверждённый вариант B: безопасность посадки раньше второстепенных деталей. */
+@Composable
+internal fun ActiveTripOptionBHero(
+    driverName: String,
+    avatarUrl: String,
+    rating: String?,
+    verified: Boolean,
+    trips: Int,
+    since: String,
+    carSummary: String,
+    phoneUnlocked: Boolean,
+    onCall: () -> Unit,
+    boardingCode: String,
+    role: String,
+    driverPhase: String,
+    passengerStatus: String?,
+    bookingStatus: String,
+    arrivalVerified: Boolean,
+    from: String,
+    to: String,
+    fromPoint: Point?,
+    toPoint: Point?,
+    liveBookingId: Int?,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ActiveTripDriverCard(
+            driverName = driverName.ifBlank { appText("Водитель", "Йөрөтөүсе") },
+            avatarUrl = avatarUrl,
+            rating = rating,
+            verified = verified,
+            trips = trips,
+            since = since,
+            carSummary = carSummary,
+            phoneUnlocked = phoneUnlocked,
+            onCall = onCall,
+        )
+        if (bookingStatusAllowsBoarding(bookingStatus) || bookingStatus.isBlank()) {
+            ActiveTripBoardingCodeCard(code = boardingCode, role = role)
+        }
+        ActiveTripProgressCard(
+            role = role,
+            driverPhase = driverPhase,
+            passengerStatus = passengerStatus,
+            bookingStatus = bookingStatus,
+        )
+        ActiveTripRouteCard(
+            from = from,
+            to = to,
+            fromPoint = fromPoint,
+            toPoint = toPoint,
+            driverPhase = driverPhase,
+            passengerStatus = passengerStatus,
+            bookingStatus = bookingStatus,
+            arrivalVerified = arrivalVerified,
+            liveBookingId = liveBookingId,
+        )
+    }
+}
+
+@Composable
+private fun ActiveTripDriverCard(
+    driverName: String,
+    avatarUrl: String,
+    rating: String?,
+    verified: Boolean,
+    trips: Int,
+    since: String,
+    carSummary: String,
+    phoneUnlocked: Boolean,
+    onCall: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        colors = CardDefaults.cardColors(containerColor = CanonMint),
+        shape = CanonCardShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SmallAvatar(avatarUrl, driverName, 64)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(
+                        driverName,
+                        color = CanonText,
+                        fontSize = 20.sp,
+                        lineHeight = 25.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (rating != null) {
+                            Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(rating, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                        if (rating != null && verified) Spacer(Modifier.width(10.dp))
+                        if (verified) {
+                            Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(17.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(appText("Проверен", "Тикшерелгән"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    CompactTrustLine(trips = trips, since = since)
+                }
+                if (phoneUnlocked) {
+                    Spacer(Modifier.width(10.dp))
+                    Surface(
+                        color = CanonSurface,
+                        shape = CircleShape,
+                        border = BorderStroke(1.dp, CanonBorder),
+                        modifier = Modifier.size(48.dp).bounceClick(onCall),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Phone,
+                                contentDescription = appText("Позвонить", "Шылтыратыу"),
+                                tint = CanonGreen2,
+                                modifier = Modifier.size(21.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            if (carSummary.isNotBlank()) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(CanonHairlineGreen))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = CanonSurface, shape = CircleShape) {
+                        Icon(
+                            Icons.Default.DirectionsCar,
+                            contentDescription = null,
+                            tint = CanonGreen2,
+                            modifier = Modifier.padding(8.dp).size(18.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        carSummary,
+                        color = CanonText,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActiveTripBoardingCodeCard(code: String, role: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        color = CanonGreen2,
+        contentColor = CanonOnFilled,
+        shape = CanonCardShape,
+        shadowElevation = CanonDepth.raised,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 17.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Icon(Icons.Default.Pin, contentDescription = null, modifier = Modifier.size(19.dp))
+                Text(appText("Код посадки", "Ултырыу коды"), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+            if (code.isNotBlank()) {
+                Text(
+                    code,
+                    fontSize = 42.sp,
+                    lineHeight = 46.sp,
+                    letterSpacing = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+                Text(
+                    if (role == "driver") {
+                        appText("Попроси пассажира назвать код", "Пассажирҙан кодты әйтеүен һора")
+                    } else {
+                        appText("Назови код водителю перед посадкой", "Ултырыр алдынан кодты йөрөтөүсегә әйт")
+                    },
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    textAlign = TextAlign.Center,
+                )
+            } else {
+                Row(
+                    Modifier.heightIn(min = 52.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(19.dp), color = CanonOnFilled, strokeWidth = 2.dp)
+                    Text(appText("Код загружается", "Код йөкләнә"), fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActiveTripProgressCard(
+    role: String,
+    driverPhase: String,
+    passengerStatus: String?,
+    bookingStatus: String,
+) {
+    val afterBoarding = passengerStatus == "sat" || passengerStatus == "arrived" ||
+        bookingStatus == "onboard" || bookingStatus == "done"
+    val labels = if (afterBoarding) {
+        listOf(
+            appText("Посадка", "Ултырыу"),
+            appText("В пути", "Юлда"),
+            appText("Прибытие", "Барып етеү"),
+        )
+    } else {
+        listOf(
+            appText("Подтверждено", "Раҫланды"),
+            appText("Выехал", "Сыҡты"),
+            appText("Подъезжает", "Яҡынлаша"),
+        )
+    }
+    val activeIndex = if (afterBoarding) {
+        when {
+            passengerStatus == "arrived" || bookingStatus == "done" -> 2
+            else -> 1
+        }
+    } else {
+        when (driverPhase) {
+            "arriving" -> 2
+            "departed" -> 1
+            else -> 0
+        }
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.flat),
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text(
+                if (role == "driver") appText("Статус для пассажира", "Пассажир өсөн хәл")
+                else appText("Как едет машина", "Машина нисек килә"),
+                color = CanonText,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Box(Modifier.fillMaxWidth().height(28.dp)) {
+                Box(
+                    Modifier.fillMaxWidth().padding(horizontal = 38.dp).height(2.dp)
+                        .align(Alignment.Center).background(CanonBorder)
+                )
+                Box(
+                    Modifier.fillMaxWidth(activeIndex / 2f).padding(start = 38.dp).height(2.dp)
+                        .align(Alignment.CenterStart).background(CanonGreen2)
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    labels.indices.forEach { index ->
+                        Surface(
+                            color = if (index <= activeIndex) CanonGreen2 else CanonSurface,
+                            shape = CircleShape,
+                            border = BorderStroke(2.dp, if (index <= activeIndex) CanonGreen2 else CanonBorder),
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            if (index < activeIndex) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = CanonOnFilled,
+                                    modifier = Modifier.padding(5.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth()) {
+                labels.forEachIndexed { index, label ->
+                    Text(
+                        label,
+                        modifier = Modifier.weight(1f),
+                        color = if (index <= activeIndex) CanonText else CanonMuted,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = if (index == activeIndex) FontWeight.Bold else FontWeight.Normal,
+                        textAlign = when (index) {
+                            0 -> TextAlign.Start
+                            2 -> TextAlign.End
+                            else -> TextAlign.Center
+                        },
+                        maxLines = 2,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActiveTripRouteCard(
+    from: String,
+    to: String,
+    fromPoint: Point?,
+    toPoint: Point?,
+    driverPhase: String,
+    passengerStatus: String?,
+    bookingStatus: String,
+    arrivalVerified: Boolean,
+    liveBookingId: Int?,
+) {
+    val statusText = when {
+        bookingStatus == "done" -> appText("Поездка завершена", "Сәфәр тамамланды")
+        passengerStatus == "arrived" -> appText("Ты на месте", "Һин барып еттең")
+        passengerStatus == "sat" || bookingStatus == "onboard" -> appText("Поездка идёт", "Сәфәр бара")
+        driverPhase == "arriving" && arrivalVerified -> appText("Машина рядом · GPS подтверждено", "Машина янда · GPS раҫланы")
+        driverPhase == "arriving" -> appText("Водитель подъезжает", "Йөрөтөүсе яҡынлаша")
+        driverPhase == "departed" -> appText("Водитель выехал к тебе", "Йөрөтөүсе һиңә сыҡты")
+        else -> appText("Поездка подтверждена", "Сәфәр раҫланды")
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonCardShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = CanonMint, shape = CircleShape) {
+                    Icon(Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(18.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        "${from.ifBlank { "—" }} → ${to.ifBlank { "—" }}",
+                        color = CanonText,
+                        fontSize = 18.sp,
+                        lineHeight = 23.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(statusText, color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+            if (fromPoint != null && toPoint != null) {
+                BookingRouteMapPreview(
+                    modifier = Modifier.height(190.dp),
+                    from = from,
+                    to = to,
+                    fromPoint = fromPoint,
+                    toPoint = toPoint,
+                    contactUnlocked = true,
+                    showPrivacyNotice = false,
+                    liveBookingId = liveBookingId,
+                )
+            } else {
+                RouteMapUnavailableCard(Modifier.height(148.dp))
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ActiveTripDecisionBar(
+    primaryText: String,
+    onMessage: () -> Unit,
+    onPrimary: () -> Unit,
+) {
+    val largeText = LocalDensity.current.fontScale >= 1.2f
+    Surface(color = CanonSurface, shadowElevation = CanonDepth.sheet) {
+        val barModifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)
+        if (largeText) {
+            Column(barModifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppButton(
+                    text = appText("Написать", "Яҙырға"),
+                    onClick = onMessage,
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.ChatBubbleOutline,
+                )
+                AppButton(text = primaryText, onClick = onPrimary, icon = Icons.Default.KeyboardArrowRight)
+            }
+        } else {
+            Row(barModifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AppButton(
+                    text = appText("Написать", "Яҙырға"),
+                    onClick = onMessage,
+                    modifier = Modifier.weight(0.9f).fillMaxHeight(),
+                    style = AppButtonStyle.Secondary,
+                    fillWidth = false,
+                )
+                AppButton(
+                    text = primaryText,
+                    onClick = onPrimary,
+                    modifier = Modifier.weight(1.35f).fillMaxHeight(),
+                    icon = Icons.Default.KeyboardArrowRight,
+                    fillWidth = false,
+                )
+            }
         }
     }
 }

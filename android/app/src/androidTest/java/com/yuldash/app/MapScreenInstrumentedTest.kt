@@ -80,7 +80,7 @@ class MapScreenInstrumentedTest {
         // Заголовок над картой всегда виден (хром поверх живого MapKit).
         composeRule.onNodeWithText("Куда поедем?").assertIsDisplayed()
         // Кнопки действий под картой (рендерятся вместе с картой).
-        composeRule.onNodeWithText("Найти поездку").assertIsDisplayed()
+        composeRule.onNodeWithText("Найти попутку").assertIsDisplayed()
         composeRule.onNodeWithText("Я водитель").assertIsDisplayed()
     }
 
@@ -102,7 +102,7 @@ class MapScreenInstrumentedTest {
         Thread.sleep(3500)
         composeRule.waitForIdle()
         // Экран пережил появление живой карты — хром по-прежнему рендерится.
-        composeRule.onNodeWithText("Найти поездку").assertIsDisplayed()
+        composeRule.onNodeWithText("Найти попутку").assertIsDisplayed()
     }
 
     @Test
@@ -125,7 +125,7 @@ class MapScreenInstrumentedTest {
         composeRule.onNodeWithText("Куда поедем?").assertIsDisplayed()
         Thread.sleep(2500)
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Найти поездку").assertIsDisplayed()
+        composeRule.onNodeWithText("Найти попутку").assertIsDisplayed()
     }
 
     @Test
@@ -147,7 +147,7 @@ class MapScreenInstrumentedTest {
         // Даём карте нарисовать маркеры/маршрут по данным + инициализироваться.
         Thread.sleep(3500)
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Найти поездку").assertIsDisplayed()
+        composeRule.onNodeWithText("Найти попутку").assertIsDisplayed()
     }
 
     @Test
