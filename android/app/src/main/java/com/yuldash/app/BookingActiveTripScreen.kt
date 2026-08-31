@@ -471,7 +471,19 @@ internal fun BookingScreen(
                                         Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
                                     }
                                 }
-                                Text(appText("Опытный водитель", "Тәжрибәле йөрөтөүсе"), color = CanonMuted, fontSize = 14.sp)
+                                // Раньше «Опытный водитель» стояло под КАЖДЫМ водителем — в том
+                                // числе под тем, кто зарегистрировался вчера. Показываем то, что
+                                // знаем на самом деле: сколько поездок он завершил (`driver_trips`
+                                // с сервера). Сервер числа не дал (0) — молчим, а не выдаём аванс.
+                                if (displayRide.driverTrips > 0) {
+                                    Text(
+                                        appText(
+                                            "${displayRide.driverTrips} ${tripsWordRu(displayRide.driverTrips)} в Юлдаше",
+                                            "Юлдашта ${displayRide.driverTrips} сәфәр",
+                                        ),
+                                        color = CanonMuted, fontSize = 14.sp,
+                                    )
+                                }
                                 DetailMeta(Icons.Default.DirectionsCar, displayRide.carText())
                             }
                             Surface(
