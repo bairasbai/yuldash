@@ -857,6 +857,21 @@ internal fun SettingsScreen(
                             AppPrefs.setNotifications(ctx, it)
                         }
                     }
+                    // Про ночную тишину человек должен знать, иначе выключит уведомления
+                    // целиком из-за одного ночного звонка — и пропустит заказ. Сервер молчит
+                    // ночью по несрочному сам (`quiet_hours_from/to`), но в приложении об этом
+                    // не было ни слова (разбор 2026-08-31). Часы не называем: они меняются
+                    // в настройках сервера, и число здесь легко станет враньём.
+                    if (notifications && !системаРежет) {
+                        Text(
+                            appText(
+                                "Ночью Юлдаш не звонит по мелочам. Срочное проходит всегда: беда, идущая поездка, сообщение от попутчика.",
+                                "Төндә Юлдаш ваҡ-төйәк өсөн шылтыратмай. Ашығыс — бәлә, барған сәфәр, юлдаш хәбәре — һәр ваҡыт үтә.",
+                            ),
+                            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                            modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                        )
+                    }
                     SettingsNavRow(Icons.Default.Language, appText("Язык", "Тел"), if (isBashkir) "Башҡортса" else "Русский", onClick = onToggleLanguage)
                     SettingsNavRow(Icons.Default.Map, appText("Тема", "Тема"), themeLabel, onClick = { showThemeDialog = true })
                     SettingsNavRow(Icons.Default.FormatSize, appText("Размер текста", "Текст ҙурлығы"), fontLabel, onClick = { showFontDialog = true })
