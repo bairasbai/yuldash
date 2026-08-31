@@ -614,12 +614,22 @@ internal fun BoostScreen(onBack: () -> Unit) {
  *  Две функции, а не одна: единица измерения — тоже надпись, и по-башкирски она своя. */
 internal fun boostCarryRu(seconds: Int): String {
     val hours = seconds / 3600
-    return if (hours > 0) "$hours ч" else "${(seconds / 60).coerceAtLeast(1)} мин"
+    val minutes = (seconds % 3600) / 60
+    return when {
+        hours > 0 && minutes > 0 -> "$hours ч $minutes мин"
+        hours > 0 -> "$hours ч"
+        else -> "${(seconds / 60).coerceAtLeast(1)} мин"
+    }
 }
 
 internal fun boostCarryBa(seconds: Int): String {
     val hours = seconds / 3600
-    return if (hours > 0) "$hours сәғәт" else "${(seconds / 60).coerceAtLeast(1)} минут"
+    val minutes = (seconds % 3600) / 60
+    return when {
+        hours > 0 && minutes > 0 -> "$hours сәғәт $minutes минут"
+        hours > 0 -> "$hours сәғәт"
+        else -> "${(seconds / 60).coerceAtLeast(1)} минут"
+    }
 }
 
 
@@ -660,7 +670,14 @@ internal fun BoostContent(
             rides.isEmpty() -> StateMessage(
                 icon = Icons.Default.AddRoad,
                 title = appText("Нет активных поездок", "Әүҙем сәфәрҙәр юҡ"),
-                text = appText("Сначала опубликуй поездку — потом её можно поднять выше в списке.", "Башта сәфәр бастыр — һуңынан уны исемлектә өҫкә күтәреп була."),
+                // Про остаток говорим и ЗДЕСЬ. Именно так выглядит экран у водителя, который
+                // только что снял свою единственную поездку: активных нет, а за поднятие
+                // уплачено. Приёмка 2026-08-31 поймала это вживую — человек видел только
+                // «опубликуй поездку» и уходил в уверенности, что деньги сгорели.
+                text = if (carriedBoostSec > 0) appText(
+                    "Поднятие с отменённой поездки сохранено: ${boostCarryRu(carriedBoostSec)}. Опубликуй новую — оно ляжет на неё само.",
+                    "Кире алынған сәфәрҙән күтәреү һаҡланды: ${boostCarryBa(carriedBoostSec)}. Яңыһын бастыр — ул үҙе ҡуйыла.",
+                ) else appText("Сначала опубликуй поездку — потом её можно поднять выше в списке.", "Башта сәфәр бастыр — һуңынан уны исемлектә өҫкә күтәреп була."),
                 actionText = appText("Понятно", "Аңлашыла"),
                 onAction = onEmptyAction,
             )
