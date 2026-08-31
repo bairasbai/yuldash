@@ -351,6 +351,13 @@ internal fun ProfileScreen(
     var gender by remember { mutableStateOf("") }
     var showGenderPicker by remember { mutableStateOf(false) }
     var profileConfirmed by remember { mutableStateOf(ApiClient.isLoggedIn()) }
+    // Есть ли у человека бизнес. Раньше два партнёрских кабинета показывались ВСЕМ:
+    // пассажир из деревни листал мимо «Мой бизнес» и «Кабинет рекламы», чтобы дойти
+    // до своих поездок (разбор 2026-08-31). Кто не партнёр — видит одну строку-приглашение.
+    var hasBusiness by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (ApiClient.isLoggedIn()) ApiClient.getPartnerMe().onSuccess { hasBusiness = it.partner != null }
+    }
     // Три честных состояния шапки: грузим / пришло / сеть упала. Раньше сбой /me был немым —
     // человек видел кэшированное имя и не понимал, что данные устарели и что делать.
     var meLoading by remember { mutableStateOf(true) }
@@ -811,10 +818,14 @@ internal fun ProfileScreen(
                     }
                 }
             }
+            // Первой строкой — крупные кнопки. Разбор 2026-08-31: карточка лежала на пятом
+            // смахивании под заголовком «Для родителей и близких», то есть тот, кому она нужна,
+            // до неё не долистывал.
+            item { Box(Modifier.appearIn(1)) { SeniorAccessCard(onSimpleMode = onSimpleMode) } }
             item {
                 ProfileSectionLabel(appText("Личный кабинет", "Шәхси кабинет"))
             }
-            item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Мой Юлдаш", "Минең Юлдаш"), appText("Твои километры, поездки и звание", "Километрҙарың, сәфәрҙәрең һәм исемең"), Icons.Default.Insights, onMyStats) } }
+            item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Моя статистика", "Минең статистика"), appText("Километры, поездки и звание", "Километрҙар, сәфәрҙәр һәм исем"), Icons.Default.Insights, onMyStats) } }
             item {
                 ProfileSectionLabel(appText("Сервисы", "Хеҙмәттәр"))
             }
@@ -830,7 +841,6 @@ internal fun ProfileScreen(
             item {
                 ProfileSectionLabel(appText("Доверие и безопасность", "Ышаныс һәм хәүефһеҙлек"))
             }
-            item { Box(Modifier.appearIn(4)) { ProfileActionCard(appText("Проверка водителя", "Йөрөтөүсене тикшереү"), appText("Права, машина, фото авто", "Права, машина, авто фотоһы"), Icons.Default.Verified, onVerifyDriver) } }
             item { Box(Modifier.appearIn(5)) { ProfileActionCard(appText("Доверие", "Ышаныс"), appText("Твой уровень и круг «своих»", "Кимәлең һәм «үҙебеҙҙекеләр» түңәрәге"), Icons.Default.Handshake, onTrust) } }
             item { Box(Modifier.appearIn(6)) { ProfileActionCard(appText("Безопасность", "Хәүефһеҙлек"), appText("SOS, скрытый телефон, подтверждённые участники", "SOS, йәшерен телефон, раҫланған ҡатнашыусылар"), R.drawable.yu_safe_trip, onSafety) } }
             // Пол стоит рядом с «Безопасностью» не случайно: он нужен ровно для того, чтобы
@@ -856,27 +866,29 @@ internal fun ProfileScreen(
             item {
                 ProfileSectionLabel(appText("Для родителей и близких", "Ата-әсә һәм яҡындар өсөн"))
             }
-            item { Box(Modifier.appearIn(8)) { SeniorAccessCard(onSimpleMode = onSimpleMode) } }
             item { Box(Modifier.appearIn(9)) { ProfileActionCard(appText("Доверенные контакты", "Ышаныслы контакттар"), appText("Кому отправлять статус поездки", "Сәфәр статусын кемгә ебәрергә"), Icons.Default.Person, onTrustedContacts) } }
             item { Box(Modifier.appearIn(10)) { ProfileActionCard(appText("Попросить звонок", "Шылтыратыу һорау"), appText("Помощь без чата и сложных форм", "Чатһыҙ һәм ҡатмарлы формаларһыҙ ярҙам"), Icons.Default.HeadsetMic, onCallbackHelp) } }
             item {
                 ProfileSectionLabel(appText("Настройки и помощь", "Көйләүҙәр һәм ярҙам"))
             }
-            item { Box(Modifier.appearIn(3)) { ProfileActionCard(appText("Язык", "Тел"), if (isBashkir) "Башҡортса / Русский" else "Русский / Башҡортса", Icons.Default.Language, onToggleLanguage) } }
-            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Уведомления и карта", "Хәбәрҙәр һәм карта"), appText("Что присылать и как показывать карту", "Нимә ебәрергә һәм картаны нисек күрһәтергә"), Icons.Default.Settings, onSettings) } }
-            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Конфиденциальность", "Хосусилыҡ"), appText("Геолокация и разрешения", "Геолокация һәм рөхсәттәр"), Icons.Default.Shield, onPrivacy) } }
-            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Согласия и данные", "Ризалыҡтар һәм мәғлүмәт"), appText("Оферта, политика, геолокация", "Оферта, сәйәсәт, геолокация"), Icons.Default.Description, onConsents) } }
+            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Настройки", "Көйләүҙәр"), appText("Язык, тема, размер текста, выход", "Тел, тема, текст ҙурлығы, сығыу"), Icons.Default.Settings, onSettings) } }
             item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Помощь", "Ярҙам"), appText("Ответы на частые вопросы", "Йыш һорауҙарға яуаптар"), R.drawable.yu_support, onHelp) } }
             item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Оставить отзыв", "Фекер ҡалдырыу"), appText("Оцени приложение — лучшие попадут на сайт", "Ҡушымтаны баһала — иң яҡшылары сайтҡа эләгер"), R.drawable.yu_star, onReview) } }
             if (role == "admin") {
                 item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Модерация отзывов", "Фекерҙәрҙе модерациялау"), appText("Одобрить отзывы для сайта", "Сайт өсөн фекерҙәрҙе раҫларға"), Icons.Default.Verified, onAdminReviews) } }
-                item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Управление рекламой", "Реклама идаралау"), appText("Объявления партнёров: публикация, пауза, удаление", "Партнёр иғландары: баҫтырыу, пауза, бөтөрөү"), Icons.Default.AdminPanelSettings, onAdminAds) } }
+                item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Модерация объявлений", "Иғландарҙы модерациялау"), appText("Объявления партнёров: публикация, пауза, удаление", "Партнёр иғландары: баҫтырыу, пауза, бөтөрөү"), Icons.Default.AdminPanelSettings, onAdminAds) } }
             }
             item {
                 ProfileSectionLabel(appText("Партнёры Юлдаш", "Юлдаш партнёрҙары"))
             }
-            item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Мой бизнес", "Минең бизнес"), appText("Разместить купоны и привлечь клиентов", "Купон ҡуйып клиент йыйыу"), Icons.Default.Storefront, onPartnerCabinet) } }
-            item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Кабинет рекламы", "Реклама кабинеты"), appText("Объявления, erid, показы и клики", "Иғландар, erid, күрһәтеү һәм баҫыу"), Icons.Default.Payments, onAdsCabinet) } }
+            if (hasBusiness) {
+                item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Мой бизнес", "Минең бизнес"), appText("Купоны, подписка и счёт", "Купондар, яҙылыу һәм иҫәп"), Icons.Default.Storefront, onPartnerCabinet) } }
+                item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Кабинет рекламы", "Реклама кабинеты"), appText("Объявления, erid, показы и клики", "Иғландар, erid, күрһәтеү һәм баҫыу"), Icons.Default.Payments, onAdsCabinet) } }
+            } else {
+                // Бизнеса нет — одна строка-приглашение вместо двух кабинетов, которыми
+                // человеку пока нечего открывать. Путь внутрь тот же: там и регистрация.
+                item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("У меня есть бизнес", "Минең бизнесым бар"), appText("Купоны и реклама для местных заведений", "Ерле урындар өсөн купондар һәм реклама"), Icons.Default.Storefront, onPartnerCabinet) } }
+            }
             profileAd?.let { ad ->
                 item {
                     Box(Modifier.appearIn(12)) {

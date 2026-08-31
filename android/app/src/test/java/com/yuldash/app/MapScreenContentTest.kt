@@ -21,7 +21,7 @@ import org.robolectric.annotation.GraphicsMode
  * Вкладка «Карта» — это MapKit (нативная карта, гео, камера, ценники-плейсмарки), её тестировать на JVM нельзя.
  * Но НЕ-карточные части экрана чистые: карта-заглушка [MapPreview] (Compose Canvas, до загрузки MapKit),
  * ярлык города [MapLabel], кнопки зума [MapZoomControls] (сам зум делает вызывающий через колбэки),
- * карточка «Простой режим» [SeniorAccessCard] и базовый рендер карточки заявки [RequestPreviewCard]
+ * карточка «Крупные кнопки» [SeniorAccessCard] и базовый рендер карточки заявки [RequestPreviewCard]
  * (сеть ApiClient — только в диалоге-отклике, тесты его не открывают). Их и покрываем через Robolectric.
  *
  * Заголовок класса — как в SecondaryScreensContentTest / AdminReviewsContentTest. Анимаций нет → autoAdvance не нужен.
@@ -150,7 +150,7 @@ class MapScreenContentTest {
         composeRule.onNodeWithContentDescription("Йыраҡлаштырыу").assertIsDisplayed()
     }
 
-    // --- SeniorAccessCard: карточка «Простой режим» (тап по карточке/тумблеру включает режим) ---
+    // --- SeniorAccessCard: карточка «Крупные кнопки» (тап по карточке/тумблеру включает режим) ---
 
     @Test
     fun seniorAccessCard_showsTitleAndSubtitle_russian() {
@@ -159,8 +159,8 @@ class MapScreenContentTest {
                 SeniorAccessCard(onSimpleMode = {})
             }
         }
-        composeRule.onNodeWithText("Простой режим").assertIsDisplayed()
-        composeRule.onNodeWithText("Крупные кнопки и голос").assertIsDisplayed()
+        composeRule.onNodeWithText("Крупные кнопки").assertIsDisplayed()
+        composeRule.onNodeWithText("Крупный текст и голос").assertIsDisplayed()
     }
 
     @Test
@@ -170,7 +170,7 @@ class MapScreenContentTest {
                 SeniorAccessCard(onSimpleMode = {})
             }
         }
-        composeRule.onNodeWithText("Ябай режим").assertIsDisplayed()
+        composeRule.onNodeWithText("Ҙур төймәләр").assertIsDisplayed()
     }
 
     @Test
@@ -182,7 +182,7 @@ class MapScreenContentTest {
             }
         }
         assertFalse(enabled)
-        composeRule.onNodeWithText("Простой режим").performClick()
+        composeRule.onNodeWithText("Крупные кнопки").performClick()
         assertTrue(enabled)
     }
 

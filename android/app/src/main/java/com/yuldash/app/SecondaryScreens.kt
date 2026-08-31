@@ -828,7 +828,9 @@ internal fun SettingsScreen(
                 Text(appText("Настройки", "Көйләүҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold)
                 Text(appText("Настрой приложение под себя", "Ҡушымтаны үҙегеҙгә көйләгеҙ"), color = CanonMuted, fontSize = 16.sp)
             }
-            item { CompactProfileBanner() }
+            // Карточку профиля здесь не показываем: она уже есть на вкладке «Профиль»,
+            // откуда сюда и приходят. Второй раз то же имя и роль — просто шум,
+            // из-за которого настройки начинаются ниже сгиба (разбор 2026-08-31).
             item {
                 SettingsGroup {
                     // Тумблер обязан говорить правду. Раньше он горел «включено», даже когда
