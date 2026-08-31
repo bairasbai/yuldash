@@ -1405,8 +1405,12 @@ internal fun DriverCabinetScreen(
             archiveLoading = false
         }
     }
+    val tipsOnMsg = appText("Чаевые включены", "Сәйлек тоҡандырылды")
+    val tipsOffMsg = appText("Чаевые выключены", "Сәйлек һүндерелде")
+    val tipsErrMsg = appText("Не получилось сохранить. Проверь номер и сеть.", "Һаҡлап булманы. Номерҙы һәм сетте тикшер.")
     var isWomanDriver by remember { mutableStateOf(false) }   // F9: opt-in «я — женщина за рулём»
     var womanVerified by remember { mutableStateOf(false) }   // пол сверен модератором → бейдж уже работает
+    var tipsSbp by remember { mutableStateOf("") }            // СБП для чаевых; "" = водитель их не принимает
     // Выключение тумблера стирает пол целиком (сервер знает одно поле `User.gender`), а значит
     // забирает и женские поездки у неё же как у пассажирки. Молча так делать нельзя — спрашиваем.
     var confirmWomanOff by remember { mutableStateOf(false) }
@@ -1428,6 +1432,7 @@ internal fun DriverCabinetScreen(
         ApiClient.getDriverStatus().onSuccess {
             online = it.online; onlineLoaded = true
             isWomanDriver = it.gender == "female"; womanVerified = it.genderVerified
+            tipsSbp = it.tipsSbp
         }
         ApiClient.getInstantZone().onSuccess { zone = it }
         ApiClient.getPretrip().onSuccess { pretripNeeded = it.required && !it.confirmed }
@@ -1584,6 +1589,19 @@ internal fun DriverCabinetScreen(
                 }
             },
             womanVerified = womanVerified,
+            tipsSbp = tipsSbp,
+            onSaveTips = { phone ->
+                rateScope.launch {
+                    ApiClient.setTipsSbp(phone)
+                        .onSuccess {
+                            tipsSbp = phone.trim()
+                            Toast.makeText(ctx, if (it) tipsOnMsg else tipsOffMsg, Toast.LENGTH_SHORT).show()
+                        }
+                        // Сервер объясняет отказ по-человечески («неверный номер СБП»,
+                        // «только для водителя») — показываем его слова, а не общее «повтори».
+                        .onFailure { e -> Toast.makeText(ctx, serverSaid(e, tipsErrMsg), Toast.LENGTH_LONG).show() }
+                }
+            },
             onToggleWoman = onToggleWoman@{ v ->
                 if (!ApiClient.isLoggedIn()) {
                     Toast.makeText(ctx, womanLoginMsg, Toast.LENGTH_SHORT).show()
@@ -2881,6 +2899,8 @@ internal fun DriverCabinetContent(
     onTaxiRides: () -> Unit = {},    // «Мои поездки такси»: расшифровка денег по каждой поездке
     onTaxiDocs: () -> Unit = {},     // 580-ФЗ: сроки документов
     onPretrip: () -> Unit = {},      // 580-ФЗ: готовность к работе на сегодня
+    tipsSbp: String = "",            // СБП водителя для чаевых; "" = не принимает
+    onSaveTips: (String) -> Unit = {},
     pretripNeeded: Boolean = false,  // сегодня ещё не отмечался → без этого на линию не пустят
 ) {
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
@@ -3022,6 +3042,48 @@ internal fun DriverCabinetContent(
                     isWomanDriver,
                     onToggleWoman,
                 )
+            }
+        }
+        // Денежные чаевые. Платформа денег не касается: пассажир переводит водителю напрямую
+        // по СБП, и реквизит показывается только после завершённой поездки. Раньше сервер это
+        // умел, а включить было негде — водитель не мог получить чаевые, даже если хотел.
+        item {
+            var tipsOn by remember(tipsSbp) { mutableStateOf(tipsSbp.isNotBlank()) }
+            var tipsPhone by remember(tipsSbp) { mutableStateOf(tipsSbp) }
+            SettingsGroup {
+                SettingSwitchRow(
+                    Icons.Default.Favorite,
+                    appText("Принимать чаевые", "Сәйлек алыу"),
+                    if (tipsOn) appText(
+                        "Пассажир увидит твой номер после поездки и сможет перевести сам. Юлдаш денег не касается.",
+                        "Пассажир сәфәрҙән һуң номерыңды күрер һәм үҙе күсерә ала. Юлдаш аҡсаға ҡағылмай.",
+                    ) else appText(
+                        "По желанию: пассажир сможет сказать спасибо переводом напрямую тебе",
+                        "Теләк буйынса: пассажир туранан-тура һиңә күсереп рәхмәт әйтә ала",
+                    ),
+                    tipsOn,
+                ) { on ->
+                    tipsOn = on
+                    if (!on) { tipsPhone = ""; onSaveTips("") }   // выключил — реквизит сразу убираем
+                }
+                if (tipsOn) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = tipsPhone,
+                            onValueChange = { tipsPhone = it.take(20) },
+                            label = { Text(appText("Номер СБП", "СБП номеры")) },
+                            placeholder = { Text("+7") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        AppButton(
+                            text = appText("Сохранить номер", "Номерҙы һаҡлау"),
+                            onClick = { onSaveTips(tipsPhone) },
+                            style = AppButtonStyle.Secondary,
+                            enabled = tipsPhone.isNotBlank() && tipsPhone != tipsSbp,
+                        )
+                    }
+                }
             }
         }
         item {

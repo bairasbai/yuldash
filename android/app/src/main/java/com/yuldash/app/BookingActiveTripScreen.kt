@@ -309,7 +309,7 @@ private suspend fun saveTripPass(context: android.content.Context, d: com.yuldas
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BookingScreen(
-    ride: Ride,
+    ride: Ride?,
     bookingId: Int? = null,
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
@@ -327,6 +327,12 @@ internal fun BookingScreen(
     onFindAnotherRide: () -> Unit = {},
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
+    // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
+    // не подставляем — молча возвращаемся назад.
+    if (ride == null) {
+        LaunchedEffect(Unit) { onBack() }
+        return
+    }
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
     val context = LocalContext.current
     var details by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
@@ -465,7 +471,19 @@ internal fun BookingScreen(
                                         Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
                                     }
                                 }
-                                Text(appText("Опытный водитель", "Тәжрибәле йөрөтөүсе"), color = CanonMuted, fontSize = 14.sp)
+                                // Раньше «Опытный водитель» стояло под КАЖДЫМ водителем — в том
+                                // числе под тем, кто зарегистрировался вчера. Показываем то, что
+                                // знаем на самом деле: сколько поездок он завершил (`driver_trips`
+                                // с сервера). Сервер числа не дал (0) — молчим, а не выдаём аванс.
+                                if (displayRide.driverTrips > 0) {
+                                    Text(
+                                        appText(
+                                            "${displayRide.driverTrips} ${tripsWordRu(displayRide.driverTrips)} в Юлдаше",
+                                            "Юлдашта ${displayRide.driverTrips} сәфәр",
+                                        ),
+                                        color = CanonMuted, fontSize = 14.sp,
+                                    )
+                                }
                                 DetailMeta(Icons.Default.DirectionsCar, displayRide.carText())
                             }
                             Surface(

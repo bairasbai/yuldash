@@ -410,6 +410,9 @@ def driver_status(user: User = Depends(current_user), session: Session = Depends
         "autocheck_result": dp.autocheck_result if dp else "",
         "autocheck_score": dp.autocheck_score if dp else 0.0,
         "autocheck_data": dp.autocheck_data if dp else "",
+        # Реквизит для денежных чаевых. Водителю нужен, чтобы видеть, включены ли они
+        # у него сейчас: включает он их сам, а до этого экрана не было вовсе.
+        "tips_sbp": dp.tips_sbp if dp else "",
     }
 
 

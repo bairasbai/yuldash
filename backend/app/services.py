@@ -1409,6 +1409,52 @@ def public_rides_payload(items: list, *, full: bool = False):
     return [public_ride_payload(item, full=full) for item in items]
 
 
+BOOST_CARRY_DAYS = 30
+
+
+def stash_boost_credit(user, ride, now) -> int:
+    """Поездку сняли, а поднятие было оплачено — остаток кладём водителю на счёт.
+
+    Раньше деньги просто оставались у нас: человек заплатил за то, чтобы его видели,
+    поездка сорвалась, услуга не оказана. Возврат через ЮKassa стоит комиссии платёжной
+    системы и ручной работы, а перенос не двигает деньги вовсе и водителю выгоднее.
+
+    Считаем ровно остаток: больше оплаченного не даём, меньше — не отбираем.
+    Возвращает перенесённые секунды (0 — переносить было нечего).
+    """
+    if not ride.boosted_until or ride.boosted_until <= now:
+        return 0
+    left = int((ride.boosted_until - now).total_seconds())
+    if left <= 0:
+        return 0
+    # Прежний остаток складываем только если он ещё жив: протухший не воскрешаем.
+    kept = user.boost_credit_sec if (user.boost_credit_until and user.boost_credit_until > now) else 0
+    user.boost_credit_sec = kept + left
+    user.boost_credit_until = now + timedelta(days=BOOST_CARRY_DAYS)
+    ride.boosted_until = None      # на снятой поездке поднятие больше не действует
+    return left
+
+
+def apply_boost_credit(user, ride, now) -> int:
+    """Новая поездка забирает перенесённое поднятие сама, без единого нажатия.
+
+    Водитель за рулём, ему не до выбора экранов: если за нами остаток и он не протух,
+    поездка выходит уже поднятой. Возвращает использованные секунды.
+    """
+    if user.boost_credit_sec <= 0:
+        return 0
+    if not user.boost_credit_until or user.boost_credit_until <= now:
+        user.boost_credit_sec = 0          # срок вышел — чистим, чтобы не висело вечно
+        user.boost_credit_until = None
+        return 0
+    used = user.boost_credit_sec
+    base = ride.boosted_until if (ride.boosted_until and ride.boosted_until > now) else now
+    ride.boosted_until = base + timedelta(seconds=used)
+    user.boost_credit_sec = 0
+    user.boost_credit_until = None
+    return used
+
+
 def boost_then_depart_order():
     """ORDER BY для выдачи поездок: с активным Boost — первыми, затем по времени выезда.
     Истёкший/отсутствующий boost (NULL) попадает в общий порядок."""

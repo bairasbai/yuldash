@@ -1046,7 +1046,7 @@ private val f8MonthsBa = listOf(
 )
 
 /** RU-плюрал: 1 поездка · 2 поездки · 5 поездок. */
-private fun tripsWordRu(n: Int): String {
+internal fun tripsWordRu(n: Int): String {
     val m100 = n % 100
     val m10 = n % 10
     return when {

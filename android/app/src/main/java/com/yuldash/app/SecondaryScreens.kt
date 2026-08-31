@@ -1172,7 +1172,7 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
                     title = appText("Комиссия водителя — 3–15%", "Йөрөтөүсе комиссияһы — 3–15%"),
                     body = appText(
                         "С поездок такси Юлдаш берёт комиссию с водителя: первые 30 поездок 3%, следующие 70 — 8%, дальше 15% — так новичок пробует почти без риска, пока не раскатался. Это меньше, чем берут большие агрегаторы. У попутки комиссии нет вовсе.",
-                        "Такси сәфәрҙәренән Юлдаш йөрөтөүсенән комиссия ала: тәүге ай 3%, икенсеһе 8%, артабан 15% — яңы килгән кеше шулай тәүәкәлләмәйенсә һынап ҡарай. Был ҙур агрегаторҙар алғандан аҙыраҡ. Юлдашта комиссия бөтөнләй юҡ.",
+                        "Такси сәфәрҙәренән Юлдаш йөрөтөүсенән комиссия ала: тәүге 30 сәфәр 3%, киләһе 70 — 8%, артабан 15% — яңы килгән кеше шулай тәүәкәлләмәйенсә һынап ҡарай. Был ҙур агрегаторҙар алғандан аҙыраҡ. Юлдашта комиссия бөтөнләй юҡ.",
                     ),
                 )
             }
@@ -1700,6 +1700,11 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
     // отправляет второй такой же. Ключ — вид действия и номер строки, чтобы блокировалась
     // только нажатая карточка, а не весь список (аудит 2026-08-07).
     val busy = remember { mutableStateListOf<String>() }
+    // Прощение долга — необратимая операция с деньгами, поэтому через диалог с причиной,
+    // а не третьей кнопкой в ряду: случайный тап тут стоит дороже лишнего нажатия.
+    var forgiveTarget by remember { mutableStateOf<com.yuldash.app.data.AdminDebtDto?>(null) }
+    var forgiveReason by remember { mutableStateOf("") }
+    val forgivenMsg = appText("Долг списан", "Бурыс һүндерелде")
     val confirmedMsg = appText("Оплата подтверждена", "Түләү раҫланды")
     val rejectedMsg = appText("Отклонено", "Кире ҡағылды")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
@@ -1777,6 +1782,15 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                                 Button(onClick = { val id = g.debtId; val k = "debt-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmDebt(id, g.amountKop).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-ok-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
                                 OutlinedButton(onClick = { val id = g.debtId; val k = "debt-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectDebt(id, g.amountKop).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-no-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
                             }
+                            // Бывает, что долга по-человечески быть не должно: пассажир не заплатил,
+                            // поездка сорвалась не по вине водителя. Раньше это делалось запросом
+                            // к API мимо приложения — то есть на практике не делалось никем.
+                            TextButton(
+                                onClick = { forgiveReason = ""; forgiveTarget = g },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            ) {
+                                Text(appText("Списать долг", "Бурысты һүндереү"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
                         }
                     }
                 }
@@ -1815,6 +1829,52 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    // Списание долга необратимо и про деньги: спрашиваем причину и подтверждение.
+    // Причина уходит в журнал — через полгода должно быть понятно, почему списали.
+    forgiveTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { forgiveTarget = null },
+            title = { Text(appText("Списать долг?", "Бурысты һүндерергәме?")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        appText(
+                            "${target.driverName.ifBlank { "Водитель" }} · ${kopToRub(target.amountKop)}. Долг исчезнет, такси разблокируется. Отменить это нельзя.",
+                            "${target.driverName.ifBlank { "Йөрөтөүсе" }} · ${kopToRub(target.amountKop)}. Бурыс юғала, такси асыла. Кире ҡайтарып булмай.",
+                        ),
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                    )
+                    OutlinedTextField(
+                        value = forgiveReason,
+                        onValueChange = { forgiveReason = it.take(300) },
+                        label = { Text(appText("Причина (останется в журнале)", "Сәбәп (журналда ҡала)")) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = forgiveReason.isNotBlank(),
+                    onClick = {
+                        val id = target.debtId
+                        val reason = forgiveReason.trim()
+                        forgiveTarget = null
+                        val k = "debt-forgive-$id"
+                        if (busy.add(k)) scope.launch {
+                            ApiClient.adminForgiveDebt(id, reason)
+                                .onSuccess { Toast.makeText(ctx, forgivenMsg, Toast.LENGTH_SHORT).show(); reload() }
+                                .onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }
+                            busy.remove(k)
+                        }
+                    },
+                ) { Text(appText("Списать", "Һүндереү"), color = CanonRed, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { forgiveTarget = null }) { Text(appText("Отмена", "Кире ҡағыу")) }
+            },
+        )
     }
 }
 

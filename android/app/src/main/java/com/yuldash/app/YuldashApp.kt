@@ -1187,7 +1187,10 @@ internal fun YuldashApp() {
             Screen.Support -> SupportScreen(onBack = { goBack() })
             Screen.Boost -> BoostScreen(onBack = { goBack() })
             Screen.Booking -> BookingScreen(
-                ride = selectedRide ?: rides.firstOrNull() ?: demoRides.first(),   // фоллбэк вместо краша на пустом списке
+                // null = бронировать нечего (лента пуста и ничего не выбрано): экран сам вернёт
+                // назад. Раньше тут подставлялась демо-поездка «вместо краша на пустом списке» —
+                // человек видел карточку выдуманного водителя, а бронь не проходила (id не серверный).
+                ride = selectedRide ?: rides.firstOrNull(),
                 bookingId = activeBookingId,
                 ads = partnerAds,
                 adStats = adStats,

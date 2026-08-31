@@ -1587,6 +1587,7 @@ object ApiClient {
                 online = o.optBoolean("online"),
                 gender = o.optString("gender"),
                 genderVerified = o.optBoolean("gender_verified"),
+                tipsSbp = o.optString("tips_sbp"),
                 autocheckResult = o.optString("autocheck_result"),
                 autocheckData = o.optString("autocheck_data"),
             )
@@ -4133,7 +4134,7 @@ object ApiClient {
     // ═══════════ C1: Курьер Юлдаша (профессиональная доставка) ═══════════
     // Пользователь подаёт заявку «Стать курьером» (транспорт + селфи) → админ одобряет →
     // курьер выходит «на линию» (город/межгород/регион), берёт заказы, доставляет по коду.
-    // Отправитель заказывает курьера/«купи и привези» — сервер считает цену (комиссия 8% прозрачно).
+    // Отправитель заказывает курьера/«купи и привези» — сервер считает цену (комиссия по ступени, прозрачно).
 
     private fun parseCourierApp(o: JSONObject) = CourierApplicationDto(
         id = o.optInt("id"),
@@ -4936,6 +4937,12 @@ object ApiClient {
     /** «Принял» — сигнал взят в работу: кто, когда, что сделал. */
     suspend fun adminSosHandle(eventId: Int, note: String = ""): Result<Unit> =
         call("POST", "/admin/sos/$eventId/handle", JSONObject().put("note", note.take(500)), auth = true).map { }
+
+    /** Водитель включает денежные чаевые: свой номер СБП (пусто — отключить).
+     *  Платформа денег не касается — пассажир переводит водителю напрямую. */
+    suspend fun setTipsSbp(sbp: String): Result<Boolean> =
+        call("POST", "/me/tips-sbp", JSONObject().put("sbp", sbp.trim()), auth = true)
+            .map { it.optBoolean("accepting") }
 
     /** Админ: списать долг по-человечески (пассажир не заплатил, поездка сорвалась). */
     suspend fun adminForgiveDebt(debtId: Int, reason: String = ""): Result<Unit> =
@@ -6350,6 +6357,7 @@ data class DriverStatusDto(
     val genderVerified: Boolean = false,
     val autocheckResult: String = "",   // "" / pass / needs_human / reject / error
     val autocheckData: String = "",      // JSON: распознанные поля + коды причин
+    val tipsSbp: String = "",            // СБП водителя для чаевых; "" = не принимает
 )
 
 /** F17 — постоянный (регулярный) маршрут водителя: «Баймаҡ→Уфа по пятницам в 8:00».
