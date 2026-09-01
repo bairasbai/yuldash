@@ -23,8 +23,8 @@ def _make_booking(driver_id: int, passenger_id: int, status: BookingStatus,
 
 
 def test_participant_sees_receipt(client, user_factory):
-    driver = user_factory(role=UserRole.driver)
-    pax = user_factory()
+    driver = user_factory("ReceiptDriver", role=UserRole.driver)
+    pax = user_factory("ReceiptPassenger")
     bid = _make_booking(driver["id"], pax["id"], BookingStatus.done, price=300, pay_amount=350)
 
     # пассажир
@@ -35,11 +35,25 @@ def test_participant_sees_receipt(client, user_factory):
     assert body["amount"] == 350            # договорённость (pay_amount) важнее цены брони
     assert body["pay_method"] == "sbp"
     assert body["role"] == "passenger"
+    assert body["counterparty_name"] == "ReceiptDriver"
+    assert body["my_stars"] == 0 and body["my_rating_tags"] == ""
     assert "driver_phone" not in body       # телефон в квитанции не отдаём
+
+    rated = client.post(
+        f"/bookings/{bid}/rate",
+        headers=pax["auth"],
+        json={"stars": 5, "tags": "polite,safe"},
+    )
+    assert rated.status_code == 200, rated.text
+    passenger_body = client.get(f"/trips/{bid}/receipt", headers=pax["auth"]).json()
+    assert passenger_body["my_stars"] == 5
+    assert passenger_body["my_rating_tags"] == "polite,safe"
 
     # водитель тоже участник
     r = client.get(f"/trips/{bid}/receipt", headers=driver["auth"])
     assert r.status_code == 200 and r.json()["role"] == "driver"
+    assert r.json()["counterparty_name"] == "ReceiptPassenger"
+    assert r.json()["my_stars"] == 0, "водителю показали оценку пассажира как свою"
 
 
 def test_amount_falls_back_to_price(client, user_factory):

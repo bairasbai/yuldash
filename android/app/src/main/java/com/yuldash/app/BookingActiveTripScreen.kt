@@ -1469,13 +1469,13 @@ internal fun ActiveTripScreen(
         val bid = bookingId
         if (role == "driver") {
             if (bid == null) {
-                if (st == "done") onTripEnd()
+                if (st == "done") bookingStatus = "done"
             } else voiceScope.launch {
                 ApiClient.driverStatus(bid, st)
                     .onSuccess {
                         if (st == "done") {
                             TripPassStore.remove(context, bid)
-                            onTripEnd()
+                            bookingStatus = "done"
                         } else {
                             Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
                             ApiClient.getTripState(bid).onSuccess { s ->
@@ -1497,13 +1497,13 @@ internal fun ActiveTripScreen(
         } else {
             status = st
             if (bid == null) {
-                if (st == "done") onTripEnd()
+                if (st == "done") bookingStatus = "done"
             } else voiceScope.launch {
                 ApiClient.setTripStatus(bid, st)
                     .onSuccess {
                         if (st == "done") {
                             TripPassStore.remove(context, bid)
-                            onTripEnd()
+                            bookingStatus = "done"
                         } else ApiClient.getTripState(bid).onSuccess { s ->
                             role = s.role
                             driverPhase = s.driverPhase
@@ -1520,6 +1520,23 @@ internal fun ActiveTripScreen(
                     }
             }
         }
+    }
+
+    // Завершение больше не выбрасывает человека сразу на карту. Сначала показываем отдельный
+    // экран B: благодарность, оценку и действия после поездки. У демо без bookingId нет
+    // серверного чека и контрагента, поэтому оно остаётся в прежнем локальном сценарии.
+    if (bookingStatus == "done" && bookingId != null) {
+        RideshareCompletedScreen(
+            bookingId = bookingId,
+            ride = ride,
+            fallbackRole = role,
+            fallbackPayMethod = payMethod,
+            fallbackPayAmount = payAmount,
+            onClose = onTripEnd,
+            onOpenReceipt = { onOpenReceipt(bookingId) },
+            onSupport = onSupport,
+        )
+        return
     }
 
     Scaffold(

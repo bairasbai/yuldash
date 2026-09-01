@@ -416,8 +416,8 @@ class AdminScreensIntegrationTest {
         // Экран сам сходил на «сервер» → распарсил → показал имя водителя, цену и кнопку выбора.
         waitForText("Динар")
         composeRule.onNodeWithText("Динар").assertExists()
-        composeRule.onNodeWithText("350 ₽").assertExists()
-        composeRule.onNodeWithText("Поехать с этим водителем").assertExists()
+        composeRule.onAllNodesWithText("350 ₽")[0].assertExists()
+        composeRule.onNodeWithText("Принять").assertExists()
     }
 
     @Test

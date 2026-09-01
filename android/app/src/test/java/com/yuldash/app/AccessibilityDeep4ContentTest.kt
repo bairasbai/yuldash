@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasAnySibling
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -339,7 +340,7 @@ class AccessibilityDeep4ContentTest {
     fun passenger_seatsPriceAndCommentFields_areDisplayed() {
         composeRule.setContent { PassengerContent() }
         composeRule.onNodeWithText("Мест").assertIsDisplayed()
-        composeRule.onNodeWithText("Цена, ₽").assertIsDisplayed()
+        composeRule.onNodeWithText("Бюджет").assertIsDisplayed()
         // Поле комментария тоже уехало под «Дополнительно» — сперва раскрываем блок.
         expandExtras()
         scrollTo("Комментарий")
@@ -349,11 +350,10 @@ class AccessibilityDeep4ContentTest {
     @Test
     fun passenger_checklistCard_showsTitleAndRouteLine() {
         composeRule.setContent { PassengerContent() }
-        composeRule.onNodeWithText("Проверка заявки").assertIsDisplayed()
-        // Строка маршрута чеклиста собрана из from → to.
-        composeRule.onNodeWithText("Баймаҡ → Сибай").assertIsDisplayed()
-        // Готовая сумма из цены.
-        composeRule.onNodeWithText("Готовая сумма: 350 ₽").assertIsDisplayed()
+        composeRule.onNodeWithText("Проверь перед публикацией").assertIsDisplayed()
+        // Закреплённый итог собран из маршрута и бюджета.
+        composeRule.onAllNodes(hasText("Баймаҡ → Сибай")).onFirst().assertIsDisplayed()
+        composeRule.onNodeWithText("350 ₽").assertIsDisplayed()
     }
 
     @Test
@@ -361,14 +361,15 @@ class AccessibilityDeep4ContentTest {
         composeRule.setContent {
             PassengerContent(language = AppLanguage.Ba, selectedCategoryText = "Ғәҙәти")
         }
-        composeRule.onNodeWithText("Заявканы тикшереү").assertIsDisplayed()
+        composeRule.onNodeWithText("Баҫтырыр алдынан тикшер").assertIsDisplayed()
     }
 
     @Test
     fun passenger_categoryChipClick_firesOnCategoryChange() {
         var picked: String? = null
         composeRule.setContent { PassengerContent(onCategoryChange = { picked = it }) }
-        // «Срочно» — неактивный чип (OutlinedButton) → клик выбирает категорию urgent.
+        composeRule.onNodeWithTag("passenger_category_cell").performClick()
+        // «Срочно» появляется после раскрытия компактной карточки категории.
         composeRule.onNodeWithText("Срочно").performClick()
         assertEquals("urgent", picked)
     }
@@ -380,7 +381,8 @@ class AccessibilityDeep4ContentTest {
         // Первый свитч в секции «Условия поездки» — «Только женщины» (по порядку PrefToggleRow).
         // Переключателей в дереве нет, пока блок «Дополнительно» свёрнут — раскрываем.
         expandExtras()
-        composeRule.onAllNodes(isToggleable())[0].performClick()
+        scrollTo("Только женщины")
+        composeRule.onAllNodes(isToggleable() and hasAnySibling(hasText("Только женщины")))[0].performClick()
         assertEquals(true, toggled)
     }
 

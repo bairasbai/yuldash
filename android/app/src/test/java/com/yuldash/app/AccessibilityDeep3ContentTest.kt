@@ -10,6 +10,8 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -120,19 +122,23 @@ class AccessibilityDeep3ContentTest {
     @Test
     fun header_isDisplayed() {
         composeRule.setContent { PassengerContent() }
-        composeRule.onNodeWithText("Заявка пассажира").assertIsDisplayed()
+        composeRule.onNodeWithText("Маршрут").assertIsDisplayed()
     }
 
     @Test
     fun privacyInfoCard_isDisplayed() {
         composeRule.setContent { PassengerContent() }
         // Ключевое обещание доверия: телефон/гео открываются только после подтверждения.
-        composeRule.onNodeWithText("Водители увидят условия").assertIsDisplayed()
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst().performScrollToNode(
+            hasText("Телефон и точная геолокация — после подтверждения")
+        )
+        composeRule.onNodeWithText("Телефон и точная геолокация — после подтверждения").assertIsDisplayed()
     }
 
     @Test
     fun addressFields_showLabels() {
         composeRule.setContent { PassengerContent() }
+        composeRule.onNodeWithTag("passenger_route_edit").performClick()
         composeRule.onNodeWithText("Откуда").assertIsDisplayed()
         composeRule.onNodeWithText("Куда").assertIsDisplayed()
     }
@@ -150,7 +156,7 @@ class AccessibilityDeep3ContentTest {
         composeRule.setContent {
             PassengerContent(language = AppLanguage.Ba, selectedCategoryText = "Ғәҙәти")
         }
-        composeRule.onNodeWithText("Пассажир заявкаһы").assertIsDisplayed()
+        composeRule.onNodeWithTag("passenger_route_card").assertIsDisplayed()
     }
 
     @Test
@@ -158,6 +164,7 @@ class AccessibilityDeep3ContentTest {
         composeRule.setContent {
             PassengerContent(language = AppLanguage.Ba, selectedCategoryText = "Ғәҙәти")
         }
+        composeRule.onNodeWithTag("passenger_route_edit").performClick()
         composeRule.onNodeWithText("Ҡайҙан").assertIsDisplayed()
         composeRule.onNodeWithText("Ҡайҙа").assertIsDisplayed()
     }

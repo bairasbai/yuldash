@@ -412,11 +412,20 @@ def trip_receipt(booking_id: int, user: User = Depends(current_user), session: S
         raise herr(409, "Квитанция появится после завершения поездки",
                    "Квитанция сәфәр тамамланғандан һуң күренәсәк")
     driver = session.get(User, ride.driver_id)
+    passenger = session.get(User, booking.passenger_id)
+    role = "driver" if ride.driver_id == user.id else "passenger"
+    counterparty = passenger if role == "driver" else driver
+    # Возвращаем только СВОЮ оценку. Чужая остаётся анонимной и влияет лишь на агрегат.
+    # Это позволяет экрану после поездки честно восстановить уже отправленные звёзды.
+    my_rating = session.exec(select(Rating).where(
+        Rating.booking_id == booking.id,
+        Rating.rater_id == user.id,
+    )).first()
     amount = booking.pay_amount if booking.pay_amount is not None else booking.price
     return {
         "booking_id": booking.id,
         "ride_id": ride.id,
-        "role": "driver" if ride.driver_id == user.id else "passenger",
+        "role": role,
         "from_city": ride.from_city,
         "to_city": ride.to_city,
         "depart_at": ride.depart_at.isoformat() if ride.depart_at else "",
@@ -426,6 +435,10 @@ def trip_receipt(booking_id: int, user: User = Depends(current_user), session: S
         "paid": bool(booking.paid),
         "driver_name": (driver.name if driver and driver.name else "Водитель"),
         "driver_verified": bool(driver.verified) if driver else False,
+        "counterparty_name": (counterparty.name if counterparty and counterparty.name else
+                              ("Пассажир" if role == "driver" else "Водитель")),
+        "my_stars": int(my_rating.stars) if my_rating else 0,
+        "my_rating_tags": (my_rating.tags or "") if my_rating else "",
     }
 
 

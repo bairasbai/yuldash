@@ -1228,8 +1228,21 @@ object ApiClient {
                 val o = arr.getJSONObject(i)
                 val pa = o.optJSONArray("prefs")
                 val prefs = if (pa != null) (0 until pa.length()).map { pa.optString(it) } else emptyList()
-                RequestFeedDto(o.optInt("id"), o.optString("passenger_name"), o.optString("from_city"), o.optString("to_city"), o.optInt("seats"), o.optString("comment"), o.optBoolean("responded"), o.optString("passenger_avatar"), prefs, if (o.isNull("my_response_id")) null else o.optInt("my_response_id"),
-                    if (o.isNull("detour_km")) null else o.optInt("detour_km"))
+                RequestFeedDto(
+                    id = o.optInt("id"), passengerName = o.optString("passenger_name"),
+                    from = o.optString("from_city"), to = o.optString("to_city"),
+                    seats = o.optInt("seats"), comment = o.optString("comment"),
+                    responded = o.optBoolean("responded"), passengerAvatar = o.optString("passenger_avatar"),
+                    prefs = prefs, myResponseId = if (o.isNull("my_response_id")) null else o.optInt("my_response_id"),
+                    detourKm = if (o.isNull("detour_km")) null else o.optInt("detour_km"),
+                    desiredAt = o.optString("desired_at"),
+                    maxPrice = if (o.isNull("max_price")) null else o.optInt("max_price"),
+                    distanceKm = if (o.isNull("distance_km")) null else o.optDouble("distance_km"),
+                    category = o.optString("category", "regular"),
+                    passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
+                    passengerRatingCount = o.optInt("passenger_rating_count"),
+                    passengerVerified = o.optBoolean("passenger_verified"),
+                )
             }
         }
 
@@ -1310,6 +1323,14 @@ object ApiClient {
         bargainRounds = optInt("bargain_rounds"),
         canCounter = optBoolean("can_counter"), canAccept = optBoolean("can_accept"),
         bargainHistory = optString("bargain_history"),
+        driverVerified = optBoolean("driver_verified"),
+        driverTripsCount = optInt("driver_trips_count"),
+        driverCar = optString("driver_car"),
+        requestFromCity = optString("request_from_city"),
+        requestToCity = optString("request_to_city"),
+        requestSeats = optInt("request_seats"),
+        requestMaxPrice = optInt("request_max_price"),
+        requestDesiredAt = optString("request_desired_at").ifBlank { null },
     )
 
     /** Водитель отзывает свой отклик — пока пассажир его не принял (после accept сервер вернёт 409). */
@@ -4430,6 +4451,9 @@ object ApiClient {
                 paid = o.optBoolean("paid"),
                 driverName = o.optString("driver_name"),
                 driverVerified = o.optBoolean("driver_verified"),
+                counterpartyName = o.optString("counterparty_name"),
+                myStars = o.optInt("my_stars"),
+                myRatingTags = o.optString("my_rating_tags"),
             )
         }
 
@@ -6020,7 +6044,15 @@ data class RestrictionsDto(
 data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "", val prefs: List<String> = emptyList(), val myResponseId: Int? = null,
     // На сколько км заявка уводит с собственного маршрута. null = у водителя нет активных
     // поездок или где-то нет координат — тогда числа не показываем, а не выдумываем.
-    val detourKm: Int? = null)
+    val detourKm: Int? = null,
+    val desiredAt: String = "",
+    val maxPrice: Int? = null,
+    val distanceKm: Double? = null,
+    val category: String = "regular",
+    val passengerRating: Double? = null,
+    val passengerRatingCount: Int = 0,
+    val passengerVerified: Boolean = false,
+)
 data class ResponseDto(
     val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?,
     val price: Int,                    // первая цена водителя (историческая)
@@ -6032,6 +6064,16 @@ data class ResponseDto(
     val canCounter: Boolean = false,   // я могу предложить свою цену
     val canAccept: Boolean = false,    // я могу принять то, что на столе
     val bargainHistory: String = "",   // «d:500,p:400,d:450»
+    // Публичное доверие + контекст заявки для премиального экрана откликов.
+    // Дефолты сохраняют совместимость со старым сервером и существующими тестами.
+    val driverVerified: Boolean = false,
+    val driverTripsCount: Int = 0,
+    val driverCar: String = "",
+    val requestFromCity: String = "",
+    val requestToCity: String = "",
+    val requestSeats: Int = 0,
+    val requestMaxPrice: Int = 0,
+    val requestDesiredAt: String? = null,
 ) {
     /** Что показывать как цену: пока торга не было — первое предложение водителя. */
     val onTable: Int get() = if (currentPrice > 0) currentPrice else price
@@ -6276,6 +6318,9 @@ data class TripReceiptDto(
     val fromCity: String, val toCity: String, val departAt: String,
     val seats: Int, val amount: Int, val payMethod: String, val paid: Boolean,
     val driverName: String, val driverVerified: Boolean,
+    val counterpartyName: String = "",
+    val myStars: Int = 0,
+    val myRatingTags: String = "",
 )
 
 /** Ответ на «Подожду машину»: до какого времени ищем и обновлённый заказ. */

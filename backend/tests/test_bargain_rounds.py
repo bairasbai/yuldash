@@ -53,6 +53,21 @@ def test_first_offer_is_on_the_table(client, deal):
     assert row["can_accept"] is True and row["can_counter"] is True
 
 
+def test_offer_carries_real_request_and_driver_context(client, deal):
+    """Премиальная карточка не дорисовывает маршрут, бюджет и доверие моками."""
+    with Session(engine) as s:
+        s.add(M.DriverProfile(user_id=deal["drv"]["id"], car_make="Lada", car_model="Vesta"))
+        s.commit()
+    row = _seen_by_passenger(client, deal)
+    assert row["request_from_city"] == "Сибай"
+    assert row["request_to_city"] == "Уфа"
+    assert row["request_seats"] == 1
+    assert row["request_max_price"] == 450
+    assert row["driver_verified"] is True
+    assert row["driver_car"] == "Lada Vesta"
+    assert row["driver_trips_count"] == 0
+
+
 def test_driver_cannot_move_twice_in_a_row(client, deal):
     """Водитель уже сходил — второй раз подряд нельзя, иначе это давление, а не торг."""
     r = client.post(f"/responses/{deal['response_id']}/counter", headers=deal["drv"]["auth"], json={"price": 480})

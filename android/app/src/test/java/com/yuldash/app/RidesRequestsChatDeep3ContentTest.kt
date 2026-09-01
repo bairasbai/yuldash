@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.RequestFeedDto
 import com.yuldash.app.data.RideDto
@@ -377,9 +378,9 @@ class RidesRequestsChatDeep3ContentTest {
                 )
             }
         }
-        composeRule.onNodeWithText("Только женщины").assertIsDisplayed()
-        composeRule.onNodeWithText("Детское кресло").assertIsDisplayed()
-        composeRule.onNodeWithText("С животным").assertIsDisplayed()
+        composeRule.onNodeWithText("Только женщины").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Детское кресло").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("С животным").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -393,9 +394,9 @@ class RidesRequestsChatDeep3ContentTest {
                 )
             }
         }
-        composeRule.onNodeWithText("Багаж").assertIsDisplayed()
-        composeRule.onNodeWithText("Не курить").assertIsDisplayed()
-        composeRule.onNodeWithText("Кондиционер").assertIsDisplayed()
+        composeRule.onNodeWithText("Багаж").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Без курения").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Кондиционер").performScrollTo().assertIsDisplayed()
     }
 
     // =====================================================================================

@@ -14,7 +14,7 @@ from ..flood import TOO_FAST_CREATING, TOO_MANY_REQUESTS, guard_burst, guard_ope
 from ..geo import name_variants
 from ..logs import admin_action, log
 from ..models import (
-    Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
+    Booking, BookingStatus, DeviceToken, DriverProfile, RequestResponse, Ride, RideCategory,
     RideRequest, RideStatus, User, UserRole,
 )
 from ..visibility import FEED_MAX, hidden_author_ids, visible_rides
@@ -24,7 +24,7 @@ from ..security import current_user, gen_otp
 from ..services import (
     CITY_COORDS, geocode_city, haversine_km, is_blocked, notify_admin_telegram,
     notify_map_changed, notify_request_watchers, public_rides_payload, push_notification,
-    record_pickup_choice, rides_out, user_rating,
+    drivers_bundle, record_pickup_choice, rides_out, users_rating_agg,
 )
 from ..safety_logic import (account_paused, ensure_active, may_ride_together,
                             MSG_WOMEN_ONLY_RESPOND, guard_women_only)
@@ -459,6 +459,14 @@ class RequestFeedOut(BaseModel):
     # None = посчитать нечем: у водителя нет активных поездок или где-то нет координат.
     # Клиент показывает «+40 км крюк» и убирает явную ерунду наверх списка.
     detour_km: Optional[int] = None
+    # Контекст для премиальной карточки водителя. Только уже публичные/агрегированные факты:
+    # точных координат, телефона и автора отдельных оценок здесь по-прежнему нет.
+    max_price: Optional[int] = None
+    distance_km: Optional[float] = None
+    category: str = "regular"
+    passenger_rating: Optional[float] = None
+    passenger_rating_count: int = 0
+    passenger_verified: bool = False
 
 
 def _detour_km(req, rides: list) -> Optional[int]:
@@ -502,6 +510,7 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
     if not reqs:
         return []
     pax = {u.id: u for u in session.exec(select(User).where(User.id.in_({r.passenger_id for r in reqs}))).all()}
+    ratings = users_rating_agg(session, set(pax))
     mine = {rr.request_id: rr.id for rr in session.exec(
         select(RequestResponse).where(
             RequestResponse.driver_id == user.id,
@@ -528,6 +537,15 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
         if getattr(r, "only_trusted", False) and not is_insider:
             continue
         p = pax.get(r.passenger_id)
+        rating, rating_count = ratings.get(r.passenger_id, (0.0, 0))
+        start = ((r.from_lat, r.from_lng)
+                 if r.from_lat is not None and r.from_lng is not None
+                 else CITY_COORDS.get(r.from_city))
+        finish = ((r.to_lat, r.to_lng)
+                  if r.to_lat is not None and r.to_lng is not None
+                  else CITY_COORDS.get(r.to_city))
+        route_km = (round(haversine_km(start[0], start[1], finish[0], finish[1]), 1)
+                    if start is not None and finish is not None else None)
         out.append(RequestFeedOut(
             id=r.id, passenger_name=(p.name if p and p.name else "Пассажир"),
             passenger_avatar=(p.avatar_url if p else ""),
@@ -541,6 +559,12 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
             my_response_id=mine.get(r.id),
             prefs=request_prefs(r),
             detour_km=_detour_km(r, my_rides),
+            max_price=r.max_price,
+            distance_km=route_km,
+            category=r.category.value if hasattr(r.category, "value") else str(r.category),
+            passenger_rating=(round(rating, 1) if rating_count > 0 else None),
+            passenger_rating_count=rating_count,
+            passenger_verified=bool(p and p.verified),
         ))
     return out
 
@@ -694,6 +718,16 @@ class ResponseOut(BaseModel):
     can_counter: bool = False        # смотрящий может сделать встречное предложение
     can_accept: bool = False         # смотрящий может принять текущую цену
     bargain_history: str = ""        # «d:500,p:400,d:450» — для строки «как шёл торг»
+    # Доверие и контекст сделки. Все поля публичные и уже доступны в витрине поездок;
+    # телефон, госномер и точные координаты сюда намеренно не попадают.
+    driver_verified: bool = False
+    driver_trips_count: int = 0
+    driver_car: str = ""
+    request_from_city: str = ""
+    request_to_city: str = ""
+    request_seats: int = 0
+    request_max_price: int = 0
+    request_desired_at: Optional[datetime] = None
 
 
 @router.get("/requests/{request_id}/responses", response_model=List[ResponseOut])
@@ -711,24 +745,28 @@ def request_responses(request_id: int, user: User = Depends(current_user), sessi
                                       RequestResponse.status != "withdrawn")
         .order_by(RequestResponse.id.desc())
     ).all()
-    drivers = {u.id: u for u in session.exec(select(User).where(User.id.in_({r.driver_id for r in resps}))).all()} if resps else {}
+    driver_ids = {r.driver_id for r in resps}
+    drivers, profiles, ratings, trips = drivers_bundle(session, driver_ids)
     out: list = []
     for r in resps:
         d = drivers.get(r.driver_id)
-        avg, cnt = user_rating(session, r.driver_id)
-        out.append(_response_out(session, r, req, user, d, avg, cnt))
+        avg, cnt = ratings.get(r.driver_id, (0.0, 0))
+        out.append(_response_out(
+            session, r, req, user, d, avg, cnt,
+            profile=profiles.get(r.driver_id), trips_count=trips.get(r.driver_id, 0),
+        ))
     return out
 
 
 def _response_out(session: Session, r: RequestResponse, req: RideRequest, viewer: User,
-                  d: Optional[User] = None, avg: float = 0.0, cnt: int = 0) -> ResponseOut:
+                  d: Optional[User] = None, avg: float = 0.0, cnt: int = 0,
+                  profile: Optional[DriverProfile] = None, trips_count: int = 0) -> ResponseOut:
     """Карточка отклика глазами КОНКРЕТНОГО смотрящего: can_counter/can_accept зависят от того,
     чей сейчас ход. Без этого обе стороны видели бы активные кнопки одновременно и жали их
     вслепую — «принять» свою же цену для торга бессмысленно."""
-    if d is None:
-        d = session.get(User, r.driver_id)
-    if cnt == 0 and avg == 0.0:
-        avg, cnt = user_rating(session, r.driver_id)
+    # Вызовы приходят только из двух списков выше/ниже, где все водители, профили,
+    # рейтинги и поездки уже загружены батчем. Не возвращаем сюда скрытый N+1.
+    car = " ".join(x for x in [profile.car_make, profile.car_model] if x).strip() if profile else ""
     role = _bargain_role(r, req, viewer)
     last = (getattr(r, "last_offer_by", "") or "driver")
     live = r.status == "offered" and req.status == "active"
@@ -742,6 +780,14 @@ def _response_out(session: Session, r: RequestResponse, req: RideRequest, viewer
         can_counter=my_turn and int(getattr(r, "bargain_rounds", 0) or 0) < _BARGAIN_MAX_TOTAL,
         can_accept=my_turn,
         bargain_history=(getattr(r, "bargain_history", "") or ""),
+        driver_verified=bool(d.verified) if d else False,
+        driver_trips_count=max(0, int(trips_count or 0)),
+        driver_car=car,
+        request_from_city=req.from_city,
+        request_to_city=req.to_city,
+        request_seats=req.seats,
+        request_max_price=int(req.max_price or 0),
+        request_desired_at=req.desired_at,
     )
 
 
@@ -759,11 +805,16 @@ def my_responses(user: User = Depends(current_user), session: Session = Depends(
         return []
     reqs = {r.id: r for r in session.exec(
         select(RideRequest).where(RideRequest.id.in_({x.request_id for x in resps}))).all()}
+    drivers, profiles, ratings, trips = drivers_bundle(session, {user.id})
     out: list = []
     for r in resps:
         req = reqs.get(r.request_id)
         if req:
-            out.append(_response_out(session, r, req, user))
+            avg, cnt = ratings.get(user.id, (0.0, 0))
+            out.append(_response_out(
+                session, r, req, user, drivers.get(user.id), avg, cnt,
+                profile=profiles.get(user.id), trips_count=trips.get(user.id, 0),
+            ))
     return out
 
 

@@ -77,6 +77,7 @@ import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
 import androidx.compose.material.icons.filled.SmokingRooms
+import androidx.compose.material.icons.filled.SmokeFree
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -188,6 +189,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -2153,7 +2155,8 @@ internal fun ChatSafetyDisclaimer(modifier: Modifier = Modifier) {
     }
 }
 
-/** Лента заявок пассажиров — водитель откликается (цена/коммент). */
+/** Лента заявок пассажиров — водитель сначала оценивает совместимость маршрута. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RequestsFeedScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -2163,36 +2166,51 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
     var error by remember { mutableStateOf(false) }
     var target by remember { mutableStateOf<com.yuldash.app.data.RequestFeedDto?>(null) }
     var price by remember { mutableStateOf("") }
+    var departureNote by remember { mutableStateOf("") }
     var comment by remember { mutableStateOf("") }
-    var responding by remember { mutableStateOf(false) }   // защита от двойного тапа + чтобы показать ошибку до закрытия диалога
-    var withdrawTarget by remember { mutableStateOf<com.yuldash.app.data.RequestFeedDto?>(null) }   // заявка, чей отклик отзываем (подтверждение)
+    var selectedFilter by remember { mutableStateOf(RequestsFeedFilter.All) }
+    var responding by remember { mutableStateOf(false) }
+    var withdrawTarget by remember { mutableStateOf<com.yuldash.app.data.RequestFeedDto?>(null) }
     var withdrawing by remember { mutableStateOf(false) }
     val sentMsg = appText("Отклик отправлен", "Яуап ебәрелде")
     val respondErr = appText("Не удалось отправить отклик. Проверь сеть и повтори.", "Яуап ебәреп булманы. Сетте тикшереп ҡабатла.")
     val withdrawnMsg = appText("Отклик отозван", "Яуап кире алынды")
     val withdrawErr = appText("Не удалось отозвать. Проверь сеть и повтори.", "Кире алып булманы. Сетте тикшереп ҡабатла.")
     val withdrawTakenErr = appText("Пассажир уже принял отклик — отозвать нельзя.", "Пассажир яуапты ҡабул иткән — кире алып булмай.")
-    // Сбой сети больше не маскируется под «заявок нет» — показываем ошибку с «Повторить».
-    fun reload() { loading = true; error = false; scope.launch { ApiClient.getRequestsFeed().onSuccess { feed = it }.onFailure { error = true }; loading = false } }
+
+    fun reload() {
+        loading = true
+        error = false
+        scope.launch {
+            ApiClient.getRequestsFeed().onSuccess { feed = it }.onFailure { error = true }
+            loading = false
+        }
+    }
     LaunchedEffect(Unit) { reload() }
-    withdrawTarget?.let { t ->
+
+    withdrawTarget?.let { request ->
         AlertDialog(
             onDismissRequest = { if (!withdrawing) withdrawTarget = null },
             containerColor = CanonSurface,
             title = { Text(appText("Отозвать отклик?", "Яуапты кире аларғамы?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-            text = { Text(appText("Пассажир больше не увидит твой отклик на «${t.from} → ${t.to}».", "Пассажир «${t.from} → ${t.to}» яуабыңды башҡа күрмәйәсәк."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) },
+            text = { Text(appText("Пассажир больше не увидит твой отклик на «${request.from} → ${request.to}».", "Пассажир «${request.from} → ${request.to}» яуабыңды башҡа күрмәйәсәк."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) },
             confirmButton = {
                 TextButton(enabled = !withdrawing, onClick = {
-                    val respId = t.myResponseId ?: return@TextButton
+                    val responseId = request.myResponseId ?: return@TextButton
                     withdrawing = true
                     scope.launch {
-                        ApiClient.deleteResponse(respId)
-                            .onSuccess { withdrawing = false; withdrawTarget = null; Toast.makeText(ctx, withdrawnMsg, Toast.LENGTH_SHORT).show(); reload() }
-                            .onFailure { e ->
+                        ApiClient.deleteResponse(responseId)
+                            .onSuccess {
                                 withdrawing = false
-                                val taken = (e as? com.yuldash.app.data.ApiException)?.status == 409
-                                Toast.makeText(ctx, if (taken) withdrawTakenErr else withdrawErr, Toast.LENGTH_LONG).show()
-                                if (taken) { withdrawTarget = null; reload() }   // уже принят → обновим ленту, кнопки отзыва там уже не будет
+                                withdrawTarget = null
+                                Toast.makeText(ctx, withdrawnMsg, Toast.LENGTH_SHORT).show()
+                                reload()
+                            }
+                            .onFailure { failure ->
+                                withdrawing = false
+                                val alreadyTaken = (failure as? com.yuldash.app.data.ApiException)?.status == 409
+                                Toast.makeText(ctx, if (alreadyTaken) withdrawTakenErr else withdrawErr, Toast.LENGTH_LONG).show()
+                                if (alreadyTaken) { withdrawTarget = null; reload() }
                             }
                     }
                 }) { Text(if (withdrawing) appText("Отзываем…", "Кире алабыҙ…") else appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
@@ -2200,49 +2218,155 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
             dismissButton = { TextButton(enabled = !withdrawing, onClick = { withdrawTarget = null }) { Text(appText("Оставить", "Ҡалдырыу"), color = CanonMuted) } },
         )
     }
-    target?.let { t ->
-        AlertDialog(
-            onDismissRequest = { target = null },
+
+    target?.let { request ->
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { if (!responding) target = null },
+            sheetState = sheetState,
             containerColor = CanonSurface,
-            title = { Text("${t.from} → ${t.to}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(price, { price = it.filter { c -> c.isDigit() }.take(6) }, label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    OutlinedTextField(comment, { comment = it }, label = { Text(appText("Когда едете / детали", "Ҡасан / детальдәр")) }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-                }
-            },
-            confirmButton = {
-                TextButton(enabled = !responding, onClick = {
-                    val rid = t.id; val p = price.toIntOrNull() ?: 0; val c = comment.trim()
+        ) {
+            RequestOfferSheet(
+                request = request,
+                price = price,
+                departureNote = departureNote,
+                comment = comment,
+                responding = responding,
+                onPriceChange = { value -> price = value.filter { it.isDigit() }.take(6) },
+                onDepartureNoteChange = { departureNote = it.take(120) },
+                onCommentChange = { comment = it.take(300) },
+                onSubmit = {
+                    val responsePrice = price.toIntOrNull() ?: 0
                     responding = true
-                    // Не гасим диалог до ответа сервера — при сбое покажем ошибку, отклик не потеряется молча.
                     scope.launch {
-                        ApiClient.respondToRequest(rid, p, c)
-                            .onSuccess { responding = false; target = null; price = ""; comment = ""; Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show(); reload() }
-                            .onFailure { responding = false; Toast.makeText(ctx, serverSaid(it, respondErr), Toast.LENGTH_LONG).show() }
+                        val details = listOf(departureNote.trim(), comment.trim()).filter { it.isNotBlank() }.joinToString(" · ")
+                        ApiClient.respondToRequest(request.id, responsePrice, details)
+                            .onSuccess {
+                                responding = false
+                                target = null
+                                price = ""
+                                departureNote = ""
+                                comment = ""
+                                Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show()
+                                reload()
+                            }
+                            .onFailure {
+                                responding = false
+                                Toast.makeText(ctx, serverSaid(it, respondErr), Toast.LENGTH_LONG).show()
+                            }
                     }
-                }) { Text(if (responding) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Отправить", "Ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
-            },
-            dismissButton = { TextButton(enabled = !responding, onClick = { target = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
-        )
+                },
+            )
+        }
     }
+
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заявки пассажиров", "Пассажир заявкалары"), onBack) }) { padding ->
         RequestsFeedContent(
             loading = loading,
             error = error,
             feed = feed,
+            selectedFilter = selectedFilter,
+            onFilterChange = { selectedFilter = it },
             onRetry = { reload() },
-            onRespond = { r -> target = r; price = ""; comment = "" },
-            onWithdraw = { r -> withdrawTarget = r },
+            onRespond = { request ->
+                target = request
+                price = request.maxPrice?.takeIf { it > 0 }?.toString().orEmpty()
+                departureNote = ""
+                comment = ""
+            },
+            onWithdraw = { withdrawTarget = it },
             modifier = Modifier.padding(padding),
         )
     }
 }
 
-/**
- * Чистый рендер ленты заявок пассажиров: все состояния (загрузка / ошибка+повтор / пусто / список).
- * Данные и колбэки приходят параметрами → без сети/стейта/эффектов → тестируется на JVM (Robolectric).
- */
+internal enum class RequestsFeedFilter { All, AlongTheWay, Today }
+
+@Composable
+internal fun RequestOfferSheet(
+    request: com.yuldash.app.data.RequestFeedDto,
+    price: String,
+    departureNote: String,
+    comment: String,
+    responding: Boolean,
+    onPriceChange: (String) -> Unit,
+    onDepartureNoteChange: (String) -> Unit,
+    onCommentChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(appText("Предложить поездку", "Сәфәр тәҡдим итеү"), color = CanonText, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
+            Text("${request.from} → ${request.to}", color = CanonGreen2, fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
+            val facts = buildList {
+                if (request.desiredAt.isNotBlank()) add(formatDepart(request.desiredAt))
+                request.maxPrice?.takeIf { it > 0 }?.let { add(appText("бюджет $it ₽", "бюджет $it ₽")) }
+            }
+            if (facts.isNotEmpty()) Text(facts.joinToString(" · "), color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 20.sp)
+        }
+        Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Info, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    appText("Цена фиксируется только после принятия пассажиром", "Хаҡ пассажир ҡабул иткәндән һуң ғына теркәлә"),
+                    color = CanonMutedStrong, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+            }
+        }
+        OutlinedTextField(
+            value = price,
+            onValueChange = onPriceChange,
+            label = { Text(appText("Твоя цена, ₽", "Һинең хаҡың, ₽")) },
+            supportingText = { Text(appText("Можно указать 0 ₽, если везёшь бесплатно", "Бушлай алып барһаң, 0 ₽ күрһәтергә була")) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = CanonItemShape,
+        )
+        OutlinedTextField(
+            value = departureNote,
+            onValueChange = onDepartureNoteChange,
+            label = { Text(appText("Когда сможешь выехать", "Ҡасан сыға алаһың")) },
+            placeholder = { Text(appText("Например, сегодня в 19:00", "Мәҫәлән, бөгөн 19:00-дә")) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = CanonItemShape,
+        )
+        OutlinedTextField(
+            value = comment,
+            onValueChange = onCommentChange,
+            label = { Text(appText("Комментарий пассажиру", "Пассажирға аңлатма")) },
+            placeholder = { Text(appText("Где удобно встретиться", "Ҡайҙа осрашыу уңайлы")) },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 2,
+            maxLines = 3,
+            shape = CanonItemShape,
+        )
+        Button(
+            onClick = onSubmit,
+            enabled = !responding,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+            shape = CanonItemShape,
+            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+        ) {
+            if (responding) {
+                CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(
+                if (responding) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Отправить предложение", "Тәҡдимде ебәреү"),
+                fontWeight = FontWeight.Bold, fontSize = 16.sp,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+    }
+}
+
+/** Чистый рендер всех состояний ленты; сеть и диалоги остаются в обёртке. */
 @Composable
 internal fun RequestsFeedContent(
     loading: Boolean,
@@ -2251,81 +2375,228 @@ internal fun RequestsFeedContent(
     onRetry: () -> Unit,
     onRespond: (com.yuldash.app.data.RequestFeedDto) -> Unit,
     onWithdraw: (com.yuldash.app.data.RequestFeedDto) -> Unit = {},
+    selectedFilter: RequestsFeedFilter = RequestsFeedFilter.All,
+    onFilterChange: (RequestsFeedFilter) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-        item { Text(appText("Пассажиры ищут поездку. Откликнись — предложи цену и время.", "Пассажирҙар сәфәр эҙләй. Яуап бир — хаҡ һәм ваҡыт тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
+    val visibleFeed = when (selectedFilter) {
+        RequestsFeedFilter.All -> feed
+        RequestsFeedFilter.AlongTheWay -> feed.filter { (it.detourKm ?: Int.MAX_VALUE) <= 10 }
+        RequestsFeedFilter.Today -> feed.filter { isRequestToday(it.desiredAt) }
+    }
+    LazyColumn(
+        modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp),
+    ) {
+        item(key = "intro") {
+            Text(appText("Сначала — те, кто действительно по пути.", "Тәүҙә — ысынлап юл ыңғайында булғандар."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+        }
+        item(key = "filters") {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(RequestsFeedFilter.values().toList(), key = { it.name }) { filter ->
+                    RequestFeedFilterChip(filter, selected = filter == selectedFilter) { onFilterChange(filter) }
+                }
+            }
+        }
         if (loading) {
             item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
         } else if (error) {
             item { ListedError(appText("Не удалось загрузить заявки. Проверь сеть.", "Заявкаларҙы йөкләп булманы. Сетте тикшер."), onRetry = onRetry) }
         } else if (feed.isEmpty()) {
             item { ListedEmpty(appText("Заявок пока нет", "Әлегә заявкалар юҡ"), appText("Здесь появятся заявки пассажиров.", "Бында пассажир заявкалары күренер")) }
+        } else if (visibleFeed.isEmpty()) {
+            item { ListedEmpty(appText("Подходящих заявок нет", "Ярашлы заявкалар юҡ"), appText("Попробуй другой фильтр.", "Башҡа фильтрҙы һайлап ҡара.")) }
         } else {
-            items(feed, key = { it.id }) { r ->
-                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("${r.from} → ${r.to}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            SmallAvatar(r.passengerAvatar, r.passengerName, 34)
-                            Spacer(Modifier.width(8.dp))
-                            Text("${r.passengerName} · " + seatsText(r.seats), color = CanonMuted, fontSize = 14.sp)
+            itemsIndexed(visibleFeed, key = { _, item -> item.id }) { index, request ->
+                PremiumPassengerRequestCard(
+                    request = request,
+                    onRespond = { onRespond(request) },
+                    onWithdraw = { onWithdraw(request) },
+                    modifier = Modifier.appearIn(index.coerceAtMost(6)),
+                )
+            }
+        }
+    }
+}
+
+private fun isRequestToday(iso: String): Boolean {
+    val ms = parseIsoUtcMillis(iso) ?: return false
+    val requestDay = java.util.Calendar.getInstance().apply { timeInMillis = ms }
+    val today = java.util.Calendar.getInstance()
+    return requestDay.get(java.util.Calendar.ERA) == today.get(java.util.Calendar.ERA) &&
+        requestDay.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR) &&
+        requestDay.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR)
+}
+
+@Composable
+private fun RequestFeedFilterChip(filter: RequestsFeedFilter, selected: Boolean, onClick: () -> Unit) {
+    val label = when (filter) {
+        RequestsFeedFilter.All -> appText("Все", "Бөтәһе")
+        RequestsFeedFilter.AlongTheWay -> appText("По пути", "Юл ыңғайында")
+        RequestsFeedFilter.Today -> appText("Сегодня", "Бөгөн")
+    }
+    val background by animateColorAsState(if (selected) CanonMint else CanonSurface, label = "requestFilterBg")
+    val foreground by animateColorAsState(if (selected) CanonGreen2 else CanonMutedStrong, label = "requestFilterText")
+    Surface(
+        onClick = onClick,
+        color = background,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, if (selected) CanonGreen2.copy(alpha = 0.35f) else CanonBorder),
+        modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+    ) {
+        Box(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
+            Text(label, color = foreground, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, fontSize = 14.sp)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PremiumPassengerRequestCard(
+    request: com.yuldash.app.data.RequestFeedDto,
+    onRespond: () -> Unit,
+    onWithdraw: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonCardShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("${request.from} → ${request.to}", color = CanonText, fontSize = 23.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (request.desiredAt.isNotBlank()) {
+                        Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(formatDepart(request.desiredAt), color = CanonMutedStrong, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    } else {
+                        Text(appText("Время по договорённости", "Ваҡытты килешеп"), color = CanonMutedStrong, fontSize = 14.sp)
+                    }
+                }
+                request.detourKm?.let { km ->
+                    val along = km <= 10
+                    Surface(color = if (along) CanonMint else CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, if (along) CanonGreen2.copy(alpha = 0.25f) else CanonBorder)) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (along) Icons.Default.CheckCircle else Icons.Default.AltRoute, contentDescription = null, tint = if (along) CanonGreen2 else CanonMuted, modifier = Modifier.size(17.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                if (along) appText("По пути · крюк ≈ $km км", "Юл ыңғайында · урау ≈ $km км") else appText("Крюк ≈ $km км", "Урау ≈ $km км"),
+                                color = if (along) CanonGreen2 else CanonMutedStrong, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                            )
                         }
-                        // Насколько заявка уводит с собственного маршрута. Раньше водитель читал
-                        // каждую руками и натыкался на «выехать на 4 часа позже и в другую сторону» —
-                        // именно это и выжигает водителей, а их у нас на старте мало.
-                        // «По пути» подсвечиваем зелёным, крюк — спокойно серым, без осуждения.
-                        r.detourKm?.let { km ->
-                            val alongTheWay = km <= 10
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    if (alongTheWay) Icons.Default.CheckCircle else Icons.Default.AltRoute,
-                                    contentDescription = null,
-                                    tint = if (alongTheWay) CanonGreen2 else CanonMuted,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    if (alongTheWay) appText("По пути", "Юл ыңғайында")
-                                    else appText("Крюк ≈ $km км", "Урау ≈ $km км"),
-                                    color = if (alongTheWay) CanonGreen2 else CanonMuted,
-                                    fontWeight = FontWeight.Bold, fontSize = 14.sp,
-                                )
-                            }
-                        }
-                        if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
-                        if (r.prefs.isNotEmpty()) {
-                            // Условия пассажира → водитель видит, подходит ли поездка.
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                items(r.prefs, key = { it }) { key ->
-                                    when (key) {
-                                        "women" -> PrefChip(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
-                                        "child" -> PrefChip(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"))
-                                        "pets" -> PrefChip(R.drawable.yu_pet, appText("С животным", "Хайуан менән"))
-                                        "wheelchair" -> PrefChip(R.drawable.yu_accessible, appText("Коляска", "Коляска"))
-                                        "baggage" -> PrefChip(R.drawable.yu_luggage, appText("Багаж", "Багаж"))
-                                        "nosmoke" -> PrefChip(R.drawable.yu_smoke_free, appText("Не курить", "Тартмаҫҡа"))
-                                        "ac" -> PrefChip(R.drawable.yu_ac, appText("Кондиционер", "Кондиционер"))
-                                    }
-                                }
-                            }
-                        }
-                        if (r.responded) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(appText("Отклик отправлен", "Яуап ебәрелде"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Spacer(Modifier.weight(1f))
-                            // Отозвать можно, пока пассажир не принял (после accept заявка уходит из ленты; сервер всё равно вернёт 409).
-                            if (r.myResponseId != null) TextButton(
-                                onClick = { onWithdraw(r) },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            ) { Text(appText("Отозвать отклик", "Яуапты кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
-                        }
-                        else Button(onClick = { onRespond(r) }, modifier = Modifier.align(Alignment.End), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Предложить поездку", "Сәфәр тәҡдим итеү"), fontWeight = FontWeight.Bold) }
                     }
                 }
             }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    RequestMetricCell(Icons.Default.EventSeat, request.seats.coerceAtLeast(1).toString(), appText("Мест", "Урын"), Modifier.weight(1f))
+                    RequestMetricCell(Icons.Default.Payments, request.maxPrice?.takeIf { it > 0 }?.let { "$it ₽" } ?: appText("Договоримся", "Килешербеҙ"), appText("Бюджет", "Бюджет"), Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    RequestMetricCell(Icons.Default.Route, request.distanceKm?.let { "≈ ${formatRequestKm(it)} км" } ?: appText("Не рассчитано", "Иҫәпләнмәгән"), appText("По прямой", "Тура юлдан"), Modifier.weight(1f))
+                    RequestMetricCell(Icons.Default.Badge, requestCategoryText(request.category), appText("Категория", "Төр"), Modifier.weight(1f))
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SmallAvatar(request.passengerAvatar, request.passengerName, 46)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(request.passengerName, color = CanonText, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val ratingLine = request.passengerRating?.takeIf { request.passengerRatingCount > 0 }?.let {
+                        "★ ${String.format(java.util.Locale.US, "%.1f", it)} · " + appText("${request.passengerRatingCount} ${ratingsWordRu(request.passengerRatingCount)}", "${request.passengerRatingCount} баһа")
+                    } ?: appText("Новый пассажир", "Яңы пассажир")
+                    Text(ratingLine, color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 19.sp)
+                }
+                if (request.passengerVerified) {
+                    Surface(color = CanonMint, shape = CanonItemShape) {
+                        Row(Modifier.padding(horizontal = 9.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text(appText("Проверен", "Тикшерелгән"), color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            if (request.comment.isNotBlank()) {
+                Surface(color = CanonBg, shape = CanonItemShape) {
+                    Text(request.comment, color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.fillMaxWidth().padding(12.dp))
+                }
+            }
+            if (request.prefs.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    request.prefs.forEach { RequestPreferenceChip(it) }
+                }
+            }
+
+            if (request.responded) {
+                Surface(color = CanonMint, shape = CanonItemShape) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Text(appText("Отклик отправлен", "Яуап ебәрелде"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        if (request.myResponseId != null) TextButton(onClick = onWithdraw) { Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                    }
+                }
+            } else {
+                Button(onClick = onRespond, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = CanonItemShape, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                    Text(appText("Предложить поездку", "Сәфәр тәҡдим итеү"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun RequestMetricCell(icon: ImageVector, value: String, label: String, modifier: Modifier = Modifier) {
+    Surface(modifier = modifier.heightIn(min = 88.dp), color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+            Text(value, color = CanonText, fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(label, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+        }
+    }
+}
+
+@Composable
+private fun RequestPreferenceChip(key: String) {
+    when (key) {
+        "women" -> PrefChip(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
+        "child" -> PrefChip(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"))
+        "pets" -> PrefChip(R.drawable.yu_pet, appText("С животным", "Хайуан менән"))
+        "wheelchair" -> PrefChip(R.drawable.yu_accessible, appText("Коляска", "Коляска"))
+        "baggage" -> PrefChip(R.drawable.yu_luggage, appText("Багаж", "Багаж"))
+        "nosmoke" -> PrefChip(Icons.Default.SmokeFree, appText("Без курения", "Тәмәке тартмаҫҡа"))
+        "ac" -> PrefChip(R.drawable.yu_ac, appText("Кондиционер", "Кондиционер"))
+    }
+}
+
+@Composable
+private fun requestCategoryText(category: String): String = when (category) {
+    "urgent" -> appText("Срочно", "Ашығыс")
+    "hospital" -> appText("В больницу", "Дауаханаға")
+    "parcel" -> appText("Посылка", "Бандероль")
+    "cargo" -> appText("Груз", "Йөк")
+    else -> appText("Обычная", "Ғәҙәти")
+}
+
+private fun formatRequestKm(km: Double): String = if (km < 10.0) String.format(java.util.Locale.US, "%.1f", km) else String.format(java.util.Locale.US, "%.0f", km)
+
+private fun ratingsWordRu(count: Int): String {
+    val hundred = count % 100
+    val ten = count % 10
+    return when {
+        hundred in 11..14 -> "оценок"
+        ten == 1 -> "оценка"
+        ten in 2..4 -> "оценки"
+        else -> "оценок"
     }
 }
 
@@ -2345,7 +2616,7 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
     val failMsg = appText("Не получилось принять", "Ҡабул итеп булманы")
     // Сбой загрузки откликов больше не выглядит как «откликов нет» — ошибка + «Повторить».
     LaunchedEffect(requestId, reloadTick) { loading = true; error = false; ApiClient.getRequestResponses(requestId).onSuccess { resps = it }.onFailure { error = true }; loading = false }
-    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики водителей", "Йөрөтөүсе яуаптары"), onBack) }) { padding ->
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики на заявку", "Заявкаға яуаптар"), onBack) }) { padding ->
         ResponsesContent(
             loading = loading,
             error = error,
@@ -2414,8 +2685,15 @@ internal fun ResponsesContent(
     onDecline: (com.yuldash.app.data.ResponseDto) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-        item { Text(appText("Выбери водителя — поездка начнётся, откроется чат. Цена не подходит — предложи свою.", "Йөрөтөүсе һайла — сәфәр башлана, чат асыла. Хаҡ ярамаһа — үҙеңдекен тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
+    val context = responses.firstOrNull()
+    LazyColumn(
+        modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp),
+    ) {
+        if (context != null && context.requestFromCity.isNotBlank() && context.requestToCity.isNotBlank()) {
+            item(key = "request") { ResponseRequestSummary(context) }
+        }
         if (loading) {
             item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
         } else if (error) {
@@ -2423,46 +2701,317 @@ internal fun ResponsesContent(
         } else if (responses.isEmpty()) {
             item { ListedEmpty(appText("Откликов пока нет", "Әлегә яуап юҡ"), appText("Водители ещё не откликнулись. Загляни позже.", "Йөрөтөүселәр яуап бирмәгән. Һуңыраҡ кер.")) }
         } else {
-            items(responses, key = { it.id }) { r ->
-                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            SmallAvatar(r.driverAvatar, r.driverName, 42)
-                            Spacer(Modifier.width(8.dp))
-                            Text(r.driverName, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            r.driverRating?.let { Spacer(Modifier.width(4.dp)); Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp)); Text(" $it", color = CanonMuted, fontSize = 14.sp) }
-                            Spacer(Modifier.weight(1f))
-                            // Цена НА СТОЛЕ (после торга), а не первое предложение водителя:
-                            // поездка создастся именно по ней.
-                            if (r.onTable > 0) Text("${r.onTable} ₽", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                        }
-                        if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
-                        BargainSummary(r)
-                        // Старый сервер не шлёт флаги торга → ведём себя как раньше: пока торга
-                        // не было, пассажир принимает цену водителя.
-                        val canTake = r.canAccept || (r.bargainRounds == 0 && r.lastOfferBy == "driver")
-                        if (canTake) {
-                            Button(
-                                onClick = { onAccept(r) },
-                                enabled = !accepting,
-                                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                            ) { Text(appText("Поехать с этим водителем", "Был йөрөтөүсе менән барырға"), fontWeight = FontWeight.Bold) }
-                        }
-                        if (r.canCounter) {
-                            TextButton(onClick = { onCounter(r) }, enabled = !accepting, modifier = Modifier.fillMaxWidth()) {
-                                Text(appText("Предложить свою цену", "Үҙ хаҡыңды тәҡдим итеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        if (r.status == "offered" && (canTake || r.canCounter)) {
-                            TextButton(onClick = { onDecline(r) }, enabled = !accepting, modifier = Modifier.fillMaxWidth()) {
-                                Text(appText("Не договорились", "Килешмәнек"), color = CanonMuted, fontSize = 14.sp)
-                            }
-                        }
-                    }
+            item(key = "hint") {
+                Text(
+                    appText(
+                        "Сравни цену и водителя. После принятия откроется поездка и чат.",
+                        "Хаҡты һәм йөрөтөүсене сағыштыр. Ҡабул иткәндән һуң сәфәр һәм чат асыла.",
+                    ),
+                    color = CanonMuted,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                )
+            }
+            itemsIndexed(responses, key = { _, item -> item.id }) { index, r ->
+                PremiumResponseCard(
+                    response = r,
+                    accepting = accepting,
+                    onAccept = { onAccept(r) },
+                    onCounter = { onCounter(r) },
+                    onDecline = { onDecline(r) },
+                    modifier = Modifier.appearIn(index),
+                )
+            }
+        }
+    }
+}
+
+/** Спокойная шапка заявки: один маршрут на весь список, без повторения в каждой карточке. */
+@Composable
+private fun ResponseRequestSummary(r: com.yuldash.app.data.ResponseDto) {
+    Surface(color = CanonMint, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    r.requestFromCity,
+                    color = CanonGreen2,
+                    fontSize = 18.sp,
+                    lineHeight = 23.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                )
+                Icon(
+                    Icons.Default.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = CanonGreen2,
+                    modifier = Modifier.padding(horizontal = 8.dp).size(22.dp),
+                )
+                Text(
+                    r.requestToCity,
+                    color = CanonGreen2,
+                    fontSize = 18.sp,
+                    lineHeight = 23.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                    textAlign = TextAlign.End,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                r.requestDesiredAt?.takeIf { it.isNotBlank() }?.let {
+                    Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(formatDepart(it), color = CanonMutedStrong, fontSize = 14.sp)
+                }
+                Spacer(Modifier.weight(1f))
+                if (r.requestSeats > 0) {
+                    Icon(Icons.Default.EventSeat, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(seatsText(r.requestSeats), color = CanonMutedStrong, fontSize = 14.sp)
                 }
             }
         }
+    }
+}
+
+/** Гибрид B+A: финансовое решение первым, доверие к человеку — сразу следом. */
+@Composable
+private fun PremiumResponseCard(
+    response: com.yuldash.app.data.ResponseDto,
+    accepting: Boolean,
+    onAccept: () -> Unit,
+    onCounter: () -> Unit,
+    onDecline: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val canTake = response.canAccept || (response.bargainRounds == 0 && response.lastOfferBy == "driver")
+    val canDecline = response.status == "offered" && (canTake || response.canCounter)
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = CanonSurface,
+        shape = CanonCardShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        shadowElevation = 2.dp,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            ResponseMoneyHero(response)
+            ResponseDriverTrust(response)
+            if (response.comment.isNotBlank()) {
+                Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(9.dp))
+                        Text(response.comment, color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 20.sp)
+                    }
+                }
+            }
+            Surface(color = CanonWarnBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Shield, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        appText("Цена фиксируется после принятия", "Хаҡ ҡабул иткәндән һуң теркәлә"),
+                        color = CanonWarn,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+            if (canTake || response.canCounter || canDecline) {
+                ResponseActions(
+                    price = response.onTable,
+                    canAccept = canTake,
+                    canCounter = response.canCounter,
+                    canDecline = canDecline,
+                    busy = accepting,
+                    onAccept = onAccept,
+                    onCounter = onCounter,
+                    onDecline = onDecline,
+                )
+            }
+        }
+    }
+}
+
+/** Симметричная финансовая зона варианта B + существующий честный журнал торга. */
+@Composable
+private fun ResponseMoneyHero(r: com.yuldash.app.data.ResponseDto) {
+    Surface(color = CanonMint, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                ResponseMoneyCell(
+                    label = appText("Ваш бюджет", "Һинең бюджетың"),
+                    value = if (r.requestMaxPrice > 0) "${r.requestMaxPrice} ₽" else appText("Не указан", "Күрсәтелмәгән"),
+                    modifier = Modifier.weight(1f),
+                )
+                Box(Modifier.padding(horizontal = 10.dp).width(1.dp).height(58.dp).background(CanonBorder))
+                ResponseMoneyCell(
+                    label = appText("Предложение", "Тәҡдим"),
+                    value = "${r.onTable} ₽",
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            BargainSummary(r)
+        }
+    }
+}
+
+@Composable
+private fun ResponseMoneyCell(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, color = CanonMutedStrong, fontSize = 13.sp, lineHeight = 17.sp, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            value,
+            color = CanonGreen2,
+            fontSize = 25.sp,
+            lineHeight = 30.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
+    }
+}
+
+/** Карточка доверия варианта A: только факты с сервера, без выдуманной машины или стажа. */
+@Composable
+private fun ResponseDriverTrust(r: com.yuldash.app.data.ResponseDto) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        SmallAvatar(r.driverAvatar, r.driverName, 62)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    r.driverName,
+                    color = CanonText,
+                    fontSize = 18.sp,
+                    lineHeight = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 2,
+                )
+                if (r.driverVerified) {
+                    Spacer(Modifier.width(5.dp))
+                    Icon(
+                        Icons.Default.Verified,
+                        contentDescription = appText("Проверен", "Тикшерелгән"),
+                        tint = CanonGreen2,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (r.driverRating != null) {
+                    Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(r.driverRating.toString(), color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(" · ", color = CanonMuted, fontSize = 14.sp)
+                }
+                Text(
+                    if (r.driverTripsCount > 0)
+                        appText("${r.driverTripsCount} поездок", "${r.driverTripsCount} сәфәр")
+                    else appText("Новичок", "Яңы кеше"),
+                    color = CanonMutedStrong,
+                    fontSize = 14.sp,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    r.driverCar.ifBlank { appText("Машина не указана", "Машина күрһәтелмәгән") },
+                    color = CanonMutedStrong,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
+                    maxLines = 2,
+                )
+            }
+        }
+    }
+}
+
+/** Три равноправных решения; при крупном шрифте перестраиваются столбцом без обрезания. */
+@Composable
+private fun ResponseActions(
+    price: Int,
+    canAccept: Boolean,
+    canCounter: Boolean,
+    canDecline: Boolean,
+    busy: Boolean,
+    onAccept: () -> Unit,
+    onCounter: () -> Unit,
+    onDecline: () -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val horizontal = maxWidth >= 310.dp && LocalDensity.current.fontScale <= 1.15f
+        val actions = buildList<Pair<String, @Composable () -> Unit>> {
+            if (canDecline) add("decline" to {
+                OutlinedButton(
+                    onClick = onDecline,
+                    enabled = !busy,
+                    shape = CanonItemShape,
+                    contentPadding = PaddingValues(horizontal = 5.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
+                ) { ResponseActionLabel(appText("Отказать", "Баш тартыу")) }
+            })
+            if (canCounter) add("counter" to {
+                OutlinedButton(
+                    onClick = onCounter,
+                    enabled = !busy,
+                    shape = CanonItemShape,
+                    border = BorderStroke(1.dp, CanonGreen2),
+                    contentPadding = PaddingValues(horizontal = 5.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
+                ) { ResponseActionLabel(appText("Своя цена", "Үҙ хаҡың"), color = CanonGreen2) }
+            })
+            if (canAccept) add("accept" to {
+                Button(
+                    onClick = onAccept,
+                    enabled = !busy,
+                    shape = CanonItemShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                    contentPadding = PaddingValues(horizontal = 5.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
+                ) { ResponseActionLabel(appText("Принять", "Ҡабул итеү"), "$price ₽", CanonOnFilled) }
+            })
+        }
+        if (horizontal && actions.size > 1) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                actions.forEach { (_, content) -> Box(Modifier.weight(1f)) { content() } }
+            }
+        } else {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                actions.forEach { (_, content) -> content() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResponseActionLabel(
+    title: String,
+    value: String? = null,
+    color: Color = CanonText,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(title, color = color, fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        value?.let { Text(it, color = color, fontSize = 16.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
     }
 }
 

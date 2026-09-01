@@ -65,6 +65,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
@@ -82,6 +83,7 @@ import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LightMode
@@ -151,6 +153,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -187,6 +191,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -759,6 +764,7 @@ internal fun CreatePassengerRequestScreen(
             womenOnly = womenOnly, childSeat = childSeat, pets = pets, wheelchair = wheelchair,
             baggage = baggage, nonSmoking = nonSmoking, airConditioner = airConditioner,
             onlyTrusted = onlyTrusted,
+            pickupLabel = pickupLabel,
             loading = submitting,
             onCategoryChange = { category = it }, onSeatsChange = { seats = it }, onPriceChange = { price = it },
             onCommentChange = { comment = it }, onTimeChange = { time = it },
@@ -870,6 +876,7 @@ internal fun CreatePassengerRequestContent(
     nonSmoking: Boolean,
     airConditioner: Boolean,
     onlyTrusted: Boolean,
+    pickupLabel: String = "",
     loading: Boolean,
     onCategoryChange: (String) -> Unit,
     onSeatsChange: (String) -> Unit,
@@ -890,196 +897,525 @@ internal fun CreatePassengerRequestContent(
     pickupChips: (@Composable () -> Unit)? = null,   // F14: подсказки точек сбора (умный слот)
     modifier: Modifier = Modifier,
 ) {
-    // «Дополнительно»: условия поездки + «только для своих» + комментарий свёрнуты, чтобы не пугать
-    // пожилых и новичков. Основное (откуда/куда/когда/места/цена) всегда на виду. Ни одно поле не теряется.
+    // Вариант B: маршрут — одна смысловая карточка, четыре главных параметра — строгая сетка 2×2,
+    // итог и действие закреплены снизу. Остальные условия не потеряны, но не перегружают первый экран.
     var extrasExpanded by remember { mutableStateOf(false) }
+    var categoriesExpanded by remember { mutableStateOf(false) }
+    var routeExpanded by remember { mutableStateOf(from.isBlank() || to.isBlank()) }
     val extrasChevron by animateFloatAsState(if (extrasExpanded) 180f else 0f, label = "extrasChevron")
-    LazyColumn(
-        modifier = modifier.padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item {
-            Text(
-                appText("Заявка пассажира", "Пассажир заявкаһы"),
-                color = CanonGreen,
-                fontSize = 24.sp,
-                lineHeight = 30.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        item {
-            InfoCard(
-                title = appText("Водители увидят условия", "Йөрөтөүселәр шарттарҙы күрә"),
-                text = appText("Телефон и точная геолокация откроются только после подтверждения поездки.", "Телефон һәм теүәл геолокация сәфәр раҫланғандан һуң ғына асыла."),
-                icon = Icons.Default.Lock
-            )
-        }
-        item {
-            if (fromField != null) fromField() else OutlinedTextField(
-                value = from, onValueChange = {},
-                label = { Text(appText("Откуда", "Ҡайҙан")) },
-                leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
-            )
-        }
-        item {
-            if (toField != null) toField() else OutlinedTextField(
-                value = to, onValueChange = {},
-                label = { Text(appText("Куда", "Ҡайҙа")) },
-                leadingIcon = { Icon(Icons.Default.NearMe, contentDescription = null) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
-            )
-        }
-        if (pickupChips != null) item { pickupChips() }   // F14: чипы «частые точки сбора» для города отправления
-        item {
-            val ctxDt = LocalContext.current
-            // Нативный календарь Android: башкирской локали (ba) в системе нет → русский для обоих языков (вместо англ.).
-            val dtLocale = "ru"
-            Box {
-                OutlinedTextField(
-                    value = time,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
-                    placeholder = { Text(appText("Выбери дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
-                    trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp)
-                )
-                Box(Modifier.matchParentSize().clickable { openDateTimePicker(ctxDt, dtLocale, onTimeChange) })
-            }
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = seats,
-                    onValueChange = { onSeatsChange(it.filter(Char::isDigit).take(2)) },
-                    label = { Text(appText("Мест", "Урын")) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(14.dp)
-                )
-                OutlinedTextField(
-                    value = price,
-                    onValueChange = { onPriceChange(it.filter(Char::isDigit).take(5)) },
-                    label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(14.dp)
-                )
-            }
-        }
-        item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(categories, key = { it.first }) { (key, label) ->
-                    val labelText = label.text()
-                    if (category == key) {
-                        Button(
-                            onClick = { onCategoryChange(key) },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                        ) { Text(labelText, fontWeight = FontWeight.Bold) }
-                    } else {
-                        OutlinedButton(
-                            onClick = { onCategoryChange(key) },
-                            shape = RoundedCornerShape(14.dp)
-                        ) { Text(labelText, fontWeight = FontWeight.Bold) }
-                    }
-                }
-            }
-        }
-        // «Дополнительно» — сворачиваемый блок: условия поездки, «только для своих», комментарий.
-        // По умолчанию свёрнут, чтобы форма не перегружала. Плавное раскрытие. Ни одного поля не потеряли.
-        item {
-            Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                Column {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 56.dp)
-                            .bounceClick { extrasExpanded = !extrasExpanded }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+    val categoryChevron by animateFloatAsState(if (categoriesExpanded) 180f else 0f, label = "categoryChevron")
+    val metricHeight = if (LocalDensity.current.fontScale >= 1.2f) 156.dp else 136.dp
+    val context = LocalContext.current
+    val valid = passengerRequestValid(from, to, time, price)
+
+    Column(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.weight(1f).padding(horizontal = CanonSpace.lg),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
+            contentPadding = PaddingValues(top = CanonSpace.sm, bottom = CanonSpace.lg),
+        ) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("passenger_route_card"),
+                    colors = CardDefaults.cardColors(containerColor = CanonSurface),
+                    shape = CanonCardShape,
+                    elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
+                    border = BorderStroke(1.dp, CanonHairlineGreen),
+                ) {
+                    Column(
+                        Modifier.padding(CanonSpace.lg),
+                        verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
                     ) {
-                        Icon(Icons.Default.Tune, contentDescription = null, tint = CanonGreen2)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(appText("Дополнительно", "Өҫтәмә"), fontWeight = FontWeight.Bold, color = CanonText, fontSize = 16.sp)
-                            Text(
-                                appText("Условия поездки, «только для своих», комментарий", "Сәфәр шарттары, «үҙебеҙҙекеләр өсөн», комментарий"),
-                                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("passenger_route_edit")
+                                .bounceClick { routeExpanded = !routeExpanded },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Surface(color = CanonMint, shape = CircleShape) {
+                                Icon(
+                                    Icons.Default.Route,
+                                    contentDescription = null,
+                                    tint = CanonGreen2,
+                                    modifier = Modifier.padding(CanonSpace.sm).size(24.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(CanonSpace.md))
+                            Column(Modifier.weight(1f)) {
+                                val routeTitle = "${from.ifBlank { appText("Откуда", "Ҡайҙан") }} → ${to.ifBlank { appText("Куда", "Ҡайҙа") }}"
+                                Text(
+                                    appText(routeTitle, routeTitle),
+                                    style = CanonHeading,
+                                    color = CanonText,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    appText("Маршрут", "Маршрут"),
+                                    style = CanonCaption,
+                                    color = CanonMuted,
+                                )
+                            }
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = if (routeExpanded) appText("Свернуть маршрут", "Маршрутты йыйыу")
+                                else appText("Изменить маршрут", "Маршрутты үҙгәртеү"),
+                                tint = CanonGreen2,
+                                modifier = Modifier.size(24.dp),
                             )
                         }
-                        Icon(
-                            Icons.Default.KeyboardArrowDown,
-                            contentDescription = if (extrasExpanded) appText("Свернуть", "Йыйыу") else appText("Развернуть", "Асыу"),
-                            tint = CanonMuted,
-                            modifier = Modifier.graphicsLayer { rotationZ = extrasChevron }
-                        )
-                    }
-                    AnimatedVisibility(
-                        visible = extrasExpanded,
-                        enter = expandVertically(tween(CanonMotion.QUICK)) + fadeIn(tween(CanonMotion.QUICK)),
-                        exit = shrinkVertically(tween(CanonMotion.QUICK)) + fadeOut(tween(CanonMotion.QUICK)),
-                    ) {
-                        Column(Modifier.padding(bottom = 8.dp)) {
-                            PrefToggleRow(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"), womenOnly, onWomenOnlyChange)
-                            PrefToggleRow(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"), childSeat, onChildSeatChange)
-                            PrefToggleRow(R.drawable.yu_pet, appText("Еду с животным", "Хайуан менән"), pets, onPetsChange)
-                            PrefToggleRow(R.drawable.yu_accessible, appText("Инвалидная коляска", "Инвалид коляскаһы"), wheelchair, onWheelchairChange)
-                            PrefToggleRow(R.drawable.yu_luggage, appText("Есть багаж", "Багаж бар"), baggage, onBaggageChange)
-                            PrefToggleRow(R.drawable.yu_smoke_free, appText("Некурящий салон", "Тартмаусы салон"), nonSmoking, onNonSmokingChange)
-                            PrefToggleRow(R.drawable.yu_ac, appText("Нужен кондиционер", "Кондиционер кәрәк"), airConditioner, onAirConditionerChange)
-                            PrefToggleRow(Icons.Default.Groups, appText("Только для своих", "Тик үҙебеҙҙекеләр өсөн"), onlyTrusted, onOnlyTrustedChange)
+                        AnimatedVisibility(
+                            visible = routeExpanded,
+                            enter = expandVertically(tween(CanonMotion.NORMAL)) + fadeIn(tween(CanonMotion.QUICK)),
+                            exit = shrinkVertically(tween(CanonMotion.NORMAL)) + fadeOut(tween(CanonMotion.QUICK)),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+                                if (fromField != null) fromField() else OutlinedTextField(
+                                    value = from, onValueChange = {},
+                                    label = { Text(appText("Откуда", "Ҡайҙан")) },
+                                    leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                                    singleLine = true, modifier = Modifier.fillMaxWidth(), shape = CanonFieldShape,
+                                )
+                                if (toField != null) toField() else OutlinedTextField(
+                                    value = to, onValueChange = {},
+                                    label = { Text(appText("Куда", "Ҡайҙа")) },
+                                    leadingIcon = { Icon(Icons.Default.NearMe, contentDescription = null) },
+                                    singleLine = true, modifier = Modifier.fillMaxWidth(), shape = CanonFieldShape,
+                                )
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Lock, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(CanonSpace.sm))
                             Text(
                                 appText(
-                                    "Заявку увидят и возьмут только проверенные «свои» (уровень «Свой»).",
-                                    "Заявканы тик тикшерелгән «үҙебеҙҙекеләр» (Үҙебеҙҙеке кимәле) күрер һәм алыр.",
+                                    "Телефон и точная геолокация — после подтверждения",
+                                    "Телефон һәм теүәл геолокация — раҫлағандан һуң",
                                 ),
-                                modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp),
-                                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
-                            )
-                            OutlinedTextField(
-                                value = comment,
-                                onValueChange = onCommentChange,
-                                label = { Text(appText("Комментарий", "Аңлатма")) },
-                                placeholder = { Text(appText("Например: буду с ребёнком", "Мәҫәлән: бала менән булам")) },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).heightIn(min = 96.dp),
-                                shape = RoundedCornerShape(14.dp)
+                                modifier = Modifier.weight(1f),
+                                style = CanonCaption,
+                                color = CanonMuted,
                             )
                         }
                     }
                 }
             }
+
+            item {
+                Text(appText("Детали поездки", "Сәфәр тураһында"), style = CanonHeading, color = CanonText)
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().testTag("passenger_metric_grid_top"),
+                    horizontalArrangement = Arrangement.spacedBy(CanonSpace.md),
+                ) {
+                    RequestMetricCell(
+                        label = appText("Дата и время", "Дата һәм ваҡыт"),
+                        value = time.takeIf { it.isNotBlank() }?.replace(", ", "\n")
+                            ?: appText("Выбрать", "Һайлау"),
+                        icon = Icons.Default.Schedule,
+                        onClick = { openDateTimePicker(context, "ru", onTimeChange) },
+                        modifier = Modifier.weight(1f).height(metricHeight),
+                        testTag = "passenger_time_cell",
+                    )
+                    RequestInputMetricCell(
+                        label = appText("Мест", "Урын"),
+                        value = seats,
+                        suffix = "",
+                        icon = Icons.Default.EventSeat,
+                        onValueChange = { onSeatsChange(it.filter(Char::isDigit).take(2)) },
+                        enabled = !loading,
+                        modifier = Modifier.weight(1f).height(metricHeight),
+                    )
+                }
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().testTag("passenger_metric_grid_bottom"),
+                    horizontalArrangement = Arrangement.spacedBy(CanonSpace.md),
+                ) {
+                    RequestInputMetricCell(
+                        label = appText("Бюджет", "Бюджет"),
+                        value = price,
+                        suffix = appText(" ₽", " ₽"),
+                        icon = Icons.Default.Payments,
+                        onValueChange = { onPriceChange(it.filter(Char::isDigit).take(5)) },
+                        enabled = !loading,
+                        modifier = Modifier.weight(1f).height(metricHeight),
+                    )
+                    RequestMetricCell(
+                        label = appText("Категория", "Төр"),
+                        value = selectedCategoryText,
+                        icon = Icons.Default.Shield,
+                        onClick = { categoriesExpanded = !categoriesExpanded },
+                        trailingRotation = categoryChevron,
+                        modifier = Modifier.weight(1f).height(metricHeight),
+                        testTag = "passenger_category_cell",
+                    )
+                }
+            }
+            item {
+                AnimatedVisibility(
+                    visible = categoriesExpanded,
+                    enter = expandVertically(tween(CanonMotion.QUICK)) + fadeIn(tween(CanonMotion.QUICK)),
+                    exit = shrinkVertically(tween(CanonMotion.QUICK)) + fadeOut(tween(CanonMotion.QUICK)),
+                ) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                        items(categories, key = { it.first }) { (key, label) ->
+                            FilterChip(
+                                selected = category == key,
+                                onClick = { onCategoryChange(key) },
+                                label = { Text(label.text(), style = CanonCaption, fontWeight = FontWeight.SemiBold) },
+                                leadingIcon = if (category == key) {
+                                    { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                } else null,
+                                shape = CanonFieldShape,
+                                colors = requestFilterChipColors(),
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CanonSurface),
+                    shape = CanonItemShape,
+                    elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
+                ) {
+                    Column(
+                        Modifier.padding(CanonSpace.lg),
+                        verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(color = CanonMint, shape = CanonFieldShape) {
+                                Icon(
+                                    Icons.Default.LocationOn,
+                                    contentDescription = null,
+                                    tint = CanonGreen2,
+                                    modifier = Modifier.padding(CanonSpace.sm).size(22.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(CanonSpace.md))
+                            Column(Modifier.weight(1f)) {
+                                Text(appText("Где встречаемся?", "Ҡайҙа осрашабыҙ?"), style = CanonBodyStrong, color = CanonText)
+                                Text(
+                                    pickupLabel.ifBlank { appText("Выбери удобный ориентир", "Уңайлы ориентирҙы һайла") },
+                                    style = CanonCaption,
+                                    color = if (pickupLabel.isBlank()) CanonMuted else CanonGreen2,
+                                )
+                            }
+                        }
+                        if (pickupChips != null) pickupChips()
+                    }
+                }
+            }
+
+            item {
+                Text(appText("Что важно", "Нимә мөһим"), style = CanonHeading, color = CanonText)
+            }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                    item(key = "baggage") {
+                        RequestToggleChip(
+                            selected = baggage,
+                            label = appText("Багаж", "Багаж"),
+                            icon = Icons.Default.Luggage,
+                            onClick = { onBaggageChange(!baggage) },
+                        )
+                    }
+                    item(key = "non-smoking") {
+                        RequestToggleChip(
+                            selected = nonSmoking,
+                            label = appText("Не курить", "Тәмәке тартмаҫҡа"),
+                            icon = Icons.Default.VisibilityOff,
+                            onClick = { onNonSmokingChange(!nonSmoking) },
+                        )
+                    }
+                    item(key = "trusted") {
+                        RequestToggleChip(
+                            selected = onlyTrusted,
+                            label = appText("Только для своих", "Тик үҙебеҙҙекеләр өсөн"),
+                            icon = Icons.Default.Groups,
+                            onClick = { onOnlyTrustedChange(!onlyTrusted) },
+                        )
+                    }
+                }
+            }
+            item {
+                AnimatedVisibility(
+                    visible = onlyTrusted,
+                    enter = fadeIn(tween(CanonMotion.QUICK)) + expandVertically(tween(CanonMotion.QUICK)),
+                    exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
+                ) {
+                    Text(
+                        appText(
+                            "Заявку увидят только проверенные участники уровня «Свой».",
+                            "Заявканы тик «Үҙебеҙҙеке» кимәлендәге тикшерелгән ҡатнашыусылар күрәсәк.",
+                        ),
+                        style = CanonCaption,
+                        color = CanonMuted,
+                    )
+                }
+            }
+
+            item {
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 64.dp)
+                                .bounceClick { extrasExpanded = !extrasExpanded }
+                                .padding(horizontal = CanonSpace.lg, vertical = CanonSpace.md),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Default.Tune, contentDescription = null, tint = CanonGreen2)
+                            Spacer(Modifier.width(CanonSpace.md))
+                            Column(Modifier.weight(1f)) {
+                                Text(appText("Дополнительно", "Өҫтәмә"), style = CanonBodyStrong, color = CanonText)
+                                Text(
+                                    appText("Другие условия и комментарий", "Башҡа шарттар һәм аңлатма"),
+                                    style = CanonCaption,
+                                    color = CanonMuted,
+                                )
+                            }
+                            Icon(
+                                Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (extrasExpanded) appText("Свернуть", "Йыйыу") else appText("Развернуть", "Асыу"),
+                                tint = CanonMuted,
+                                modifier = Modifier.graphicsLayer { rotationZ = extrasChevron },
+                            )
+                        }
+                        AnimatedVisibility(
+                            visible = extrasExpanded,
+                            enter = expandVertically(tween(CanonMotion.QUICK)) + fadeIn(tween(CanonMotion.QUICK)),
+                            exit = shrinkVertically(tween(CanonMotion.QUICK)) + fadeOut(tween(CanonMotion.QUICK)),
+                        ) {
+                            Column(Modifier.padding(bottom = CanonSpace.sm)) {
+                                PrefToggleRow(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"), womenOnly, onWomenOnlyChange)
+                                PrefToggleRow(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"), childSeat, onChildSeatChange)
+                                PrefToggleRow(R.drawable.yu_pet, appText("Еду с животным", "Хайуан менән"), pets, onPetsChange)
+                                PrefToggleRow(R.drawable.yu_accessible, appText("Инвалидная коляска", "Инвалид коляскаһы"), wheelchair, onWheelchairChange)
+                                PrefToggleRow(R.drawable.yu_ac, appText("Нужен кондиционер", "Кондиционер кәрәк"), airConditioner, onAirConditionerChange)
+                                OutlinedTextField(
+                                    value = comment,
+                                    onValueChange = onCommentChange,
+                                    label = { Text(appText("Комментарий", "Аңлатма")) },
+                                    placeholder = { Text(appText("Например: буду с ребёнком", "Мәҫәлән: бала менән булам")) },
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = CanonSpace.md).heightIn(min = 96.dp),
+                                    shape = CanonFieldShape,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
-        item {
-            VoiceParsedCard(
-                title = appText("Проверка заявки", "Заявканы тикшереү"),
-                lines = listOf(
-                    CheckLine("$from → $to", from.isNotBlank() && to.isNotBlank()),
-                    // Дата/время — обязательное поле: пока не выбрано, показываем серой строкой (кнопка тоже неактивна).
-                    CheckLine(
-                        time.takeIf { it.isNotBlank() } ?: appText("Дата и время не выбраны", "Дата һәм ваҡыт һайланмаған"),
-                        time.isNotBlank()
-                    ),
-                    CheckLine(
-                        listOf(
-                            seats.toIntOrNull()?.let { seatsText(it) } ?: "$seats ${appText("место", "урын")}",
-                            selectedCategoryText
-                        ).joinToString(" · "),
-                        seats.isNotBlank()
-                    ),
-                    CheckLine(appText("Готовая сумма: $price ₽", "Әҙер сумма: $price ₽"), price.isNotBlank())
+
+        RequestPublishBar(
+            from = from,
+            to = to,
+            time = time,
+            price = price,
+            valid = valid,
+            loading = loading,
+            onSubmit = onSubmit,
+        )
+    }
+}
+
+@Composable
+private fun RequestMetricCell(
+    label: String,
+    value: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    trailingRotation: Float? = null,
+    testTag: String? = null,
+) {
+    val taggedModifier = if (testTag != null) modifier.testTag(testTag) else modifier
+    Surface(
+        modifier = taggedModifier.bounceClick(onClick),
+        color = CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        shadowElevation = CanonDepth.card,
+    ) {
+        Column(Modifier.padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = CanonMint, shape = CanonFieldShape) {
+                    Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(CanonSpace.sm).size(22.dp))
+                }
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text(
+                    label,
+                    modifier = Modifier.weight(1f),
+                    style = CanonCaption,
+                    color = CanonMuted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
-            )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    value,
+                    modifier = Modifier.weight(1f),
+                    color = CanonGreen,
+                    fontSize = 20.sp,
+                    lineHeight = 26.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (trailingRotation != null) {
+                    Icon(
+                        Icons.Default.KeyboardArrowDown,
+                        contentDescription = appText("Выбрать категорию", "Төрҙө һайлау"),
+                        tint = CanonMuted,
+                        modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = trailingRotation },
+                    )
+                }
+            }
         }
-        item {
+    }
+}
+
+@Composable
+private fun RequestInputMetricCell(
+    label: String,
+    value: String,
+    suffix: String,
+    icon: ImageVector,
+    onValueChange: (String) -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        shadowElevation = CanonDepth.card,
+    ) {
+        Column(Modifier.padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = CanonMint, shape = CanonFieldShape) {
+                    Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(CanonSpace.sm).size(22.dp))
+                }
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text(
+                    label,
+                    modifier = Modifier.weight(1f),
+                    style = CanonCaption,
+                    color = CanonMuted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    enabled = enabled,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    textStyle = CanonHeading.copy(color = CanonGreen),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { field ->
+                        Box {
+                            if (value.isBlank()) Text(appText("—", "—"), style = CanonHeading, color = CanonMuted)
+                            field()
+                        }
+                    },
+                )
+                if (suffix.isNotEmpty()) Text(suffix, style = CanonHeading, color = CanonGreen)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RequestToggleChip(
+    selected: Boolean,
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, style = CanonCaption, fontWeight = FontWeight.SemiBold) },
+        leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+        shape = CanonFieldShape,
+        colors = requestFilterChipColors(),
+        modifier = Modifier.heightIn(min = 48.dp),
+    )
+}
+
+@Composable
+private fun requestFilterChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = CanonSurface,
+    labelColor = CanonText,
+    iconColor = CanonMuted,
+    selectedContainerColor = CanonMint,
+    selectedLabelColor = CanonGreen2,
+    selectedLeadingIconColor = CanonGreen2,
+)
+
+@Composable
+private fun RequestPublishBar(
+    from: String,
+    to: String,
+    time: String,
+    price: String,
+    valid: Boolean,
+    loading: Boolean,
+    onSubmit: () -> Unit,
+) {
+    Surface(
+        color = CanonSurface,
+        shadowElevation = CanonDepth.sheet,
+        border = BorderStroke(1.dp, CanonBorder),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(CanonSpace.lg),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            AnimatedContent(targetState = valid, label = "requestReview") { ready ->
+                Text(
+                    if (ready) appText("Проверь перед публикацией", "Баҫтырыр алдынан тикшер")
+                    else when {
+                        from.isBlank() || to.isBlank() -> appText("Заполни маршрут", "Маршрутты тултыр")
+                        time.isBlank() -> appText("Выбери дату и время", "Дата һәм ваҡытты һайла")
+                        else -> appText("Укажи бюджет", "Бюджетты күрһәт")
+                    },
+                    style = CanonMicro,
+                    color = if (ready) CanonGreen2 else CanonMuted,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val routeSummary = "${from.ifBlank { appText("—", "—") }} → ${to.ifBlank { appText("—", "—") }}"
+                val priceSummary = "${price.ifBlank { appText("—", "—") }} ₽"
+                Text(
+                    appText(routeSummary, routeSummary),
+                    modifier = Modifier.weight(1f),
+                    style = CanonBodyStrong,
+                    color = CanonText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text(appText(priceSummary, priceSummary), style = CanonBodyStrong, color = CanonGreen2)
+            }
             AppButton(
-                text = appText("Создать заявку", "Заявка булдырыу"),
+                text = appText("Опубликовать заявку", "Заявканы баҫтырыу"),
                 loading = loading,
                 onClick = onSubmit,
-                enabled = !loading && passengerRequestValid(from, to, time, price),
+                enabled = !loading && valid,
                 modifier = Modifier.testTag("passenger_submit_btn"),
             )
         }

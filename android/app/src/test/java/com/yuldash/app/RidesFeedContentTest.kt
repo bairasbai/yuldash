@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.yuldash.app.data.RequestFeedDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -106,9 +107,10 @@ class RidesFeedContentTest {
             }
         }
         composeRule.onNodeWithText("Баймак → Сибай").assertIsDisplayed()
-        composeRule.onNodeWithText("Айгуль · 2 места").assertIsDisplayed()
-        composeRule.onNodeWithText("Еду утром").assertIsDisplayed()
-        composeRule.onNodeWithText("Предложить поездку").assertIsDisplayed()
+        composeRule.onNodeWithText("Айгуль").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Новый пассажир").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Еду утром").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Предложить поездку").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -120,7 +122,7 @@ class RidesFeedContentTest {
                 RequestsFeedContent(loading = false, error = false, feed = listOf(r), onRetry = {}, onRespond = { responded = it })
             }
         }
-        composeRule.onNodeWithText("Предложить поездку").performClick()
+        composeRule.onNodeWithText("Предложить поездку").performScrollTo().performClick()
         assertEquals(77, responded?.id)
     }
 
@@ -131,7 +133,7 @@ class RidesFeedContentTest {
                 RequestsFeedContent(loading = false, error = false, feed = listOf(request(responded = true)), onRetry = {}, onRespond = {})
             }
         }
-        composeRule.onNodeWithText("Отклик отправлен").assertIsDisplayed()
+        composeRule.onNodeWithText("Отклик отправлен").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Предложить поездку").assertDoesNotExist()
     }
 }

@@ -1132,6 +1132,29 @@ def user_rating(session: Session, user_id: int) -> tuple[float, int]:
     return _rating_from_rows(rows)
 
 
+def users_rating_agg(session: Session, user_ids: set) -> dict:
+    """Рейтинги нескольких людей одним запросом — тот же честный расчёт, что в профиле.
+
+    Хелпер не привязан к роли: водитель остаётся пассажиром в чужой поездке, поэтому
+    рейтинг относится к человеку. Нужен лентам, где N отдельных ``user_rating`` дали бы
+    N запросов к БД и замедляли прокрутку с каждой новой карточкой.
+    """
+    if not user_ids:
+        return {}
+    rows_by_user: dict = {}
+    for ratee_id, rater_id, stars, at in session.exec(
+        select(Rating.ratee_id, Rating.rater_id, Rating.stars, Rating.created_at)
+        .where(Rating.ratee_id.in_(user_ids), Rating.excluded == False)  # noqa: E712
+    ).all():
+        rows_by_user.setdefault(ratee_id, []).append((rater_id, stars, at))
+    result: dict = {}
+    for user_id, rows in rows_by_user.items():
+        avg, count = _rating_from_rows(rows)
+        if count:
+            result[user_id] = (avg, count)
+    return result
+
+
 # Анти-накрутка бейджа «N поездок» (аудит 2026-08-07). Средний балл от накрутки парой аккаунтов
 # защищён капом выше, а бейдж — не был ничем: он просто считал брони со статусом done, а перевести
 # бронь в done можно было за три запроса, не проехав ни метра. Бейдж доверия — и есть продукт
@@ -1185,17 +1208,7 @@ def drivers_bundle(session: Session, driver_ids: set) -> tuple[dict, dict, dict,
         return {}, {}, {}, {}
     users = {u.id: u for u in session.exec(select(User).where(User.id.in_(driver_ids))).all()}
     profiles = {p.user_id: p for p in session.exec(select(DriverProfile).where(DriverProfile.user_id.in_(driver_ids))).all()}
-    rows_by_driver: dict = {}
-    for ratee_id, rater_id, stars, at in session.exec(
-        select(Rating.ratee_id, Rating.rater_id, Rating.stars, Rating.created_at)
-        .where(Rating.ratee_id.in_(driver_ids), Rating.excluded == False)  # noqa: E712 — «щит рейтинга»: как в user_rating
-    ).all():
-        rows_by_driver.setdefault(ratee_id, []).append((rater_id, stars, at))
-    rating_agg: dict = {}
-    for rid, rows in rows_by_driver.items():
-        avg, cnt = _rating_from_rows(rows)   # G6: то же окно свежести, что и user_rating (консистентно)
-        if cnt:
-            rating_agg[rid] = (avg, cnt)
+    rating_agg = users_rating_agg(session, driver_ids)
     trips_agg = driver_trips_agg(session, driver_ids)   # F8: счётчик done-поездок для бейджей
     return users, profiles, rating_agg, trips_agg
 

@@ -3,6 +3,7 @@ package com.yuldash.app
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.yuldash.app.data.ResponseDto
@@ -43,7 +44,7 @@ class RidesDeepContentTest {
         // (SkeletonCard). Текста там больше нет, а метки у скелетона тоже нет —
         // проверять его нечем. Поэтому проверяем то, что реально важно и проверяемо:
         // пока грузим, содержимое списка НЕ показано.
-        composeRule.onNodeWithText("Поехать с этим водителем").assertDoesNotExist()
+        composeRule.onNodeWithText("Принять").assertDoesNotExist()
     }
 
     @Test
@@ -99,8 +100,8 @@ class RidesDeepContentTest {
         }
         composeRule.onNodeWithText("Ринат").assertIsDisplayed()
         composeRule.onNodeWithText("Выезжаю в 8 утра").assertIsDisplayed()
-        composeRule.onNodeWithText("300 ₽").assertIsDisplayed()
-        composeRule.onNodeWithText("Поехать с этим водителем").assertIsDisplayed()
+        composeRule.onAllNodesWithText("300 ₽")[0].assertIsDisplayed()
+        composeRule.onNodeWithText("Принять").assertIsDisplayed()
     }
 
     @Test
@@ -112,7 +113,7 @@ class RidesDeepContentTest {
                 ResponsesContent(loading = false, error = false, responses = listOf(r), accepting = false, onRetry = {}, onAccept = { accepted = it })
             }
         }
-        composeRule.onNodeWithText("Поехать с этим водителем").performClick()
+        composeRule.onNodeWithText("Принять").performClick()
         assertEquals(55, accepted?.id)
     }
 
@@ -125,7 +126,7 @@ class RidesDeepContentTest {
             }
         }
         // Кнопка есть, но disabled (идёт приём) → клик не проходит, колбэк не зовётся.
-        composeRule.onNodeWithText("Поехать с этим водителем").performClick()
+        composeRule.onNodeWithText("Принять").performClick()
         assertEquals(null, accepted)
     }
 }
