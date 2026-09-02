@@ -456,6 +456,7 @@ internal enum class Screen {
     Safety,
     Settings,
     Privacy,
+    MyData,       // «Мои данные»: что Юлдаш хранит, на сколько, и удаление документов водителя
     Rules,
     PaymentInfo,
     PaymentMethods,   // «Способы оплаты»: чем рассчитаемся с водителем (наличные / СБП / договоримся)
