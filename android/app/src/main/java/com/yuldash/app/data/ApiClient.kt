@@ -484,6 +484,42 @@ object ApiClient {
     suspend fun deleteAccount(): Result<Unit> =
         call("POST", "/me/delete", JSONObject(), auth = true).onSuccess { clearLocalSession() }.map { }
 
+    /** Выписка «что Юлдаш обо мне знает»: живые счётчики и сроки автоудаления.
+     *  Сроки приходят с сервера — те же, по которым реально чистится база. */
+    suspend fun getMyData(): Result<MyDataDto> =
+        call("GET", "/me/data", null, auth = true).map { o ->
+            MyDataDto(
+                rides = o.optInt("rides"),
+                ridesDays = o.optInt("rides_days"),
+                bookings = o.optInt("bookings"),
+                messages = o.optInt("messages"),
+                messagesDays = o.optInt("messages_days"),
+                voices = o.optInt("voices"),
+                voicesDays = o.optInt("voices_days"),
+                notifications = o.optInt("notifications"),
+                notificationsDays = o.optInt("notifications_days"),
+                driverDocs = o.optInt("driver_docs"),
+                driverDocsRemovable = o.optBoolean("driver_docs_removable"),
+                locationStored = o.optBoolean("location_stored"),
+                cardStored = o.optBoolean("card_stored"),
+            )
+        }
+
+    /** Удалить только документы водителя, аккаунт оставить (POST /me/driver-docs/delete).
+     *  Сервер откажет, если водитель на линии или документы на проверке. */
+    suspend fun deleteDriverDocs(): Result<Unit> =
+        call("POST", "/me/driver-docs/delete", JSONObject(), auth = true).map { }
+
+    /** «Скачать мои данные»: готовый читаемый текст с сервера + имя файла.
+     *  Текст собирает сервер — он один знает, что где лежит и чего в выгрузку не класть. */
+    suspend fun exportMyData(lang: String): Result<MyDataExportDto> =
+        call("GET", "/me/export?lang=$lang", null, auth = true).map { o ->
+            MyDataExportDto(
+                filename = o.optString("filename", "yuldash-my-data.txt"),
+                text = o.optString("text"),
+            )
+        }
+
     // ---------- Push (FCM) ----------
     /** Зарегистрировать FCM-токен устройства на сервере (если вошли). Сохраняем, чтобы дослать после логина. */
     fun fireRegisterPushToken(token: String) {
@@ -6850,6 +6886,26 @@ data class SavedPlaceDto(
     val usedAt: String = "",
 )
 /** Недавний адрес назначения (GET /places/recent, свежие сверху). */
+/** Выгрузка «скачать мои данные»: имя файла и его содержимое. */
+data class MyDataExportDto(val filename: String, val text: String)
+
+/** Что Юлдаш хранит о человеке: сколько и до какого срока. */
+data class MyDataDto(
+    val rides: Int,
+    val ridesDays: Int,
+    val bookings: Int,
+    val messages: Int,
+    val messagesDays: Int,
+    val voices: Int,
+    val voicesDays: Int,
+    val notifications: Int,
+    val notificationsDays: Int,
+    val driverDocs: Int,
+    val driverDocsRemovable: Boolean,
+    val locationStored: Boolean,
+    val cardStored: Boolean,
+)
+
 data class RecentPlaceDto(
     val id: Int, val address: String, val lat: Double, val lng: Double, val usedAt: String,
 )

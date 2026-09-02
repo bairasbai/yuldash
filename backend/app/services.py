@@ -356,6 +356,58 @@ def set_driver_docs_verdict(session: Session, user: User, profile: DriverProfile
     session.add(profile)
 
 
+def clear_driver_docs(session: Session, user: User, profile: DriverProfile) -> None:
+    """Водитель сам убрал свои документы — снимаем всё, что на них держалось.
+
+    Живёт здесь, а не в роутере, по той же причине, что и два соседа: у бейджа «проверен»
+    ОДНА дверь, и сторож `test_docs_verdicts_go_through_one_door` следит, чтобы никто не
+    трогал `User.verified` из обработчиков напрямую. Первая версия этой правки писала
+    `user.verified = False` прямо в роутере — сторож её поймал, и был прав.
+
+    Почему статус «none», а не «rejected». Документы не отклоняли: человек забрал их сам.
+    «Отклонены» означало бы, что модератор нашёл в них изъян, — и водитель увидел бы
+    обвинение там, где было его собственное решение.
+
+    Подтверждение пола сгорает вместе с фото прав: подтверждали именно по ним, а их больше
+    нет. Иначе останется обещание без основания — женские заказы у водителя, чьи документы
+    мы уже не храним.
+    """
+    profile.license_url = ""
+    profile.car_photo_url = ""
+    profile.docs_status = "none"
+    profile.gender_verified = False
+    profile.verify_submitted_at = None
+    user.verified = False
+    session.add(user)
+    session.add(profile)
+
+
+def clear_driver_docs(session: Session, user: User, profile: DriverProfile) -> None:
+    """Водитель сам убрал свои документы — снимаем всё, что на них держалось.
+
+    Живёт здесь, а не в роутере, по той же причине, что и два соседа: у бейджа «проверен»
+    ОДНА дверь, и сторож `test_docs_verdicts_go_through_one_door` следит, чтобы никто не
+    трогал `User.verified` из обработчиков напрямую. Первая версия этой правки писала
+    `user.verified = False` прямо в роутере — сторож её поймал, и был прав.
+
+    Почему статус «none», а не «rejected». Документы не отклоняли: человек забрал их сам.
+    «Отклонены» означало бы, что модератор нашёл в них изъян, — и водитель увидел бы
+    обвинение там, где было его собственное решение.
+
+    Подтверждение пола сгорает вместе с фото прав: подтверждали именно по ним, а их больше
+    нет. Иначе останется обещание без основания — женские заказы у водителя, чьи документы
+    мы уже не храним.
+    """
+    profile.license_url = ""
+    profile.car_photo_url = ""
+    profile.docs_status = "none"
+    profile.gender_verified = False
+    profile.verify_submitted_at = None
+    user.verified = False
+    session.add(user)
+    session.add(profile)
+
+
 def revoke_verification_on_car_change(session: Session, user: User,
                                       profile: DriverProfile) -> bool:
     """Машину подменили после проверки — бейдж «Проверен» гаснет (волна 169).

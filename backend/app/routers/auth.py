@@ -5,9 +5,9 @@ from typing import Optional
 import hmac
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import delete
+from sqlalchemy import delete, func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -20,8 +20,8 @@ from ..db import engine, get_session
 from ..errors import herr
 from ..logs import admin_action, log
 from ..models import (
-    Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, TgAuth, User, UserRole,
-    WebPushSubscription,
+    Ad, Booking, DeviceToken, DriverProfile, Message, Notification, OtpCode, Payment,
+    Rating, RequestResponse, Ride, TgAuth, User, UserRole, WebPushSubscription,
 )
 from ..security import (
     current_user, gen_otp, is_placeholder_phone, issue_tokens, normalize_phone,
@@ -720,6 +720,156 @@ class MeUpdateIn(BaseModel):
     # Пол — по желанию: "" (не указывать/снять) | female | male. Нужен для отметки
     # «только женщины» на попутке: она проверяется у ОБЕИХ сторон (аудит 2026-08-08).
     gender: Optional[str] = Field(None, max_length=8)
+
+
+@router.get("/me/data")
+def my_data(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Что Юлдаш знает о человеке — живыми числами и со сроками.
+
+    Зачем. «Удалить мои данные» люди просят не потому, что данные им мешают, а потому что
+    не знают, что именно у нас лежит и надолго ли. Общие слова в оферте на этот страх
+    не отвечают. Числа и сроки отвечают: переписка уходит сама через месяц, поездки —
+    через полгода, геолокацию мы вообще не храним.
+
+    Сроки берём из ретеншена (`cleanup.py`), а не пишем в клиенте: иначе приложение
+    начнёт обещать одно, а чистилка делать другое.
+
+    Документы водителя стоят отдельно: это единственное, что не чистится никогда,
+    и единственное, что можно удалить точечно (POST /me/driver-docs/delete).
+    """
+    from .. import cleanup
+
+    uid = user.id
+    def count(model, *where):
+        return int(session.exec(select(func.count()).select_from(model).where(*where)).one())
+
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == uid)).first()
+    docs = sum(1 for u in ((dp.license_url if dp else ""), (dp.car_photo_url if dp else "")) if u)
+    voices = count(Message, Message.sender_id == uid, Message.voice_url.is_not(None))
+    return {
+        "rides": count(Ride, Ride.driver_id == uid),
+        "rides_days": cleanup.TRIP_DAYS,
+        "bookings": count(Booking, Booking.passenger_id == uid),
+        "messages": count(Message, Message.sender_id == uid),
+        "messages_days": cleanup.MSG_DAYS,
+        "voices": voices,
+        "voices_days": cleanup.MEDIA_DAYS,
+        "notifications": count(Notification, Notification.user_id == uid),
+        "notifications_days": cleanup.NOTIF_DAYS,
+        "driver_docs": docs,
+        "driver_docs_removable": bool(dp and docs and not dp.online and dp.docs_status != "pending"),
+        # Отдельно и явно: этого у нас нет вовсе. Человеку это важнее любых счётчиков.
+        "location_stored": False,
+        "card_stored": False,
+    }
+
+
+@router.get("/me/export")
+def export_my_data(
+    lang: str = Query("ru"),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """«Скачать мои данные» — читаемый человеком файл, а не выгрузка для программиста.
+
+    Зачем именно текстом. Закон требует по запросу выдать человеку его сведения; формат
+    не назван. JSON выдал бы «сведения» формально: получатель — водитель или пенсионерка,
+    и файл со скобками ответом для них не является. Обычный текст открывается в любом
+    телефоне и читается вслух.
+
+    Чужого в файле нет. Сообщения — только свои отправленные: в переписке участвует
+    второй человек, и его слова не наши, чтобы их отдавать. Телефон попутчиков,
+    координаты и чужие оценки в выгрузку не идут по той же причине.
+
+    Объём ограничен: у активного водителя тысячи строк превратили бы файл в нечитаемый.
+    Обрезали — говорим об этом прямо в файле, а не молчим.
+    """
+    from ..services import pick_lang
+
+    lim = 300
+    uid = user.id
+    L = lambda ru, ba: pick_lang(lang, ru, ba)   # noqa: E731 — короткий алиас читается лучше в тексте
+
+    def dt(v) -> str:
+        return v.strftime("%d.%m.%Y %H:%M") if v else "—"
+
+    out: list[str] = []
+    out.append(L("МОИ ДАННЫЕ В ЮЛДАШЕ", "ЮЛДАШТА МИНЕҢ МӘҒЛҮМӘТТӘРЕМ"))
+    out.append(L("Файл собран", "Файл йыйылған") + ": " + dt(utcnow()))
+    out.append("")
+
+    out.append(L("ПРОФИЛЬ", "ПРОФИЛЬ"))
+    out.append(L("Имя", "Исем") + ": " + (user.name or "—"))
+    out.append(L("Телефон", "Телефон") + ": " + (user.phone or "—"))
+    out.append(L("Город", "Ҡала") + ": " + (user.city or "—"))
+    out.append(L("Язык приложения", "Ҡушымта теле") + ": " + (user.language or "ru"))
+    out.append(L("Профиль подтверждён", "Профиль раҫланған") + ": " + (L("да", "эйе") if user.verified else L("нет", "юҡ")))
+    out.append("")
+
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == uid)).first()
+    if dp:
+        out.append(L("ВОДИТЕЛЬ", "ШОФЕР"))
+        car = " ".join(x for x in (dp.car_make, dp.car_model, dp.car_color) if x)
+        out.append(L("Машина", "Машина") + ": " + (car or "—"))
+        out.append(L("Госномер", "Дәүләт һаны") + ": " + (dp.car_plate or "—"))
+        out.append(L("Документы", "Документтар") + ": " + {
+            "verified": L("проверены", "тикшерелгән"),
+            "pending": L("на проверке", "тикшереүҙә"),
+            "rejected": L("отклонены", "кире ҡағылған"),
+        }.get(dp.docs_status, L("не загружены", "һалынмаған")))
+        out.append(L("Поездок выполнено", "Үтәлгән сәфәр") + ": " + str(dp.trips_count or 0))
+        out.append("")
+
+    rides = session.exec(
+        select(Ride).where(Ride.driver_id == uid).order_by(Ride.depart_at.desc()).limit(lim)
+    ).all()
+    if rides:
+        out.append(L("МОИ ПОЕЗДКИ ЗА РУЛЁМ", "РУЛЬ АРТЫНДАҒЫ СӘФӘРҘӘРЕМ"))
+        for r in rides:
+            out.append(f"{dt(r.depart_at)}  {r.from_city} → {r.to_city}  {int(r.price or 0)} ₽")
+        out.append("")
+
+    books = session.exec(
+        select(Booking).where(Booking.passenger_id == uid).order_by(Booking.id.desc()).limit(lim)
+    ).all()
+    if books:
+        out.append(L("МОИ ПОЕЗДКИ ПАССАЖИРОМ", "ЮЛСЫ БУЛАРАҠ СӘФӘРҘӘРЕМ"))
+        for b in books:
+            r = session.get(Ride, b.ride_id)
+            route = f"{r.from_city} → {r.to_city}" if r else "—"
+            when = dt(r.depart_at) if r else "—"
+            out.append(f"{when}  {route}  {b.seats} " + L("мест", "урын") + f"  {int(b.price or 0)} ₽")
+        out.append("")
+
+    msgs = session.exec(
+        select(Message).where(Message.sender_id == uid).order_by(Message.id.desc()).limit(lim)
+    ).all()
+    if msgs:
+        out.append(L("МОИ СООБЩЕНИЯ", "МИНЕҢ ХӘБӘРҘӘРЕМ"))
+        out.append(L("Только отправленные мной — чужие слова не наши, чтобы их отдавать.",
+                     "Тик үҙем ебәргәндәр — башҡа кешенең һүҙҙәре беҙҙеке түгел."))
+        for m in msgs:
+            body = m.text or (L("[голосовое]", "[тауышлы хәбәр]") if m.voice_url else "")
+            if body:
+                out.append(f"{dt(m.created_at)}  {body}")
+        out.append("")
+
+    rates = session.exec(
+        select(Rating).where(Rating.rater_id == uid).order_by(Rating.id.desc()).limit(lim)
+    ).all()
+    if rates:
+        out.append(L("ОЦЕНКИ, КОТОРЫЕ Я СТАВИЛ", "МИН ҠУЙҒАН БАҺАЛАР"))
+        for g in rates:
+            out.append(f"{'★' * int(g.stars or 0)}  {g.text or ''}".rstrip())
+        out.append("")
+
+    out.append(L("ЧЕГО В ФАЙЛЕ НЕТ", "ФАЙЛДА НИМӘ ЮҠ"))
+    out.append(L("Точной геолокации — мы её не храним.", "Теүәл геолокация — беҙ уны һаҡламайбыҙ."))
+    out.append(L("Данных банковской карты — деньги идут мимо нас.",
+                 "Банк картаһы мәғлүмәттәре — аҡса беҙҙән үтмәй."))
+    out.append(L(f"Показано не больше {lim} записей в каждом разделе.",
+                 f"Һәр бүлектә {lim} яҙмананан артыҡ түгел күрһәтелгән."))
+    return {"filename": "yuldash-my-data.txt", "text": "\n".join(out)}
 
 
 @router.post("/me/update")

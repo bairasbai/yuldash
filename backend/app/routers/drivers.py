@@ -17,11 +17,12 @@ from ..antifraud import moderate_open_text
 from ..config import settings
 from ..db import get_session
 from ..logs import admin_action
+from ..account import _safe_unlink_media
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, UserRole
 from ..security import current_user
 from ..services import (
-    DOC_DIR, enforce_upload_quota, notify_admin_telegram, push_notification, read_upload,
+    DOC_DIR, clear_driver_docs, enforce_upload_quota, notify_admin_telegram, push_notification, read_upload,
     revoke_verification_on_car_change, secure_docs_url, set_driver_docs_verdict,
     set_user_gender, short_name, user_rating,
 )
@@ -340,6 +341,40 @@ def _worth_telling_admin(prev_status: str, prev_sent_at, prev_license: str, prev
     if not changed:
         return False
     return prev_sent_at is None or (utcnow() - prev_sent_at) >= _VERIFY_PING_EVERY
+
+
+@router.post("/me/driver-docs/delete")
+def delete_driver_docs(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водитель убирает свои документы: фото прав и фото машины.
+
+    Зачем отдельная кнопка. Документы водителя — единственное, что ретеншен
+    не чистит НИКОГДА (прямо сказано в `cleanup.py`): человек подал заявку в июне,
+    передумал, ездит пассажиром — а скан его прав лежит у нас бессрочно. Снести
+    можно было только вместе со всем аккаунтом, что несоразмерно.
+
+    Вместе с файлами снимаем всё, что на них держалось: проверку, бейдж «проверен»
+    и подтверждение пола. Иначе остаётся обещание без основания — пассажирка видит
+    «водитель проверен», а документа, по которому проверяли, больше нет. Тот же
+    принцип уже действует при СМЕНЕ фото прав (см. submit_driver_verify).
+
+    На проверке — не даём: админ разбирает заявку, и вынимать из-под него документы
+    посреди разбора нечестно к обоим. Сначала дождись ответа.
+    """
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
+    if not dp or not (dp.license_url or dp.car_photo_url):
+        raise herr(404, "Документов нет", "Документтар юҡ")
+    if dp.online:
+        raise herr(409, "Сначала уйди с линии", "Башта линиянан сыҡ")
+    if dp.docs_status == "pending":
+        raise herr(409,
+                   "Документы на проверке. Дождись ответа — потом сможешь удалить.",
+                   "Документтар тикшереүҙә. Яуапты көт — шунан юя алаһың.")
+    for url in (dp.license_url, dp.car_photo_url):
+        _safe_unlink_media(url)
+    # Состояние снимает единая дверь в services: бейдж «проверен» нельзя гасить из роутера.
+    clear_driver_docs(session, user, dp)
+    session.commit()
+    return {"ok": True, "docs_status": dp.docs_status, "verified": user.verified}
 
 
 @router.post("/driver/verify", response_model=DriverProfile)
