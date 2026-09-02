@@ -631,13 +631,60 @@ def accrue_for_order(session: Session, order: InstantOrder,
     return debt
 
 
-def void_debt_for_order(session: Session, order_id: int, note: str = "") -> bool:
+def refund_ext_id(*, order_id: Optional[int] = None, parcel_id: Optional[int] = None) -> str:
+    """Ключ идемпотентности возврата комиссии: на один заказ (или доставку) — один возврат."""
+    return f"refund:order:{order_id}" if order_id is not None else f"refund:parcel:{parcel_id}"
+
+
+REFUND_NOTE = "Возврат комиссии: разбор подтвердил, что не заплатили"
+
+
+def refund_commission_to_wallet(session: Session, driver_id: Optional[int], amount_kop: int, *,
+                                order_id: Optional[int] = None, parcel_id: Optional[int] = None,
+                                note: str = REFUND_NOTE):
+    """Вернуть человеку комиссию, которую он платформе УЖЕ перевёл (волна 215).
+
+    Зачем. Договор «не заплатили → комиссию снимаем» умел только одно: пометить долг
+    оплаченным. Если человек к моменту разбора уже перевёл деньги, помечать было нечего,
+    и функция честно отвечала «нечего снимать» — а деньги оставались у платформы. Так
+    выходит само собой: долг гасится ПАЧКОЙ за неделю (выбрать «всё, кроме спорной поездки»
+    нельзя, такой ручки нет), а разбор делает живой человек и по тяжёлым делам идёт дольше
+    недели. Водителю при этом приходил пуш «Комиссия за поездку списана» — неправда.
+
+    Куда возвращаем. В кошелёк: выплаты на карту выключены до оформления ИП, но кошелёк
+    для того и есть — компенсацию промо-скидки платформа кладёт туда же, а она потом гасит
+    будущий долг (`settle_debt_from_wallet`, волна 154). Тот же путь и здесь.
+
+    Append-запись kind=adj (+сумма) — историю денег не правим. Идемпотентно по ext_id:
+    повторный разбор той же жалобы второй раз не начислит. НЕ коммитит — зовут внутри
+    чужой транзакции, коммитит вызывающий.
+    """
+    if driver_id is None or amount_kop <= 0:
+        return None
+    ext = refund_ext_id(order_id=order_id, parcel_id=parcel_id)
+    prev = session.exec(
+        select(LedgerEntry).where(LedgerEntry.ext_id == ext, LedgerEntry.kind == LedgerKind.adj)
+    ).first()
+    if prev is not None:
+        return prev
+    entry = LedgerEntry(driver_id=driver_id, order_id=order_id, kind=LedgerKind.adj,
+                        amount_kop=int(amount_kop), ext_id=ext, note=note)
+    session.add(entry)
+    return entry
+
+
+def void_debt_for_order(session: Session, order_id: int, note: str = ""):
     """B2: снять долг по комиссии за заказ, оплаченный ОНЛАЙН (Модель Б).
 
     На done заказа всегда заводится долг Модели А («водитель взял нал напрямую, должен комиссию»).
     Если пассажир затем оплатил заказ картой/СБП через платформу, комиссия уже удержана в ledger
     (fee), а деньги получила платформа — значит долг Модели А фиктивен. Помечаем его paid, иначе
     водитель обложен комиссией дважды, а фантомный unpaid-долг блокирует ему такси.
+
+    Возврат: `"voided"` — долг сняли (деньги ещё не переводили); `"refunded"` — деньги уже
+    были у платформы, вернули в кошелёк (волна 215); `None` — делать нечего. Строки, а не
+    bool: вызывающий показывает человеку РАЗНЫЙ текст, и «списали» вместо «вернули» — это
+    ровно та неправда, из-за которой волна 215 и случилась.
 
     Идемпотентно. НЕ коммитит — вызывается внутри транзакции settle_* (та и коммитит).
 
@@ -648,14 +695,21 @@ def void_debt_for_order(session: Session, order_id: int, note: str = "") -> bool
     debt = session.exec(
         select(CommissionDebt).where(CommissionDebt.order_id == order_id)
     ).first()
-    if debt is None or debt.status == DebtStatus.paid:
-        return False
+    if debt is None:
+        return None
+    if debt.status == DebtStatus.paid:
+        # Деньги платформа УЖЕ получила — снимать нечего, надо возвращать (волна 215).
+        # Только `paid`: это статус «админ подтвердил, что перевод пришёл». `pending` —
+        # ещё слово водителя, и админ может его отклонить; вернуть по слову значило бы
+        # подарить комиссию тому, чей перевод не дошёл.
+        return "refunded" if refund_commission_to_wallet(
+            session, debt.driver_id, debt.amount_kop, order_id=order_id) else None
     debt.status = DebtStatus.paid
     debt.confirmed_at = utcnow()
     if not debt.note:                      # свой note (напр. от админского «простить») не трогаем
         debt.note = note or f"{WRITTEN_OFF_PREFIX}: снят по разбору"
     session.add(debt)
-    return True
+    return "voided"
 
 
 # Причина, по которой долг стал paid без перевода по СБП: его закрыли деньгами, которые уже
@@ -735,7 +789,18 @@ def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
             InstantOrder, InstantOrder.id == CommissionDebt.order_id
         ).where(
             CommissionDebt.driver_id == driver_id,
-            CommissionDebt.status != DebtStatus.paid,
+            # Только `unpaid`. `pending` — это «Я оплатил»: деньги уже в пути, Александр
+            # подтвердит их вечером или завтра. Закрыть такой долг кошельком значит забрать
+            # с человека дважды — перевод придёт всё равно, а подтверждать будет уже нечего
+            # (волна 218). Отклонит админ заявку (деньги не пришли) — долг вернётся в `unpaid`,
+            # и кошелёк заберёт его следующим же проходом.
+            #
+            # Мутация этой строки в одиночку тестом НЕ ловится: её подстраховывает такое же
+            # условие внутри UPDATE ниже. Обе оставлены осознанно и делают разное — эта бережёт
+            # работу (незачем тянуть то, что трогать нельзя), та спасает, когда выборка успела
+            # устареть (`test_такси_заявка_подана_между_чтением_и_записью`). Разбор мутаций
+            # волны 218, правило волны 208.
+            CommissionDebt.status == DebtStatus.unpaid,
             InstantOrder.paid == True,          # noqa: E712 — способ оплаты уже известен
         ).order_by(CommissionDebt.created_at, CommissionDebt.id)
     ).all()
@@ -756,7 +821,7 @@ def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
         # случайное удаление станет красным (волна 201).
         закрыт = session.execute(
             update(CommissionDebt)
-            .where(CommissionDebt.id == d.id, CommissionDebt.status != DebtStatus.paid)
+            .where(CommissionDebt.id == d.id, CommissionDebt.status == DebtStatus.unpaid)
             .values(status=DebtStatus.paid, confirmed_at=now,
                     # Свой note (напр. админское «простить») не трогаем.
                     note=(d.note or WALLET_PAID_NOTE))
@@ -1030,35 +1095,61 @@ def mark_all_paid(session: Session, driver_id: int, up_to: Optional[datetime] = 
     return total
 
 
-def _declared_batch(session: Session, driver_id: int, declared_at) -> list[CommissionDebt]:
-    """Долги ОДНОГО заявления «Я оплатил» — тех, что ушли в pending одним нажатием.
+class DebtChanged(Exception):
+    """Сумма долга изменилась с тех пор, как админ увидел строку.
 
-    Одно нажатие = один перевод = один батч: `declare_paid` проставляет всем затронутым
-    долгам ОДИН и тот же `paid_declared_at`, а уже висящий pending второй раз не трогает.
-    Поэтому метка времени и есть удостоверение батча.
-
-    Зачем граница (волна 220). Раньше подтверждение и отказ работали по ВСЕМУ pending
-    водителя. Александр видел в списке «Ильдар — 500 ₽», шёл сверять банк, а Ильдар за это
-    время довозил пассажира и заявлял оплату второй раз, ничего не переведя. Нажатие
-    «Подтвердить» на странице, где написано 500, гасило 800 — и заметить это было нельзя.
-    У оплаты картой такая же граница уже стояла (`mark_all_paid(up_to=…)`), у ручной — нет.
-
-    Строки без заявления (ручной pending из админки/миграции, `paid_declared_at is None`)
-    образуют свой батч: сравнение `is` по `None` их собирает вместе и не подмешивает
-    к настоящим заявлениям.
+    Экран админа не обновляется сам: он открывает список утром, а нажимает днём. За это время
+    водитель может заявить оплату ещё раз — по новым поездкам. Одно нажатие закрывало обе
+    заявки, и платформа прощала деньги, которых не получала (волна 220).
     """
-    return [d for d in _pending(session, driver_id) if d.paid_declared_at == declared_at]
+    def __init__(self, expected_kop: int, actual_kop: int):
+        self.expected_kop = expected_kop
+        self.actual_kop = actual_kop
+        super().__init__(f"ожидали {expected_kop}, сейчас {actual_kop}")
 
 
-def admin_confirm(session: Session, debt_id: int) -> Optional[int]:
-    """Админ подтвердил перевод: pending-долг ОДНОГО заявления → paid (блок снят).
-    debt_id — любая запись из этого заявления (в /admin/debts группируем по заявлению).
-    Возврат: подтверждённая сумma (копейки) или None, если долг не найден."""
+def _batch_admin_saw(session: Session, debt: CommissionDebt,
+                     expected_kop: Optional[int]) -> list:
+    """Какие именно долги закрывает это нажатие. Два пути, и оба безопасны.
+
+    **Клиент прислал сумму** — сверяем её с текущим pending точно. Не сошлась → `DebtChanged`,
+    и не трогаем НИЧЕГО: пусть админ обновит список и сверит поступление заново. Это честный
+    путь, и по нему ходит приложение.
+
+    **Суммы нет** (старая версия админки — например, веб) — сужаем батч до ОДНОЙ заявки: тех
+    долгов, что заявлены тем же нажатием «Я оплатил», что и строка, на которую админ кликнул
+    (`paid_declared_at`). Долг, заявленный позже, в этот батч не попадает — а именно он и
+    закрывался бесплатно, когда админ возвращался к странице, открытой полчаса назад
+    (волна 220). Ломать чужой клиент ради этого не нужно: он просто закрывает меньше.
+    """
+    pending = _pending(session, debt.driver_id)
+    if not pending:
+        return pending
+    if expected_kop is not None:
+        сейчас = sum(d.amount_kop for d in pending)
+        if int(expected_kop) != сейчас:
+            raise DebtChanged(int(expected_kop), сейчас)
+        return pending
+    момент = debt.paid_declared_at
+    if момент is None:
+        return pending          # заявки без отметки времени — как раньше, целиком
+    return [d for d in pending if d.paid_declared_at == момент]
+
+
+def admin_confirm(session: Session, debt_id: int,
+                  expected_kop: Optional[int] = None) -> Optional[int]:
+    """Админ подтвердил перевод: ВЕСЬ pending-долг этого водителя → paid (блок снят).
+    debt_id — любая запись из батча водителя (в /admin/debts группируем по водителю).
+    Возврат: подтверждённая сумма (копейки) или None, если долг не найден.
+
+    `expected_kop` — сумма, которую админ ВИДИТ на экране. Не сошлась с текущей → DebtChanged
+    и ничего не меняется: между «увидел» и «нажал» водитель мог заявить оплату по новым
+    поездкам, и одно нажатие закрывало бы обе (волна 220)."""
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
         return None
     now = utcnow()
-    pending = _declared_batch(session, debt.driver_id, debt.paid_declared_at)
+    pending = _batch_admin_saw(session, debt, expected_kop)
     total = 0
     for d in pending:
         d.status = DebtStatus.paid
@@ -1070,17 +1161,19 @@ def admin_confirm(session: Session, debt_id: int) -> Optional[int]:
     return total
 
 
-def admin_reject(session: Session, debt_id: int) -> Optional[int]:
-    """Админ отклонил (деньги не пришли): pending-долг ОДНОГО заявления → обратно unpaid.
+def admin_reject(session: Session, debt_id: int,
+                 expected_kop: Optional[int] = None) -> Optional[int]:
+    """Админ отклонил (деньги не пришли): pending-долг водителя → обратно unpaid.
     Возврат: сумма возвращённого в unpaid (копейки) или None, если долг не найден.
 
-    Граница та же, что у подтверждения (волна 220): «деньги не пришли» сказано про один
-    перевод. Сбросив заодно заявление, поданное позже, мы отменили бы ответ на вопрос,
-    которого админ ещё не видел, — водитель ждал бы решения, которого уже никто не примет."""
+    Сверка суммы нужна и здесь, и по той же причине, но бьёт она в другую сторону. Отказ
+    возвращает в неоплаченные ВЕСЬ батч и тратит обещание (`declare_count`). Честный водитель,
+    чей первый перевод дошёл, а второй — нет, терял бы оба сразу и приближался к
+    `declare_abuse`, где такси закрывается до разбора с человеком (волна 220)."""
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
         return None
-    pending = _declared_batch(session, debt.driver_id, debt.paid_declared_at)
+    pending = _batch_admin_saw(session, debt, expected_kop)
     total = 0
     for d in pending:
         d.status = DebtStatus.unpaid

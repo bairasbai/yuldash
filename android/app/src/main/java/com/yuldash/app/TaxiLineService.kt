@@ -118,8 +118,18 @@ class TaxiLineService : Service() {
                 val la = lastLat; val lo = lastLng
                 if (la != null && lo != null) {
                     val res = ApiClient.instantPresence(la, lo)
-                    val status = (res.exceptionOrNull() as? ApiException)?.status
-                    if (status == 401 || status == 403 || status == 409) { stopSelf(); return@launch }
+                    val отказ = res.exceptionOrNull() as? ApiException
+                    val status = отказ?.status
+                    if (status == 401 || status == 403 || status == 409) {
+                        // Сервер снял с линии и СКАЗАЛ ПОЧЕМУ — раньше эти слова выбрасывались,
+                        // сервис молча выключался, а тумблер в приложении оставался зелёным.
+                        // Водитель стоял и ждал заказы, которых не будет (аудит сценариев
+                        // 30.08, P0). Причина уходит в то же уведомление, которое человек и так
+                        // держит перед глазами всю смену.
+                        tellLineClosed(отказ?.message?.takeIf { it.isNotBlank() })
+                        stopSelf()
+                        return@launch
+                    }
                     // Сетевая ошибка — сама по себе не страшна: следующий тик через 15с, а сервер
                     // держит presence ~45с. Но если тиков не проходит ПОДРЯД больше этого запаса,
                     // сервер нас уже забыл, а телефон всё ещё показывает «Ты на линии». Водитель
@@ -154,6 +164,33 @@ class TaxiLineService : Service() {
         // ③ Сторож (паттерн TripLocationService): если ProfileScreen крашнулся и не позвал stop(),
         // не висим вечно. Смена ограничена 8ч на сервере (presence → 403), это второй пояс.
         scope.launch { delay(MAX_LIFETIME_MS); stopSelf() }
+    }
+
+    /**
+     * Сервер закрыл линию и объяснил причину — показать её ОТДЕЛЬНЫМ уведомлением.
+     *
+     * Постоянное уведомление смены гаснет вместе с сервисом, поэтому написать причину в него
+     * бессмысленно: она мигнёт и исчезнет. Здесь обычное уведомление, которое остаётся на
+     * экране и по нажатию открывает приложение — там человек починит то, о чём сказал сервер.
+     *
+     * Причины нет (сервер промолчал) — не выдумываем: тогда просто выключаемся, как раньше.
+     */
+    private fun tellLineClosed(reason: String?) {
+        if (reason == null) return
+        runCatching {
+            val open = PendingIntent.getActivity(
+                this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
+            )
+            val n = NotificationCompat.Builder(this, CHANNEL)
+                .setContentTitle(appTextFor(currentLang, "Юлдаш · Линия закрыта", "Юлдаш · Линия ябыҡ"))
+                .setContentText(reason)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(reason))
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .build()
+            getSystemService(NotificationManager::class.java)?.notify(NOTIF_ID_CLOSED, n)
+        }
     }
 
     /** Уведомление на экране — правда о том, видит ли нас сервер. Меняется на лету. */
@@ -213,6 +250,9 @@ class TaxiLineService : Service() {
         const val EXTRA_LANG = "lang"
         private const val CHANNEL = "taxi_line"
         private const val NOTIF_ID = 4712
+        // Отдельное уведомление «линию закрыли и вот почему»: постоянное гаснет вместе
+        // с сервисом, а причина должна остаться на экране.
+        private const val NOTIF_ID_CLOSED = 4713
         private const val PRESENCE_INTERVAL_MS = 15_000L
         /** Сколько тиков подряд должно не пройти, чтобы честно сказать «сервер тебя не видит».
          *  Три тика ≈ 45с — ровно столько сервер помнит presence. Меньше — паника на пустом

@@ -101,12 +101,15 @@ class YuldashViewModelTest {
     }
 
     @Test
-    fun startsWithDemoRidesButNoMockTrustedContactsOrSelectedTrip() {
+    fun startsWithoutDemoRidesAdsTrustedContactsOrSelectedTrip() {
         val vm = YuldashViewModel(SavedStateHandle())
 
-        assertFalse(vm.rides.isEmpty())
+        // Лента и реклама стартуют ПУСТЫМИ. Раньше сюда клались демо-данные, и до ответа
+        // сервера — а при обрыве связи навсегда — человек видел выдуманные поездки на карте
+        // и выдуманного партнёра с демо-номером. Пусто честнее выдуманного.
+        assertTrue(vm.rides.isEmpty())
+        assertTrue(vm.partnerAds.value.isEmpty())
         assertTrue(vm.trustedContacts.isEmpty())
-        assertEquals(demoPartnerAds.size, vm.partnerAds.value.size)
         assertEquals(demoPartnerAds.size, vm.adStats.size)
         assertNull(vm.selectedRide.value)
         assertNull(vm.activeTrip.value)
@@ -116,7 +119,8 @@ class YuldashViewModelTest {
     @Test
     fun transientTripStateSurvivesInsideViewModelInstance() {
         val vm = YuldashViewModel(SavedStateHandle())
-        val ride = vm.rides.first()
+        // Лента у свежей VM пуста — берём поездку из демо-набора как тестовую заготовку.
+        val ride = demoRides.first()
 
         vm.selectedRide.value = ride
         vm.activeTrip.value = ride

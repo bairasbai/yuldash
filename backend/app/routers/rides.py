@@ -36,7 +36,8 @@ from ..workday import local_now
 from ..visibility import (FEED_MAX, hide_blocked, hide_health_hint, hide_suspended,
                           hide_trusted_only, is_ride_insider, may_see_ride_by_id, visible_rides)
 from ..services import (
-    CITY_COORDS, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
+    CITY_COORDS, apply_boost_credit, boost_then_depart_order, cache_get_json, cache_set_json,
+    drivers_bundle, stash_boost_credit,
     geocode_city, haversine_km, notify_map_changed, notify_route_watchers, public_ride_payload,
     public_rides_payload, push_notification, record_pickup_choice, ride_out, ride_out_with,
     rides_out, send_push,
@@ -254,6 +255,10 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
                 continue
             session.add(Ride(driver_id=user.id, seats_left=body.seats_total, **{**dump, "depart_at": dt}, **geo))
             made += 1
+    # Перенесённое с отменённой поездки поднятие достаётся этой — молча и сразу.
+    if apply_boost_credit(user, ride, utcnow()):
+        session.add(user)
+        session.add(ride)
     session.commit()
     session.refresh(ride)
     # F14: пополняем справочник ориентиров реально выбранной точкой (usage_count / новый ориентир).
@@ -716,6 +721,10 @@ def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Sessi
     ride.status = RideStatus.cancelled
     session.add(ride)
     now = utcnow()
+    # Оплаченное поднятие не сгорает вместе с поездкой: остаток переезжает водителю
+    # и сам ляжет на его следующую поездку.
+    if stash_boost_credit(user, ride, now):
+        session.add(user)
     for b in affected:
         b.status = BookingStatus.cancelled
         # КТО отменил — обязательно. Без этой пометки «Надёжность» водителя не знала о его

@@ -62,6 +62,21 @@ def _guard_taxi_driver(session: Session, driver_id: int, lat: float | None = Non
     (presence/offer/accept), попутка работает; активный заказ НЕ рубится —
     arrived/onboard/done через этот гейт не ходят."""
     _guard_taxi_available(session, lat, lng)
+    guard_driver_ready(session, driver_id)
+
+
+def guard_driver_ready(session: Session, driver_id: int) -> None:
+    """Готов ли ВОДИТЕЛЬ работать в такси прямо сейчас — всё, кроме доступности такси в точке.
+
+    Вынесено из `_guard_taxi_driver`, чтобы этим же правилом отвечал тумблер «Я на линии»
+    (`POST /driver/online`). Раньше тумблер не проверял НИЧЕГО: человек нажимал, получал
+    зелёный и 200 OK, а линия была закрыта долгом, отдыхом, документами или паузой — и он
+    узнавал об этом только по тому, что заказы не приходят (аудит сценариев 30.08, P0).
+
+    Точку (lat/lng) здесь не спрашиваем намеренно: тумблер нажимают в кабинете, где координат
+    нет, а проверка «работает ли такси в этом городе» без координат отвечает «нет» и закрыла
+    бы линию всем разом.
+    """
     # Пауза «Справедливости» (§2). Стоит первой и намеренно здесь, а не в каждой ручке
     # по отдельности: отстранённый разбором жалобы водитель не выходит на линию и не берёт
     # заказ. Раньше проверки не было — пауза рубила публикацию попутки, но такси продолжало
@@ -652,17 +667,25 @@ def my_orders(limit: int = 20, user: User = Depends(current_user), session: Sess
 
 @router.get("/instant/driver/offer")
 def driver_offer(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Активный оффер для водителя (поллинг-фолбэк к пушу). Протухший — сам двигается дальше."""
+    """Активный оффер для водителя (поллинг-фолбэк к пушу). Протухший — сам двигается дальше.
+
+    Вместе с пустым оффером отдаём ПРИЧИНУ (`blocked`). Раньше все пять веток возвращали
+    просто «оффера нет», и экран водителя честно писал «Ждём заказ» — хотя ждать было
+    бессмысленно: линия закрыта долгом, отдыхом, паузой или документами. Человек сидел и
+    смотрел на надпись, которая обещала то, чего не будет (аудит сценариев 30.08).
+
+    Коды, а не текст: подписи живут в клиенте на двух языках, как везде в проекте.
+    """
     if not taxi_mod.is_approved_taxi_driver(session, user.id):
-        return {"offer": None}   # гейт (b): нет одобренной заявки таксиста — офферов нет
+        return {"offer": None, "blocked": "not_approved"}
     if debt_mod.taxi_block_reason(session, user.id) is not None:
-        return {"offer": None}   # заблокирован долгом — офферы такси не показываем
+        return {"offer": None, "blocked": "debt"}
     if workday_mod.blocking_workday(session, user.id) is not None:
-        return {"offer": None}   # отдых (§8): 8ч на линии — офферы не показываем до разблокировки
+        return {"offer": None, "blocked": "rest"}
     if quality_mod.taxi_pause_until(session, user.id) is not None:
-        return {"offer": None}   # пауза качества (§9: жалобы) — офферы такси не показываем
+        return {"offer": None, "blocked": "quality_pause"}
     if account_paused(session, user.id):
-        return {"offer": None}   # пауза «Справедливости» (§2) — офферов нет, пока идёт разбор
+        return {"offer": None, "blocked": "review_pause"}
     order = session.exec(
         select(InstantOrder).where(
             InstantOrder.current_offer_driver_id == user.id,
@@ -1040,6 +1063,26 @@ def ack_destination(order_id: int, user: User = Depends(current_user),
     return {"ok": True, "order": isv.order_payload(session, order, user)}
 
 
+@router.post("/instant/orders/{order_id}/destination/withdraw")
+def withdraw_destination(order_id: int, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)):
+    """Пассажир передумал менять адрес, пока водитель ещё не ответил.
+
+    Спросить водителя пассажир мог, а отозвать вопрос — нет: шторка закрывалась, и человек
+    оставался в тишине, из которой выхода не было (аудит сценариев 30.08). Ждать ответа
+    водителя, который, может, вообще смотрит на дорогу, — не выход: едем по старому адресу,
+    как и договаривались. Поездка при этом не рвётся.
+    """
+    order = session.get(InstantOrder, order_id)
+    if not order or order.passenger_id != user.id:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if order.pending_to_lat is None:
+        # Водитель мог ответить, пока летел запрос. Не ошибка: цель достигнута — ожидания нет.
+        return {"ok": True, "order": isv.order_payload(session, order, user)}
+    isv.withdraw_pending_destination(session, order)
+    return {"ok": True, "order": isv.order_payload(session, order, user)}
+
+
 @router.post("/instant/orders/{order_id}/destination/accept")
 def accept_destination(order_id: int, user: User = Depends(current_user),
                        session: Session = Depends(get_session)):
@@ -1169,6 +1212,48 @@ def cancel(order_id: int, body: CancelIn | None = None, user: User = Depends(cur
     # (`_reassign_after_driver_cancel`). Ответ на собственный запрос он получить обязан —
     # тот же случай, что у отказа от оффера, ради которого флаг и заведён.
     return isv.order_payload(session, order, user, actor_authorized=True)
+
+
+@router.post("/instant/orders/{order_id}/passenger-done")
+def passenger_done(order_id: int, user: User = Depends(current_user),
+                   session: Session = Depends(get_session)):
+    """«Поездка закончилась» — пассажир закрывает поездку, которую водитель не закрыл.
+
+    Водитель довёз, высадил и уехал, а «Завершил» не нажал: сел телефон, отвлёкся, удалил
+    приложение. Пассажир после этого заперт — ни оценить, ни заказать новую машину, — и до
+    сих пор ждал ночной уборки (`taxi_stale_hours`, 12 часов). Кнопка появляется только
+    после расчётного времени поездки плюс запас, чтобы посреди дороги её нажать было нельзя.
+
+    Деньги считаем ровно так же, как при завершении водителем (тот же переход, та же цена):
+    поездка состоялась, водитель получил наличные, комиссия платформе причитается. Но срок
+    оплаты НЕ делаем срочным и оставляем след для админа — водитель мог быть без связи, и
+    короткий срок сработал бы как молчаливая блокировка за то, чего он не видел.
+    """
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if order.passenger_id != user.id:
+        raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
+    if order.status == S.done:
+        return isv.order_payload(session, order, user)   # двойной тап — не ошибка
+    if not isv.passenger_may_close(order):
+        raise herr(409, "Поездка ещё идёт — завершит водитель",
+                   "Сәфәр әле бара — водитель тамамлар")
+    # Переход выполняем от имени водителя: это его шаг, он его просто не сделал. Так вся
+    # денежная логика (цена, ожидание, остановки) остаётся одна на оба пути закрытия.
+    order = isv.transition(session, order_id, isv.Actor.driver, S.done, order.driver_id)
+    debt = debt_mod.accrue_for_order(session, order, pay_now_allowed=False)
+    if debt is not None and not debt.note:
+        debt.note = "Поездку закрыл пассажир (водитель не нажал «Завершил»)"
+        session.add(debt)
+        session.commit()
+    # Предупредить о близком блоке — можно и нужно: это не требование заплатить сейчас,
+    # а шанс не проснуться отключённым. Срочный пуш «плати немедленно» намеренно НЕ шлём.
+    isv.notify_debt_near_block(session, debt)
+    # Поездка состоялась, значит и реферальный бонус пригласившему причитается. Считать
+    # иначе — наказать постороннего человека за то, что водитель не нажал кнопку.
+    reward_driver_referral(session, order.driver_id)
+    return isv.order_payload(session, order, user)
 
 
 @router.get("/instant/orders/{order_id}/receipt")

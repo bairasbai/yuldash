@@ -20,6 +20,10 @@ internal data class Ride(
     val carBa: String? = null,
     val price: Int,
     val seats: Int,
+    // Мест ВСЕГО (seats выше — сколько ещё свободно). Разница = сколько людей уже
+    // забронировали. Без этого числа диалог отмены рейса говорил «все брони будут
+    // отменены», не называя, скольких человек это касается (аудит сценариев 30.08).
+    val seatsTotal: Int = 0,
     val rating: Double,
     val verified: Boolean,
     val boosted: Boolean,

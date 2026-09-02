@@ -306,6 +306,10 @@ def test_courier_push_uses_same_zone_rules_as_list(client, user_factory, monkeyp
     Раньше пуш сверял город строкой: звал на заказ, которого человек потом не находил."""
     from app.routers import parcels as parcels_mod
     from app.models import CourierApplication, CourierProfile, ParcelDelivery
+    from app.config import settings as _settings
+    # Рассылка спрашивает ВСЮ дверь приёма заказа (волна 223), а на ней первой строкой стоит
+    # мастер-флаг режима курьера. Тест про зоны — режим включаем, чтобы флаг не решал за него.
+    monkeypatch.setattr(_settings, "courier_enabled", True, raising=False)
     sent: list = []
     monkeypatch.setattr(parcels_mod, "push_notification",
                         lambda session, user_id, *a, **kw: sent.append(user_id))

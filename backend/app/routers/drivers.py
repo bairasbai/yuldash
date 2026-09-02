@@ -109,6 +109,18 @@ def driver_online(body: OnlineIn, user: User = Depends(current_user), session: S
     if not dp:
         dp = DriverProfile(user_id=user.id, online=body.online)
     if body.online:
+        # Тумблер спрашивает те же правила, что и линия (аудит сценариев 30.08, P0). Раньше
+        # он не проверял НИЧЕГО: человек нажимал, видел зелёный и 200 OK, а линия была
+        # закрыта долгом, отдыхом, документами или паузой — и он узнавал об этом только по
+        # тому, что заказы не приходят. Отказ приходит в момент нажатия и со словами, что
+        # именно чинить.
+        #
+        # Спрашиваем только у ТАКСИСТА (есть одобренная заявка). У водителя попутки заявки
+        # нет, и для него тумблер значит другое — ломать ему выход на линию мы не вправе.
+        from .. import taxi as taxi_mod
+        if taxi_mod.my_application(session, user.id) is not None:
+            from .instant import guard_driver_ready
+            guard_driver_ready(session, user.id)
         dp.online = True
         session.add(dp)
     else:
@@ -398,6 +410,9 @@ def driver_status(user: User = Depends(current_user), session: Session = Depends
         "autocheck_result": dp.autocheck_result if dp else "",
         "autocheck_score": dp.autocheck_score if dp else 0.0,
         "autocheck_data": dp.autocheck_data if dp else "",
+        # Реквизит для денежных чаевых. Водителю нужен, чтобы видеть, включены ли они
+        # у него сейчас: включает он их сам, а до этого экрана не было вовсе.
+        "tips_sbp": dp.tips_sbp if dp else "",
     }
 
 

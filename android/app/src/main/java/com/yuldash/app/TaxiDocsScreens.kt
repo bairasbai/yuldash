@@ -185,6 +185,7 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit, onCarPhoto: () -> Unit = {}
         scope.launch {
             val r = when (field) {
                 "osago" -> ApiClient.updateTaxiDocuments(osagoUntil = isoDate)
+                "osgop" -> ApiClient.updateTaxiDocuments(osgopUntil = isoDate)
                 "permit" -> ApiClient.updateTaxiDocuments(permitUntil = isoDate)
                 else -> ApiClient.updateTaxiDocuments(inspectionUntil = isoDate)
             }
@@ -289,6 +290,19 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit, onCarPhoto: () -> Unit = {}
                                 hint = appText("Техосмотр машины", "Машинаның техник ҡарауы"),
                                 iso = a.inspectionUntil, busy = busy, lang = lang, ctx = ctx,
                                 onPicked = { save("inspection", it) },
+                            )
+                        }
+                    }
+                    item(key = "osgop") {
+                        Box(Modifier.appearIn(3)) {
+                            TaxiDocRow(
+                                icon = Icons.Default.Shield,
+                                title = appText("ОСГОП", "ОСГОП"),
+                                hint = appText(
+                                    "Страховка пассажиров — обязательна для такси с 2024 года",
+                                    "Юлаусылар страховкаһы — 2024 йылдан такси өсөн мотлаҡ"),
+                                iso = a.osgopUntil, busy = busy, lang = lang, ctx = ctx,
+                                onPicked = { save("osgop", it) },
                             )
                         }
                     }
