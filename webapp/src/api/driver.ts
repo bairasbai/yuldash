@@ -134,6 +134,18 @@ export function completeRide(rideId: number): Promise<Ride> {
   return apiPost<Ride>(`/rides/${rideId}/complete`);
 }
 
+/**
+ * Снять рейс целиком — POST /rides/{id}/cancel. Все брони отменяются, пассажирам уходит
+ * уведомление, места возвращаются.
+ *
+ * Ручка на сервере была с самого начала, а в вебе её не вызывал никто (аудит сценариев
+ * 30.08, P0): у водителя ломалась машина, и снять рейс с сайта он не мог вообще —
+ * пассажиры выходили к дороге к машине, которая не приедет.
+ */
+export function cancelRide(rideId: number): Promise<Ride> {
+  return apiPost<Ride>(`/rides/${rideId}/cancel`);
+}
+
 // ----------------------------- Подсказка цены -----------------------------
 /**
  * GET /rides/price_hint?from_city=&to_city= — ориентир, а не правило.

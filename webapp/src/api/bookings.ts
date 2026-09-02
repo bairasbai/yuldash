@@ -250,7 +250,14 @@ export function fetchReceipt(id: number, signal?: AbortSignal): Promise<TripRece
 //  (сверка с Android, 2026-08-30).
 // ================================================================
 
-/** Строка списка «мои пассажиры» (GET /driver/bookings). Телефонов тут нет. */
+/**
+ * Строка списка «мои пассажиры» (GET /driver/bookings). Телефонов тут нет.
+ *
+ * Сервер отдаёт МАССИВ таких строк, а не объект с полем `items` — проверено по
+ * `bookings.driver_bookings`. При слиянии веток эта разница чуть не уехала в прод:
+ * версия, ждавшая `{ items }`, всегда получала undefined, и блок «Ждут твоего ответа»
+ * молчал бы при живых бронях.
+ */
 export interface DriverBookingRow {
   booking_id: number;
   passenger_name: string;
@@ -262,11 +269,23 @@ export interface DriverBookingRow {
 }
 
 /** Брони на поездки текущего водителя — чтобы оценить пассажиров после поездки. */
+/** Старое имя типа из ветки main — чтобы не переписывать импорты кабинета. */
+export type DriverBooking = DriverBookingRow;
+
 export function fetchDriverBookings(signal?: AbortSignal): Promise<DriverBookingRow[]> {
   return apiGet<DriverBookingRow[]>("/driver/bookings", { signal });
 }
 
-/** Водитель подтверждает бронь: пассажиру открываются телефон и точка сбора. Идемпотентно. */
+/**
+ * Водитель подтверждает бронь — POST /bookings/{id}/confirm.
+ *
+ * Ручка была с самого начала, а в вебе её не вызывал никто: бронь приходила, пассажир ждал,
+ * а подтвердить её с сайта было нечем. Для пассажира это выглядело как молчание водителя,
+ * для водителя — как будто броней нет.
+ *
+ * После подтверждения пассажиру открываются телефон и точка сбора, и уходит уведомление.
+ * Идемпотентно: повторный тап ничего не ломает.
+ */
 export function confirmBooking(id: number): Promise<BookingRow> {
   return apiPost<BookingRow>(`/bookings/${id}/confirm`);
 }

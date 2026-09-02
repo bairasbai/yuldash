@@ -15,14 +15,13 @@ import { useCallback, useEffect, useState } from "react";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
-  confirmBooking,
   fetchDriverBookings,
   markNoShow,
   rateBooking,
   type DriverBookingRow,
 } from "../api/bookings";
 import { LoadingList } from "./States";
-import { IconCheck, IconProfile, IconStar } from "./Icons";
+import { IconProfile, IconStar } from "./Icons";
 
 /** Бронь ещё ждёт слова водителя. */
 const PENDING = "pending";
@@ -72,13 +71,18 @@ export default function DriverPassengers() {
 
   if (boot === "hidden") return null;
   if (boot === "loading") return <LoadingList count={1} />;
-  if (rows.length === 0) return null;
+  // Брони, ждущие ответа, показывает блок «Ждут твоего ответа» ВЫШЕ — он про срочное:
+  // пока водитель молчит, человек не знает, поедет он или нет. Здесь остальные:
+  // те, кого уже везут или отвезли, — чтобы отметить неявку и поставить оценку.
+  // Показывать их в двух местах значило бы две кнопки «Подтвердить» на одном экране.
+  const shown = rows.filter((b) => String(b.status) !== PENDING);
+  if (shown.length === 0) return null;
 
   return (
     <>
       <h2 className="section-title">{appText("Мои пассажиры", "Юлаусыларым")}</h2>
       <div className="list">
-        {rows.map((b) => {
+        {shown.map((b) => {
           const st = String(b.status);
           return (
             <div key={b.booking_id} className="list-row list-row--stack">
@@ -94,26 +98,6 @@ export default function DriverPassengers() {
                 </div>
                 <div className="list-row__sub">{b.route}</div>
               </div>
-
-              {/* Пока бронь не подтверждена, пассажир не видит ни телефона, ни точки сбора:
-                  он забронировал место и ждёт ответа живого человека. */}
-              {st === PENDING && (
-                <div className="act-card__actions" style={{ flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    className="btn-primary btn-soft--sm"
-                    disabled={busyId === b.booking_id}
-                    onClick={() =>
-                      void act(b.booking_id, () => confirmBooking(b.booking_id), {
-                        ru: "Не получилось подтвердить. Проверь сеть.",
-                        ba: "Раҫлап булманы. Селтәрҙе тикшер.",
-                      })
-                    }
-                  >
-                    <IconCheck size={16} /> {appText("Подтвердить", "Раҫлау")}
-                  </button>
-                </div>
-              )}
 
               {/* Не вышел. Отдельно от обычной отмены: это сигнал доверия, и водитель
                   не должен выбирать между «соврать, что отменил сам» и «промолчать». */}

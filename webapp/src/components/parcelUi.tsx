@@ -29,8 +29,16 @@ export function StatusPillParcel({ status }: { status: string }) {
     in_transit: { ru: "В пути", ba: "Юлда", cls: "badge--mint" },
     delivered: { ru: "Доставлено", ba: "Тапшырылды", cls: "badge--mint" },
     canceled: { ru: "Отменена", ba: "Кире алынды", cls: "badge--danger" },
+    // Возврат (аудит сценариев 30.08, P0). Этих двух статусов в вебе не было, и человек,
+    // чью коробку уже везут обратно, читал «Ищем курьера» — потому что незнакомый статус
+    // молча падал в значение по умолчанию. Приложение показывает возврат давно.
+    returning: { ru: "Везут обратно", ba: "Кире алып ҡайталар", cls: "badge--gold" },
+    returned: { ru: "Вернули отправителю", ba: "Ебәреүсегә ҡайтарылды", cls: "badge--danger" },
   };
-  const m = map[status] ?? map.created;
+  // Незнакомый статус НЕ выдаём за «ищем курьера»: лучше показать сырое слово, чем
+  // уверенно соврать. Так следующий новый статус на сервере будет видно сразу.
+  const m = map[status];
+  if (!m) return <span className="badge">{status}</span>;
   return <span className={`badge ${m.cls}`}>{appText(m.ru, m.ba)}</span>;
 }
 

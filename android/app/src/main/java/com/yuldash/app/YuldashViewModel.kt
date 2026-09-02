@@ -66,7 +66,11 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     val callbackRequested = mutableStateOf(false)
     val responsesRequestId = mutableStateOf(0)
     val isAdmin = mutableStateOf(false)
-    val partnerAds = mutableStateOf(demoPartnerAds)
+    // Реклама начинается ПУСТОЙ, а не с демо-партнёров. Раньше стартовым значением стоял
+    // `demoPartnerAds`, и при обрыве связи (сервер не ответил) человек видел карточку
+    // выдуманной аптеки, а кнопка «Позвонить» набирала демо-номер. Демо-шаблон остаётся
+    // в YuldashApp только как ОФОРМЛЕНИЕ реальных объявлений — данными он больше не бывает.
+    val partnerAds = mutableStateOf(emptyList<PartnerAd>())
 
     // --- Back-stack (аппаратная «Назад» по трейлу экранов) ---
     val navHistory = mutableStateListOf<Screen>()
@@ -74,7 +78,11 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     val navPrev = mutableStateOf(screen.value)
 
     // --- Коллекции данных ---
-    val rides = mutableStateListOf<Ride>().apply { addAll(demoRides) }
+    // Лента поездок начинается ПУСТОЙ. Раньше сюда сразу клались `demoRides`, и до ответа
+    // сервера — а при обрыве связи навсегда — на карте висели метки несуществующих поездок
+    // («Ильдар, Lada Vesta, 350 ₽»). Нажатие вело к брони, которая всё равно не проходила:
+    // у демо-поездок id 1..3 не серверные. Карта без меток честнее карты с выдуманными.
+    val rides = mutableStateListOf<Ride>()
     val trustedContacts = mutableStateListOf<TrustedContact>()
     val localRequests = mutableStateListOf<LocalRequest>()
     val voiceMessages = mutableStateListOf<LocalVoiceMessage>()
@@ -99,7 +107,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         localRequests.clear()
         voiceMessages.clear()
         navHistory.clear()
-        rides.clear(); rides.addAll(demoRides)
+        rides.clear()
     }
 
     private companion object {

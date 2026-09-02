@@ -477,6 +477,7 @@ internal fun BoostScreen(onBack: () -> Unit) {
     var result by remember { mutableStateOf<BoostResultDto?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var credits by remember { mutableStateOf(0) }   // реферальные бонусы = бесплатные поднятия
+    var carriedBoostSec by remember { mutableStateOf(0) }   // остаток поднятия с отменённой поездки
     // ЮKassa: платёж, который ждёт оплаты в браузере. На ON_RESUME экрана (вернулся из браузера)
     // поллим статус — сервер перепроверяет оплату у ЮKassa и активирует boost (go-live).
     var pendingPaymentId by remember { mutableStateOf<Int?>(null) }
@@ -514,6 +515,8 @@ internal fun BoostScreen(onBack: () -> Unit) {
             p.onSuccess { plans = it }
             r.onSuccess { list -> rides = list; if (selectedRideId == null) selectedRideId = list.firstOrNull()?.id }
             ApiClient.getReferral().onSuccess { credits = it.credits }
+            // Остаток поднятия с отменённой поездки приходит вместе с профилем.
+            ApiClient.me().onSuccess { carriedBoostSec = it.optInt("boost_credit_sec") }
             loadError = p.isFailure || r.isFailure
             loading = false
         }
@@ -551,6 +554,7 @@ internal fun BoostScreen(onBack: () -> Unit) {
             submitting = submitting,
             error = error,
             credits = credits,
+            carriedBoostSec = carriedBoostSec,
             result = result,
             onRetry = { reload() },
             onEmptyAction = onBack,
@@ -605,6 +609,30 @@ internal fun BoostScreen(onBack: () -> Unit) {
  * Данные и колбэки — параметрами. Сеть/стейт/Toast/Intent живут в обёртке [BoostScreen].
  * `resultSlot` — слот под результат оплаты (там QR/буфер обмена, поэтому рисуется снаружи, не тут).
  */
+/** Остаток поднятия человеческими словами: «6 ч» или «45 мин». Минуты — чтобы остаток
+ *  в четверть часа не превращался в «0 ч» и не выглядел как ошибка.
+ *  Две функции, а не одна: единица измерения — тоже надпись, и по-башкирски она своя. */
+internal fun boostCarryRu(seconds: Int): String {
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    return when {
+        hours > 0 && minutes > 0 -> "$hours ч $minutes мин"
+        hours > 0 -> "$hours ч"
+        else -> "${(seconds / 60).coerceAtLeast(1)} мин"
+    }
+}
+
+internal fun boostCarryBa(seconds: Int): String {
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    return when {
+        hours > 0 && minutes > 0 -> "$hours сәғәт $minutes минут"
+        hours > 0 -> "$hours сәғәт"
+        else -> "${(seconds / 60).coerceAtLeast(1)} минут"
+    }
+}
+
+
 @Composable
 internal fun BoostContent(
     loading: Boolean,
@@ -625,6 +653,7 @@ internal fun BoostContent(
     onPay: () -> Unit,
     checkingPayment: Boolean = false,
     onCheckPayment: () -> Unit = {},
+    carriedBoostSec: Int = 0,
     resultSlot: @Composable (BoostResultDto) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -641,7 +670,14 @@ internal fun BoostContent(
             rides.isEmpty() -> StateMessage(
                 icon = Icons.Default.AddRoad,
                 title = appText("Нет активных поездок", "Әүҙем сәфәрҙәр юҡ"),
-                text = appText("Сначала опубликуй поездку — потом её можно поднять выше в списке.", "Башта сәфәр бастыр — һуңынан уны исемлектә өҫкә күтәреп була."),
+                // Про остаток говорим и ЗДЕСЬ. Именно так выглядит экран у водителя, который
+                // только что снял свою единственную поездку: активных нет, а за поднятие
+                // уплачено. Приёмка 2026-08-31 поймала это вживую — человек видел только
+                // «опубликуй поездку» и уходил в уверенности, что деньги сгорели.
+                text = if (carriedBoostSec > 0) appText(
+                    "Поднятие с отменённой поездки сохранено: ${boostCarryRu(carriedBoostSec)}. Опубликуй новую — оно ляжет на неё само.",
+                    "Кире алынған сәфәрҙән күтәреү һаҡланды: ${boostCarryBa(carriedBoostSec)}. Яңыһын бастыр — ул үҙе ҡуйыла.",
+                ) else appText("Сначала опубликуй поездку — потом её можно поднять выше в списке.", "Башта сәфәр бастыр — һуңынан уны исемлектә өҫкә күтәреп була."),
                 actionText = appText("Понятно", "Аңлашыла"),
                 onAction = onEmptyAction,
             )
@@ -656,6 +692,26 @@ internal fun BoostContent(
                 items(rides, key = { it.id }) { ride ->
                     BoostRideRow(ride, selected = ride.id == selectedRideId,
                         onClick = { onSelectRide(ride.id) })
+                }
+                // Поднятие с отменённой поездки не пропало: остаток ляжет на следующую сам.
+                // Говорим об этом здесь, иначе водитель считает, что деньги сгорели.
+                if (carriedBoostSec > 0) {
+                    item {
+                        Surface(color = CanonMint, shape = CanonCardShape) {
+                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    appText("Перенесено с отменённой поездки: ${boostCarryRu(carriedBoostSec)}",
+                                            "Кире алынған сәфәрҙән күсерелде: ${boostCarryBa(carriedBoostSec)}"),
+                                    color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                                )
+                                Text(
+                                    appText("Ляжет на следующую поездку само — платить второй раз не нужно.",
+                                            "Киләһе сәфәргә үҙе ҡуйыла — икенсе тапҡыр түләргә кәрәкмәй."),
+                                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                                )
+                            }
+                        }
+                    }
                 }
                 item {
                     Text(appText("Тариф поднятия", "Күтәреү тарифы"),

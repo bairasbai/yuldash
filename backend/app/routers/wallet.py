@@ -23,7 +23,7 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..ledger import (PayoutError, driver_balance, ledger_entries, owed_to_platform_kop,
-                      payable_balance, reconcile, request_payout)
+                      payable_balance, reconcile, request_payout, _reversal_ext_id)
 from ..models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus,
     LedgerEntry, LedgerKind, Payment, User, UserRole,
@@ -297,7 +297,9 @@ def wallet_payout(body: PayoutIn, user: User = Depends(current_user), session: S
             idempotency_key=body.idempotency_key.strip(),
         )
     except PayoutError as e:
-        raise HTTPException(400, e.message)
+        # Оба языка + машинный код. Код нужен клиенту: `provider` означает «попытка закрыта,
+        # начни новую» — с прежним ключом ретрай упрётся в тот же отказ (волна 219).
+        raise HTTPException(400, {"ru": e.message, "ba": e.message_ba, "code": e.code})
     return res
 
 
@@ -312,8 +314,19 @@ def admin_payouts(limit: int = 100, user: User = Depends(current_user), session:
         select(LedgerEntry).where(LedgerEntry.kind == LedgerKind.payout)
         .order_by(LedgerEntry.id.desc()).limit(max(1, min(limit, 500)))
     ).all()
+    # Отклонённая банком выплата остаётся в реестре записью payout — деньги мы не переписываем
+    # задним числом. Но в сводке для сверки она обязана быть ПОМЕЧЕНА: без пометки админ считает
+    # её отправленной, хотя резерв вернулся человеку на баланс (волна 219).
+    отменённые = set(session.exec(
+        select(LedgerEntry.ext_id).where(
+            LedgerEntry.kind == LedgerKind.adj,
+            LedgerEntry.ext_id.in_([_reversal_ext_id(e.ext_id) for e in rows] or [""]),
+        )
+    ).all())
     return [
         {"id": e.id, "driver_id": e.driver_id, "amount_kop": -e.amount_kop,
-         "ext_id": e.ext_id, "note": e.note, "created_at": e.created_at}
+         "ext_id": e.ext_id, "note": e.note, "created_at": e.created_at,
+         # true = банк отказал, резерв вернули; денег по этой строке НЕ уходило.
+         "reversed": _reversal_ext_id(e.ext_id) in отменённые}
         for e in rows
     ]

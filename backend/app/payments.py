@@ -56,12 +56,19 @@ def _receipt(amount_kop: int, description: str, customer_phone: str) -> dict | N
     }
 
 
-def create_payment(amount_kop: int, description: str, metadata: dict, customer_phone: str = "") -> dict:
+def create_payment(amount_kop: int, description: str, metadata: dict, customer_phone: str = "",
+                   idempotence_key: str = "") -> dict:
     """Создать платёж. Возврат: {provider_id, confirmation_url, status, mock}.
 
     mock-режим (нет провайдера/ключей): возвращает фиктивный платёж со status='succeeded'
     (в проде эндпоинт это не вызовет — там 503). yookassa: реальный POST с redirect-URL
-    и чеком для самозанятого (авто-фискализация через «Мой налог»)."""
+    и чеком для самозанятого (авто-фискализация через «Мой налог»).
+
+    `idempotence_key` — защита ЮKassa от повторной отправки ОДНОГО И ТОГО ЖЕ запроса.
+    Раньше сюда шёл свежий uuid на каждый вызов, то есть защита была выключена: оборвалась
+    сеть на ответе, повторили запрос — у ЮKassa два платежа на один наш счёт. Ключ должен
+    быть привязан к нашей строке Payment, тогда повтор попадает в тот же платёж.
+    Пусто → случайный (для вызовов, где своей строки нет)."""
     if settings.payments_provider != "yookassa" or not (settings.yookassa_shop_id and settings.yookassa_secret_key):
         return {"provider_id": f"mock_{uuid.uuid4().hex}", "confirmation_url": "", "status": "succeeded", "mock": True}
     import httpx
@@ -78,7 +85,7 @@ def create_payment(amount_kop: int, description: str, metadata: dict, customer_p
     r = httpx.post(
         YOOKASSA_API, json=body,
         auth=(settings.yookassa_shop_id, settings.yookassa_secret_key),
-        headers={"Idempotence-Key": uuid.uuid4().hex},
+        headers={"Idempotence-Key": idempotence_key or uuid.uuid4().hex},
         timeout=15,
     )
     r.raise_for_status()

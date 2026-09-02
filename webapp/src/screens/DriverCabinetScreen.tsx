@@ -24,10 +24,17 @@ import {
   fetchMySchedules,
   createSchedule,
   deleteSchedule,
+  cancelRide,
   completeRide,
   type DriverStatus,
   type DriverSchedule,
 } from "../api/driver";
+import {
+  cancelBooking,
+  confirmBooking,
+  fetchDriverBookings,
+  type DriverBooking,
+} from "../api/bookings";
 import type { Ride } from "../api/rides";
 import { LoadingList, ErrorState } from "../components/States";
 import { StatusPill } from "../components/StatusPill";
@@ -138,6 +145,11 @@ export default function DriverCabinetScreen() {
   const [schedules, setSchedules] = useState<DriverSchedule[]>([]);
   const [finishing, setFinishing] = useState<number | null>(null);
   const [finishNote, setFinishNote] = useState("");
+  // Брони, ждущие ответа водителя. Раньше веб их не показывал вовсе: человек бронировал
+  // место и ждал молчания, а водитель с сайта не мог ни подтвердить, ни отклонить.
+  const [pending, setPending] = useState<DriverBooking[]>([]);
+  const [bookingBusy, setBookingBusy] = useState<number | null>(null);
+  const [bookingNote, setBookingNote] = useState("");
 
   /** Завершить рейс целиком (POST /rides/{id}/complete) — закрывает все брони разом. */
   async function finishRide(rideId: number) {
@@ -152,6 +164,68 @@ export default function DriverCabinetScreen() {
         e instanceof ApiError && e.message
           ? e.message
           : appText("Не получилось завершить. Проверь сеть.", "Тамамлап булманы. Селтәрҙе тикшер.")
+      );
+    } finally {
+      setFinishing(null);
+    }
+  }
+
+  /**
+   * Ответить на бронь: подтвердить или отклонить.
+   *
+   * Пассажир в это время сидит и ждёт — поэтому оба ответа делаем одинаково доступными,
+   * а ошибку показываем словами сервера, а не «проверь сеть».
+   */
+  async function answerBooking(id: number, yes: boolean) {
+    if (bookingBusy) return;
+    setBookingBusy(id);
+    setBookingNote("");
+    try {
+      if (yes) await confirmBooking(id);
+      else await cancelBooking(id);
+      setPending((prev) => prev.filter((b) => b.booking_id !== id));
+    } catch (e) {
+      setBookingNote(
+        e instanceof ApiError && e.message
+          ? e.message
+          : appText("Не получилось ответить на бронь. Проверь сеть.",
+                    "Урын һаҡлауға яуап биреп булманы. Селтәрҙе тикшер.")
+      );
+    } finally {
+      setBookingBusy(null);
+    }
+  }
+
+  /**
+   * Снять рейс целиком (POST /rides/{id}/cancel).
+   *
+   * Раньше этого в вебе не было вообще: сломалась машина — и снять поездку с сайта нечем,
+   * а пассажиры выходят к дороге (аудит сценариев 30.08, P0). Спрашиваем подтверждение и
+   * называем число людей, которых это касается: отмена за час до выезда — не то же самое,
+   * что отмена за сутки, и человек должен это понимать до нажатия.
+   */
+  async function dropRide(r: Ride) {
+    if (finishing) return;
+    const занято = Math.max((r.seats_total ?? 0) - (r.seats_left ?? 0), 0);
+    const вопрос = занято > 0
+      ? appText(
+          `Снять поездку? Брони отменятся у ${занято} чел., им придёт уведомление.`,
+          `Сәфәрҙе алырғамы? ${занято} кешенең урыны кире алына, уларға хәбәр китә.`
+        )
+      : appText("Снять поездку? Её больше не будет видно в ленте.",
+                "Сәфәрҙе алырғамы? Ул таҫмала күренмәйәсәк.");
+    if (!window.confirm(вопрос)) return;
+    setFinishing(r.id);
+    setFinishNote("");
+    try {
+      await cancelRide(r.id);
+      setRides((prev) => prev.map((x) => (x.id === r.id ? { ...x, status: "cancelled" } : x)));
+    } catch (e) {
+      setFinishNote(
+        e instanceof ApiError && e.message
+          ? e.message
+          : appText("Не получилось снять поездку. Проверь сеть.",
+                    "Сәфәрҙе алып булманы. Селтәрҙе тикшер.")
       );
     } finally {
       setFinishing(null);
@@ -207,6 +281,10 @@ export default function DriverCabinetScreen() {
     fetchMySchedules(signal)
       .then(setSchedules)
       .catch(() => setSchedules([])); // 404 до релиза → без расписания
+    // Ждущие брони — мягко: не смогли получить, кабинет всё равно работает.
+    fetchDriverBookings(signal)
+      .then((rows) => setPending(rows.filter((b) => b.status === "pending")))
+      .catch(() => setPending([]));
   }, []);
 
   useEffect(() => {
@@ -389,6 +467,47 @@ export default function DriverCabinetScreen() {
 
 {finishNote && <p className="taxi-note">{finishNote}</p>}
 
+          {/* Брони, которые ждут ответа. Стоят ВЫШЕ списка поездок намеренно: пока водитель
+              молчит, человек сидит и не знает, поедет он или нет. Это самое срочное, что
+              есть в кабинете. */}
+          {pending.length > 0 && (
+            <>
+              <h2 className="section-title">
+                {appText("Ждут твоего ответа", "Яуабыңды көтәләр")}
+              </h2>
+              {pending.map((b) => (
+                <div key={b.booking_id} className="act-card">
+                  <div className="act-card__title">
+                    <IconRides size={18} /> {b.route}
+                  </div>
+                  <p className="act-card__text" style={{ margin: "6px 0 10px" }}>
+                    {b.passenger_name || appText("Пассажир", "Юлаусы")}
+                    {b.passenger_rating != null && ` · ★ ${b.passenger_rating.toFixed(1)}`}
+                  </p>
+                  <div className="act-card__actions">
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={bookingBusy === b.booking_id}
+                      onClick={() => void answerBooking(b.booking_id, true)}
+                    >
+                      {appText("Подтвердить", "Раҫлау")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={bookingBusy === b.booking_id}
+                      onClick={() => void answerBooking(b.booking_id, false)}
+                    >
+                      {appText("Отклонить", "Кире ҡағыу")}
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {bookingNote && <p className="taxi-note">{bookingNote}</p>}
+            </>
+          )}
+
           {/* Кто едет со мной: подтвердить бронь, отметить неявку, поставить оценку.
               До подтверждения пассажир не видит ни телефона, ни точки сбора — значит
               кнопка «Подтвердить» это не формальность, а то, с чего начинается поездка. */}
@@ -470,6 +589,18 @@ export default function DriverCabinetScreen() {
                         {finishing === r.id
                           ? appText("Завершаем…", "Тамамлайбыҙ…")
                           : appText("Завершить", "Тамамлау")}
+                      </button>
+                    )}
+                    {/* Снять рейс: сломалась машина, заболел, передумал. Без этой кнопки
+                        человеку с сайта оставалось только не приехать. */}
+                    {st !== "done" && st !== "cancelled" && (
+                      <button
+                        type="button"
+                        className="btn-ghost btn-soft--sm"
+                        onClick={() => void dropRide(r)}
+                        disabled={finishing === r.id}
+                      >
+                        {appText("Снять поездку", "Сәфәрҙе алыу")}
                       </button>
                     )}
 

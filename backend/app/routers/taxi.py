@@ -112,8 +112,12 @@ class TaxiDocsIn(BaseModel):
     osago_until: Optional[date] = None
     permit_until: Optional[date] = None
     inspection_until: Optional[date] = None
+    # ОСГОП продлевается так же, как ОСАГО: раз в год. Без этого поля водитель мог указать
+    # срок только при первой подаче — и больше никогда (аудит сценариев 30.08).
+    osgop_until: Optional[date] = None
     osago_url: Optional[str] = Field(None, max_length=500)
     permit_photo_url: Optional[str] = Field(None, max_length=500)
+    osgop_url: Optional[str] = Field(None, max_length=500)
 
 
 def recalc_classes(dp: DriverProfile) -> None:
@@ -229,13 +233,15 @@ def _validate_apply(body: TaxiApplyIn) -> None:
                    "Юлдаш (попутка) теләһә ниндәй төҫ менән эшләй.")
 
 
-def _validate_doc_dates(osago: Optional[date], permit: Optional[date], inspection: Optional[date]) -> None:
+def _validate_doc_dates(osago: Optional[date], permit: Optional[date], inspection: Optional[date],
+                       osgop: Optional[date] = None) -> None:
     """Общая проверка сроков (подача заявки и обновление документов — одно правило)."""
     today = local_date(utcnow())
     for value, ru, ba in (
         (osago, "ОСАГО", "ОСАГО"),
         (permit, "разрешения на такси", "такси рөхсәтенең"),
         (inspection, "диагностической карты", "диагностика картаһының"),
+        (osgop, "ОСГОП", "ОСГОП"),
     ):
         if value is None:
             continue
@@ -254,6 +260,10 @@ def _doc_dates(app: TaxiApplication) -> dict:
         "osago_until": getattr(app, "osago_until", None),
         "permit_until": getattr(app, "permit_until", None),
         "inspection_until": getattr(app, "inspection_until", None),
+        # ОСГОП поехал в общий словарь со всеми (аудит сценариев 30.08): раньше поле в базе
+        # было, а на экран не уходило — страховка, обязательная по закону, нигде не
+        # показывалась и никогда не истекала.
+        "osgop_until": getattr(app, "osgop_until", None),
     }
     filled = [d for d in dates.values() if d is not None]
     soonest = min(filled) if filled else None
@@ -400,20 +410,26 @@ def update_taxi_documents(body: TaxiDocsIn, user: User = Depends(current_user),
     app = taxi_mod.my_application(session, user.id)
     if not app:
         raise herr(404, "Заявка не подана", "Заявка бирелмәгән")
-    _validate_doc_dates(body.osago_until, body.permit_until, body.inspection_until)
+    _validate_doc_dates(body.osago_until, body.permit_until, body.inspection_until,
+                        body.osgop_until)
     if body.osago_until is not None:
         app.osago_until = body.osago_until
     if body.permit_until is not None:
         app.permit_until = body.permit_until
     if body.inspection_until is not None:
         app.inspection_until = body.inspection_until
+    if body.osgop_until is not None:
+        app.osgop_until = body.osgop_until
     # Фото — только СВОИ загруженные защищённые документы (анти-подмена чужих URL).
     if body.osago_url is not None and body.osago_url.strip():
         app.osago_url = _ensure_owned_doc_url(body.osago_url, user, None)
     if body.permit_photo_url is not None and body.permit_photo_url.strip():
         app.permit_photo_url = _ensure_owned_doc_url(body.permit_photo_url, user, None)
+    if body.osgop_url is not None and body.osgop_url.strip():
+        app.osgop_url = _ensure_owned_doc_url(body.osgop_url, user, None)
     today = local_date(utcnow())
-    dates = [d for d in (app.osago_until, app.permit_until, app.inspection_until) if d is not None]
+    dates = [d for d in (app.osago_until, app.permit_until, app.inspection_until,
+                         app.osgop_until) if d is not None]
     if app.docs_expired and dates and all(d >= today for d in dates):
         app.docs_expired = False
         app.docs_warned_at = None

@@ -92,7 +92,10 @@ def test_реклама_одобрена_и_человек_видит_это_в_
     admin = user_factory(name="Админ рекламы", role=UserRole.admin)
     ad_id = _ad(owner["id"])
 
-    r = client.post(f"/admin/ads/{ad_id}/approve", headers=admin["auth"], json={})
+    # erid обязателен с 2026-08-31: одобрить рекламу без маркировки сервер не даёт
+    # (закон о рекламе). Тест про уведомление партнёра, а не про маркировку, — просто
+    # передаём номер, как это теперь делает админ в реальной жизни.
+    r = client.post(f"/admin/ads/{ad_id}/approve", headers=admin["auth"], json={"erid": "2Vtzq-test"})
     assert r.status_code == 200, r.text
 
     n = _find(_notes(client, owner), "Реклама одобрена")

@@ -24,7 +24,7 @@ workday_step_cap_sec (редкие пинги не накручивают час
 from datetime import date as date_type, datetime, time as time_type, timedelta
 from typing import Optional
 
-from fastapi import HTTPException
+from .errors import herr
 from sqlmodel import Session, select
 
 from .config import settings
@@ -59,16 +59,24 @@ def is_winter_night(now: Optional[datetime] = None) -> bool:
 
 
 # ------------------------------ сообщения (RU + черновой BA, финал — за Александром) ------------------------------
-def rest_block_message() -> str:
+def rest_block_message() -> tuple:
+    """Текст блокировки по дневной смене — ПАРОЙ (ru, ba).
+
+    Раньше оба языка склеивались через « · » в одну строку и уходили обычным
+    HTTPException. Клиент такую строку показать не умеет и подменяет её общим «нет доступа» —
+    башкироязычный водитель видел «Был эшкә рөхсәт юҡ» вместо объяснения про отдых
+    (аудит сценариев 30.08). Теперь отвечаем так же, как остальные гейты такси.
+    """
     h = settings.taxi_shift_limit_hours
     u = settings.rest_unlock_hour
-    return (f"Ты сегодня за рулём {h} часов — отдохни 🌙 Завтра с {u} утра снова на линию."
-            f" · Һин бөгөн {h} сәғәт руль артында — ял ит 🌙 Иртәгә иртәнге {u}-нан йәнә линияға.")
+    return (f"Ты сегодня за рулём {h} часов — отдохни 🌙 Завтра с {u} утра снова на линию.",
+            f"Һин бөгөн {h} сәғәт руль артында — ял ит 🌙 Иртәгә иртәнге {u}-нан йәнә линияға.")
 
 
-def return_ride_message() -> str:
-    return ("Возьми одного попутчика домой и отдохни 🌙 Завтра попутка снова без ограничений."
-            " · Бер юлдашты өйгә алып ҡайт та ял ит 🌙 Иртәгә юлдаш йәнә сикләүһеҙ.")
+def return_ride_message() -> tuple:
+    """«Один попутчик домой» — тоже парой (ru, ba)."""
+    return ("Возьми одного попутчика домой и отдохни 🌙 Завтра попутка снова без ограничений.",
+            "Бер юлдашты өйгә алып ҡайт та ял ит 🌙 Иртәгә юлдаш йәнә сикләүһеҙ.")
 
 
 # ------------------------------ строки учёта ------------------------------
@@ -136,6 +144,7 @@ def week_seconds(session: Session, driver_id: int, now: Optional[datetime] = Non
     Именно так и накапливается усталость, из-за которой случаются ночные аварии на трассе
     Сибай–Уфа: каждый отдельный день выглядит нормальным.
     """
+    now = now or utcnow()
     today = local_day(now)
     since = today - timedelta(days=6)      # сегодня + шесть предыдущих = неделя
     rows = session.exec(
@@ -145,7 +154,41 @@ def week_seconds(session: Session, driver_id: int, now: Optional[datetime] = Non
             TaxiWorkDay.day <= today,
         )
     ).all()
-    return sum(int(r.seconds_online or 0) for r in rows)
+    присутствие = {r.day: int(r.seconds_online or 0) for r in rows}
+    # Каждый день недели меряем ТЕМ ЖЕ прибором, что и текущую смену: большее из присутствия
+    # и фактических рейсов (волны 171 и 211). Раньше суммировалось только присутствие, и
+    # сорок часов за неделю не набирались у двоих сразу: у курьера, который на такси-линию
+    # не выходит и строк дня не имеет вовсе, и у таксиста, ездившего там, где нет сети.
+    # Максимум берём ПО ДНЯМ, а не по всему окну: неделя из дня «только присутствие» и дня
+    # «только рейсы» иначе схлопнулась бы в один из них.
+    фактические = _work_seconds_by_day(session, driver_id, since, today, now)
+    return sum(max(присутствие.get(д, 0), фактические.get(д, 0))
+               for д in set(присутствие) | set(фактические))
+
+
+def _work_seconds_by_day(session: Session, driver_id: int, с_дня: date_type,
+                         по_день: date_type, now: datetime) -> dict:
+    """Фактическая работа по местным дням окна — ОДНИМ запросом на весь диапазон.
+
+    Семь отдельных вызовов `work_seconds_today` дали бы четырнадцать запросов на каждом
+    presence-пинге; здесь заказы и доставки читаются один раз и раскладываются по дням.
+    """
+    начало = datetime.combine(с_дня, time_type()) - _tz()
+    конец = datetime.combine(по_день + timedelta(days=1), time_type()) - _tz()
+    интервалы = _work_intervals(session, driver_id, начало, конец, now)
+    по_дням: dict = {}
+    for a, b in интервалы:
+        день = local_day(a)
+        while день <= по_день:
+            граница_с = datetime.combine(день, time_type()) - _tz()
+            граница_по = граница_с + timedelta(days=1)
+            кусок = (max(a, граница_с), min(b, граница_по))
+            if кусок[1] > кусок[0]:
+                по_дням.setdefault(день, []).append(кусок)
+            if b <= граница_по:
+                break
+            день += timedelta(days=1)
+    return {д: _union_seconds(куски) for д, куски in по_дням.items()}
 
 
 def week_limit_sec() -> int:
@@ -168,13 +211,13 @@ def week_block_until(session: Session, driver_id: int, now: Optional[datetime] =
     return tomorrow_local - _tz()
 
 
-def week_block_message() -> str:
+def week_block_message() -> tuple:
     h = settings.taxi_week_limit_hours
     # Не обещаем «завтра снова на линию»: окно скользящее, и завтра часы освободятся только
     # если самый старый день выпал из недели. Пообещать и не пустить — хуже, чем не обещать.
     return (f"За неделю уже {h} часов за рулём — сегодня отдыхай 🌙 Линия откроется, "
-            f"как только за последние 7 дней станет меньше {h} часов."
-            f" · Аҙнаға {h} сәғәт руль артында — бөгөн ял ит 🌙 Һуңғы 7 көндә {h} сәғәттән "
+            f"как только за последние 7 дней станет меньше {h} часов.",
+            f"Аҙнаға {h} сәғәт руль артында — бөгөн ял ит 🌙 Һуңғы 7 көндә {h} сәғәттән "
             f"аҙыраҡ булыу менән линия асыла.")
 
 
@@ -190,15 +233,49 @@ def guard_rested(session: Session, driver_id: int, now: Optional[datetime] = Non
     бросить пассажира или посылку посреди дороги хуже, чем доработать полчаса.
     """
     now = now or utcnow()
+    _stamp_limit_if_reached(session, driver_id, now)
     wd = blocking_workday(session, driver_id, now)
     if wd is None:
         # Дневной лимит не сработал — проверяем недельный. Порядок именно такой: дневной
         # конкретнее и его текст понятнее («ты сегодня 8 часов за рулём»).
         if week_block_until(session, driver_id, now) is not None:
-            raise HTTPException(403, week_block_message())
+            raise herr(403, *week_block_message())
         return
     _maybe_winter_advice(session, driver_id, wd, now)
-    raise HTTPException(403, rest_block_message())
+    raise herr(403, *rest_block_message())
+
+
+def _stamp_limit_if_reached(session: Session, driver_id: int, now: datetime) -> None:
+    """Отметить выработанную смену, если её ещё никто не отметил (волна 212).
+
+    Флаг `limit_reached_at` писал ровно один вызов — `record_heartbeat`, а зовут его только
+    из `POST /instant/presence`, куда пускают лишь водителя с включённым «Я на линии»
+    в ТАКСИ. Человек, который весь день возит посылки и такси не касался, туда не заходит
+    ни разу — и гейт отдыха, поставленный волной 194 на приём курьерского заказа, честно
+    срабатывал на флаг, которого никогда не было.
+
+    Считаем живьём тем же прибором, что и смену таксиста, и ставим ту же отметку: дальше
+    работают ровно те же `unlock_at`, текст и пуш. Одно место решает «смена выработана»,
+    а не два — иначе двери разъедутся, как уже было с витриной поездки (волна 210).
+
+    Строку дня заводим ТОЛЬКО когда лимит действительно достигнут: иначе у каждого, кто
+    просто открыл приложение, появлялась бы пустая строка — и попадала в недельный счёт.
+    """
+    if blocking_workday(session, driver_id, now) is not None:
+        # Блок уже идёт — второй поверх него ставить НЕЛЬЗЯ. Человек, которому осталось
+        # доспать час, каждой отклонённой попыткой продлевал бы себе отдых на новые сутки,
+        # и выйти на линию он не смог бы уже никогда. Поймано соседним тестом про неполный
+        # отдых: в 06:30 отказ, в 07:35 обязан быть допуск.
+        return
+    if shift_seconds(session, driver_id, None, now) < shift_limit_sec():
+        return
+    wd = _get_or_create_today(session, driver_id, now)
+    if wd.limit_reached_at is not None:
+        return
+    wd.limit_reached_at = now
+    session.add(wd)
+    session.commit()
+    _push_limit_reached(session, driver_id, wd, now)
 
 
 # Старое имя. Гейт перестал быть «только про такси», но зовут его из нескольких мест —
@@ -266,12 +343,36 @@ def carried_over_seconds(session: Session, driver_id: int, now: Optional[datetim
     не прошёл положенный отдых (`rest_hours`). Поспал — начинаешь с нуля, и это ровно то,
     ради чего правило и написано."""
     now = now or utcnow()
-    prev = _get_day(session, driver_id, local_day(now) - timedelta(days=1))
-    if prev is None or not prev.last_heartbeat_at:
+    вчера = local_day(now) - timedelta(days=1)
+    начало = datetime.combine(вчера, time_type()) - _tz()
+    prev = _get_day(session, driver_id, вчера)
+    интервалы = _work_intervals(session, driver_id, начало, начало + timedelta(days=1), now)
+
+    # Хвост мерим ТЕМ ЖЕ прибором, что и текущий день: большее из присутствия и фактических
+    # рейсов (волна 211). Раньше тут стояло только присутствие, а у него потолок на редкий
+    # пинг — и три часа ночной трассы Сибай–Акъяр без сотовой сети переносились через
+    # полночь как четыре минуты. Человек получал почти полные новые восемь часов.
+    работа = max(int(prev.seconds_online or 0) if prev is not None else 0,
+                 _union_seconds(интервалы))
+    if работа <= 0:
         return 0
-    if (now - prev.last_heartbeat_at) >= timedelta(hours=settings.rest_hours):
+
+    # Момент, когда человек последний раз работал. Строки рабочего дня может не быть вовсе:
+    # её заводит только такси-пинг, а курьер на такси-линию не выходит (волна 212). Тогда
+    # «последний раз за рулём» — это конец последней вчерашней доставки.
+    моменты = [b for _, b in интервалы]
+    if prev is not None and prev.last_heartbeat_at:
+        моменты.append(prev.last_heartbeat_at)
+    if not моменты:
+        # Работа в строке есть, а КОГДА она была — неизвестно: ни пинга, ни заказа. Такого
+        # состояния живой код не создаёт (пинг всегда пишет время), это остаётся от прямого
+        # посева. Не зная момента, отдых не отсчитать, поэтому и хвост не тянем. Попытка
+        # подставить сюда «конец вчерашних суток» делала результат зависимым от часа
+        # запуска — та самая ошибка, от которой в проекте отдельный урок.
+        return 0
+    if (now - max(моменты)) >= timedelta(hours=settings.rest_hours):
         return 0                      # отдых был — вчерашнее не тянем
-    return int(prev.seconds_online or 0)
+    return работа
 
 
 def resting_driver_ids(session: Session, driver_ids: list, now: Optional[datetime] = None) -> set:
@@ -356,6 +457,8 @@ def _courier_intervals_today(session: Session, courier_id: int, начало_д�
     ).all()
     интервалы = []
     for p in строки:
+        if p.accepted_at is None:
+            continue                # см. про кэш ORM в `_work_intervals`
         # Конец работы: вручил, вернул отправителю — или он всё ещё в пути.
         конец = p.delivered_at or getattr(p, "returned_at", None)
         if конец is None:
@@ -367,8 +470,13 @@ def _courier_intervals_today(session: Session, courier_id: int, начало_д�
 
 
 def work_seconds_today(session: Session, driver_id: int,
-                       now: Optional[datetime] = None) -> int:
+                       now: Optional[datetime] = None,
+                       день: Optional[date_type] = None) -> int:
     """Сколько человек фактически работал за рулём за местный день — по самим заказам.
+
+    `день` — какие местные сутки считаем; по умолчанию сегодняшние. Вчерашние нужны хвосту
+    смены через полночь (`carried_over_seconds`, волна 211): он раньше тянул только сигналы
+    присутствия, и ночной рейс без связи обнулялся ровно на полуночном шве.
 
     Считаем ОБА режима: поездки с пассажирами и доставки. Раньше считались только такси-
     заказы, и это делало восьмичасовой лимит наполовину декоративным: отработал смену
@@ -388,40 +496,63 @@ def work_seconds_today(session: Session, driver_id: int,
     был за рулём, что бы ни думала об этом сотовая сеть. Берём заказы, ЗАДЕТЫЕ текущим местным
     днём, и обрезаем их границами дня: рейс через полночь не должен целиком падать в один день.
     """
-    from .models import InstantOrder, InstantOrderStatus
     now = now or utcnow()
-    начало_дня = datetime.combine(local_day(now), time_type()) - _tz()
-    конец_дня = начало_дня + timedelta(days=1)
+    начало_дня = datetime.combine(день or local_day(now), time_type()) - _tz()
+    return _union_seconds(_work_intervals(session, driver_id, начало_дня,
+                                          начало_дня + timedelta(days=1), now))
+
+
+def _work_intervals(session: Session, driver_id: int, начало, конец, now):
+    """Отрезки работы за рулём в окне [начало, конец): такси-заказы и доставки одним списком.
+
+    Час с пассажиром и час с посылкой — это два часа за рулём; если он вёз их одновременно —
+    один. Объединение отрезков отвечает верно в обоих случаях, а сумма или максимум ошиблись
+    бы в одном из них.
+    """
+    from .models import InstantOrder, InstantOrderStatus
     заказы = session.exec(
         select(InstantOrder).where(
             InstantOrder.driver_id == driver_id,
             InstantOrder.accepted_at.is_not(None),
-            InstantOrder.accepted_at < конец_дня,
+            InstantOrder.accepted_at < конец,
             InstantOrder.status.in_([InstantOrderStatus.accepted, InstantOrderStatus.arriving,
                                      InstantOrderStatus.onboard, InstantOrderStatus.done]),
         )
     ).all()
     интервалы = []
     for o in заказы:
-        конец = o.done_at or now                 # заказ ещё идёт — считаем до сих пор
-        интервалы.append((max(o.accepted_at, начало_дня), min(конец, конец_дня, now)))
-    # Доставки — сюда же, одним списком: час с пассажиром и час с посылкой это два часа за
-    # рулём, а если он вёз их одновременно — один. Объединение отрезков отвечает верно в обоих
-    # случаях, а сумма или максимум ошиблись бы в одном из них.
-    интервалы += _courier_intervals_today(session, driver_id, начало_дня, конец_дня, now)
-    return _union_seconds(интервалы)
+        # Фильтр в запросе говорит «время приёма есть», а объект может прийти БЕЗ него: если
+        # эту же строку сессия уже читала раньше (до того, как заказ приняли), ORM отдаст её
+        # из своего кэша — со старым, пустым значением. Ловится только на гонке двух потоков
+        # за один заказ, и роняло приём заказа целиком (TypeError на сравнении с None).
+        # Нет отметки времени — считать нечего: пропускаем, следующий вызов уже посчитает.
+        # Так же ведёт себя и половина про доставки ниже.
+        if o.accepted_at is None:
+            continue
+        конец_рейса = o.done_at or now           # заказ ещё идёт — считаем до сих пор
+        интервалы.append((max(o.accepted_at, начало), min(конец_рейса, конец, now)))
+    интервалы += _courier_intervals_today(session, driver_id, начало, конец, now)
+    return [(a, b) for a, b in интервалы if b > a]
 
 
-def shift_seconds(session: Session, driver_id: int, wd: TaxiWorkDay,
+def shift_seconds(session: Session, driver_id: int, wd: Optional[TaxiWorkDay] = None,
                   now: Optional[datetime] = None) -> int:
     """Сколько водитель за рулём в ТЕКУЩЕЙ смене: сегодня + хвост незаконченной вчерашней.
+
+    `wd` можно не передавать: строку сегодняшнего дня возьмём сами, а если её нет — сочтём
+    присутствие нулём и обопрёмся на фактические рейсы. Строку при этом НЕ заводим: у чистого
+    курьера её нет вовсе, а лимит к нему применяется тот же (волна 212).
 
     «Сегодня» — БОЛЬШЕЕ из двух измерений, а не их сумма (волна 171): время присутствия
     на линии и время фактических поездок. Максимум, потому что эти два числа описывают одно
     и то же время разными приборами, и складывать их значило бы считать один час дважды.
     Прибор, который видит больше, и ближе к правде: сеть могла молчать, а руль — нет.
     """
-    сегодня = max(int(wd.seconds_online or 0), work_seconds_today(session, driver_id, now))
+    now = now or utcnow()
+    if wd is None:
+        wd = _get_day(session, driver_id, local_day(now))
+    присутствие = int(wd.seconds_online or 0) if wd is not None else 0
+    сегодня = max(присутствие, work_seconds_today(session, driver_id, now))
     return сегодня + carried_over_seconds(session, driver_id, now)
 
 
@@ -464,14 +595,14 @@ def guard_publish_ride(session: Session, driver_id: int, now: Optional[datetime]
         wd.return_ride_used = True
         session.add(wd)
         return
-    raise HTTPException(403, return_ride_message())
+    raise herr(403, *return_ride_message())
 
 
 def guard_respond_request(session: Session, driver_id: int, now: Optional[datetime] = None) -> None:
     """Отклик на заявку пассажира во время блока отдыха → мягкий 403 («домой — один
     попутчик из своей публикации, а не новые обязательства»). Вне блока — без ограничений."""
     if blocking_workday(session, driver_id, now) is not None:
-        raise HTTPException(403, return_ride_message())
+        raise herr(403, *return_ride_message())
 
 
 # ------------------------------ сводка водителю ------------------------------
@@ -484,7 +615,9 @@ def summary(session: Session, driver_id: int, now: Optional[datetime] = None) ->
     # Показываем ту же цифру, по которой считается лимит: со «хвостом» вчерашней смены, если
     # отдыха между ними не было (волна 54). Иначе в полночь прогресс визуально обнулялся бы,
     # а блок приходил бы «неожиданно» — хуже всего, когда правило кажется случайным.
-    seconds = (shift_seconds(session, driver_id, wd, now) if wd else 0)
+    # Считаем и без строки дня: у курьера её может не быть вовсе, а часы за рулём есть
+    # (волна 212). Раньше кабинет показывал такому человеку ноль и «осталось 8 часов».
+    seconds = shift_seconds(session, driver_id, wd, now)
     limit = shift_limit_sec()
     return {
         "day": (wd.day if wd else local_day(now)).isoformat(),
@@ -495,4 +628,12 @@ def summary(session: Session, driver_id: int, now: Optional[datetime] = None) ->
         "blocked": blocked_wd is not None,
         "unlock_at": unlock_at(blocked_wd).isoformat() if blocked_wd else None,
         "return_ride_used": bool(blocked_wd.return_ride_used) if blocked_wd else False,
+        # Недельный потолок (аудит сценариев 30.08). Раньше сводка знала только про ДЕНЬ:
+        # кабинет писал «смена свободна», а линия была закрыта неделей, и человек не понимал,
+        # почему не идут заказы. Срок разблокировки честно None: окно скользящее, и час
+        # освободится, только когда самый старый день выпадет из последних семи — обещать
+        # конкретное время значило бы соврать.
+        "week_blocked": week_block_until(session, driver_id, now) is not None,
+        "week_limit_hours": settings.taxi_week_limit_hours,
+        "week_seconds": week_seconds(session, driver_id, now),
     }
