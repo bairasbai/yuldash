@@ -150,7 +150,7 @@ def test_ad_pay_gates_visibility(client, user_factory):
     admin = user_factory(name="Админ", role=UserRole.admin)
     ad = client.post("/ads", headers=owner["auth"], json={"title": "Кафе Плюс", "package": "city"}).json()
     client.post(f"/ads/{ad['id']}/submit", headers=owner["auth"])
-    client.post(f"/admin/ads/{ad['id']}/approve", headers=admin["auth"], json={"erid": "2Ru-X"})
+    client.post(f"/admin/ads/{ad['id']}/approve", headers=admin["auth"], json={"erid": "2RuXm7T1z5k"})
     # одобрено, но НЕ оплачено → в публичной выдаче /ads НЕТ
     assert all(x["id"] != ad["id"] for x in client.get("/ads").json())
     assert next(x for x in client.get("/ads/mine", headers=owner["auth"]).json() if x["id"] == ad["id"])["paid"] is False
@@ -175,7 +175,7 @@ def test_ad_pay_reanchors_window_from_payment(client, user_factory):
     admin = user_factory(name="Админ", role=UserRole.admin)
     ad = client.post("/ads", headers=owner["auth"], json={"title": "Кафе Срок", "package": "city"}).json()
     client.post(f"/ads/{ad['id']}/submit", headers=owner["auth"])
-    client.post(f"/admin/ads/{ad['id']}/approve", headers=admin["auth"], json={"erid": "2Ru-T"})
+    client.post(f"/admin/ads/{ad['id']}/approve", headers=admin["auth"], json={"erid": "2RuTm7T1z5k"})
     # «Партнёр оплатил поздно»: окно от одобрения уже в прошлом.
     with Session(engine) as s:
         row = s.get(Ad, int(ad["id"]))

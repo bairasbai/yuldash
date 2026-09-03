@@ -3071,6 +3071,9 @@ object ApiClient {
                 messageRu = msg.optString("ru"),
                 messageBa = msg.optString("ba"),
                 city = o.optNullableString("city") ?: "",
+                promoOn = o.optJSONObject("launch_promo")?.optBoolean("on") ?: false,
+                promoPercent = o.optJSONObject("launch_promo")?.optDouble("percent", 0.0) ?: 0.0,
+                promoDays = o.optJSONObject("launch_promo")?.optInt("days") ?: 0,
             )
         }
 
@@ -5798,6 +5801,13 @@ data class TaxiAvailabilityDto(
     val messageRu: String,
     val messageBa: String,
     val city: String = "",
+    // Промо запуска «первым водителям — N% комиссии»: идёт ли НАБОР прямо сейчас.
+    // Экран зазывал водителей нулевой комиссией безусловно, а промо по умолчанию выключено
+    // и в любом случае кончается датой (аудит 2026-09-02). Старый сервер полей не шлёт →
+    // promoOn=false, и обещания не будет.
+    val promoOn: Boolean = false,
+    val promoPercent: Double = 0.0,
+    val promoDays: Int = 0,
 )
 
 /**

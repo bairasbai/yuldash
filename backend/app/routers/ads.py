@@ -4,6 +4,7 @@
 Видимость в приложении: status==active И starts_at<=now И (ends_at null ИЛИ ends_at>now).
 Маркировка (РФ закон): поле erid обязательно, в выдаче есть partner_name → «Реклама · …».
 """
+import re
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -121,12 +122,25 @@ def _erid_grace_active(now: datetime) -> bool:
     return now < until
 
 
+# Настоящий идентификатор из ОРД — латиница и цифры, обычно 10-30 символов («2VtzqwH7uMn»).
+# Проверка формата нужна затем, что «непусто» не значит «присвоен»: в демо-данных жила
+# заглушка «ожидает присвоения», и объявление честно уходило в эфир с ней вместо номера.
+# Юридически это тот же показ без маркировки (ст. 14.3 КоАП — до 500 000 ₽ юрлицу),
+# только выглядит аккуратнее. Кириллица, пробелы и обрывки проверку не проходят.
+_ERID_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
+
+
+def erid_ok(erid: str) -> bool:
+    """Присвоен ли объявлению настоящий erid из ОРД (а не пусто/заглушка/мусор)."""
+    return bool(_ERID_RE.match((erid or "").strip()))
+
+
 def _is_live(ad: Ad, now: datetime) -> bool:
     if ad.status != "active":
         return False
     # Реклама без маркировки в эфир не идёт: показ без erid — нарушение закона о рекламе.
     # Исключение только на время переходного периода (см. _erid_grace_active).
-    if not (ad.erid or "").strip() and not _erid_grace_active(now):
+    if not erid_ok(ad.erid) and not _erid_grace_active(now):
         return False
     if ad.starts_at and ad.starts_at > now:
         return False
@@ -634,7 +648,7 @@ def _admin_view(ad: Ad, now: datetime, paid: bool = False) -> dict:
         "expired": ad.ends_at is not None and ad.ends_at <= now,
         # Нет маркировки: объявление или уже скрыто из выдачи, или скроется в конце
         # переходного периода. Админ должен видеть такие раньше, чем закон.
-        "erid_missing": not (ad.erid or "").strip(),
+        "erid_missing": not erid_ok(ad.erid),
         "erid_grace": _erid_grace_active(now),
         "starts_at": ad.starts_at.isoformat() if ad.starts_at else None,
         "ends_at": ad.ends_at.isoformat() if ad.ends_at else None,

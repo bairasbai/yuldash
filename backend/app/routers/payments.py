@@ -314,6 +314,18 @@ def _activate_payment(session: Session, payment: Payment) -> None:
             # возвращает только то, что оттуда не убирали.
             if partner.status == "active":
                 partner.status = "active"
+            else:
+                # Деньги пришли, а бизнеса в витрине нет — так и задумано (отклонён модерацией
+                # или ждёт перепроверки текста), но молча оставлять оплату нельзя: об этом
+                # не узнавал никто (аудит 2026-09-02). Админ решает: вернуть деньги,
+                # пересмотреть отказ или добить проверку.
+                notify_admin_telegram(
+                    "⚠️ Оплата есть, а бизнеса в витрине нет" + chr(10)
+                    + f"Бизнес: «{partner.name}» (id {partner.id}), статус {partner.status}" + chr(10)
+                    + f"Платёж: {payment.id} на {payment.amount_kop // 100} ₽, тариф {payment.tier}" + chr(10)
+                    + f"Срок подписки продлён до {partner.subscription_until:%d.%m.%Y}" + chr(10) * 2
+                    + "Реши: вернуть деньги, пересмотреть отказ или закончить проверку."
+                )
             session.add(partner)
     session.commit()
     _tell_about_payment(session, payment, ok=True)

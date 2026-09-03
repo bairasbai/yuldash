@@ -10,6 +10,7 @@
 ПОПУТКА (плановые Ride/Booking) этими гейтами НЕ затрагивается — отдельный поток.
 Приватность: координаты не логируем.
 """
+from datetime import date
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -18,6 +19,7 @@ from .config import settings
 from .models import DriverProfile, TaxiApplication, TaxiApplicationStatus, TaxiCity
 from .services import CITY_COORDS, haversine_km
 from .timeutil import utcnow
+from .workday import local_now
 
 # Сообщения гейта — двуязычно (RU + черновой BA, финал башкирского — за Александром).
 MSG_GLOBAL_OFF = {
@@ -76,26 +78,55 @@ def _city_aliases(name: str) -> set[str]:
     return {n.casefold() for n, c in CITY_COORDS.items() if c == coords}
 
 
+def launch_promo_state() -> dict:
+    """Идёт ли ещё набор в промо запуска «первым водителям — 0% комиссии».
+
+    Зачем в ответе гейта: приложение зовёт водителей строкой «0% комиссии первые 3 месяца»,
+    а промо по умолчанию ВЫКЛЮЧЕНО (`launch_promo_until` пуста) и в любом случае кончается
+    датой. Обещание, которого сервер не выполнит, — не маркетинг, а обман: экран должен
+    показывать эту строку только когда набор реально идёт (аудит 2026-09-02).
+    """
+    raw = (settings.launch_promo_until or "").strip()
+    if not raw:
+        return {"on": False, "percent": settings.launch_promo_percent, "days": settings.launch_promo_days}
+    try:
+        until = date.fromisoformat(raw)
+    except ValueError:                      # кривая дата в .env → промо считаем выключенным
+        return {"on": False, "percent": settings.launch_promo_percent, "days": settings.launch_promo_days}
+    return {
+        "on": local_now().date() <= until,
+        "percent": settings.launch_promo_percent,
+        "days": settings.launch_promo_days,
+        "until": raw,
+    }
+
+
 def availability(session: Session, lat: Optional[float] = None, lng: Optional[float] = None) -> dict:
     """Доступно ли такси в точке (lat, lng). Ответ единый для API и внутренних гейтов:
     {"enabled": bool, "reason": "global_off"|"city_off"|"ok", "message": {"ru","ba"}, "city": str|None}.
     city — ближайший известный город (для предзаполнения формы листа ожидания, §11);
     None = город не определён. Аддитивное поле, старые клиенты его игнорируют."""
     near = _nearest_city(lat, lng) if (lat is not None and lng is not None) else None
+    promo = launch_promo_state()            # аддитивное поле: старые клиенты игнорируют
     if not settings.taxi_enabled:
-        return {"enabled": False, "reason": "global_off", "message": MSG_GLOBAL_OFF, "city": near}
+        return {"enabled": False, "reason": "global_off", "message": MSG_GLOBAL_OFF, "city": near,
+                "launch_promo": promo}
     cities = session.exec(select(TaxiCity)).all()
     if not cities:
-        return {"enabled": True, "reason": "ok", "message": MSG_OK, "city": near}
+        return {"enabled": True, "reason": "ok", "message": MSG_OK, "city": near,
+                "launch_promo": promo}
     enabled_names: set[str] = set()
     for c in cities:
         if c.enabled:
             enabled_names |= _city_aliases(c.city.strip())
     if lat is None or lng is None:
-        return {"enabled": False, "reason": "city_off", "message": MSG_CITY_OFF, "city": None}
+        return {"enabled": False, "reason": "city_off", "message": MSG_CITY_OFF, "city": None,
+                "launch_promo": promo}
     if near is not None and _city_aliases(near) & enabled_names:
-        return {"enabled": True, "reason": "ok", "message": MSG_OK, "city": near}
-    return {"enabled": False, "reason": "city_off", "message": MSG_CITY_OFF, "city": near}
+        return {"enabled": True, "reason": "ok", "message": MSG_OK, "city": near,
+                "launch_promo": promo}
+    return {"enabled": False, "reason": "city_off", "message": MSG_CITY_OFF, "city": near,
+            "launch_promo": promo}
 
 
 def my_application(session: Session, user_id: int) -> Optional[TaxiApplication]:
