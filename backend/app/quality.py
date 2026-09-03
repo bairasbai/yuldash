@@ -22,7 +22,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from .config import settings
