@@ -77,6 +77,16 @@ export interface Parcel {
    */
   cancel_fee_kop?: number;
   cancel_fee_preview_kop?: number;
+  /**
+   * Кто отправитель — курьеру, когда контакты открыты. Гаснет вместе с телефонами
+   * после закрытия доставки: адрес и номер не должны лежать в чужом телефоне вечно.
+   */
+  sender_name?: string;
+  sender_phone?: string;
+  /** Сколько раз курьер пытался вручить и почему повезли обратно. */
+  delivery_attempts?: number;
+  return_reason?: string;
+  returned_at?: string | null;
   /** Из чего сложится компенсация за отмену: штраф + дорога курьера + его ожидание.
    *  Одно число человек читает как «нас обобрали» — со строками не спорят. */
   cancel_fee_parts?: {
@@ -342,4 +352,75 @@ export function parcelDispute(
 /** Заявка «в работе» у курьера (можно двигать статус). */
 export function isCarrying(s: ParcelStatus | string): boolean {
   return s === "accepted" || s === "in_transit";
+}
+
+// ================================================================
+//  Курьер снимает себя с заказа + квитанция за доставку
+//  (parcels.py: /parcels/{id}/release, /parcels/{id}/receipt).
+//
+//  В вебе не было ни того, ни другого: отказаться от взятого заказа
+//  было нельзя вообще, а чек за доставку — единственный из трёх
+//  (попутка, такси, доставка), которого веб не показывал
+//  (сверка с Android, 2026-08-30).
+// ================================================================
+
+/**
+ * «Не смогу везти» — посылка возвращается в общий список, отправителю уходит причина.
+ *
+ * Только пока коробка ещё не у курьера. Дальше это уже не отказ, а «уехал с чужой вещью»:
+ * там работают возврат и спор. Сервер это проверяет сам и отвечает понятной подсказкой.
+ */
+export function releaseParcel(id: number, reason = ""): Promise<Parcel> {
+  return apiPost<Parcel>(`/parcels/${id}/release`, { reason: reason.slice(0, 200) });
+}
+
+/**
+ * Квитанция за доставку. Телефонов и адресов тут нет: чеком делятся, а адрес получателя —
+ * это его дом.
+ *
+ * Деньги разделены по карманам: доставка отдельно, товар «купи и привези» отдельно.
+ * Компенсации курьеру (дорога к посылке, зимняя дорога, ожидание) идут ему целиком,
+ * комиссия с них не берётся.
+ */
+export interface ParcelReceipt {
+  parcel_id: number;
+  role: "courier" | "sender";
+  status: ParcelStatus | string;
+  from_city: string;
+  to_city: string;
+  delivery_type: string;
+  created_at: string;
+  delivered_at: string;
+  returned_at: string;
+  delivery_price_kop: number;
+  goods_kop: number;
+  total_kop: number;
+  /** Сколько отправитель возвращает курьеру за товар, купленный на свои. */
+  owed_to_courier_kop: number;
+  amount: number; // ₽
+  commission_kop: number;
+  commission_paid: boolean;
+  cancel_fee_kop: number;
+  /** Возврат: за доставку не берём, но дорогу и ожидание курьера отправитель возвращает. */
+  return_fee_kop: number;
+  distance_km: number;
+  delivery_attempts_final: number;
+  redeliver_requests: number;
+  settled: boolean;
+  declared_value_kop: number;
+  pickup_fee_kop: number;
+  pickup_km: number;
+  weather_fee_kop: number;
+  weather_kind: string;
+  night_k: number;
+  /** Ожидание раздельно по концам: задерживают курьера разные люди. */
+  waiting_sender_kop: number;
+  waiting_receiver_kop: number;
+  waiting_fee_kop: number;
+  courier_name: string;
+  courier_verified: boolean;
+}
+
+export function fetchParcelReceipt(id: number, signal?: AbortSignal): Promise<ParcelReceipt> {
+  return apiGet<ParcelReceipt>(`/parcels/${id}/receipt`, { signal });
 }

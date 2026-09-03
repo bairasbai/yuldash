@@ -20,6 +20,7 @@ import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { PartnerAdSlot } from "../components/PartnerAd";
 
 import { ApiError } from "../api/client";
+import { track } from "../analytics";
 export default function BookingScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
@@ -66,6 +67,7 @@ export default function BookingScreen() {
     setCancelNote("");
     try {
       await cancelBooking(bookingId);
+      track("booking_cancel");
       load();
     } catch (e) {
       // Раньше тут было «покажем при перезагрузке» — но перезагрузка идёт только

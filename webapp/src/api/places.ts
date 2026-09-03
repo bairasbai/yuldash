@@ -53,3 +53,50 @@ export function deleteSavedPlace(id: number): Promise<{ ok: boolean }> {
 export function fetchRecentPlaces(signal?: AbortSignal): Promise<RecentPlace[]> {
   return apiGet<RecentPlace[]>("/places/recent", { signal });
 }
+
+/**
+ * «Этим адресом только что воспользовались» (POST /places/saved/{id}/used).
+ *
+ * По этой отметке строится порядок быстрого списка: наверху то, куда ездят.
+ * Без неё список навсегда застывал в том виде, в каком его один раз завели.
+ */
+export function markSavedPlaceUsed(id: number): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(`/places/saved/${id}/used`);
+}
+
+/**
+ * Запомнить точку в «недавних» (POST /places/recent). Зовём при заказе.
+ * Дедуп по адресу держит сервер: повтор обновляет время и координаты.
+ */
+export function addRecentPlace(body: {
+  address: string;
+  lat?: number | null;
+  lng?: number | null;
+}): Promise<RecentPlace> {
+  return apiPost<RecentPlace>("/places/recent", {
+    address: body.address.slice(0, 500),
+    lat: body.lat ?? null,
+    lng: body.lng ?? null,
+  });
+}
+
+/**
+ * Убрать одну недавнюю точку.
+ *
+ * Список копится сам, из каждого заказа, и человек его не выбирал. Значит право убрать
+ * оттуда строку — не украшение: там оседают адрес больницы, дом бывшего, работа,
+ * с которой ушёл.
+ */
+export function deleteRecentPlace(id: number): Promise<{ ok: boolean }> {
+  return apiDelete<{ ok: boolean }>(`/places/recent/${id}`);
+}
+
+/**
+ * Очистить весь список недавних.
+ *
+ * Нужно отдельно от удаления по одной: когда телефон отдают в чужие руки, чистить
+ * по строке — десять жестов вместо одного.
+ */
+export function clearRecentPlaces(): Promise<{ ok: boolean }> {
+  return apiDelete<{ ok: boolean }>("/places/recent");
+}

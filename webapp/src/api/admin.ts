@@ -564,7 +564,18 @@ export function setPromoStatus(id: number, active: boolean): Promise<AdminPromo>
 /** Доход платформы по доставленным посылкам (сумма fee + число доставленных). */
 export interface ParcelsStatement {
   delivered_count: number;
+  /** Деньги дошли: курьеры оплатили комиссию. */
   collected_fee_kop: number;
+  /**
+   * Начислено, но ещё не оплачено. Одно «собрано» без этой цифры показывает доход
+   * лучше, чем он есть: часть его существует только в виде обещаний.
+   */
+  owed_commission_kop?: number;
+  /**
+   * Сбор с попутных посылок, который выставить некому: там нет курьера-плательщика.
+   * Это не долг и не потеря — это цена того, что доставка «по пути» бесплатна для людей.
+   */
+  unbilled_fee_kop?: number;
 }
 
 export interface AdminParcelsResponse {
@@ -876,4 +887,143 @@ export function fetchPretripJournal(
   return apiGet<{ day: string; items: PretripJournalItem[] }>(`/admin/taxi/pretrip${q}`, {
     signal,
   });
+}
+
+// ================================================================
+//  Жалобы на цену (instant.py: GET /admin/price-complaints).
+//  Нужны, чтобы менять тариф по фактам, а не по ощущениям, и видеть,
+//  на какой сумме люди отваливаются. В вебе этой очереди не было —
+//  жалоба уходила в никуда (сверка с Android, 2026-08-30).
+// ================================================================
+
+export interface PriceComplaint {
+  id: number;
+  order_id: number | null;
+  price: number;
+  reason: string;
+  /** На чью цену пожаловались: taxi | courier. Без этого две очереди слиплись бы в кучу. */
+  kind: "taxi" | "courier" | string;
+  comment: string;
+  /** Строки счёта, как их видел человек. Координат тут нет. */
+  breakdown: string | Record<string, unknown> | null;
+  created_at: string;
+  handled: boolean;
+}
+
+export function fetchPriceComplaints(
+  limit = 50,
+  signal?: AbortSignal
+): Promise<{ items: PriceComplaint[] }> {
+  return apiGet<{ items: PriceComplaint[] }>(`/admin/price-complaints?limit=${limit}`, { signal });
+}
+
+// ================================================================
+//  Реклама руками админа (ads.py: POST /admin/ads, /admin/ads/{id}).
+//
+//  Партнёр из райцентра приходит не через кабинет, а по телефону:
+//  «поставьте моё объявление, вот текст». В вебе завести такое было
+//  нельзя — только одобрять то, что партнёр оформил сам
+//  (сверка с Android, 2026-08-30).
+//
+//  Правка чужого объявления оставляет след в журнале действий
+//  админа: эта ручка переписывает ВСЁ содержимое оплаченной рекламы.
+// ================================================================
+
+/** Тело POST /admin/ads и /admin/ads/{id} (AdIn). Пустые поля сервер считает пустыми. */
+export interface AdminAdInput {
+  partner_name?: string;
+  partner_contact?: string;
+  title?: string;
+  text?: string;
+  button?: string;
+  target?: string;
+  image_url?: string;
+  /** Маркировка ОРД: без неё реклама вне закона. */
+  erid?: string;
+  plan?: "founder" | "standard" | "premium";
+  /** CSV мест показа и городов — как в кабинете партнёра. */
+  placements?: string;
+  cities?: string;
+  priority?: number;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  /** > 0 → создастся заявка на оплату, реклама пойдёт в показ после подтверждения. */
+  price?: number;
+}
+
+export function adminCreateAd(body: AdminAdInput): Promise<{ id: number; [k: string]: unknown }> {
+  return apiPost("/admin/ads", body);
+}
+
+export function adminUpdateAd(
+  id: number | string,
+  body: AdminAdInput
+): Promise<{ id: number; [k: string]: unknown }> {
+  return apiPost(`/admin/ads/${id}`, body);
+}
+
+// ================================================================
+//  Модерация фотоконтроля машин (carphoto.py: GET /admin/carphoto,
+//  POST /admin/carphoto/{id}/decide).
+//
+//  Фотоконтроль по 580-ФЗ водители проходят с 30.08: раз в две недели
+//  они показывают, на чём возят людей. Снимки уходили на сервер и
+//  ложились в очередь, которую НЕ БЫЛО ГДЕ ОТКРЫТЬ — ни в приложении,
+//  ни в вебе. То есть человек снимал машину, ждал ответа, а ответить
+//  ему было некому (сверка «ручки без клиента», 2026-08-31).
+// ================================================================
+
+/** Один кадр в очереди: что снимали и что автопроверка о нём думает. */
+export interface CarPhotoAdminSlot {
+  code: string; // front | back | left | right | salon | trunk
+  ru: string;
+  ba: string;
+  hint_ru: string;
+  hint_ba: string;
+  url: string | null;
+  /** "ok" либо код причины: too_small | screenshot | stale | duplicate. */
+  verdict: string;
+}
+
+/** Строка очереди фотоконтроля. Старые сверху — их ждут дольше. */
+export interface CarPhotoCheckRow {
+  id: number;
+  user_id: number;
+  /** taxi | courier — у курьера свои кадры. */
+  mode: string;
+  /** Какой это контроль по счёту у человека. Первый у такси строже: смотрят и «шашечки». */
+  seq: number;
+  status: string;
+  /** Зима: чистоту кузова не спрашиваем — это было бы требование к погоде, а не к человеку. */
+  winter: boolean;
+  manual_reason: string;
+  due_at: string;
+  submitted_at: string | null;
+  photos: CarPhotoAdminSlot[];
+  /** Что смотреть глазами — считает сервер, клиент не решает сам. */
+  check_clean_body: boolean;
+  check_signs: boolean;
+  /** periodic — плановый; по жалобе вопрос один: грязно или нет. */
+  kind: string;
+  report_id: number | null;
+  /** Три пункта осмотра салона, все видны на фото. Приходят готовыми на двух языках. */
+  clean_rules: { ru: string; ba: string }[];
+}
+
+export function fetchCarPhotoQueue(signal?: AbortSignal): Promise<CarPhotoCheckRow[]> {
+  return apiGet<CarPhotoCheckRow[]>("/admin/carphoto", { signal });
+}
+
+/**
+ * Решение по фотоконтролю.
+ *
+ * Отказ без объяснения сервер не примет — и правильно: «не принято» без слов это тупик,
+ * человек не знает, что переснимать. Причина уходит водителю как есть.
+ */
+export function decideCarPhoto(
+  id: number,
+  ok: boolean,
+  reason = ""
+): Promise<{ ok: boolean; status: string }> {
+  return apiPost(`/admin/carphoto/${id}/decide`, { ok, reason: reason.slice(0, 200) });
 }

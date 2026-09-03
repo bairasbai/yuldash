@@ -51,6 +51,7 @@ import {
   IconTicket,
   IconWarn,
 } from "../components/Icons";
+import { track } from "../analytics";
 
 type Status = "loading" | "error" | "soon" | "ready";
 type Mode = "cabinet" | "biz-form" | "coupon-form";
@@ -223,6 +224,7 @@ export default function PartnerCabinetScreen() {
     setRedeemRes(null);
     try {
       const res = await redeemCoupon(c);
+      track("coupon_redeem");
       setRedeemRes(res);
       setCode("");
       const cp = await fetchPartnerCoupons().catch(() => coupons);

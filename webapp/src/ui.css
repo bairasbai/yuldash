@@ -7434,3 +7434,362 @@ select.field__input {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* ================================================================
+   Волна П1 — поездка такси в пути: то, что человек делает МЕЖДУ
+   «водитель принял» и «приехали». Смена адреса, остановки, способ
+   расчёта, «уже выхожу», помощь на трассе.
+   Только токены (index.css), своих чисел цвета/радиуса нет.
+   ================================================================ */
+
+/* ---- Столбик действий под карточкой поездки ---- */
+.trip-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+/* Кнопка-действие во всю ширину. Высота 48 — палец в перчатке зимой. */
+.trip-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  width: 100%;
+  min-height: 48px;
+  margin: 0;
+}
+.trip-btn--warn {
+  color: var(--warn);
+}
+
+/* ---- Поиск адреса внутри карточки (смена адреса, остановки) ---- */
+.trip-search {
+  position: relative;
+  margin-bottom: var(--space-sm);
+}
+/* Подсказки внутри карточки, а не поверх экрана: карточка уже сама по себе слой. */
+.taxi-suggest--inline {
+  position: static;
+  margin-top: var(--space-xs);
+  box-shadow: none;
+  max-height: 200px;
+}
+
+/* ---- Тихая подпись под полем ---- */
+.trip-hint {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  color: var(--muted);
+}
+.trip-hint--ok {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--green2);
+}
+
+/* ---- Список остановок ---- */
+.trip-stops {
+  list-style: none;
+  margin: 0 0 var(--space-md);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.trip-stops__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 44px;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--surface-2);
+  border-radius: var(--radius-field);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  color: var(--text);
+}
+.trip-stops__row span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Проеденную точку не убрать — спорить о том, что позади, не о чем. */
+.trip-stops__row--done {
+  color: var(--muted);
+}
+.trip-stops__tag {
+  flex: none !important;
+  font-size: var(--font-micro);
+  color: var(--muted);
+}
+.trip-stops__del {
+  flex: none;
+  min-height: 44px;
+  padding: 0 var(--space-sm);
+  background: transparent;
+  border: none;
+  font-size: var(--font-micro);
+  color: var(--danger);
+}
+
+/* ---- Список «Мои пассажиры»: строка живёт в столбик, кнопки не жмутся к имени ---- */
+.list-row--stack {
+  flex-wrap: wrap;
+  row-gap: var(--space-sm);
+}
+/* Звёзды в списке — мельче, чем на экране оценки, но тач-цель остаётся 44. */
+.rate-stars--sm .rate-star {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* ================================================================
+   Волна П2 — классы машины у таксиста. Строка-переключатель:
+   видно, что включено, что недоступно и ЧЕГО не хватает.
+   ================================================================ */
+.class-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+.class-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  text-align: left;
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+/* Включён — заказы этого класса приходят. Рамка толще, фон чуть зеленее. */
+.class-row--on {
+  background: var(--mint);
+  border: 2px solid var(--green2);
+}
+/* Машина не проходит по требованиям: строка живая для чтения, но не для нажатия. */
+.class-row--off {
+  opacity: 0.7;
+}
+.class-row__text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.class-row__title {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: 700;
+  color: var(--text);
+}
+.class-row--on .class-row__title {
+  color: var(--green2);
+}
+.class-row__sub,
+.class-row__hint {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  color: var(--muted);
+}
+/* «Позови знакомого, и класс откроется» — тёплый тон, но затемнённый под контраст 4.5:1. */
+.class-row--on .class-row__sub {
+  color: var(--muted-strong);
+}
+.class-row__mark {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  color: var(--muted);
+}
+.class-row--on .class-row__mark {
+  color: var(--green2);
+}
+
+/* Тихая ссылка под счётом: заметна тому, кто ищет, и не спорит с ценой у остальных. */
+.link-btn--quiet {
+  width: 100%;
+  justify-content: center;
+  min-height: 44px;
+  font-size: var(--font-micro);
+  color: var(--muted);
+}
+
+/* «Нужно сейчас» — часть долга, которую нельзя отложить до недельного счёта.
+   Тон предупреждающий, но не тревожный: человек не нарушил, у поездки просто другой срок. */
+.debt-card__sum--now b {
+  color: var(--warn);
+}
+
+/* ---- «Из чего эта цена»: список сигналов, повлиявших на сумму ---- */
+.price-factors {
+  list-style: none;
+  margin: 0 0 var(--space-md);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.price-factors__row {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: flex-start;
+}
+.price-factors__dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-top: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--taxi-bg);
+}
+.price-factors__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.price-factors__title {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: baseline;
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: 600;
+  color: var(--text);
+}
+/* Сумма или множитель — справа от подписи, тем же весом: это часть факта, а не сноска. */
+.price-factors__amount {
+  flex: none;
+  color: var(--green2);
+}
+.price-factors__desc {
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  color: var(--muted);
+}
+
+/* ---- Живая лента сообщества: горизонтальная полоса карточек с настоящими числами ---- */
+.feed-strip {
+  display: flex;
+  gap: var(--space-sm);
+  margin: var(--space-md) -16px 0;
+  padding: 0 16px var(--space-xs);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.feed-strip::-webkit-scrollbar {
+  display: none;
+}
+.feed-strip__card {
+  flex: none;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+  max-width: 220px;
+  padding: var(--space-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.feed-strip__eyebrow {
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: 600;
+  color: var(--green2);
+}
+.feed-strip__title {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: 700;
+  color: var(--text);
+}
+.feed-strip__note {
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  color: var(--muted);
+}
+
+/* Две колонки для коротких полей (год и число мест): на узком экране схлопываются в одну. */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+@media (max-width: 380px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Строка выключенного способа оплаты: видно, что он есть, но им нельзя воспользоваться. */
+.list-row--muted {
+  opacity: 0.6;
+}
+
+/* ================================================================
+   Волна П7 — фотоконтроль машин у админа: сетка снимков.
+   Смотрят их глазами, поэтому кадры крупные и открываются целиком.
+   ================================================================ */
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-sm);
+  margin: var(--space-md) 0;
+}
+.photo-grid__cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.photo-grid__img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--radius-field);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+/* Кадра нет — место под него всё равно держим: видно, чего не хватает. */
+.photo-grid__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-field);
+  border: 1px dashed var(--border);
+  font-size: var(--font-micro);
+  color: var(--muted);
+}
+.photo-grid__cap {
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  color: var(--muted-strong);
+}
+/* Что сказала автопроверка. Предупреждение, а не приговор: решает человек. */
+.photo-grid__verdict {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  color: var(--warn);
+}

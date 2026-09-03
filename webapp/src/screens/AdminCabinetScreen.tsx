@@ -71,6 +71,20 @@ export default function AdminCabinetScreen() {
       sub: appText("Фишинг, увод контакта, грубость", "Фишинг, контакт алыу, тупаҫлыҡ"),
     },
     {
+      key: "price-complaints",
+      to: "/admin/price-complaints",
+      icon: <IconWallet size={22} />,
+      title: appText("Жалобы на цену", "Хаҡҡа зарлар"),
+      sub: appText("На какой сумме люди отваливаются", "Кешеләр ниндәй суммала китә"),
+    },
+    {
+      key: "car-photo",
+      to: "/admin/car-photo",
+      icon: <IconCar size={22} />,
+      title: appText("Фотоконтроль машин", "Машина фотоконтроле"),
+      sub: appText("Снимки на просмотр (580-ФЗ)", "Ҡарау өсөн рәсемдәр (580-ФЗ)"),
+    },
+    {
       key: "pretrip",
       to: "/admin/pretrip",
       icon: <IconCheck size={22} />,

@@ -93,6 +93,27 @@ export default function DebtCard() {
         </div>
       )}
 
+      {/* Долг «сразу после поездки»: дальний межгород не ждёт недельного счёта.
+          Говорим отдельной строкой — иначе человек видит общую сумму, платит в воскресенье
+          и не понимает, почему его закрыли в среду. */}
+      {(debt.pay_now_kop ?? 0) > 0 && (
+        <div className="debt-card__sum debt-card__sum--now">
+          <span className="debt-card__k">{appText("Нужно сейчас", "Хәҙер кәрәк")}</span>
+          <b>{kopExactLabel(debt.pay_now_kop ?? 0)}</b>
+        </div>
+      )}
+      {(debt.pay_now_kop ?? 0) > 0 && debt.pay_now_due_at && (
+        <div className="debt-card__due">
+          {appText("Эту часть — до ", "Был өлөшөн: ")}
+          {formatWhen(debt.pay_now_due_at, ru)}
+          {". "}
+          {appText(
+            "Дальняя поездка: комиссия с неё сравнима с недельной, поэтому её не копят.",
+            "Алыҫ сәфәр: унан комиссия аҙналыҡ менән тиң, шуға уны йыймайҙар."
+          )}
+        </div>
+      )}
+
       {debt.due_at && owed > 0 && (
         <div className="debt-card__due">
           {appText("Оплати до ", "Түлә: ")}

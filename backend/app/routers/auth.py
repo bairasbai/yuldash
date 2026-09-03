@@ -21,7 +21,7 @@ from ..errors import herr
 from ..logs import admin_action, log
 from ..models import (
     Ad, Booking, DeviceToken, DriverProfile, Message, Notification, OtpCode, Payment,
-    Rating, RequestResponse, Ride, TgAuth, User, UserRole,
+    Rating, RequestResponse, Ride, TgAuth, User, UserRole, WebPushSubscription,
 )
 from ..security import (
     current_user, gen_otp, is_placeholder_phone, issue_tokens, normalize_phone,
@@ -994,6 +994,114 @@ def push_register(body: PushTokenIn, user: User = Depends(current_user),
                 row.device_id = did
             session.add(row)
             session.commit()
+    return {"ok": True}
+
+
+class WebPushKeysIn(BaseModel):
+    """Ключи подписки браузера. Их выдаёт сам браузер, клиент только пересылает."""
+    p256dh: str = Field("", max_length=200)
+    auth: str = Field("", max_length=100)
+
+
+class WebPushSubIn(BaseModel):
+    """Подписка браузера на Web Push (стандарт RFC 8291).
+
+    `endpoint` — адрес пуш-сервиса браузера (Google/Mozilla/Apple), по нему и уходит
+    сообщение. `keys` — то, чем оно шифруется: без них отправить нельзя ничего.
+    """
+    endpoint: str = Field(..., max_length=1000)
+    keys: WebPushKeysIn = Field(default_factory=WebPushKeysIn)
+    # aes128gcm у современных браузеров, aesgcm у старых. Пусто → современный.
+    content_encoding: str = Field("aes128gcm", max_length=20)
+
+
+@router.post("/push/web/subscribe")
+def push_web_subscribe(body: WebPushSubIn, user: User = Depends(current_user),
+                       session: Session = Depends(get_session),
+                       x_device_id: str = Header(default="", alias="X-Device-Id")):
+    """Подписка браузера на уведомления.
+
+    Зачем отдельно от `/push/register`. Тот принимает FCM-токен приложения — одну строку,
+    которой достаточно для отправки. Браузер устроен иначе: сообщение шифруется ключами
+    самой подписки, и хранить их надо рядом с адресом.
+
+    Пара к `/push/unregister`: там отвязка FCM-токена, здесь — подписки браузера.
+
+    Перепривязка к текущему человеку разрешена и нужна: на общем телефоне отец вышел,
+    зашёл сын — уведомления должны идти тому, кто сейчас в аккаунте. Подменить чужую
+    подписку «зная строку» тут нельзя так же, как и у FCM: браузер выдаёт endpoint только
+    своему сайту и своему устройству, а перед перепривязкой мы всё равно требуем вход.
+
+    Идемпотентно: повторная подписка тем же браузером обновляет запись, а не плодит новую.
+    """
+    endpoint = (body.endpoint or "").strip()
+    p256dh = (body.keys.p256dh or "").strip()
+    auth_key = (body.keys.auth or "").strip()
+    # Без ключей подписка бесполезна: зашифровать сообщение нечем, и каждая отправка
+    # по ней будет молча падать. Честнее отказать сразу.
+    if not endpoint or not p256dh or not auth_key:
+        raise herr(400, "Не получилось подключить уведомления. Попробуй позже.",
+                   "Хәбәрҙәрҙе тоташтырып булманы. Һуңыраҡ ҡабатла.")
+    # Адрес пуш-сервиса — это всегда https. Всё остальное принимать незачем: своим
+    # запросом человек ничего не добьётся, а нам чинить потом «почему не приходит».
+    if not endpoint.startswith("https://"):
+        raise herr(400, "Не получилось подключить уведомления. Попробуй позже.",
+                   "Хәбәрҙәрҙе тоташтырып булманы. Һуңыраҡ ҡабатла.")
+
+    did = normalize_device_id(x_device_id)
+    enc = (body.content_encoding or "aes128gcm").strip() or "aes128gcm"
+    row = session.exec(
+        select(WebPushSubscription).where(WebPushSubscription.endpoint == endpoint)
+    ).first()
+    if row:
+        row.user_id = user.id
+        row.p256dh, row.auth, row.content_encoding = p256dh, auth_key, enc
+        if did:
+            row.device_id = did
+        session.add(row)
+        session.commit()
+        return {"ok": True}
+    try:
+        session.add(WebPushSubscription(
+            user_id=user.id, endpoint=endpoint, p256dh=p256dh, auth=auth_key,
+            content_encoding=enc, device_id=did,
+        ))
+        session.commit()
+    except IntegrityError:
+        # Тот же браузер успел подписаться параллельно (две вкладки) — перепривязываем.
+        session.rollback()
+        row = session.exec(
+            select(WebPushSubscription).where(WebPushSubscription.endpoint == endpoint)
+        ).first()
+        if row:
+            row.user_id = user.id
+            row.p256dh, row.auth, row.content_encoding = p256dh, auth_key, enc
+            if did:
+                row.device_id = did
+            session.add(row)
+            session.commit()
+    return {"ok": True}
+
+
+@router.post("/push/web/unsubscribe")
+def push_web_unsubscribe(body: WebPushSubIn, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)):
+    """Отписка браузера при выходе из аккаунта.
+
+    Та же приватность, что у FCM-токена: на общем телефоне следующий вошедший не должен
+    получать чужие уведомления — брони, чат, сигналы SOS. Только СВОЮ подписку.
+    Идемпотентно: нечего удалять — отвечаем «хорошо».
+    """
+    endpoint = (body.endpoint or "").strip()
+    if not endpoint:
+        return {"ok": True}
+    row = session.exec(select(WebPushSubscription).where(
+        WebPushSubscription.endpoint == endpoint,
+        WebPushSubscription.user_id == user.id,
+    )).first()
+    if row:
+        session.delete(row)
+        session.commit()
     return {"ok": True}
 
 

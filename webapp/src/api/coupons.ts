@@ -251,3 +251,24 @@ export interface RedeemResult {
 export function redeemCoupon(code: string): Promise<RedeemResult> {
   return apiPost<RedeemResult>("/coupons/redeem", { code });
 }
+
+/**
+ * Статистика купона в кабинете партнёра (GET /partner/coupons/{id}/stats).
+ *
+ * `activations` — сколько человек забронировали купон (взяли себе), `redeemed` — сколько
+ * реально погасили в заведении. Платформе партнёр платит именно за погашения: за то,
+ * что человек дошёл, а не за то, что нажал.
+ */
+export interface CouponStats {
+  coupon_id: number;
+  title: string;
+  status: string;
+  activations: number;
+  redeemed: number;
+  fee_per_redemption_kop: number;
+  amount_kop: number;
+}
+
+export function fetchCouponStats(id: number, signal?: AbortSignal): Promise<CouponStats> {
+  return apiGet<CouponStats>(`/partner/coupons/${id}/stats`, { signal });
+}

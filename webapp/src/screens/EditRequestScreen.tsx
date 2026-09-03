@@ -117,6 +117,7 @@ export default function EditRequestScreen() {
     }
     try {
       await editRequest(requestId, body);
+      track("edit_request");
       track("request_edited");
       navigate(`/requests/${requestId}/responses`, { replace: true });
     } catch (e) {

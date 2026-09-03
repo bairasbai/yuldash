@@ -1841,6 +1841,88 @@ object ApiClient {
     suspend fun closeSupportTicket(id: Int): Result<Unit> =
         call("POST", "/support/tickets/$id/close", JSONObject(), auth = true).map { }
 
+    // ---------- Поддержка глазами АДМИНА ----------
+    // Обращения в поддержку приложение умело только создавать и читать СВОИ. Разбирать их
+    // было негде: тикет уходил на сервер, а Александр видел его лишь в базе. Веб-версия
+    // разбор получила, приложение — нет (сверка с вебом, 2026-08-30).
+
+    /** Очередь обращений: ?status=open (по умолчанию) | all. Открытые сверху. */
+    suspend fun adminSupportTickets(status: String = "open"): Result<List<AdminSupportTicketDto>> =
+        call("GET", "/admin/support/tickets?status=${enc(status)}", null, auth = true).map { obj ->
+            // Сервер отдаёт голый массив — call() заворачивает его в {"items": [...]}.
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                AdminSupportTicketDto(
+                    id = o.optInt("id"),
+                    userId = o.optInt("user_id"),
+                    userName = o.optString("user_name"),
+                    subject = o.optString("subject"),
+                    status = o.optString("status"),
+                    lastMessage = o.optString("last_message"),
+                    lastSender = o.optString("last_sender"),
+                    messageCount = o.optInt("message_count"),
+                    createdAt = o.optString("created_at"),
+                    updatedAt = o.optString("updated_at"),
+                )
+            }
+        }
+
+    /** Тред любого обращения — для разбора. */
+    suspend fun adminSupportThread(id: Int): Result<SupportTicketDto> =
+        call("GET", "/admin/support/tickets/$id", null, auth = true).map { it.toSupportTicketDto() }
+
+    /** Ответ поддержки. Ответ на закрытое обращение переоткрывает его — диалог продолжается. */
+    suspend fun adminSupportReply(id: Int, body: String): Result<SupportTicketDto> =
+        call("POST", "/admin/support/tickets/$id/reply", JSONObject().put("body", body), auth = true)
+            .map { it.toSupportTicketDto() }
+
+    /** Закрыть обращение силами поддержки. Идемпотентно. */
+    suspend fun adminSupportClose(id: Int): Result<SupportTicketDto> =
+        call("POST", "/admin/support/tickets/$id/close", JSONObject(), auth = true)
+            .map { it.toSupportTicketDto() }
+
+    // ---------- Денежные чаевые и советы по поездке ----------
+    // Обе ручки работали на сервере и жили в веб-версии, а в приложении их не было
+    // (сверка с вебом, 2026-08-30).
+
+    /**
+     * Водитель включает денежные чаевые: свой номер СБП (пусто — выключить).
+     *
+     * Реквизит показывается пассажиру ТОЛЬКО после завершённой поездки: это личный номер,
+     * и отдаём мы его по согласию и минимально. Платформа денег не касается — перевод
+     * идёт напрямую.
+     */
+    suspend fun setTipsSbp(sbp: String): Result<Boolean> =
+        call("POST", "/me/tips-sbp", JSONObject().put("sbp", sbp.trim()), auth = true)
+            .map { it.optBoolean("accepting", sbp.isNotBlank()) }
+
+    /**
+     * Добрые советы по своей поездке: нет фото профиля, не пройдена проверка, цена выше
+     * средней по маршруту, нет описания.
+     *
+     * Это не упрёк и не рейтинг: пустой список (`allGood`) значит «всё выглядит хорошо,
+     * заявки скоро появятся». Только своя поездка — чужую сервер не раскроет.
+     */
+    suspend fun getRideTips(rideId: Int): Result<RideTipsDto> =
+        call("GET", "/rides/$rideId/tips", null, auth = true).map { o ->
+            val arr = o.optJSONArray("tips") ?: JSONArray()
+            RideTipsDto(
+                rideId = o.optInt("ride_id"),
+                tips = (0 until arr.length()).map { i ->
+                    val x = arr.getJSONObject(i)
+                    RideTipDto(
+                        code = x.optString("code"),
+                        ru = x.optString("ru"),
+                        ba = x.optString("ba"),
+                    )
+                },
+                allGood = o.optBoolean("all_good"),
+                routeAvgPrice = if (o.isNull("route_avg_price")) null else o.optInt("route_avg_price"),
+                routeSample = o.optInt("route_sample"),
+            )
+        }
+
     // ---------- Подписка на маршрут «карауль поездку» (F13) ----------
     /** Подписаться на маршрут: как только появится подходящая поездка — придёт уведомление. */
     suspend fun createRouteWatch(
@@ -2989,6 +3071,9 @@ object ApiClient {
                 messageRu = msg.optString("ru"),
                 messageBa = msg.optString("ba"),
                 city = o.optNullableString("city") ?: "",
+                promoOn = o.optJSONObject("launch_promo")?.optBoolean("on") ?: false,
+                promoPercent = o.optJSONObject("launch_promo")?.optDouble("percent", 0.0) ?: 0.0,
+                promoDays = o.optJSONObject("launch_promo")?.optInt("days") ?: 0,
             )
         }
 
@@ -4974,12 +5059,6 @@ object ApiClient {
     suspend fun adminSosHandle(eventId: Int, note: String = ""): Result<Unit> =
         call("POST", "/admin/sos/$eventId/handle", JSONObject().put("note", note.take(500)), auth = true).map { }
 
-    /** Водитель включает денежные чаевые: свой номер СБП (пусто — отключить).
-     *  Платформа денег не касается — пассажир переводит водителю напрямую. */
-    suspend fun setTipsSbp(sbp: String): Result<Boolean> =
-        call("POST", "/me/tips-sbp", JSONObject().put("sbp", sbp.trim()), auth = true)
-            .map { it.optBoolean("accepting") }
-
     /** Админ: списать долг по-человечески (пассажир не заплатил, поездка сорвалась). */
     suspend fun adminForgiveDebt(debtId: Int, reason: String = ""): Result<Unit> =
         call("POST", "/admin/debts/$debtId/forgive", JSONObject().put("reason", reason.take(300)), auth = true).map { }
@@ -5722,6 +5801,13 @@ data class TaxiAvailabilityDto(
     val messageRu: String,
     val messageBa: String,
     val city: String = "",
+    // Промо запуска «первым водителям — N% комиссии»: идёт ли НАБОР прямо сейчас.
+    // Экран зазывал водителей нулевой комиссией безусловно, а промо по умолчанию выключено
+    // и в любом случае кончается датой (аудит 2026-09-02). Старый сервер полей не шлёт →
+    // promoOn=false, и обещания не будет.
+    val promoOn: Boolean = false,
+    val promoPercent: Double = 0.0,
+    val promoDays: Int = 0,
 )
 
 /**
@@ -6659,6 +6745,32 @@ data class SupportTicketDto(
     val createdAt: String,
     val updatedAt: String,
     val messages: List<SupportMessageDto>,
+)
+
+/** Один совет по поездке: код + готовый текст на двух языках (сочиняет сервер). */
+data class RideTipDto(val code: String, val ru: String, val ba: String)
+
+/** Диагностика поездки для водителя. allGood = советов нет, всё в порядке. */
+data class RideTipsDto(
+    val rideId: Int,
+    val tips: List<RideTipDto>,
+    val allGood: Boolean,
+    val routeAvgPrice: Int?,
+    val routeSample: Int,
+)
+
+/** Строка очереди обращений у поддержки: кто написал и о чём последнее сообщение. */
+data class AdminSupportTicketDto(
+    val id: Int,
+    val userId: Int,
+    val userName: String,
+    val subject: String,
+    val status: String,          // open | closed
+    val lastMessage: String,
+    val lastSender: String,      // user | admin
+    val messageCount: Int,
+    val createdAt: String,
+    val updatedAt: String,
 )
 
 /** Строка списка «Мои обращения»: последнее сообщение + метка непрочитанного. */

@@ -74,7 +74,11 @@ def test_device_ban_blocks_registration_and_login(client, user_factory):
     # Повторный вход тем же номером с забаненного устройства → 403 ещё на request-code.
     r = client.post("/auth/request-code", json={"phone": phone}, headers={"X-Device-Id": "dev-ban-1"})
     assert r.status_code == 403
-    assert "поддержк" in r.json()["detail"]
+    # Отказ двуязычный: detail={ru, ba}. Проверяем ОБЕ половины — иначе можно потерять
+    # башкирскую и не заметить. Человек читает это, когда не может войти вообще.
+    detail = r.json()["detail"]
+    assert "поддержк" in detail["ru"]
+    assert detail["ba"].strip(), "башкирский текст блокировки пуст"
 
     # Обход бана НОВЫМ номером с того же устройства (ban evasion) → тоже 403.
     r = _login(client, _fresh_phone(), device="dev-ban-1")

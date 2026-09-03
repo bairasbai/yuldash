@@ -4953,7 +4953,14 @@ private fun TaxiComingSoonCard(
                     Text(appText("Ты в списке! 🎉", "Һин исемлектә! 🎉"), color = CanonGreen2, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text(
                         if (role == "driver")
-                            appText("Позовём одним из первых — 0% комиссии первые 3 месяца.", "Беренселәрҙән булып саҡырырбыҙ — тәүге 3 айҙа 0% комиссия.")
+                            // Про нулевую комиссию говорим, ТОЛЬКО пока сервер держит набор
+                            // в промо (аудит 2026-09-02): промо выключено по умолчанию
+                            // и кончается датой, а обещание в приложении жило вечно.
+                            if (availability.promoOn) appText(
+                                "Позовём одним из первых — ${promoFeeText(availability.promoPercent)} комиссии ${promoPeriodRu(availability.promoDays)}.",
+                                "Беренселәрҙән булып саҡырырбыҙ — ${promoPeriodBa(availability.promoDays)} ${promoFeeText(availability.promoPercent)} комиссия.",
+                            )
+                            else appText("Позовём одним из первых, как только такси заработает.", "Такси эшләй башлағас та беренселәрҙән булып саҡырырбыҙ.")
                         else appText("Сообщим, как только такси заработает в твоём городе.", "Такси һинең ҡалаңда эшләй башлағас та хәбәр итербеҙ."),
                         color = CanonText, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
                     )
@@ -5012,8 +5019,18 @@ private fun TaxiComingSoonCard(
                             color = CanonTaxiText, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 23.sp,
                         )
                         Text(
-                            appText("Первым водителям — 0% комиссии первые 3 месяца. Оставь номер как водитель, и город твой.",
-                                "Тәүге йөрөтөүселәргә — тәүге 3 айҙа 0% комиссия. Номерыңды йөрөтөүсе итеп ҡалдыр — ҡала һинеке."),
+                            if (availability.promoOn)
+                                appText(
+                                    "Первым водителям — ${promoFeeText(availability.promoPercent)} комиссии ${promoPeriodRu(availability.promoDays)}. Оставь номер как водитель, и город твой.",
+                                    "Тәүге йөрөтөүселәргә — ${promoPeriodBa(availability.promoDays)} ${promoFeeText(availability.promoPercent)} комиссия. Номерыңды йөрөтөүсе итеп ҡалдыр — ҡала һинеке.",
+                                )
+                            else
+                                // Промо не идёт — обещаем то, что правда всегда: комиссия ниже
+                                // конкурентов и видна заранее.
+                                appText(
+                                    "Комиссия ниже, чем у других служб, и видна заранее. Оставь номер как водитель, и город твой.",
+                                    "Комиссия башҡа хеҙмәттәргә ҡарағанда түбәнерәк һәм алдан күренә. Номерыңды йөрөтөүсе итеп ҡалдыр — ҡала һинеке.",
+                                ),
                             color = CanonTaxiText, fontSize = 14.sp, lineHeight = 20.sp,
                         )
                         if (role != "driver") {
@@ -5054,6 +5071,18 @@ private fun TaxiComingSoonCard(
 }
 
 /** Чип выбора роли в форме листа ожидания (тач-цель ≥48dp). */
+/** Процент промо в человеческом виде: 0.0 → «0%», 2.5 → «2.5%». Число даёт СЕРВЕР. */
+private fun promoFeeText(percent: Double): String =
+    if (percent % 1.0 == 0.0) "${percent.toInt()}%" else "$percent%"
+
+/** Срок промо по-русски: 90 дней → «первые 3 мес.», иначе — днями. */
+private fun promoPeriodRu(days: Int): String =
+    if (days > 0 && days % 30 == 0) "первые ${days / 30} мес." else "первые $days дн."
+
+/** Срок промо по-башкирски. */
+private fun promoPeriodBa(days: Int): String =
+    if (days > 0 && days % 30 == 0) "тәүге ${days / 30} айҙа" else "тәүге $days көндә"
+
 @Composable
 private fun WaitlistRoleChip(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(

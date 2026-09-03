@@ -109,6 +109,24 @@ class Settings(BaseSettings):
     # --- Push (FCM) ---
     firebase_credentials: str = ""      # путь к JSON сервисного аккаунта Firebase (для отправки пушей). Пусто → push выключен.
 
+    # --- Web Push (браузер, стандарт RFC 8291) ---
+    # Firebase шлёт только в приложение из магазина. Человеку, открывшему сайт, уведомления
+    # идут этим путём: браузер даёт подписку, мы шифруем сообщение её ключами и отправляем
+    # в пуш-сервис браузера. Ключи VAPID — наша подпись отправителя, пара приватный/публичный.
+    #
+    # Публичный ключ нужен и клиенту (`VITE_VAPID_PUBLIC_KEY` в webapp) — он должен совпадать
+    # с этим, иначе браузер подпишется на одного отправителя, а слать будет другой.
+    # Сгенерировать пару: `python -c "from py_vapid import Vapid01; v=Vapid01(); v.generate_keys()"`
+    # либо `npx web-push generate-vapid-keys`.
+    #
+    # Пусто → веб-пуш просто выключен, как и Firebase без ключа. Ошибок не будет: браузер
+    # честно скажет человеку «уведомления включатся после настройки».
+    vapid_private_key: str = ""
+    vapid_public_key: str = ""
+    # Контакт отправителя для пуш-сервисов (mailto: или https://). Без него Apple и часть
+    # браузеров отклоняют отправку: им нужно знать, кому писать при проблемах.
+    vapid_subject: str = "mailto:support@yulbash.ru"
+
     # --- Платежи (самозанятый: монетизация СВОИХ услуг — Boost/реклама) ---
     # mock — платёж сразу «оплачен» (только dev).
     # sbp_manual — перевод по СБП на номер, активирует админ вручную (интерим до ЮKassa).
@@ -1086,6 +1104,9 @@ class Settings(BaseSettings):
             warn.append("MIN_APP_VERSION_CODE=0 — принудительное обновление выключено, ломающий релиз будет некому раскатить")
         if self.is_prod and not self.firebase_credentials.strip():
             warn.append("FIREBASE_CREDENTIALS пуст — push не отправляются, водители не увидят заказы на погашенном экране")
+        if self.is_prod and not self.vapid_private_key.strip():
+            warn.append("VAPID_PRIVATE_KEY пуст — веб-версия не получает уведомлений: человек с сайта "
+                        "не узнает, что водитель подъехал")
         if self.is_prod and not self.sentry_dsn.strip():
             warn.append("SENTRY_DSN пуст — падения у людей останутся невидимыми")
         # Публичные документы на yulbash.ru/terms прямо обещают: «Комиссия с поездок не берётся,

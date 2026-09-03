@@ -1,6 +1,6 @@
 // Модель поездки — зеркало backend RideOut (app/schemas.py).
 // Оставлены поля, нужные первому экрану-ленте; остальные добавим по мере надобности.
-import { apiGet } from "./client";
+import { apiGet, apiPost } from "./client";
 
 export type RideCategory =
   | "regular"
@@ -26,6 +26,13 @@ export interface Ride {
   child_seat?: boolean;
   pets_allowed?: boolean;
   quiet?: boolean; // тихая поездка: без лишних разговоров и громкой музыки
+  /**
+   * Водитель не берёт пассажиров младше 18 без сопровождения взрослого.
+   *
+   * Клиент по этому флагу прячет отметку «еду младше 18» и объясняет почему —
+   * иначе подросток бронирует, а на месте выясняется, что везти его не будут.
+   */
+  no_minors?: boolean;
   boosted?: boolean;
   status?: "active" | "done" | "cancelled" | string; // есть в /driver/rides (RideOut)
   driver_name: string;
@@ -34,6 +41,12 @@ export interface Ride {
   driver_car: string;
   driver_avatar?: string;
   driver_online?: boolean;
+  /**
+   * За рулём женщина. Деликатный сигнал для пассажирок и строго по её желанию:
+   * true только когда водитель сама указала пол. Мужской пол не выпячиваем —
+   * «не женщина» и «не указано» для нас одно и то же.
+   */
+  driver_is_woman?: boolean;
   // Появляются только после подтверждённой брони (иначе пусто/0).
   pickup_lat?: number | null;
   pickup_lng?: number | null;
@@ -71,4 +84,40 @@ export function fetchRides(signal?: AbortSignal, q?: RidesQuery): Promise<Ride[]
 /** Карточка поездки (GET /rides/{id}) — публичная, без личных данных. */
 export function fetchRide(id: number, signal?: AbortSignal): Promise<Ride> {
   return apiGet<Ride>(`/rides/${id}`, { auth: false, signal });
+}
+
+// ================================================================
+//  Своя поездка: править и снимать (rides.py: /rides/{id}/edit,
+//  /rides/{id}/cancel). До этой волны опубликованную поездку в вебе
+//  нельзя было ни исправить, ни отменить — опечатка в цене или
+//  времени оставалась навсегда (сверка с Android, 2026-08-30).
+// ================================================================
+
+/**
+ * Что можно поправить. Все поля необязательные — меняется только присланное.
+ *
+ * Правила честности перед пассажирами держит сервер: пока живых броней нет — можно всё;
+ * когда есть — только комментарий и цену ВНИЗ. Время и места при бронях менять нельзя:
+ * условия «купленного» не ухудшают, для этого есть отмена рейса.
+ */
+export interface RideEditInput {
+  price?: number;
+  comment?: string;
+  depart_at?: string; // ISO
+  seats_total?: number;
+}
+
+/** POST /rides/{id}/edit — правка своей поездки. Пассажирам с бронью уйдёт уведомление. */
+export function editRide(id: number, body: RideEditInput): Promise<Ride> {
+  return apiPost<Ride>(`/rides/${id}/edit`, body);
+}
+
+/**
+ * Снять свою поездку (сломался, передумал).
+ *
+ * Каскад держит сервер: все живые брони → отменены, каждому пассажиру уходит
+ * уведомление. Идемпотентно: повторная отмена ничего не ломает.
+ */
+export function cancelRide(id: number): Promise<Ride> {
+  return apiPost<Ride>(`/rides/${id}/cancel`);
 }

@@ -35,7 +35,20 @@ export interface RideCreateInput {
   smoking?: boolean;
   quiet?: boolean;
   only_trusted?: boolean;
+  /** Не беру пассажиров младше 18 без взрослого рядом. */
+  no_minors?: boolean;
   recurrence?: string; // none | daily | weekdays | weekly
+  /**
+   * Поездка «везу посылку»: кому отдать и что за груз.
+   *
+   * Только для категорий parcel и cargo. Без этих двух строк объявление «еду в Уфу,
+   * возьму посылку» бесполезно: отправитель не знает, влезет ли его коробка, а водитель
+   * — кому её вручить на том конце.
+   */
+  receiver_name?: string;
+  parcel_size?: string;
+  /** Остановки по пути одной строкой через « | »: A → точки → B. */
+  waypoints?: string;
   partner_id?: number | null; // клиника-назначение (category=hospital)
 }
 
@@ -260,6 +273,12 @@ export interface DriverTaxiRide {
   fee_kop: number; // комиссия платформы
   net_kop: number; // «чистыми» водителю
   paid: boolean;
+  /**
+   * Разбор признал: пассажир не заплатил. Показывать такую поездку как обычную нельзя —
+   * комиссию с неё сняли, и «чистыми» выходит БОЛЬШЕ, чем за честную. Водитель видел
+   * поездку, где его обманули, как самую выгодную в списке.
+   */
+  unpaid_confirmed?: boolean;
   payment_method: string;
   fee_status: string; // unpaid | pending | paid | none
 }
@@ -341,6 +360,15 @@ export interface DriverDebt {
   threshold_kop: number;
   sbp: { phone: string; name: string };
   weeks: DebtWeek[];
+  /**
+   * Сколько из долга нужно заплатить СРАЗУ после поездки, не дожидаясь недельного счёта.
+   *
+   * Так работает дальний межгород: комиссия с одной такой поездки сравнима с недельной,
+   * и копить её до воскресенья — значит подвести водителя под блокировку разом. Клиент
+   * по этой сумме поднимает оплату сам, а не ждёт, пока человек зайдёт в кабинет.
+   */
+  pay_now_kop?: number;
+  pay_now_due_at?: string | null;
 }
 
 export function fetchDriverDebt(signal?: AbortSignal): Promise<DriverDebt> {

@@ -426,7 +426,7 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     _guard_taxi_available(session, body.from_lat, body.from_lng)   # пассажиру — только гейт (a)
     # Страйки §5 + resolved-жалобы no_show/unpaid/damage §9 — общий счётчик (попутка работает).
     if quality_mod.passenger_pause_until(session, user.id) is not None:
-        raise HTTPException(403, isv.strike_pause_message())
+        raise herr(403, *isv.strike_pause_message())
     est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
                        body.category, round_trip=body.round_trip,
                        waypoints=[w.model_dump() for w in body.waypoints],
@@ -545,7 +545,7 @@ def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
     # заказ, но обходилась предзаказом в два тапа (аудит 2026-08-06).
     ensure_active(session, user.id)
     if quality_mod.passenger_pause_until(session, user.id) is not None:
-        raise HTTPException(403, isv.strike_pause_message())
+        raise herr(403, *isv.strike_pause_message())
     when = _parse_scheduled_at(body.scheduled_at)
     # Цену считаем на время ПОДАЧИ, а не нажатия (волна 163): иначе заказ на пять утра,
     # оформленный днём, уходит по дневной ставке и в мороз за ним никто не едет.
@@ -769,7 +769,7 @@ def accept(order_id: int, user: User = Depends(current_user), session: Session =
     # Пауза за брошенные заказы (разбор №2): офферы такому водителю не шлём, но заказ может
     # прийти и другим путём (ссылка, повторный тап по старому уведомлению) — закрываем и здесь.
     if isv.driver_pause_until(session, user.id) is not None:
-        raise HTTPException(403, isv.driver_pause_message())
+        raise herr(403, *isv.driver_pause_message())
     order = isv.transition(session, order_id, isv.Actor.driver, S.accepted, user.id, idempotent=False)
     return isv.order_payload(session, order, user)
 

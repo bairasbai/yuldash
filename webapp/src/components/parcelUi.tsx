@@ -210,6 +210,28 @@ export function CarryParcelCard({
         </a>
       )}
 
+      {/* Телефон ОТПРАВИТЕЛЯ. Нужен ровно тогда, когда что-то пошло не так: получатель
+          не открывает, адрес не тот, вещь не влезает в багажник. Без него курьер стоял
+          у подъезда и звонить было некому. Гаснет вместе с остальными контактами. */}
+      {p.sender_phone && (
+        <a className="parcel-card__phone" href={`tel:${p.sender_phone}`}>
+          <IconPhone size={18} />{" "}
+          {appText(`Отправитель: ${p.sender_name || p.sender_phone}`, `Ебәреүсе: ${p.sender_name || p.sender_phone}`)}
+        </a>
+      )}
+
+      {/* Сколько раз уже пытались вручить. Курьеру это меняет план: на третий заход
+          он поедет не «как получится», а договорившись по телефону заранее. */}
+      {(p.delivery_attempts ?? 0) > 0 && (
+        <p className="parcel-card__desc">
+          {appText(
+            `Попыток вручить: ${p.delivery_attempts}`,
+            `Тапшырырға маташыу: ${p.delivery_attempts}`
+          )}
+          {p.return_reason ? ` · ${p.return_reason}` : ""}
+        </p>
+      )}
+
       {/* Расчёт с получателем (buy_bring) */}
       {p.settlement && (p.settlement.goods_actual_kop > 0) && (
         <div className="parcel-card__settle">

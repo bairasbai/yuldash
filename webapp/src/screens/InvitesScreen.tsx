@@ -6,6 +6,8 @@ import { fetchReferral, redeemReferral, type ReferralMe } from "../api/referral"
 import { LoadingList, ErrorState } from "../components/States";
 import { IconCopy, IconGift, IconShare } from "../components/Icons";
 import { SubHeader } from "./ConsentsScreen";
+import InviteCircle from "../components/InviteCircle";
+import { fetchMyTrust } from "../api/trust";
 
 /**
  * Инвайты «позови своего» (реальный backend: GET /referral/me, POST /referral/redeem).
@@ -41,6 +43,16 @@ export default function InvitesScreen() {
     load(ac.signal);
     return () => ac.abort();
   }, [load]);
+
+  /** Может ли человек звать своих. Решает сервер (L2+), клиент это только показывает. */
+  const [canInvite, setCanInvite] = useState(false);
+  useEffect(() => {
+    const ac = new AbortController();
+    fetchMyTrust(ac.signal)
+      .then((t) => setCanInvite(t.can_invite))
+      .catch(() => setCanInvite(false));
+    return () => ac.abort();
+  }, []);
 
   const shareText = (code: string) =>
     appText(
@@ -185,6 +197,10 @@ export default function InvitesScreen() {
               {appText("Ты уже ввёл код друга. Спасибо!", "Дуҫ кодын индергәнһең инде. Рәхмәт!")}
             </div>
           )}
+
+          {/* Круг своих — отдельная от бонусов вещь: поручительство, а не скидка.
+              Право звать даёт сервер (L2+), поэтому спрашиваем его, а не гадаем. */}
+          <InviteCircle canInvite={canInvite} />
         </>
       )}
     </>

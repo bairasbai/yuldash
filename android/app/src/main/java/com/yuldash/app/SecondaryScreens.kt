@@ -81,6 +81,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lightbulb
@@ -752,7 +753,11 @@ internal fun SafetyScreen(
                     // Честно: телефон прячет сервер (отдаёт номер только после подтверждения поездки).
                     // Раньше тут был тумблер, который писал в prefs, но ни на что не влиял — убрали ложное обещание.
                     SettingsNavRow(Icons.Default.PhoneLocked, appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерелгән"), appText("Твой номер откроется попутчику только после подтверждения поездки — так устроен Юлдаш.", "Номерың юлдашҡа тик сәфәр раҫланғас ҡына асыла — Юлдаш шулай эшләй."))
-                    SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it; AppPrefs.setVerifiedOnly(ctx, it) }
+                    // Честно: переключатель фильтрует ТОЛЬКО список «Ближайшие» на карте
+                    // (MapScreen). Ленту поездок он не трогает, и брони от непроверенных
+                    // пассажиров водителю всё равно приходят — обещать «и принимать» нельзя
+                    // (аудит 2026-09-02).
+                    SettingSwitchRow(Icons.Default.Verified, appText("Проверенные водители на карте", "Картала раҫланған йөрөтөүселәр"), appText("В списке «Ближайшие» на карте показывать только проверенных водителей.", "Карталағы «Яҡындағылар» исемлегендә тик раҫланған йөрөтөүселәрҙе күрһәтергә."), verifiedOnly) { verifiedOnly = it; AppPrefs.setVerifiedOnly(ctx, it) }
                     SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправь данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәр."), onClick = onShareTrip)
                     SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Те, с кем ты не хочешь ездить.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."), onClick = onBlocklist)
                     SettingsNavRow(Icons.Default.Report, appText("Пожаловаться на пользователя", "Ҡулланыусыға ялыу"), appText("Сообщи о нарушении правил или безопасности.", "Ҡағиҙә йәки хәүефһеҙлек боҙолоуын хәбәр ит."), onClick = onReport)
@@ -1657,7 +1662,7 @@ internal fun AdminReportsContent(
 // Обе ветки добавляли сюда свой раздел админки: `onTextFlags` — «Помеченные тексты»
 // (волна модерации), `onModeration` — очередь модерации витрин (аудит безопасности).
 // При слиянии 2026-08-12 нужны оба, потерять любой = потерять целый экран кабинета.
-internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onTaxi: () -> Unit = {}, onWaitlist: () -> Unit = {}, onTaxiPulse: () -> Unit = {}, onPartners: () -> Unit = {}, onModeration: () -> Unit = {}, onPromoAdmin: () -> Unit = {}, onParcelsAdmin: () -> Unit = {}, onCourierAdmin: () -> Unit = {}, onIncomeCalc: () -> Unit = {}, onSosFeed: () -> Unit = {}, onIncidents: () -> Unit = {}, onRatings: () -> Unit = {}, onTextFlags: () -> Unit = {}) {
+internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onTaxi: () -> Unit = {}, onWaitlist: () -> Unit = {}, onTaxiPulse: () -> Unit = {}, onPartners: () -> Unit = {}, onModeration: () -> Unit = {}, onPromoAdmin: () -> Unit = {}, onParcelsAdmin: () -> Unit = {}, onCourierAdmin: () -> Unit = {}, onIncomeCalc: () -> Unit = {}, onSosFeed: () -> Unit = {}, onIncidents: () -> Unit = {}, onRatings: () -> Unit = {}, onTextFlags: () -> Unit = {}, onSupportAdmin: () -> Unit = {}) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Кабинет админа", "Админ кабинеты"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Единый центр управления Юлдашем. Виден только администратору.", "Юлдашты идара итеү үҙәге. Тик админға күренә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
@@ -1677,6 +1682,9 @@ internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, 
                     // Пометки ставились всегда, но лежали в счётчике: было видно ЧИСЛО за день
                     // и нельзя посмотреть, кто и за что. Теперь список.
                     SettingsNavRow(Icons.Default.Block, appText("Помеченные тексты", "Билдәләнгән текстар"), appText("Телефоны, мат и фишинг в открытых полях", "Асыҡ ҡырҙарҙа телефон, тупаҫлыҡ, фишинг"), onClick = onTextFlags)
+                    // Человек написал в поддержку и ждёт ответа. Раньше разбирать
+                    // обращения из приложения было негде — только в базе.
+                    SettingsNavRow(Icons.Default.Email, appText("Обращения в поддержку", "Ярҙамға мөрәжәғәттәр"), appText("Ответить человеку и закрыть вопрос", "Кешегә яуап биреү һәм һорауҙы ябыу"), onClick = onSupportAdmin)
                     // SOS-лента: раньше сигнал уходил ОДНИМ сообщением в Telegram, и если его
                     // не прочитали ночью — следа о происшествии не оставалось нигде.
                     // «Справедливость»: двусторонний разбор — сервер умел давно, экрана не было.
