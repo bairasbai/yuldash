@@ -581,8 +581,30 @@ private val PriceComplaintReasons = listOf(
 private fun TaxiPriceComplaintButton(estimate: InstantEstimateDto) {
     var open by remember { mutableStateOf(false) }
     var sent by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
     var comment by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+
+    // Жалоба не ушла — говорим об этом. Раньше «Спасибо, посмотрим» показывалось всегда,
+    // даже когда запрос не дошёл: человек считал, что его услышали, а его не услышал никто
+    // (аудит сценариев 30.08).
+    if (failed) {
+        Surface(shape = CanonItemShape, color = CanonDangerBg, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(CanonSpace.md),
+                   verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+                Text(
+                    appText("Жалоба не отправилась. Проверь связь.",
+                            "Ялыу ебәрелмәне. Бәйләнеште тикшер."),
+                    color = CanonRed, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+                TextButton(onClick = { failed = false; open = true }) {
+                    Text(appText("Повторить", "Ҡабатларға"), color = CanonRed,
+                         fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        return
+    }
 
     if (sent) {
         Surface(shape = CanonItemShape, color = CanonPoolingBg, modifier = Modifier.fillMaxWidth()) {
@@ -628,7 +650,8 @@ private fun TaxiPriceComplaintButton(estimate: InstantEstimateDto) {
                                         "price" to estimate.price,
                                     ),
                                 )
-                                sent = true
+                                    .onSuccess { sent = true }
+                                    .onFailure { failed = true }
                             }
                         },
                         shape = CanonItemShape,
@@ -1405,6 +1428,7 @@ internal fun InstantOrderScreen(
                             order = o,
                             onCancel = { cancelReasonForId = o.id },
                             onOpenPayments = onOpenPayments,
+                            onOrderUpdated = { order = it },
                         )
                     }
                     "expired" -> current?.let { o ->
@@ -2546,12 +2570,37 @@ private fun InstantDestinationPicker(
                             scope.launch {
                                 if (scheduled) {
                                     val iso = isoFromMillis(scheduledAtMs!!)
-                                    ApiClient.scheduleInstantOrder(f.latitude, f.longitude, t.latitude, t.longitude, iso, fText, tText, category)
+                                    ApiClient.scheduleInstantOrder(
+                                        f.latitude, f.longitude, t.latitude, t.longitude, iso,
+                                        fText, tText, category,
+                                        // Тот же набор, что у обычного заказа: раньше кресло,
+                                        // «только женщина», остановки и заказ для другого
+                                        // молча терялись при переключении на «На время».
+                                        comment = comment, entrance = entrance,
+                                        forName = if (forOther) forName else "",
+                                        forPhone = if (forOther) forPhone else "",
+                                        womenOnly = womenOnly,
+                                        options = orderOptions.toList(),
+                                        roundTrip = roundTrip,
+                                        returnWaitMin = if (roundTrip) returnWaitMin else 0,
+                                        stops = stops,
+                                        paymentMethod = payMethod,
+                                    )
                                         .onSuccess {
                                             ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
                                             onScheduled(it)
                                         }
-                                        .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                                        // Ошибку заказа НАДО ВИДЕТЬ (аудит сценариев 30.08, P0).
+                                        // Она рисуется в карточке цены, а карточка живёт только
+                                        // в раскрытой шторке — после выбора адреса шторка уезжает
+                                        // вниз сама. Человек жал «Вызвать», кнопка гасла, и всё:
+                                        // ни машины, ни объяснения. Поднимаем шторку вместе
+                                        // с ошибкой, чтобы слова сервера дошли до глаз.
+                                        .onFailure {
+                                            errorText = (it as? ApiException)?.message ?: createFailMsg
+                                            sheetTouched = true
+                                            sheetStop = TaxiSheetStop.Full
+                                        }
                                 } else {
                                     ApiClient.createInstantOrder(
                                         f.latitude, f.longitude, t.latitude, t.longitude, fText, tText, category,
@@ -2571,7 +2620,17 @@ private fun InstantDestinationPicker(
                                             ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
                                             onOrderCreated(it)
                                         }
-                                        .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                                        // Ошибку заказа НАДО ВИДЕТЬ (аудит сценариев 30.08, P0).
+                                        // Она рисуется в карточке цены, а карточка живёт только
+                                        // в раскрытой шторке — после выбора адреса шторка уезжает
+                                        // вниз сама. Человек жал «Вызвать», кнопка гасла, и всё:
+                                        // ни машины, ни объяснения. Поднимаем шторку вместе
+                                        // с ошибкой, чтобы слова сервера дошли до глаз.
+                                        .onFailure {
+                                            errorText = (it as? ApiException)?.message ?: createFailMsg
+                                            sheetTouched = true
+                                            sheetStop = TaxiSheetStop.Full
+                                        }
                                 }
                                 creating = false
                             }
@@ -3059,6 +3118,9 @@ internal val InstantOptions = listOf(
     InstantOptionInfo("guide_dog", "Собака-проводник", "Юл күрһәтеүсе эт", "🦮"),
     InstantOptionInfo("pets", "С животным", "Хайуан менән", "🐾"),
     InstantOptionInfo("big_luggage", "Большой багаж", "Ҙур багаж", "🧳"),
+    // Зарядка бесплатна: провод в прикуривателе — не услуга, за которую берут деньги.
+    // Но пассажиру с севшим телефоном между сёлами это связь и возможность заплатить.
+    InstantOptionInfo("charger", "Зарядка в машине", "Машинала зарядка", "🔌"),
 )
 
 /**
@@ -4405,6 +4467,27 @@ private fun InstantNoDriversCard(
                 // Очередь ожидания: живая полоска — единственное доказательство, что поиск идёт,
                 // когда экран статичен, а телефон лежит в кармане.
                 if (waiting) InstantQueuePulse()
+                // Очередь ожидания без выхода — тупик: «Закрыть» просто уходит с экрана, а заказ
+                // остаётся жить на сервере и через полчаса его кто-то возьмёт. Человек к тому
+                // времени уехал на автобусе (аудит сценариев 30.08). Отмена должна быть настоящей.
+                if (waiting) {
+                    AppButton(
+                        text = appText("Не надо, отменить поиск", "Кәрәкмәй, эҙләүҙе туҡтатырға"),
+                        onClick = {
+                            if (busy) return@AppButton
+                            busy = true; err = null
+                            scope.launch {
+                                ApiClient.instantCancel(order.id, "plans_changed")
+                                    .onSuccess { onDone() }
+                                    .onFailure { err = (it as? ApiException)?.message ?: errFallback }
+                                busy = false
+                            }
+                        },
+                        icon = Icons.Default.Close,
+                        style = AppButtonStyle.Secondary,
+                        loading = busy,
+                    )
+                }
                 if (!waiting) {
                     AppButton(
                         text = appText("Подожду машину", "Машинаны көтәм"),
@@ -4600,11 +4683,13 @@ private fun InstantFinalCard(
  * пассажира. Плавное появление, тач-цели 40dp+, честная строка «оценка анонимна».
  */
 @Composable
-private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
+internal fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    var stars by remember(order.id) { mutableIntStateOf(0) }
-    var rated by remember(order.id) { mutableStateOf(false) }
+    // Начинаем с УЖЕ поставленной оценки, а не с нуля: экран открывают и второй раз (теперь
+    // ещё и из истории поездок), и пустые звёзды там читались бы как «оценка не сохранилась».
+    var stars by remember(order.id, order.myStars) { mutableIntStateOf(order.myStars) }
+    var rated by remember(order.id, order.myStars) { mutableStateOf(order.myStars > 0) }
     var showReport by remember(order.id) { mutableStateOf(false) }
     val thanksMsg = appText("Спасибо за оценку!", "Баһа өсөн рәхмәт!")
     val rateFail = appText("Не получилось оценить. Проверь сеть.", "Баһалап булманы. Селтәрҙе тикшер.")
@@ -4884,7 +4969,14 @@ private fun TaxiComingSoonCard(
                     Text(appText("Ты в списке! 🎉", "Һин исемлектә! 🎉"), color = CanonGreen2, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text(
                         if (role == "driver")
-                            appText("Позовём одним из первых — 0% комиссии первые 3 месяца.", "Беренселәрҙән булып саҡырырбыҙ — тәүге 3 айҙа 0% комиссия.")
+                            // Про нулевую комиссию говорим, ТОЛЬКО пока сервер держит набор
+                            // в промо (аудит 2026-09-02): промо выключено по умолчанию
+                            // и кончается датой, а обещание в приложении жило вечно.
+                            if (availability.promoOn) appText(
+                                "Позовём одним из первых — ${promoFeeText(availability.promoPercent)} комиссии ${promoPeriodRu(availability.promoDays)}.",
+                                "Беренселәрҙән булып саҡырырбыҙ — ${promoPeriodBa(availability.promoDays)} ${promoFeeText(availability.promoPercent)} комиссия.",
+                            )
+                            else appText("Позовём одним из первых, как только такси заработает.", "Такси эшләй башлағас та беренселәрҙән булып саҡырырбыҙ.")
                         else appText("Сообщим, как только такси заработает в твоём городе.", "Такси һинең ҡалаңда эшләй башлағас та хәбәр итербеҙ."),
                         color = CanonText, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
                     )
@@ -4943,8 +5035,18 @@ private fun TaxiComingSoonCard(
                             color = CanonTaxiText, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 23.sp,
                         )
                         Text(
-                            appText("Первым водителям — 0% комиссии первые 3 месяца. Оставь номер как водитель, и город твой.",
-                                "Тәүге йөрөтөүселәргә — тәүге 3 айҙа 0% комиссия. Номерыңды йөрөтөүсе итеп ҡалдыр — ҡала һинеке."),
+                            if (availability.promoOn)
+                                appText(
+                                    "Первым водителям — ${promoFeeText(availability.promoPercent)} комиссии ${promoPeriodRu(availability.promoDays)}. Оставь номер как водитель, и город твой.",
+                                    "Тәүге йөрөтөүселәргә — ${promoPeriodBa(availability.promoDays)} ${promoFeeText(availability.promoPercent)} комиссия. Номерыңды йөрөтөүсе итеп ҡалдыр — ҡала һинеке.",
+                                )
+                            else
+                                // Промо не идёт — обещаем то, что правда всегда: комиссия ниже
+                                // конкурентов и видна заранее.
+                                appText(
+                                    "Комиссия ниже, чем у других служб, и видна заранее. Оставь номер как водитель, и город твой.",
+                                    "Комиссия башҡа хеҙмәттәргә ҡарағанда түбәнерәк һәм алдан күренә. Номерыңды йөрөтөүсе итеп ҡалдыр — ҡала һинеке.",
+                                ),
                             color = CanonTaxiText, fontSize = 14.sp, lineHeight = 20.sp,
                         )
                         if (role != "driver") {
@@ -4985,6 +5087,18 @@ private fun TaxiComingSoonCard(
 }
 
 /** Чип выбора роли в форме листа ожидания (тач-цель ≥48dp). */
+/** Процент промо в человеческом виде: 0.0 → «0%», 2.5 → «2.5%». Число даёт СЕРВЕР. */
+private fun promoFeeText(percent: Double): String =
+    if (percent % 1.0 == 0.0) "${percent.toInt()}%" else "$percent%"
+
+/** Срок промо по-русски: 90 дней → «первые 3 мес.», иначе — днями. */
+private fun promoPeriodRu(days: Int): String =
+    if (days > 0 && days % 30 == 0) "первые ${days / 30} мес." else "первые $days дн."
+
+/** Срок промо по-башкирски. */
+private fun promoPeriodBa(days: Int): String =
+    if (days > 0 && days % 30 == 0) "тәүге ${days / 30} айҙа" else "тәүге $days көндә"
+
 @Composable
 private fun WaitlistRoleChip(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
@@ -5027,6 +5141,9 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
     var offer by remember { mutableStateOf<InstantOrderDto?>(null) }
     var accepting by remember { mutableStateOf(false) }
     var presenceFails by remember { mutableIntStateOf(0) }   // подряд-неудачи heartbeat → «нет связи»
+    // Почему заказов нет: null = ждём по-настоящему, иначе код причины с сервера. Раньше все
+    // пять причин молчали, и экран обещал заказ, которого не будет (аудит сценариев 30.08).
+    var offerBlocked by remember { mutableStateOf<String?>(null) }
     // Заказ, от которого водитель ТОЛЬКО ЧТО отказался и по которому мы необязательным шагом
     // спрашиваем «почему». Отказ уже ушёл на сервер — тут остался один вопрос, не блокирующий.
     var declineAskFor by remember { mutableStateOf<Int?>(null) }
@@ -5060,7 +5177,9 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
         if (!online) { offer = null; return@RepeatWhileVisible }
         while (isActive) {
             if (offer == null) {
-                val incoming = ApiClient.getDriverOffer().getOrNull()
+                val состояние = ApiClient.getDriverOfferState().getOrNull()
+                offerBlocked = состояние?.blocked
+                val incoming = состояние?.offer
                 if (incoming != null && incoming.status == "offered") {
                     if (instantOfferRemainingMillis(incoming.offerExpiresAt, System.currentTimeMillis()) > 0L) {
                         offer = incoming
@@ -5112,7 +5231,11 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
                             if (st == 409 || st == 410) {
                                 Toast.makeText(ctx, acceptTakenMsg, Toast.LENGTH_SHORT).show(); offer = null
                             } else {
-                                Toast.makeText(ctx, acceptNetMsg, Toast.LENGTH_SHORT).show()
+                                // Не 409/410 — это 403 с НАСТОЯЩЕЙ причиной: долг сервису, дневной
+                                // отдых, пауза по качеству, разбор жалобы. Все они объяснены на двух
+                                // языках, а водитель видел «не взяли, проверь сеть» и не понимал,
+                                // почему заказы уходят мимо.
+                                Toast.makeText(ctx, serverSaid(e, acceptNetMsg), Toast.LENGTH_LONG).show()
                             }
                         }
                     accepting = false
@@ -5134,6 +5257,16 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
                 declineAskFor = declinedId
             },
         )
+    }
+
+    // Линия закрыта — говорим, чем именно, и куда идти. Стоит ВЫШЕ чипа «нет связи»:
+    // молчащий сервер это временно, а закрытая линия не рассосётся сама.
+    AnimatedVisibility(
+        visible = online && current == null && offerBlocked != null,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+    ) {
+        DriverBlockedStrip(offerBlocked)
     }
 
     // Связь потеряна, пока «на линии» и нет оффера на экране: мягкий чип «нет связи».
@@ -5159,6 +5292,47 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
                         color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Medium,
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * «Заказов не будет, и вот почему» — вместо честного, но бессмысленного ожидания.
+ *
+ * Коды приходят с сервера, подписи живут здесь: язык переключается кнопкой в профиле, и текст
+ * обязан меняться вместе с ним. Каждая строка отвечает на два вопроса сразу — что случилось
+ * и где это чинится.
+ */
+@Composable
+private fun DriverBlockedStrip(code: String?) {
+    val (что, где) = when (code) {
+        "debt" -> appText("Линия закрыта из-за долга по комиссии",
+                          "Комиссия бурысы арҡаһында линия ябыҡ") to
+            appText("Оплати в кабинете — вернёшься сразу", "Кабинетта түлә — шунда уҡ ҡайтаһың")
+        "rest" -> appText("Сейчас время отдыха", "Хәҙер ял ваҡыты") to
+            appText("Линия откроется, когда отдых закончится",
+                    "Ял бөткәс линия асыла")
+        "quality_pause" -> appText("Такси на паузе по жалобам", "Ялыуҙар буйынса такси паузала") to
+            appText("Подробности — в Центре справедливости", "Ентеклеләр — Ғәҙеллек үҙәгендә")
+        "review_pause" -> appText("Идёт разбор — такси на паузе", "Тикшереү бара — такси паузала") to
+            appText("Ответим, как только разберём", "Тикшереп бөткәс яуап бирербеҙ")
+        else -> appText("Допуск к такси сейчас закрыт", "Такси рөхсәте хәҙер ябыҡ") to
+            appText("Проверь документы и разрешение в кабинете",
+                    "Кабинетта документтарҙы һәм рөхсәтте ҡара")
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Surface(shape = CanonItemShape, color = CanonDangerBg) {
+            Column(
+                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(что, color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp,
+                     fontWeight = FontWeight.Bold)
+                Text(где, color = CanonRed, fontSize = 12.sp, lineHeight = 17.sp)
             }
         }
     }

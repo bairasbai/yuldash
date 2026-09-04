@@ -1735,6 +1735,53 @@ def _minutes_on_board(order: InstantOrder, now: datetime) -> float:
     return max((now - order.onboard_at).total_seconds() / 60.0, 0.0)
 
 
+def my_stars(session: Session, order: InstantOrder, viewer: User) -> int:
+    """Сколько звёзд этот человек уже поставил по этому заказу. 0 — не оценивал."""
+    from .models import Rating
+    if order.status != S.done:
+        return 0
+    row = session.exec(
+        select(Rating).where(Rating.order_id == order.id, Rating.rater_id == viewer.id)
+    ).first()
+    return int(row.stars) if row else 0
+
+
+def can_rate_order(session: Session, order: InstantOrder, viewer: User,
+                   now: Optional[datetime] = None) -> bool:
+    """Открыта ли ещё дверь «оценить эту поездку».
+
+    Оценивать можно завершённую поездку, где есть вторая сторона, и пока не вышло окно
+    (`RATING_WINDOW_DAYS`). Уже оценённую — тоже можно: повтор просто обновляет оценку, и
+    прятать звёзды после первого тапа значило бы «передумать нельзя».
+    """
+    from .rating_service import RATING_WINDOW_DAYS
+    if order.status != S.done or order.driver_id is None or order.passenger_id is None:
+        return False
+    if viewer.id not in (order.driver_id, order.passenger_id):
+        return False
+    случилось = order.done_at or order.created_at
+    if случилось is None:
+        return True
+    now = now or utcnow()
+    return (now - случилось) <= timedelta(days=RATING_WINDOW_DAYS)
+
+
+def passenger_may_close(order: InstantOrder, now: Optional[datetime] = None) -> bool:
+    """Пассажир вправе сам закрыть поездку: едем ДОЛЬШЕ расчётного времени плюс запас.
+
+    Закрывать «поехали» может только водитель — и когда он этого не делает, пассажир заперт:
+    оценить поездку нельзя, заказать новую машину нельзя, а ночная уборка приберёт заказ лишь
+    через `taxi_stale_hours` (аудит сценариев 30.08). Порог считаем от расчётного времени
+    поездки, а не абсолютной цифрой: час для поездки по селу — это давно приехали, а для
+    Уфа→Сибай — середина пути.
+    """
+    if order.status != S.onboard or order.onboard_at is None:
+        return False
+    now = now or utcnow()
+    порог = max(float(order.eta_min or 0.0), 0.0) + float(settings.taxi_passenger_close_slack_min)
+    return _minutes_on_board(order, now) >= порог
+
+
 def destination_quote(session: Session, order: InstantOrder, new_to: tuple,
                       now: Optional[datetime] = None,
                       waypoints_override: Optional[list] = None) -> dict:
@@ -1936,6 +1983,28 @@ def ack_destination(session: Session, order: InstantOrder,
     session.add(order)
     session.commit()
     session.refresh(order)
+    return order
+
+
+def withdraw_pending_destination(session: Session, order: InstantOrder) -> InstantOrder:
+    """Пассажир отозвал свой вопрос про новый адрес. Едем по старому.
+
+    Водителю шлём короткое «вопрос снят»: он мог уже открыть экран решения, и молча убранная
+    из-под пальца кнопка выглядит как сбой приложения.
+    """
+    from .services import push_notification   # локальный импорт: в шапке был бы цикл
+    _clear_pending_destination(order)
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    if order.driver_id:
+        push_notification(
+            session, order.driver_id, "ride",
+            "Пассажир передумал менять адрес", "Юлаусы адресты үҙгәртеүҙән баш тартты",
+            "Едем по прежнему адресу и за прежнюю цену.",
+            "Элекке адрес буйынса һәм элекке хаҡҡа барабыҙ.",
+            ref_kind="instant", ref_id=order.id,
+        )
     return order
 
 
@@ -2415,12 +2484,19 @@ def driver_pause_until(session: Session, driver_id: int, now=None):
     return until if until > now else None
 
 
-def driver_pause_message() -> str:
-    """Текст паузы водителю: объясняем причину и срок, без обвинений."""
+def driver_pause_message() -> tuple[str, str]:
+    """Текст паузы водителю: объясняем причину и срок, без обвинений.
+
+    Два ОТДЕЛЬНЫХ текста, а не один через точку: человек с башкирским интерфейсом
+    не должен читать сначала русский (docs/lessons.md, волна 20).
+    """
     h = settings.driver_cancel_pause_hours
-    return (f"Заказы приходят с паузой {h} ч: несколько принятых заказов подряд были отменены. "
-            f"Пассажир после такой отмены ищет машину заново. "
-            f"Заказдар {h} сәғәт туҡтатылды: ҡабул ителгән заказдар бер нисә тапҡыр кире алынды.")
+    return (
+        f"Заказы приходят с паузой {h} ч: несколько принятых заказов подряд были отменены. "
+        f"Пассажир после такой отмены ищет машину заново.",
+        f"Заказдар {h} сәғәткә туҡтатылды: ҡабул ителгән заказдар бер нисә тапҡыр кире алынды. "
+        f"Бындай кире алыуҙан һуң юлсы машинаны яңынан эҙләй.",
+    )
 
 
 def strike_pause_until(session: Session, passenger_id: int, now=None):
@@ -2436,13 +2512,15 @@ def strike_pause_until(session: Session, passenger_id: int, now=None):
     return until if until > now else None
 
 
-def strike_pause_message() -> str:
-    """Тёплый текст паузы. RU + черновой BA одной строкой (detail показывается как есть)."""
+def strike_pause_message() -> tuple[str, str]:
+    """Тёплый текст паузы — двумя отдельными языками."""
     h = settings.strike_pause_hours
-    return (f"Такси взяло паузу: за неделю накопилось несколько поздних отмен. "
-            f"Попробуй снова через {h} ч — а попутка работает как обычно 💚"
-            f" · Такси пауза алды: аҙнала бер нисә һуң кире алыу йыйылды. "
-            f"{h} сәғәттән ҡабат ҡара — ә юлдаш ғәҙәттәгесә эшләй 💚")
+    return (
+        f"Такси взяло паузу: за неделю накопилось несколько поздних отмен. "
+        f"Попробуй снова через {h} ч — а попутка работает как обычно 💚",
+        f"Такси пауза алды: аҙнала бер нисә һуң кире алыу йыйылды. "
+        f"{h} сәғәттән ҡабат ҡара — ә юлдаш ғәҙәттәгесә эшләй 💚",
+    )
 
 
 # ============================ Машина состояний (под замком) ============================
@@ -2866,6 +2944,16 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
     from . import workday as workday_mod
     resting = workday_mod.resting_driver_ids(session, ids)
     in_debt = debt_mod.blocked_driver_ids(session, ids)
+    # …и ДОПУСК к работе — то, чего волна 60 не донесла (волна 221). Наказание накладываем мы,
+    # а допуск истекает САМ, по календарю, посреди смены: ОСАГО кончилось в местную полночь,
+    # разрешение пропало из реестра, машину внесли в стоп-список, фотоконтроль просрочен.
+    # Присутствие на линии живёт своим сроком, поэтому водитель остаётся `online` — и подбор
+    # слал ему офферы с адресом подачи пассажира, хотя принять заказ он уже не мог (403
+    # на том же гейте). Оффер сгорал по таймауту, круг терялся; ночью в райцентре следующего
+    # водителя может не быть.
+    from . import pretrip as pretrip_mod
+    from . import taxi as taxi_mod
+    допущены = taxi_mod.approved_taxi_driver_ids(session, ids)
     area_a, area_b = _order_zone_ctx(session, order)
     out = []
     for did in ids:
@@ -2878,6 +2966,8 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
             continue
         if did in resting or did in in_debt:
             continue          # отдых (§8) и долг: те же гейты, что на выходе на линию
+        if did not in допущены:
+            continue          # допуск к такси (580-ФЗ): тот же гейт, что на выходе на линию
         if not _zone_ok(session, p, area_a, area_b):
             continue
         avail = cc.available_or_legacy(getattr(p, "car_classes_available", ""), p.car_class)
@@ -2896,6 +2986,13 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
             continue
         if driver_pause_until(session, did) is not None:
             continue          # бросал принятые заказы — пауза офферов (разбор №2)
+        # Предрейсовый осмотр (580-ФЗ, волна 221). Спрашиваем ПОИМЁННО и последним: ответ
+        # зависит от последнего выхода водителя на линию (`pretrip._still_this_shift`),
+        # одним запросом на круг это честно не собрать, а разъехаться с гейтом линии
+        # нельзя ни при каких условиях. Здесь до проверки доходят единицы — все дешёвые
+        # фильтры уже отработали. Тот же приём, что у паузы качества строкой выше.
+        if pretrip_mod.blocks_line(session, did):
+            continue
         out.append(did)
     return out
 
@@ -3655,7 +3752,13 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
     prof = (session.exec(select(DriverProfile).where(DriverProfile.user_id == order.driver_id)).first()
             if order.driver_id else None)
     passenger = session.get(User, order.passenger_id)
+    # Марка, модель И ГОД (30.08). Год добавлен сюда, а не отдельным полем, намеренно: это
+    # витринная строка («белая Лада Гранта, 2019»), её показывают четыре разных экрана, и
+    # новое поле пришлось бы протянуть в каждый. Пассажир должен видеть возраст машины ДО
+    # того, как она подъедет, — иначе «стрёмно» выясняется у подъезда.
     car = f"{prof.car_make} {prof.car_model}".strip() if prof else ""
+    if car and prof and prof.car_year:
+        car = f"{car}, {int(prof.car_year)}"
     # Приватность: до accept водителю обе точки — округлённые (~1 км), как телефоны.
     #
     # Точку ПОДАЧИ прятали и раньше. Точку НАЗНАЧЕНИЯ — нет, и это была несогласованность:
@@ -3692,6 +3795,14 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         "id": order.id,
         "status": order.status.value,
         "role": role,
+        # «Поездка закончилась?» — кнопка пассажира на случай, когда водитель не нажал
+        # «Завершил». Считает сервер: локальный секундомер экрана умирает при перезапуске.
+        "passenger_can_close": role == "passenger" and passenger_may_close(order),
+        # Оценка. Раньше звёзды жили ТОЛЬКО на свежем финальном экране: закрыл его — и оценить
+        # поездку было негде, хотя окно оценки открыто 60 дней (аудит сценариев 30.08).
+        # История поездок теперь спрашивает у сервера, а не гадает.
+        "my_stars": my_stars(session, order, viewer),
+        "can_rate": can_rate_order(session, order, viewer),
         # Сколько раз заказ уже возвращался в поиск после отмены водителем. Нужен экрану:
         # человек, у которого только что была принятая машина, увидит просто «ищем машину»
         # и решит, что приложение сбросилось. Одна строка «первый водитель отменил» снимает
@@ -3741,6 +3852,10 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
             "to_text": order.pending_to_text or "",
             "price": int(order.pending_price or 0),
             "reason": order.pending_reason or "",
+            # Когда спросили. Без этого пассажир видел статичное «ждём», которое через
+            # десять минут читается как зависшее приложение (аудит сценариев 30.08).
+            "asked_at": (order.pending_asked_at.isoformat()
+                         if order.pending_asked_at else None),
         } if order.pending_to_lat is not None else None),
         # Поездку завершил водитель досрочно и почему — пассажир должен видеть причину словами.
         "early_finish_reason": order.early_finish_reason or "",

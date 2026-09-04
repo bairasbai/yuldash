@@ -172,3 +172,19 @@ export function submitAd(id: string): Promise<AdMine> {
 export function payAd(id: string): Promise<AdPayResult> {
   return apiPost<AdPayResult>(`/ads/${id}/pay`);
 }
+
+/**
+ * Продлить размещение своей рекламы ещё на период (POST /ads/{id}/renew).
+ *
+ * Заявку создаёт СЕРВЕР, и только потом человеку показывают QR для перевода. Иначе
+ * получалось так: экран сразу рисовал QR, человек переводил деньги и жал «я перевёл»,
+ * а на сервере не появлялось ничего — ни заявки, ни сообщения. Через несколько дней
+ * реклама гасла по сроку, и человек был уверен, что его обманули.
+ *
+ * Идемпотентно: повторное нажатие вернёт уже созданную заявку, а не заведёт вторую.
+ */
+export function renewAd(
+  id: string
+): Promise<{ payment_id: number; amount_kop: number; status: string }> {
+  return apiPost(`/ads/${id}/renew`);
+}

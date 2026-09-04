@@ -325,7 +325,11 @@ def test_three_resolved_reports_auto_pause_gates_taxi_not_pooling(
     assert any(uid == d["id"] and t == "Такси на паузе" for uid, t in pushes)
     # Гейт: presence/offer/accept.
     assert _hb(client, d).status_code == 403
-    assert client.get("/instant/driver/offer", headers=d["auth"]).json() == {"offer": None}
+    # Оффер приходит пустым — И С ПРИЧИНОЙ (аудит сценариев 30.08): раньше экран водителя
+    # писал «Ждём заказ», обещая то, чего не будет, пока идёт пауза по качеству.
+    пустой = client.get("/instant/driver/offer", headers=d["auth"]).json()
+    assert пустой["offer"] is None
+    assert пустой["blocked"] == "quality_pause"
     pax = user_factory("LadderPaxAcc")
     oid = _done_order(d["id"], pax["id"])
     with Session(engine) as s:                          # свежий «оффер» этому водителю
@@ -434,7 +438,11 @@ def test_passenger_no_show_reports_pause_orders_pooling_ok(client, user_factory,
         assert _resolve(client, admin, rid).status_code == 200
     r = client.post("/instant/orders", headers=pax["auth"], json=_order_body())
     assert r.status_code == 403
-    assert "пауз" in r.json()["detail"].lower()
+    # Ошибка двуязычная: detail={ru, ba}. Проверяем ОБА языка — иначе можно потерять
+    # башкирскую половину и не заметить (правило «две отдельные строки», не одна).
+    detail = r.json()["detail"]
+    assert "пауз" in detail["ru"].lower()
+    assert detail["ba"].strip(), "башкирский текст паузы пуст"
     items = client.get("/me/restrictions", headers=pax["auth"]).json()["items"]
     assert any(it["kind"] == "orders_pause" for it in items)
 

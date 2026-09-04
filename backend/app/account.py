@@ -43,9 +43,10 @@ from .models import (
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
     Rating, RecentPlace, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
     RouteWatch, SafetyProfile, SavedPlace, SosEvent, SupportMessage, SupportTicket,
-    PreTripCheck, TaxiApplication, TaxiWorkDay, TextFlag, TgAuth, Trust, TripShare, TrustedContact,
+    CarPhotoCheck, PreTripCheck, TaxiApplication, TaxiWorkDay, TextFlag, TgAuth, Trust, TripShare, TrustedContact,
     UploadEvent, User,
     WaitlistEntry,
+    WebPushSubscription,
 )
 from .storage import get_storage
 
@@ -209,7 +210,7 @@ def _safe_unlink_media(url: str) -> None:
         return
     storage = get_storage()
     # Не знаем область по URL — чистим во всех (лишние вызовы безвредны, delete идемпотентен).
-    for area in ("docs", "chat", "voice", "evidence"):
+    for area in ("docs", "chat", "voice", "evidence", "carphoto"):
         storage.delete(f"{area}/{name}")
     storage.delete(name)   # legacy: файлы прямо в корне MEDIA_DIR
 
@@ -529,6 +530,10 @@ def delete_user_account(session: Session, user: User) -> None:
     # не наносят и уликами против кого-то не являются, поэтому стираем вместе с аккаунтом
     # (в отличие от жалоб, где мы обезличиваем, но сохраняем — там есть пострадавший).
     session.execute(delete(PreTripCheck).where(PreTripCheck.driver_id == uid))
+    # Фотоконтроль машины — по той же причине: это снимки ЕГО машины и записи о нём самом.
+    # Пострадавшей второй стороны здесь нет, обезличивать нечего и незачем. Сами файлы
+    # стираются ниже вместе с остальными приватными областями.
+    session.execute(delete(CarPhotoCheck).where(CarPhotoCheck.user_id == uid))
     # 3.17 Уведомления, подписки на маршрут, сохранённые/недавние адреса (личные данные).
     session.execute(delete(Notification).where(Notification.user_id == uid))
     # Журнал помеченных текстов: «этот человек писал телефон в открытом поле» — запись о
@@ -557,6 +562,9 @@ def delete_user_account(session: Session, user: User) -> None:
     dele(Block, Block.user_id == uid, Block.blocked_user_id == uid)
     # 3.20 Токены/коды/сессии/загрузки/отзывы/профиль водителя/лист ожидания.
     session.execute(delete(DeviceToken).where(DeviceToken.user_id == uid))
+    # Подписка браузера на уведомления — то же самое, что FCM-токен, только для веб-версии.
+    # Без этой строки человек удалял аккаунт, а пуши на его телефон продолжали приходить.
+    session.execute(delete(WebPushSubscription).where(WebPushSubscription.user_id == uid))
     session.execute(delete(RefreshToken).where(RefreshToken.user_id == uid))
     if phone:
         session.execute(delete(OtpCode).where(OtpCode.phone == phone))
@@ -599,7 +607,7 @@ def delete_user_account(session: Session, user: User) -> None:
     # начинает его с id владельца, поэтому найти их можно по одному префиксу.
     try:
         storage = get_storage()
-        for key in list(storage.iter_owned(["docs", "evidence", "chat", "voice"], uid)):
+        for key in list(storage.iter_owned(["docs", "evidence", "carphoto", "chat", "voice"], uid)):
             storage.delete(key)
     except Exception:  # noqa: BLE001 — уборка не вправе отменить уже выполненное удаление
         pass

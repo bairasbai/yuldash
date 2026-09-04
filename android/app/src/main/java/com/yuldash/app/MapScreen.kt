@@ -1153,14 +1153,14 @@ internal fun SeniorAccessCard(onSimpleMode: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    appText("Простой режим", "Ябай режим"),
+                    appText("Крупные кнопки", "Ҙур төймәләр"),
                     color = CanonText,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
                     lineHeight = 23.sp
                 )
                 Text(
-                    appText("Крупные кнопки и голос", "Ҙур төймәләр һәм тауыш"),
+                    appText("Крупный текст и голос", "Ҙур текст һәм тауыш"),
                     color = CanonMuted,
                     fontSize = 14.sp,
                     lineHeight = 20.sp,

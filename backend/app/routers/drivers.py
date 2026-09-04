@@ -17,11 +17,12 @@ from ..antifraud import moderate_open_text
 from ..config import settings
 from ..db import get_session
 from ..logs import admin_action
+from ..account import _safe_unlink_media
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, UserRole
 from ..security import current_user
 from ..services import (
-    DOC_DIR, enforce_upload_quota, notify_admin_telegram, push_notification, read_upload,
+    DOC_DIR, clear_driver_docs, enforce_upload_quota, notify_admin_telegram, push_notification, read_upload,
     revoke_verification_on_car_change, secure_docs_url, set_driver_docs_verdict,
     set_user_gender, short_name, user_rating,
 )
@@ -109,6 +110,18 @@ def driver_online(body: OnlineIn, user: User = Depends(current_user), session: S
     if not dp:
         dp = DriverProfile(user_id=user.id, online=body.online)
     if body.online:
+        # Тумблер спрашивает те же правила, что и линия (аудит сценариев 30.08, P0). Раньше
+        # он не проверял НИЧЕГО: человек нажимал, видел зелёный и 200 OK, а линия была
+        # закрыта долгом, отдыхом, документами или паузой — и он узнавал об этом только по
+        # тому, что заказы не приходят. Отказ приходит в момент нажатия и со словами, что
+        # именно чинить.
+        #
+        # Спрашиваем только у ТАКСИСТА (есть одобренная заявка). У водителя попутки заявки
+        # нет, и для него тумблер значит другое — ломать ему выход на линию мы не вправе.
+        from .. import taxi as taxi_mod
+        if taxi_mod.my_application(session, user.id) is not None:
+            from .instant import guard_driver_ready
+            guard_driver_ready(session, user.id)
         dp.online = True
         session.add(dp)
     else:
@@ -330,6 +343,40 @@ def _worth_telling_admin(prev_status: str, prev_sent_at, prev_license: str, prev
     return prev_sent_at is None or (utcnow() - prev_sent_at) >= _VERIFY_PING_EVERY
 
 
+@router.post("/me/driver-docs/delete")
+def delete_driver_docs(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водитель убирает свои документы: фото прав и фото машины.
+
+    Зачем отдельная кнопка. Документы водителя — единственное, что ретеншен
+    не чистит НИКОГДА (прямо сказано в `cleanup.py`): человек подал заявку в июне,
+    передумал, ездит пассажиром — а скан его прав лежит у нас бессрочно. Снести
+    можно было только вместе со всем аккаунтом, что несоразмерно.
+
+    Вместе с файлами снимаем всё, что на них держалось: проверку, бейдж «проверен»
+    и подтверждение пола. Иначе остаётся обещание без основания — пассажирка видит
+    «водитель проверен», а документа, по которому проверяли, больше нет. Тот же
+    принцип уже действует при СМЕНЕ фото прав (см. submit_driver_verify).
+
+    На проверке — не даём: админ разбирает заявку, и вынимать из-под него документы
+    посреди разбора нечестно к обоим. Сначала дождись ответа.
+    """
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
+    if not dp or not (dp.license_url or dp.car_photo_url):
+        raise herr(404, "Документов нет", "Документтар юҡ")
+    if dp.online:
+        raise herr(409, "Сначала уйди с линии", "Башта линиянан сыҡ")
+    if dp.docs_status == "pending":
+        raise herr(409,
+                   "Документы на проверке. Дождись ответа — потом сможешь удалить.",
+                   "Документтар тикшереүҙә. Яуапты көт — шунан юя алаһың.")
+    for url in (dp.license_url, dp.car_photo_url):
+        _safe_unlink_media(url)
+    # Состояние снимает единая дверь в services: бейдж «проверен» нельзя гасить из роутера.
+    clear_driver_docs(session, user, dp)
+    session.commit()
+    return {"ok": True, "docs_status": dp.docs_status, "verified": user.verified}
+
+
 @router.post("/driver/verify", response_model=DriverProfile)
 def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель отправляет документы на проверку → 'pending' + авто-проверка (OCR прав)."""
@@ -398,6 +445,9 @@ def driver_status(user: User = Depends(current_user), session: Session = Depends
         "autocheck_result": dp.autocheck_result if dp else "",
         "autocheck_score": dp.autocheck_score if dp else 0.0,
         "autocheck_data": dp.autocheck_data if dp else "",
+        # Реквизит для денежных чаевых. Водителю нужен, чтобы видеть, включены ли они
+        # у него сейчас: включает он их сам, а до этого экрана не было вовсе.
+        "tips_sbp": dp.tips_sbp if dp else "",
     }
 
 

@@ -309,7 +309,7 @@ private suspend fun saveTripPass(context: android.content.Context, d: com.yuldas
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BookingScreen(
-    ride: Ride,
+    ride: Ride?,
     bookingId: Int? = null,
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
@@ -319,8 +319,20 @@ internal fun BookingScreen(
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
     canOpenActiveTrip: Boolean = true,
+    // Состояние брони (pending | confirmed | cancelled | …). Нужно, чтобы человек, который
+    // ЖДЁТ ответа водителя, мог передумать, а тот, кому отказали, — узнал об этом
+    // (аудит сценариев 30.08, два P0). Пусто = состояние неизвестно, ведём себя как раньше.
+    bookingStatus: String = "",
+    onCancelBooking: () -> Unit = {},
+    onFindAnotherRide: () -> Unit = {},
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
+    // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
+    // не подставляем — молча возвращаемся назад.
+    if (ride == null) {
+        LaunchedEffect(Unit) { onBack() }
+        return
+    }
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
     val context = LocalContext.current
     var details by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
@@ -459,7 +471,19 @@ internal fun BookingScreen(
                                         Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
                                     }
                                 }
-                                Text(appText("Опытный водитель", "Тәжрибәле йөрөтөүсе"), color = CanonMuted, fontSize = 14.sp)
+                                // Раньше «Опытный водитель» стояло под КАЖДЫМ водителем — в том
+                                // числе под тем, кто зарегистрировался вчера. Показываем то, что
+                                // знаем на самом деле: сколько поездок он завершил (`driver_trips`
+                                // с сервера). Сервер числа не дал (0) — молчим, а не выдаём аванс.
+                                if (displayRide.driverTrips > 0) {
+                                    Text(
+                                        appText(
+                                            "${displayRide.driverTrips} ${tripsWordRu(displayRide.driverTrips)} в Юлдаше",
+                                            "Юлдашта ${displayRide.driverTrips} сәфәр",
+                                        ),
+                                        color = CanonMuted, fontSize = 14.sp,
+                                    )
+                                }
                                 DetailMeta(Icons.Default.DirectionsCar, displayRide.carText())
                             }
                             Surface(
@@ -617,6 +641,65 @@ internal fun BookingScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                            }
+                        }
+                        // Ждём ответа водителя — человек должен иметь право передумать.
+                        // Раньше кнопка «Отменить» жила только на экране активной поездки,
+                        // а он открывается лишь для ПОДТВЕРЖДЁННОЙ брони: пассажир в ожидании
+                        // оказывался заперт (аудит сценариев 30.08, P0).
+                        if (bookingId != null && bookingStatus == "pending") {
+                            var askCancel by remember { mutableStateOf(false) }
+                            TextButton(
+                                onClick = { askCancel = true },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(appText("Отменить бронь", "Урын һаҡлауҙы кире алыу"),
+                                     color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            if (askCancel) {
+                                AlertDialog(
+                                    onDismissRequest = { askCancel = false },
+                                    title = { Text(appText("Отменить бронь?", "Урын һаҡлауҙы кире аларғамы?")) },
+                                    text = {
+                                        Text(appText(
+                                            "Место вернётся в поездку, водитель получит уведомление.",
+                                            "Урын сәфәргә ҡайта, йөрөтөүсегә хәбәр китә."))
+                                    },
+                                    confirmButton = {
+                                        TextButton(onClick = { askCancel = false; onCancelBooking() }) {
+                                            Text(appText("Отменить бронь", "Кире алыу"), color = CanonRed)
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { askCancel = false }) {
+                                            Text(appText("Оставить", "Ҡалдырыу"))
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                        // Водитель отказал. Раньше экран продолжал писать «Ждём водителя» —
+                        // вечно, и человек не понимал, ждать ему или искать другую машину.
+                        if (bookingId != null && bookingStatus == "cancelled") {
+                            Surface(color = CanonWarnBg, shape = CanonItemShape) {
+                                Column(Modifier.fillMaxWidth().padding(CanonSpace.md),
+                                       verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                                    Text(appText("Бронь отменена", "Урын һаҡлау кире алынған"),
+                                         color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text(
+                                        appText(
+                                            "Место в этой поездке не осталось за тобой. Рядом обычно " +
+                                                "есть другие — посмотри.",
+                                            "Был сәфәрҙә урын һиңә ҡалманы. Яҡында ғәҙәттә башҡалар " +
+                                                "бар — ҡарап сыҡ."),
+                                        color = CanonWarn, fontSize = 12.sp, lineHeight = 17.sp,
+                                    )
+                                    AppButton(
+                                        text = appText("Найти другую поездку", "Башҡа сәфәр табырға"),
+                                        onClick = onFindAnotherRide,
+                                        style = AppButtonStyle.Secondary,
+                                    )
+                                }
                             }
                         }
                     }
@@ -1170,7 +1253,9 @@ internal fun ActiveTripScreen(
                 .onFailure { e ->
                     if (e is ApiException) {
                         failedIds = failedIds + tempId
-                        Toast.makeText(context, sendFailMsg, Toast.LENGTH_SHORT).show()
+                        // Сервер знает причину: чат закрылся после поездки, собеседник в блокировке.
+                        // «Не отправилось» об этом молчало, и человек писал в пустоту.
+                        Toast.makeText(context, serverSaid(e, sendFailMsg), Toast.LENGTH_LONG).show()
                     } else {
                         // Нет сети → в очередь на авто-ретрай. Сообщение остаётся на экране с меткой «в очереди».
                         Outbox.enqueue(context, Outbox.newMessage(bid, text))
@@ -1265,6 +1350,7 @@ internal fun ActiveTripScreen(
                         modifier = Modifier.appearIn(1),
                         car = tripPass?.driverCar.orEmpty().ifBlank { ride?.car.orEmpty() },
                         plate = tripPass?.driverPlate.orEmpty(),
+                        isDriver = role == "driver",
                     )
                 }
             }
@@ -1308,7 +1394,14 @@ internal fun ActiveTripScreen(
                                             if (e !is ApiException) {   // нет сети → статус в очередь на авто-ретрай (F11)
                                                 Outbox.enqueue(context, Outbox.newDriverStatus(bid, st))
                                                 Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
-                                            } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                // Сервер объясняет отказ подробно: «ты ещё далеко от места
+                                                // подачи (≈1.4 км) — нажми «Подъезжаю», когда будешь рядом».
+                                                // Своё «проверь сеть» здесь было прямой неправдой: сеть
+                                                // работает, а водитель жал кнопку снова и снова.
+                                                Toast.makeText(context, serverSaid(e, statusErrMsg),
+                                                               Toast.LENGTH_LONG).show()
+                                            }
                                         }
                                 }
                             } else {
@@ -1325,7 +1418,14 @@ internal fun ActiveTripScreen(
                                             if (e !is ApiException) {   // нет сети → статус «сел/доехал» в очередь на авто-ретрай (F11)
                                                 Outbox.enqueue(context, Outbox.newTripStatus(bid, st))
                                                 Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
-                                            } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                // Сервер объясняет отказ подробно: «ты ещё далеко от места
+                                                // подачи (≈1.4 км) — нажми «Подъезжаю», когда будешь рядом».
+                                                // Своё «проверь сеть» здесь было прямой неправдой: сеть
+                                                // работает, а водитель жал кнопку снова и снова.
+                                                Toast.makeText(context, serverSaid(e, statusErrMsg),
+                                                               Toast.LENGTH_LONG).show()
+                                            }
                                         }
                                 }
                             }
@@ -2126,13 +2226,22 @@ internal fun DriverApproachingBanner(
     }
 }
 
-/** Плашка кода посадки: пассажир называет код водителю для сверки машины. */
+/**
+ * Плашка кода посадки. У КАЖДОЙ стороны свой текст — раньше он был один на двоих.
+ *
+ * Водитель открывал экран и читал «Назови водителю — сверят»: инструкцию для пассажира,
+ * обращённую к нему самому. Что делать с цифрами, ему никто не говорил, и сверять было
+ * нечем — а весь смысл кода как раз в сверке (аудит сценариев 30.08).
+ *
+ * Блок «сверь машину» — только пассажиру: водитель свою машину знает.
+ */
 @Composable
 internal fun BoardingCodeCard(
     code: String,
     modifier: Modifier = Modifier,
     car: String = "",      // «белая Lada Vesta» — как выглядит машина
     plate: String = "",    // госномер: по нему и сверяют
+    isDriver: Boolean = false,
 ) {
     Surface(modifier = modifier, color = CanonMint, shape = CanonCardShape) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2143,7 +2252,16 @@ internal fun BoardingCodeCard(
                     Text(appText("Код посадки", "Ултырыу коды"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     // «он сверит» → «сверят»: за рулём бывают женщины, род тут не нужен.
                     // Башкирский был на «вы» (әйтегеҙ) — приложение везде обращается на «ты».
-                    Text(appText("Назови водителю — сверят. Это та самая машина.", "Йөрөтөүсегә әйт — тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                    Text(
+                        if (isDriver) appText(
+                            "Спроси код у пассажира — он назовёт эти цифры. Сошлись — сажай.",
+                            "Юлаусынан код һора — ул ошо һандарҙы әйтер. Тап килде — ултырт.",
+                        ) else appText(
+                            "Назови водителю — сверят. Это та самая машина.",
+                            "Йөрөтөүсегә әйт — тикшерер. Тап шул машина.",
+                        ),
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                    )
                 }
                 Spacer(Modifier.width(8.dp))
                 Text(code, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 34.sp, letterSpacing = 4.sp)
@@ -2151,7 +2269,7 @@ internal fun BoardingCodeCard(
             // Обещание «это та самая машина» до сих пор нечем было проверить: пассажир видел
             // марку, но не номер. Разбор конкурентов 2026-08-07 — у BlaBlaCar приезжала другая
             // машина с другим человеком за рулём. Показываем ровно то, что сверяют глазами.
-            if (car.isNotBlank() || plate.isNotBlank()) {
+            if (!isDriver && (car.isNotBlank() || plate.isNotBlank())) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Default.DirectionsCar,

@@ -43,6 +43,8 @@ const SUITES = [
   { test: "guard-test", src: null, out: null, bundle: false },
   // Правила, защищающие человека: чистка при выходе, уход на оплату, отказы.
   { test: "privacy-guard-test", src: null, out: null, bundle: false },
+  // Состояния экрана: пустое ведёт, у загрузки есть ошибка, у ошибки — повтор.
+  { test: "states-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.

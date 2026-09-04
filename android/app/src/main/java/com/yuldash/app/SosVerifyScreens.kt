@@ -816,7 +816,7 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
             // 401 (не вошёл) — норм, показываем чистую форму. Иначе сеть упала → предупреждаем.
             .onFailure { e ->
                 if ((e as? com.yuldash.app.data.ApiException)?.status != 401) {
-                    Toast.makeText(context, tStatusFail, Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, serverSaid(e, tStatusFail), Toast.LENGTH_LONG).show()
                     statusFailed = true
                 }
             }

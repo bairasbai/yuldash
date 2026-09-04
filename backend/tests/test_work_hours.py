@@ -181,7 +181,7 @@ def test_limit_reached_on_heartbeat_then_gate(client, user_factory, clock, pushe
 
     r = _hb(client, d)                                 # следующий пинг — уже отдых
     assert r.status_code == 403
-    assert "отдохни" in r.json()["detail"].lower() and "ял ит" in r.json()["detail"]
+    assert "отдохни" in r.json()["detail"]["ru"].lower() and "ял ит" in r.json()["detail"]["ba"]
     assert [t for _, t in pushes] == ["Хорошо поработал 👏"]   # летний день: второго пуша нет
 
 
@@ -195,7 +195,7 @@ def test_gate_holds_offer_and_accept(client, user_factory, fake_redis, clock, pu
     _block(d["id"], T0)                                # лимит достигнут ДО принятия
     assert client.get("/instant/driver/offer", headers=d["auth"]).json()["offer"] is None
     r = client.post(f"/instant/orders/{order['id']}/accept", headers=d["auth"])
-    assert r.status_code == 403 and "отдохни" in r.json()["detail"].lower()
+    assert r.status_code == 403 and "отдохни" in r.json()["detail"]["ru"].lower()
 
 
 def test_active_order_completes_despite_limit(client, user_factory, fake_redis, clock, pushes):
@@ -273,7 +273,10 @@ def test_return_ride_once_then_403(client, user_factory, clock, pushes):
 
     r2 = client.post("/rides", headers=d["auth"], json=_ride_body())
     assert r2.status_code == 403                       # вторая — мягкий отказ до разблокировки
-    assert "попутчика домой" in r2.json()["detail"] and "ял ит" in r2.json()["detail"]
+    # Отказ приходит парой (ru, ba): склеенная строка терялась в клиенте, и башкироязычный
+    # водитель видел общее «нет доступа» вместо объяснения (аудит сценариев 30.08).
+    detail = r2.json()["detail"]
+    assert "попутчика домой" in detail["ru"] and "ял ит" in detail["ba"]
 
 
 def test_respond_blocked_during_rest(client, user_factory, clock, pushes):
@@ -283,7 +286,7 @@ def test_respond_blocked_during_rest(client, user_factory, clock, pushes):
                       json={"from_city": "Сибай", "to_city": "Баймак", "seats": 1}).json()
     _block(d["id"], T0)
     r = client.post(f"/requests/{req['id']}/respond", headers=d["auth"], json={"price": 300})
-    assert r.status_code == 403 and "попутчика домой" in r.json()["detail"]
+    assert r.status_code == 403 and "попутчика домой" in r.json()["detail"]["ru"]
 
 
 def test_poputka_unlimited_outside_block(client, user_factory, clock, pushes):

@@ -83,7 +83,7 @@
 - **Локи под гонку** (`cancel_booking`, `no-show`, принятие отклика) читают строку ЗАНОВО: `with_for_update().execution_options(populate_existing=True)`. Без этого SQLAlchemy возвращал уже загруженный объект со старыми полями — лок брался, а перепроверка статуса смотрела в прошлое (овербукинг мест, две поездки на одну заявку).
 
 ### Новые .env (прод, НЕ в git)
-`ADMIN_TELEGRAM_CHAT_ID=5141534025` (автоадмин+уведомления), `ADMIN_PHONES=+79991348275` (автоадмин по номеру), `FIREBASE_CREDENTIALS=/opt/yuldash/firebase-service-account.json` (FCM). S3-бэкап: `/opt/yuldash/.backup-s3.env`. Мониторинг: `/opt/yuldash/.monitor.env` (`ALERT_CHAT_ID`).
+`ADMIN_TELEGRAM_CHAT_ID=<см. .env на сервере>` (автоадмин+уведомления), `ADMIN_PHONES=+79XXXXXXXXX` (автоадмин по номеру), `FIREBASE_CREDENTIALS=/opt/yuldash/firebase-service-account.json` (FCM). S3-бэкап: `/opt/yuldash/.backup-s3.env`. Мониторинг: `/opt/yuldash/.monitor.env` (`ALERT_CHAT_ID`).
 
 ## 6. Безопасность уровня продукта
 Проверка документов водителя (модерация в админке) · фото машины + госномер · код посадки · скрытый номер · SOS · доверенные контакты · жалобы/блокировки · аудит-лог. Чувствительное (точные координаты, телефон) — не логировать, отдавать только по праву.

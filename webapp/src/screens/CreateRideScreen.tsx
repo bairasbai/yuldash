@@ -9,11 +9,12 @@ import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { publishRide, fetchPriceHint, type RideCreateInput, type PriceHint } from "../api/driver";
+import { track } from "../analytics";
 import { fetchMedicalPartners, type MedicalPartner } from "../api/medical";
 import type { RideCategory } from "../api/rides";
 import { SubHeader } from "./ConsentsScreen";
 import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarningCard";
-import { IconCheck, IconBolt, IconHospital, IconUsers, IconTrend } from "../components/Icons";
+import { IconCheck, IconBolt, IconBox, IconHospital, IconUsers, IconTrend } from "../components/Icons";
 import { YuModeRideshare } from "../components/BrandIcons";
 import { AmenityIcon } from "../components/amenityIcons";
 import CityField from "../components/CityField";
@@ -29,7 +30,8 @@ type Amenity =
   | "women_only"
   | "non_smoking"
   | "air_conditioner"
-  | "quiet";
+  | "quiet"
+  | "no_minors";
 
 type Recur = "none" | "daily" | "weekdays" | "weekly";
 
@@ -71,6 +73,15 @@ export default function CreateRideScreen() {
   const [seats, setSeats] = useState(3);
   const [price, setPrice] = useState("");
   const [category, setCategory] = useState<RideCategory>("regular");
+  /** Только для «возьму посылку»: кому отдать и что за груз. */
+  const [receiverName, setReceiverName] = useState("");
+  const [parcelSize, setParcelSize] = useState("");
+  /**
+   * Остановки по пути: A → точки → B. Не «удобство», а способ быть найденным:
+   * человек из Темясово ищет поездку из Темясово, а не «Сибай → Уфа», и без этих
+   * названий объявление проезжает мимо него.
+   */
+  const [waypoints, setWaypoints] = useState<string[]>([]);
   const [partnerId, setPartnerId] = useState<number | null>(null);
 
   const [amen, setAmen] = useState<Record<Amenity, boolean>>({
@@ -81,6 +92,7 @@ export default function CreateRideScreen() {
     non_smoking: false,
     air_conditioner: false,
     quiet: false,
+    no_minors: false,
   });
   const [onlyTrusted, setOnlyTrusted] = useState(false);
   const [recurrence, setRecurrence] = useState<Recur>("none");
@@ -102,7 +114,8 @@ export default function CreateRideScreen() {
   // айфон выгрузил вкладку — и всё заново. Черновик держит заполненное до публикации.
   useDraftSync(
     RIDE_DRAFT,
-    { from, to, when, seats, price, category, amen, onlyTrusted, recurrence, comment, pickup },
+    { from, to, when, seats, price, category, amen, onlyTrusted, recurrence, comment, pickup,
+      receiverName, parcelSize, waypoints },
     (d) => {
       if (d.from) setFrom(d.from);
       if (d.to) setTo(d.to);
@@ -110,6 +123,9 @@ export default function CreateRideScreen() {
       if (d.seats) setSeats(d.seats);
       if (d.price) setPrice(d.price);
       if (d.category) setCategory(d.category);
+      if (d.receiverName) setReceiverName(String(d.receiverName));
+      if (d.parcelSize) setParcelSize(String(d.parcelSize));
+      if (Array.isArray(d.waypoints)) setWaypoints(d.waypoints.map(String));
       if (d.amen) setAmen((prev) => ({ ...prev, ...d.amen }));
       if (d.onlyTrusted) setOnlyTrusted(d.onlyTrusted);
       if (d.recurrence) setRecurrence(d.recurrence);
@@ -136,6 +152,10 @@ export default function CreateRideScreen() {
     { key: "regular", label: appText("Обычная", "Ябай"), icon: <YuModeRideshare size={20} /> },
     { key: "urgent", label: appText("Срочно", "Ашығыс"), icon: <IconBolt size={20} /> },
     { key: "hospital", label: appText("В больницу", "Дауаханаға"), icon: <IconHospital size={20} /> },
+    // «Везу посылку» — половина попутного смысла: человек всё равно едет, а коробка
+    // едет с ним. Без этой категории объявление «могу взять посылку» в вебе создать
+    // было нельзя вообще.
+    { key: "parcel", label: appText("Возьму посылку", "Аҫылма алам"), icon: <IconBox size={20} /> },
   ];
 
   const amenList: { key: Amenity; label: string }[] = [
@@ -146,6 +166,9 @@ export default function CreateRideScreen() {
     { key: "non_smoking", label: appText("Без курения", "Тартмайынса") },
     { key: "quiet", label: appText("Тихая поездка", "Тыныс сәфәр") },
     { key: "women_only", label: appText("Только женщины", "Тик ҡатын-ҡыҙ") },
+    // Не «против детей», а честное предупреждение: везти подростка одного — другая
+    // ответственность, и решать это надо ДО брони, а не у машины.
+    { key: "no_minors", label: appText("Без пассажиров младше 18", "18-ҙән кесе юлсыларһыҙ") },
   ];
 
   const recurList: { key: Recur; label: string }[] = [
@@ -180,12 +203,21 @@ export default function CreateRideScreen() {
       women_only: amen.women_only,
       air_conditioner: amen.air_conditioner,
       quiet: amen.quiet,
+      no_minors: amen.no_minors,
       // Бэк хранит «курение», а тумблер — «без курения»: инвертируем.
       smoking: amen.non_smoking ? false : undefined,
       partner_id: category === "hospital" ? partnerId : null,
+      // Поля посылки шлём только там, где они значат хоть что-то.
+      receiver_name: category === "parcel" ? receiverName.trim() || undefined : undefined,
+      parcel_size: category === "parcel" ? parcelSize.trim() || undefined : undefined,
+      // Сервер хранит остановки одной строкой через « | » — тем же разделителем,
+      // что и приложение, иначе одна и та же поездка выглядела бы по-разному.
+      waypoints: waypoints.map((w) => w.trim()).filter(Boolean).join(" | ") || undefined,
     };
     try {
       const ride = await publishRide(body);
+      track("publish_ride", { category });
+      track("publish_ride", { category });
       setCreatedId(ride.id);
       setDone(true);
       clearDraft(RIDE_DRAFT); // опубликовано — черновик больше не нужен
@@ -402,6 +434,76 @@ export default function CreateRideScreen() {
                 "Был тик барыу нөктәһе. Бер ниндәй медицина мәғлүмәте юҡ."
               )}
             </p>
+          </div>
+        )}
+
+        {/* Остановки по пути. Их пишут словами, а не точками на карте: попутчик ищет
+            «Темясово», и найтись должно именно это слово. */}
+        <div className="more-body" style={{ marginTop: 12 }}>
+          <span className="field__label">{appText("Остановки по пути", "Юл буйындағы туҡталыштар")}</span>
+          <p className="sheet__note" style={{ marginTop: 4 }}>
+            {appText(
+              "Куда заезжаешь по дороге — так тебя найдут попутчики с этих мест.",
+              "Юлда ҡайҙа туҡтайһың — шул урындарҙан юлдаштар һине табыр."
+            )}
+          </p>
+          {waypoints.map((w, i) => (
+            <div key={i} className="trip-stops__row" style={{ background: "transparent", padding: 0, marginTop: 8 }}>
+              <input
+                className="field__input"
+                value={w}
+                onChange={(e) =>
+                  setWaypoints((prev) => prev.map((x, j) => (j === i ? e.target.value.slice(0, 80) : x)))
+                }
+                placeholder={appText("Например, Темясово", "Мәҫәлән, Темәс")}
+              />
+              <button
+                type="button"
+                className="trip-stops__del"
+                onClick={() => setWaypoints((prev) => prev.filter((_, j) => j !== i))}
+              >
+                {appText("Убрать", "Алып ташлау")}
+              </button>
+            </div>
+          ))}
+          {waypoints.length < 4 && (
+            <button
+              type="button"
+              className="btn-soft btn-soft--sm"
+              style={{ marginTop: 8 }}
+              onClick={() => setWaypoints((prev) => [...prev, ""])}
+            >
+              {appText("Добавить остановку", "Туҡталыш өҫтәү")}
+            </button>
+          )}
+        </div>
+
+        {/* Поездка «возьму посылку»: кому отдать и что за груз. Без этих строк
+            объявление бесполезно — отправитель не знает, влезет ли коробка,
+            а водитель не знает, кому её вручить на том конце. */}
+        {category === "parcel" && (
+          <div className="more-body" style={{ marginTop: 12 }}>
+            <label className="field">
+              <span className="field__label">{appText("Кому передать (имя)", "Кемгә тапшырырға (исем)")}</span>
+              <input
+                className="field__input"
+                value={receiverName}
+                onChange={(e) => setReceiverName(e.target.value.slice(0, 120))}
+                placeholder={appText(
+                  "Напр.: Айгуль, заберёт на автовокзале",
+                  "Мәҫәлән: Айгүл, автовокзалда алыр"
+                )}
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">{appText("Габарит / вес", "Үлсәм / ауырлыҡ")}</span>
+              <input
+                className="field__input"
+                value={parcelSize}
+                onChange={(e) => setParcelSize(e.target.value.slice(0, 80))}
+                placeholder={appText("Напр.: до 5 кг, коробка 40×30", "Мәҫәлән: 5 кг ҡәҙәр, ҡумта 40×30")}
+              />
+            </label>
           </div>
         )}
 

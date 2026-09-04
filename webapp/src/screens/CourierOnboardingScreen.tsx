@@ -25,6 +25,7 @@ import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
 import { IconCheck, IconCamera, IconShield, IconBox, IconCar, IconClock, IconWarn } from "../components/Icons";
 import { useDraftSync, clearDraft } from "../utils/formDraft";
+import { track } from "../analytics";
 
 type Boot = "loading" | "error" | "ready";
 
@@ -121,6 +122,7 @@ export default function CourierOnboardingScreen() {
         car_plate: carPlate.trim().toUpperCase(),
         rules_accepted: rulesOk,
       });
+      track("courier_apply");
       setApp(a);
       setEditing(false);
       clearDraft(COURIER_DRAFT); // отправлено — черновик больше не нужен

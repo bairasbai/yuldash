@@ -4,6 +4,7 @@
 Видимость в приложении: status==active И starts_at<=now И (ends_at null ИЛИ ends_at>now).
 Маркировка (РФ закон): поле erid обязательно, в выдаче есть partner_name → «Реклама · …».
 """
+import re
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -13,6 +14,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..antifraud import safe_link
+from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..logs import admin_action
@@ -101,8 +103,44 @@ def _csv(s: str) -> List[str]:
     return [x.strip() for x in (s or "").split(",") if x.strip()]
 
 
+def _erid_grace_active(now: datetime) -> bool:
+    """Идёт ли переходный период для объявлений без маркировки.
+
+    Закон требует erid у каждого рекламного показа, но гасить в день выкатки объявления
+    партнёров, которые честно заплатили, нечестно — виноват наш процесс, а не они.
+    Дата окончания периода задаётся в .env (ERID_GRACE_UNTIL). Пусто = периода нет.
+    """
+    raw = (settings.erid_grace_until or "").strip()
+    if not raw:
+        return False
+    try:
+        until = datetime.fromisoformat(raw)
+    except ValueError:      # кривая дата в .env не должна ронять выдачу рекламы
+        return False
+    if until.tzinfo is not None:
+        until = until.replace(tzinfo=None)
+    return now < until
+
+
+# Настоящий идентификатор из ОРД — латиница и цифры, обычно 10-30 символов («2VtzqwH7uMn»).
+# Проверка формата нужна затем, что «непусто» не значит «присвоен»: в демо-данных жила
+# заглушка «ожидает присвоения», и объявление честно уходило в эфир с ней вместо номера.
+# Юридически это тот же показ без маркировки (ст. 14.3 КоАП — до 500 000 ₽ юрлицу),
+# только выглядит аккуратнее. Кириллица, пробелы и обрывки проверку не проходят.
+_ERID_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
+
+
+def erid_ok(erid: str) -> bool:
+    """Присвоен ли объявлению настоящий erid из ОРД (а не пусто/заглушка/мусор)."""
+    return bool(_ERID_RE.match((erid or "").strip()))
+
+
 def _is_live(ad: Ad, now: datetime) -> bool:
     if ad.status != "active":
+        return False
+    # Реклама без маркировки в эфир не идёт: показ без erid — нарушение закона о рекламе.
+    # Исключение только на время переходного периода (см. _erid_grace_active).
+    if not erid_ok(ad.erid) and not _erid_grace_active(now):
         return False
     if ad.starts_at and ad.starts_at > now:
         return False
@@ -608,6 +646,10 @@ def _admin_view(ad: Ad, now: datetime, paid: bool = False) -> dict:
         "paid": paid,
         "live": live,
         "expired": ad.ends_at is not None and ad.ends_at <= now,
+        # Нет маркировки: объявление или уже скрыто из выдачи, или скроется в конце
+        # переходного периода. Админ должен видеть такие раньше, чем закон.
+        "erid_missing": not erid_ok(ad.erid),
+        "erid_grace": _erid_grace_active(now),
         "starts_at": ad.starts_at.isoformat() if ad.starts_at else None,
         "ends_at": ad.ends_at.isoformat() if ad.ends_at else None,
         "created_at": ad.created_at.isoformat() if ad.created_at else None,
@@ -653,11 +695,19 @@ def admin_approve_ad(ad_id: int, body: AdApproveIn, user: User = Depends(current
     ad = session.get(Ad, ad_id)
     if not ad:
         raise herr(404, "Объявление не найдено", "Иғлан табылманы")
+    if body.erid.strip():
+        ad.erid = body.erid.strip()
+    # Без маркировки в эфир нельзя: закон о рекламе, штраф на юрлицо до 500 000 ₽.
+    # Проверяем ЗДЕСЬ, а не только в форме админки: форму можно обойти прямым запросом.
+    if not (ad.erid or "").strip():
+        raise herr(
+            422,
+            "Нужен erid — реклама без маркировки запрещена. Получи номер в ОРД и вставь его.",
+            "erid кәрәк — билдәләмәһеҙ реклама тыйыла. Номерҙы ОРД-та ал да индер.",
+        )
     ad.status = "active"
     ad.reject_reason = ""
     ad.reviewed_at = utcnow()
-    if body.erid.strip():
-        ad.erid = body.erid.strip()
     if ad.period_days > 0:            # провизорное окно (объявление скрыто до оплаты);
         ad.starts_at = utcnow()       # реальный отсчёт срока — от подтверждения оплаты
         ad.ends_at = utcnow() + timedelta(days=ad.period_days)  # (_activate_payment переставит)

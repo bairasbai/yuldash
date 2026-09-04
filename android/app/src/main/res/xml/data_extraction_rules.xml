@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Что копируется с телефона на телефон и в облако (Android 12+).
+
+  У нас — ничего. В приложении лежат телефон, токен входа, история поездок и сохранённые
+  адреса; на новом устройстве человек входит по СМС заново, а копия этих данных в чужом
+  облаке — лишний риск и лишний повод для вопросов в Play Console.
+
+  `allowBackup="false"` в манифесте закрывает старый механизм (до Android 12), этот файл —
+  новый (cloud-backup + device-transfer). Пустые правила с `<exclude domain="root"/>`
+  означают «не копировать ничего».
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

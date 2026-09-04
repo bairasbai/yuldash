@@ -109,11 +109,36 @@ def boost_plans():
     ]
 
 
+def _reuse_fresh_pending(session: Session, user_id: int, purpose: str, amount_kop: int):
+    """Тот же неоплаченный счёт вместо нового, если человек нажал дважды.
+
+    У Boost такая защита стоит с волны 13 (аудит 2026-08-08): три тапа давали три счёта,
+    человек видел три QR на одну поездку, а админу прилетало три «поступил платёж».
+    У доната и поддержки её не было — тот же двойной тап делал два счёта на одну сумму.
+
+    Условия совпадения строгие: тот же человек, та же цель, та же сумма и счёт ещё свежий.
+    Другая сумма — осознанный выбор человека, ему нужен свой счёт.
+    """
+    fresh_since = utcnow() - timedelta(minutes=BOOST_PENDING_REUSE_MIN)
+    return session.exec(
+        select(Payment).where(
+            Payment.user_id == user_id, Payment.purpose == purpose,
+            Payment.amount_kop == amount_kop, Payment.status == "pending",
+            Payment.created_at >= fresh_since,
+        ).order_by(Payment.id.desc())
+    ).first()
+
+
 def _start_yookassa(session: Session, payment: Payment, description: str, phone: str) -> dict:
     """M2: создать платёж в ЮKassa безопасно. При сбое (таймаут/недоступность ЮKassa) не роняем
     500 и не оставляем висящий pending без provider_id — удаляем orphan-строку и просим повторить."""
     try:
-        return create_payment(payment.amount_kop, description, {"payment_id": str(payment.id)}, customer_phone=phone)
+        return create_payment(
+            payment.amount_kop, description, {"payment_id": str(payment.id)}, customer_phone=phone,
+            # Ключ от НАШЕЙ строки платежа: повтор запроса после обрыва сети попадёт
+            # в тот же платёж ЮKassa, а не создаст второй на тот же счёт.
+            idempotence_key=f"yuldash-payment-{payment.id}",
+        )
     except Exception:  # noqa: BLE001 — сеть/ЮKassa недоступна: чистим orphan, отдаём мягкую 503
         session.delete(payment)
         session.commit()
@@ -289,6 +314,18 @@ def _activate_payment(session: Session, payment: Payment) -> None:
             # возвращает только то, что оттуда не убирали.
             if partner.status == "active":
                 partner.status = "active"
+            else:
+                # Деньги пришли, а бизнеса в витрине нет — так и задумано (отклонён модерацией
+                # или ждёт перепроверки текста), но молча оставлять оплату нельзя: об этом
+                # не узнавал никто (аудит 2026-09-02). Админ решает: вернуть деньги,
+                # пересмотреть отказ или добить проверку.
+                notify_admin_telegram(
+                    "⚠️ Оплата есть, а бизнеса в витрине нет" + chr(10)
+                    + f"Бизнес: «{partner.name}» (id {partner.id}), статус {partner.status}" + chr(10)
+                    + f"Платёж: {payment.id} на {payment.amount_kop // 100} ₽, тариф {payment.tier}" + chr(10)
+                    + f"Срок подписки продлён до {partner.subscription_until:%d.%m.%Y}" + chr(10) * 2
+                    + "Реши: вернуть деньги, пересмотреть отказ или закончить проверку."
+                )
             session.add(partner)
     session.commit()
     _tell_about_payment(session, payment, ok=True)
@@ -503,13 +540,17 @@ def donate_create(body: DonateIn, user: User = Depends(current_user), session: S
     if settings.is_prod and settings.payments_provider == "mock":
         raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
 
-    payment = Payment(user_id=user.id, purpose="donate", amount_kop=amount * 100)
-    session.add(payment)
-    session.commit()
-    session.refresh(payment)
+    payment = _reuse_fresh_pending(session, user.id, "donate", amount * 100)
+    reused = payment is not None
+    if payment is None:
+        payment = Payment(user_id=user.id, purpose="donate", amount_kop=amount * 100)
+        session.add(payment)
+        session.commit()
+        session.refresh(payment)
 
     if settings.payments_provider == "sbp_manual":
-        _notify_new_payment(session, payment)
+        if not reused:      # админа зовём один раз на счёт, а не на каждый тап
+            _notify_new_payment(session, payment)
         return {
             "status": "pending", "method": "sbp_manual", "payment_id": payment.id,
             "amount": amount,
@@ -552,14 +593,18 @@ def support_donate(body: SupportDonateIn, user: User = Depends(current_user), se
     if settings.is_prod and settings.payments_provider == "mock":
         raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
 
-    payment = Payment(user_id=user.id, purpose="support", amount_kop=amount_kop)
-    session.add(payment)
-    session.commit()
-    session.refresh(payment)
+    payment = _reuse_fresh_pending(session, user.id, "support", amount_kop)
+    reused = payment is not None
+    if payment is None:
+        payment = Payment(user_id=user.id, purpose="support", amount_kop=amount_kop)
+        session.add(payment)
+        session.commit()
+        session.refresh(payment)
 
     # СБП-перевод по номеру: платёж висит pending, подтверждает админ после получения денег.
     if settings.payments_provider == "sbp_manual":
-        _notify_new_payment(session, payment)
+        if not reused:      # админа зовём один раз на счёт, а не на каждый тап
+            _notify_new_payment(session, payment)
         return {
             "status": "pending", "method": "sbp_manual", "payment_id": payment.id,
             "amount": amount_kop // 100,

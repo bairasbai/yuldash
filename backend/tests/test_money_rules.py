@@ -487,7 +487,11 @@ def test_strikes_pause_orders(client, user_factory, fake_redis):
     _mk_strike(pax["id"], hours_ago=0, no_show=True)
     r = client.post("/instant/orders", headers=pax["auth"], json=_order_body())
     assert r.status_code == 403
-    assert "пауз" in r.json()["detail"].lower()
+    # Ошибка двуязычная: detail={ru, ba}. Проверяем ОБА языка — иначе можно потерять
+    # башкирскую половину и не заметить (правило «две отдельные строки», не одна).
+    detail = r.json()["detail"]
+    assert "пауз" in detail["ru"].lower()
+    assert detail["ba"].strip(), "башкирский текст паузы пуст"
     # Попутка при этом работает: заявку пассажира гейт такси не трогает.
     with Session(engine) as s:
         assert isv.strike_pause_until(s, pax["id"]) is not None

@@ -70,18 +70,46 @@ class MoneyFormatTest {
         assertFalse(o.isWaitingQueue)
     }
 
+    /** Срок ожидания в наивном UTC — ровно в том виде, в каком его шлёт сервер. */
+    private fun waitIso(minutesFromNow: Long): String =
+        java.time.LocalDateTime.ofInstant(
+            java.time.Instant.now().plusSeconds(minutesFromNow * 60),
+            java.time.ZoneOffset.UTC,
+        ).withNano(0).toString()
+
     @Test
     fun expiredOrder_withWait_staysAliveForPolling() {
         // Именно это держит поллинг живым: иначе нажал «Подожду» — и приложение перестало следить.
-        val o = order("expired", waitUntil = "2026-07-26T20:00:00")
+        //
+        // Срок берём ОТ ТЕКУЩЕГО ВРЕМЕНИ, а не зашитой датой: раньше здесь стояло
+        // «2026-07-26», и тест проверял правило ровно до тех пор, пока эта дата была
+        // в будущем. Прошёл месяц — и он стал проверять календарь, а не смысл.
+        val o = order("expired", waitUntil = waitIso(10))
         assertTrue(o.isTerminal)
         assertTrue(o.isWaitingQueue)
     }
 
     @Test
+    fun expiredOrder_withPastWait_isNoLongerQueued() {
+        // Срок ожидания вышел — очередь кончилась. Раньше проверялось только НАЛИЧИЕ срока,
+        // и экран писал «ищем машину дальше» до конца времён, хотя никто уже не искал
+        // (аудит сценариев 2026-08-30).
+        val o = order("expired", waitUntil = waitIso(-10))
+        assertTrue(o.isTerminal)
+        assertFalse(o.isWaitingQueue)
+    }
+
+    @Test
+    fun unreadableWaitKeepsTheQueueAlive() {
+        // Чужой формат даты — не повод обрывать поиск, который, может быть, идёт.
+        // Сомнение толкуем в пользу человека, который ждёт машину.
+        assertTrue(order("expired", waitUntil = "не дата").isWaitingQueue)
+    }
+
+    @Test
     fun finishedOrder_isNeverTreatedAsQueued() {
-        // Завершённая/отменённая поездка не должна «оживать» из-за старого wait_until.
-        assertFalse(order("done", waitUntil = "2026-07-26T20:00:00").isWaitingQueue)
-        assertFalse(order("cancelled", waitUntil = "2026-07-26T20:00:00").isWaitingQueue)
+        // Завершённая/отменённая поездка не должна «оживать» из-за живого wait_until.
+        assertFalse(order("done", waitUntil = waitIso(10)).isWaitingQueue)
+        assertFalse(order("cancelled", waitUntil = waitIso(10)).isWaitingQueue)
     }
 }

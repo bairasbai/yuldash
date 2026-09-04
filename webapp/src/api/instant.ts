@@ -101,6 +101,65 @@ export interface InstantOrder {
    * что приложение сломалось.
    */
   women_only?: boolean;
+  /** Чем рассчитываются: cash | sbp | negotiate. Видно ОБЕИМ сторонам. */
+  payment_method?: string;
+
+  // --- смена адреса уже в поездке (аддитивно: старый сервер полей не шлёт) ---
+  /** Сколько раз меняли адрес — объясняет в чеке, почему цена не та, что при заказе. */
+  destination_changes?: number;
+  /** Водитель подтвердил, что видел новый адрес. */
+  destination_ack?: boolean;
+  /** Прошла минута, а «Понял» так и не нажал → пассажиру честно говорим «позвони». */
+  destination_ack_overdue?: boolean;
+  /** Крупная смена (межгород / тройная цена) ждёт слова водителя. null = ничего не ждём. */
+  pending_destination?: {
+    to_text: string;
+    price: number;
+    reason: string;
+  } | null;
+  /** Водитель завершил поездку досрочно и почему — пассажир видит причину словами. */
+  early_finish_reason?: string;
+
+  // --- остановки по пути ---
+  /** Точки, куда заезжаем. `done` = уже проехали, трогать нельзя. */
+  stops?: TaxiStop[];
+  /** Водитель нажал «Стоим»: счётчик ожидания на остановке идёт. */
+  standing?: boolean;
+
+  /** Из чего сложилась бы платная отмена ПРЯМО СЕЙЧАС (показываем ДО тапа). */
+  cancel_fee_parts?: Record<string, number>;
+  /** С какого момента идёт текущий круг поиска (перезапуск из очереди его сдвигает). */
+  searching_at?: string | null;
+  /** Очередь «рядом никого»: до какого времени ждём машину. null = не ждём. */
+  wait_until?: string | null;
+
+  /** Госномер: у подъезда две белые «Лады», и сверить нечем. Только после accept. */
+  driver_plate?: string;
+  /** Доверие пассажиру о водителе (только ему и только после accept). */
+  driver_avatar?: string;
+  driver_trips?: number;
+  driver_since?: string;
+  driver_from?: string;
+
+  /** Забыл вещь: пока не истекло — чат заказа снова открыт на запись. */
+  lost_item_until?: string | null;
+  /** Пассажир уже сказал «рәхмәт» — второй раз не предлагаем. */
+  thanked?: boolean;
+  /**
+   * Заказ сделан ДЛЯ ДРУГОГО человека: сын из Уфы вызвал такси маме в Баймаке.
+   * Водителю это надо знать до подачи — у ворот его ждёт не тот, с кем он говорил
+   * в приложении, и звонить надо по телефону из карточки, а не заказчику.
+   */
+  for_other?: boolean;
+}
+
+/** Остановка по пути (waypoints_json на сервере). Координаты, а не название: по ним считают цену. */
+export interface TaxiStop {
+  lat: number;
+  lng: number;
+  text: string;
+  /** Проеденную остановку убрать нельзя — спорить о том, что позади, не о чем. */
+  done?: boolean;
 }
 
 /** Тело оценки/заказа — сервер считает цену сам, клиенту не верит. */
@@ -119,6 +178,18 @@ export interface EstimateInput {
    * заказ на пять утра, сделанный днём, показывал дневную ставку и уезжал по ночной.
    */
   scheduled_at?: string;
+  /**
+   * Опции салона: детское кресло по группе, бустер, коляска, собака-проводник, животное,
+   * большой багаж. Это НЕ класс машины: кресло возить может любая. Фильтр жёсткий —
+   * машине без кресла такой заказ не предложат вообще, в этом и смысл галочки.
+   */
+  options?: string[];
+  /** Круговой рейс: отвезти, подождать и привезти обратно. Только межгород. */
+  round_trip?: boolean;
+  /** Сколько водитель ждёт на месте, минут. 0 = обычная поездка в одну сторону. */
+  return_wait_min?: number;
+  /** Остановки по пути: A → точки → B. Не больше трёх. */
+  waypoints?: { lat: number; lng: number; text?: string }[];
 }
 
 /**
@@ -139,6 +210,8 @@ export interface OrderExtras {
   for_name?: string;
   for_phone?: string;
   women_only?: boolean;
+  /** Чем рассчитаются: cash | sbp | negotiate. Пусто → «договоримся на месте». */
+  payment_method?: string;
 }
 
 export type OrderInput = EstimateInput & OrderExtras;
@@ -192,6 +265,27 @@ export interface EstimateResult {
   /** На сколько секунд цена закреплена: пока человек думает, она не вырастет. 0 = выключено. */
   price_locked_sec?: number;
   option_catalog?: { code: string; price: number }[];
+  /**
+   * Круговой рейс: водитель везёт, ждёт на месте и возвращает обратно.
+   *
+   * Только межгород — в городе порожняка нет, и скидке взяться неоткуда. Обратная дорога
+   * дешевле, потому что второй конец достаётся водителю без нового поиска пассажира.
+   * `round_trip_price` — цена уже вместе с подачей; `null` = такой поездки тут не бывает.
+   */
+  round_trip_available?: boolean;
+  round_trip_price?: number | null;
+  round_trip_discount_percent?: number;
+  /** Дольше водитель ждать не может — у него смена. */
+  round_trip_max_wait_hours?: number;
+  round_trip?: boolean;
+  /** Сколько остановок учтено в цене — человек должен видеть, за что платит. */
+  waypoints_count?: number;
+  /**
+   * Из чего сложилась цена: маршрут по дорогам или оценка, пробки, спрос, дальняя
+   * подача, зимняя дорога, опции салона. Тексты приходят готовыми на двух языках —
+   * пороги и формулы живут на сервере, клиент их не пересказывает.
+   */
+  price_factors?: import("../components/PriceFactors").PriceFactor[];
   /**
    * Зимняя дорога: компенсация водителю за гололёд, метель, сильный снег или мороз —
    * 1,5 ₽/км, потолок 15% от поездки. Вне наценки и без комиссии: зимой у него реально
@@ -395,6 +489,12 @@ export interface TaxiApplication {
   docs_expired: boolean; // хоть один срок вышел → допуск снят
   docs_missing: string[]; // какие сроки ещё не заполнены
   docs_days_left: number | null; // до ближайшего истечения; отрицательное = просрочен
+  /** Что ответил государственный реестр такси (580-ФЗ). Три состояния, различать обязательно:
+   *  не спрашивали / реестр молчал (`checked=false`) — не показываем ничего, человек не виноват
+   *  в нашем таймауте; подтверждено; разрешения нет — тогда показываем путь получить. */
+  permit_registry_checked?: boolean;
+  permit_registry_ok?: boolean;
+  permit_registry_until?: string | null;
 }
 
 /** Тело POST /taxi/apply (TaxiApplyIn). */
@@ -407,7 +507,33 @@ export interface TaxiApplyInput {
   osago_url?: string;
   selfie_url?: string;
   criminal_record_url?: string;
+  /**
+   * ⚠️ Устарело: класс машина больше НЕ заявляет, его считает классификатор по
+   * характеристикам ниже. Поле оставлено ради старых клиентов, сервер его игнорирует.
+   */
   car_class?: "economy" | "comfort";
+
+  /**
+   * Характеристики машины для классификатора.
+   *
+   * Без года выпуска доступен ТОЛЬКО Эконом — каким бы новым ни был автомобиль:
+   * классификатор не угадывает, он считает. Поэтому спрашиваем прямо при подаче,
+   * а не оставляем человека навсегда в базовом классе.
+   *
+   * Модератор потом сверит это с фото и документами: заявленное «есть кондиционер»
+   * само по себе класс не открывает.
+   */
+  car_year?: number | null;
+  seats?: number | null;
+  car_color?: string;
+  car_ac?: boolean;
+  car_sedan?: boolean;
+  car_leather?: boolean;
+  car_light_salon?: boolean;
+  /** Опции салона (детское кресло, коляска, животные) — коды из car_class.py. */
+  car_options?: string[];
+  /** Какие классы водитель готов брать. Пусто = все доступные ему. */
+  car_classes_enabled?: string[];
 }
 
 export function fetchTaxiApplication(signal?: AbortSignal): Promise<TaxiApplication> {
@@ -441,6 +567,11 @@ export interface DemandZone {
   lng: number;
   weight: number; // 0..1 относительно самой горячей зоны
   requests: number; // активных поисков в зоне
+  /**
+   * Сколько километров до зоны от текущего места водителя. Поля может не быть:
+   * позиции ещё нет — и тогда «зона рядом» честнее выдуманных километров.
+   */
+  dist_km?: number;
 }
 
 export interface DemandMap {
@@ -666,4 +797,336 @@ export function saveWorkZone(body: WorkZoneInput): Promise<WorkZone> {
     work_regions: body.work_regions ?? false,
     work_direction_id: body.work_direction_id ?? null,
   });
+}
+
+// ================================================================
+//  Поездка в пути: то, что происходит ПОСЛЕ «машина найдена».
+//  Зеркало instant.py (wait / im-coming / destination / waypoints /
+//  stop / payment) и safety.py (stuck / winter-check по заказу).
+//
+//  До этой волны веб умел только создать заказ и отменить его:
+//  всё, что случается между посадкой и высадкой, было доступно
+//  лишь в приложении (сверка с Android, 2026-08-30).
+// ================================================================
+
+/** Ответ «подожду машину» (POST /instant/orders/{id}/wait). */
+export interface WaitResult {
+  ok: boolean;
+  wait_until: string;
+  wait_minutes: number;
+  order?: InstantOrder;
+}
+
+/**
+ * «Подожду машину» после «рядом никого».
+ *
+ * В райцентре ночью на линии две-три машины, и обе заняты — это норма, а не сбой.
+ * Заказ встаёт в очередь, фоновый воркер продолжает искать и пушит, когда найдётся.
+ */
+export function waitForDriver(orderId: number): Promise<WaitResult> {
+  return apiPost<WaitResult>(`/instant/orders/${orderId}/wait`);
+}
+
+/**
+ * «Уже выхожу» — пассажир спускается, водитель это видит.
+ *
+ * Денег не меняет: таймер ожидания идёт как шёл. Это сообщение, а не сделка, —
+ * иначе кнопкой начали бы отматывать платное ожидание.
+ */
+export function imComing(orderId: number): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(`/instant/orders/${orderId}/im-coming`);
+}
+
+/** Пересчёт при смене адреса или остановок (общий ответ destination/waypoints). */
+export interface DestinationQuote {
+  ok?: boolean;
+  /** Новая цена целиком: проеденное + остаток до новой точки. */
+  price: number;
+  /** Сколько было до смены — чтобы показать «станет 480 ₽ вместо 320 ₽». */
+  old_price: number;
+  driven_km: number;
+  rest_km: number;
+  distance_km: number;
+  /** Межгород или цена выросла втрое → сначала спрашиваем водителя. */
+  needs_driver_ok: boolean;
+  /** Почему спрашиваем: intercity | price_jump. */
+  ask_reason?: string;
+  /** Адрес уже поменялся (false у превью и когда ждём водителя). */
+  applied: boolean;
+  /** Предложение ушло водителю, ждём его слова. */
+  waiting_driver?: boolean;
+  order?: InstantOrder;
+}
+
+/** Посчитать смену адреса, ничего не меняя: человек видит цену ДО согласия. */
+export function previewDestination(
+  orderId: number,
+  to: { lat: number; lng: number; text?: string }
+): Promise<DestinationQuote> {
+  return apiPost<DestinationQuote>(`/instant/orders/${orderId}/destination`, {
+    to_lat: to.lat,
+    to_lng: to.lng,
+    to_text: (to.text ?? "").slice(0, 200),
+    preview: true,
+  });
+}
+
+/**
+ * Сменить адрес назначения. Цену считает сервер — из клиента она не принимается.
+ *
+ * Сеть отвалилась → ошибка наружу, экран честно говорит «не получилось». Откладывать
+ * «на потом» нельзя: человек будет уверен, что адрес сменился, а машина поедет по старому.
+ */
+export function changeDestination(
+  orderId: number,
+  to: { lat: number; lng: number; text?: string }
+): Promise<DestinationQuote> {
+  return apiPost<DestinationQuote>(`/instant/orders/${orderId}/destination`, {
+    to_lat: to.lat,
+    to_lng: to.lng,
+    to_text: (to.text ?? "").slice(0, 200),
+    preview: false,
+  });
+}
+
+/** Водитель: «Понял, вижу новый адрес». Снимает с пассажира тревогу «а он вообще знает?». */
+export function ackDestination(orderId: number): Promise<{ ok: boolean; order?: InstantOrder }> {
+  return apiPost(`/instant/orders/${orderId}/destination/ack`);
+}
+
+/** Водитель согласился на крупную смену (межгород / тройная цена). */
+export function acceptDestination(orderId: number): Promise<{ ok: boolean; order?: InstantOrder }> {
+  return apiPost(`/instant/orders/${orderId}/destination/accept`);
+}
+
+/** Почему водитель не может ехать по новому адресу. */
+export type DeclineDestinationReason = "shift_end" | "out_of_zone" | "no_fuel" | "other";
+
+/**
+ * Водитель не может ехать дальше.
+ *
+ * Ждали согласия на крупную смену → поездка продолжается по СТАРОМУ адресу.
+ * Иначе поездка ЗАВЕРШАЕТСЯ там, где стоит машина: километры проеханы, деньги за них
+ * причитаются. Это не отмена — работа сделана.
+ */
+export function declineDestination(
+  orderId: number,
+  reason: DeclineDestinationReason = "other"
+): Promise<{ ok: boolean; kept_old_destination?: boolean; finished_early?: boolean; order?: InstantOrder }> {
+  return apiPost(`/instant/orders/${orderId}/destination/decline`, { reason });
+}
+
+/**
+ * Заменить набор остановок уже в поездке.
+ *
+ * Проеденные сервер сохранит сам — их не передаём и убрать нельзя. Порядок задаётся
+ * порядком точек; переставлять на ходу нельзя (водитель уже едет к первой).
+ */
+export function setWaypoints(
+  orderId: number,
+  stops: { lat: number; lng: number; text?: string }[]
+): Promise<DestinationQuote> {
+  return apiPost<DestinationQuote>(`/instant/orders/${orderId}/waypoints`, {
+    waypoints: stops.slice(0, 3).map((s) => ({
+      lat: s.lat,
+      lng: s.lng,
+      text: (s.text ?? "").slice(0, 200),
+    })),
+  });
+}
+
+/**
+ * Водитель отмечает «Стоим» на остановке и «Поехали», когда тронулся.
+ *
+ * Кнопкой, а не автоматом по координатам: машина в пробке у светофора рядом с остановкой
+ * начала бы «зарабатывать» сама, а разбираться пришлось бы пассажиру.
+ */
+export function toggleStop(
+  orderId: number
+): Promise<{ ok: boolean; standing: boolean; order?: InstantOrder }> {
+  return apiPost(`/instant/orders/${orderId}/stop`);
+}
+
+/** Способы расчёта, которые сервер принимает. Карты и счёт заведены, но выключены. */
+export type PaymentMethod = "cash" | "sbp" | "negotiate";
+
+/**
+ * Пассажир меняет способ расчёта — до самого конца поездки.
+ *
+ * Про наличные человек вспоминает ровно тогда, когда лезет в карман, то есть уже сидя
+ * в машине. Водителю уходит уведомление: тихая подмена договорённости хуже, чем её смена.
+ */
+export function setPaymentMethod(
+  orderId: number,
+  method: PaymentMethod
+): Promise<{ payment_method: string; changed?: boolean }> {
+  return apiPost(`/instant/orders/${orderId}/payment`, { method });
+}
+
+// ------------------------------- «Что-то не так с ценой» -------------------------------
+/**
+ * Жалоба на цену (POST /instant/price-complaint). Заказ необязателен: жалуются чаще
+ * на ОЦЕНКУ до поездки, чем на завершённую. Координат в теле нет и быть не должно —
+ * уходят только строки счёта, как их видел человек.
+ */
+export interface PriceComplaintInput {
+  order_id?: number | null;
+  kind?: "taxi" | "courier";
+  price?: number;
+  reason?: string;
+  comment?: string;
+  breakdown?: Record<string, number | string>;
+}
+
+export function sendPriceComplaint(
+  body: PriceComplaintInput
+): Promise<{ ok?: boolean; id?: number }> {
+  return apiPost(`/instant/price-complaint`, {
+    order_id: body.order_id ?? null,
+    kind: body.kind ?? "taxi",
+    price: body.price ?? 0,
+    reason: (body.reason ?? "other").slice(0, 32),
+    comment: (body.comment ?? "").slice(0, 500),
+    breakdown: body.breakdown ?? {},
+  });
+}
+
+// ================================================================
+//  Классы машин водителя (taxi.py: GET/POST /taxi/classes).
+//
+//  Класс машина ЗАСЛУЖИВАЕТ, а не заявляет: характеристики ставит
+//  модератор, а водитель только включает то, что ему уже доступно.
+//  В вебе экрана не было совсем — таксист с сайта не мог ни узнать,
+//  чего не хватает до Комфорта, ни включить Минивэн
+//  (сверка с Android, 2026-08-30).
+// ================================================================
+
+/** Класс машины. Категория заказа та же, кроме исторического economy → standard. */
+export type CarClass = "economy" | "comfort" | "business" | "minivan";
+
+/**
+ * Чего машине не хватает до класса — КОДАМИ. Подписи живут в клиенте на двух языках:
+ * сервер не должен решать, как это звучит по-башкирски.
+ */
+export type CarClassMissing =
+  | "clean_salon"
+  | "year_unknown"
+  | "too_old"
+  | "no_ac"
+  | "body"
+  | "few_seats"
+  | "not_sedan"
+  | "color_business"
+  | "no_leather"
+  | "not_verified_premium"
+  | "too_many_seats"
+  | "unknown_class";
+
+/** Опции салона. Это НЕ класс: кресло возит машина любого класса. */
+export type CarOption =
+  | "seat_0_1"
+  | "seat_1_4"
+  | "seat_4_7"
+  | "booster"
+  | "wheelchair"
+  | "guide_dog"
+  | "stroller"
+  | "pets"
+  | "big_luggage"
+  | "charger";
+
+/** Один класс в витрине водителя. */
+export interface CarClassRow {
+  car_class: CarClass | string;
+  category: string;
+  /** Машина проходит по требованиям. */
+  available: boolean;
+  /** Водитель сам включил этот класс. */
+  enabled: boolean;
+  missing: (CarClassMissing | string)[];
+  /**
+   * Сколько водителей класса уже набралось в районе и сколько нужно, чтобы он открылся.
+   * Не статистика ради статистики: видя «не хватает одного», человек зовёт знакомого —
+   * и класс открывается им обоим.
+   */
+  drivers_have: number;
+  drivers_need: number;
+  open: boolean;
+  /** Он будет первым в районе — это стоит сказать вслух. */
+  first: boolean;
+}
+
+export interface DriverClasses {
+  /** Район, по которому считается набор водителей. */
+  place: string;
+  classes: CarClassRow[];
+  options: (CarOption | string)[];
+  all_options: (CarOption | string)[];
+  /** Что модератор знает о машине. Водитель это не правит — иначе классы обходятся полем. */
+  car: {
+    year: number | null;
+    seats: number | null;
+    color: string | null;
+    ac: boolean;
+    sedan: boolean;
+    leather: boolean;
+    light_salon: boolean;
+    premium: boolean;
+    clean: boolean;
+    body_ok: boolean;
+    color_ok: boolean;
+  };
+}
+
+export function fetchDriverClasses(signal?: AbortSignal): Promise<DriverClasses> {
+  return apiGet<DriverClasses>("/taxi/classes", { signal });
+}
+
+/**
+ * Включить классы и отметить опции салона. Без пере-подачи заявки: возить кресло
+ * человек начинает в среду, а не в день модерации. Включить можно только доступное —
+ * лишнее сервер отфильтрует молча.
+ */
+export function saveDriverClasses(body: {
+  car_classes_enabled?: (CarClass | string)[] | null;
+  car_options?: (CarOption | string)[] | null;
+}): Promise<DriverClasses> {
+  return apiPost<DriverClasses>("/taxi/classes", {
+    car_classes_enabled: body.car_classes_enabled ?? null,
+    car_options: body.car_options ?? null,
+  });
+}
+
+// ================================================================
+//  Лист ожидания раннего доступа (waitlist.py: POST /waitlist).
+//
+//  Такси включается по городам: пока в районе нет машин, запускать
+//  сервис честнее не «наполовину», а никак. Но человеку, который
+//  открыл экран и увидел «пока не работает», надо оставить дверь:
+//  один номер — и мы позовём, когда включим.
+//
+//  Ручка ПУБЛИЧНАЯ: сюда шлют и лендинг, и приложение до входа.
+//  В вебе кнопки не было — экран «такси скоро» заканчивался ничем
+//  (сверка с Android, 2026-08-30).
+// ================================================================
+
+/** Кем человек хочет быть, когда такси включат. Водителям — свой ответ и своя очередь. */
+export type WaitlistRole = "passenger" | "driver";
+
+export function joinWaitlist(body: {
+  phone: string;
+  city?: string;
+  role?: WaitlistRole;
+}): Promise<{ ok?: boolean }> {
+  return apiPost(
+    "/waitlist",
+    {
+      phone: body.phone.replace(/[\s\-()]/g, "").slice(0, 32),
+      city: (body.city ?? "").trim().slice(0, 80) || null,
+      role: body.role ?? "passenger",
+    },
+    // Публичная ручка: человек ещё не вошёл, и требовать вход ради записи в очередь —
+    // ровно тот барьер, из-за которого он и уйдёт.
+    { auth: false }
+  );
 }

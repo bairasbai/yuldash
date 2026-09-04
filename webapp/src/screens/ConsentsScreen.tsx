@@ -1,21 +1,87 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { flags, type ConsentKind, type Consents } from "../flags";
+import { fetchMyConsents, grantConsent } from "../api/trust";
 import { IconChevron } from "../components/Icons";
+import { formatWhen } from "../utils/format";
 
 /**
  * Согласия по 152-ФЗ (оферта / политика конфиденциальности / геолокация).
- * У бэкенда пока нет эндпоинта согласий — отметку честно храним на устройстве (flags),
- * без выдуманного API. Когда появится /me/consents — заменим один слой (api).
+ *
+ * Раньше отметка жила ТОЛЬКО на устройстве, в localStorage, — и в коде честно стояло
+ * «у бэкенда пока нет эндпоинта согласий». Он есть с самого начала, и приложение
+ * пишет именно туда. Разница не косметическая: согласие по 152-ФЗ — это доказательство,
+ * а доказательство, которое стирается вместе с кешем браузера и не переносится на
+ * второй телефон, доказательством не является (сверка с Android, 2026-08-30).
+ *
+ * Теперь так: отметил → уходит на сервер с отметкой времени. Время ПЕРВОГО согласия
+ * сервер не перезаписывает. Локальный флаг оставляем как зеркало для офлайна — по нему
+ * экран рисуется сразу, не дожидаясь сети.
+ *
+ * Снять согласие галочкой нельзя: у отзыва согласия свой порядок (обращение в
+ * поддержку и удаление аккаунта), и делать вид, что это тумблер, — обманывать.
  */
 export default function ConsentsScreen() {
-  const { appText } = useLang();
+  const { appText, lang } = useLang();
+  const ru = lang !== "ba";
   const navigate = useNavigate();
   const [state, setState] = useState<Consents>(() => flags.consents());
+  /** Когда согласие зафиксировано на сервере. Пусто = сервер о нём ещё не знает. */
+  const [granted, setGranted] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<ConsentKind | null>(null);
+  const [note, setNote] = useState("");
 
-  const toggle = (kind: ConsentKind) =>
+  const load = useCallback((signal?: AbortSignal) => {
+    fetchMyConsents(signal)
+      .then((rows) => {
+        const map: Record<string, string> = {};
+        rows.forEach((c) => {
+          map[String(c.kind)] = c.granted_at;
+        });
+        setGranted(map);
+        // Сервер — источник правды: он помнит согласие и после переустановки браузера.
+        setState((prev) => {
+          let next = prev;
+          (Object.keys(map) as ConsentKind[]).forEach((k) => {
+            if (!next[k]) next = flags.setConsent(k, true);
+          });
+          return next;
+        });
+      })
+      .catch(() => {
+        /* нет сети / нет ручки — остаёмся на локальной отметке, экран работает */
+      });
+  }, []);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    load(ac.signal);
+    return () => ac.abort();
+  }, [load]);
+
+  async function toggle(kind: ConsentKind) {
+    if (busy) return;
+    // Уже зафиксировано на сервере — снимать нечего: см. пояснение выше.
+    if (granted[kind]) return;
+    setBusy(kind);
+    setNote("");
+    // Локально отмечаем сразу: человек нажал и должен увидеть результат.
     setState((prev) => flags.setConsent(kind, !prev[kind]));
+    try {
+      const c = await grantConsent(kind as "offer" | "privacy" | "geo" | "age18");
+      setGranted((prev) => ({ ...prev, [kind]: c.granted_at }));
+    } catch {
+      setNote(
+        appText(
+          "Согласие пока не записалось на сервере — отметим, когда появится сеть.",
+          "Ризалыҡ серверҙа әле яҙылманы — селтәр булғас яҙырбыҙ."
+        )
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const items: {
     kind: ConsentKind;
@@ -64,17 +130,31 @@ export default function ConsentsScreen() {
             <div className="list-row__main">
               <div className="list-row__title">{it.title}</div>
               <div className="list-row__sub">{it.body}</div>
+              {/* Дата — это и есть доказательство. Показываем её человеку, а не прячем. */}
+              {granted[it.kind] && (
+                <div className="list-row__sub">
+                  {appText("Записано ", "Яҙылған ")}
+                  {formatWhen(granted[it.kind], ru)}
+                </div>
+              )}
             </div>
             <input
               type="checkbox"
               className="checkbox"
               checked={state[it.kind]}
-              onChange={() => toggle(it.kind)}
+              onChange={() => void toggle(it.kind)}
+              disabled={busy === it.kind || !!granted[it.kind]}
               aria-label={it.title}
             />
           </label>
         ))}
       </div>
+
+      {note && (
+        <div className="notice" role="status">
+          {note}
+        </div>
+      )}
 
       <div className={"consents__status" + (allDone ? " ok" : "")}>
         {allDone

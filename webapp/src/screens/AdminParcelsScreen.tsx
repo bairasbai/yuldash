@@ -101,6 +101,26 @@ export default function AdminParcelsScreen() {
         </span>
       </div>
 
+      {/* Что стоит за цифрой «собрано». Начисленное, но неоплаченное — это ещё не деньги,
+          а попутный сбор выставить вообще некому: там нет курьера-плательщика. Без этих
+          двух строк доход выглядит больше, чем он есть. */}
+      {((statement?.owed_commission_kop ?? 0) > 0 || (statement?.unbilled_fee_kop ?? 0) > 0) && (
+        <div className="info-list" style={{ marginTop: 0 }}>
+          {(statement?.owed_commission_kop ?? 0) > 0 && (
+            <div className="info-row">
+              <span className="info-row__k">{appText("Начислено, не оплачено", "Иҫәпләнгән, түләнмәгән")}</span>
+              <span className="info-row__v">{rubLabel(statement?.owed_commission_kop ?? 0)}</span>
+            </div>
+          )}
+          {(statement?.unbilled_fee_kop ?? 0) > 0 && (
+            <div className="info-row">
+              <span className="info-row__k">{appText("Попутные — не выставляем", "Юл ыңғайы — иҫәпләмәйбеҙ")}</span>
+              <span className="info-row__v">{rubLabel(statement?.unbilled_fee_kop ?? 0)}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="chip-scroll" role="tablist" aria-label={appText("Фильтр посылок", "Бандероль фильтры")}>
         {FILTERS.map((f) => (
           <button

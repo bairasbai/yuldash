@@ -14,6 +14,7 @@ import RideCard from "../components/RideCard";
 import RideSheet from "../components/RideSheet";
 import YandexMap, { type MapMarker, type GeoPoint } from "../components/YandexMap";
 import { LoadingList, ErrorState } from "../components/States";
+import CommunityFeedStrip from "../components/CommunityFeedStrip";
 import { fetchRidesNear, fetchRequestsNear, type NearRequest } from "../api/discovery";
 import type { Ride } from "../api/rides";
 import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
@@ -24,6 +25,14 @@ import { fetchPopularRoutes, type PopularRoute } from "../api/geo";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
 
 type Status = "loading" | "error" | "ready";
+
+/**
+ * Сколько поездок показываем сразу. Остальное — по кнопке «Показать ещё».
+ *
+ * На сельском интернете длинный список это лишние секунды и лишний трафик,
+ * а дальше третьего экрана всё равно почти никто не листает.
+ */
+const PAGE = 30;
 
 export default function HomeScreen() {
   const { appText, lang } = useLang();
@@ -60,11 +69,41 @@ export default function HomeScreen() {
   /** Место не дали — говорим об этом словами, иначе кнопка выглядит сломанной. */
   const [geoNote, setGeoNote] = useState("");
   const [nearOnly, setNearOnly] = useState(false);
+  /**
+   * «Когда едем»: пусто — все дни, иначе конкретный день (YYYY-MM-DD).
+   *
+   * Человек ищет не «когда-нибудь», а завтра утром. Без этого выбора список мешал
+   * сегодняшние поездки с теми, что через неделю, и нужную приходилось искать глазами.
+   */
+  const [day, setDay] = useState<string | null>(null);
+  /** Сколько поездок уже показали. Растёт кнопкой «Показать ещё». */
+  const [limit, setLimit] = useState(PAGE);
   const [sheet, setSheet] = useState<Ride | null>(null);
   // Фильтры по умолчанию (локальные) — применяем к списку поездок рядом.
   const prefs = useMemo(() => loadFilters(), []);
   const filterOn = isFilterActive(prefs);
   const shownRides = useMemo(() => applyRideFilters(rides, prefs), [rides, prefs]);
+
+  /**
+   * День в местной зоне, сдвиг в днях: 0 — сегодня, 1 — завтра.
+   *
+   * Считаем ЛОКАЛЬНО, а не через UTC: в Уфе разница пять часов, и после семи вечера
+   * «сегодня» по UTC — это уже завтра. Человек, ищущий вечернюю поездку, не должен
+   * получать пустой список из-за часового пояса сервера.
+   */
+  function localDay(shift: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + shift);
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${m}-${day}`;
+  }
+
+  /** Тот же день второй раз — снимаем фильтр. Отдельная кнопка «все дни» была бы лишней. */
+  function pickDay(value: string) {
+    setLimit(PAGE); // сменили день — список начинается заново
+    setDay((prev) => (prev === value ? null : value));
+  }
 
   const load = useCallback(
     (signal?: AbortSignal, coords?: GeoPoint | null, quiet = false) => {
@@ -72,7 +111,11 @@ export default function HomeScreen() {
       // скелетоном каждые полминуты у человека на глазах.
       if (!quiet) setStatus("loading");
       const ridesP = fetchRidesNear(
-        coords ? { lat: coords.lat, lng: coords.lng, radius_km: 200 } : {},
+        {
+          ...(coords ? { lat: coords.lat, lng: coords.lng, radius_km: 200 } : {}),
+          ...(day ? { date: day } : {}),
+          limit,
+        },
         signal
       );
       // Заявки рядом требуют вход — гостю не грузим (мягко).
@@ -97,7 +140,7 @@ export default function HomeScreen() {
           setStatus("error");
         });
     },
-    [isAuthed]
+    [isAuthed, day, limit]
   );
 
   useEffect(() => {
@@ -239,6 +282,25 @@ export default function HomeScreen() {
         >
           <IconPin size={16} /> {appText("Ближайшие", "Иң яҡындар")}
         </button>
+        {/* «Когда едем». Человек ищет не «когда-нибудь», а завтра утром: без выбора дня
+            список мешает сегодняшние поездки с теми, что через неделю. Нажатие на
+            выбранный день снимает фильтр — отдельной кнопки «все дни» не нужно. */}
+        <button
+          type="button"
+          className={"chip" + (day === localDay(0) ? " chip--on" : "")}
+          aria-pressed={day === localDay(0)}
+          onClick={() => pickDay(localDay(0))}
+        >
+          {appText("Сегодня", "Бөгөн")}
+        </button>
+        <button
+          type="button"
+          className={"chip" + (day === localDay(1) ? " chip--on" : "")}
+          aria-pressed={day === localDay(1)}
+          onClick={() => pickDay(localDay(1))}
+        >
+          {appText("Завтра", "Иртәгә")}
+        </button>
         <button
           type="button"
           className={"chip" + (filterOn ? " chip--on" : "")}
@@ -341,6 +403,11 @@ export default function HomeScreen() {
         </div>
       )}
 
+      {/* Живая лента: сколько ездят на самом деле. В райцентре машин на карте может
+          не быть прямо сейчас — и человек решает, что сервисом никто не пользуется.
+          Числа настоящие, с сервера; пусто — полосы просто нет. */}
+      <CommunityFeedStrip />
+
       <h2 className="section-title">
         {appText("Поездки рядом", "Яҡындағы сәфәрҙәр")}
       </h2>
@@ -389,6 +456,19 @@ export default function HomeScreen() {
                 <RideCard ride={ride} index={i} />
               </button>
             ))}
+            {/* «Показать ещё». Кнопка появляется, только когда сервер отдал полную
+                страницу: значит есть что показывать дальше. Иначе список молча
+                обрывался, и человек не знал — это всё или дальше не загрузилось. */}
+            {rides.length >= limit && (
+              <button
+                type="button"
+                className="btn-soft"
+                style={{ width: "100%", marginTop: 8 }}
+                onClick={() => setLimit((n) => n + PAGE)}
+              >
+                {appText("Показать ещё", "Тағы күрһәтергә")}
+              </button>
+            )}
           </div>
         ))}
 

@@ -13,6 +13,7 @@ import { applyPromo, fetchPromoMine, type PromoMine } from "../api/promo";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconGift, IconCheck, IconWarn } from "../components/Icons";
+import { track } from "../analytics";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -55,6 +56,7 @@ export default function PromoCodeScreen() {
     setMsg(null);
     try {
       const res = await applyPromo(c);
+      track("promo_apply");
       setMsg({ ok: true, text: appText(res.message_ru, res.message_ba) });
       setCode("");
       load(); // покажем применённый код

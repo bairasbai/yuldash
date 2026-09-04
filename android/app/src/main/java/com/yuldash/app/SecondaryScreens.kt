@@ -81,6 +81,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lightbulb
@@ -752,7 +753,11 @@ internal fun SafetyScreen(
                     // Честно: телефон прячет сервер (отдаёт номер только после подтверждения поездки).
                     // Раньше тут был тумблер, который писал в prefs, но ни на что не влиял — убрали ложное обещание.
                     SettingsNavRow(Icons.Default.PhoneLocked, appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерелгән"), appText("Твой номер откроется попутчику только после подтверждения поездки — так устроен Юлдаш.", "Номерың юлдашҡа тик сәфәр раҫланғас ҡына асыла — Юлдаш шулай эшләй."))
-                    SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it; AppPrefs.setVerifiedOnly(ctx, it) }
+                    // Честно: переключатель фильтрует ТОЛЬКО список «Ближайшие» на карте
+                    // (MapScreen). Ленту поездок он не трогает, и брони от непроверенных
+                    // пассажиров водителю всё равно приходят — обещать «и принимать» нельзя
+                    // (аудит 2026-09-02).
+                    SettingSwitchRow(Icons.Default.Verified, appText("Проверенные водители на карте", "Картала раҫланған йөрөтөүселәр"), appText("В списке «Ближайшие» на карте показывать только проверенных водителей.", "Карталағы «Яҡындағылар» исемлегендә тик раҫланған йөрөтөүселәрҙе күрһәтергә."), verifiedOnly) { verifiedOnly = it; AppPrefs.setVerifiedOnly(ctx, it) }
                     SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправь данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәр."), onClick = onShareTrip)
                     SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Те, с кем ты не хочешь ездить.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."), onClick = onBlocklist)
                     SettingsNavRow(Icons.Default.Report, appText("Пожаловаться на пользователя", "Ҡулланыусыға ялыу"), appText("Сообщи о нарушении правил или безопасности.", "Ҡағиҙә йәки хәүефһеҙлек боҙолоуын хәбәр ит."), onClick = onReport)
@@ -828,10 +833,50 @@ internal fun SettingsScreen(
                 Text(appText("Настройки", "Көйләүҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold)
                 Text(appText("Настрой приложение под себя", "Ҡушымтаны үҙегеҙгә көйләгеҙ"), color = CanonMuted, fontSize = 16.sp)
             }
-            item { CompactProfileBanner() }
+            // Карточку профиля здесь не показываем: она уже есть на вкладке «Профиль»,
+            // откуда сюда и приходят. Второй раз то же имя и роль — просто шум,
+            // из-за которого настройки начинаются ниже сгиба (разбор 2026-08-31).
             item {
                 SettingsGroup {
-                    SettingSwitchRow(Icons.Default.Notifications, appText("Уведомления", "Хәбәрҙәр"), appText("Получать важные обновления и напоминания", "Мөһим иҫкәртеүҙәр алыу"), notifications) { notifications = it; AppPrefs.setNotifications(ctx, it) }
+                    // Тумблер обязан говорить правду. Раньше он горел «включено», даже когда
+                    // уведомления режет САМА СИСТЕМА: водитель приехал, а пассажир не узнал —
+                    // и был уверен, что его позовут (аудит сценариев 30.08). Теперь при
+                    // системном запрете тумблер выключен, подпись объясняет причину, а нажатие
+                    // ведёт туда, где это чинится, — в настройки телефона.
+                    val системаРежет = !notificationsAllowed(ctx) && notifications
+                    SettingSwitchRow(
+                        Icons.Default.Notifications,
+                        appText("Уведомления", "Хәбәрҙәр"),
+                        if (системаРежет)
+                            appText("Телефон запретил уведомления — нажми, чтобы разрешить",
+                                    "Телефон хәбәрҙәрҙе тыйған — рөхсәт итер өсөн баҫ")
+                        else
+                            appText("Получать важные обновления и напоминания",
+                                    "Мөһим иҫкәртеүҙәр алыу"),
+                        notifications && !системаРежет,
+                    ) {
+                        if (системаРежет) {
+                            openNotificationSettings(ctx)
+                        } else {
+                            notifications = it
+                            AppPrefs.setNotifications(ctx, it)
+                        }
+                    }
+                    // Про ночную тишину человек должен знать, иначе выключит уведомления
+                    // целиком из-за одного ночного звонка — и пропустит заказ. Сервер молчит
+                    // ночью по несрочному сам (`quiet_hours_from/to`), но в приложении об этом
+                    // не было ни слова (разбор 2026-08-31). Часы не называем: они меняются
+                    // в настройках сервера, и число здесь легко станет враньём.
+                    if (notifications && !системаРежет) {
+                        Text(
+                            appText(
+                                "Ночью Юлдаш не звонит по мелочам. Срочное проходит всегда: беда, идущая поездка, сообщение от попутчика.",
+                                "Төндә Юлдаш ваҡ-төйәк өсөн шылтыратмай. Ашығыс — бәлә, барған сәфәр, юлдаш хәбәре — һәр ваҡыт үтә.",
+                            ),
+                            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                            modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                        )
+                    }
                     SettingsNavRow(Icons.Default.Language, appText("Язык", "Тел"), if (isBashkir) "Башҡортса" else "Русский", onClick = onToggleLanguage)
                     SettingsNavRow(Icons.Default.Map, appText("Тема", "Тема"), themeLabel, onClick = { showThemeDialog = true })
                     SettingsNavRow(Icons.Default.FormatSize, appText("Размер текста", "Текст ҙурлығы"), fontLabel, onClick = { showFontDialog = true })
@@ -1149,7 +1194,7 @@ internal fun PricingInfoScreen(onBack: () -> Unit) {
                     title = appText("Комиссия водителя — 3–15%", "Йөрөтөүсе комиссияһы — 3–15%"),
                     body = appText(
                         "С поездок такси Юлдаш берёт комиссию с водителя: первые 30 поездок 3%, следующие 70 — 8%, дальше 15% — так новичок пробует почти без риска, пока не раскатался. Это меньше, чем берут большие агрегаторы. У попутки комиссии нет вовсе.",
-                        "Такси сәфәрҙәренән Юлдаш йөрөтөүсенән комиссия ала: тәүге ай 3%, икенсеһе 8%, артабан 15% — яңы килгән кеше шулай тәүәкәлләмәйенсә һынап ҡарай. Был ҙур агрегаторҙар алғандан аҙыраҡ. Юлдашта комиссия бөтөнләй юҡ.",
+                        "Такси сәфәрҙәренән Юлдаш йөрөтөүсенән комиссия ала: тәүге 30 сәфәр 3%, киләһе 70 — 8%, артабан 15% — яңы килгән кеше шулай тәүәкәлләмәйенсә һынап ҡарай. Был ҙур агрегаторҙар алғандан аҙыраҡ. Юлдашта комиссия бөтөнләй юҡ.",
                     ),
                 )
             }
@@ -1617,7 +1662,7 @@ internal fun AdminReportsContent(
 // Обе ветки добавляли сюда свой раздел админки: `onTextFlags` — «Помеченные тексты»
 // (волна модерации), `onModeration` — очередь модерации витрин (аудит безопасности).
 // При слиянии 2026-08-12 нужны оба, потерять любой = потерять целый экран кабинета.
-internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onTaxi: () -> Unit = {}, onWaitlist: () -> Unit = {}, onTaxiPulse: () -> Unit = {}, onPartners: () -> Unit = {}, onModeration: () -> Unit = {}, onPromoAdmin: () -> Unit = {}, onParcelsAdmin: () -> Unit = {}, onCourierAdmin: () -> Unit = {}, onIncomeCalc: () -> Unit = {}, onSosFeed: () -> Unit = {}, onIncidents: () -> Unit = {}, onRatings: () -> Unit = {}, onTextFlags: () -> Unit = {}) {
+internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onTaxi: () -> Unit = {}, onWaitlist: () -> Unit = {}, onTaxiPulse: () -> Unit = {}, onPartners: () -> Unit = {}, onModeration: () -> Unit = {}, onPromoAdmin: () -> Unit = {}, onParcelsAdmin: () -> Unit = {}, onCourierAdmin: () -> Unit = {}, onIncomeCalc: () -> Unit = {}, onSosFeed: () -> Unit = {}, onIncidents: () -> Unit = {}, onRatings: () -> Unit = {}, onTextFlags: () -> Unit = {}, onSupportAdmin: () -> Unit = {}) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Кабинет админа", "Админ кабинеты"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Единый центр управления Юлдашем. Виден только администратору.", "Юлдашты идара итеү үҙәге. Тик админға күренә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
@@ -1637,6 +1682,9 @@ internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, 
                     // Пометки ставились всегда, но лежали в счётчике: было видно ЧИСЛО за день
                     // и нельзя посмотреть, кто и за что. Теперь список.
                     SettingsNavRow(Icons.Default.Block, appText("Помеченные тексты", "Билдәләнгән текстар"), appText("Телефоны, мат и фишинг в открытых полях", "Асыҡ ҡырҙарҙа телефон, тупаҫлыҡ, фишинг"), onClick = onTextFlags)
+                    // Человек написал в поддержку и ждёт ответа. Раньше разбирать
+                    // обращения из приложения было негде — только в базе.
+                    SettingsNavRow(Icons.Default.Email, appText("Обращения в поддержку", "Ярҙамға мөрәжәғәттәр"), appText("Ответить человеку и закрыть вопрос", "Кешегә яуап биреү һәм һорауҙы ябыу"), onClick = onSupportAdmin)
                     // SOS-лента: раньше сигнал уходил ОДНИМ сообщением в Telegram, и если его
                     // не прочитали ночью — следа о происшествии не оставалось нигде.
                     // «Справедливость»: двусторонний разбор — сервер умел давно, экрана не было.
@@ -1677,6 +1725,11 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
     // отправляет второй такой же. Ключ — вид действия и номер строки, чтобы блокировалась
     // только нажатая карточка, а не весь список (аудит 2026-08-07).
     val busy = remember { mutableStateListOf<String>() }
+    // Прощение долга — необратимая операция с деньгами, поэтому через диалог с причиной,
+    // а не третьей кнопкой в ряду: случайный тап тут стоит дороже лишнего нажатия.
+    var forgiveTarget by remember { mutableStateOf<com.yuldash.app.data.AdminDebtDto?>(null) }
+    var forgiveReason by remember { mutableStateOf("") }
+    val forgivenMsg = appText("Долг списан", "Бурыс һүндерелде")
     val confirmedMsg = appText("Оплата подтверждена", "Түләү раҫланды")
     val rejectedMsg = appText("Отклонено", "Кире ҡағылды")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
@@ -1751,8 +1804,17 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                             Text((g.driverName.ifBlank { noName }) + (if (g.driverPhone.isNotBlank()) " · ${g.driverPhone}" else ""), color = CanonMuted, fontSize = 14.sp)
                             if (g.weeks.isNotEmpty()) Text(appText("Недели: ", "Аҙналар: ") + g.weeks.joinToString(", "), color = CanonMuted, fontSize = 12.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { val id = g.debtId; val k = "debt-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmDebt(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-ok-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
-                                OutlinedButton(onClick = { val id = g.debtId; val k = "debt-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectDebt(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-no-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                                Button(onClick = { val id = g.debtId; val k = "debt-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmDebt(id, g.amountKop).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-ok-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                                OutlinedButton(onClick = { val id = g.debtId; val k = "debt-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectDebt(id, g.amountKop).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-no-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                            }
+                            // Бывает, что долга по-человечески быть не должно: пассажир не заплатил,
+                            // поездка сорвалась не по вине водителя. Раньше это делалось запросом
+                            // к API мимо приложения — то есть на практике не делалось никем.
+                            TextButton(
+                                onClick = { forgiveReason = ""; forgiveTarget = g },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            ) {
+                                Text(appText("Списать долг", "Бурысты һүндереү"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                         }
                     }
@@ -1792,6 +1854,52 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    // Списание долга необратимо и про деньги: спрашиваем причину и подтверждение.
+    // Причина уходит в журнал — через полгода должно быть понятно, почему списали.
+    forgiveTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { forgiveTarget = null },
+            title = { Text(appText("Списать долг?", "Бурысты һүндерергәме?")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        appText(
+                            "${target.driverName.ifBlank { "Водитель" }} · ${kopToRub(target.amountKop)}. Долг исчезнет, такси разблокируется. Отменить это нельзя.",
+                            "${target.driverName.ifBlank { "Йөрөтөүсе" }} · ${kopToRub(target.amountKop)}. Бурыс юғала, такси асыла. Кире ҡайтарып булмай.",
+                        ),
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                    )
+                    OutlinedTextField(
+                        value = forgiveReason,
+                        onValueChange = { forgiveReason = it.take(300) },
+                        label = { Text(appText("Причина (останется в журнале)", "Сәбәп (журналда ҡала)")) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = forgiveReason.isNotBlank(),
+                    onClick = {
+                        val id = target.debtId
+                        val reason = forgiveReason.trim()
+                        forgiveTarget = null
+                        val k = "debt-forgive-$id"
+                        if (busy.add(k)) scope.launch {
+                            ApiClient.adminForgiveDebt(id, reason)
+                                .onSuccess { Toast.makeText(ctx, forgivenMsg, Toast.LENGTH_SHORT).show(); reload() }
+                                .onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }
+                            busy.remove(k)
+                        }
+                    },
+                ) { Text(appText("Списать", "Һүндереү"), color = CanonRed, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { forgiveTarget = null }) { Text(appText("Отмена", "Кире ҡағыу")) }
+            },
+        )
     }
 }
 

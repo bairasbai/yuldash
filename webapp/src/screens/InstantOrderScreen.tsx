@@ -34,13 +34,25 @@ import {
   type TaxiCategory,
   type NearbyDriver,
   type FallbackOption,
+  type PaymentMethod,
 } from "../api/instant";
-import { fetchSavedPlaces, fetchRecentPlaces } from "../api/places";
-import { geocode } from "../api/discovery";
+import {
+  fetchSavedPlaces,
+  fetchRecentPlaces,
+  addRecentPlace,
+  markSavedPlaceUsed,
+} from "../api/places";
+import { geocode, reverseGeocode } from "../api/discovery";
 import { track } from "../analytics";
 import { SubHeader } from "./ConsentsScreen";
 import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarningCard";
 import ShareTripCard from "../components/ShareTripCard";
+import TaxiTripActions, { WaitForCarCard } from "../components/TaxiTripActions";
+import PriceComplaint from "../components/PriceComplaint";
+import PriceFactors from "../components/PriceFactors";
+import PayMethodPicker, { rememberedPayMethod } from "../components/PayMethodPicker";
+import { TaxiOptions, TaxiRoundTrip, TaxiStops, type OrderStop } from "../components/TaxiOrderExtras";
+import WaitlistForm from "../components/WaitlistForm";
 import { LoadingList } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
 import {
@@ -92,6 +104,8 @@ export default function InstantOrderScreen() {
 
   const [view, setView] = useState<View>("boot");
   const [gateMsg, setGateMsg] = useState<{ ru: string; ba: string } | null>(null);
+  /** Город, который сервер узнал по координатам, — подставим в форму раннего доступа. */
+  const [gateCity, setGateCity] = useState("");
 
   // Точка А — «моё место» (геолокация). Точка Б — назначение.
   const [from, setFrom] = useState<Point | null>(null);
@@ -103,7 +117,18 @@ export default function InstantOrderScreen() {
   const boot = useCallback(() => {
     setView("boot");
     const proceed = (pt: GeoPoint | null) => {
-      if (pt) setFrom({ lat: pt.lat, lng: pt.lng, text: appText("Моё место", "Урыным") });
+      if (pt) {
+        setFrom({ lat: pt.lat, lng: pt.lng, text: appText("Моё место", "Урыным") });
+        // «Моё место» — это подпись для человека, а не адрес. Без обратного геокодера
+        // ровно эта строка уходила в заказ, и водитель в списке видел безымянную точку;
+        // сам пассажир потом не мог понять в истории, откуда ехал. Ответ пустой
+        // (нет ключа, геокодер молчит) — оставляем прежнюю подпись, экран не ломается.
+        reverseGeocode(pt.lat, pt.lng)
+          .then((r) => {
+            if (r.title) setFrom({ lat: pt.lat, lng: pt.lng, text: r.title });
+          })
+          .catch(() => {});
+      }
       // Сначала — есть ли уже живой заказ (восстановление экрана).
       fetchMyOrders(5)
         .then((list) => {
@@ -127,6 +152,7 @@ export default function InstantOrderScreen() {
           if (av.enabled) setView("compose");
           else {
             setGateMsg(av.message);
+            setGateCity(av.city ?? "");
             setView("gate");
           }
         })
@@ -174,6 +200,20 @@ export default function InstantOrderScreen() {
     setView("compose");
   }
 
+  /**
+   * Перечитать заказ прямо сейчас, не дожидаясь очередного круга поллинга.
+   *
+   * Нужно после действий в поездке: человек сменил адрес — и должен увидеть новую
+   * цену сразу, а не через несколько секунд. Ошибку глотаем: заказ жив, следующий
+   * круг поллинга подтянет его сам.
+   */
+  const refreshOrder = useCallback(() => {
+    if (!order) return;
+    fetchInstantOrder(order.id)
+      .then(setOrder)
+      .catch(() => {});
+  }, [order]);
+
   // ---------------- Рендер по фазам ----------------
   if (view === "boot") {
     return (
@@ -207,6 +247,10 @@ export default function InstantOrderScreen() {
               "Ҡалаларҙы сиратлап тоташтырабыҙ — машиналар яҡында булһын өсөн. Ә юлдаш инде бөтә республикала эшләй."
             )}
           </p>
+          {/* Дверь вместо тупика: город включают, когда в нём набирается достаточно людей.
+              Оставленный номер — это и есть тот набор, а для человека — обещание позвать. */}
+          <WaitlistForm city={gateCity} />
+
           <button type="button" className="btn-primary" onClick={() => navigate("/map")}>
             {appText("К попуткам", "Юлдаштарға")}
           </button>
@@ -222,6 +266,7 @@ export default function InstantOrderScreen() {
         from={from}
         onCancelled={backToCompose}
         onNewOrder={backToCompose}
+        onRefresh={refreshOrder}
         onOpenChat={() => navigate(`/taxi-chat/${order.id}`)}
       />
     );
@@ -282,6 +327,18 @@ function ComposeView({
   const [forName, setForName] = useState("");
   const [forPhone, setForPhone] = useState("");
   const [womenOnly, setWomenOnly] = useState(false);
+  /** Опции салона: кресло, коляска, животное. Фильтр жёсткий — см. TaxiOrderExtras. */
+  const [options, setOptions] = useState<string[]>([]);
+  /** Заезды по пути: A → точки → B, максимум три. */
+  const [stops, setStops] = useState<OrderStop[]>([]);
+  /** Круговой рейс: отвезти, подождать, вернуть обратно. Только межгород. */
+  const [roundTrip, setRoundTrip] = useState(false);
+  const [returnWaitMin, setReturnWaitMin] = useState(60);
+  /**
+   * Чем рассчитаемся. Начинаем с прошлого выбора: человек платит одинаково почти всегда,
+   * и спрашивать заново каждый заказ — лишний шаг там, где и так спешат.
+   */
+  const [payMethod, setPayMethod] = useState<PaymentMethod>(() => rememberedPayMethod());
   const [error, setError] = useState<string | null>(null);
   const [nearby, setNearby] = useState<NearbyDriver[]>([]);
 
@@ -314,6 +371,12 @@ function ComposeView({
       from_text: from.text,
       to_text: to.text,
       category,
+      // Опции и остановки входят в цену: считать без них значит показать сумму,
+      // которой в заказе не будет.
+      ...(options.length ? { options } : {}),
+      ...(stops.length ? { waypoints: stops.map((s) => ({ lat: s.lat, lng: s.lng, text: s.text })) } : {}),
+      // Круговой рейс меняет цену: считать без него значит показать не ту сумму.
+      ...(roundTrip ? { round_trip: true, return_wait_min: returnWaitMin } : {}),
       // Предзаказ считаем на время подачи, а не на сейчас: иначе человек запоминает
       // дневное число, а машина утром приезжает по ночной ставке.
       ...(when === "later" && schedAt
@@ -336,7 +399,7 @@ function ComposeView({
     return () => {
       alive = false;
     };
-  }, [from?.lat, from?.lng, to?.lat, to?.lng, category, when, schedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [from?.lat, from?.lng, to?.lat, to?.lng, category, when, schedAt, options, stops, roundTrip, returnWaitMin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ❄️ Погода на маршруте заказа — по координатам точек (сервер округляет их до ~5 км).
   const weather = useRouteWeather({
@@ -373,6 +436,14 @@ function ComposeView({
       for_name: forOther ? forName.trim() || undefined : undefined,
       for_phone: forOther ? forPhone.trim() || undefined : undefined,
       women_only: womenOnly || undefined,
+      // Опции и остановки уходят вместе с заказом — они же участвовали в цене выше.
+      options: options.length ? options : undefined,
+      waypoints: stops.length
+        ? stops.map((s) => ({ lat: s.lat, lng: s.lng, text: s.text }))
+        : undefined,
+      round_trip: roundTrip || undefined,
+      return_wait_min: roundTrip ? returnWaitMin : undefined,
+      payment_method: payMethod,
     };
     try {
       if (when === "later") {
@@ -383,9 +454,11 @@ function ComposeView({
         }
         // datetime-local → ISO с локальной таймзоной (бэк нормализует в UTC).
         await createScheduledOrder({ ...body, scheduled_at: new Date(schedAt).toISOString() });
+        track("instant_order_schedule", { category });
         onScheduled();
       } else {
         const o = await createInstantOrder(body);
+        track("instant_order_create", { category });
         onOrdered(o);
       }
     } catch (e) {
@@ -548,6 +621,26 @@ function ComposeView({
         </div>
       )}
 
+      {/* Из чего сложилась цена. Человек не спорит с суммой, которую понимает:
+          одно число без объяснения читается как «сколько захотели». */}
+      {to && estimate && <PriceFactors factors={estimate.price_factors} />}
+
+      {/* «Цена кажется несправедливой» — тихая ссылка под счётом. Человек, которому
+          не с чем спорить, просто уходит: мы не узнаём ни что дорого, ни какая строка
+          непонятна. Тариф надо менять по фактам, а факты приходят только отсюда. */}
+      {to && estimate && (
+        <PriceComplaint
+          price={estimate.price}
+          breakdown={{
+            ride_price: estimate.ride_price ?? estimate.price,
+            pickup_fee: estimate.pickup_fee ?? 0,
+            options_fee: estimate.options_fee ?? 0,
+            weather_fee: estimate.weather_fee ?? 0,
+            price: estimate.price,
+          }}
+        />
+      )}
+
       {/* Рядом никого: точной суммы не существует. Говорим потолок и про бесплатную отмену —
           обещать цифру, которой у нас нет, значит соврать в первом же заказе. */}
       {to && estimate?.pickup_pending && estimate.pickup_note && (
@@ -698,6 +791,41 @@ function ComposeView({
       {/* Только женщина за рулём. В попутках такой выбор был с начала, а в такси —
           нет, хотя ночью в чужую машину садятся именно здесь. Фильтр жёсткий,
           поэтому честно предупреждаем: ждать можно дольше или не дождаться. */}
+      {/* Что нужно в салоне и куда заехать по пути. Обе вещи входят в цену —
+          поэтому стоят до кнопки заказа, а не после. */}
+      {to && (
+        <TaxiOptions
+          selected={options}
+          prices={Object.fromEntries(
+            (estimate?.option_catalog ?? []).map((o) => [o.code, o.price])
+          )}
+          onToggle={(code) =>
+            setOptions((prev) =>
+              prev.includes(code) ? prev.filter((x) => x !== code) : [...prev, code]
+            )
+          }
+        />
+      )}
+      {/* Чем рассчитаемся — до заказа, а не на высадке. Водитель увидит выбор сразу. */}
+      {to && <PayMethodPicker value={payMethod} onChange={setPayMethod} />}
+
+      {to && <TaxiStops stops={stops} onChange={setStops} />}
+
+      {/* «Обратно тоже»: сервер сам решает, бывает ли такое на этом маршруте —
+          в городе порожняка нет, и скидке взяться неоткуда. */}
+      {to && (
+        <TaxiRoundTrip
+          available={!!estimate?.round_trip_available}
+          price={estimate?.round_trip_price}
+          discountPercent={estimate?.round_trip_discount_percent}
+          maxWaitHours={estimate?.round_trip_max_wait_hours}
+          checked={roundTrip}
+          waitMin={returnWaitMin}
+          onChecked={setRoundTrip}
+          onWaitMin={setReturnWaitMin}
+        />
+      )}
+
       {to && (
         <label className="taxi-women">
           <input
@@ -876,7 +1004,9 @@ function PlacePicker({
   const { appText } = useLang();
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<{ title: string; lat: number; lng: number }[]>([]);
-  const [saved, setSaved] = useState<{ label: string; kind: string; lat: number; lng: number; address: string }[]>([]);
+  const [saved, setSaved] = useState<
+    { id?: number; label: string; kind: string; lat: number; lng: number; address: string }[]
+  >([]);
   const [focus, setFocus] = useState(false);
   const tRef = useRef<number | null>(null);
 
@@ -892,7 +1022,14 @@ function PlacePicker({
       const list: typeof saved = [];
       sv.forEach((s) => {
         if (s.lat != null && s.lng != null)
-          list.push({ label: s.label || s.address, kind: s.kind as string, lat: s.lat, lng: s.lng, address: s.address });
+          list.push({
+            id: s.id,
+            label: s.label || s.address,
+            kind: s.kind as string,
+            lat: s.lat,
+            lng: s.lng,
+            address: s.address,
+          });
       });
       rc.slice(0, 3).forEach((r) => {
         if (r.lat != null && r.lng != null)
@@ -927,11 +1064,21 @@ function PlacePicker({
     };
   }, [q]);
 
-  function pick(p: Point) {
+  /**
+   * Человек выбрал точку.
+   *
+   * Кроме самого выбора делаем две тихие вещи, без которых быстрый список мёртв:
+   * запоминаем адрес в «недавние» и отмечаем, что сохранённым местом воспользовались.
+   * По этим отметкам список сортируется — иначе он навсегда застывает в том виде,
+   * в каком его однажды завели. Обе ручки необязательные: не ушло — молчим.
+   */
+  function pick(p: Point, savedId?: number) {
     onPick(p);
     setQ("");
     setHits([]);
     setFocus(false);
+    if (savedId) markSavedPlaceUsed(savedId).catch(() => {});
+    if (p.text) addRecentPlace({ address: p.text, lat: p.lat, lng: p.lng }).catch(() => {});
   }
 
   const kindIcon = (kind: string) =>
@@ -979,7 +1126,7 @@ function PlacePicker({
                 key={`s${i}`}
                 type="button"
                 className="taxi-suggest__row"
-                onClick={() => pick({ lat: s.lat, lng: s.lng, text: s.label })}
+                onClick={() => pick({ lat: s.lat, lng: s.lng, text: s.label }, s.id)}
               >
                 {kindIcon(s.kind)}
                 <span>{s.label}</span>
@@ -1004,12 +1151,15 @@ function TrackingView({
   from,
   onCancelled,
   onNewOrder,
+  onRefresh,
   onOpenChat,
 }: {
   order: InstantOrder;
   from: Point | null;
   onCancelled: () => void;
   onNewOrder: () => void;
+  /** Перечитать заказ сразу после действия в поездке (смена адреса, остановки, оплата). */
+  onRefresh: () => void;
   onOpenChat: () => void;
 }) {
   const { appText, lang } = useLang();
@@ -1064,6 +1214,7 @@ function TrackingView({
     setAltBusy(true);
     try {
       await addAlternative(order.id, category);
+      track("instant_alternative_add");
       setAlts(null); // согласились — дальше ищем шире, цена уже пересчитана
     } catch {
       /* заказ уже не в поиске — экран обновится поллингом */
@@ -1115,6 +1266,7 @@ function TrackingView({
   async function rate(stars: number) {
     try {
       await rateInstantOrder(order.id, stars);
+      track("instant_order_rate");
       setRateNote("");
       setRated(true);
     } catch {
@@ -1248,6 +1400,10 @@ function TrackingView({
           <button type="button" className="btn-primary" onClick={onNewOrder}>
             {appText("Попробовать снова", "Ҡабат ҡарау")}
           </button>
+          {/* Ждать — это ТРЕТИЙ ответ, между «попробовать снова» и «уехать попуткой».
+              Ночью в райцентре машины освобождаются через десять минут, и человек
+              обычно готов их дождаться, если ему не надо для этого сидеть в экране. */}
+          <WaitForCarCard order={order} onWaiting={onRefresh} />
           {/* Машин нет — но в ту же сторону кто-то и так едет. Попутка дешевле
               и часто быстрее, чем ждать такси, которого в селе может не быть вовсе. */}
           <button type="button" className="btn-soft" onClick={() => navigate("/map")}>
@@ -1434,6 +1590,11 @@ function TrackingView({
       {/* Счётчик ожидания: сначала видно, сколько бесплатного осталось,
           потом — сколько уже набежало. Цифра до, а не счёт после. */}
       <WaitCounter order={order} />
+
+      {/* Всё, что человек может сделать в пути: «уже выхожу», новый адрес, остановки,
+          способ расчёта, помощь на трассе. Что именно показать — решает сам блок
+          по статусу заказа. */}
+      <TaxiTripActions order={order} onChanged={onRefresh} />
 
       {enRoute && (
         <button

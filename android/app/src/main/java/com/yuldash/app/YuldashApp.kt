@@ -412,6 +412,9 @@ internal fun YuldashApp() {
     var parcelChatPeerIsCourier by rememberSaveable { mutableStateOf(true) }
     var parcelChatStatus by rememberSaveable { mutableStateOf("") }
     var incidentId by rememberSaveable { mutableStateOf(0) }           // «Справедливость»: id открытого спора
+    // Режим фотоконтроля машины: такси или курьер. Экран один, кадры разные — и человек,
+    // который возит и людей, и посылки, показывает машину дважды, по разу за роль.
+    var carPhotoMode by rememberSaveable { mutableStateOf("taxi") }
     var supportTicketId by rememberSaveable { mutableStateOf(0) }      // Поддержка: id открытого обращения (deep-link/список)
     // F13 «карауль поездку»: предзаполнение экрана «Мои подписки» маршрутом из карты (может быть пустым).
     var routeWatchPrefillFrom by rememberSaveable { mutableStateOf("") }
@@ -1033,6 +1036,7 @@ internal fun YuldashApp() {
                 onParcels = { screen = Screen.Parcels },
                 onCourier = { screen = Screen.Courier },
                 onPartnerCabinet = { screen = Screen.PartnerCabinet },
+                onMyData = { screen = Screen.MyData },
                 onReview = { screen = Screen.AppReview },
                 onAdminReviews = { screen = Screen.AdminReviews },
                 onAdminAds = { screen = Screen.AdminAds },
@@ -1184,7 +1188,10 @@ internal fun YuldashApp() {
             Screen.Support -> SupportScreen(onBack = { goBack() })
             Screen.Boost -> BoostScreen(onBack = { goBack() })
             Screen.Booking -> BookingScreen(
-                ride = selectedRide ?: rides.firstOrNull() ?: demoRides.first(),   // фоллбэк вместо краша на пустом списке
+                // null = бронировать нечего (лента пуста и ничего не выбрано): экран сам вернёт
+                // назад. Раньше тут подставлялась демо-поездка «вместо краша на пустом списке» —
+                // человек видел карточку выдуманного водителя, а бронь не проходила (id не серверный).
+                ride = selectedRide ?: rides.firstOrNull(),
                 bookingId = activeBookingId,
                 ads = partnerAds,
                 adStats = adStats,
@@ -1194,6 +1201,28 @@ internal fun YuldashApp() {
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick,
                 canOpenActiveTrip = activeBookingId == null || bookingStatusAllowsActiveTrip(selectedBookingStatus),
+                bookingStatus = selectedBookingStatus,
+                // Передумал, пока водитель молчит. Место возвращается в поездку, водителю
+                // уходит уведомление — этим занимается сервер.
+                onCancelBooking = {
+                    val id = activeBookingId
+                    if (id != null) appScope.launch {
+                        ApiClient.cancelBooking(id)
+                            .onSuccess {
+                                selectedBookingStatus = "cancelled"
+                                activeBookingId = null
+                                openHome(HomeTab.Rides)
+                            }
+                            .onFailure {
+                                val текст = if (language == AppLanguage.Ba)
+                                    "Кире алып булманы. Селтәрҙе тикшереп ҡабатла."
+                                else "Не получилось отменить. Проверь сеть и повтори."
+                                Toast.makeText(context, serverSaid(it, текст),
+                                               Toast.LENGTH_LONG).show()
+                            }
+                    }
+                },
+                onFindAnotherRide = { openHome(HomeTab.Rides) },
                 onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
                     if (activeBookingId != null) {
                         activeTrip = selectedRide
@@ -1298,6 +1327,7 @@ internal fun YuldashApp() {
                 prefillTo = routeWatchPrefillTo,
             )
             Screen.Privacy -> PrivacyScreen(onBack = { goBack() })
+            Screen.MyData -> MyDataScreen(onBack = { goBack() })
             Screen.Rules -> RulesScreen(onBack = { goBack() })
             Screen.PaymentInfo -> PaymentInfoScreen(onBack = { goBack() }, onOpenPricing = { screen = Screen.PricingInfo })
             Screen.PaymentMethods -> PaymentMethodsScreen(
@@ -1351,6 +1381,7 @@ internal fun YuldashApp() {
                 onDrivers = { screen = Screen.AdminDrivers },
                 onReports = { screen = Screen.AdminReports },
                 onTextFlags = { screen = Screen.AdminTextFlags },
+                onSupportAdmin = { screen = Screen.AdminSupport },
                 onPaymentRequests = { screen = Screen.AdminPaymentRequests },
                 onTaxi = { screen = Screen.AdminTaxi },
                 onWaitlist = { screen = Screen.AdminWaitlist },
@@ -1369,6 +1400,7 @@ internal fun YuldashApp() {
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
             Screen.AdminTextFlags -> AdminTextFlagsScreen(onBack = { goBack() })
+            Screen.AdminSupport -> AdminSupportScreen(onBack = { goBack() })
             Screen.AdminPaymentRequests -> AdminPaymentRequestsScreen(onBack = { goBack() })
             Screen.AdminRequest -> AdminRequestScreen(onBack = { goBack() })
             Screen.AdminResponses -> AdminResponsesScreen(onBack = { goBack() })
@@ -1575,7 +1607,13 @@ internal fun YuldashApp() {
                 onBack = { goBack() },
             )
             Screen.AdminSos -> AdminSosScreen(onBack = { goBack() })
-            Screen.TaxiDocuments -> TaxiDocumentsScreen(onBack = { goBack() })
+            Screen.TaxiDocuments -> TaxiDocumentsScreen(
+                onBack = { goBack() },
+                onCarPhoto = { carPhotoMode = "taxi"; screen = Screen.CarPhoto },
+            )
+            // Фотоконтроль машины: один экран на оба режима — просим разные кадры, но
+            // правила, лестница и тон одинаковые (580-ФЗ).
+            Screen.CarPhoto -> CarPhotoScreen(mode = carPhotoMode, onBack = { goBack() })
             Screen.PretripCheck -> PretripCheckScreen(onBack = { goBack() })
             Screen.FairnessCenter -> FairnessCenterScreen(
                 onBack = { goBack() },
@@ -1626,6 +1664,7 @@ internal fun YuldashApp() {
                 onBack = { goBack() },
                 onBecomeCourier = { screen = Screen.CourierOnboarding },
                 onEarnings = { screen = Screen.CourierEarnings },
+                onCarPhoto = { carPhotoMode = "courier"; screen = Screen.CarPhoto },
             )
             Screen.AdminCourier -> AdminCourierScreen(onBack = { goBack() })
         }
@@ -2307,6 +2346,7 @@ internal fun HomeScreen(
     onMyStats: () -> Unit = {},
     onCoupons: () -> Unit = {},
     onPartnerCabinet: () -> Unit = {},
+    onMyData: () -> Unit = {},
     onPromo: () -> Unit = {},
     onParcels: () -> Unit = {},
     onCourier: () -> Unit = {},
@@ -2421,6 +2461,7 @@ internal fun HomeScreen(
                     onParcels = onParcels,
                     onCourier = onCourier,
                     onPartnerCabinet = onPartnerCabinet,
+                    onMyData = onMyData,
                     onToggleLanguage = onToggleLanguage,
                     onAccountDeleted = onAccountDeleted,
                     onAdImpression = onAdImpression,

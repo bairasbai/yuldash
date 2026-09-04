@@ -83,8 +83,15 @@ def test_payout_provider_decline_reverses_reserve(client, user_factory, payouts_
                     json={"amount_kop": 30000, "idempotency_key": "k-decl"})
     assert r.status_code == 400, r.text                 # провайдер отклонил
     assert _bal(drv["id"]) == 50000                     # резерв возвращён — баланс восстановлен
-    kinds = [e.kind for e in _payout_rows(drv["id"], f"payout:{drv['id']}:k-decl")]
-    assert LedgerKind.payout in kinds and LedgerKind.adj in kinds   # списание + компенсация
+    # Ключ выплаты и ключ её возврата РАЗНЫЕ (волна 219). Раньше обе записи лежали под одним,
+    # и отличить «банк отказал» от «выплата прошла» было нечем: повтор с тем же ключом получал
+    # `status=already`, приложение говорило «Готово», а денег человек не видел.
+    ключ = f"payout:{drv['id']}:k-decl"
+    списание = _payout_rows(drv["id"], ключ)
+    возврат = _payout_rows(drv["id"], f"reversed:{ключ}")
+    assert [e.kind for e in списание] == [LedgerKind.payout]
+    assert [e.kind for e in возврат] == [LedgerKind.adj]
+    assert sum(e.amount_kop for e in списание + возврат) == 0, "резерв не сошёлся в ноль"
 
 
 def test_payout_provider_exception_keeps_reserve(client, user_factory, payouts_on, monkeypatch):

@@ -15,6 +15,7 @@ import {
   fetchAdsMine,
   fetchAdsMineStats,
   payAd,
+  renewAd,
   type AdMine,
   type AdStat,
 } from "../api/ads";
@@ -85,6 +86,30 @@ export default function AdsCabinetScreen() {
     load(ac.signal);
     return () => ac.abort();
   }, [load]);
+
+  /**
+   * Продлить показ. Заявку создаёт СЕРВЕР, и только после этого показываем реквизиты.
+   *
+   * Раньше кнопка «Продлить» вела в редактор объявления — то есть не продлевала ничего.
+   * В приложении было хуже: она сразу рисовала QR, ничего не сказав серверу, человек
+   * переводил деньги, а заявки не появлялось — и через несколько дней реклама гасла.
+   */
+  async function onRenew(ad: AdMine) {
+    setPayBusy(ad.id);
+    setPayError(null);
+    try {
+      const res = await renewAd(ad.id);
+      setPaid({ amount: Math.round(res.amount_kop / 100) });
+    } catch (e) {
+      setPayError(
+        e instanceof ApiError && e.message
+          ? e.message
+          : appText("Не получилось продлить. Попробуй снова.", "Оҙайтып булманы. Ҡабат ҡара.")
+      );
+    } finally {
+      setPayBusy(null);
+    }
+  }
 
   async function onPay(ad: AdMine) {
     setPayBusy(ad.id);
@@ -260,6 +285,20 @@ export default function AdsCabinetScreen() {
                           {payBusy === ad.id
                             ? appText("Готовим…", "Әҙерләйбеҙ…")
                             : appText("Оплатить размещение", "Урынлаштырыуҙы түләү")}
+                        </button>
+                      )}
+                      {/* Продление показывающегося объявления: период добавляется к остатку,
+                          оплаченные дни не сгорают. Сервер это гарантирует меткой renew. */}
+                      {live && (
+                        <button
+                          type="button"
+                          className="btn-soft"
+                          onClick={() => onRenew(ad)}
+                          disabled={payBusy === ad.id}
+                        >
+                          {payBusy === ad.id
+                            ? appText("Готовим…", "Әҙерләйбеҙ…")
+                            : appText("Продлить показ", "Күрһәтеүҙе оҙайтыу")}
                         </button>
                       )}
                       {ad.status === "expired" && (

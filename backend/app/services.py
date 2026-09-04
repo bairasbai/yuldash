@@ -31,7 +31,7 @@ from .observability import scrub_text
 from .models import (
     Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, InstantOrder,
     Notification, PickupPoint, Rating, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent,
-    User, UserRole,
+    User, UserRole, WebPushSubscription,
 )
 from .schemas import RideOut
 from .timeutil import local_date, local_month, utcnow
@@ -47,10 +47,13 @@ PRIVATE_DIR = os.path.join(_BASE, "private")
 DOC_DIR = os.path.join(PRIVATE_DIR, "docs")
 # Фото-доказательства споров (порт из pr88): лица/номера/травмы — ПРИВАТНО, ретеншен не трогает.
 EVIDENCE_DIR = os.path.join(PRIVATE_DIR, "evidence")
+# Кадры фотоконтроля машины — ПРИВАТНО и с ретеншеном 90 дней (см. app/cleanup.py).
+CARPHOTO_DIR = os.path.join(PRIVATE_DIR, "carphoto")
 os.makedirs(VOICE_DIR, exist_ok=True)
 os.makedirs(CHAT_DIR, exist_ok=True)
 os.makedirs(DOC_DIR, exist_ok=True)
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
+os.makedirs(CARPHOTO_DIR, exist_ok=True)
 
 
 def public_media_url(path: str) -> str:
@@ -95,6 +98,12 @@ def secure_evidence_url(name: str) -> str:
     return f"{settings.media_base_url.rstrip('/')}/secure/evidence/{name}"
 
 
+def secure_carphoto_url(name: str) -> str:
+    """Ссылка на кадр фотоконтроля. Приватная область: отдаётся владельцу и админу,
+    и живёт 90 дней (`car_photo_keep_days`), в отличие от документов."""
+    return f"{settings.media_base_url.rstrip('/')}/secure/carphoto/{name}"
+
+
 def _detect_image_ext(data: bytes) -> "str | None":
     """Реальный тип изображения по magic-bytes (НЕ по заявленному клиентом расширению).
 
@@ -118,9 +127,16 @@ def _detect_image_ext(data: bytes) -> "str | None":
     return None
 
 
-def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sniff_image: bool) -> tuple[bytes, str]:
+def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sniff_image: bool,
+                    probe=None) -> tuple[bytes, str]:
     """Общая валидация загруженных байтов: непусто + лимит размера + whitelist расширений
-    + (для фото) magic-bytes. Используется и base64-, и multipart-путём."""
+    + (для фото) magic-bytes. Используется и base64-, и multipart-путём.
+
+    `probe` — необязательный взгляд на ИСХОДНЫЕ байты, до пережатия и срезания метаданных.
+    Нужен ровно одному месту (фотоконтроль машины): дата съёмки лежит в тех самых
+    метаданных, которые мы строчкой ниже вырезаем, и посмотреть на неё можно только здесь.
+    Наружу оттуда уходят лишь безобидные факты (когда снято, каким размером), координаты
+    не покидают эту функцию."""
     ext = "".join(c for c in (ext or "").lower() if c.isalnum())
     if not data:
         raise herr(400, f"Файл пустой: {kind}", f"Файл буш: {kind}")
@@ -134,6 +150,8 @@ def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sn
         if detected is None:
             raise herr(400, f"Это не похоже на фото: {kind}", f"Был һүрәткә оҡшамаған: {kind}")
         ext = detected
+        if probe is not None:
+            probe(data, ext)          # исходные байты: дальше они будут ужаты и обезличены
     if ext not in allowed_ext:
         raise herr(400, f"Такой тип файла не подходит: .{ext}", f"Был төр файл ярамай: .{ext}")
     if sniff_image:
@@ -156,7 +174,7 @@ def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sn
 
 
 def decode_upload_b64(raw: str, allowed_ext: set[str], default_ext: str, kind: str,
-                      sniff_image: bool = False) -> tuple[bytes, str]:
+                      sniff_image: bool = False, probe=None) -> tuple[bytes, str]:
     """Безопасная обработка base64 upload: whitelist расширений + лимит размера.
     sniff_image=True — дополнительно проверяем magic-bytes (для фото)."""
     ext = "".join(c for c in default_ext.lower() if c.isalnum()) or default_ext
@@ -166,11 +184,11 @@ def decode_upload_b64(raw: str, allowed_ext: set[str], default_ext: str, kind: s
         data = base64.b64decode(raw, validate=True)
     except Exception:
         raise herr(400, f"Файл не читается: {kind}", f"Файлды уҡып булмай: {kind}")
-    return _validate_upload(data, allowed_ext, ext, kind, sniff_image)
+    return _validate_upload(data, allowed_ext, ext, kind, sniff_image, probe)
 
 
 async def read_upload(request, allowed_ext: set[str], default_ext: str, kind: str,
-                      sniff_image: bool = False) -> tuple[bytes, str]:
+                      sniff_image: bool = False, probe=None) -> tuple[bytes, str]:
     """Прочитать загрузку из multipart/form-data (поле `file` [+ опц. `ext`]) ИЛИ из JSON-base64
     (обратная совместимость со старыми установленными клиентами). multipart не держит весь файл
     как base64-строку в памяти (+33%) — Starlette стримит в SpooledTemporaryFile."""
@@ -184,7 +202,7 @@ async def read_upload(request, allowed_ext: set[str], default_ext: str, kind: st
         ext = (str(form.get("ext") or "")
                or os.path.splitext(getattr(up, "filename", "") or "")[1].lstrip(".")
                or default_ext)
-        return _validate_upload(data, allowed_ext, ext, kind, sniff_image)
+        return _validate_upload(data, allowed_ext, ext, kind, sniff_image, probe)
     # JSON base64 — старый клиент
     try:
         body = await request.json()
@@ -192,7 +210,7 @@ async def read_upload(request, allowed_ext: set[str], default_ext: str, kind: st
         raise herr(400, f"Запрос не понят: {kind}", f"Һорау аңлашылманы: {kind}")
     raw = body.get("photo_b64") or body.get("audio_b64") or ""
     ext = body.get("ext") or default_ext
-    return decode_upload_b64(raw, allowed_ext, ext, kind, sniff_image)
+    return decode_upload_b64(raw, allowed_ext, ext, kind, sniff_image, probe)
 
 
 def enforce_upload_quota(session: Session, user_id: int) -> None:
@@ -338,6 +356,32 @@ def set_driver_docs_verdict(session: Session, user: User, profile: DriverProfile
     session.add(profile)
 
 
+def clear_driver_docs(session: Session, user: User, profile: DriverProfile) -> None:
+    """Водитель сам убрал свои документы — снимаем всё, что на них держалось.
+
+    Живёт здесь, а не в роутере, по той же причине, что и два соседа: у бейджа «проверен»
+    ОДНА дверь, и сторож `test_docs_verdicts_go_through_one_door` следит, чтобы никто не
+    трогал `User.verified` из обработчиков напрямую. Первая версия этой правки писала
+    `user.verified = False` прямо в роутере — сторож её поймал, и был прав.
+
+    Почему статус «none», а не «rejected». Документы не отклоняли: человек забрал их сам.
+    «Отклонены» означало бы, что модератор нашёл в них изъян, — и водитель увидел бы
+    обвинение там, где было его собственное решение.
+
+    Подтверждение пола сгорает вместе с фото прав: подтверждали именно по ним, а их больше
+    нет. Иначе останется обещание без основания — женские заказы у водителя, чьи документы
+    мы уже не храним.
+    """
+    profile.license_url = ""
+    profile.car_photo_url = ""
+    profile.docs_status = "none"
+    profile.gender_verified = False
+    profile.verify_submitted_at = None
+    user.verified = False
+    session.add(user)
+    session.add(profile)
+
+
 def revoke_verification_on_car_change(session: Session, user: User,
                                       profile: DriverProfile) -> bool:
     """Машину подменили после проверки — бейдж «Проверен» гаснет (волна 169).
@@ -371,13 +415,22 @@ _fcm_app = None
 
 def send_push(session: Session, user_id: int, title: str, body: str,
               data: dict | None = None, data_only: bool = False) -> None:
-    """Push на все устройства пользователя. Тихо ничего, если Firebase не настроен (нет ключа).
+    """Push на все устройства пользователя — и в приложение (FCM), и в браузер (Web Push).
+
+    Два канала намеренно: Firebase доставляет только в приложение из магазина, а человек,
+    открывший сайт, тоже должен узнать, что водитель подъехал. Каналы независимы —
+    выключенный или сломанный один не мешает другому.
+
     `data` — необязательный data-payload (напр. оффер «Быстрого заказа» → полноэкранная карточка
     на клиенте). FCM требует строковые значения в data — приводим к str на всякий случай.
 
     `data_only=True` (оффер такси, B7a-2): БЕЗ блока notification + AndroidConfig(priority=high).
     Иначе свёрнутое приложение получает системную плашку вместо onMessageReceived → полноэкранная
-    карточка «Новый заказ» не всплывает. title/body кладём в data — клиент сам рисует уведомление."""
+    карточка «Новый заказ» не всплывает. title/body кладём в data — клиент сам рисует уведомление.
+    В браузере такого различия нет: там уведомление рисует service worker в любом случае."""
+    # Браузер — ПЕРВЫМ и отдельно: раньше функция выходила на первой же строке, когда
+    # Firebase не настроен, и веб-подписки не получали вообще ничего.
+    _send_web_push(session, user_id, title, body, data)
     if not settings.firebase_credentials:
         return
     try:
@@ -417,6 +470,107 @@ def send_push(session: Session, user_id: int, title: str, body: str,
                 s2.commit()
     except Exception as e:  # noqa: BLE001
         log.warning(f"[FCM] send error: {e}")
+
+
+def _web_push_url(data: dict | None) -> str:
+    """Куда вести человека по клику на уведомление в браузере.
+
+    В `data` лежит та же пара `ref_kind`/`ref_id`, что уходит и в приложение, — здесь она
+    превращается в адрес страницы. Соответствие ровно то же, что на экране уведомлений
+    в `webapp`: событие без своей страницы ведёт туда, где оно видно целиком.
+
+    Неизвестный вид → корень. Открыть приложение и не угадать экран лучше, чем не открыть.
+    """
+    kind = str((data or {}).get("ref_kind") or "")
+    ref = (data or {}).get("ref_id")
+    if ref:
+        with_page = {
+            "booking": f"/booking/{ref}",
+            "request": f"/requests/{ref}/responses",
+            "support": f"/support/{ref}",
+            "incident": f"/incidents/{ref}",
+        }
+        if kind in with_page:
+            return with_page[kind]
+    return {
+        "parcel": "/parcels",
+        "instant": "/taxi",
+        "ride": "/driver",
+        "debt": "/driver",
+        "taxi_apply": "/taxi-onboarding",
+        "courier_apply": "/courier-onboarding",
+        "partner": "/partner",
+        "ad": "/ads",
+    }.get(kind, "/")
+
+
+def _send_web_push(session: Session, user_id: int, title: str, body: str,
+                   data: dict | None = None) -> None:
+    """Web Push во все браузеры человека. Тихо ничего, если VAPID-ключи не настроены.
+
+    Сообщение шифруется ключами САМОЙ подписки (`p256dh` + `auth`) — этим занимается
+    `pywebpush`. Своими руками такое не пишут: там AES-GCM и обмен ключами по RFC 8291,
+    а ошибка в криптографии выглядит как «иногда не приходит».
+
+    Мёртвые подписки чистим сразу. Пуш-сервис отвечает 404 или 410, когда человек отозвал
+    разрешение или удалил сайт с телефона; без чистки таблица растёт вечно, а мы каждый раз
+    ходим в сеть впустую.
+    """
+    if not (settings.vapid_private_key and settings.vapid_public_key):
+        return
+    try:
+        from pywebpush import WebPushException, webpush
+    except Exception as e:  # noqa: BLE001
+        log.warning(f"[WEBPUSH] библиотека недоступна: {e}")
+        return
+
+    subs = session.exec(
+        select(WebPushSubscription).where(WebPushSubscription.user_id == user_id)
+    ).all()
+    if not subs:
+        return
+
+    tag_parts = [str((data or {}).get("ref_kind") or ""), str((data or {}).get("ref_id") or "")]
+    tag = "-".join([x for x in tag_parts if x])
+    payload = json.dumps({
+        "title": title,
+        "body": body,
+        # Тег склеивает повторы об одном событии в одно уведомление: пять сообщений
+        # в чате не должны превращаться в пять плашек на экране.
+        "tag": tag or None,
+        "url": _web_push_url(data),
+    }, ensure_ascii=False)
+
+    dead: list[str] = []
+    for s in subs:
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": s.endpoint,
+                    "keys": {"p256dh": s.p256dh, "auth": s.auth},
+                },
+                data=payload,
+                vapid_private_key=settings.vapid_private_key,
+                vapid_claims={"sub": settings.vapid_subject},
+                content_encoding=(s.content_encoding or "aes128gcm"),
+                timeout=10,
+            )
+        except WebPushException as e:  # noqa: PERF203
+            code = getattr(getattr(e, "response", None), "status_code", 0)
+            if code in (404, 410):
+                dead.append(s.endpoint)
+            else:
+                # Адрес пуш-сервиса в лог НЕ пишем: по нему можно слать уведомления человеку.
+                log.warning(f"[WEBPUSH] отправка не прошла, код {code}")
+        except Exception as e:  # noqa: BLE001
+            log.warning(f"[WEBPUSH] отправка не прошла: {type(e).__name__}")
+
+    if dead:
+        # В ОТДЕЛЬНОЙ сессии — по той же причине, что и у FCM: commit в переданную session
+        # сбросил бы ORM-объекты вызывающего.
+        with Session(engine) as s2:
+            s2.execute(delete(WebPushSubscription).where(WebPushSubscription.endpoint.in_(dead)))
+            s2.commit()
 
 
 def push_bilingual(session: Session, user_id: int, title_ru: str, title_ba: str,
@@ -1313,6 +1467,20 @@ def _is_verified_female_driver(drv, prof) -> bool:
     return bool(drv is not None and prof is not None and is_verified_female_driver(drv, prof))
 
 
+def _women_only_in_force(ride, drv, prof) -> bool:
+    """Обёртка над правилом из `safety_logic` — импорт локальный, там цикл (он тянет services).
+
+    ⚠️ Проверка `drv/prof is not None` РАВНОСИЛЬНА (разбор мутаций, волна 219): правило читает
+    водителя только через `is_verified_female_driver`, а тот берёт оба поля через `getattr`
+    с запасным значением и на `None` честно возвращает False. Строку держим намеренно — это
+    страховка на чужом допущении (что `gender_of` и `getattr` останутся терпимыми к `None`),
+    и такая же стоит у соседнего `_is_verified_female_driver`; расходиться им нельзя.
+    Само допущение закреплено тестом `test_поездка_без_водителя_не_обещает_и_не_падает`.
+    """
+    from .safety_logic import women_only_in_force
+    return bool(drv is not None and prof is not None and women_only_in_force(ride, drv, prof))
+
+
 def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, trips_agg: dict | None = None) -> RideOut:
     """RideOut из предзагруженных батчей (без запросов в БД)."""
     drv = users.get(ride.driver_id)
@@ -1323,7 +1491,12 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
     trips = (trips_agg or {}).get(ride.driver_id, 0)                       # F8: завершённых поездок водителя
     since = member_since(drv.created_at if drv else None)   # F8: «С нами с <мес год>», месяц местный
     return RideOut(
-        **ride.model_dump(exclude={"created_at"}),
+        **ride.model_dump(exclude={"created_at", "women_only"}),
+        # Отметка «только женщины» — не поле, а ОБЕЩАНИЕ, и держится оно на подтверждении
+        # модератора. Подтверждение сгорает (отклонили документы, переписали пол), а отметка
+        # в базе остаётся — и карточка продолжала обещать то, чего никто уже не проверял
+        # (волна 219). Спрашиваем у того же правила, что и бейдж строкой ниже.
+        women_only=_women_only_in_force(ride, drv, prof),
         boosted=(ride.boosted_until is not None and ride.boosted_until > utcnow()),
         driver_name=(drv.name if drv else "Водитель"),
         driver_rating=rating,
@@ -1389,6 +1562,52 @@ def public_ride_payload(item, *, full: bool = False):
 
 def public_rides_payload(items: list, *, full: bool = False):
     return [public_ride_payload(item, full=full) for item in items]
+
+
+BOOST_CARRY_DAYS = 30
+
+
+def stash_boost_credit(user, ride, now) -> int:
+    """Поездку сняли, а поднятие было оплачено — остаток кладём водителю на счёт.
+
+    Раньше деньги просто оставались у нас: человек заплатил за то, чтобы его видели,
+    поездка сорвалась, услуга не оказана. Возврат через ЮKassa стоит комиссии платёжной
+    системы и ручной работы, а перенос не двигает деньги вовсе и водителю выгоднее.
+
+    Считаем ровно остаток: больше оплаченного не даём, меньше — не отбираем.
+    Возвращает перенесённые секунды (0 — переносить было нечего).
+    """
+    if not ride.boosted_until or ride.boosted_until <= now:
+        return 0
+    left = int((ride.boosted_until - now).total_seconds())
+    if left <= 0:
+        return 0
+    # Прежний остаток складываем только если он ещё жив: протухший не воскрешаем.
+    kept = user.boost_credit_sec if (user.boost_credit_until and user.boost_credit_until > now) else 0
+    user.boost_credit_sec = kept + left
+    user.boost_credit_until = now + timedelta(days=BOOST_CARRY_DAYS)
+    ride.boosted_until = None      # на снятой поездке поднятие больше не действует
+    return left
+
+
+def apply_boost_credit(user, ride, now) -> int:
+    """Новая поездка забирает перенесённое поднятие сама, без единого нажатия.
+
+    Водитель за рулём, ему не до выбора экранов: если за нами остаток и он не протух,
+    поездка выходит уже поднятой. Возвращает использованные секунды.
+    """
+    if user.boost_credit_sec <= 0:
+        return 0
+    if not user.boost_credit_until or user.boost_credit_until <= now:
+        user.boost_credit_sec = 0          # срок вышел — чистим, чтобы не висело вечно
+        user.boost_credit_until = None
+        return 0
+    used = user.boost_credit_sec
+    base = ride.boosted_until if (ride.boosted_until and ride.boosted_until > now) else now
+    ride.boosted_until = base + timedelta(seconds=used)
+    user.boost_credit_sec = 0
+    user.boost_credit_until = None
+    return used
 
 
 def boost_then_depart_order():

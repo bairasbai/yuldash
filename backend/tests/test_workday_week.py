@@ -80,9 +80,16 @@ def test_limit_can_be_switched_off(client, driver, monkeypatch):
 
 def test_gate_explains_the_weekly_reason(client, driver):
     """Текст блокировки должен объяснять НЕДЕЛЮ, иначе водитель решит, что это сбой:
-    сегодня он ещё не наездил дневной лимит, а его не пускают."""
+    сегодня он ещё не наездил дневной лимит, а его не пускают.
+
+    Посев по шесть часов, а не по восемь: раньше стояло восемь, то есть ровно дневной лимит
+    на сегодня — и тест противоречил собственному описанию. Держался он на том, что дневной
+    блок срабатывал только по флагу, а флаг посев не ставил. С волны 212 гейт считает лимит
+    живьём, и восемь часов «сегодня» дают именно дневной блок — верно, но это уже другой
+    тест. Шесть часов в день: сегодня до лимита далеко, а за неделю сорок два часа.
+    """
     from fastapi import HTTPException
-    _seed_days(driver["id"], hours_per_day=8, days=7)
+    _seed_days(driver["id"], hours_per_day=6, days=7)
     with Session(engine) as s:
         with pytest.raises(HTTPException) as e:
             wd.guard_taxi_rested(s, driver["id"])

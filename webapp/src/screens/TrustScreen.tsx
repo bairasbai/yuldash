@@ -1,29 +1,43 @@
+// ================================================================
+//  «Доверие» — уровень L0–L3 и путь к следующему.
+//  Зеркало Android TrustScreens.kt + backend trust.py: GET /me/trust.
+//
+//  Раньше уровень тут ВЫЧИСЛЯЛСЯ на клиенте: по полю «проверен»
+//  и числу приглашённых. В коде даже стояло «у бэкенда нет отдельного
+//  /me/trust» — а он есть с самого начала, и приложение читает
+//  именно его. Значит человек на сайте видел не свой уровень,
+//  а нашу догадку о нём: у сервера свои правила (кто пригласил,
+//  какие проверки пройдены), и они не совпадали с догадкой
+//  (сверка с Android, 2026-08-30).
+//
+//  Названия уровней и то, что каждый даёт, приходят с сервера сразу
+//  на двух языках: лестница доверия — часть продукта, и она должна
+//  звучать одинаково в приложении, в вебе и в пуше.
+// ================================================================
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
-import { fetchReferral } from "../api/referral";
+import { fetchMyTrust, type TrustPhrase, type TrustSummary } from "../api/trust";
 import { LoadingList, ErrorState } from "../components/States";
 import { IconCheck, IconShield } from "../components/Icons";
 import { SubHeader } from "./ConsentsScreen";
 
-/**
- * Уровни доверия L0–L3. У бэкенда нет отдельного /me/trust — уровень честно считаем
- * из реальных полей GET /me (verified, номер) и числа приглашённых (GET /referral/me).
- * «Между своими»: чем больше проверок и связей — тем выше круг доверия.
- */
+/** Порядок уровней фиксирован: 0 → 3. Названия каждого берём с сервера. */
+const LEVELS = [0, 1, 2, 3];
+
 export default function TrustScreen() {
-  const { appText } = useLang();
-  const { user } = useAuth();
+  const { appText, lang } = useLang();
+  /** Строки с сервера приходят объектом {ru, ba} — выбираем нужную сами. */
+  const say = (p: TrustPhrase) => (lang === "ba" ? p.ba : p.ru);
   const navigate = useNavigate();
-  const [invited, setInvited] = useState<number | null>(null);
+  const [data, setData] = useState<TrustSummary | null>(null);
   const [state, setState] = useState<"loading" | "error" | "ready">("loading");
 
   const load = useCallback((signal?: AbortSignal) => {
     setState("loading");
-    fetchReferral(signal)
-      .then((r) => {
-        setInvited(r.invited);
+    fetchMyTrust(signal)
+      .then((t) => {
+        setData(t);
         setState("ready");
       })
       .catch((e) => {
@@ -38,42 +52,6 @@ export default function TrustScreen() {
     return () => ac.abort();
   }, [load]);
 
-  const hasRealPhone = !!user && !/^tg\d+$/.test(user.phone);
-  const verified = !!user?.verified;
-  const inv = invited ?? 0;
-
-  // Текущий уровень 0..3
-  let current = 0;
-  if (hasRealPhone) current = 1;
-  if (verified) current = 2;
-  if (verified && inv >= 1) current = 3;
-
-  const levels = [
-    {
-      n: 0,
-      title: appText("Гость", "Ҡунаҡ"),
-      gives: appText("Смотришь ленту поездок.", "Сәфәр таҫмаһын ҡарайһың."),
-    },
-    {
-      n: 1,
-      title: appText("Сосед", "Күрше"),
-      gives: appText("Номер подтверждён — можешь бронировать и создавать поездки.", "Номер раҫланған — бронларға һәм сәфәр яһарға була."),
-    },
-    {
-      n: 2,
-      title: appText("Проверен", "Тикшерелгән"),
-      gives: appText("Бейдж «проверен», больше доверия попутчиков.", "«Тикшерелгән» билдәһе, юлдаштарҙан күберәк ышаныс."),
-    },
-    {
-      n: 3,
-      title: appText("Свой круг", "Үҙ түңәрәк"),
-      gives: appText("Позвал своих — высший уровень доверия и бонусы.", "Үҙеңдекеләрҙе саҡырҙың — иң юғары ышаныс һәм бонустар."),
-    },
-  ];
-
-  const cur = levels[current];
-  const nextLevel = current < 3 ? levels[current + 1] : null;
-
   return (
     <>
       <SubHeader
@@ -84,24 +62,25 @@ export default function TrustScreen() {
 
       {state === "loading" && <LoadingList count={3} />}
       {state === "error" && <ErrorState onRetry={() => load()} />}
-      {state === "ready" && (
+
+      {state === "ready" && data && (
         <>
           <div className="trust-hero">
             <div className="trust-hero__badge">
               <IconShield size={30} />
             </div>
             <div className="trust-hero__level">
-              L{current} · {cur.title}
+              L{data.level} · {say(data.title)}
             </div>
             <div className="trust-progress" aria-hidden>
               {[1, 2, 3].map((i) => (
-                <span key={i} className={i <= current ? "on" : ""} />
+                <span key={i} className={i <= data.level ? "on" : ""} />
               ))}
             </div>
-            {nextLevel ? (
+            {data.next ? (
               <p className="trust-hero__next">
                 {appText("Следующий уровень — ", "Киләһе кимәл — ")}
-                <b>{nextLevel.title}</b>: {nextLevel.gives}
+                <b>{say(data.next.title)}</b>: {say(data.next.how)}
               </p>
             ) : (
               <p className="trust-hero__next">
@@ -110,24 +89,76 @@ export default function TrustScreen() {
             )}
           </div>
 
+          {/* Что даёт нынешний уровень — списком, а не одной фразой: это его смысл. */}
           <div className="list">
-            {levels.map((lv) => {
-              const reached = lv.n <= current;
+            {data.benefits.map((b, i) => (
+              <div key={i} className="list-row trust-row reached">
+                <div className="trust-row__dot on">
+                  <IconCheck size={16} />
+                </div>
+                <div className="list-row__main">
+                  <div className="list-row__sub">{say(b)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Что откроет следующий уровень. Показываем ДО того, как человек его получит:
+              иначе «поднимись выше» это просьба без причины. */}
+          {data.next && (
+            <>
+              <h2 className="section-title">
+                {appText("Что даст следующий уровень", "Киләһе кимәл нимә бирә")}
+              </h2>
+              <div className="list">
+                {data.next.benefits.map((b, i) => (
+                  <div key={i} className="list-row trust-row">
+                    <div className="trust-row__dot">
+                      <span>L{data.next?.level}</span>
+                    </div>
+                    <div className="list-row__main">
+                      <div className="list-row__sub">{say(b)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Лестница целиком — чтобы видеть, где ты и сколько ещё впереди. */}
+          <div className="list">
+            {LEVELS.map((n) => {
+              const reached = n <= data.level;
+              const isNext = data.next?.level === n;
               return (
-                <div key={lv.n} className={"list-row trust-row" + (reached ? " reached" : "")}>
+                <div key={n} className={"list-row trust-row" + (reached ? " reached" : "")}>
                   <div className={"trust-row__dot" + (reached ? " on" : "")}>
-                    {reached ? <IconCheck size={16} /> : <span>L{lv.n}</span>}
+                    {reached ? <IconCheck size={16} /> : <span>L{n}</span>}
                   </div>
                   <div className="list-row__main">
                     <div className="list-row__title">
-                      L{lv.n} · {lv.title}
+                      L{n}
+                      {n === data.level ? ` · ${say(data.title)}` : ""}
+                      {isNext && data.next ? ` · ${say(data.next.title)}` : ""}
                     </div>
-                    <div className="list-row__sub">{lv.gives}</div>
                   </div>
                 </div>
               );
             })}
           </div>
+
+          {/* Звать своих может только проверенный: иначе «круг своих» перестанет
+              что-либо значить. Кнопка появляется ровно тогда, когда право есть. */}
+          {data.can_invite && (
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ marginTop: 14 }}
+              onClick={() => navigate("/invites")}
+            >
+              {appText("Позвать своего", "Үҙеңдекен саҡырыу")}
+            </button>
+          )}
         </>
       )}
     </>

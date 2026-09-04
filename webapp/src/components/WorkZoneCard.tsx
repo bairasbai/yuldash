@@ -18,6 +18,7 @@ import { ApiError } from "../api/client";
 import { fetchWorkZone, saveWorkZone, type WorkZone } from "../api/instant";
 import { fetchDistricts, type District } from "../api/geo";
 import { IconCheck, IconPin } from "./Icons";
+import { track } from "../analytics";
 
 type Base = "city" | "district";
 
@@ -117,6 +118,7 @@ export default function WorkZoneCard() {
         work_intercity: intercity,
         work_regions: intercity && regions,
       });
+      track("instant_zone_set");
       setZone(z);
       setOpen(false);
       setSaved(true);

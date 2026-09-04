@@ -122,6 +122,11 @@ object ApiClient {
     /** Разобрать тело ошибки в сообщение по текущему языку.
      *  detail={ru,ba} → берём по языку; строка → русскому как есть, башкиру — общий по коду;
      *  список (валидация FastAPI) / пусто → общий по коду. Русский флоу не меняется. */
+    /** Машинная причина отказа из тела (`detail.code`). Нет — пустая строка. */
+    private fun detailCode(text: String): String =
+        runCatching { (JSONObject(text).opt("detail") as? JSONObject)?.optString("code") }
+            .getOrNull().orEmpty()
+
     private fun errorMessage(status: Int, text: String): String {
         val detail = runCatching { JSONObject(text).opt("detail") }.getOrNull()
         when (detail) {
@@ -478,6 +483,42 @@ object ApiClient {
      *  При успехе локально очищаем сессию — как при выходе. Ошибку прокидываем наверх. */
     suspend fun deleteAccount(): Result<Unit> =
         call("POST", "/me/delete", JSONObject(), auth = true).onSuccess { clearLocalSession() }.map { }
+
+    /** Выписка «что Юлдаш обо мне знает»: живые счётчики и сроки автоудаления.
+     *  Сроки приходят с сервера — те же, по которым реально чистится база. */
+    suspend fun getMyData(): Result<MyDataDto> =
+        call("GET", "/me/data", null, auth = true).map { o ->
+            MyDataDto(
+                rides = o.optInt("rides"),
+                ridesDays = o.optInt("rides_days"),
+                bookings = o.optInt("bookings"),
+                messages = o.optInt("messages"),
+                messagesDays = o.optInt("messages_days"),
+                voices = o.optInt("voices"),
+                voicesDays = o.optInt("voices_days"),
+                notifications = o.optInt("notifications"),
+                notificationsDays = o.optInt("notifications_days"),
+                driverDocs = o.optInt("driver_docs"),
+                driverDocsRemovable = o.optBoolean("driver_docs_removable"),
+                locationStored = o.optBoolean("location_stored"),
+                cardStored = o.optBoolean("card_stored"),
+            )
+        }
+
+    /** Удалить только документы водителя, аккаунт оставить (POST /me/driver-docs/delete).
+     *  Сервер откажет, если водитель на линии или документы на проверке. */
+    suspend fun deleteDriverDocs(): Result<Unit> =
+        call("POST", "/me/driver-docs/delete", JSONObject(), auth = true).map { }
+
+    /** «Скачать мои данные»: готовый читаемый текст с сервера + имя файла.
+     *  Текст собирает сервер — он один знает, что где лежит и чего в выгрузку не класть. */
+    suspend fun exportMyData(lang: String): Result<MyDataExportDto> =
+        call("GET", "/me/export?lang=$lang", null, auth = true).map { o ->
+            MyDataExportDto(
+                filename = o.optString("filename", "yuldash-my-data.txt"),
+                text = o.optString("text"),
+            )
+        }
 
     // ---------- Push (FCM) ----------
     /** Зарегистрировать FCM-токен устройства на сервере (если вошли). Сохраняем, чтобы дослать после логина. */
@@ -1582,6 +1623,7 @@ object ApiClient {
                 online = o.optBoolean("online"),
                 gender = o.optString("gender"),
                 genderVerified = o.optBoolean("gender_verified"),
+                tipsSbp = o.optString("tips_sbp"),
                 autocheckResult = o.optString("autocheck_result"),
                 autocheckData = o.optString("autocheck_data"),
             )
@@ -1798,6 +1840,88 @@ object ApiClient {
     /** Закрыть обращение (пользователь). */
     suspend fun closeSupportTicket(id: Int): Result<Unit> =
         call("POST", "/support/tickets/$id/close", JSONObject(), auth = true).map { }
+
+    // ---------- Поддержка глазами АДМИНА ----------
+    // Обращения в поддержку приложение умело только создавать и читать СВОИ. Разбирать их
+    // было негде: тикет уходил на сервер, а Александр видел его лишь в базе. Веб-версия
+    // разбор получила, приложение — нет (сверка с вебом, 2026-08-30).
+
+    /** Очередь обращений: ?status=open (по умолчанию) | all. Открытые сверху. */
+    suspend fun adminSupportTickets(status: String = "open"): Result<List<AdminSupportTicketDto>> =
+        call("GET", "/admin/support/tickets?status=${enc(status)}", null, auth = true).map { obj ->
+            // Сервер отдаёт голый массив — call() заворачивает его в {"items": [...]}.
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                AdminSupportTicketDto(
+                    id = o.optInt("id"),
+                    userId = o.optInt("user_id"),
+                    userName = o.optString("user_name"),
+                    subject = o.optString("subject"),
+                    status = o.optString("status"),
+                    lastMessage = o.optString("last_message"),
+                    lastSender = o.optString("last_sender"),
+                    messageCount = o.optInt("message_count"),
+                    createdAt = o.optString("created_at"),
+                    updatedAt = o.optString("updated_at"),
+                )
+            }
+        }
+
+    /** Тред любого обращения — для разбора. */
+    suspend fun adminSupportThread(id: Int): Result<SupportTicketDto> =
+        call("GET", "/admin/support/tickets/$id", null, auth = true).map { it.toSupportTicketDto() }
+
+    /** Ответ поддержки. Ответ на закрытое обращение переоткрывает его — диалог продолжается. */
+    suspend fun adminSupportReply(id: Int, body: String): Result<SupportTicketDto> =
+        call("POST", "/admin/support/tickets/$id/reply", JSONObject().put("body", body), auth = true)
+            .map { it.toSupportTicketDto() }
+
+    /** Закрыть обращение силами поддержки. Идемпотентно. */
+    suspend fun adminSupportClose(id: Int): Result<SupportTicketDto> =
+        call("POST", "/admin/support/tickets/$id/close", JSONObject(), auth = true)
+            .map { it.toSupportTicketDto() }
+
+    // ---------- Денежные чаевые и советы по поездке ----------
+    // Обе ручки работали на сервере и жили в веб-версии, а в приложении их не было
+    // (сверка с вебом, 2026-08-30).
+
+    /**
+     * Водитель включает денежные чаевые: свой номер СБП (пусто — выключить).
+     *
+     * Реквизит показывается пассажиру ТОЛЬКО после завершённой поездки: это личный номер,
+     * и отдаём мы его по согласию и минимально. Платформа денег не касается — перевод
+     * идёт напрямую.
+     */
+    suspend fun setTipsSbp(sbp: String): Result<Boolean> =
+        call("POST", "/me/tips-sbp", JSONObject().put("sbp", sbp.trim()), auth = true)
+            .map { it.optBoolean("accepting", sbp.isNotBlank()) }
+
+    /**
+     * Добрые советы по своей поездке: нет фото профиля, не пройдена проверка, цена выше
+     * средней по маршруту, нет описания.
+     *
+     * Это не упрёк и не рейтинг: пустой список (`allGood`) значит «всё выглядит хорошо,
+     * заявки скоро появятся». Только своя поездка — чужую сервер не раскроет.
+     */
+    suspend fun getRideTips(rideId: Int): Result<RideTipsDto> =
+        call("GET", "/rides/$rideId/tips", null, auth = true).map { o ->
+            val arr = o.optJSONArray("tips") ?: JSONArray()
+            RideTipsDto(
+                rideId = o.optInt("ride_id"),
+                tips = (0 until arr.length()).map { i ->
+                    val x = arr.getJSONObject(i)
+                    RideTipDto(
+                        code = x.optString("code"),
+                        ru = x.optString("ru"),
+                        ba = x.optString("ba"),
+                    )
+                },
+                allGood = o.optBoolean("all_good"),
+                routeAvgPrice = if (o.isNull("route_avg_price")) null else o.optInt("route_avg_price"),
+                routeSample = o.optInt("route_sample"),
+            )
+        }
 
     // ---------- Подписка на маршрут «карауль поездку» (F13) ----------
     /** Подписаться на маршрут: как только появится подходящая поездка — придёт уведомление. */
@@ -2344,11 +2468,20 @@ object ApiClient {
             }
         }
 
-    suspend fun confirmDebt(debtId: Int): Result<Unit> =
-        call("POST", "/admin/debts/$debtId/confirm", JSONObject(), auth = true).map { }
+    /**
+     * Подтвердить/отклонить перевод долга. `amountKop` — сумма, которую админ ВИДИТ в строке.
+     *
+     * Сервер сверяет её с текущей и при расхождении отвечает 409, ничего не меняя. Между
+     * «увидел строку» и «нажал кнопку» проходит время, и водитель успевает заявить оплату по
+     * новым поездкам: раньше одно нажатие закрывало обе заявки (волна 220).
+     */
+    suspend fun confirmDebt(debtId: Int, amountKop: Int): Result<Unit> =
+        call("POST", "/admin/debts/$debtId/confirm",
+             JSONObject().put("amount_kop", amountKop), auth = true).map { }
 
-    suspend fun rejectDebt(debtId: Int): Result<Unit> =
-        call("POST", "/admin/debts/$debtId/reject", JSONObject(), auth = true).map { }
+    suspend fun rejectDebt(debtId: Int, amountKop: Int): Result<Unit> =
+        call("POST", "/admin/debts/$debtId/reject",
+             JSONObject().put("amount_kop", amountKop), auth = true).map { }
 
     // ---------- Быстрый заказ (такси-режим, Фаза 2) ----------
     // Отдельный поток от плановых поездок (Ride/Booking) — те не трогаем. Приватность: телефоны/имя
@@ -2798,6 +2931,24 @@ object ApiClient {
             if (o.isNull("offer")) null else o.optJSONObject("offer")?.toInstantOrderDto()
         }
 
+    /**
+     * Оффер ВМЕСТЕ с причиной, почему его нет.
+     *
+     * Раньше экран водителя знал только «оффера нет» и честно писал «ждём заказ» — хотя ждать
+     * было бессмысленно: линия закрыта долгом, отдыхом, паузой или документами. Человек сидел
+     * и смотрел на надпись, которая обещала то, чего не будет (аудит сценариев 30.08).
+     *
+     * `blocked`: null = всё в порядке, ждём по-настоящему; иначе код причины
+     * (`not_approved` | `debt` | `rest` | `quality_pause` | `review_pause`).
+     */
+    suspend fun getDriverOfferState(): Result<DriverOfferStateDto> =
+        call("GET", "/instant/driver/offer", null, auth = true).map { o ->
+            DriverOfferStateDto(
+                offer = if (o.isNull("offer")) null else o.optJSONObject("offer")?.toInstantOrderDto(),
+                blocked = o.optString("blocked").ifBlank { null },
+            )
+        }
+
     /** Водитель принимает оффер. Гонка/протух → 409 (ApiException) — экран покажет «оффер ушёл». */
     suspend fun instantAccept(id: Int): Result<InstantOrderDto> =
         call("POST", "/instant/orders/$id/accept", JSONObject(), auth = true).map { it.toInstantOrderDto() }
@@ -2825,6 +2976,19 @@ object ApiClient {
     suspend fun instantDone(id: Int): Result<InstantOrderDto> =
         call("POST", "/instant/orders/$id/done", JSONObject(), auth = true).map { it.toInstantOrderDto() }
 
+    /** Пассажир отзывает свой вопрос про новый адрес: едем по старому. */
+    suspend fun withdrawDestination(id: Int): Result<Unit> =
+        call("POST", "/instant/orders/$id/destination/withdraw", JSONObject(), auth = true).map { }
+
+    /**
+     * «Поездка закончилась» — пассажир закрывает поездку, которую водитель не закрыл.
+     * Сервер пускает только после расчётного времени поездки плюс запас.
+     */
+    suspend fun instantPassengerDone(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/passenger-done", JSONObject(), auth = true)
+            .map { it.toInstantOrderDto() }
+            .onSuccess { Analytics.log("instant_passenger_done") }
+
     /** Отмена заказа (пассажир до посадки / водитель после accept). Причина опциональна. */
     suspend fun instantCancel(id: Int, reason: String = ""): Result<InstantOrderDto> =
         call("POST", "/instant/orders/$id/cancel", JSONObject().put("reason", reason), auth = true).map { it.toInstantOrderDto() }
@@ -2835,12 +2999,29 @@ object ApiClient {
     suspend fun scheduleInstantOrder(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
         scheduledAt: String, fromText: String = "", toText: String = "", category: String = "standard",
-    ): Result<InstantOrderDto> =
-        call(
-            "POST", "/instant/schedule",
-            instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category).put("scheduled_at", scheduledAt),
-            auth = true,
-        ).map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_schedule") }
+        comment: String = "", entrance: String = "", forName: String = "", forPhone: String = "",
+        womenOnly: Boolean = false,
+        options: List<String> = emptyList(),
+        roundTrip: Boolean = false, returnWaitMin: Int = 0,
+        stops: List<TaxiStop> = emptyList(),
+        paymentMethod: String = "",
+    ): Result<InstantOrderDto> {
+        // Предзаказ шлёт ТОТ ЖЕ набор полей, что обычный заказ (аудит сценариев 30.08).
+        // Раньше уходили только точки, время и класс: человек выбирал детское кресло,
+        // «только женщина за рулём», остановки и заказ для другого — переключал на «На время»,
+        // и всё это молча пропадало. Сервер эти поля принимал и раньше, терял их клиент.
+        val body = instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
+            roundTrip, returnWaitMin, stops).put("scheduled_at", scheduledAt)
+        if (options.isNotEmpty()) body.put("options", JSONArray(options))
+        if (comment.isNotBlank()) body.put("comment", comment.take(300))
+        if (entrance.isNotBlank()) body.put("entrance", entrance.take(60))
+        if (forName.isNotBlank()) body.put("for_name", forName.take(120))
+        if (forPhone.isNotBlank()) body.put("for_phone", forPhone.take(32))
+        if (womenOnly) body.put("women_only", true)
+        if (paymentMethod.isNotBlank()) body.put("payment_method", paymentMethod)
+        return call("POST", "/instant/schedule", body, auth = true)
+            .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_schedule") }
+    }
 
     /** Мои предзаказы: ещё ждут (scheduled) + только что активированные ко времени (activated). */
     suspend fun getScheduledOrders(): Result<ScheduledOrdersDto> =
@@ -2899,6 +3080,9 @@ object ApiClient {
                 messageRu = msg.optString("ru"),
                 messageBa = msg.optString("ba"),
                 city = o.optNullableString("city") ?: "",
+                promoOn = o.optJSONObject("launch_promo")?.optBoolean("on") ?: false,
+                promoPercent = o.optJSONObject("launch_promo")?.optDouble("percent", 0.0) ?: 0.0,
+                promoDays = o.optJSONObject("launch_promo")?.optInt("days") ?: 0,
             )
         }
 
@@ -2914,6 +3098,7 @@ object ApiClient {
         osgopUrl: String = "", osgopUntil: String = "",
         carYear: Int? = null, seats: Int? = null, carColor: String = "",
         carAc: Boolean = false, carSedan: Boolean = false, carLeather: Boolean = false,
+        carLightSalon: Boolean = false,
         carOptions: List<String> = emptyList(), carClassesEnabled: List<String> = emptyList(),
     ): Result<TaxiApplicationDto> {
         val body = JSONObject()
@@ -2934,6 +3119,9 @@ object ApiClient {
         if (seats != null) body.put("seats", seats)
         if (carColor.isNotBlank()) body.put("car_color", carColor.take(40))
         body.put("car_ac", carAc).put("car_sedan", carSedan).put("car_leather", carLeather)
+        // Светлый салон — равноценная коже дорога в Бизнес (решение 30.08): кожа в райцентре
+        // редкость, а светлый ухоженный салон читается пассажиром как «дорого» не хуже.
+        body.put("car_light_salon", carLightSalon)
         if (carOptions.isNotEmpty()) body.put("car_options", JSONArray(carOptions))
         if (carClassesEnabled.isNotEmpty()) body.put("car_classes_enabled", JSONArray(carClassesEnabled))
         return call("POST", "/taxi/apply", body, auth = true)
@@ -2944,12 +3132,16 @@ object ApiClient {
      *  Пустая строка = поле не трогаем. Все даты снова в будущем → допуск возвращается сразу. */
     suspend fun updateTaxiDocuments(
         osagoUntil: String = "", permitUntil: String = "", inspectionUntil: String = "",
+        osgopUntil: String = "",
         osagoUrl: String = "", permitPhotoUrl: String = "",
     ): Result<TaxiApplicationDto> {
         val body = JSONObject()
         if (osagoUntil.isNotBlank()) body.put("osago_until", osagoUntil)
         if (permitUntil.isNotBlank()) body.put("permit_until", permitUntil)
         if (inspectionUntil.isNotBlank()) body.put("inspection_until", inspectionUntil)
+        // ОСГОП продлевается как ОСАГО, раз в год. Раньше срок можно было указать только при
+        // первой подаче — и больше никогда (аудит сценариев 30.08).
+        if (osgopUntil.isNotBlank()) body.put("osgop_until", osgopUntil)
         if (osagoUrl.isNotBlank()) body.put("osago_url", osagoUrl)
         if (permitPhotoUrl.isNotBlank()) body.put("permit_photo_url", permitPhotoUrl)
         return call("POST", "/taxi/documents", body, auth = true).map { it.toTaxiApplicationDto() }
@@ -2983,6 +3175,35 @@ object ApiClient {
                 note = o.optString("note"),
             )
         }
+
+    // ---------- Фотоконтроль машины (580-ФЗ) ----------
+    /**
+     * Что снять и до какого числа. Такси — четыре стороны кузова и салон, курьер — две
+     * стороны и багажник. `enabled=false` → контроль выключен на сервере, экран не нужен.
+     */
+    suspend fun getCarPhoto(mode: String = "taxi"): Result<CarPhotoDto> =
+        call("GET", "/carphoto?mode=$mode", null, auth = true).map { it.toCarPhotoDto() }
+
+    /**
+     * Прислать ОДИН кадр. Ответ приходит сразу: подошёл или что переснять — человек в этот
+     * момент стоит у машины с телефоном, и переснять он может прямо сейчас.
+     */
+    suspend fun uploadCarPhoto(mode: String, slot: String, bytes: ByteArray, ext: String = "jpg",
+                               kind: String = "periodic"): Result<CarPhotoShotDto> =
+        callMultipart("/carphoto/photo?mode=$mode&slot=$slot&kind=$kind", bytes, ext, "photo.$ext").map { o ->
+            CarPhotoShotDto(
+                url = o.optString("url"),
+                slot = o.optString("slot"),
+                ok = o.optBoolean("ok"),
+                reason = o.optString("reason"),
+                missing = o.optJSONArray("missing")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
+            )
+        }
+
+    /** Отправить набор кадров. Принято сразу или ушло человеку на просмотр. */
+    suspend fun submitCarPhoto(mode: String = "taxi", kind: String = "periodic"): Result<CarPhotoDto> =
+        call("POST", "/carphoto/submit", JSONObject().put("mode", mode).put("kind", kind), auth = true)
+            .map { it.toCarPhotoDto() }
 
     /** Моя заявка таксиста. Не подавал → failure с ApiException(404) — экран трактует как «нет заявки». */
     suspend fun getMyTaxiApplication(): Result<TaxiApplicationDto> =
@@ -3213,6 +3434,9 @@ object ApiClient {
                 limitHours = o.optInt("limit_hours", 8),
                 blocked = o.optBoolean("blocked"),
                 unlockAt = o.optString("unlock_at").ifBlank { null },
+                weekBlocked = o.optBoolean("week_blocked"),
+                weekLimitHours = o.optInt("week_limit_hours", 40),
+                weekSeconds = o.optInt("week_seconds"),
                 returnRideUsed = o.optBoolean("return_ride_used"),
                 earningsToday = o.optInt("earnings_today"),
                 grossTodayKop = o.optInt("gross_today_kop", o.optInt("earnings_today") * 100),
@@ -3342,7 +3566,7 @@ object ApiClient {
                     sessionExpired.value = true
                     Result.failure(ApiException(401, genericByStatus(401, langBa)))
                 } else {
-                    Result.failure(ApiException(code, errorMessage(code, text)))
+                    Result.failure(ApiException(code, errorMessage(code, text), detailCode(text)))
                 }
             } catch (ce: CancellationException) {
                 testTrace?.invoke("вызов $method $path ОТМЕНЁН (корутину закрыли снаружи)")
@@ -3952,6 +4176,19 @@ object ApiClient {
     suspend fun cancelParcel(id: Int): Result<Unit> =
         call("POST", "/parcels/$id/cancel", null, auth = true).map { }
 
+    /**
+     * «Купи и привези»: заказчик поднимает сумму, на которую согласен.
+     *
+     * В аптеке товар оказался дороже сметы — курьер упирался в отказ «сумма выше
+     * согласованной», а поднять её было НЕГДЕ: ручка на сервере жила, кнопки не было ни на
+     * одном экране (аудит сценариев 30.08). Только вверх и только до вручения — это деньги
+     * заказчика и его решение.
+     */
+    suspend fun raiseParcelBudget(id: Int, codAmountKop: Int): Result<Unit> =
+        call("POST", "/courier/orders/$id/raise-budget",
+             JSONObject().put("cod_amount_kop", codAmountKop), auth = true).map { }
+            .onSuccess { Analytics.log("parcel_raise_budget") }
+
     /** Курьер: доступные посылки (без телефона и кода). Опц. фильтр по городам. */
     suspend fun getAvailableParcels(fromCity: String? = null, toCity: String? = null): Result<List<ParcelDto>> {
         val q = buildList {
@@ -4027,7 +4264,7 @@ object ApiClient {
     // ═══════════ C1: Курьер Юлдаша (профессиональная доставка) ═══════════
     // Пользователь подаёт заявку «Стать курьером» (транспорт + селфи) → админ одобряет →
     // курьер выходит «на линию» (город/межгород/регион), берёт заказы, доставляет по коду.
-    // Отправитель заказывает курьера/«купи и привези» — сервер считает цену (комиссия 8% прозрачно).
+    // Отправитель заказывает курьера/«купи и привези» — сервер считает цену (комиссия по ступени, прозрачно).
 
     private fun parseCourierApp(o: JSONObject) = CourierApplicationDto(
         id = o.optInt("id"),
@@ -5060,7 +5297,13 @@ object ApiClient {
 }
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
-class ApiException(val status: Int, message: String) : Exception(message)
+/**
+ * Отказ сервера. `status` — код HTTP, `detailCode` — машинная причина, если сервер её прислал
+ * (`detail.code`). Причина нужна там, где от неё зависит СЛЕДУЮЩИЙ шаг клиента: у выплат
+ * «банк отклонил» и «ответ банка непонятен» выглядят одинаково (оба 400), а вести себя после
+ * них надо ровно наоборот — начать новую попытку или не трогать её вовсе (волна 219).
+ */
+class ApiException(val status: Int, message: String, val detailCode: String = "") : Exception(message)
 
 /** Цена одного класса машины в options оценки — все цены одним запросом.
  *  `open=false` — класс есть в тарифах, но в этом городе ещё не набралось водителей. */
@@ -5332,6 +5575,13 @@ data class InstantOrderDto(
     // Экрану поиска это нужно, чтобы объяснить человеку, куда делась принятая им машина:
     // без строки он видит просто «ищем машину» и решает, что приложение сбросилось.
     val reassigns: Int = 0,
+    // Водитель довёз и уехал, «Завершил» не нажал — считает сервер, когда пассажиру можно
+    // закрыть поездку самому. Локальный секундомер экрана перезапуск не переживёт.
+    val passengerCanClose: Boolean = false,
+    // Оценка. Звёзды жили только на свежем финальном экране — закрыл его, и оценить поездку
+    // было негде, хотя окно открыто 60 дней (аудит сценариев 30.08). Считает сервер.
+    val myStars: Int = 0,        // сколько звёзд я уже поставил по этой поездке (0 — не оценивал)
+    val canRate: Boolean = false, // окно оценки ещё открыто
     val cancelReason: String,
     val contactThenCancel: Boolean = false,  // B8-8: отмена после открытия телефона/чата → мягкий баннер
     // Деньги-правила (волна 2 §5): сурж/ожидание/отмены. Всё считает сервер, UI только показывает.
@@ -5405,6 +5655,8 @@ data class InstantOrderDto(
     val pendingToText: String = "",
     val pendingPrice: Int = 0,
     val pendingReason: String = "",
+    // Когда спросили водителя — для живого счётчика «ждём N минут».
+    val pendingAskedAt: String? = null,
     // Водитель завершил поездку досрочно и почему: shift_end|out_of_zone|no_fuel|other.
     val earlyFinishReason: String = "",
     // Остановки по пути и признак «сейчас стоим на остановке» (тикает ожидание).
@@ -5436,7 +5688,17 @@ data class InstantOrderDto(
      * приложение тут же перестало следить за заказом, который вот-вот найдёт машину.
      */
     val isWaitingQueue: Boolean
-        get() = !waitUntil.isNullOrBlank() && status != "done" && status != "cancelled"
+        get() {
+            val до = waitUntil
+            if (до.isNullOrBlank() || status == "done" || status == "cancelled") return false
+            // Срок ожидания СВЕРЯЕМ С ЧАСАМИ (аудит сценариев 30.08, P0). Раньше проверялось
+            // только наличие срока — и когда воркер переставал искать, экран продолжал писать
+            // «ищем машину дальше» до конца времён. Человек ждал машину, которую никто уже
+            // не искал. Не разобрали строку времени — считаем очередь живой: чужой формат
+            // даты не повод обрывать поиск, который, может быть, идёт.
+            val конец = com.yuldash.app.parseIsoUtcMillis(до) ?: return true
+            return конец > System.currentTimeMillis()
+        }
     /** Предзаказ «на время», ещё не отправлен в поиск. */
     val isScheduled: Boolean get() = status == "scheduled"
     /** Идёт подбор водителя (машину ещё ищем). */
@@ -5478,6 +5740,9 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     offerExpiresAt = if (isNull("offer_expires_at")) null else optString("offer_expires_at").ifBlank { null },
     cancelBy = optString("cancel_by"),
     reassigns = optInt("reassigns"),
+    passengerCanClose = optBoolean("passenger_can_close"),
+    myStars = optInt("my_stars"),
+    canRate = optBoolean("can_rate"),
     cancelReason = optString("cancel_reason"),
     contactThenCancel = optBoolean("contact_then_cancel"),
     surgeK = optDouble("surge_k", 1.0),
@@ -5525,6 +5790,7 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     pendingToText = optJSONObject("pending_destination")?.optString("to_text") ?: "",
     pendingPrice = optJSONObject("pending_destination")?.optInt("price") ?: 0,
     pendingReason = optJSONObject("pending_destination")?.optString("reason") ?: "",
+    pendingAskedAt = optJSONObject("pending_destination")?.optString("asked_at")?.ifBlank { null },
     earlyFinishReason = optString("early_finish_reason"),
     stops = optJSONArray("stops")?.let { arr ->
         (0 until arr.length()).mapNotNull { i ->
@@ -5551,6 +5817,13 @@ data class TaxiAvailabilityDto(
     val messageRu: String,
     val messageBa: String,
     val city: String = "",
+    // Промо запуска «первым водителям — N% комиссии»: идёт ли НАБОР прямо сейчас.
+    // Экран зазывал водителей нулевой комиссией безусловно, а промо по умолчанию выключено
+    // и в любом случае кончается датой (аудит 2026-09-02). Старый сервер полей не шлёт →
+    // promoOn=false, и обещания не будет.
+    val promoOn: Boolean = false,
+    val promoPercent: Double = 0.0,
+    val promoDays: Int = 0,
 )
 
 /**
@@ -5610,9 +5883,18 @@ data class TaxiApplicationDto(
     val osagoUntil: String? = null,
     val permitUntil: String? = null,
     val inspectionUntil: String? = null,   // диагностическая карта (техосмотр)
+    // ОСГОП — страховка ответственности перевозчика, обязательна с 01.09.2024. Была в базе,
+    // но не доезжала до экрана: не показывалась и никогда не истекала (аудит 30.08).
+    val osgopUntil: String? = null,
     val docsExpired: Boolean = false,      // допуск к такси снят до обновления документа
     val docsMissing: List<String> = emptyList(),   // какие сроки не заполнены (модератору и водителю)
     val docsDaysLeft: Int? = null,         // дней до ближайшего истечения (отрицательное = просрочен)
+    // Что ответил государственный реестр (580-ФЗ). Три состояния, и различать их обязательно:
+    // проверяли и подтвердили; проверяли и разрешения нет; не спрашивали или реестр молчал —
+    // тогда не показываем ничего, человек не виноват в нашем таймауте.
+    val permitRegistryChecked: Boolean = false,
+    val permitRegistryOk: Boolean = false,
+    val permitRegistryUntil: String? = null,
     val comment: String,         // комментарий админа при отклонении
     val createdAt: String,
     val reviewedAt: String?,
@@ -5637,9 +5919,13 @@ private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
     osagoUntil = if (isNull("osago_until")) null else optString("osago_until").ifBlank { null },
     permitUntil = if (isNull("permit_until")) null else optString("permit_until").ifBlank { null },
     inspectionUntil = if (isNull("inspection_until")) null else optString("inspection_until").ifBlank { null },
+    osgopUntil = if (isNull("osgop_until")) null else optString("osgop_until").ifBlank { null },
     docsExpired = optBoolean("docs_expired"),
     docsMissing = optJSONArray("docs_missing")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
     docsDaysLeft = if (isNull("docs_days_left")) null else optInt("docs_days_left"),
+    permitRegistryChecked = optBoolean("permit_registry_checked"),
+    permitRegistryOk = optBoolean("permit_registry_ok"),
+    permitRegistryUntil = optString("permit_registry_until").ifBlank { null },
     comment = optString("comment"),
     createdAt = optString("created_at"),
     reviewedAt = if (isNull("reviewed_at")) null else optString("reviewed_at").ifBlank { null },
@@ -5648,6 +5934,152 @@ private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
     phone = optString("phone"),
     invitedBy = if (isNull("invited_by")) null else optString("invited_by").ifBlank { null },
 )
+
+/** Один кадр фотоконтроля: что снять, подсказка и что уже прислано. */
+data class CarPhotoSlotDto(
+    val code: String,          // front | back | left | right | salon | trunk
+    val ru: String,
+    val ba: String,
+    val hintRu: String,
+    val hintBa: String,
+    val url: String? = null,   // уже присланный кадр (приватная ссылка)
+    val verdict: String = "",  // "ok" или код причины: too_small | screenshot | stale | duplicate
+)
+
+/**
+ * Состояние фотоконтроля машины (580-ФЗ).
+ *
+ * `stage` — ступень мягкой лестницы: ok (срок не вышел) → remind (1–3 дня) →
+ * slow (4–7 дней, приоритет вниз) → blocked (пауза до фото). Экран показывает её словами,
+ * а не цифрами: человек должен понимать, что будет дальше, до того как это случится.
+ */
+data class CarPhotoDto(
+    val mode: String = "taxi",
+    val enabled: Boolean = false,      // контроль включён на сервере
+    val required: Boolean = false,     // прямо сейчас есть открытый контроль
+    val status: String = "",           // waiting | review | passed | failed
+    val seq: Int = 0,                  // номер контроля: первый — с «шашечками»
+    val dueAt: String? = null,
+    val daysLeft: Int = 0,             // отрицательное = просрочен
+    val stage: String = "ok",
+    val lateDays: Int = 0,
+    val winter: Boolean = false,       // зимой чистый кузов не требуем
+    val checkSigns: Boolean = false,   // первый контроль такси: фонарь и «шашечки»
+    val manual: Boolean = false,       // смотрит человек
+    val rejectReason: String = "",     // что переснять после отказа
+    val slots: List<CarPhotoSlotDto> = emptyList(),
+    val missing: List<String> = emptyList(),
+    val lastPassedAt: String? = null,
+    val keepDays: Int = 90,            // сколько живут сами снимки
+    // Требование по жалобе «грязная машина» — если оно сейчас открыто.
+    val demand: CarPhotoDemandDto? = null,
+    // По каким пунктам смотрят салон. Все три видны на фото; запаха среди них нет.
+    val cleanRules: List<BiText> = emptyList(),
+)
+
+/**
+ * Требование фото по жалобе «грязная машина»: сутки на снимок салона.
+ *
+ * Отдельно от планового контроля намеренно: плановый — обязанность с лестницей и паузой,
+ * требование — просьба показать то, о чём написали. Работу оно не ограничивает вообще.
+ */
+data class CarPhotoDemandDto(
+    val id: Int = 0,
+    val status: String = "",          // waiting | review
+    val dueAt: String? = null,
+    val hoursLeft: Int = 0,
+    val overdue: Boolean = false,
+    val slots: List<CarPhotoSlotDto> = emptyList(),
+    val missing: List<String> = emptyList(),
+)
+
+/** Двуязычная строка правила: сервер шлёт оба языка, экран берёт нужный. */
+data class BiText(val ru: String, val ba: String)
+
+/** Оффер и причина, почему его нет. `blocked = null` — ждём заказ по-настоящему. */
+data class DriverOfferStateDto(
+    val offer: InstantOrderDto? = null,
+    val blocked: String? = null,
+)
+
+/** Ответ на один присланный кадр. */
+data class CarPhotoShotDto(
+    val url: String,
+    val slot: String,
+    val ok: Boolean,
+    val reason: String,
+    val missing: List<String>,
+)
+
+private fun JSONObject.toCarPhotoSlots(): List<CarPhotoSlotDto> =
+    optJSONArray("slots")?.let { arr ->
+        (0 until arr.length()).mapNotNull { i ->
+            arr.optJSONObject(i)?.let { o ->
+                CarPhotoSlotDto(
+                    code = o.optString("code"),
+                    ru = o.optString("ru"),
+                    ba = o.optString("ba"),
+                    hintRu = o.optString("hint_ru"),
+                    hintBa = o.optString("hint_ba"),
+                    url = if (o.isNull("url")) null else o.optString("url").ifBlank { null },
+                    verdict = o.optString("verdict"),
+                )
+            }
+        }
+    } ?: emptyList()
+
+private fun JSONObject.toCarPhotoDto(): CarPhotoDto {
+    val slots = optJSONArray("slots")?.let { arr ->
+        (0 until arr.length()).mapNotNull { i ->
+            arr.optJSONObject(i)?.let { o ->
+                CarPhotoSlotDto(
+                    code = o.optString("code"),
+                    ru = o.optString("ru"),
+                    ba = o.optString("ba"),
+                    hintRu = o.optString("hint_ru"),
+                    hintBa = o.optString("hint_ba"),
+                    url = if (o.isNull("url")) null else o.optString("url").ifBlank { null },
+                    verdict = o.optString("verdict"),
+                )
+            }
+        }
+    } ?: emptyList()
+    return CarPhotoDto(
+        mode = optString("mode", "taxi"),
+        enabled = optBoolean("enabled"),
+        required = optBoolean("required"),
+        status = optString("status"),
+        seq = optInt("seq"),
+        dueAt = if (isNull("due_at")) null else optString("due_at").ifBlank { null },
+        daysLeft = optInt("days_left"),
+        stage = optString("stage", "ok"),
+        lateDays = optInt("late_days"),
+        winter = optBoolean("winter"),
+        checkSigns = optBoolean("check_signs"),
+        manual = optBoolean("manual"),
+        rejectReason = optString("reject_reason"),
+        slots = slots,
+        missing = optJSONArray("missing")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
+        lastPassedAt = if (isNull("last_passed_at")) null else optString("last_passed_at").ifBlank { null },
+        keepDays = if (optInt("keep_days") > 0) optInt("keep_days") else 90,
+        demand = optJSONObject("demand")?.let { d ->
+            CarPhotoDemandDto(
+                id = d.optInt("id"),
+                status = d.optString("status"),
+                dueAt = if (d.isNull("due_at")) null else d.optString("due_at").ifBlank { null },
+                hoursLeft = d.optInt("hours_left"),
+                overdue = d.optBoolean("overdue"),
+                slots = d.toCarPhotoSlots(),
+                missing = d.optJSONArray("missing")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
+            )
+        },
+        cleanRules = optJSONArray("clean_rules")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let { o -> BiText(o.optString("ru"), o.optString("ba")) }
+            }
+        } ?: emptyList(),
+    )
+}
 
 /** Предрейсовое подтверждение на сегодня (580-ФЗ, честный минимум — самодекларация, не медосмотр).
  *  required=false → гейт выключен на сервере (пока не выкачено приложение с экраном). */
@@ -5726,6 +6158,11 @@ data class TaxiWorkdayDto(
     val limitHours: Int,             // лимит смены, часов (для текстов «из 8»)
     val blocked: Boolean,            // отдых: такси закрыто до unlockAt
     val unlockAt: String?,           // когда снова на линию (ISO, UTC-наивное), null если не заблокирован
+    // Недельный потолок. Он был невидим: кабинет писал «смена свободна», а линию закрыла
+    // НЕДЕЛЯ, и человек не понимал, почему не идут заказы (аудит сценариев 30.08).
+    val weekBlocked: Boolean = false,   // линия закрыта недельным лимитом
+    val weekLimitHours: Int = 40,       // недельный лимит, часов
+    val weekSeconds: Int = 0,           // сколько уже за рулём за скользящую неделю, секунд
     val returnRideUsed: Boolean,     // «один попутчик домой» уже опубликован
     // Дашборд кабинета (заработок/заказы за сегодня + ступень комиссии по поездкам).
     val earningsToday: Int = 0,      // legacy: валовая сумма за сегодня, ₽
@@ -6058,6 +6495,7 @@ data class DriverStatusDto(
     val genderVerified: Boolean = false,
     val autocheckResult: String = "",   // "" / pass / needs_human / reject / error
     val autocheckData: String = "",      // JSON: распознанные поля + коды причин
+    val tipsSbp: String = "",            // СБП водителя для чаевых; "" = не принимает
 )
 
 /** F17 — постоянный (регулярный) маршрут водителя: «Баймаҡ→Уфа по пятницам в 8:00».
@@ -6325,6 +6763,32 @@ data class SupportTicketDto(
     val messages: List<SupportMessageDto>,
 )
 
+/** Один совет по поездке: код + готовый текст на двух языках (сочиняет сервер). */
+data class RideTipDto(val code: String, val ru: String, val ba: String)
+
+/** Диагностика поездки для водителя. allGood = советов нет, всё в порядке. */
+data class RideTipsDto(
+    val rideId: Int,
+    val tips: List<RideTipDto>,
+    val allGood: Boolean,
+    val routeAvgPrice: Int?,
+    val routeSample: Int,
+)
+
+/** Строка очереди обращений у поддержки: кто написал и о чём последнее сообщение. */
+data class AdminSupportTicketDto(
+    val id: Int,
+    val userId: Int,
+    val userName: String,
+    val subject: String,
+    val status: String,          // open | closed
+    val lastMessage: String,
+    val lastSender: String,      // user | admin
+    val messageCount: Int,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
 /** Строка списка «Мои обращения»: последнее сообщение + метка непрочитанного. */
 data class SupportTicketRowDto(
     val id: Int,
@@ -6448,6 +6912,26 @@ data class SavedPlaceDto(
     val usedAt: String = "",
 )
 /** Недавний адрес назначения (GET /places/recent, свежие сверху). */
+/** Выгрузка «скачать мои данные»: имя файла и его содержимое. */
+data class MyDataExportDto(val filename: String, val text: String)
+
+/** Что Юлдаш хранит о человеке: сколько и до какого срока. */
+data class MyDataDto(
+    val rides: Int,
+    val ridesDays: Int,
+    val bookings: Int,
+    val messages: Int,
+    val messagesDays: Int,
+    val voices: Int,
+    val voicesDays: Int,
+    val notifications: Int,
+    val notificationsDays: Int,
+    val driverDocs: Int,
+    val driverDocsRemovable: Boolean,
+    val locationStored: Boolean,
+    val cardStored: Boolean,
+)
+
 data class RecentPlaceDto(
     val id: Int, val address: String, val lat: Double, val lng: Double, val usedAt: String,
 )

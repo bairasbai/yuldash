@@ -17,6 +17,7 @@ import { SubHeader } from "./ConsentsScreen";
 import { IconArrow, IconRequest, IconCheck } from "../components/Icons";
 import { formatWhen } from "../utils/format";
 import { useScrollMemory } from "../utils/useScrollMemory";
+import { track } from "../analytics";
 
 const PREF_LABEL: Record<string, [string, string]> = {
   women: ["Только женщины", "Тик ҡатын-ҡыҙ"],
@@ -210,6 +211,7 @@ function RespondSheet({
         price ? Math.max(0, parseInt(price, 10) || 0) : 0,
         comment.trim()
       );
+      track("respond_request");
       onDone(res.id);
     } catch (e) {
       setError(

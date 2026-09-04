@@ -46,6 +46,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.CheckCircle
@@ -201,6 +202,8 @@ internal fun CourierScreen(
     onBecomeCourier: () -> Unit,
     // «Мой заработок» курьера: раньше он видел только «должен Юлдашу столько-то».
     onEarnings: () -> Unit = {},
+    // Фотоконтроль машины (580-ФЗ): две стороны кузова и багажник раз в две недели.
+    onCarPhoto: () -> Unit = {},
 ) {
     var application by remember { mutableStateOf<CourierApplicationDto?>(null) }
     var applicationChecked by remember { mutableStateOf(false) }
@@ -285,7 +288,8 @@ internal fun CourierScreen(
                 m == null -> Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
                     AppErrorState(onRetry = { reloadKey++ })
                 }
-                else -> CourierWorkContent(m, onReloadMe = { reloadKey++ }, onEarnings = onEarnings, reloadingMe = loading)
+                else -> CourierWorkContent(m, onReloadMe = { reloadKey++ }, onEarnings = onEarnings,
+                                           onCarPhoto = onCarPhoto, reloadingMe = loading)
             }
         }
     }
@@ -317,7 +321,7 @@ private fun CourierNotApprovedView(
         else -> Triple(
             "🛵",
             appText("Стань курьером Юлдаша", "Юлдаш курьеры бул"),
-            appText("Развози посылки своим и зарабатывай. Комиссия по ступени — от 0% до 8%, всегда видна заранее.", "Үҙебеҙҙекеләргә бандеролдәр илт тә аҡса эшлә. Баҫҡыс буйынса комиссия 0%-тан 8%-ҡа тиклем, алдан уҡ күренә."),
+            appText("Развози посылки своим и зарабатывай. Комиссия по ступени — от 0% до 15%, всегда видна заранее.", "Үҙебеҙҙекеләргә бандеролдәр илт тә аҡса эшлә. Баҫҡыс буйынса комиссия 0%-тан 15%-ҡа тиклем, алдан уҡ күренә."),
         )
     }
     if (compact) {
@@ -416,6 +420,7 @@ private fun CourierWorkContent(
     me: CourierMeDto,
     onReloadMe: () -> Unit,
     onEarnings: () -> Unit = {},
+    onCarPhoto: () -> Unit = {},
     reloadingMe: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
@@ -753,7 +758,7 @@ private fun CourierWorkContent(
                     onGoOnline = { setOnline(true) },
                 )
                 1 -> CourierCarryingTab(online = online, list = carrying, onList = { carrying = it }, onGoOrders = { sub = 0 })
-                else -> CourierCabinetTab(me, onReloadMe, onEarnings, reloadingMe)
+                else -> CourierCabinetTab(me, onReloadMe, onEarnings, onCarPhoto, reloadingMe)
             }
         }
         // Живая позиция отправителям. Ничего не рисует — держит каналы открытыми, пока курьер
@@ -2205,6 +2210,7 @@ private fun CourierCabinetTab(
     me: CourierMeDto,
     onReloadMe: () -> Unit,
     onEarnings: () -> Unit = {},
+    onCarPhoto: () -> Unit = {},
     reloading: Boolean = false,
 ) {
     val ctx = LocalContext.current
@@ -2237,6 +2243,16 @@ private fun CourierCabinetTab(
                     onClick = onEarnings,
                     style = AppButtonStyle.Secondary,
                     icon = Icons.Default.Payments,
+                )
+            }
+            // Фотоконтроль машины (580-ФЗ). Состояние показываем на самом экране: здесь
+            // дверь, а не сводка — иначе кабинет превращается в приборную панель.
+            item {
+                AppButton(
+                    text = appText("Фотоконтроль машины", "Машина фотоконтроле"),
+                    onClick = onCarPhoto,
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.PhotoCamera,
                 )
             }
             // ⭐ Мой приоритет: кому заказ падает первым и за что. Считается по ДОСТАВКАМ,
@@ -2303,9 +2319,9 @@ private fun CourierCabinetTab(
                 item {
                     val tierLine = when (st.feeTier) {
                         "promo" -> appText("🎁 Промо для первых: 0% — пользуйся!", "🎁 Тәүгеләр өсөн промо: 0% — файҙалан!")
-                        "tier1" -> appText("Новичок: 3% — самая низкая ставка", "Яңы башлаусы: 3% — иң түбән ставка")
-                        "tier2" -> appText("Опытный курьер: 5%", "Тәжрибәле курьер: 5%")
-                        "tier3" -> appText("8% — обычная ставка", "8% — ғәҙәти ставка")
+                        "tier1" -> appText("Новичок: 3% — первые 30 доставок", "Яңы башлаусы: 3% — тәүге 30 илтеү")
+                        "tier2" -> appText("Опытный курьер: 8% — до 100 доставок", "Тәжрибәле курьер: 8% — 100 илтеүгә тиклем")
+                        "tier3" -> appText("15% — обычная ставка", "15% — ғәҙәти ставка")
                         else -> appText("Комиссия по твоей ступени", "Баҫҡысың буйынса комиссия")
                     }
                     val promo = st.feeTier == "promo"

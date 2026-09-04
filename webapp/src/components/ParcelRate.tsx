@@ -12,6 +12,7 @@ import { useState } from "react";
 import { useLang } from "../i18n/lang";
 import { rateParcel } from "../api/parcels";
 import { IconStar } from "./Icons";
+import { track } from "../analytics";
 
 export default function ParcelRate({
   parcelId,
@@ -44,6 +45,7 @@ export default function ParcelRate({
     setError(null);
     try {
       await rateParcel(parcelId, n, text.trim());
+      track("parcel_rate", { stars: n });
       setDone(true);
     } catch {
       // Возвращаем звёзды: они показывают, что стоит НА СЕРВЕРЕ, а не что

@@ -135,6 +135,10 @@ export default function LoginScreen() {
       // Сначала сохраняем сессию (токен в localStorage) — тогда /me/update пойдёт с авторизацией.
       login(res.access_token, res.refresh_token, res.user);
       track("login_success", { method: "telegram" });
+      // Имя как в приложении: иначе веб-входы не попадают в общую воронку регистрации.
+      track("login", { method: "telegram" });
+      // Имя как в приложении: иначе веб-входы не попадают в общую воронку регистрации.
+      track("login", { method: "telegram" });
       // Необязательное имя при первом входе — обновим профиль (реальный /me/update).
       const nm = name.trim();
       if (nm) {

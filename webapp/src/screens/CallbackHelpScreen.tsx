@@ -12,6 +12,7 @@ import { ApiError } from "../api/client";
 import { requestCallback } from "../api/safety";
 import { SubHeader } from "./ConsentsScreen";
 import { IconPhone, IconCheck, IconHeart } from "../components/Icons";
+import { track } from "../analytics";
 
 type State = "idle" | "sending" | "sent" | "error";
 
@@ -30,6 +31,7 @@ export default function CallbackHelpScreen() {
     setError(null);
     try {
       await requestCallback(note.trim());
+      track("callback_request");
       setState("sent");
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {

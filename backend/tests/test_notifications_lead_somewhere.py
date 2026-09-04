@@ -24,6 +24,8 @@ import pytest
 
 _REPO = pathlib.Path(__file__).resolve().parents[2]
 _APP = _REPO / "android" / "app" / "src" / "main" / "java" / "com" / "yuldash" / "app"
+_WEB = _REPO / "webapp" / "src"
+_WEB = _REPO / "webapp" / "src"
 _BACKEND = pathlib.Path(__file__).resolve().parents[1] / "app"
 
 # Виды, которые сознательно никуда не ведут — каждый с причиной. Список только уменьшается.
@@ -38,6 +40,16 @@ _PUSH_WITHOUT_ROUTE: dict[str, str] = {
 def _skip_without_app():
     if not _APP.is_dir():
         pytest.skip("Android-исходников рядом нет — сторожить нечего")
+
+
+def _skip_without_web():
+    if not _WEB.is_dir():
+        pytest.skip("исходников веб-версии рядом нет — сторожить нечего")
+
+
+def _skip_without_web():
+    if not _WEB.is_dir():
+        pytest.skip("исходников веб-версии рядом нет — сторожить нечего")
 
 
 def _py_sources() -> str:
@@ -138,3 +150,129 @@ def test_chat_pushes_do_not_share_one_type():
     types = _server_push_types()
     chats = {t for t in types if t.endswith("chat")}
     assert chats == {"chat", "order_chat", "parcel_chat"}, f"типы чатов разъехались: {chats}"
+
+
+# ----------------------------------------------------------------------------------
+#  То же самое для ВЕБ-ВЕРСИИ.
+#
+#  Сторож выше сторожил только приложение, и ровно та же дыра тихо жила в вебе: сервер
+#  слал двенадцать видов событий, а экран уведомлений обрабатывал три. По остальным
+#  карточка пружинила под пальцем — то есть обещала переход, — и человек, прочитав
+#  «Курьер забрал посылку», жал и оставался на том же месте (сверка клиентов, 2026-08-31).
+#
+#  Проверяем два места, потому что путей к экрану два:
+#   • `NotificationsScreen.tsx` — тап по карточке в Центре уведомлений;
+#   • `services._web_push_url` — клик по системному уведомлению браузера.
+#  Разъедутся — человек попадёт в разные места по одному и тому же событию.
+# ----------------------------------------------------------------------------------
+
+def _web_notification_branches() -> set[str]:
+    """Ветки `case "..."` из функции deepLink на экране уведомлений."""
+    src = (_WEB / "screens" / "NotificationsScreen.tsx").read_text(encoding="utf-8")
+    block = re.search(r"switch\s*\(n\.ref_kind\)\s*\{(.+?)\n\s*\}", src, re.S)
+    assert block, "не нашёл разбор ref_kind в вебе — сторож ослеп, почини разбор"
+    return set(re.findall(r'case\s+"([a-z_]+)"', block.group(1)))
+
+
+def _web_push_kinds() -> set[str]:
+    """Виды, которые умеет разложить в адрес серверная функция веб-пуша."""
+    src = (_BACKEND / "services.py").read_text(encoding="utf-8")
+    block = re.search(r"def _web_push_url\(.+?\n\n\ndef ", src, re.S)
+    assert block, "не нашёл _web_push_url — сторож ослеп"
+    return set(re.findall(r'"([a-z_]+)":', block.group(0))) | set(
+        re.findall(r'kind == "([a-z_]+)"', block.group(0))
+    )
+
+
+def test_every_notification_kind_can_be_opened_in_web():
+    _skip_without_web()
+    kinds = _server_ref_kinds()
+    handled = _web_notification_branches()
+    dead = sorted(kinds - handled - set(_KIND_WITHOUT_SCREEN))
+    assert not dead, (
+        "В ВЕБЕ по этим уведомлениям тап никуда не ведёт — карточка обещает переход и врёт:\n"
+        + "\n".join(f"  • {k}" for k in dead)
+        + "\nЛибо добавь ветку в deepLink (webapp/src/screens/NotificationsScreen.tsx), "
+        "либо впиши сюда с причиной."
+    )
+
+
+def test_web_push_click_leads_where_the_card_leads():
+    """Клик по системному уведомлению ведёт туда же, куда тап по карточке.
+
+    Иначе одно и то же событие открывает разные экраны — в зависимости от того, читал
+    человек его в браузере или в списке. Это не мелочь: по «курьер забрал посылку» из пуша
+    он попадёт в одно место, а из Центра уведомлений — в другое, и решит, что приложение врёт.
+    """
+    _skip_without_web()
+    kinds = _server_ref_kinds()
+    routed = _web_push_kinds()
+    dead = sorted(kinds - routed - set(_KIND_WITHOUT_SCREEN))
+    assert not dead, (
+        "Клик по веб-пушу об этих событиях ведёт на главную вместо нужного экрана:\n"
+        + "\n".join(f"  • {k}" for k in dead)
+        + "\nДобавь вид в _web_push_url (backend/app/services.py)."
+    )
+
+
+# ----------------------------------------------------------------------------------
+#  То же самое для ВЕБ-ВЕРСИИ.
+#
+#  Сторож выше сторожил только приложение, и ровно та же дыра тихо жила в вебе: сервер
+#  слал двенадцать видов событий, а экран уведомлений обрабатывал три. По остальным
+#  карточка пружинила под пальцем — то есть обещала переход, — и человек, прочитав
+#  «Курьер забрал посылку», жал и оставался на том же месте (сверка клиентов, 2026-08-31).
+#
+#  Проверяем два места, потому что путей к экрану два:
+#   • `NotificationsScreen.tsx` — тап по карточке в Центре уведомлений;
+#   • `services._web_push_url` — клик по системному уведомлению браузера.
+#  Разъедутся — человек попадёт в разные места по одному и тому же событию.
+# ----------------------------------------------------------------------------------
+
+def _web_notification_branches() -> set[str]:
+    """Ветки `case "..."` из функции deepLink на экране уведомлений."""
+    src = (_WEB / "screens" / "NotificationsScreen.tsx").read_text(encoding="utf-8")
+    block = re.search(r"switch\s*\(n\.ref_kind\)\s*\{(.+?)\n\s*\}", src, re.S)
+    assert block, "не нашёл разбор ref_kind в вебе — сторож ослеп, почини разбор"
+    return set(re.findall(r'case\s+"([a-z_]+)"', block.group(1)))
+
+
+def _web_push_kinds() -> set[str]:
+    """Виды, которые умеет разложить в адрес серверная функция веб-пуша."""
+    src = (_BACKEND / "services.py").read_text(encoding="utf-8")
+    block = re.search(r"def _web_push_url\(.+?\n\n\ndef ", src, re.S)
+    assert block, "не нашёл _web_push_url — сторож ослеп"
+    return set(re.findall(r'"([a-z_]+)":', block.group(0))) | set(
+        re.findall(r'kind == "([a-z_]+)"', block.group(0))
+    )
+
+
+def test_every_notification_kind_can_be_opened_in_web():
+    _skip_without_web()
+    kinds = _server_ref_kinds()
+    handled = _web_notification_branches()
+    dead = sorted(kinds - handled - set(_KIND_WITHOUT_SCREEN))
+    assert not dead, (
+        "В ВЕБЕ по этим уведомлениям тап никуда не ведёт — карточка обещает переход и врёт:\n"
+        + "\n".join(f"  • {k}" for k in dead)
+        + "\nЛибо добавь ветку в deepLink (webapp/src/screens/NotificationsScreen.tsx), "
+        "либо впиши сюда с причиной."
+    )
+
+
+def test_web_push_click_leads_where_the_card_leads():
+    """Клик по системному уведомлению ведёт туда же, куда тап по карточке.
+
+    Иначе одно и то же событие открывает разные экраны — в зависимости от того, читал
+    человек его в браузере или в списке. Это не мелочь: по «курьер забрал посылку» из пуша
+    он попадёт в одно место, а из Центра уведомлений — в другое, и решит, что приложение врёт.
+    """
+    _skip_without_web()
+    kinds = _server_ref_kinds()
+    routed = _web_push_kinds()
+    dead = sorted(kinds - routed - set(_KIND_WITHOUT_SCREEN))
+    assert not dead, (
+        "Клик по веб-пушу об этих событиях ведёт на главную вместо нужного экрана:\n"
+        + "\n".join(f"  • {k}" for k in dead)
+        + "\nДобавь вид в _web_push_url (backend/app/services.py)."
+    )

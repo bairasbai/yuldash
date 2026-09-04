@@ -103,11 +103,13 @@ class ViewModelDeepTest {
     // --- Реклама и статистика показов -------------------------------------
 
     @Test
-    fun partnerAdsExposeDemoListAndAdStatsHasEntryPerAd() {
+    fun partnerAdsStartEmptyAndAdStatsHasEntryPerDemoAd() {
         val vm = YuldashViewModel(SavedStateHandle())
 
-        // список рекламы = демо-данные
-        assertEquals(demoPartnerAds, vm.partnerAds.value)
+        // Реклама стартует ПУСТОЙ: до ответа сервера показывать нечего. Раньше здесь лежали
+        // демо-партнёры, и при обрыве связи человек видел выдуманную аптеку с демо-номером,
+        // а кнопка «Позвонить» набирала демо-телефон.
+        assertTrue(vm.partnerAds.value.isEmpty())
         // на каждый demo-ad — запись в статистике со значением по умолчанию
         assertEquals(demoPartnerAds.size, vm.adStats.size)
         demoPartnerAds.forEach { ad ->

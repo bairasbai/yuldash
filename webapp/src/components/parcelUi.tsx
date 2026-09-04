@@ -29,8 +29,16 @@ export function StatusPillParcel({ status }: { status: string }) {
     in_transit: { ru: "В пути", ba: "Юлда", cls: "badge--mint" },
     delivered: { ru: "Доставлено", ba: "Тапшырылды", cls: "badge--mint" },
     canceled: { ru: "Отменена", ba: "Кире алынды", cls: "badge--danger" },
+    // Возврат (аудит сценариев 30.08, P0). Этих двух статусов в вебе не было, и человек,
+    // чью коробку уже везут обратно, читал «Ищем курьера» — потому что незнакомый статус
+    // молча падал в значение по умолчанию. Приложение показывает возврат давно.
+    returning: { ru: "Везут обратно", ba: "Кире алып ҡайталар", cls: "badge--gold" },
+    returned: { ru: "Вернули отправителю", ba: "Ебәреүсегә ҡайтарылды", cls: "badge--danger" },
   };
-  const m = map[status] ?? map.created;
+  // Незнакомый статус НЕ выдаём за «ищем курьера»: лучше показать сырое слово, чем
+  // уверенно соврать. Так следующий новый статус на сервере будет видно сразу.
+  const m = map[status];
+  if (!m) return <span className="badge">{status}</span>;
   return <span className={`badge ${m.cls}`}>{appText(m.ru, m.ba)}</span>;
 }
 
@@ -200,6 +208,28 @@ export function CarryParcelCard({
         <a className="parcel-card__phone" href={`tel:${p.receiver_phone}`}>
           <IconPhone size={18} /> {p.receiver_phone}
         </a>
+      )}
+
+      {/* Телефон ОТПРАВИТЕЛЯ. Нужен ровно тогда, когда что-то пошло не так: получатель
+          не открывает, адрес не тот, вещь не влезает в багажник. Без него курьер стоял
+          у подъезда и звонить было некому. Гаснет вместе с остальными контактами. */}
+      {p.sender_phone && (
+        <a className="parcel-card__phone" href={`tel:${p.sender_phone}`}>
+          <IconPhone size={18} />{" "}
+          {appText(`Отправитель: ${p.sender_name || p.sender_phone}`, `Ебәреүсе: ${p.sender_name || p.sender_phone}`)}
+        </a>
+      )}
+
+      {/* Сколько раз уже пытались вручить. Курьеру это меняет план: на третий заход
+          он поедет не «как получится», а договорившись по телефону заранее. */}
+      {(p.delivery_attempts ?? 0) > 0 && (
+        <p className="parcel-card__desc">
+          {appText(
+            `Попыток вручить: ${p.delivery_attempts}`,
+            `Тапшырырға маташыу: ${p.delivery_attempts}`
+          )}
+          {p.return_reason ? ` · ${p.return_reason}` : ""}
+        </p>
       )}
 
       {/* Расчёт с получателем (buy_bring) */}
