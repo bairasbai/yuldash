@@ -2300,7 +2300,7 @@ internal fun RequestOfferSheet(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(appText("Предложить поездку", "Сәфәр тәҡдим итеү"), color = CanonText, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
-            Text("${request.from} → ${request.to}", color = CanonGreen2, fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
+            Text("${request.from} → ${request.to}", color = CanonGreen2, fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.Bold)
             val facts = buildList {
                 if (request.desiredAt.isNotBlank()) add(formatDepart(request.desiredAt))
                 request.maxPrice?.takeIf { it > 0 }?.let { add(appText("бюджет $it ₽", "бюджет $it ₽")) }
@@ -2313,7 +2313,7 @@ internal fun RequestOfferSheet(
                 Spacer(Modifier.width(10.dp))
                 Text(
                     appText("Цена фиксируется только после принятия пассажиром", "Хаҡ пассажир ҡабул иткәндән һуң ғына теркәлә"),
-                    color = CanonMutedStrong, fontSize = 13.sp, lineHeight = 18.sp,
+                    color = CanonMutedStrong, fontSize = 12.sp, lineHeight = 17.sp,
                 )
             }
         }
@@ -2468,7 +2468,7 @@ private fun PremiumPassengerRequestCard(
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("${request.from} → ${request.to}", color = CanonText, fontSize = 23.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("${request.from} → ${request.to}", color = CanonText, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (request.desiredAt.isNotBlank()) {
                         Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(17.dp))
@@ -2508,11 +2508,11 @@ private fun PremiumPassengerRequestCard(
                 SmallAvatar(request.passengerAvatar, request.passengerName, 46)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(request.passengerName, color = CanonText, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(request.passengerName, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val ratingLine = request.passengerRating?.takeIf { request.passengerRatingCount > 0 }?.let {
                         "★ ${String.format(java.util.Locale.US, "%.1f", it)} · " + appText("${request.passengerRatingCount} ${ratingsWordRu(request.passengerRatingCount)}", "${request.passengerRatingCount} баһа")
                     } ?: appText("Новый пассажир", "Яңы пассажир")
-                    Text(ratingLine, color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 19.sp)
+                    Text(ratingLine, color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 20.sp)
                 }
                 if (request.passengerVerified) {
                     Surface(color = CanonMint, shape = CanonItemShape) {
@@ -2542,7 +2542,7 @@ private fun PremiumPassengerRequestCard(
                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(7.dp))
                         Text(appText("Отклик отправлен", "Яуап ебәрелде"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                        if (request.myResponseId != null) TextButton(onClick = onWithdraw) { Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                        if (request.myResponseId != null) TextButton(onClick = onWithdraw) { Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                     }
                 }
             } else {
@@ -2559,8 +2559,8 @@ private fun RequestMetricCell(icon: ImageVector, value: String, label: String, m
     Surface(modifier = modifier.heightIn(min = 88.dp), color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
-            Text(value, color = CanonText, fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(label, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+            Text(value, color = CanonText, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(label, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
         }
     }
 }
@@ -2738,8 +2738,8 @@ private fun ResponseRequestSummary(r: com.yuldash.app.data.ResponseDto) {
                 Text(
                     r.requestFromCity,
                     color = CanonGreen2,
-                    fontSize = 18.sp,
-                    lineHeight = 23.sp,
+                    fontSize = 19.sp,
+                    lineHeight = 25.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
                     maxLines = 2,
@@ -2753,8 +2753,8 @@ private fun ResponseRequestSummary(r: com.yuldash.app.data.ResponseDto) {
                 Text(
                     r.requestToCity,
                     color = CanonGreen2,
-                    fontSize = 18.sp,
-                    lineHeight = 23.sp,
+                    fontSize = 19.sp,
+                    lineHeight = 25.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
                     maxLines = 2,
@@ -2795,7 +2795,7 @@ private fun PremiumResponseCard(
         color = CanonSurface,
         shape = CanonCardShape,
         border = BorderStroke(1.dp, CanonBorder),
-        shadowElevation = 2.dp,
+        shadowElevation = CanonDepth.card,
     ) {
         Column(
             Modifier.fillMaxWidth().padding(16.dp),
@@ -2825,8 +2825,8 @@ private fun PremiumResponseCard(
                     Text(
                         appText("Цена фиксируется после принятия", "Хаҡ ҡабул иткәндән һуң теркәлә"),
                         color = CanonWarn,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
                         fontWeight = FontWeight.Medium,
                     )
                 }
@@ -2857,7 +2857,7 @@ private fun ResponseMoneyHero(r: com.yuldash.app.data.ResponseDto) {
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 ResponseMoneyCell(
-                    label = appText("Ваш бюджет", "Һинең бюджетың"),
+                    label = appText("Твой бюджет", "Һинең бюджетың"),
                     value = if (r.requestMaxPrice > 0) "${r.requestMaxPrice} ₽" else appText("Не указан", "Күрсәтелмәгән"),
                     modifier = Modifier.weight(1f),
                 )
@@ -2876,12 +2876,12 @@ private fun ResponseMoneyHero(r: com.yuldash.app.data.ResponseDto) {
 @Composable
 private fun ResponseMoneyCell(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, color = CanonMutedStrong, fontSize = 13.sp, lineHeight = 17.sp, textAlign = TextAlign.Center)
+        Text(label, color = CanonMutedStrong, fontSize = 12.sp, lineHeight = 17.sp, textAlign = TextAlign.Center)
         Spacer(Modifier.height(4.dp))
         Text(
             value,
             color = CanonGreen2,
-            fontSize = 25.sp,
+            fontSize = 24.sp,
             lineHeight = 30.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
@@ -2900,8 +2900,8 @@ private fun ResponseDriverTrust(r: com.yuldash.app.data.ResponseDto) {
                 Text(
                     r.driverName,
                     color = CanonText,
-                    fontSize = 18.sp,
-                    lineHeight = 22.sp,
+                    fontSize = 19.sp,
+                    lineHeight = 25.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f, fill = false),
                     maxLines = 2,
@@ -2938,7 +2938,7 @@ private fun ResponseDriverTrust(r: com.yuldash.app.data.ResponseDto) {
                     r.driverCar.ifBlank { appText("Машина не указана", "Машина күрһәтелмәгән") },
                     color = CanonMutedStrong,
                     fontSize = 14.sp,
-                    lineHeight = 18.sp,
+                    lineHeight = 20.sp,
                     maxLines = 2,
                 )
             }
@@ -3010,8 +3010,8 @@ private fun ResponseActionLabel(
     color: Color = CanonText,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(title, color = color, fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-        value?.let { Text(it, color = color, fontSize = 16.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+        Text(title, color = color, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        value?.let { Text(it, color = color, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
     }
 }
 

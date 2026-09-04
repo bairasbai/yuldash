@@ -624,8 +624,8 @@ private fun BookingDriverHeroCard(
                     Text(
                         driverName,
                         color = CanonText,
-                        fontSize = 21.sp,
-                        lineHeight = 27.sp,
+                        fontSize = 19.sp,
+                        lineHeight = 25.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -672,7 +672,7 @@ private fun BookingDriverHeroCard(
                     Text(
                         carSummary,
                         color = CanonText,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -699,8 +699,8 @@ private fun BookingRouteDecisionCard(
                     Text(
                         "${ride.from} → ${ride.to}",
                         color = CanonText,
-                        fontSize = 23.sp,
-                        lineHeight = 29.sp,
+                        fontSize = 24.sp,
+                        lineHeight = 30.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -769,8 +769,8 @@ private fun BookingDecisionMetric(
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(19.dp))
-            Text(value, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(label, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp, textAlign = TextAlign.Center, maxLines = 2)
+            Text(value, color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(label, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp, textAlign = TextAlign.Center, maxLines = 2)
         }
     }
 }
@@ -803,8 +803,8 @@ private fun BookingMeetingCard(
                         "Номер һәм теүәл геолокация ике яҡ ризалығына тиклем йәшерелгән.",
                     ),
                     color = CanonMuted,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
                 )
             }
             if (pickupLat != null && pickupLng != null) {
@@ -2481,7 +2481,7 @@ private fun ActiveTripDriverCard(
                     Text(
                         driverName,
                         color = CanonText,
-                        fontSize = 20.sp,
+                        fontSize = 19.sp,
                         lineHeight = 25.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
@@ -2491,13 +2491,13 @@ private fun ActiveTripDriverCard(
                         if (rating != null) {
                             Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text(rating, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(rating, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                         if (rating != null && verified) Spacer(Modifier.width(10.dp))
                         if (verified) {
                             Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(17.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text(appText("Проверен", "Тикшерелгән"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(appText("Проверен", "Тикшерелгән"), color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     CompactTrustLine(trips = trips, since = since)
@@ -2536,7 +2536,7 @@ private fun ActiveTripDriverCard(
                     Text(
                         carSummary,
                         color = CanonText,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -2563,13 +2563,13 @@ private fun ActiveTripBoardingCodeCard(code: String, role: String) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 Icon(Icons.Default.Pin, contentDescription = null, modifier = Modifier.size(19.dp))
-                Text(appText("Код посадки", "Ултырыу коды"), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(appText("Код посадки", "Ултырыу коды"), fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
             if (code.isNotBlank()) {
                 Text(
                     code,
-                    fontSize = 42.sp,
-                    lineHeight = 46.sp,
+                    fontSize = 34.sp,
+                    lineHeight = 40.sp,
                     letterSpacing = 8.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -2580,8 +2580,8 @@ private fun ActiveTripBoardingCodeCard(code: String, role: String) {
                     } else {
                         appText("Назови код водителю перед посадкой", "Ултырыр алдынан кодты йөрөтөүсегә әйт")
                     },
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
                     textAlign = TextAlign.Center,
                 )
             } else {
@@ -2644,7 +2644,7 @@ private fun ActiveTripProgressCard(
                 if (role == "driver") appText("Статус для пассажира", "Пассажир өсөн хәл")
                 else appText("Как едет машина", "Машина нисек килә"),
                 color = CanonText,
-                fontSize = 15.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
             )
             Box(Modifier.fillMaxWidth().height(28.dp)) {
@@ -2682,8 +2682,8 @@ private fun ActiveTripProgressCard(
                         label,
                         modifier = Modifier.weight(1f),
                         color = if (index <= activeIndex) CanonText else CanonMuted,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
                         fontWeight = if (index == activeIndex) FontWeight.Bold else FontWeight.Normal,
                         textAlign = when (index) {
                             0 -> TextAlign.Start
@@ -2735,13 +2735,13 @@ private fun ActiveTripRouteCard(
                     Text(
                         "${from.ifBlank { "—" }} → ${to.ifBlank { "—" }}",
                         color = CanonText,
-                        fontSize = 18.sp,
-                        lineHeight = 23.sp,
+                        fontSize = 19.sp,
+                        lineHeight = 25.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(statusText, color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text(statusText, color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
             }
             if (fromPoint != null && toPoint != null) {

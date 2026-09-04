@@ -5881,7 +5881,7 @@ internal fun InstantOfferOverlay(
         Surface(
             color = CanonBg,
             shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
-            shadowElevation = 18.dp,
+            shadowElevation = CanonDepth.sheet,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
@@ -6053,7 +6053,7 @@ private fun InstantOfferMoneyAndClass(order: InstantOrderDto) {
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(appText("Предполагаемый доход", "Көтөлгән килем"), style = CanonMicro, color = CanonMutedStrong)
-                Text(income, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, color = CanonText)
+                Text(income, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold, color = CanonText)
             }
         }
         Column(

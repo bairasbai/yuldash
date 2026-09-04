@@ -316,7 +316,11 @@ class MainActivity : ComponentActivity() {
         // в своей карточке, а не гадать, что изменилось.
         if (i?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) == true ||
             i?.getStringExtra("type") == "instant_status" ||
-            i?.getStringExtra("type") == "instant_payment"
+            i?.getStringExtra("type") == "instant_payment" ||
+            // «Пассажир выходит» — та же новость о ходе заказа, и вести должна туда же.
+            // Без этой строки водитель читал пуш «уже спускается», жал по нему и оставался
+            // на месте: для него это выглядит как поломка приложения.
+            i?.getStringExtra("type") == "instant_im_coming"
         ) {
             i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER)
             i.removeExtra("type")

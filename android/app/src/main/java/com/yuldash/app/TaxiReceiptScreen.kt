@@ -909,7 +909,7 @@ private fun TaxiReceiptActionRow(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    if (busy) appText("Подождите…", "Көтөгөҙ…") else text,
+                    if (busy) appText("Подожди…", "Көт…") else text,
                     color = CanonMuted,
                     fontSize = MoneyType.Caption,
                     lineHeight = MoneyType.CaptionLine,
