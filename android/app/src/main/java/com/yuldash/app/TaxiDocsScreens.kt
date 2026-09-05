@@ -1,5 +1,7 @@
 package com.yuldash.app
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -14,6 +16,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,9 +39,11 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
@@ -48,6 +53,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +74,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuldash.app.data.CarPhotoDto
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.TaxiApplicationDto
@@ -132,12 +139,15 @@ private val CapLead = 17.sp
 // ─────────────────────────── Документы и сроки ───────────────────────────
 
 @Composable
-internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
+internal fun TaxiDocumentsScreen(onBack: () -> Unit, onCarPhoto: () -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val lang = LocalAppLanguage.current
 
     var app by remember { mutableStateOf<TaxiApplicationDto?>(null) }
+    // Фотоконтроль машины (580-ФЗ). Отдельный запрос: контроль включается своим флагом и
+    // может быть выключен, когда документы уже работают. Молчит — блока просто нет на экране.
+    var carPhoto by remember { mutableStateOf<CarPhotoDto?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
@@ -163,6 +173,9 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
         ApiClient.getMyTaxiApplication()
             .onSuccess { app = it }
             .onFailure { error = true }
+        // Ошибку этого запроса НЕ показываем: фотоконтроль — дополнение к экрану документов,
+        // и его недоступность не повод рисовать человеку красный экран поверх рабочих сроков.
+        ApiClient.getCarPhoto("taxi").onSuccess { carPhoto = it }
         loading = false
     }
 
@@ -172,6 +185,7 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
         scope.launch {
             val r = when (field) {
                 "osago" -> ApiClient.updateTaxiDocuments(osagoUntil = isoDate)
+                "osgop" -> ApiClient.updateTaxiDocuments(osgopUntil = isoDate)
                 "permit" -> ApiClient.updateTaxiDocuments(permitUntil = isoDate)
                 else -> ApiClient.updateTaxiDocuments(inspectionUntil = isoDate)
             }
@@ -232,6 +246,19 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
                             InlineNotice(text = errText ?: msg, ok = errText == null)
                         }
                     }
+                    // Ответ государственного реестра — ВЫШЕ сроков документов: без разрешения
+                    // на линию не выйти вообще, и продлевать ОСАГО в этот момент бессмысленно.
+                    item(key = "registry") { Box(Modifier.appearIn(1)) { TaxiPermitRegistryBlock(a) } }
+                    // Фотоконтроль машины — рядом с реестром, до сроков: если машину давно не
+                    // показывали, линия встанет так же, как без разрешения, и продлевать ОСАГО
+                    // в этот момент бессмысленно.
+                    carPhoto?.takeIf { it.enabled }?.let { контроль ->
+                        item(key = "carphoto") {
+                            Box(Modifier.appearIn(1)) {
+                                TaxiCarPhotoBlock(контроль, onOpen = onCarPhoto)
+                            }
+                        }
+                    }
                     item(key = "label") { SmallSectionLabel(appText("ДОКУМЕНТЫ", "ДОКУМЕНТТАР")) }
                     item(key = "osago") {
                         Box(Modifier.appearIn(1)) {
@@ -263,6 +290,19 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
                                 hint = appText("Техосмотр машины", "Машинаның техник ҡарауы"),
                                 iso = a.inspectionUntil, busy = busy, lang = lang, ctx = ctx,
                                 onPicked = { save("inspection", it) },
+                            )
+                        }
+                    }
+                    item(key = "osgop") {
+                        Box(Modifier.appearIn(3)) {
+                            TaxiDocRow(
+                                icon = Icons.Default.Shield,
+                                title = appText("ОСГОП", "ОСГОП"),
+                                hint = appText(
+                                    "Страховка пассажиров — обязательна для такси с 2024 года",
+                                    "Юлаусылар страховкаһы — 2024 йылдан такси өсөн мотлаҡ"),
+                                iso = a.osgopUntil, busy = busy, lang = lang, ctx = ctx,
+                                onPicked = { save("osgop", it) },
                             )
                         }
                     }
@@ -358,6 +398,218 @@ private fun InlineNotice(text: String?, ok: Boolean) {
                     modifier = Modifier.weight(1f),
                 )
             }
+        }
+    }
+}
+
+/**
+ * Что ответил государственный реестр такси (580-ФЗ).
+ *
+ * Три состояния, и различать их обязательно:
+ *  • не спрашивали или реестр промолчал — не показываем НИЧЕГО. Человек не виноват в нашем
+ *    таймауте, и пугать его строкой «статус неизвестен» не за что;
+ *  • разрешение подтверждено — спокойная зелёная строка, чтобы он знал, что всё в порядке;
+ *  • разрешения нет — красный блок и пошаговый путь. Здесь важнее всего тон: это не
+ *    «ты не прошёл проверку», а «вот как получить, это бесплатно, а пока возит попутка».
+ */
+@Composable
+private fun TaxiPermitRegistryBlock(a: TaxiApplicationDto) {
+    if (!a.permitRegistryChecked) return
+    val ctx = LocalContext.current
+    var showHelp by remember { mutableStateOf(false) }
+
+    if (a.permitRegistryOk) {
+        Surface(color = CanonMint, shape = CanonItemShape) {
+            Row(
+                Modifier.fillMaxWidth().padding(CanonSpace.md),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Verified, contentDescription = null,
+                     tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text(
+                    if (a.permitRegistryUntil != null)
+                        appText("Разрешение подтверждено реестром, действует до ${shortDate(a.permitRegistryUntil)}",
+                                "Рөхсәт реестр менән раҫланған, ${shortDate(a.permitRegistryUntil)} тиклем ғәмәлдә")
+                    else
+                        appText("Разрешение подтверждено государственным реестром",
+                                "Рөхсәт дәүләт реестры менән раҫланған"),
+                    color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
+                )
+            }
+        }
+        return
+    }
+
+    Surface(color = CanonDangerBg, shape = CanonItemShape) {
+        Column(Modifier.fillMaxWidth().padding(CanonSpace.md),
+               verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.ErrorOutline, contentDescription = null,
+                     tint = CanonRed, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text(appText("Разрешения нет в реестре такси", "Такси реестрында рөхсәт юҡ"),
+                     color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+            Text(
+                appText(
+                    "Без него мы не имеем права давать тебе заказы такси — это закон, " +
+                        "и отвечаем по нему мы вместе с тобой. Попутка работает как обычно: " +
+                        "ей разрешение не нужно.",
+                    "Уныһыҙ һиңә такси заказдары бирергә хаҡыбыҙ юҡ — был закон, һәм уның " +
+                        "буйынса беҙ һинең менән бергә яуап бирәбеҙ. Юлдаш ғәҙәттәгесә эшләй: " +
+                        "уға рөхсәт кәрәкмәй.",
+                ),
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+            )
+            TextButton(onClick = { showHelp = !showHelp }, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    if (showHelp) appText("Свернуть", "Йыйыу")
+                    else appText("Как получить разрешение", "Рөхсәтте нисек алырға"),
+                    color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                )
+            }
+            AnimatedVisibility(
+                visible = showHelp,
+                enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL)),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                    PermitStep(1, appText("Стань самозанятым", "Үҙең эшләүсе бул"),
+                               appText("Приложение «Мой налог», вид деятельности — перевозка пассажиров.",
+                                       "«Мой налог» ҡушымтаһы, эшмәкәрлек төрө — юлаусылар ташыу."))
+                    PermitStep(2, appText("Подай заявление на Госуслугах", "Госуслуги-ла ғариза бир"),
+                               appText("Бесплатно. Понадобятся паспорт, права, СТС и ОСАГО.",
+                                       "Бушлай. Паспорт, права, СТС һәм ОСАГО кәрәк буласаҡ."))
+                    PermitStep(3, appText("Подожди 5–20 рабочих дней", "5–20 эш көнө көт"),
+                               appText("Разрешение выдают на 5 лет.", "Рөхсәт 5 йылға бирелә."))
+                    PermitStep(4, appText("Возвращайся — и всё", "Кире ҡайт — бөттө"),
+                               appText("Проверим сами в реестре, вписывать ничего не нужно.",
+                                       "Реестрҙа үҙебеҙ тикшерәбеҙ, бер нәмә лә яҙырға кәрәкмәй."))
+                    // Предупреждение ДО покупки машины, а не после. Человек в райцентре
+                    // выбирает машину один раз на годы: узнать про локализацию и терминал
+                    // после сделки — значит узнать, что деньги потрачены зря.
+                    PermitWarning()
+                    AppButton(
+                        text = appText("Открыть Госуслуги", "Госуслуги-ны асыу"),
+                        onClick = {
+                            runCatching {
+                                ctx.startActivity(Intent(Intent.ACTION_VIEW,
+                                    Uri.parse("https://www.gosuslugi.ru/")))
+                            }
+                        },
+                        style = AppButtonStyle.Secondary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Фотоконтроль машины на экране документов: когда снимать и что будет, если опоздать.
+ *
+ * Показываем ОДНОЙ строкой и без цифр там, где цифры не нужны: человеку важно «пора или
+ * ещё нет» и «чем это грозит». Подробности — на самом экране контроля.
+ */
+@Composable
+private fun TaxiCarPhotoBlock(data: CarPhotoDto, onOpen: () -> Unit) {
+    val (фон, чернила) = when (data.stage) {
+        "blocked" -> CanonDangerBg to CanonRed
+        "slow", "remind" -> CanonWarnBg to CanonWarn
+        else -> CanonMint to CanonGreen2
+    }
+    val заголовок = when {
+        !data.required -> appText("Фотоконтроль пройден", "Фотоконтроль үтелгән")
+        data.status == "review" -> appText("Кадры у нас — смотрим", "Кадрҙар беҙҙә — ҡарайбыҙ")
+        data.stage == "blocked" -> appText("Заказы на паузе: нужно фото машины",
+                                           "Заказдар паузала: машина фотоһы кәрәк")
+        data.stage == "slow" -> appText("Фото машины просрочено — заказы уходят другим",
+                                        "Машина фотоһы һуңлаған — заказдар башҡаларға китә")
+        data.stage == "remind" -> appText("Фото машины просрочено",
+                                          "Машина фотоһы ваҡытында түгел")
+        else -> appText("Покажи машину", "Машинаны күрһәт")
+    }
+    val пояснение = when {
+        !data.required || data.status == "review" ->
+            appText("Работать можно как обычно.", "Ғәҙәттәгесә эшләргә була.")
+        data.daysLeft <= 0 -> appText("Несколько кадров с телефона — это пара минут.",
+                                      "Телефондан бер нисә кадр — ике минутлыҡ эш.")
+        else -> appText("Осталось ${pluralRu(data.daysLeft, "день", "дня", "дней")}.",
+                        "${data.daysLeft} көн ҡалды.")
+    }
+    Surface(color = фон, shape = CanonItemShape,
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+        Row(Modifier.fillMaxWidth().padding(CanonSpace.md),
+            verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.PhotoCamera, contentDescription = null, tint = чернила,
+                 modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(CanonSpace.sm))
+            Column(Modifier.weight(1f)) {
+                Text(заголовок, color = чернила, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                     lineHeight = 20.sp)
+                Text(пояснение, color = чернила, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = чернила,
+                 modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+
+/**
+ * Что узнать ДО покупки машины.
+ *
+ * Оба пункта — про чужие деньги, а не про наши правила. Человек в райцентре покупает машину
+ * один раз на годы, и «выяснилось после сделки» здесь означает потерянные сотни тысяч.
+ * Формулировки осторожные («могут потребовать», «уточни в своём районе»): требования
+ * региональные и меняются, а мы не хотим, чтобы наш экран прозвучал как справка из закона.
+ */
+@Composable
+private fun PermitWarning() {
+    Surface(color = CanonWarnBg, shape = CanonItemShape) {
+        Column(Modifier.fillMaxWidth().padding(CanonSpace.md),
+               verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+            Text(appText("Если только собираешься покупать машину",
+                         "Әгәр машина һатып алырға ғына йыйынаһың"),
+                 color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                 lineHeight = 20.sp)
+            PermitWarningLine(appText(
+                "С 1 марта 2026 новую машину вносят в реестр такси, только если она собрана " +
+                    "в России или ЕАЭС. На другую разрешение могут не дать.",
+                "2026 йылдың 1 мартынан яңы машинаны такси реестрына Рәсәйҙә йәки ЕАЭС-та " +
+                    "йыйылған булһа ғына индерәләр. Башҡаһына рөхсәт бирмәҫкә мөмкиндәр."))
+            PermitWarningLine(appText(
+                "Для нового разрешения могут потребовать ГЛОНАСС-терминал — уточни в своём " +
+                    "районе заранее.",
+                "Яңы рөхсәт өсөн ГЛОНАСС-терминал талап итеүҙәре мөмкин — үҙ районыңда " +
+                    "алдан асыҡла."))
+        }
+    }
+}
+
+/** Строка предупреждения: точка и текст. */
+@Composable
+private fun PermitWarningLine(text: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Text("•", color = CanonWarn, fontSize = 12.sp, lineHeight = 17.sp)
+        Spacer(Modifier.width(CanonSpace.sm))
+        Text(text, color = CanonWarn, fontSize = 12.sp, lineHeight = 17.sp)
+    }
+}
+
+/** Один шаг инструкции: номер в кружке, заголовок и пояснение. */
+@Composable
+private fun PermitStep(number: Int, title: String, body: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Surface(color = CanonMint, shape = CircleShape) {
+            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                Text("$number", color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+        }
+        Spacer(Modifier.width(CanonSpace.sm))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(body, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
         }
     }
 }

@@ -48,6 +48,7 @@ SHORT_ON_PURPOSE = {
     "size",           # small / medium / large
     "delivery_type",  # poputka / courier / buy_bring
     "time",           # ЧЧ:ММ
+    "mode",           # taxi / courier — закрытый список режимов
 }
 
 

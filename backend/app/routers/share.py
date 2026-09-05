@@ -707,7 +707,12 @@ def ride_share_page(
 ):
     """Красивая server-rendered страница поездки с OG-тегами (карточка в мессенджерах)."""
     ride = session.get(Ride, ride_id)
-    if not ride or not _shareable(ride, session):
+    показываемая = _shareable(ride, session) if ride else None
+    if показываемая is None:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
     lang = "ba" if str(lang).lower().startswith("ba") else "ru"
-    return HTMLResponse(_render_html(_preview_dict(ride, session), lang))
+    # Страницу рисуем по обезличенной копии, а не по исходной поездке — как соседняя дверь
+    # `/r/{id}/preview` (волна 160). Иначе связка с клиникой уходит в подпись карточки,
+    # которая разворачивается в мессенджере: «Больница» рядом с именем водителя, датой
+    # и маршрутом, вообще без входа (волна 210).
+    return HTMLResponse(_render_html(_preview_dict(показываемая, session), lang))

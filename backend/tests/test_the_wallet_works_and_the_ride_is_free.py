@@ -112,7 +112,7 @@ def _водитель_с_кошельком(user_factory, метка: str, ко�
         s.refresh(o)
         oid = o.id
         s.add(LedgerEntry(driver_id=водитель["id"], kind=LedgerKind.adj, amount_kop=кошелёк_коп,
-                          ext_id=f"promo:{oid}", note="Компенсация промокода пассажира"))
+                          ext_id=f"тест-кошелька:{oid}", note="Компенсация промокода пассажира"))
         s.add(CommissionDebt(driver_id=водитель["id"], order_id=oid, week="2026-W34",
                              amount_kop=долг_коп, status=DebtStatus.unpaid,
                              created_at=возраст_долга or utcnow(), due_at=utcnow()))

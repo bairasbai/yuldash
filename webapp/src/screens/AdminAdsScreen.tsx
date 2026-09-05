@@ -20,6 +20,7 @@ import {
   type AdStats,
 } from "../api/admin";
 import { SubHeader } from "./ConsentsScreen";
+import AdminAdCreate from "../components/AdminAdCreate";
 import { LoadingList, ErrorState } from "../components/States";
 import { formatRelative } from "../utils/format";
 import { IconCheck, IconRocket, IconTrend } from "../components/Icons";
@@ -118,6 +119,10 @@ export default function AdminAdsScreen() {
           </div>
         </div>
       )}
+
+      {/* Партнёр, пришедший по телефону: объявление заводит админ, а не заставляет
+          человека регистрироваться ради одной строки в ленте. */}
+      <AdminAdCreate onCreated={() => load()} />
 
       <div className="chip-scroll" role="tablist" aria-label={appText("Фильтр рекламы", "Реклама фильтры")}>
         {FILTERS.map((f) => (

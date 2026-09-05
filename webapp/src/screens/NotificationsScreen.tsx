@@ -25,19 +25,57 @@ import {
   IconWarn,
 } from "../components/Icons";
 
-type Tab = "all" | "trips" | "messages" | "system";
+type Tab = "all" | "trips" | "delivery" | "messages" | "system";
 type Load = "loading" | "ok" | "error";
 
-/** Куда ведёт уведомление по ref_kind/ref_id (или никуда). */
+/**
+ * Куда ведёт уведомление.
+ *
+ * Карточка пружинит под пальцем — то есть обещает переход. Если по половине событий
+ * тап не ведёт никуда, человек читает «Курьер забрал посылку», жмёт и остаётся на том же
+ * месте: приложение соврало. Поэтому обработаны ВСЕ виды, которые шлёт сервер
+ * (`ref_kind` в backend/app), а не только те, под которые нашёлся экран за минуту.
+ *
+ * Часть видов ведёт не на «свою» страницу, а туда, где событие видно целиком: посылка —
+ * в список доставок, такси-заказ — на экран заказа (он сам подхватит активный), долг —
+ * в кабинет водителя. Это осознанно: отдельной страницы у них нет, а привести человека
+ * к нужному месту важнее, чем к точному адресу.
+ */
 function deepLink(n: AppNotification): string | null {
-  if (!n.ref_id) return null;
   switch (n.ref_kind) {
+    // --- события с собственной страницей ---
     case "booking":
-      return `/booking/${n.ref_id}`;
+      return n.ref_id ? `/booking/${n.ref_id}` : null;
     case "request":
-      return `/requests/${n.ref_id}/responses`;
+      return n.ref_id ? `/requests/${n.ref_id}/responses` : null;
     case "support":
-      return `/support/${n.ref_id}`;
+      return n.ref_id ? `/support/${n.ref_id}` : null;
+    // Разбор — самое тяжёлое, что бывает с аккаунтом: человеку надо видеть,
+    // за что именно и на какой срок.
+    case "incident":
+      return n.ref_id ? `/incidents/${n.ref_id}` : null;
+
+    // --- события без своей страницы: ведём туда, где они видны ---
+    case "parcel":
+      return "/parcels";
+    case "instant":
+      return "/taxi";
+    // Поездка, которую человек опубликовал сам: живёт в кабинете водителя.
+    case "ride":
+      return "/driver";
+    // Деньги и допуск к работе: долг, списание комиссии, пауза такси.
+    case "debt":
+      return "/driver";
+    case "taxi_apply":
+      return "/taxi-onboarding";
+    case "courier_apply":
+      return "/courier-onboarding";
+    // Деньги бизнеса: человек заплатил и ждёт ответа. Сказать «одобрено»
+    // и никуда не привести — половина дела.
+    case "partner":
+      return "/partner";
+    case "ad":
+      return "/ads";
     default:
       return null;
   }
@@ -45,12 +83,18 @@ function deepLink(n: AppNotification): string | null {
 
 function matchesTab(n: AppNotification, tab: Tab): boolean {
   switch (tab) {
+    // «Поездки» — это ВСЁ, чем человек куда-то ехал: попутка и такси.
+    // Без такси половина событий не находилась ни на одной вкладке, кроме «Все».
     case "trips":
-      return n.type === "booking" || n.type === "ride";
+      return n.type === "booking" || n.type === "ride" || n.type === "taxi" || n.type === "instant";
+    case "delivery":
+      return n.type === "parcel";
     case "messages":
       return n.type === "message";
+    // «Система» — всё, что не про конкретную поездку: документы, деньги, безопасность,
+    // реклама, приглашения. Раньше сюда попадал только один тип из шестнадцати.
     case "system":
-      return n.type === "system";
+      return !["booking", "ride", "taxi", "instant", "parcel", "message"].includes(n.type);
     default:
       return true;
   }
@@ -104,6 +148,7 @@ export default function NotificationsScreen() {
   const tabs: { key: Tab; label: string }[] = [
     { key: "all", label: appText("Все", "Барыһы") },
     { key: "trips", label: appText("Поездки", "Сәфәрҙәр") },
+    { key: "delivery", label: appText("Доставка", "Илтеү") },
     { key: "messages", label: appText("Сообщения", "Хәбәрҙәр") },
     { key: "system", label: appText("Система", "Система") },
   ];

@@ -40,6 +40,9 @@ import {
 } from "../api/chat";
 import { ChatFlagPlate, ChatSafetyDisclaimer } from "../components/ChatSafety";
 import { winterCheck, winterCheckOk } from "../api/safety";
+import RoadsideHelp from "../components/RoadsideHelp";
+import { dropTripPass, loadTripPass, saveTripPass, type TripPass } from "../utils/tripPass";
+import OfflineTripPass from "../components/OfflineTripPass";
 import { setDriverStatus, type DriverPhase } from "../api/driver";
 import { LoadingList, ErrorState } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
@@ -98,6 +101,12 @@ export default function ActiveTripScreen() {
   const [details, setDetails] = useState<BookingDetails | null>(null);
   const [trip, setTrip] = useState<TripState | null>(null);
   const [code, setCode] = useState<string | null>(null);
+  /**
+   * Офлайн-паспорт: снимок брони, сохранённый локально. Нужен ровно там, где сети нет —
+   * у машины на ночной трассе. Читаем СРАЗУ, до всякой загрузки: если сервер не ответит,
+   * человеку всё равно есть что показать.
+   */
+  const [pass, setPass] = useState<TripPass | null>(() => loadTripPass(bookingId));
   const [driverLoc, setDriverLoc] = useState<GeoPoint | null>(null);
   const [rated, setRated] = useState(false);
   const [winterAsk, setWinterAsk] = useState(false); // показать мягкий вопрос «Ты доехал(а)?»
@@ -121,6 +130,31 @@ export default function ActiveTripScreen() {
         .then((d) => {
           setDetails(d);
           setStatus("ready");
+          // Снимок для показа без сети. Пишем, только когда контакты уже открыты:
+          // до подтверждения брони телефона и точки встречи ещё нет, а паспорт без них
+          // бесполезен. Поездка кончилась или отменена — снимок стираем: это телефон
+          // живого человека и код посадки, после поездки они не нужны никому.
+          if (d.status === "done" || d.status === "cancelled") {
+            dropTripPass(bookingId);
+            setPass(null);
+          } else if (d.contact_unlocked) {
+            const snapshot = {
+              bookingId,
+              fromCity: d.from_city,
+              toCity: d.to_city,
+              departAt: d.depart_at,
+              driverName: d.driver_name,
+              driverCar: d.driver_car,
+              driverPlate: d.driver_plate ?? "",
+              driverPhone: d.driver_phone,
+              boardingCode: "",
+              pickup: d.pickup,
+              price: d.pay_amount ?? d.price,
+              seats: d.seats,
+            };
+            saveTripPass(snapshot);
+            setPass({ ...snapshot, savedAt: Date.now() });
+          }
         })
         .catch((e) => {
           if (signal?.aborted || e?.name === "AbortError") return;
@@ -171,7 +205,16 @@ export default function ActiveTripScreen() {
     let alive = true;
     fetchBoardingCode(bookingId)
       .then((r) => {
-        if (alive) setCode(r.code);
+        if (!alive) return;
+        setCode(r.code);
+        // Код приходит отдельным запросом — дописываем его в уже сохранённый снимок.
+        // Без этого офлайн-паспорт показывал бы всё, кроме того, что называют вслух.
+        setPass((prev) => {
+          if (!prev || !r.code) return prev;
+          const next = { ...prev, boardingCode: r.code };
+          saveTripPass(next);
+          return next;
+        });
       })
       .catch(() => {
         /* нет кода — не критично */
@@ -347,6 +390,10 @@ export default function ActiveTripScreen() {
     return (
       <>
         <SubHeader title={appText("Поездка", "Сәфәр")} onBack={() => navigate(-1)} />
+        {/* Сервер не ответил — но если поездку уже открывали, снимок брони лежит рядом.
+            Сверяют машину как раз там, где связи нет: перевал, ночная трасса, обочина
+            у выезда из села. Пустой экран в этот момент — худшее, что можно показать. */}
+        {pass ? <OfflineTripPass pass={pass} /> : null}
         <ErrorState onRetry={() => load()} />
       </>
     );
@@ -444,6 +491,28 @@ export default function ActiveTripScreen() {
             </span>
           </a>
         )}
+        {/* Едет подросток. Водителю это нужно знать ДО посадки, а не когда тот сядет
+            в машину: у него другой разговор с ребёнком и другая ответственность.
+            Телефон взрослого сервер отдаёт только водителю этой брони и только пока
+            бронь жива — отменили, и номер закрывается. */}
+        {details.minor_passenger && (
+          <div className="info-row">
+            <span className="info-row__k">{appText("Пассажир", "Юлсы")}</span>
+            <span className="info-row__v">
+              {appText("младше 18, со взрослым на связи", "18-ҙән кесе, оло кеше бәйләнештә")}
+            </span>
+          </div>
+        )}
+        {details.minor_passenger && details.minor_guardian_phone && (
+          <a className="info-row info-row--link" href={`tel:${details.minor_guardian_phone}`}>
+            <span className="info-row__k">{appText("Взрослый", "Оло кеше")}</span>
+            <span className="info-row__v" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              {details.minor_guardian_name || appText("Позвонить", "Шылтыратыу")}
+              <IconPhone size={16} />
+            </span>
+          </a>
+        )}
+
         {details.contact_unlocked && details.pickup && (
           <div className="info-row">
             <span className="info-row__k">{appText("Точка", "Нөктә")}</span>
@@ -551,10 +620,33 @@ export default function ActiveTripScreen() {
         </div>
       )}
 
+      {/* Попутчики вышли — дальше человек едет вдвоём с водителем.
+          Не тревога и не обвинение: тихая подсказка отправить близкому ссылку.
+          Именно в этот момент SOS не нажимают — боятся «поднимать шум из-за слов». */}
+      {active && details.role === "passenger" && trip?.alone_with_driver && (
+        <div className="act-card act-card--mint">
+          <div className="act-card__title">
+            <IconCar size={18} />{" "}
+            {appText("Попутчики вышли — дальше едешь одна(один)", "Юлдаштар төштө — артабан яңғыҙ бараһың")}
+          </div>
+          <p className="act-card__text" style={{ marginBottom: 0 }}>
+            {appText(
+              "Можно отправить близкому ссылку — он будет видеть, где ты едешь.",
+              "Яҡыныңа һылтанма ебәрергә була — ул ҡайҙа барғаныңды күреп торор."
+            )}
+          </p>
+        </div>
+      )}
+
       {/* Поделиться поездкой с близким + статусы (у пассажира) */}
       {active && details.role === "passenger" && (
         <ShareTripCard bookingId={bookingId} showStatuses />
       )}
+
+      {/* «Застряли» — ступень мягче SOS: машина не едет, но никто не в опасности.
+          Зимой между сёлами это самая частая беда, а красную кнопку в такой ситуации
+          люди жать стесняются — и не зовут никого вообще. */}
+      {active && <RoadsideHelp target={{ kind: "booking", id: bookingId }} />}
 
       {/* SOS — ведёт на настоящий экран помощи */}
       {active && (

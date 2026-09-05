@@ -19,12 +19,13 @@ import {
   parcelDispute,
   parcelReturnDone,
   parcelReturnStart,
+  releaseParcel,
   type Parcel,
   type ParcelDisputeType,
 } from "../api/parcels";
 import { IconArrow, IconFlag, IconWarn } from "./Icons";
 
-type Sheet = "none" | "failed" | "return" | "dispute";
+type Sheet = "none" | "failed" | "return" | "dispute" | "release";
 
 const DISPUTE_TYPES: { key: ParcelDisputeType; ru: string; ba: string }[] = [
   { key: "parcel_damage", ru: "Повредили", ba: "Зыян күрҙе" },
@@ -53,6 +54,8 @@ export default function ParcelProblemActions({
 
   const returning = String(parcel.status) === "returning";
   const closed = ["delivered", "canceled", "returned"].includes(String(parcel.status));
+  /** Коробка уже забрана. Дальше «не смогу везти» — это не отказ, а «уехал с чужой вещью». */
+  const carrying = String(parcel.status) === "in_transit";
 
   async function run(action: () => Promise<unknown>, okText?: string) {
     if (busy) return;
@@ -88,6 +91,14 @@ export default function ParcelProblemActions({
               <button type="button" className="btn-soft" onClick={() => setSheet("return")}>
                 <IconArrow size={16} /> {appText("Везу обратно", "Кире алып барам")}
               </button>
+              {/* Коробка ещё не у курьера — значит можно честно сняться, а не бросить
+                  заявку висеть. Замело дорогу, заболел, сломалась машина: для зимнего
+                  Башкортостана это норма, и посылка должна вернуться в общий список. */}
+              {!carrying && (
+                <button type="button" className="btn-soft" onClick={() => setSheet("release")}>
+                  {appText("Не смогу везти", "Илтә алмайым")}
+                </button>
+              )}
             </>
           )}
           {returning && (
@@ -121,6 +132,48 @@ export default function ParcelProblemActions({
           </button>
         )
       ) : null}
+
+      {/* Не смогу везти — посылка возвращается в общий список */}
+      {sheet === "release" && (
+        <div className="act-card act-card--warn">
+          <div className="act-card__title">
+            <IconWarn size={18} /> {appText("Не смогу везти", "Илтә алмайым")}
+          </div>
+          <p className="act-card__text">
+            {appText(
+              "Заявка вернётся в общий список, её возьмёт другой курьер. Отправитель увидит причину — напиши её, чтобы он не гадал.",
+              "Заявка дөйөм исемлеккә ҡайта, уны башҡа курьер ала. Ебәреүсе сәбәпте күрә — уны яҙ, юҡһа ул уйлап ултырасаҡ."
+            )}
+          </p>
+          <label className="field">
+            <input
+              className="field__input"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={200}
+              placeholder={appText("«Замело дорогу на Баймак»", "«Баймаҡҡа юлды ҡар баҫҡан»")}
+            />
+          </label>
+          <div className="act-card__actions" style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={busy}
+              onClick={() =>
+                run(
+                  () => releaseParcel(parcel.id, reason),
+                  appText("Сняли с заявки", "Заявканан алындың")
+                )
+              }
+            >
+              {appText("Снять с себя", "Үҙемдән алыу")}
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => setSheet("none")} disabled={busy}>
+              {appText("Всё-таки повезу", "Барыбер илтәм")}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Никого нет дома — посылка остаётся у курьера */}
       {sheet === "failed" && (
@@ -171,10 +224,25 @@ export default function ParcelProblemActions({
             <IconArrow size={18} /> {appText("Везу обратно", "Кире алып барам")}
           </div>
           <p className="act-card__text">
-            {appText(
-              "Комиссию за возврат мы не берём — услуга не оказана. Напиши причину для отправителя.",
-              "Кире ҡайтарыу өсөн комиссия алмайбыҙ — хеҙмәт күрһәтелмәгән. Ебәреүсегә сәбәпте яҙ."
-            )}
+            {(() => {
+              // Курьер, который зря съездил, должен видеть, что дорога ему оплачена: иначе
+              // возврат читается как «полдня и бензин впустую», и в село он больше не поедет.
+              const дорога = Math.round((parcel.return_fee_parts?.total_kop ?? 0) / 100);
+              // Заезды по просьбе отправителя называем отдельно: курьер должен видеть, что
+              // вторая поездка оплачена, иначе он читает просьбу как «съезди по-человечески».
+              const заезды = (parcel.return_fee_parts?.redeliver_kop ?? 0) > 0;
+              const заЧтоRu = заезды ? "за дорогу, повторные заезды и ожидание" : "за дорогу и ожидание";
+              const заЧтоBa = заезды ? "юл, ҡабат инеүҙәр һәм көтөү өсөн" : "юл һәм көтөү өсөн";
+              return дорога > 0
+                ? appText(
+                    `Комиссию за возврат мы не берём — услуга не оказана. Ты приезжал и не застал получателя: отправитель вернёт тебе ${дорога} ₽ ${заЧтоRu}. Напиши причину для отправителя.`,
+                    `Кире ҡайтарыу өсөн комиссия алмайбыҙ — хеҙмәт күрһәтелмәгән. Һин килдең, әммә алыусыны тапманың: ебәреүсе һиңә ${заЧтоBa} ${дорога} һум ҡайтара. Ебәреүсегә сәбәпте яҙ.`
+                  )
+                : appText(
+                    "Комиссию за возврат мы не берём — услуга не оказана. Напиши причину для отправителя.",
+                    "Кире ҡайтарыу өсөн комиссия алмайбыҙ — хеҙмәт күрһәтелмәгән. Ебәреүсегә сәбәпте яҙ."
+                  );
+            })()}
           </p>
           <label className="field">
             <input

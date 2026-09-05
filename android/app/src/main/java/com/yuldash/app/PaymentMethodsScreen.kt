@@ -29,7 +29,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -116,12 +118,28 @@ internal fun PaymentMethodsScreen(
     // на его нажатие, а не системное сообщение — исчезать через секунду он не должен.
     var wanted by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    // Сменили способ во время поездки — сервер обязан узнать: он перепишет договорённость
-    // на заказе и сообщит водителю. Без этого водитель ехал бы с прежним пониманием.
+    // Что летит на сервер прямо сейчас и что до него не долетело.
+    //
+    // Галочка встаёт ТОЛЬКО после ответа сервера. Раньше она вставала сразу, а отправка
+    // уходила молча: пропал интернет на секунду — пассажир видит «Наличные», водитель
+    // по-прежнему ждёт перевод, и на высадке они спорят. Ровно тот спор, ради которого
+    // экран и делался.
+    var летит by remember { mutableStateOf<String?>(null) }
+    var неДошло by remember { mutableStateOf<String?>(null) }
+
     fun выбрать(method: String) {
-        onPick(method)
-        if (activeOrderId > 0) {
-            scope.launch { ApiClient.setInstantPaymentMethod(activeOrderId, method) }
+        // Поездки нет — сервер про этот выбор ничего не знает, это память на будущий заказ.
+        if (activeOrderId <= 0) {
+            onPick(method)
+            return
+        }
+        if (летит != null) return
+        неДошло = null
+        летит = method
+        scope.launch {
+            val дошло = ApiClient.setInstantPaymentMethod(activeOrderId, method).isSuccess
+            летит = null
+            if (дошло) onPick(method) else неДошло = method
         }
     }
 
@@ -152,6 +170,8 @@ internal fun PaymentMethodsScreen(
                         subtitle = appText("Отдашь деньги водителю в конце поездки",
                                            "Сәфәр аҙағында аҡсаны йөрөтөүсегә бирәһең"),
                         selected = current == PayMethods.CASH,
+                        ждёт = летит == PayMethods.CASH,
+                        занято = летит != null,
                         onClick = { выбрать(PayMethods.CASH) },
                     )
                     PayDivider()
@@ -160,6 +180,8 @@ internal fun PaymentMethodsScreen(
                         subtitle = appText("Переведёшь на телефон водителя",
                                            "Йөрөтөүсенең телефонына күсерәһең"),
                         selected = current == PayMethods.SBP,
+                        ждёт = летит == PayMethods.SBP,
+                        занято = летит != null,
                         onClick = { выбрать(PayMethods.SBP) },
                     )
                     PayDivider()
@@ -167,9 +189,25 @@ internal fun PaymentMethodsScreen(
                         method = PayMethods.NEGOTIATE,
                         subtitle = appText("Обсудишь с водителем", "Йөрөтөүсе менән һөйләшерһең"),
                         selected = current == PayMethods.NEGOTIATE,
+                        ждёт = летит == PayMethods.NEGOTIATE,
+                        занято = летит != null,
                         onClick = { выбрать(PayMethods.NEGOTIATE) },
                     )
                 }
+            }
+
+            // Не дошло до сервера — значит и до водителя. Молчать тут нельзя: человек
+            // уверен, что предупредил, и на высадке достанет не то. Выбор при этом
+            // остаётся прежним — врать галочкой хуже, чем признать неудачу.
+            AnimatedVisibility(
+                visible = неДошло != null,
+                enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(),
+                exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(),
+            ) {
+                PayFailedRow(
+                    method = неДошло ?: PayMethods.CASH,
+                    onRetry = { неДошло?.let { выбрать(it) } },
+                )
             }
 
             // Реквизитов до принятия заказа ещё нет: телефон водителя открывается только
@@ -179,10 +217,15 @@ internal fun PaymentMethodsScreen(
                 enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(),
                 exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(),
             ) {
-                PayNote(appText(
-                    "Номер для перевода появится, когда водитель примет заказ.",
-                    "Күсереү өсөн номер йөрөтөүсе заказды алғас күренәсәк.",
-                ))
+                PayNote(
+                    if (activeOrderId > 0) appText(
+                        "Номер водителя — в карточке поездки, кнопка «Позвонить».",
+                        "Йөрөтөүсенең номеры — сәфәр карточкаһында, «Шылтыратырға» төймәһе.",
+                    ) else appText(
+                        "Номер для перевода появится, когда водитель примет заказ.",
+                        "Күсереү өсөн номер йөрөтөүсе заказды алғас күренәсәк.",
+                    )
+                )
             }
 
             PaySectionTitle(appText("Скоро", "Тиҙҙән"))
@@ -279,10 +322,15 @@ private fun PayMethodRow(
     subtitle: String,
     selected: Boolean,
     onClick: () -> Unit,
+    /** Этот способ прямо сейчас летит на сервер — вместо галочки крутилка. */
+    ждёт: Boolean = false,
+    /** Что-то уже летит: второе нажатие подряд только запутает обоих. */
+    занято: Boolean = false,
 ) {
     val title = PayMethods.title(method)
     Surface(
         onClick = onClick,
+        enabled = !занято,
         color = if (selected) CanonTaxiBg else CanonSurface,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -304,13 +352,76 @@ private fun PayMethodRow(
             // а не как «одна из настроек».
             Box(
                 Modifier.size(28.dp)
-                    .background(if (selected) CanonTaxi else CanonBg, CircleShape),
+                    .background(
+                        if (selected && !ждёт) CanonTaxi else CanonBg,
+                        CircleShape,
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
-                if (selected) {
-                    Icon(Icons.Default.Check,
-                         contentDescription = appText("Выбрано", "Һайланған"),
+                when {
+                    // Пока ответа нет — крутилка: выбор ещё не состоялся, и показывать
+                    // галочку значило бы соврать.
+                    ждёт -> CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = CanonGreen2,
+                        strokeWidth = 2.dp,
+                    )
+                    selected -> Icon(
+                        Icons.Default.Check,
+                        contentDescription = appText("Выбрано", "Һайланған"),
+                        // Не CanonText: он в тёмной теме светлый, и белая галочка на жёлтом
+                        // круге пропадала (≈1.4:1 при норме 3:1). Ink — тёмный «на жёлтом».
+                        tint = CanonTaxiInk, modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * «Водителю не сказали» — с кнопкой «Повторить».
+ *
+ * Красная, но не пугающая: ничего не сломалось и деньги никуда не делись. Просто
+ * договорённость не долетела, и пока не долетит — водитель считает по-старому.
+ */
+@Composable
+private fun PayFailedRow(method: String, onRetry: () -> Unit) {
+    Surface(color = CanonDangerBg, shape = CanonCardShape, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(CanonSpace.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    appText("Водитель об этом не знает", "Йөрөтөүсе быны белмәй"),
+                    style = CanonBodyStrong, color = CanonRed,
+                )
+                Text(
+                    appText(
+                        "«${PayMethods.title(method)}» не дошло до сервера. Он ждёт прежнего расчёта.",
+                        "«${PayMethods.title(method)}» серверға барып етмәне. Ул элекке иҫәпләшеүҙе көтә.",
+                    ),
+                    style = CanonCaption, color = CanonMutedStrong,
+                    maxLines = 3, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(CanonSpace.sm))
+            Surface(
+                onClick = onRetry,
+                color = CanonSurface,
+                shape = CanonItemShape,
+            ) {
+                Row(
+                    Modifier.heightIn(min = 48.dp)
+                        .padding(horizontal = CanonSpace.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null,
                          tint = CanonText, modifier = Modifier.size(18.dp))
+                    Text(appText("Повторить", "Ҡабатларға"),
+                         style = CanonBodyStrong, color = CanonText)
                 }
             }
         }

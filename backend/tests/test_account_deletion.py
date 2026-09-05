@@ -105,6 +105,11 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # вообще (152-ФЗ). На SQLite ключи не проверяются — тест поймает это только на Postgres.
         s.add(M.OfferDecline(order_id=order.id, driver_id=uid, reason="far"))
         s.add(M.OfferDecline(order_id=order.id, driver_id=oid, reason="cheap"))
+        # Брошенные принятые заказы: МОЙ поступок и ЧУЖОЙ по МОЕМУ заказу. Вторая строка —
+        # ровно тот же ключевой случай, что у отказов выше: по driver_id она не ловится, но
+        # держит внешний ключ на заказ, который сейчас удалится.
+        s.add(M.DriverCancel(order_id=order.id, driver_id=uid, reason="сломался"))
+        s.add(M.DriverCancel(order_id=order.id, driver_id=oid, reason="далеко"))
         # --- посылка + рейтинг курьера по parcel_id + чат отправитель ↔ курьер ---
         parcel = M.ParcelDelivery(sender_id=uid, from_city="A", to_city="B", courier_id=oid)
         s.add(parcel); s.commit(); s.refresh(parcel)
@@ -173,6 +178,10 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         s.add(M.RefreshToken(user_id=uid, token_hash="hash-of-refresh",
                              expires_at=utcnow() + timedelta(days=30)))
         s.add(M.DeviceToken(user_id=uid, token=f"fcm-{uid}"))
+        # Подписка браузера на уведомления — то же, что FCM-токен, но для веб-версии.
+        s.add(M.WebPushSubscription(
+            user_id=uid, endpoint=f"https://push.example/{uid}", p256dh="k", auth="a",
+        ))
         s.add(M.DriverProfile(user_id=uid, car_make="Lada", car_number="А001АА102"))
         s.add(M.SavedPlace(user_id=uid, label="Дом", address="Уфа, Ленина 1"))
         s.add(M.RecentPlace(user_id=uid, address="Уфа, вокзал"))
@@ -200,6 +209,9 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # Жалоба на цену (2026-08-23): это слова человека о его деньгах, а не общий журнал —
         # уходит вместе с ним. Тариф к этому моменту мы уже поправили по факту.
         s.add(M.PriceComplaint(user_id=uid, price=450, reason="expensive_for_distance"))
+        # Фотоконтроль машины (580-ФЗ): снимки ЕГО машины и запись о нём самом — уходят
+        # вместе с аккаунтом, как предрейсовые подтверждения.
+        s.add(M.CarPhotoCheck(user_id=uid, mode="taxi", due_at=utcnow()))
         # Жалоба на человека: и моя (reporter_id), и на меня (target_user_id).
         s.add(M.Report(reporter_id=uid, target_user_id=oid, reason="Не приехал"))
         s.add(M.Report(reporter_id=oid, target_user_id=uid, reason="Нахамил"))

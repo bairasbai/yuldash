@@ -164,11 +164,13 @@ def test_visited_stops_stay_in_history(client, user_factory):
         assert stops[0]["done"] is True and stops[1]["text"] == "Школа"
 
 
-def test_changing_the_destination_keeps_upcoming_stops():
+def test_changing_the_destination_keeps_upcoming_stops(client, user_factory):
     """Едешь в другое место — но заехать за ребёнком всё ещё надо."""
+    pax = user_factory("WpDestPax")
+    drv = user_factory("WpDestDrv", role=UserRole.driver)
     with Session(engine) as s:
         order = InstantOrder(
-            passenger_id=1, driver_id=2, status=S.onboard,
+            passenger_id=pax["id"], driver_id=drv["id"], status=S.onboard,
             from_lat=UFA[0], from_lng=UFA[1], to_lat=DEST[0], to_lng=DEST[1],
             distance_km=5.0, eta_min=12.0, price_estimate=300, category="standard",
             surge_k=1.0, pricing_k=1.0, onboard_at=utcnow() - timedelta(minutes=5),
@@ -212,18 +214,14 @@ def test_passenger_cannot_start_the_waiting_meter(client, user_factory):
     assert r.status_code == 404
 
 
-def test_long_stop_adds_to_the_waiting_fee():
+def test_long_stop_adds_to_the_waiting_fee(client, user_factory):
     """Стояли дольше бесплатных минут — сумма ожидания выросла по общим правилам."""
+    pax = user_factory("StopLongPax")
+    drv = user_factory("StopLongDrv", role=UserRole.driver)
+    oid = _make_order(pax["id"], drv["id"],
+                      stop_started_at=utcnow() - timedelta(minutes=20), waiting_fee_kop=0)
     with Session(engine) as s:
-        order = InstantOrder(
-            passenger_id=1, driver_id=2, status=S.onboard,
-            from_lat=UFA[0], from_lng=UFA[1], to_lat=DEST[0], to_lng=DEST[1],
-            price_estimate=300, category="standard",
-            stop_started_at=utcnow() - timedelta(minutes=20), waiting_fee_kop=0,
-        )
-        s.add(order)
-        s.commit()
-        s.refresh(order)
+        order = s.get(InstantOrder, oid)
         isv.toggle_stop(s, order)
         s.refresh(order)
         assert order.waiting_fee_kop > 0, "двадцать минут стоянки прошли бесплатно"

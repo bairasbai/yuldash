@@ -17,6 +17,7 @@ import {
   createParcel,
   fetchMyParcels,
   cancelParcel,
+  parcelRedeliverRequest,
   fetchAvailableParcels,
   acceptParcel,
   setParcelStatus,
@@ -36,9 +37,33 @@ import {
 } from "../components/parcelUi";
 import ParcelRate from "../components/ParcelRate";
 import ParcelProblemActions from "../components/ParcelProblemActions";
+import RoadsideHelp from "../components/RoadsideHelp";
+import ParcelReceiptCard from "../components/ParcelReceiptCard";
+import RaiseBudget from "../components/RaiseBudget";
+import CourierOrderForm from "../components/CourierOrderForm";
 import { IconBox, IconCheck, IconChat, IconCopy, IconGift, IconRoute, IconShield, IconStar } from "../components/Icons";
+import { track } from "../analytics";
 
 type Tab = "send" | "mine" | "carry";
+
+
+/** Разбор компенсации за отмену по строкам: «(100 ₽ — отмена + 300 ₽ — дорога курьера)».
+ *  Пусто, если сервер старый и разбора не прислал: тогда человек видит только итог. */
+function cancelParts(p: Parcel, подписи: [string, string, string]): string {
+  const ч = p.cancel_fee_parts;
+  if (!ч) return "";
+  const строки = [
+    [ч.base_kop, подписи[0]] as const,
+    [ч.pickup_kop, подписи[1]] as const,
+    [ч.waiting_kop, подписи[2]] as const,
+  ]
+    .filter(([kop]) => kop > 0)
+    .map(([kop, имя]) => `${Math.round(kop / 100)} ₽ — ${имя}`);
+  return строки.length ? ` (${строки.join(" + ")})` : "";
+}
+
+const cancelPartsRu = (p: Parcel) => cancelParts(p, ["отмена", "дорога курьера", "ожидание"]);
+const cancelPartsBa = (p: Parcel) => cancelParts(p, ["кире алыу", "курьер юлы", "көтөү"]);
 
 export default function ParcelsScreen() {
   const { appText } = useLang();
@@ -76,6 +101,16 @@ export default function ParcelsScreen() {
 function SendTab({ onSent }: { onSent: () => void }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
+
+  /**
+   * Два способа отправить, и они правда разные.
+   *
+   * «По пути» — вещь едет с тем, кто и так туда собрался: дёшево, но когда получится.
+   * «Курьером» — человек едет специально за деньги: есть срок и цена заранее.
+   * Раньше в вебе был только первый, и тому, кому надо сегодня, приложение отвечало
+   * «жди попутчика».
+   */
+  const [mode, setMode] = useState<"poputka" | "courier">("poputka");
 
   const [fromCity, setFromCity] = useState("");
   const [toCity, setToCity] = useState("");
@@ -128,6 +163,7 @@ function SendTab({ onSent }: { onSent: () => void }) {
         fragile,
         deliver_by: deliverBy || null,
       });
+      track("parcel_create");
       setCreated(p);
     } catch (e) {
       setError(
@@ -194,6 +230,29 @@ function SendTab({ onSent }: { onSent: () => void }) {
 
   return (
     <>
+      {/* Чем отличаются способы — говорим прямо в подписи, а не мелким шрифтом ниже:
+          человеку, которому надо сегодня, важно понять это в первую секунду. */}
+      <div className="seg" style={{ marginTop: 14 }}>
+        <button
+          type="button"
+          className={"seg__item" + (mode === "poputka" ? " is-active" : "")}
+          onClick={() => setMode("poputka")}
+        >
+          {appText("По пути · дешевле", "Юл ыңғайы · арзаныраҡ")}
+        </button>
+        <button
+          type="button"
+          className={"seg__item" + (mode === "courier" ? " is-active" : "")}
+          onClick={() => setMode("courier")}
+        >
+          {appText("Курьером · быстрее", "Курьер менән · тиҙерәк")}
+        </button>
+      </div>
+
+      {mode === "courier" ? (
+        <CourierOrderForm onCreated={onSent} />
+      ) : (
+        <>
       <div className="field-row" style={{ marginTop: 14 }}>
         <label className="field" style={{ flex: 1 }}>
           <span className="field__label">{appText("Откуда", "Ҡайҙан")}</span>
@@ -402,6 +461,8 @@ function SendTab({ onSent }: { onSent: () => void }) {
       <button type="button" className="btn-primary submit-btn" style={{ marginTop: 14 }} onClick={submit} disabled={!canSubmit}>
         {busy ? appText("Создаём…", "Яһайбыҙ…") : <><IconBox size={18} /> {appText("Создать заявку", "Заявка яһау")}</>}
       </button>
+        </>
+      )}
     </>
   );
 }
@@ -445,6 +506,20 @@ function MineTab() {
       setItems((prev) => prev.map((x) => (x.id === id ? p : x)));
     } catch {
       /* тихо — статус не изменился */
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // «Курьер не застал получателя» → попросить заехать ещё раз. Ступенька между неудачей
+  // и возвратом: раньше её не было и отправитель платил за возврат почти полную доставку.
+  async function onRedeliver(id: number) {
+    setBusyId(id);
+    try {
+      const p = await parcelRedeliverRequest(id);
+      setItems((prev) => prev.map((x) => (x.id === id ? p : x)));
+    } catch {
+      /* тихо — сервер сам решает, открыта ли просьба; карточка не изменилась */
     } finally {
       setBusyId(null);
     }
@@ -509,6 +584,16 @@ function MineTab() {
             {/* Курьер уже потратил свои деньги на товар — просто «отменить» тут
                 нечестно по отношению к нему. Разбираться нужно через спор, где
                 слышны обе стороны. */}
+            {/* «Купи и привези»: в магазине оказалось дороже согласованного. Без этой
+                кнопки курьер не мог провести расчёт — товар куплен на его деньги,
+                а сумма выше той, на которую согласился заказчик. Оба висели. */}
+            {active && p.delivery_type === "buy_bring" && (p.cod_amount_kop ?? 0) > 0 && (
+              <RaiseBudget
+                parcelId={p.id}
+                currentKop={p.cod_amount_kop ?? 0}
+                onDone={() => load()}
+              />
+            )}
             {active && (p.settlement?.goods_actual_kop ?? 0) > 0 ? (
               <div className="parcel-card__warn">
                 {appText(
@@ -525,13 +610,44 @@ function MineTab() {
                     <div className="parcel-card__warn">
                       {(p.cancel_fee_preview_kop ?? 0) > 0
                         ? appText(
-                            `Курьер уже принял заказ. Отмена сейчас — компенсация курьеру ${Math.round((p.cancel_fee_preview_kop ?? 0) / 100)} ₽ за потраченное время и дорогу. Расчёт напрямую с курьером.`,
-                            `Курьер заказды алған инде. Хәҙер кире алһаң — курьерға ваҡыт һәм юл өсөн ${Math.round((p.cancel_fee_preview_kop ?? 0) / 100)} һум компенсация. Иҫәпләшеү курьер менән туранан-тура.`
+                            `Курьер уже принял заказ. Отмена сейчас — компенсация курьеру ${Math.round((p.cancel_fee_preview_kop ?? 0) / 100)} ₽${cancelPartsRu(p)} за потраченное время и дорогу. Расчёт напрямую с курьером.`,
+                            `Курьер заказды алған инде. Хәҙер кире алһаң — курьерға ваҡыт һәм юл өсөн ${Math.round((p.cancel_fee_preview_kop ?? 0) / 100)} һум${cancelPartsBa(p)} компенсация. Иҫәпләшеү курьер менән туранан-тура.`
                           )
                         : appText(
                             "Курьер уже принял заказ. После отмены сервис зафиксирует компенсацию за потраченное время и дорогу; сумма появится в карточке, расчёт — напрямую.",
                             "Курьер заказды алған инде. Кире алғандан һуң сервис ваҡыт һәм юл өсөн компенсацияны теркәр; сумма карточкала күренер, иҫәпләшеү — туранан-тура."
                           )}
+                    </div>
+                  )}
+                  {/* Курьер приехал и не застал получателя. Раньше у отправителя тут не
+                      было ничего, кроме чата: дозвонись как-нибудь сам, а нет — плати за
+                      возврат почти полную доставку. Теперь есть дешёвый выход. Цену заезда
+                      называем ДО нажатия и считаем на сервере. */}
+                  {p.can_request_redelivery && (
+                    <div className="parcel-card__warn" style={{ marginTop: 10 }}>
+                      <strong>{appText("Курьер не застал получателя", "Курьер алыусыны тапманы")}</strong>
+                      <div style={{ marginTop: 4 }}>
+                        {(p.return_fee_parts?.next_redeliver_kop ?? 0) > 0
+                          ? appText(
+                              `Свяжись с ним и попроси курьера заехать ещё раз — заезд стоит ${Math.round((p.return_fee_parts?.next_redeliver_kop ?? 0) / 100)} ₽, это дешевле возврата (${Math.round((p.return_fee_parts?.total_kop ?? 0) / 100)} ₽).`,
+                              `Уның менән бәйләнеш тот һәм курьерҙан ҡабат инеүҙе һора — инеү ${Math.round((p.return_fee_parts?.next_redeliver_kop ?? 0) / 100)} һум тора, был кире ҡайтарыуҙан (${Math.round((p.return_fee_parts?.total_kop ?? 0) / 100)} һум) арзаныраҡ.`
+                            )
+                          : appText(
+                              "Свяжись с ним и попроси курьера заехать ещё раз — доплаты за этот заезд не будет.",
+                              "Уның менән бәйләнеш тот һәм курьерҙан ҡабат инеүҙе һора — был инеү өсөн өҫтәмә түләү булмаясаҡ."
+                            )}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        style={{ marginTop: 10 }}
+                        onClick={() => onRedeliver(p.id)}
+                        disabled={busyId === p.id}
+                      >
+                        {busyId === p.id
+                          ? appText("Просим…", "Һорайбыҙ…")
+                          : appText("Попросить заехать ещё раз", "Ҡабат инеүҙе һорау")}
+                      </button>
                     </div>
                   )}
                   <button type="button" className="btn-ghost" style={{ marginTop: 10 }} onClick={() => onCancel(p.id)} disabled={busyId === p.id}>
@@ -545,6 +661,12 @@ function MineTab() {
                 следующего отправителя просто незнакомый человек с коробкой. */}
             {p.status === "delivered" && p.courier && (
               <ParcelRate parcelId={p.id} role="courier" />
+            )}
+
+            {/* Чек. Нужен и после возврата: там тоже есть деньги — дорога и ожидание
+                курьера, которые отправитель возвращает. */}
+            {(p.status === "delivered" || p.status === "returned") && (
+              <ParcelReceiptCard parcelId={p.id} />
             )}
           </div>
         );
@@ -567,7 +689,7 @@ function CarryTab() {
           {appText("Везу", "Йөрөтәм")}
         </button>
       </div>
-      {sub === "available" ? <AvailableList /> : <CarryingList />}
+      {sub === "available" ? <AvailableList /> : <CarryingList onGoAvailable={() => setSub("available")} />}
     </>
   );
 }
@@ -634,7 +756,7 @@ function AvailableList() {
   );
 }
 
-function CarryingList() {
+function CarryingList({ onGoAvailable }: { onGoAvailable: () => void }) {
   const { appText } = useLang();
   const [boot, setBoot] = useState<Boot>("loading");
   const [items, setItems] = useState<Parcel[]>([]);
@@ -703,7 +825,12 @@ function CarryingList() {
       <div className="state" style={{ paddingTop: 28 }}>
         <div className="state__icon"><IconCheck size={34} /></div>
         <h2>{appText("Ты пока ничего не везёшь", "Һин бер нәмә лә йөрөтмәйһең")}</h2>
-        <p>{appText("Возьми заявку во вкладке «Доступные» — она появится здесь.", "«Асыҡ» бүлегендә заявка ал — ул бында күренер.")}</p>
+        <p>{appText("Возьми заявку — она появится здесь.", "Заявка ал — ул бында күренер.")}</p>
+        {/* Дорога названа — значит по ней и ведём. Подсказка без кнопки перекладывает
+            на человека работу, которую экран уже сделал. */}
+        <button type="button" className="btn-primary" onClick={onGoAvailable}>
+          {appText("Смотреть заявки", "Заявкаларҙы ҡарау")}
+        </button>
       </div>
     );
   }
@@ -719,6 +846,9 @@ function CarryingList() {
             onDeliver={() => { setCodeErr(null); setCodeFor(p); }}
           />
           <ParcelProblemActions parcel={p} role="courier" onChanged={() => load()} />
+          {/* Курьер едет по той же зимней трассе, что и все, — но едет ОДИН: рядом нет
+              пассажира, который заметит беду. Кнопка была у попутки и такси, а у него нет. */}
+          {String(p.status) === "in_transit" && <RoadsideHelp target={{ kind: "parcel", id: p.id }} />}
         </div>
       ))}
       {codeFor && (

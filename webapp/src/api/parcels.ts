@@ -77,6 +77,49 @@ export interface Parcel {
    */
   cancel_fee_kop?: number;
   cancel_fee_preview_kop?: number;
+  /**
+   * Кто отправитель — курьеру, когда контакты открыты. Гаснет вместе с телефонами
+   * после закрытия доставки: адрес и номер не должны лежать в чужом телефоне вечно.
+   */
+  sender_name?: string;
+  sender_phone?: string;
+  /** Сколько раз курьер пытался вручить и почему повезли обратно. */
+  delivery_attempts?: number;
+  return_reason?: string;
+  returned_at?: string | null;
+  /** Из чего сложится компенсация за отмену: штраф + дорога курьера + его ожидание.
+   *  Одно число человек читает как «нас обобрали» — со строками не спорят. */
+  cancel_fee_parts?: {
+    base_kop: number;
+    pickup_kop: number;
+    waiting_kop: number;
+    total_kop: number;
+  } | null;
+  /** Возврат «получателя не было»: сколько отправитель вернёт курьеру за дорогу и ожидание.
+   *  Ноль, пока курьер не отметил ни одной попытки вручения — за слова мы не платим. */
+  return_fee_kop?: number;
+  return_fee_parts?: {
+    attempts: number;
+    /** Заездов по просьбе отправителя, за которые платим. */
+    redeliveries: number;
+    route_kop: number;
+    redeliver_kop: number;
+    /** Во сколько обойдётся СЛЕДУЮЩИЙ заезд, если попросить его сейчас. Считает сервер:
+     *  цена зависит от зоны, коэффициента и потолка. Ноль = предел исчерпан. */
+    next_redeliver_kop: number;
+    pickup_kop: number;
+    waiting_kop: number;
+    /** Потолок «не дороже самой доставки» и сколько он срезал — чтобы «сумма меньше
+     *  слагаемых» не читалась как ошибка. */
+    cap_kop: number;
+    capped_kop: number;
+    total_kop: number;
+  } | null;
+  /** Повторный заезд «получатель уже дома»: сколько попросили, сколько всего можно и
+   *  открыта ли кнопка сейчас. Считает СЕРВЕР — у клиента нет ни попыток, ни предела. */
+  redeliver_requests?: number;
+  redeliver_max?: number;
+  can_request_redelivery?: boolean;
   cod_amount_kop: number;
   commission_kop: number;
   price_kop: number; // цена доставки (courier/buy_bring); 0 для poputka
@@ -180,6 +223,28 @@ export function acceptParcel(id: number, pickupPhotoUrl?: string): Promise<Parce
   );
 }
 
+/** Ответ на «Я на месте»: где курьер стоит и по каким правилам пошло ожидание. */
+export interface ParcelArrived {
+  ok: boolean;
+  /** sender — у отправителя, receiver — у получателя. */
+  where: "sender" | "receiver";
+  waiting_started_at: string;
+  wait_free_min: number;
+  wait_fee_rub_per_min: number;
+  waiting_fee_kop: number;
+}
+
+/**
+ * POST /parcels/{id}/arrived — «Я на месте».
+ *
+ * Одна кнопка на ОБА конца: сервер сам понимает по статусу, у кого курьер стоит. С этой
+ * минуты идёт платное ожидание по тем же правилам, что у такси — раньше курьер стоял
+ * у двери сорок минут бесплатно.
+ */
+export function parcelArrived(id: number): Promise<ParcelArrived> {
+  return apiPost<ParcelArrived>(`/parcels/${id}/arrived`, {});
+}
+
 /**
  * POST /parcels/{id}/status — двигать статус. delivered требует code вручения.
  * deliveryPhotoUrl — снимок «отдал целой», вторая граница ответственности.
@@ -233,6 +298,20 @@ export function parcelAttemptFailed(id: number, reason = ""): Promise<Parcel> {
 }
 
 /**
+ * Отправитель просит курьера заехать ещё раз: «получатель уже дома».
+ *
+ * Ступенька между «не застал» и возвратом. Раньше её не было: посылка либо чудом вручалась,
+ * либо ехала обратно, и отправитель платил почти полную стоимость доставки за то, что
+ * человека не оказалось дома. Заезд по просьбе оплачивается как половина маршрута — платит
+ * тот, кто попросил (правило UPS, забранное себе).
+ *
+ * Открыта ли просьба прямо сейчас — решает сервер (`can_request_redelivery`).
+ */
+export function parcelRedeliverRequest(id: number, reason = ""): Promise<Parcel> {
+  return apiPost<Parcel>(`/parcels/${id}/redeliver-request`, { reason });
+}
+
+/**
  * Курьер везёт посылку ОБРАТНО отправителю: получателя нет, отказался, не выходит на связь.
  * Комиссию за возврат платформа не берёт — услуга не оказана.
  */
@@ -273,4 +352,75 @@ export function parcelDispute(
 /** Заявка «в работе» у курьера (можно двигать статус). */
 export function isCarrying(s: ParcelStatus | string): boolean {
   return s === "accepted" || s === "in_transit";
+}
+
+// ================================================================
+//  Курьер снимает себя с заказа + квитанция за доставку
+//  (parcels.py: /parcels/{id}/release, /parcels/{id}/receipt).
+//
+//  В вебе не было ни того, ни другого: отказаться от взятого заказа
+//  было нельзя вообще, а чек за доставку — единственный из трёх
+//  (попутка, такси, доставка), которого веб не показывал
+//  (сверка с Android, 2026-08-30).
+// ================================================================
+
+/**
+ * «Не смогу везти» — посылка возвращается в общий список, отправителю уходит причина.
+ *
+ * Только пока коробка ещё не у курьера. Дальше это уже не отказ, а «уехал с чужой вещью»:
+ * там работают возврат и спор. Сервер это проверяет сам и отвечает понятной подсказкой.
+ */
+export function releaseParcel(id: number, reason = ""): Promise<Parcel> {
+  return apiPost<Parcel>(`/parcels/${id}/release`, { reason: reason.slice(0, 200) });
+}
+
+/**
+ * Квитанция за доставку. Телефонов и адресов тут нет: чеком делятся, а адрес получателя —
+ * это его дом.
+ *
+ * Деньги разделены по карманам: доставка отдельно, товар «купи и привези» отдельно.
+ * Компенсации курьеру (дорога к посылке, зимняя дорога, ожидание) идут ему целиком,
+ * комиссия с них не берётся.
+ */
+export interface ParcelReceipt {
+  parcel_id: number;
+  role: "courier" | "sender";
+  status: ParcelStatus | string;
+  from_city: string;
+  to_city: string;
+  delivery_type: string;
+  created_at: string;
+  delivered_at: string;
+  returned_at: string;
+  delivery_price_kop: number;
+  goods_kop: number;
+  total_kop: number;
+  /** Сколько отправитель возвращает курьеру за товар, купленный на свои. */
+  owed_to_courier_kop: number;
+  amount: number; // ₽
+  commission_kop: number;
+  commission_paid: boolean;
+  cancel_fee_kop: number;
+  /** Возврат: за доставку не берём, но дорогу и ожидание курьера отправитель возвращает. */
+  return_fee_kop: number;
+  distance_km: number;
+  delivery_attempts_final: number;
+  redeliver_requests: number;
+  settled: boolean;
+  declared_value_kop: number;
+  pickup_fee_kop: number;
+  pickup_km: number;
+  weather_fee_kop: number;
+  weather_kind: string;
+  night_k: number;
+  /** Ожидание раздельно по концам: задерживают курьера разные люди. */
+  waiting_sender_kop: number;
+  waiting_receiver_kop: number;
+  waiting_fee_kop: number;
+  courier_name: string;
+  courier_verified: boolean;
+}
+
+export function fetchParcelReceipt(id: number, signal?: AbortSignal): Promise<ParcelReceipt> {
+  return apiGet<ParcelReceipt>(`/parcels/${id}/receipt`, { signal });
 }

@@ -530,7 +530,7 @@ internal fun MapScreen(
                             NearbyFilterChip(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"), "women" in prefFilter, modifier = chipTouch) { prefFilter = if ("women" in prefFilter) prefFilter - "women" else prefFilter + "women" }
                             NearbyFilterChip(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"), "child" in prefFilter, modifier = chipTouch) { prefFilter = if ("child" in prefFilter) prefFilter - "child" else prefFilter + "child" }
                             NearbyFilterChip(Icons.Default.Pets, appText("С животным", "Хайуан менән"), "pets" in prefFilter, modifier = chipTouch) { prefFilter = if ("pets" in prefFilter) prefFilter - "pets" else prefFilter + "pets" }
-                            NearbyFilterChip(Icons.Default.Luggage, appText("Багаж", "Багаж"), "baggage" in prefFilter, modifier = chipTouch) { prefFilter = if ("baggage" in prefFilter) prefFilter - "baggage" else prefFilter + "baggage" }
+                            NearbyFilterChip(Icons.Default.Luggage, appText("Багаж", "Йөк"), "baggage" in prefFilter, modifier = chipTouch) { prefFilter = if ("baggage" in prefFilter) prefFilter - "baggage" else prefFilter + "baggage" }
                             NearbyFilterChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), "ac" in prefFilter, modifier = chipTouch) { prefFilter = if ("ac" in prefFilter) prefFilter - "ac" else prefFilter + "ac" }
                             NearbyFilterChip(Icons.Default.Block, appText("Некурящий", "Тартмаусы"), "nosmoke" in prefFilter, modifier = chipTouch) { prefFilter = if ("nosmoke" in prefFilter) prefFilter - "nosmoke" else prefFilter + "nosmoke" }
                             NearbyFilterChip(Icons.Default.VolumeOff, appText("Тихая поездка", "Тыныс сәфәр"), "quiet" in prefFilter, modifier = chipTouch) { prefFilter = if ("quiet" in prefFilter) prefFilter - "quiet" else prefFilter + "quiet" }
@@ -1152,14 +1152,14 @@ internal fun SeniorAccessCard(onSimpleMode: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    appText("Простой режим", "Ябай режим"),
+                    appText("Крупные кнопки", "Ҙур төймәләр"),
                     color = CanonText,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
                     lineHeight = 23.sp
                 )
                 Text(
-                    appText("Крупные кнопки и голос", "Ҙур төймәләр һәм тауыш"),
+                    appText("Крупный текст и голос", "Ҙур текст һәм тауыш"),
                     color = CanonMuted,
                     fontSize = 14.sp,
                     lineHeight = 20.sp,

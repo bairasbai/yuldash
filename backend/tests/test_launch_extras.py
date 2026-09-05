@@ -140,19 +140,27 @@ def _last_note(user_id: int):
 
 
 def test_cancel_by_driver_pushes_passenger(client, user_factory, fake_redis, pushes):
-    """Водитель отменил после accept → пассажиру «Заказ отменён» (двуязычно, data-payload)."""
+    """Водитель отменил после accept → пассажиру «Ищем другую машину» (двуязычно, data-payload).
+
+    Раньше пуш назывался «Заказ отменён» и спрашивал «Ищем другого?», а поиска за этим
+    вопросом не стояло: заказ был мёртв, экран предлагал заказать заново. С 2026-08-29 заказ
+    действительно возвращается в поиск, и текст наконец совпадает с делом.
+    """
     d, pax, order = _accepted_order(client, user_factory, fake_redis, "CnDrv", "CnPax")
     assert client.post(f"/instant/orders/{order['id']}/cancel", headers=d["auth"],
                        json={"reason": "сломалась машина"}).status_code == 200
-    got = [p for p in _status_pushes(pushes) if p["uid"] == pax["id"] and p["data"]["status"] == "cancelled"]
-    assert len(got) == 1
+    got = [p for p in _status_pushes(pushes)
+           if p["uid"] == pax["id"] and p["data"]["status"] == "searching"]
+    assert len(got) == 1, "пассажиру не сказали, что машину уже ищут"
     # Пуш уходит на ЯЗЫКЕ ПОЛУЧАТЕЛЯ (единая точка services.push_notification), а не обоими
     # языками в одной строке: русскоязычный больше не читает «Заказ отменён · Заказ кире алынды».
     # Оба текста при этом хранятся в Центре уведомлений — см. tests/test_other_side_is_told.py.
-    assert "Заказ отменён" in got[0]["title"]
-    assert "Ищем другого" in got[0]["body"]
+    assert "Ищем другую машину" in got[0]["title"]
+    assert "заказывать заново не нужно" in got[0]["body"], (
+        "человеку не сказали главного: делать ничего не надо"
+    )
     note = _last_note(pax["id"])
-    assert note is not None and "кире алынды" in note.title_ba, (
+    assert note is not None and "эҙләйбеҙ" in note.title_ba, (
         "башкирского текста нет даже в Центре уведомлений — правило двух языков нарушено"
     )
 

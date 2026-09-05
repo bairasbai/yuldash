@@ -133,62 +133,29 @@ def test_reverse_geocode_returns_house_address(client, monkeypatch, user_factory
     # а результат будет правдоподобным: адрес найдётся, но в другой точке мира.
     assert sent["geocode"] == "58.314,52.5905"
     assert saved["ttl"] == 86400
-    assert saved["key"] == "revgeo:v1:52.59050,58.31400"
+    assert saved["key"] == "revgeo:v2:52.5905,58.3140"   # ~11 м: соседние пины делят кеш
 
 
-def test_reverse_geocode_survives_network_failure(client, monkeypatch, user_factory):
-    """Сеть отвалилась — отвечаем пустым, а не пятисотим и не кешируем ошибку.
+def test_reverse_geocode_shares_cache_between_neighbouring_pins(client, monkeypatch, user_factory):
+    """Два пина в нескольких метрах друг от друга — ОДИН платный запрос, а не два.
 
-    Пустой ответ клиент показывает как прежнее «Точка на карте»: координаты у водителя
-    есть, заказ из-за адреса ломать нельзя. В деревне связь пропадает, а ехать надо сейчас.
+    Каждый промах кеша стоит 0,39 ₽ (тариф геокодера Яндекса). Ключ округлён до 4 знаков
+    (~11 метров): человек, который подвинул точку на пару шагов, и его сосед по подъезду
+    попадают в одну запись кеша. Раньше округляли до ~1 метра, и почти каждый новый пин
+    был новым платным вызовом.
     """
-    auth = user_factory("ГеоСбой")["auth"]
+    auth = user_factory("ГеоСосед")["auth"]
     monkeypatch.setattr(settings, "yandex_geocoder_key", "key")
-    monkeypatch.setattr("app.routers.discovery.cache_get_json", lambda _key: None)
 
-    written = []
+    store: dict = {}
+    monkeypatch.setattr("app.routers.discovery.cache_get_json", store.get)
     monkeypatch.setattr("app.routers.discovery.cache_set_json",
-                        lambda *a, **k: written.append(a))
-    monkeypatch.setattr(httpx, "get",
-                        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("network")))
+                        lambda key, value, ttl: store.__setitem__(key, value))
 
-    r = client.get("/geocode/reverse", headers=auth, params={"lat": 52.59, "lng": 58.31})
-    assert r.status_code == 200 and r.json() == {"title": ""}
-    assert written == [], "ошибку сети кешировать нельзя — в следующий раз надо попробовать снова"
-
-
-def test_reverse_geocode_rejects_impossible_coordinates(client, monkeypatch, user_factory):
-    """Координаты вне глобуса — не запрос, а мусор. Платный вызов на них не тратим."""
-    auth = user_factory("ГеоМусор")["auth"]
-    monkeypatch.setattr(settings, "yandex_geocoder_key", "key")
-    called = []
-    monkeypatch.setattr(httpx, "get", lambda *_a, **_k: called.append(1))
-
-    assert client.get("/geocode/reverse", headers=auth,
-                      params={"lat": 999, "lng": 0}).json() == {"title": ""}
-    assert client.get("/geocode/reverse", headers=auth,
-                      params={"lat": 0, "lng": -900}).json() == {"title": ""}
-    assert called == [], "до Яндекса такие координаты доходить не должны"
-
-
-def test_reverse_geocode_returns_house_address(client, monkeypatch, user_factory):
-    """Пин на карте превращается в «улица, дом».
-
-    Без этого в заказ уходило безымянное «Точка на карте»: водитель в списке заказов
-    не отличал одну такую точку от другой, а пассажир через месяц не понимал, куда ездил.
-    """
-    auth = user_factory("ГеоОбратный")["auth"]
-    monkeypatch.setattr(settings, "yandex_geocoder_key", "key")
-    monkeypatch.setattr("app.routers.discovery.cache_get_json", lambda _key: None)
-
-    saved = {}
-    monkeypatch.setattr("app.routers.discovery.cache_set_json",
-                        lambda key, value, ttl: saved.update(key=key, value=value, ttl=ttl))
-
-    sent = {}
+    calls = []
 
     def fake_get(url, params, timeout):
-        sent.update(params)
+        calls.append(params)
         return FakeResponse({
             "response": {"GeoObjectCollection": {"featureMember": [
                 {"GeoObject": {"name": "Ленина, 12", "description": "Баймак, Башкортостан"}},
@@ -196,14 +163,15 @@ def test_reverse_geocode_returns_house_address(client, monkeypatch, user_factory
         })
 
     monkeypatch.setattr(httpx, "get", fake_get)
-    body = client.get("/geocode/reverse", headers=auth, params={"lat": 52.5905, "lng": 58.314}).json()
+    first = client.get("/geocode/reverse", headers=auth,
+                       params={"lat": 52.59050, "lng": 58.31400}).json()
+    # Сдвиг ~5 метров — в масштабе дома это та же дверь.
+    second = client.get("/geocode/reverse", headers=auth,
+                        params={"lat": 52.59054, "lng": 58.31404}).json()
 
-    assert body == {"title": "Ленина, 12"}
-    # Яндексу координаты идут «долгота,широта» — обратным порядком. Перепутать легко,
-    # а результат будет правдоподобным: адрес найдётся, но в другой точке мира.
-    assert sent["geocode"] == "58.314,52.5905"
-    assert saved["ttl"] == 86400
-    assert saved["key"] == "revgeo:v1:52.59050,58.31400"
+    assert first == second == {"title": "Ленина, 12"}
+    assert len(calls) == 1, f"соседние пины сходили к Яндексу {len(calls)} раза вместо одного"
+    assert list(store) == ["revgeo:v2:52.5905,58.3140"]
 
 
 def test_reverse_geocode_survives_network_failure(client, monkeypatch, user_factory):

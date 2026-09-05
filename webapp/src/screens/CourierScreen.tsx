@@ -14,6 +14,7 @@
 // ================================================================
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import PriorityCard from "../components/PriorityCard";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
@@ -30,6 +31,7 @@ import {
 import {
   fetchCarrying,
   acceptParcel,
+  parcelArrived,
   setParcelStatus,
   type Parcel,
 } from "../api/parcels";
@@ -40,10 +42,11 @@ import { AvailableParcelCard, CarryParcelCard, CodeDialog } from "../components/
 import ParcelProblemActions from "../components/ParcelProblemActions";
 import ParcelPhoto from "../components/ParcelPhoto";
 import CityField from "../components/CityField";
-import { IconStar, IconCheck, IconCopy, IconBox, IconTrend } from "../components/Icons";
+import { IconStar, IconCheck, IconCopy, IconBox, IconCamera, IconTrend } from "../components/Icons";
 import { YuCourierWalk } from "../components/BrandIcons";
 import { serverMs } from "../utils/serverTime";
 import { rememberPayment } from "../utils/pendingPayment";
+import { track } from "../analytics";
 
 type Boot = "loading" | "error" | "soon" | "need-approval" | "ready";
 type Tab = "available" | "carry" | "cabinet";
@@ -102,6 +105,8 @@ export default function CourierScreen() {
       const prof = online
         ? await courierOffline()
         : await courierOnline({ zone, work_city: workCity.trim() });
+      track(online ? "courier_offline" : "courier_online");
+      track(online ? "courier_offline" : "courier_online");
       setMe({ ...me, profile: prof });
     } catch (e) {
       // 403 = мягкая пауза по качеству → перечитаем кабинет (покажет плашку).
@@ -303,10 +308,15 @@ export default function CourierScreen() {
       </div>
 
       {tab === "available" && <AvailableOrders zone={zone} online={online} onGoOnline={toggleOnline} />}
-      {tab === "carry" && <CarryOrders />}
+      {tab === "carry" && <CarryOrders onGoAvailable={() => setTab("available")} />}
       {tab === "cabinet" && me && (
         <>
           <Cabinet me={me} onReload={() => load()} />
+          {/* ⭐ Приоритет: кому заказ падает первым и за что. Считается по ДОСТАВКАМ,
+              отдельно от такси — работа разная, заслуги одной роли в другую не переносятся. */}
+          <div style={{ marginTop: 12 }}>
+            <PriorityCard courier />
+          </div>
           {/* Заработок отдельно от комиссии: иначе работа выглядит одним сплошным долгом. */}
           <button
             type="button"
@@ -315,6 +325,16 @@ export default function CourierScreen() {
             onClick={() => navigate("/courier-earnings")}
           >
             <IconTrend size={18} /> {appText("Мой заработок", "Минең табыш")}
+          </button>
+          {/* Фотоконтроль машины (580-ФЗ): две стороны кузова и багажник раз в две недели.
+              Здесь дверь, а не сводка — состояние человек видит на самом экране. */}
+          <button
+            type="button"
+            className="btn-soft"
+            style={{ width: "100%", marginTop: 12 }}
+            onClick={() => navigate("/car-photo?mode=courier")}
+          >
+            <IconCamera size={18} /> {appText("Фотоконтроль машины", "Машина фотоконтроле")}
           </button>
         </>
       )}
@@ -370,6 +390,7 @@ function AvailableOrders({
     setBusyId(id);
     try {
       await acceptParcel(id, photos[id]);
+      track("parcel_accept");
       setItems((prev) => prev.filter((x) => x.id !== id));
     } catch {
       setItems((prev) => prev.filter((x) => x.id !== id));
@@ -466,7 +487,7 @@ function AvailableOrders({
 }
 
 // ============================ Везу ============================
-function CarryOrders() {
+function CarryOrders({ onGoAvailable }: { onGoAvailable: () => void }) {
   const { appText } = useLang();
   const [boot, setBoot] = useState<"loading" | "error" | "ready">("loading");
   const [items, setItems] = useState<Parcel[]>([]);
@@ -500,6 +521,18 @@ function CarryOrders() {
     return () => ac.abort();
   }, [load]);
 
+  async function onArrived(id: number) {
+    setBusyId(id);
+    try {
+      await parcelArrived(id);
+      await load();
+    } catch {
+      /* тихо: кнопку можно нажать ещё раз, счётчик уже идёт */
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function onDepart(id: number) {
     setBusyId(id);
     try {
@@ -516,6 +549,7 @@ function CarryOrders() {
     setBusyId(id);
     try {
       const r = await setGoodsCost(id, kop);
+      track("courier_goods_cost");
       setItems((prev) => prev.map((x) => (x.id === id ? { ...x, settlement: r.settlement } : x)));
     } catch {
       /* тихо — курьер повторит */
@@ -552,7 +586,12 @@ function CarryOrders() {
           <YuCourierWalk size={36} />
         </div>
         <h2>{appText("Ты пока ничего не везёшь", "Һин бер нәмә лә йөрөтмәйһең")}</h2>
-        <p>{appText("Возьми заказ во вкладке «Заказы» — он появится здесь.", "«Заказдар» бүлегендә заказ ал — ул бында күренер.")}</p>
+        <p>{appText("Возьми заказ — он появится здесь.", "Заказ ал — ул бында күренер.")}</p>
+        {/* Экран уже ЗНАЕТ следующий шаг — значит должен вести, а не подсказывать
+            словами. Иначе человек закрывает его и ищет вкладку глазами. */}
+        <button type="button" className="btn-primary" onClick={onGoAvailable}>
+          {appText("Смотреть заказы", "Заказдарҙы ҡарау")}
+        </button>
       </div>
     );
   }
@@ -564,6 +603,7 @@ function CarryOrders() {
             p={p}
             busy={busyId === p.id}
             onDepart={() => onDepart(p.id)}
+            onArrived={() => onArrived(p.id)}
             onDeliver={() => { setCodeErr(null); setCodeFor(p); }}
             onGoodsCost={(kop) => onGoods(p.id, kop)}
           />
@@ -610,6 +650,7 @@ function Cabinet({ me, onReload }: { me: CourierMe; onReload: () => void }) {
     setMsg(null);
     try {
       const r = await payCourierCommission();
+      track("courier_pay_commission");
       if (r.status === "succeeded") {
         setMsg({ ru: "Комиссия оплачена. Спасибо! 💚", ba: "Комиссия түләнде. Рәхмәт! 💚" });
         onReload();

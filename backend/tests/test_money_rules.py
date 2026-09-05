@@ -1,7 +1,7 @@
 """Тесты батча B3 «Деньги-тонкости» (волна 2, §5 Деньги + §6 Классы). Деньги — критично,
 покрываем плотнее, чем кажется нужным:
 
-1) Комиссия лесенкой 3/5/8: границы 30/60 дней стажа, промо запуска вкл/выкл,
+1) Комиссия лесенкой 3/8/15: границы 30/100 ПОЕЗДОК, промо запуска вкл/выкл,
    нулевая комиссия долг не создаёт.
 2) Сурж: ступени по спрос/предложение, потолок ×1.5 (и конфигом ниже), без Redis k=1,
    k фиксируется на заказе, прозрачная плашка (surge_note).
@@ -85,18 +85,31 @@ def _db_order(order_id: int) -> InstantOrder:
 
 
 def _seed_done_order(driver_id: int, passenger_id: int, done_days_ago: int) -> None:
-    """Прошлый завершённый заказ водителя N дней назад (для стажа лесенки)."""
+    """Прошлый завершённый заказ водителя N дней назад."""
+    _seed_done_trips(driver_id, passenger_id, 1, done_days_ago=done_days_ago)
+
+
+def _seed_done_trips(driver_id: int, passenger_id: int, count: int, done_days_ago: int = 1) -> None:
+    """N завершённых поездок водителя в прошлом — позиция на лесенке комиссии.
+
+    Лесенка считается по ПОЕЗДКАМ (решение 2026-08-23), поэтому тестам нужна именно пачка,
+    а не одна старая поездка.
+    """
+    if count <= 0:
+        return
+    base = utcnow() - timedelta(days=done_days_ago)
     with Session(engine) as s:
-        s.add(InstantOrder(
-            passenger_id=passenger_id, driver_id=driver_id,
-            from_lat=ORIG[0], from_lng=ORIG[1], to_lat=DEST[0], to_lng=DEST[1],
-            status=S.done, price_estimate=100, price_final=100,
-            done_at=utcnow() - timedelta(days=done_days_ago),
-        ))
+        for i in range(count):
+            s.add(InstantOrder(
+                passenger_id=passenger_id, driver_id=driver_id,
+                from_lat=ORIG[0], from_lng=ORIG[1], to_lat=DEST[0], to_lng=DEST[1],
+                status=S.done, price_estimate=100, price_final=100,
+                done_at=base + timedelta(seconds=i),
+            ))
         s.commit()
 
 
-# ============================ 1. Комиссия лесенкой 3/5/8 ============================
+# ==================== 1. Комиссия лесенкой 3/8/15 по поездкам ====================
 def test_fee_first_order_is_tier1(client, user_factory):
     """Новичок (нет прошлых done) платит 1-ю ступень — 3%."""
     d = user_factory("Lad0", role=UserRole.driver)
@@ -104,24 +117,25 @@ def test_fee_first_order_is_tier1(client, user_factory):
         assert debt_mod.driver_fee_percent(s, d["id"]) == settings.fee_tier1_percent
 
 
-@pytest.mark.parametrize("days,expected_attr", [
-    (30, "fee_tier1_percent"),    # ровно 30 дней — ещё 3%
-    (31, "fee_tier2_percent"),    # 31-й день — уже 5%
-    (60, "fee_tier2_percent"),    # ровно 60 — ещё 5%
-    (61, "service_fee_percent"),  # 61-й — навсегда 8%
+@pytest.mark.parametrize("trips,expected_attr", [
+    (29, "fee_tier1_percent"),    # едет 30-ю поездку — ещё 3%
+    (30, "fee_tier2_percent"),    # 31-я — уже 8%
+    (99, "fee_tier2_percent"),    # 100-я — ещё 8%
+    (100, "service_fee_percent"),  # 101-я и дальше — навсегда 15%
 ])
-def test_fee_ladder_boundaries(client, user_factory, days, expected_attr):
-    d = user_factory(f"Lad{days}", role=UserRole.driver)
-    pax = user_factory(f"LadPax{days}")
-    _seed_done_order(d["id"], pax["id"], done_days_ago=days)
+def test_fee_ladder_boundaries(client, user_factory, trips, expected_attr):
+    """Границы лесенки — по числу УЖЕ завершённых поездок, календарь ни при чём."""
+    d = user_factory(f"Lad{trips}", role=UserRole.driver)
+    pax = user_factory(f"LadPax{trips}")
+    _seed_done_trips(d["id"], pax["id"], trips)
     with Session(engine) as s:
         assert debt_mod.driver_fee_percent(s, d["id"]) == getattr(settings, expected_attr)
 
 
 def test_fee_ladder_applies_to_debt_amount(client, user_factory, fake_redis):
-    """Интеграция: водитель со стажем 40 дней получает долг 5% (а не 3% и не 8%)."""
+    """Интеграция: водитель с 40 поездками за спиной получает долг 8% (а не 3% и не 15%)."""
     d, pax, order = _offered_order(client, user_factory, "LadIntDrv", "LadIntPax")
-    _seed_done_order(d["id"], pax["id"], done_days_ago=40)
+    _seed_done_trips(d["id"], pax["id"], 40)
     oid = order["id"]
     for path in ("accept", "arrived", "onboard", "done"):
         assert client.post(f"/instant/orders/{oid}/{path}", headers=d["auth"]).status_code == 200
@@ -170,7 +184,7 @@ def test_launch_promo_expired_window_back_to_ladder(client, user_factory, monkey
         app.reviewed_at = utcnow() - timedelta(days=settings.launch_promo_days + 1)
         s.add(app)
         s.commit()
-    _seed_done_order(d["id"], pax["id"], done_days_ago=90)
+    _seed_done_trips(d["id"], pax["id"], settings.fee_tier2_trips)
     with Session(engine) as s:
         assert debt_mod.driver_fee_percent(s, d["id"]) == settings.service_fee_percent
 
@@ -392,9 +406,12 @@ def test_waiting_over_free_charged_per_minute(client, user_factory, fake_redis):
     _shift(oid, waiting_started_at=utcnow() - timedelta(minutes=8, seconds=30))
     client.post(f"/instant/orders/{oid}/onboard", headers=d["auth"])
     o = _db_order(oid)
-    assert o.waiting_fee_kop == 3 * settings.wait_fee_rub_per_min * 100   # неполная минута — в пользу пассажира
+    # Границу бесплатных минут берём из конфига: она уже менялась (5 → 3), и проверка,
+    # зашитая цифрой, ловит не ошибку, а собственную несвежесть.
+    платных = 8 - settings.wait_free_minutes   # ждали 8,5 мин; неполная минута — в пользу пассажира
+    assert o.waiting_fee_kop == платных * settings.wait_fee_rub_per_min * 100
     done = client.post(f"/instant/orders/{oid}/done", headers=d["auth"]).json()
-    assert done["price_final"] == o.price_estimate + 3 * settings.wait_fee_rub_per_min
+    assert done["price_final"] == o.price_estimate + платных * settings.wait_fee_rub_per_min
     assert done["waiting_fee_kop"] == o.waiting_fee_kop
 
 
@@ -429,7 +446,12 @@ def test_no_show_after_timeout_ok(client, user_factory, fake_redis):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "cancelled" and body["no_show"] is True
-    assert body["cancel_fee_kop"] == CITY_BASE_KOP and body["cancel_by"] == "driver"
+    # Счёт «пассажир не вышел» = подача по тарифу + дорога водителя + его ожидание
+    # (2026-08-28). Машина рядом, дороги нет — значит подача плюс отжданные минуты.
+    ждал = settings.wait_free_minutes + settings.no_show_extra_minutes
+    ожидание = (ждал - settings.wait_free_minutes) * settings.wait_fee_rub_per_min * 100
+    assert body["cancel_fee_kop"] == CITY_BASE_KOP + ожидание
+    assert body["cancel_by"] == "driver"
 
 
 def test_driver_normal_cancel_no_penalty(client, user_factory, fake_redis):
@@ -465,7 +487,11 @@ def test_strikes_pause_orders(client, user_factory, fake_redis):
     _mk_strike(pax["id"], hours_ago=0, no_show=True)
     r = client.post("/instant/orders", headers=pax["auth"], json=_order_body())
     assert r.status_code == 403
-    assert "пауз" in r.json()["detail"].lower()
+    # Ошибка двуязычная: detail={ru, ba}. Проверяем ОБА языка — иначе можно потерять
+    # башкирскую половину и не заметить (правило «две отдельные строки», не одна).
+    detail = r.json()["detail"]
+    assert "пауз" in detail["ru"].lower()
+    assert detail["ba"].strip(), "башкирский текст паузы пуст"
     # Попутка при этом работает: заявку пассажира гейт такси не трогает.
     with Session(engine) as s:
         assert isv.strike_pause_until(s, pax["id"]) is not None

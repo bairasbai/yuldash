@@ -24,6 +24,7 @@ import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
 import { IconCheck, IconCamera, IconShield, IconWarn, IconCar, IconClock, IconIdCard } from "../components/Icons";
 import { useDraftSync, clearDraft } from "../utils/formDraft";
+import { track } from "../analytics";
 
 type Boot = "loading" | "error" | "gate" | "ready";
 
@@ -96,6 +97,18 @@ export default function TaxiOnboardingScreen() {
   const [birth, setBirth] = useState("");
   const [licenseYear, setLicenseYear] = useState("");
   const [carClass, setCarClass] = useState<"economy" | "comfort">("economy");
+  /**
+   * Характеристики машины. Класс по ним СЧИТАЕТСЯ, а не заявляется: пассажир, заказавший
+   * Комфорт, должен получить Комфорт. Без года выпуска доступен только Эконом — каким бы
+   * новым ни был автомобиль, классификатор не угадывает.
+   */
+  const [carYear, setCarYear] = useState("");
+  const [seats, setSeats] = useState("");
+  const [carColor, setCarColor] = useState("");
+  const [carAc, setCarAc] = useState(false);
+  const [carSedan, setCarSedan] = useState(false);
+  const [carLeather, setCarLeather] = useState(false);
+  const [carLightSalon, setCarLightSalon] = useState(false);
   const [permitUrl, setPermitUrl] = useState("");
   const [osagoUrl, setOsagoUrl] = useState("");
   const [selfieUrl, setSelfieUrl] = useState("");
@@ -111,13 +124,21 @@ export default function TaxiOnboardingScreen() {
   // к пустой форме и начинал заново. Теперь заполненное ждёт его на месте.
   useDraftSync(
     TAXI_DRAFT,
-    { inn, permit, birth, licenseYear, carClass, permitUrl, osagoUrl, selfieUrl, criminalUrl },
+    { inn, permit, birth, licenseYear, carClass, permitUrl, osagoUrl, selfieUrl, criminalUrl,
+      carYear, seats, carColor, carAc, carSedan, carLeather, carLightSalon },
     (d) => {
       if (d.inn) setInn(d.inn);
       if (d.permit) setPermit(d.permit);
       if (d.birth) setBirth(d.birth);
       if (d.licenseYear) setLicenseYear(d.licenseYear);
       if (d.carClass) setCarClass(d.carClass);
+      if (d.carYear) setCarYear(String(d.carYear));
+      if (d.seats) setSeats(String(d.seats));
+      if (d.carColor) setCarColor(String(d.carColor));
+      if (d.carAc) setCarAc(true);
+      if (d.carSedan) setCarSedan(true);
+      if (d.carLeather) setCarLeather(true);
+      if (d.carLightSalon) setCarLightSalon(true);
       if (d.permitUrl) setPermitUrl(d.permitUrl);
       if (d.osagoUrl) setOsagoUrl(d.osagoUrl);
       if (d.selfieUrl) setSelfieUrl(d.selfieUrl);
@@ -208,7 +229,17 @@ export default function TaxiOnboardingScreen() {
         selfie_url: selfieUrl,
         criminal_record_url: criminalUrl || undefined,
         car_class: carClass,
+        // Характеристики — по ним классификатор откроет Комфорт, Бизнес или Минивэн.
+        // Пустые не шлём: «не указано» и «нет» это разные вещи, и сервер их различает.
+        car_year: carYear.trim() ? Number(carYear) : undefined,
+        seats: seats.trim() ? Number(seats) : undefined,
+        car_color: carColor.trim() || undefined,
+        car_ac: carAc || undefined,
+        car_sedan: carSedan || undefined,
+        car_leather: carLeather || undefined,
+        car_light_salon: carLightSalon || undefined,
       });
+      track("taxi_apply");
       setApp(a);
       setEditing(false);
       clearDraft(TAXI_DRAFT); // отправлено — черновик больше не нужен
@@ -372,10 +403,10 @@ export default function TaxiOnboardingScreen() {
         <div className="info-list">
           <div className="info-row">
             <span className="info-row__k">
-              {appText("Комиссия — втрое ниже, чем у Яндекса", "Комиссия — Яндекстан өс тапҡыр кәмерәк")}
+              {appText("Комиссия — ниже, чем у агрегаторов", "Комиссия — агрегаторҙарҙан түбәнерәк")}
             </span>
             <span className="info-row__v">
-              {appText("3% → 5% → 8%", "3% → 5% → 8%")}
+              {appText("3% → 8% → 15%", "3% → 8% → 15%")}
             </span>
           </div>
           <div className="info-row">
@@ -391,8 +422,8 @@ export default function TaxiOnboardingScreen() {
         </div>
         <p className="act-card__text" style={{ margin: "10px 0 0" }}>
           {appText(
-            "Первый месяц 3%, второй — 5%, дальше 8%. Остальное — твоё. Никаких автосписаний: долг переводишь сам, по-человечески. Ограничение по часам — требование закона и твоя безопасность.",
-            "Беренсе ай 3%, икенсеһе — 5%, артабан 8%. Ҡалғаны — һинеке. Автоматик тотоп алыу юҡ: бурысты үҙең күсерәһең. Сәғәт сикләүе — закон талабы һәм һинең именлегең."
+            "Первые 30 поездок 3%, следующие 70 — 8%, дальше 15%. Остальное — твоё. Никаких автосписаний: долг переводишь сам, по-человечески. Ограничение по часам — требование закона и твоя безопасность.",
+            "Тәүге 30 юл 3%, киләһе 70 — 8%, артабан 15%. Ҡалғаны — һинеке. Автоматик тотоп алыу юҡ: бурысты үҙең күсерәһең. Сәғәт сикләүе — закон талабы һәм һинең именлегең."
           )}
         </p>
       </div>
@@ -491,24 +522,87 @@ export default function TaxiOnboardingScreen() {
         </label>
       </div>
 
-      {/* Класс авто */}
-      <span className="field__label" style={{ marginTop: 12, display: "block" }}>
-        {appText("Класс автомобиля", "Автомобиль класы")}
-      </span>
-      <div className="taxi-when" style={{ marginTop: 6 }}>
+      {/* Машина. Класс НЕ выбирают — его считают по этим полям (car_class.py).
+          Раньше здесь стоял выбор «Эконом/Комфорт», и это было обещанием, которого
+          приложение не держит: пассажир заказывал Комфорт, приезжала Гранта. Теперь
+          человек описывает машину, а класс открывает классификатор — и модератор
+          сверяет описание с фото при допуске. */}
+      <h2 className="section-title">{appText("Машина", "Машина")}</h2>
+      <p className="taxi-note" style={{ marginTop: 0 }}>
+        {appText(
+          "Класс мы посчитаем сами по этим данным. Без года выпуска доступен только Эконом — даже если машина новая.",
+          "Класты был мәғлүмәт буйынса үҙебеҙ иҫәпләйбеҙ. Сығарылған йылһыҙ тик Эконом асыҡ — машина яңы булһа ла."
+        )}
+      </p>
+      <div className="grid-2">
+        <label className="field">
+          <span className="field__label">{appText("Год выпуска", "Сығарылған йыл")}</span>
+          <input
+            className="field__input"
+            inputMode="numeric"
+            value={carYear}
+            onChange={(e) => setCarYear(e.target.value.replace(/[^\d]/g, "").slice(0, 4))}
+            placeholder="2019"
+          />
+        </label>
+        <label className="field">
+          <span className="field__label">{appText("Мест для пассажиров", "Юлаусы урыны")}</span>
+          <input
+            className="field__input"
+            inputMode="numeric"
+            value={seats}
+            onChange={(e) => setSeats(e.target.value.replace(/[^\d]/g, "").slice(0, 2))}
+            placeholder="4"
+          />
+        </label>
+      </div>
+      <label className="field">
+        <span className="field__label">{appText("Цвет кузова", "Кузов төҫө")}</span>
+        <input
+          className="field__input"
+          value={carColor}
+          onChange={(e) => setCarColor(e.target.value.slice(0, 40))}
+          placeholder={appText("белый", "аҡ")}
+        />
+        <span className="field__hint">
+          {appText(
+            "В Башкирии такси возят только чёрные, белые и жёлтые машины — это закон республики, не наше правило.",
+            "Башҡортостанда такси булып тик ҡара, аҡ һәм һары машиналар йөрөй — был республика закны, беҙҙең ҡағиҙә түгел."
+          )}
+        </span>
+      </label>
+      <div className="chips">
         <button
           type="button"
-          className={"taxi-when__tab" + (carClass === "economy" ? " is-active" : "")}
-          onClick={() => setCarClass("economy")}
+          className={"chip" + (carAc ? " chip--on" : "")}
+          aria-pressed={carAc}
+          onClick={() => setCarAc(!carAc)}
         >
-          {appText("Эконом", "Эконом")}
+          {appText("Кондиционер работает", "Кондиционер эшләй")}
         </button>
         <button
           type="button"
-          className={"taxi-when__tab" + (carClass === "comfort" ? " is-active" : "")}
-          onClick={() => setCarClass("comfort")}
+          className={"chip" + (carSedan ? " chip--on" : "")}
+          aria-pressed={carSedan}
+          onClick={() => setCarSedan(!carSedan)}
         >
-          {appText("Комфорт", "Комфорт")}
+          {appText("Седан", "Седан")}
+        </button>
+        <button
+          type="button"
+          className={"chip" + (carLeather ? " chip--on" : "")}
+          aria-pressed={carLeather}
+          onClick={() => setCarLeather(!carLeather)}
+        >
+          {appText("Кожаный салон", "Күн салон")}
+        </button>
+        <button
+          type="button"
+          className={"chip" + (carLightSalon ? " chip--on" : "")}
+          aria-pressed={carLightSalon}
+          onClick={() => setCarLightSalon(!carLightSalon)}
+        >
+          {appText("Светлый салон", "Яҡты салон")}
         </button>
       </div>
 

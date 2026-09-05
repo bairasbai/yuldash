@@ -16,6 +16,7 @@ import { formatRelative } from "../utils/format";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
 import { IconWarn, IconChat } from "../components/Icons";
+import { track } from "../analytics";
 
 type Load = "loading" | "ok" | "error";
 type Send = "idle" | "sending";
@@ -59,6 +60,7 @@ export default function SupportTicketsScreen() {
     setError(null);
     try {
       const t = await createTicket(subject.trim(), b);
+      track("support_ticket_create");
       setComposing(false);
       setSubject("");
       setBody("");

@@ -92,6 +92,13 @@ class User(SQLModel, table=True):
     # комментарий рядом обещал обратное. Пожизненный счётчик переживает и трату бонусов,
     # и удаление приглашённых аккаунтов (счётчик живёт у пригласившего, а не считает их).
     referral_bonus_lifetime: int = 0
+    # Остаток оплаченного поднятия (Boost) с отменённой поездки. Водитель заплатил за то,
+    # чтобы его видели, а поездка сорвалась — деньги не возвращаем, но и не забираем:
+    # остаток автоматически ложится на следующую опубликованную поездку. Живёт 30 дней
+    # (`boost_credit_until`): бесконечный долг перед водителем — это бухгалтерия,
+    # которой у нас нет, а месяца хватает на любой нормальный сценарий.
+    boost_credit_sec: int = 0
+    boost_credit_until: Optional[datetime] = None
     # Анти-фрод (B8): последнее устройство входа (X-Device-Id, ANDROID_ID клиента).
     # По нему: бан устройства ловит обход бана новым номером; вход с нового устройства → сигнал.
     # Приватность: наружу не отдаём, в логи не пишем.
@@ -146,6 +153,32 @@ class DeviceToken(SQLModel, table=True):
     # телефоне от попытки забрать чужой приём уведомлений (аудит 2026-08-08, волна 147):
     # раньше перепривязать запись мог кто угодно, знающий строку токена, и жертва переставала
     # получать всё — сообщения, «водитель подъехал», напоминание по сигналу SOS.
+    device_id: str = Field(default="", index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class WebPushSubscription(SQLModel, table=True):
+    """Подписка браузера на Web Push (стандарт RFC 8291): endpoint + два ключа.
+
+    Зачем отдельная таблица, а не `DeviceToken`. У FCM устройство — это одна строка-токен,
+    и её достаточно, чтобы отправить сообщение. У браузера всё иначе: сообщение шифруется
+    ключами САМОЙ подписки (`p256dh` — публичный ключ браузера, `auth` — общий секрет),
+    и без них отправить нельзя ничего. Склеивать это в поле `token` значило бы хранить
+    три разные вещи в одной строке и разбирать её на каждой отправке.
+
+    Приватность: `endpoint` — это адрес пуш-сервиса браузера (Google/Mozilla/Apple).
+    По нему можно слать уведомления конкретному человеку, поэтому при выходе из аккаунта
+    подписка удаляется — на общем телефоне следующий вошедший не должен получать чужое.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    # Адрес пуш-сервиса браузера. Уникален: одна подписка живёт у одного человека.
+    endpoint: str = Field(index=True, unique=True)
+    p256dh: str = ""
+    auth: str = ""
+    # aes128gcm (современные браузеры) или aesgcm (старые). Отдаёт сам браузер.
+    content_encoding: str = "aes128gcm"
+    # С какого устройства подписка — тем же смыслом, что device_id у FCM-токена.
     device_id: str = Field(default="", index=True)
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -247,6 +280,10 @@ class DriverProfile(SQLModel, table=True):
     car_ac: bool = False              # рабочий кондиционер
     car_sedan: bool = False           # кузов седан (нужно Бизнесу)
     car_leather: bool = False         # кожа или комбинированный салон (нужно Бизнесу)
+    # Светлый салон — РАВНОЦЕННАЯ коже дорога в Бизнес (решение 30.08). Кожа в райцентре
+    # редкость, а светлый ухоженный салон читается пассажиром как «дорого» ничуть не хуже.
+    # Требовать именно кожу значило бы закрыть Бизнес почти всем, у кого он заслужен.
+    car_light_salon: bool = False     # светлый салон (альтернатива коже)
     # Ставит МОДЕРАТОР при очном допуске (видеозвонок + осмотр машины), не водитель.
     # Без него в Бизнес не пускаем: там и цена выше, и ожидания пассажира другие.
     car_premium_verified: bool = False
@@ -953,12 +990,22 @@ class InstantOrder(SQLModel, table=True):
     # нас НЕ идут (ledger не двигаем), безнал (ЮKassa) начисляет водителю через ledger.
     paid: bool = False
     payment_method: str = ""         # "" / cash / card / sbp / yookassa
+    # Когда пассажир последний раз менял способ ПО ХОДУ поездки и видел ли это водитель.
+    # За рулём пуш пропускают, а рассчитываются они лицом к лицу: наличные — это сдача
+    # в кармане, перевод — телефон и банк. Пусто в обоих полях = смены не было.
+    payment_changed_at: Optional[datetime] = None
+    payment_ack_at: Optional[datetime] = None
     # Назначенный водитель (после accept). До accept телефоны скрыты.
     driver_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id")
     # Текущий оффер (кому сейчас предложено) + дедлайн ответа + счётчик кругов подбора.
     current_offer_driver_id: Optional[int] = Field(default=None, foreign_key="user.id")
     offer_expires_at: Optional[datetime] = None
     search_round: int = 0
+    # Сколько раз заказ возвращали в поиск после того, как назначенный водитель отменил.
+    # Раньше такого пути не было вовсе: водитель бросал принятый заказ — заказ умирал, а
+    # пассажир начинал всё заново, вбивая адреса заново у подъезда. Ограничение сверху
+    # (`taxi_reassign_limit`) — предохранитель: заказ не должен скакать по кругу вечно.
+    reassigns: int = 0
     # Отмена: кто и почему.
     cancel_by: str = ""              # passenger | driver | system
     cancel_reason: str = ""
@@ -971,6 +1018,10 @@ class InstantOrder(SQLModel, table=True):
     waiting_fee_kop: int = Field(default=0, sa_type=BigInteger)         # платное ожидание сверх бесплатного, копейки (фикс на onboard)
     cancel_fee_kop: int = Field(default=0, sa_type=BigInteger)          # штраф за позднюю отмену / no-show = подача, копейки (Модель А: только фиксируем)
     no_show: bool = False            # «пассажир не вышел» — отмена водителем по таймингу
+    # Напоминание «оцени поездку» по этому заказу уже уходило (дедуп, без спама). Такое же
+    # поле есть у брони попутки; у такси его не было вовсе, и после заказа не напоминалось
+    # никому — звёзды терялись, а оценить поездку можно лишь 60 дней (волна 197).
+    rate_reminded: bool = Field(default=False, index=True)
     # Таймстампы переходов (пишутся машиной состояний). created_at индексируем — растущая таблица:
     # сортировка/дневная сводка/будущая чистка по дате (иначе seq-scan по мере роста заказов).
     created_at: datetime = Field(default_factory=utcnow, index=True)
@@ -1139,6 +1190,32 @@ class LedgerEntry(SQLModel, table=True):
     ext_id: str = Field(default="", index=True)
 
 
+class DriverCancel(SQLModel, table=True):
+    """Факт: водитель бросил УЖЕ ПРИНЯТЫЙ заказ. Отдельным событием, а не пометкой на заказе.
+
+    Зачем отдельная запись. Наказание за брошенные заказы (пауза офферов) раньше читалось
+    прямо с заказа: `status == cancelled AND cancel_by == 'driver'`. Пока брошенный заказ
+    так и умирал, этого хватало. Но заказ теперь возвращается в поиск и достаётся другому
+    водителю — поля `driver_id`, `cancelled_at`, `cancel_by` на нём перезаписываются, и след
+    первого бесследно исчезал бы. Водитель мог бы бросать заказы сколько угодно.
+
+    Событие переживает и переназначение, и завершение поездки, и любую судьбу заказа —
+    потому что описывает не заказ, а поступок человека.
+
+    `no_show` = «пассажир не вышел»: водитель как раз всё сделал по правилам (доехал, отждал,
+    честно отметил). Такие события в наказание НЕ идут — иначе учим водителей молча уезжать
+    вместо честной отметки. Храним их всё равно: в разборе спора важно, что он приезжал.
+    """
+    __tablename__ = "drivercancel"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    driver_id: int = Field(index=True, foreign_key="user.id")
+    order_id: int = Field(index=True, foreign_key="instantorder.id")
+    at: datetime = Field(default_factory=utcnow, index=True)
+    no_show: bool = False
+    reason: str = Field(default="", max_length=200)
+
+
 class DebtStatus(str, Enum):
     """Статус долга водителя по комиссии за такси-заказы (Модель А «на доверии»)."""
     unpaid = "unpaid"      # начислен, водитель ещё не переводил
@@ -1238,6 +1315,14 @@ class TaxiApplication(SQLModel, table=True):
     # самозанятому. Дешёвый документ, но без него служба заказа не имеет права давать заказы.
     osgop_url: Optional[str] = None
     osgop_until: Optional[date_type] = Field(default=None, index=True)
+    # --- ФГИС «Такси»: что ответил государственный реестр (580-ФЗ, 29.08.2026) ---
+    # Даты выше водитель вписывает САМ, и до сих пор мы верили ему на слово. Эти три поля —
+    # ответ реестра, то есть единственное, что можно предъявить в споре и на проверке.
+    # Отдельно от `permit_until`, а не вместо: расхождение «он вписал одно, реестр говорит
+    # другое» — само по себе сигнал, и терять его, перезаписывая поле, нельзя.
+    fgis_checked_at: Optional[datetime] = None              # когда реестр отвечал последний раз
+    fgis_permit_ok: bool = False                            # ответ: разрешение действует
+    fgis_permit_until: Optional[date_type] = Field(default=None, index=True)  # срок ИЗ реестра
     docs_expired: bool = Field(default=False, index=True)   # допуск снят до обновления документов
     docs_warned_at: Optional[datetime] = None               # когда слали последнее напоминание (анти-спам)
     # До какого момента водитель работает по СЛОВУ: новую дату документа он вписал сам, фото
@@ -1275,6 +1360,65 @@ class PreTripCheck(SQLModel, table=True):
     no_alcohol: bool = False                # «алкоголь и лекарства, влияющие на реакцию, не принимал»
     note: str = Field(default="", max_length=300)   # что-то заметил, но всё же выехал (для разбора)
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class CarPhotoCheck(SQLModel, table=True):
+    """Фотоконтроль машины: раз в две недели человек показывает, на чём он возит (580-ФЗ).
+
+    ЗАЧЕМ. Машину мы видели ОДИН раз — на фото при регистрации. Дальше о ней известно
+    ровно то, что человек сказал сам: закон требует контроля исправности перед выездом,
+    а у нас на этом месте стояла галочка «машина исправна» (`PreTripCheck`). Галочка ничего
+    не показывает: разбитый бампер, лысая резина и салон, в который стыдно сажать ребёнка,
+    выглядят в базе так же, как новая машина.
+
+    ЧТО ЭТО НЕ ЕСТЬ. Не техосмотр и не наказание. Пять кадров с телефона раз в две недели —
+    столько же, сколько человек тратит на одну сигарету, и ровно столько, сколько нужно,
+    чтобы пассажир садился в машину, которую кто-то видел.
+
+    ОДНА СТРОКА = ОДИН КОНТРОЛЬ. Открытый (`waiting`/`review`) у человека в одном режиме
+    всегда один; закрытые остаются историей — по ним и видно, что было с машиной год назад.
+    Такси и курьер считаются РАЗДЕЛЬНО (`mode`): у такси спрашиваем салон, у курьера —
+    багажник, и человек, который возит и людей, и посылки, показывает и то и другое.
+
+    ФОТО ЖИВУТ 90 ДНЕЙ. Дальше ретеншен стирает файлы, а строка остаётся: факт «контроль
+    пройден такого-то числа» — это наш след для проверки, а снимок чужой машины у подъезда
+    хранить дольше незачем (ст. 5 п. 7 152-ФЗ).
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    mode: str = Field(default="taxi", index=True, max_length=8)     # taxi | courier
+    # Плановый обход (`periodic`) или требование по жалобе (`complaint`, 24 часа на фото
+    # салона). Разделены намеренно: плановый двигает лестницу и может поставить паузу,
+    # а требование по жалобе НЕ ограничивает работу само по себе — оно только решает,
+    # подтвердилась жалоба или нет (решение 30.08).
+    kind: str = Field(default="periodic", index=True, max_length=10)
+    # Жалоба, из-за которой пришло требование. Есть только у `kind="complaint"`.
+    report_id: Optional[int] = Field(default=None, index=True, foreign_key="report.id")
+    seq: int = 1                    # какой это контроль по счёту: от него срок и «шашечки»
+    # waiting — ждём фото; review — фото пришли, смотрит человек; passed — принято;
+    # failed — не принято, назначен новый контроль (строка остаётся историей).
+    status: str = Field(default="waiting", index=True, max_length=8)
+    due_at: datetime = Field(index=True)                            # до какого момента прислать
+    submitted_at: Optional[datetime] = None
+    reviewed_at: Optional[datetime] = None
+    reviewed_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    # Кадры и что про них сказал автомат: {"front": "/secure/carphoto/…"} и {"front": "ok"}.
+    photos_json: str = Field(default="")
+    checks_json: str = Field(default="")
+    # Отпечатки кадров (dHash). По ним видно, что человек прислал ту же самую фотографию
+    # второй раз, — единственный вид подделки, который ловится честно и без нейросетей.
+    hashes_json: str = Field(default="")
+    manual: bool = False            # смотрит человек: новичок, жалоба или выборка
+    manual_reason: str = Field(default="", max_length=16)   # newbie | complaint | sample
+    reject_reason: str = Field(default="", max_length=200)  # что именно переснять
+    # Когда последний раз напоминали. Гейт считает по СРОКУ, а не по этому полю (урок волны
+    # 66: правило, живущее во флаге, ломается вместе с фоновой задачей) — поле нужно ровно
+    # для того, чтобы не слать человеку одно и то же письмо по три раза в сутки.
+    reminded_at: Optional[datetime] = None
+    winter: bool = False            # зимний контроль: чистоту кузова не требуем, целостность — да
+    created_at: datetime = Field(default_factory=utcnow)
+    # «Кому пора прислать фото» — выборка по режиму, состоянию и сроку каждую ночь.
+    __table_args__ = (Index("ix_carphotocheck_status_due", "status", "due_at"),)
 
 
 class TaxiWorkDay(SQLModel, table=True):
@@ -1702,6 +1846,8 @@ class ParcelDelivery(SQLModel, table=True):
     fee_kop: int = Field(default=0, sa_type=BigInteger)                                                          # символический сервисный сбор платформы (коп), фиксируется при создании
     status: str = Field(default="created", max_length=16, index=True)        # created|accepted|in_transit|delivered|canceled|returning|returned
     confirm_code: str = Field(default="", index=True, max_length=12)         # короткий код вручения (получатель называет курьеру)
+    # Напоминание «оцени доставку» по этой посылке уже уходило (дедуп) — см. волну 197.
+    rate_reminded: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=utcnow, index=True)          # растущая таблица: индекс под сорт/чистку по дате
     accepted_at: Optional[datetime] = None
     # ❄️ Зимний протокол («ты доехал?»). Раньше жил только у попутки, хотя трасса
@@ -1719,6 +1865,36 @@ class ParcelDelivery(SQLModel, table=True):
     # «Купи и привези»: стоимость товара (наложка), которую курьер тратит и получатель возвращает.
     # Ограничена потолком COURIER_COD_CAP_KOP (защита курьера от больших авансов). 0 = не применяется.
     cod_amount_kop: int = Field(default=0, sa_type=BigInteger)
+    # --- Курьер догоняет такси (2026-08-28): те же строки счёта, что у поездки ---
+    # Дорога КУРЬЕРА к посылке. Раньше он ехал за ней даром: 15 км в село — 0 ₽, ровно та же
+    # дыра, которую в такси чинили целой волной. Считается не по GPS (координат курьера у нас
+    # нет), а от города, в котором он работает, — и фиксируется, когда он берёт заказ.
+    pickup_fee_kop: int = Field(default=0, sa_type=BigInteger)
+    pickup_km: float = 0.0
+    # True — курьера ещё нет, сумму назовём при взятии заказа (отправителю показан потолок).
+    pickup_pending: bool = False
+    # Курьеру и так по пути в ту сторону → дорога вдвое дешевле (как у водителя такси).
+    pickup_enroute: bool = False
+    # Зимняя дорога: гололёд не разбирает, человек в машине или коробка.
+    weather_fee_kop: int = Field(default=0, sa_type=BigInteger)
+    weather_kind: str = Field(default="", max_length=16)
+    # Ночная надбавка, зафиксированная на доставке (1.0 = день). Нужна чеку: «ночь +15%».
+    night_k: float = 1.0
+    # Платное ожидание. Курьер ждёт на ДВУХ концах, и виноваты разные люди — поэтому храним
+    # раздельно: в чеке видно, где сколько набежало, а делят это между собой они сами.
+    waiting_started_at: Optional[datetime] = None
+    waiting_sender_kop: int = Field(default=0, sa_type=BigInteger)
+    waiting_receiver_kop: int = Field(default=0, sa_type=BigInteger)
+    # Длина маршрута доставки, км. Раньше растворялась в одной сумме цены, и разложить её
+    # обратно было нечем — а компенсация за возврат считается именно по километрам.
+    distance_km: float = 0.0
+    # Компенсация курьеру за возврат («получателя не было»), зафиксированная при закрытии.
+    # Фиксируем, а не считаем заново: закрытое дело не должно менять сумму само по себе.
+    return_fee_kop: int = Field(default=0, sa_type=BigInteger)
+    # Сколько ПОВТОРНЫХ заездов отправитель попросил сделать («получатель уже дома, заедь
+    # ещё раз»). Правило UPS: платит тот, кто попросил изменение. Курьер, заехавший по
+    # своей инициативе, счётчик не двигает — иначе попытки можно накрутить в одиночку.
+    redeliver_requests: int = 0
     # Комиссия платформы с доставки (коп) — фиксируется при создании (прозрачно, «на доверии»).
     commission_kop: int = Field(default=0, sa_type=BigInteger)
     # C3: комиссия по этой доставке уже оплачена курьером платформе (биллинг «на доверии»).
@@ -1842,6 +2018,9 @@ class PriceComplaint(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
     order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
+    # На чью цену жалуются: taxi | courier. Без этого поля жалобы двух режимов слиплись бы
+    # в одну кучу, и «дорого» про доставку читалось бы как «дорого» про поездку.
+    kind: str = Field(default="taxi", max_length=16, index=True)
     price: int = 0                                    # сумма, на которую жалуются, ₽
     reason: str = Field(default="other", max_length=32)   # перечень — instant.PRICE_COMPLAINT_REASONS
     comment: str = Field(default="", max_length=500)

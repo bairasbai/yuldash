@@ -115,12 +115,30 @@ def ledger_entries(session: Session, driver_id: int, limit: int = 100) -> list[L
     ).all()
 
 
+def _reversal_ext_id(key: str) -> str:
+    """Ключ записи «резерв вернули»: тот же ключ выплаты с приставкой.
+
+    Отдельный ключ, а не тот же самый: по нему `_existing` отличает выплату, которую банк
+    отклонил, от выплаты, которая прошла. Раньше возврат писался ПОД ТЕМ ЖЕ ext_id, и отличить
+    их было нечем (волна 219).
+    """
+    return f"reversed:{key}"
+
+
 class PayoutError(Exception):
     """Отказ вывода средств (границы / недостаточно баланса / провайдер).
-    code — машинный (для тестов/логики), message — человеку (RU, на клиент)."""
-    def __init__(self, code: str, message: str):
+
+    `code` — машинный (тесты, логика клиента), `message`/`message_ba` — человеку.
+
+    Башкирский тут не украшение. Отказ уходит клиенту телом `detail`, и когда там простая
+    строка, приложение показать её не умеет и подменяет общим «нет доступа». Про ДЕНЬГИ это
+    худшее, что можно сказать человеку: он не понимает, мало ли на балансе, велика ли сумма
+    или сломалась связь (волна 219).
+    """
+    def __init__(self, code: str, message: str, message_ba: str = ""):
         self.code = code
         self.message = message
+        self.message_ba = message_ba or message
         super().__init__(message)
 
 
@@ -145,16 +163,20 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
     from .payments import create_payout
 
     if amount_kop <= 0:
-        raise PayoutError("amount", "Сумма вывода должна быть больше нуля")
+        raise PayoutError("amount", "Сумма вывода должна быть больше нуля",
+                          "Сығарыу суммаһы нулдән ҙурыраҡ булырға тейеш")
     if amount_kop < settings.payout_min_kop:
-        raise PayoutError("min", f"Минимальная сумма вывода — {settings.payout_min_kop // 100} ₽")
+        raise PayoutError("min", f"Минимальная сумма вывода — {settings.payout_min_kop // 100} ₽",
+                          f"Иң кәм сығарыу суммаһы — {settings.payout_min_kop // 100} һум")
     if amount_kop > settings.payout_max_kop:
-        raise PayoutError("max", f"Максимум за один вывод — {settings.payout_max_kop // 100} ₽")
+        raise PayoutError("max", f"Максимум за один вывод — {settings.payout_max_kop // 100} ₽",
+                          f"Бер сығарыуға иң күбе — {settings.payout_max_kop // 100} һум")
 
     # V7: без ключа идемпотентности не выводим (иначе повтор = вторая реальная выплата).
     idempotency_key = (idempotency_key or "").strip()
     if not idempotency_key:
-        raise PayoutError("idempotency", "Не получилось начать вывод. Повтори попытку.")
+        raise PayoutError("idempotency", "Не получилось начать вывод. Повтори попытку.",
+                          "Сығарыуҙы башлап булманы. Ҡабатлап ҡара.")
     # Неймспейсим ключ водителем: разные водители с одинаковым СЫРЫМ ключом (низкоэнтропийный
     # клиентский ключ / коллизия / повтор чужого) иначе схлопнулись бы в ОДНУ выплату на стороне
     # провайдера (Idempotence-Key там глобальный) → вторая реальная выплата «проглотилась» бы.
@@ -164,6 +186,25 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
         # Матчим и НОВЫЙ scoped-ключ, и СЫРОЙ: записи выплат до этого деплоя имели ext_id=сырой
         # ключ, и ретрай той же выплаты через момент деплоя иначе не нашёл бы старую запись →
         # зарезервировал бы списание второй раз. Оба — строго в рамках этого водителя (driver_id).
+        #
+        # ВОЗВРАЩЁННЫЙ резерв не считается выплатой. Банк отказал → мы вернули деньги на баланс
+        # и сказали человеку «не получилось». Он жмёт ещё раз, клиент шлёт ТОТ ЖЕ ключ (так и
+        # задумано против двойного тапа) — и раньше сервер отвечал `status=already`, а
+        # приложение показывало «Готово». Денег при этом не уходило ни разу, и баланс сходился:
+        # −сумма и +сумма дают ноль. Видел ошибку только человек, ждавший денег на карте
+        # (волна 219).
+        отказанные = {
+            e.ext_id for e in session.exec(
+                select(LedgerEntry).where(
+                    LedgerEntry.driver_id == driver_id,
+                    LedgerEntry.kind == LedgerKind.adj,
+                    LedgerEntry.ext_id.in_([_reversal_ext_id(scoped_key),
+                                            _reversal_ext_id(idempotency_key)]),
+                )
+            ).all()
+        }
+        if _reversal_ext_id(scoped_key) in отказанные or _reversal_ext_id(idempotency_key) in отказанные:
+            return None
         return session.exec(
             select(LedgerEntry).where(
                 LedgerEntry.driver_id == driver_id,
@@ -177,7 +218,7 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
     locked = session.exec(select(User).where(User.id == driver_id).with_for_update()).one_or_none()
     if locked is None:
         session.rollback()
-        raise PayoutError("no_user", "Водитель не найден")
+        raise PayoutError("no_user", "Водитель не найден", "Йөрөтөүсе табылманы")
     prev = _existing()
     if prev is not None:                         # ключ уже проведён → второй раз НЕ списываем
         prev_id, prev_amount = prev.id, prev.amount_kop   # снимаем ДО rollback (объект протухнет)
@@ -196,8 +237,11 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
                 "debt",
                 f"Доступно к выводу {свободно // 100} ₽: {долг // 100} ₽ на балансе зарезервировано "
                 "под неоплаченную комиссию",
+                f"Сығарырға була {свободно // 100} һум: {долг // 100} һум түләнмәгән комиссия "
+                "өсөн баланста тотоп торола",
             )
-        raise PayoutError("insufficient", "Недостаточно средств на балансе")
+        raise PayoutError("insufficient", "Недостаточно средств на балансе",
+                          "Балансда аҡса етмәй")
     entry = LedgerEntry(
         driver_id=driver_id, kind=LedgerKind.payout, amount_kop=-amount_kop,
         ext_id=scoped_key,
@@ -217,15 +261,20 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
             declined = True                      # банк ЯВНО отказал → деньги не ушли, резерв возвращаем
     except Exception:
         # Неоднозначно: деньги могли уйти. Резерв НЕ откатываем (безопаснее для платформы) — разберёт сверка.
-        raise PayoutError("provider", "Не получилось отправить выплату. Попробуй позже")
+        raise PayoutError("provider_unclear", "Не получилось отправить выплату. Попробуй позже",
+                          "Түләүҙе ебәреп булманы. Һуңыраҡ ҡабатла")
 
     if declined:
         session.add(LedgerEntry(                 # компенсация append-only: +сумма (историю денег не правим)
             driver_id=driver_id, kind=LedgerKind.adj, amount_kop=amount_kop,
-            ext_id=scoped_key, note="Возврат резерва: банк отклонил выплату",
+            ext_id=_reversal_ext_id(scoped_key), note="Возврат резерва: банк отклонил выплату",
         ))
         session.commit()
-        raise PayoutError("provider", "Не получилось отправить выплату. Попробуй позже")
+        # Код `provider` = «попытка закрыта, деньги не ушли». Клиент по нему обязан взять НОВЫЙ
+        # ключ: и наш `_existing`, и Idempotence-Key у провайдера помнят старый как отказанный,
+        # так что повтор с ним упрётся в тот же отказ (волна 219).
+        raise PayoutError("provider", "Не получилось отправить выплату. Начни вывод заново",
+                          "Түләүҙе ебәреп булманы. Сығарыуҙы яңынан башла")
 
     return {"status": "ok", "entry_id": entry_id, "amount_kop": amount_kop,
             "provider_status": res["status"], "balance_kop": driver_balance(session, driver_id)}
@@ -287,7 +336,7 @@ def _post_earn_and_fee(session: Session, driver_id: int, amount_kop: int, *,
     Вызывать ТОЛЬКО под уже открытой транзакцией с залоченной строкой заказа/брони.
 
     percent — ставка комиссии. None → плоский service_fee_percent. Для ТАКСИ передаём
-    driver_fee_percent (лесенка 3/5/8 + промо запуска 0%): иначе онлайн-оплата удержала бы
+    driver_fee_percent (лесенка 3/8/15 по поездкам + промо запуска 0%): иначе онлайн-оплата удержала бы
     8% в обход промо/лесенки, при этом Model-A долг с верной ставкой гасится → перебор + споры.
 
     fee_kop — готовая сумма комиссии (перебивает расчёт по проценту). Нужна для промокода:
@@ -421,15 +470,35 @@ def reconcile(session: Session, date_from, date_to) -> dict:
     # Сколько платформа ДОПЛАТИЛА за период — компенсации промо-скидок водителям (волна 153).
     # Раньше единственный денежный отчёт показывал доход и молчал про расход: кампания
     # «300 ₽ каждому» выглядела по нему бесплатной, хотя каждую скидку оплачиваем мы.
+    # Разбираем доплаты ПО КЛЮЧУ, а не по знаку (волна 217). `adj` — кухонный ящик кошелька:
+    # туда падает и компенсация промо-скидки, и возврат уже уплаченной комиссии (волна 215),
+    # и ручная доплата админа. Пока считалось «всё положительное = промо», строка расхода
+    # на кампании росла от чужих денег, а по ней решают, окупается ли кампания.
     adj_rows = session.exec(
-        select(LedgerEntry.amount_kop).where(
+        select(LedgerEntry.amount_kop, LedgerEntry.ext_id).where(
             LedgerEntry.kind == LedgerKind.adj, *_in_period(LedgerEntry.created_at)
         )
     ).all()
 
     earn_kop = int(sum(earn_rows))
     fee_kop = int(-sum(fee_rows))               # fee хранится отрицательным → комиссия = −сумма
-    promo_comp_kop = int(sum(a for a in adj_rows if a > 0))
+    promo_comp_kop = int(sum(a for a, ext in adj_rows if a > 0 and (ext or "").startswith("promo:")))
+    refund_kop = int(sum(a for a, ext in adj_rows if a > 0 and (ext or "").startswith("refund:")))
+    # Возврат резерва по отклонённой банком выплате. Это НЕ расход платформы: мы на минуту
+    # сняли с баланса деньги водителя, банк отказал — вернули. Пара «−сумма выплаты» и
+    # «+сумма возврата» даёт ноль, и в доход/расход не входит ни та, ни другая.
+    #
+    # Волна 217 научила отчёт разбирать ящик `adj` ПО КЛЮЧУ, а не по знаку, но этот ключ
+    # пропустила: каждый отказ банка занижал доход платформы ровно на сумму выплаты, которой
+    # не было (волна 219). `payout:` — старая форма ключа возврата, до того как у него
+    # появилась своя приставка; историю задним числом не переписываем, читаем обе.
+    reversed_kop = int(sum(a for a, ext in adj_rows
+                           if a > 0 and (ext or "").startswith(("reversed:", "payout:"))))
+    # Всё остальное с плюсом — ручные доплаты админа: извинение за сбой, возврат за отменённую
+    # поездку. Это тоже наши деньги, и прятать их нельзя, но и в маркетинг записывать нечестно.
+    adj_other_kop = int(sum(a for a, ext in adj_rows
+                            if a > 0 and not (ext or "").startswith(
+                                ("promo:", "refund:", "reversed:", "payout:"))))
     payments_kop = int(sum(pay_rows))
     diff_kop = earn_kop - payments_kop
     return {
@@ -438,8 +507,15 @@ def reconcile(session: Session, date_from, date_to) -> dict:
         "earn_kop": earn_kop,                   # начислено водителям (полные суммы поездок)
         "fee_kop": fee_kop,                     # комиссия сервиса за период
         "net_drivers_kop": earn_kop - fee_kop,  # чистыми водителям
-        "promo_comp_kop": promo_comp_kop,       # доплачено водителям за промо-скидки (наш расход)
-        "platform_net_kop": fee_kop - promo_comp_kop,   # доход минус расход по кампаниям
+        "promo_comp_kop": promo_comp_kop,       # доплачено водителям за промо-скидки (маркетинг)
+        "refund_kop": refund_kop,               # возвращено комиссии по разбору «не заплатили»
+        "adj_other_kop": adj_other_kop,         # прочие ручные доплаты админа
+        # Возвраты резервов по отклонённым выплатам. В доход/расход не входят (взаимозачёт),
+        # но показываем: всплеск здесь означает, что у банка что-то не так с нашими выплатами.
+        "payout_reversed_kop": reversed_kop,
+        # Доход минус ВСЕ три расхода. Вычитать только промо значило бы показать доход выше
+        # настоящего ровно на те деньги, которые платформа отдала (волна 217).
+        "platform_net_kop": fee_kop - promo_comp_kop - refund_kop - adj_other_kop,
         "payments_kop": payments_kop,           # прошло безналом через ЮKassa (отчёт)
         "diff_kop": diff_kop,                   # расхождение ledger↔оплаты (0 = сходится)
         "ok": diff_kop == 0,

@@ -243,6 +243,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
     var carAc by rememberSaveable { mutableStateOf(false) }
     var carSedan by rememberSaveable { mutableStateOf(false) }
     var carLeather by rememberSaveable { mutableStateOf(false) }
+    var carLightSalon by rememberSaveable { mutableStateOf(false) }
     // Опции салона CSV-строкой: Set в Bundle не кладётся, а строка переживает поворот экрана.
     var carOptionsCsv by rememberSaveable { mutableStateOf("") }
     val carOptions = remember(carOptionsCsv) {
@@ -361,8 +362,8 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TaxiRuleRow(
                         "💚",
-                        appText("Комиссия — втрое ниже, чем у Яндекса", "Комиссия — Яндексҡа ҡарағанда өс тапҡыр түбәнерәк"),
-                        appText("Первый месяц 3%, второй — 8%, дальше — 15%. Остальное — твоё.", "Тәүге ай 3%, икенсеһе — 8%, артабан — 15%. Ҡалғаны — һинеке."),
+                        appText("Комиссия — ниже, чем у агрегаторов", "Комиссия — агрегаторҙарҙан түбәнерәк"),
+                        appText("Первые 30 поездок 3%, следующие 70 — 8%, дальше — 15%. Остальное — твоё.", "Тәүге 30 юл 3%, киләһе 70 — 8%, артабан — 15%. Ҡалғаны — һинеке."),
                     )
                     TaxiCommissionSteps()
                     TaxiRuleRow(
@@ -556,6 +557,9 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                 TaxiChoiceChip(appText("Кондиционер работает", "Кондиционер эшләй"), carAc) { carAc = !carAc }
                 TaxiChoiceChip(appText("Кузов — седан", "Кузов — седан"), carSedan) { carSedan = !carSedan }
                 TaxiChoiceChip(appText("Салон кожаный", "Күн салон"), carLeather) { carLeather = !carLeather }
+                // Светлый салон открывает Бизнес наравне с кожей: требовать именно кожу
+                // значило бы закрыть класс почти всем, кто его заслужил.
+                TaxiChoiceChip(appText("Салон светлый", "Яҡты салон"), carLightSalon) { carLightSalon = !carLightSalon }
             }
         }
         item {
@@ -678,6 +682,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                             seats = seatsText.toIntOrNull(),
                             carColor = TaxiColorOptions.firstOrNull { it.code == carColor }?.serverValue ?: "",
                             carAc = carAc, carSedan = carSedan, carLeather = carLeather,
+                            carLightSalon = carLightSalon,
                             carOptions = carOptions.toList(),
                         )
                             .onSuccess { onSubmitted(it) }
@@ -774,12 +779,12 @@ private fun TaxiChoiceChip(text: String, selected: Boolean, onClick: () -> Unit)
     }
 }
 
-/** Шкала комиссии 3% → 8% → 15%: три шага месяцев. */
+/** Шкала комиссии 3% → 8% → 15%: три шага по числу поездок. */
 @Composable
 private fun TaxiCommissionSteps() {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        TaxiCommissionStep("3%", appText("1-й месяц", "1-се ай"), Modifier.weight(1f))
-        TaxiCommissionStep("8%", appText("2-й месяц", "2-се ай"), Modifier.weight(1f))
+        TaxiCommissionStep("3%", appText("1–30 поездок", "1–30 юл"), Modifier.weight(1f))
+        TaxiCommissionStep("8%", appText("31–100 поездок", "31–100 юл"), Modifier.weight(1f))
         TaxiCommissionStep("15%", appText("дальше", "артабан"), Modifier.weight(1f))
     }
 }
@@ -951,12 +956,12 @@ private fun classMissingText(code: String): String = when (code) {
     "too_old" -> appText("машина старше нужного", "машина кәрәгенән иҫкерәк")
     "year_unknown" -> appText("не указан год выпуска", "сығарылған йыл күрһәтелмәгән")
     "no_ac" -> appText("нужен рабочий кондиционер", "эшләүсе кондиционер кәрәк")
-    "clean_salon" -> appText("салон без чехлов и запаха", "салон чехолһыҙ, еҫһеҙ")
+    "clean_salon" -> appText("салон целый, без чехлов-накидок", "салон бөтөн, чехолһыҙ")
     "body" -> appText("кузов без вмятин и ржавчины", "кузов бөгөлмәгән, тутыҡмаған")
     "few_seats" -> appText("не хватает мест", "урын етмәй")
     "not_sedan" -> appText("нужен седан", "седан кәрәк")
     "color_business" -> appText("нужен чёрный или белый кузов", "ҡара йәки аҡ кузов кәрәк")
-    "no_leather" -> appText("нужен кожаный салон", "күн салон кәрәк")
+    "no_leather" -> appText("нужен кожаный или светлый салон", "күн йәки яҡты салон кәрәк")
     "not_verified_premium" -> appText("нужен осмотр машины — напиши нам", "машинаны ҡарау кәрәк — беҙгә яҙ")
     "too_many_seats" -> appText("больше 8 мест — нужна лицензия на автобус", "8-ҙән күп урын — автобус лицензияһы кәрәк")
     else -> code

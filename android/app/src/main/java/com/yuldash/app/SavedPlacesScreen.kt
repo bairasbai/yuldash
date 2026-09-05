@@ -121,6 +121,10 @@ internal fun QuickPlacesBlock(
     // Убрать сохранённое место. Отдельно от недавних: это именованный адрес, его заводили
     // руками, и удаление необратимо — экран сначала переспрашивает.
     onDeleteSaved: (SavedPlaceDto) -> Unit = {},
+    // Только выбор: без крестиков и без двери в «Мои адреса». Нужен там, где блок живёт
+    // пару секунд (лист «Куда заехать?») и управлять адресами человек не собирается —
+    // иначе кнопки видны, нажимаются и не делают ничего.
+    управление: Boolean = true,
 ) {
     val scope = rememberCoroutineScope()
     // Какое место собираемся убрать. Дом и «Родители» стираются насовсем, промах пальца
@@ -171,17 +175,22 @@ internal fun QuickPlacesBlock(
         return
     }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // В режиме только-выбора крестика нет: он открыл бы диалог «удалить навсегда»,
+        // человек подтвердил бы, и адрес остался бы на месте.
+        val убрать: ((SavedPlaceDto) -> (() -> Unit)?) = { p ->
+            if (управление) ({ askRemove = p }) else null
+        }
         home?.let { p ->
             QuickPlaceRow(placeKindIcon("home"), appText("Дом", "Өй"), p.address,
-                named = true, onDelete = { askRemove = p }) { pickSaved(p) }
+                named = true, onDelete = убрать(p)) { pickSaved(p) }
         }
         work?.let { p ->
             QuickPlaceRow(placeKindIcon("work"), appText("Работа", "Эш"), p.address,
-                named = true, onDelete = { askRemove = p }) { pickSaved(p) }
+                named = true, onDelete = убрать(p)) { pickSaved(p) }
         }
         custom.forEach { p ->
             QuickPlaceRow(placeKindIcon(p.kind), placeKindLabel(p.kind, p.label), p.address,
-                named = true, onDelete = { askRemove = p }) { pickSaved(p) }
+                named = true, onDelete = убрать(p)) { pickSaved(p) }
         }
         if (recent.isNotEmpty()) {
             Text(
@@ -193,7 +202,11 @@ internal fun QuickPlacesBlock(
                 // key по id: без него после удаления Compose переиспользует состояние жеста
                 // соседней строки, и следующая строка приезжает уже наполовину сдвинутой.
                 key(r.id) {
-                    SwipeToDeleteRow(onDelete = { onDeleteRecent(r.id) }) {
+                    if (!управление) {
+                        QuickPlaceRow(Icons.Default.History, r.address, null) {
+                            onPick(r.address, r.lat, r.lng)
+                        }
+                    } else SwipeToDeleteRow(onDelete = { onDeleteRecent(r.id) }) {
                         // Крестик и свайп делают одно и то же. Жест знают не все, кнопку
                         // видно сразу — второй путь к действию, а не замена первому.
                         // Спрашивать не о чем: адрес вернётся сам после следующего заказа.
@@ -210,7 +223,7 @@ internal fun QuickPlacesBlock(
         // Дверь к своим адресам — всегда, а не только пока список пуст. Иначе завести
         // второй адрес неоткуда: приглашение исчезает после первого, а искать его
         // в настройках человек не пойдёт.
-        TextButton(
+        if (управление) TextButton(
             onClick = onOpenSavedPlaces,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         ) {

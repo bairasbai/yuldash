@@ -68,6 +68,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
@@ -82,6 +83,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -666,6 +668,96 @@ private fun ParcelAddressRow(
 }
 
 // ─────────────────── C2: расчёт «купи и привези» + спор (общее для двух экранов) ───────────────────
+
+/**
+ * «Поднять сумму покупки» — выход из тупика «в магазине дороже, чем договаривались».
+ *
+ * Сервер разрешает курьеру потратить согласованную сумму плюс запас (15 %, но не меньше
+ * 100 ₽). Выше — отказ с текстом «пусть заказчик поднимет сумму», и до этого раунда поднять
+ * её было физически негде: товар уже в руках у курьера, расчёт не проходит, оба стоят.
+ *
+ * Шаги вверх, а не поле ввода: человек отвечает курьеру на морозе, у него один палец и
+ * пятнадцать секунд. Точная цифра нужна редко — нужен запас, которого хватит.
+ */
+@Composable
+private fun ParcelRaiseBudgetBlock(p: com.yuldash.app.data.ParcelDto) {
+    if (p.codAmountKop <= 0) return
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var ask by remember(p.id) { mutableStateOf(false) }
+    var busy by remember(p.id) { mutableStateOf(false) }
+    var agreed by remember(p.id, p.codAmountKop) { mutableIntStateOf(p.codAmountKop) }
+    val okMsg = appText("Сумму подняли — курьер уже видит новую",
+                        "Сумма арттырылды — курьер яңыһын күрә инде")
+    val failMsg = appText("Не получилось поднять сумму. Проверь связь.",
+                          "Сумманы арттырып булманы. Бәйләнеште тикшер.")
+
+    AppButton(
+        text = appText("Поднять сумму покупки", "Һатып алыу сумманы арттырыу"),
+        onClick = { ask = true },
+        style = AppButtonStyle.Secondary,
+        icon = Icons.Default.TrendingUp,
+        height = 48.dp,
+    )
+
+    if (ask) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) ask = false },
+            containerColor = CanonSurface,
+            title = {
+                Text(appText("Сколько разрешить потратить?", "Күпме тотонорға рөхсәт итергә?"),
+                     color = CanonText, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        appText(
+                            "Сейчас согласовано " + kopToRub(agreed) + ". Курьер может потратить " +
+                                "чуть больше — запас 15 % уже входит. Если в магазине дороже, " +
+                                "подними сумму: вернуть её потом нельзя.",
+                            "Хәҙер " + kopToRub(agreed) + " килешелгән. Курьер бер аҙ артығыраҡ " +
+                                "тотона ала — 15 % запас инә инде. Кибеттә ҡиммәтерәк булһа, " +
+                                "сумманы арттыр: һуңынан кире кәметеп булмай.",
+                        ),
+                        color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                    )
+                    listOf(20000, 50000, 100000).forEach { шаг ->
+                        val новая = agreed + шаг
+                        AppButton(
+                            text = appText("Поднять до " + kopToRub(новая), kopToRub(новая) + "-ға тиклем"),
+                            onClick = {
+                                if (busy) return@AppButton
+                                busy = true
+                                scope.launch {
+                                    ApiClient.raiseParcelBudget(p.id, новая)
+                                        .onSuccess {
+                                            agreed = новая
+                                            ask = false
+                                            Toast.makeText(ctx, okMsg, Toast.LENGTH_SHORT).show()
+                                        }
+                                        .onFailure {
+                                            Toast.makeText(ctx, serverSaid(it, failMsg),
+                                                           Toast.LENGTH_LONG).show()
+                                        }
+                                    busy = false
+                                }
+                            },
+                            style = AppButtonStyle.Secondary,
+                            enabled = !busy,
+                            height = 48.dp,
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(enabled = !busy, onClick = { ask = false }) {
+                    Text(appText("Не надо", "Кәрәкмәй"), color = CanonMuted)
+                }
+            },
+        )
+    }
+}
 
 /** Блок расчёта «купи и привези»: за товар · доставка · получатель платит.
  *  forCourier=true — подсказка курьеру («укажи, сколько потратил»); false — отправителю. */
@@ -2032,6 +2124,25 @@ private fun EstimateCard(est: CourierEstimateDto) {
                     }
                 }
             }
+            // «А если получателя не будет?» — на этот вопрос человек должен получить ответ
+            // ДО заказа, а не в чеке после. Конституционный суд (декабрь 2022) признал
+            // недопустимым брать плату за возврат с того, кого о ней заранее не предупредили.
+            // Говорим сразу и о дешёвом выходе: заехать ещё раз стоит меньше, чем везти назад.
+            if (est.breakdown.returnFeeEstimateKop > 0) {
+                Text(
+                    appText(
+                        "Если получателя не будет на месте — можно попросить курьера заехать ещё раз. " +
+                            "Если и это не выйдет, возврат обойдётся примерно в " +
+                            kopToRub(est.breakdown.returnFeeEstimateKop) + " — это дорога курьера, " +
+                            "саму доставку и комиссию мы не берём.",
+                        "Алыусы урынында булмаһа — курьерҙан ҡабат инеүҙе һорап була. " +
+                            "Был да барып сыҡмаһа, кире ҡайтарыу яҡынса " +
+                            kopToRub(est.breakdown.returnFeeEstimateKop) + " тора — был курьер юлы, " +
+                            "илтеү хаҡын һәм комиссияны алмайбыҙ.",
+                    ),
+                    color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                )
+            }
         }
     }
 }
@@ -2362,6 +2473,9 @@ private fun MyParcelsTab(onGoSend: () -> Unit = {}) {
     var error by remember { mutableStateOf<String?>(null) }
     var busyId by remember { mutableStateOf(0) }
     var cancelTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    // «Курьер не застал получателя» → попросить заехать ещё раз. Ступенька между неудачей
+    // и возвратом: раньше её не было и отправитель платил за возврат почти полную доставку.
+    var redeliverTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var rateTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var receiptId by remember { mutableStateOf<Int?>(null) }   // чек открывается по номеру доставки
@@ -2370,6 +2484,7 @@ private fun MyParcelsTab(onGoSend: () -> Unit = {}) {
     val loadErr = appText("Не удалось загрузить посылки. Проверь интернет.", "Бандеролдәрҙе йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val canceledMsg = appText("Посылка отменена", "Бандероль кире алынды")
+    val redeliverMsg = appText("Курьер заедет ещё раз", "Курьер ҡабат инер")
 
     // Одна точка правды, как ответ сервера ложится на экран. Тихое обновление НЕ затирает уже
     // показанный список ошибкой: у отправителя в дороге связь рвётся, а карточка с кодом вручения
@@ -2451,6 +2566,7 @@ private fun MyParcelsTab(onGoSend: () -> Unit = {}) {
                             busy = busyId == list[i].id,
                             rated = ratedIds.contains(list[i].id),
                             onCancel = { cancelTarget = list[i] },
+                            onRedeliver = { redeliverTarget = list[i] },
                             onDispute = { disputeTarget = list[i] },
                             onRate = { rateTarget = list[i] },
                             onReceipt = { receiptId = list[i].id },
@@ -2481,11 +2597,25 @@ private fun MyParcelsTab(onGoSend: () -> Unit = {}) {
                         // С копейками: компенсацию человек отдаёт курьеру из рук в руки,
                         // и «100 ₽» вместо 100,80 ₽ — это спор у подъезда на ровном месте.
                         val feeText = kopToRub(target.cancelFeePreviewKop)
+                        // Разбор по строкам: «дорога» и «ожидание» — это деньги, которые курьер
+                        // уже потратил и отстоял. Без них сумма читается как штраф из воздуха.
+                        val разборRu = buildList {
+                            if (target.cancelFineKop > 0) add(kopToRub(target.cancelFineKop) + " — отмена")
+                            if (target.cancelPickupKop > 0) add(kopToRub(target.cancelPickupKop) + " — дорога курьера")
+                            if (target.cancelWaitingKop > 0) add(kopToRub(target.cancelWaitingKop) + " — ожидание")
+                        }.joinToString(" + ")
+                        val разборBa = buildList {
+                            if (target.cancelFineKop > 0) add(kopToRub(target.cancelFineKop) + " — кире алыу")
+                            if (target.cancelPickupKop > 0) add(kopToRub(target.cancelPickupKop) + " — курьер юлы")
+                            if (target.cancelWaitingKop > 0) add(kopToRub(target.cancelWaitingKop) + " — көтөү")
+                        }.joinToString(" + ")
+                        val строкиRu = if (разборRu.isNotBlank()) " (" + разборRu + ")" else ""
+                        val строкиBa = if (разборBa.isNotBlank()) " (" + разборBa + ")" else ""
                         if (target.cancelFeePreviewKop > 0) appText(
-                            "Курьер уже принял заказ. Отмена сейчас — компенсация курьеру $feeText " +
+                            "Курьер уже принял заказ. Отмена сейчас — компенсация курьеру $feeText$строкиRu " +
                                 "за потраченное время и дорогу. Расчёт напрямую с курьером.",
                             "Курьер заказды алған инде. Хәҙер кире алһаң — курьерға ваҡыт һәм юл " +
-                                "өсөн $feeText компенсация. Иҫәпләшеү курьер менән туранан-тура.",
+                                "өсөн $feeText$строкиBa компенсация. Иҫәпләшеү курьер менән туранан-тура.",
                         ) else appText(
                             "Курьер уже принял заказ. После отмены сервис зафиксирует компенсацию за потраченное время и дорогу; сумма появится в карточке, расчёт — напрямую.",
                             "Курьер заказды алған инде. Кире алғандан һуң сервис ваҡыт һәм юл өсөн компенсацияны теркәр; сумма карточкала күренер, иҫәпләшеү — туранан-тура.",
@@ -2515,6 +2645,59 @@ private fun MyParcelsTab(onGoSend: () -> Unit = {}) {
         )
     }
 
+    // Просьба заехать ещё раз. Спрашиваем подтверждение не ради формальности: заезд платный,
+    // и сумму человек должен увидеть ДО нажатия, а не в чеке после. Число считает сервер.
+    redeliverTarget?.let { target ->
+        val доплата = target.nextRedeliverKop
+        val доплатаТекст = kopToRub(доплата)
+        val возвратТекст = kopToRub(target.returnFeePreviewKop)
+        AlertDialog(
+            onDismissRequest = { redeliverTarget = null },
+            containerColor = CanonSurface,
+            title = {
+                Text(
+                    appText("Попросить заехать ещё раз?", "Ҡабат инеүҙе һорарғамы?"),
+                    color = CanonText, fontWeight = FontWeight.Bold,
+                    fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine,
+                )
+            },
+            text = {
+                Text(
+                    if (доплата > 0) appText(
+                        "Курьер заедет к получателю ещё раз. Этот заезд стоит $доплатаТекст — " +
+                            "дешевле, чем возврат посылки ($возвратТекст). Расчёт напрямую с курьером.",
+                        "Курьер алыусыға ҡабат инер. Был инеү $доплатаТекст тора — бандеролде " +
+                            "кире ҡайтарыуҙан ($возвратТекст) арзаныраҡ. Иҫәпләшеү курьер менән туранан-тура.",
+                    ) else appText(
+                        "Курьер заедет к получателю ещё раз. Доплаты за этот заезд не будет.",
+                        "Курьер алыусыға ҡабат инер. Был инеү өсөн өҫтәмә түләү булмаясаҡ.",
+                    ),
+                    color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                )
+            },
+            confirmButton = {
+                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
+                    busyId = target.id
+                    scope.launch {
+                        ApiClient.parcelRedeliverRequest(target.id)
+                            .onSuccess { Toast.makeText(ctx, redeliverMsg, Toast.LENGTH_SHORT).show(); reload() }
+                            .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr, Toast.LENGTH_SHORT).show() }
+                        busyId = 0
+                    }
+                    redeliverTarget = null
+                }) {
+                    Text(appText("Попросить", "Һорау"), color = CanonGreen2,
+                         fontWeight = FontWeight.Bold, fontSize = DeliveryBody)
+                }
+            },
+            dismissButton = {
+                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = { redeliverTarget = null }) {
+                    Text(appText("Не сейчас", "Хәҙер түгел"), color = CanonMuted, fontSize = DeliveryBody)
+                }
+            },
+        )
+    }
+
     disputeTarget?.let { target ->
         ParcelDisputeDialog(
             parcel = target,
@@ -2537,7 +2720,8 @@ private fun MyParcelsTab(onGoSend: () -> Unit = {}) {
 
 @Composable
 private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: () -> Unit,
-                         onDispute: () -> Unit, onRate: () -> Unit, onReceipt: () -> Unit) {
+                         onRedeliver: () -> Unit, onDispute: () -> Unit, onRate: () -> Unit,
+                         onReceipt: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val ctxParcelCopy = LocalContext.current   // код вручения копируем как чувствительное (волна 32)
     val terminal = isParcelTerminal(p.status)
@@ -2665,6 +2849,10 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
             if (!terminal) ParcelTrackLinkBlock(p.id)
             if (p.deliveryType == "buy_bring") {
                 p.settlement?.let { ParcelSettlementBlock(it, forCourier = false) }
+                // Курьер стоит у прилавка, товар дороже сметы — и до сих пор это был тупик:
+                // сервер отвечал ему «пусть заказчик поднимет сумму», а у заказчика такой
+                // кнопки не было нигде (аудит сценариев 30.08). Пока заказ живой — есть.
+                if (!terminal) ParcelRaiseBudgetBlock(p)
             }
             if (goodsAlreadyBought && !terminal) {
                 Surface(color = CanonWarnBg, shape = CanonItemShape) {
@@ -2693,6 +2881,41 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                                 Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
                             }
                         }
+                    }
+                }
+            }
+            // Курьер приехал и не застал получателя. Раньше у отправителя тут не было
+            // ничего, кроме чата: дозвонись как-нибудь сам, а нет — плати за возврат почти
+            // полную доставку. Теперь есть дешёвый выход — попросить заехать ещё раз.
+            AnimatedVisibility(
+                visible = p.canRequestRedelivery,
+                enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL)),
+                exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
+            ) {
+                Surface(color = CanonWarnBg, shape = CanonItemShape) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(CanonSpace.md),
+                        verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                    ) {
+                        Text(
+                            appText("Курьер не застал получателя", "Курьер алыусыны тапманы"),
+                            color = CanonWarn, fontWeight = FontWeight.Bold,
+                            fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                        )
+                        Text(
+                            appText(
+                                "Свяжись с ним и попроси курьера заехать ещё раз — это дешевле возврата.",
+                                "Уның менән бәйләнеш тот һәм курьерҙан ҡабат инеүҙе һора — был кире ҡайтарыуҙан арзаныраҡ.",
+                            ),
+                            color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                        )
+                        AppButton(
+                            text = appText("Попросить заехать ещё раз", "Ҡабат инеүҙе һорау"),
+                            onClick = onRedeliver,
+                            style = AppButtonStyle.Secondary,
+                            enabled = !busy,
+                            loading = busy,
+                        )
                     }
                 }
             }

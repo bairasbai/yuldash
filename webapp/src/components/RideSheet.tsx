@@ -34,16 +34,42 @@ export default function RideSheet({
     track("open_ride", { category: ride.category ?? "regular" });
   }, [ride.category]);
 
+  /**
+   * Едет пассажир младше 18.
+   *
+   * Взрослый обязателен и назван поимённо: без имени и телефона за ребёнка в дороге
+   * не отвечает никто, а водитель узнаёт о подростке, только когда тот сядет в машину.
+   * Правило держит сервер — мы просто спрашиваем заранее, чтобы бронь не отлетела.
+   */
+  const [minor, setMinor] = useState(false);
+  const [guardName, setGuardName] = useState("");
+  const [guardPhone, setGuardPhone] = useState("");
+
   async function book() {
     if (!isAuthed) {
       navigate("/login", { state: { from: "/map" } });
+      return;
+    }
+    if (minor && (!guardName.trim() || !guardPhone.trim())) {
+      setError(
+        appText(
+          "Укажи взрослого: имя и телефон. Он отвечает за поездку, и водителю есть кому позвонить.",
+          "Оло кешене күрһәт: исеме һәм телефоны. Ул сәфәр өсөн яуаплы, йөрөтөүсегә шылтыратырға кем булыр."
+        )
+      );
       return;
     }
     setBusy(true);
     setError(null);
     track("booking_start");
     try {
-      const b = await createBooking({ ride_id: ride.id, seats: 1 });
+      const b = await createBooking({
+        ride_id: ride.id,
+        seats: 1,
+        minor_passenger: minor || undefined,
+        minor_guardian_name: minor ? guardName.trim() : undefined,
+        minor_guardian_phone: minor ? guardPhone.trim() : undefined,
+      });
       track("booking_done");
       onClose();
       navigate(`/trip/${b.id}`);
@@ -133,6 +159,75 @@ export default function RideSheet({
           </button>
           <div className="ride-card__price">{priceLabel(ride.price, ru)}</div>
         </div>
+
+        {/* Подросток за рулём чужой машины — отдельный разговор, а не галочка мелким шрифтом.
+            Водитель, который таких не берёт, сказал это заранее: тогда мы не предлагаем
+            отметку вовсе и объясняем почему — иначе бронь отлетит уже после нажатия. */}
+        {ride.no_minors ? (
+          <p className="sheet__note">
+            {appText(
+              "Водитель не берёт пассажиров младше 18 без взрослого рядом.",
+              "Йөрөтөүсе оло кешеһеҙ 18-ҙән кесе юлсыларҙы алмай."
+            )}
+          </p>
+        ) : (
+          <>
+            <label className="list-row list-row--check" style={{ marginTop: 8 }}>
+              <div className="list-row__main">
+                <div className="list-row__title">
+                  {appText("Поедет пассажир младше 18", "18-ҙән кесе юлсы бара")}
+                </div>
+                <div className="list-row__sub">
+                  {appText(
+                    "Нужен взрослый на связи: водителю есть кому позвонить, если что-то пойдёт не так.",
+                    "Бәйләнештә оло кеше кәрәк: берәй хәл булһа, йөрөтөүсегә шылтыратырға кем булыр."
+                  )}
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                className="checkbox"
+                checked={minor}
+                onChange={(e) => {
+                  setMinor(e.target.checked);
+                  setError(null);
+                }}
+                aria-label={appText("Пассажир младше 18", "Юлсы 18-ҙән кесе")}
+              />
+            </label>
+            {minor && (
+              <>
+                <label className="field">
+                  <span className="field__label">{appText("Взрослый: имя", "Оло кеше: исеме")}</span>
+                  <input
+                    className="field__input"
+                    value={guardName}
+                    onChange={(e) => setGuardName(e.target.value.slice(0, 120))}
+                    placeholder={appText("Мама, Гульнара", "Әсәһе, Гөлнара")}
+                    autoComplete="name"
+                  />
+                </label>
+                <label className="field">
+                  <span className="field__label">{appText("Его телефон", "Уның телефоны")}</span>
+                  <input
+                    className="field__input"
+                    inputMode="tel"
+                    value={guardPhone}
+                    onChange={(e) => setGuardPhone(e.target.value.slice(0, 32))}
+                    placeholder="+7 …"
+                    autoComplete="tel"
+                  />
+                  <span className="field__hint">
+                    {appText(
+                      "Номер увидит только этот водитель и только пока бронь жива.",
+                      "Номерҙы тик ошо йөрөтөүсе һәм бронь йәшәгәндә генә күрә."
+                    )}
+                  </span>
+                </label>
+              </>
+            )}
+          </>
+        )}
 
         {error && <div className="auth__error">{error}</div>}
 

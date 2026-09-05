@@ -460,6 +460,7 @@ internal enum class Screen {
     Safety,
     Settings,
     Privacy,
+    MyData,       // «Мои данные»: что Юлдаш хранит, на сколько, и удаление документов водителя
     Rules,
     PaymentInfo,
     PaymentMethods,   // «Способы оплаты»: чем рассчитаемся с водителем (наличные / СБП / договоримся)
@@ -473,6 +474,7 @@ internal enum class Screen {
     AdminDrivers,
     AdminReports,
     AdminTextFlags,   // помеченные тексты: кто и за что (модерация стала видимой)
+    AdminSupport,     // обращения в поддержку: очередь, тред, ответ и закрытие
     AdminPaymentRequests,
     RequestsFeed,
     RequestResponses,
@@ -524,6 +526,7 @@ internal enum class Screen {
     DriverTaxiRides,// «Мои поездки такси»: цена → комиссия → чистыми по каждой поездке
     AdminSos,       // Админ: лента сигналов SOS + отметка «Принял»
     TaxiDocuments,  // Сроки ОСАГО/разрешения/диагностической карты + продление без пере-подачи (580-ФЗ)
+    CarPhoto,       // Фотоконтроль машины: кадры кузова и салона раз в две недели (580-ФЗ)
     PretripCheck,   // Готовность к работе на сегодня: самочувствие, машина, без алкоголя (580-ФЗ)
     FairnessCenter, // «Центр справедливости»: моё положение (Надёжность/страйки) + мои споры
     IncidentDetail, // Карточка спора: обе версии, фото, решение, объясниться/апелляция/мир
@@ -695,6 +698,7 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     car = driverCar,
     price = price,
     seats = seatsLeft,
+    seatsTotal = seatsTotal,
     rating = driverRating,
     verified = driverVerified,
     boosted = boosted,          // было хардкод false → поднятые (Boost) поездки не подсвечивались на карте/в кабинете водителя

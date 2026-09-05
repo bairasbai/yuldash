@@ -14,6 +14,7 @@ from ..flood import TOO_FAST_CREATING, guard_burst
 from ..db import get_session
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Rating, Ride, RideStatus, User
+from ..cancel_reason_text import cancel_reason_text
 from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused, ensure_active,
                             guard_women_only)
 from ..security import current_user, gen_otp
@@ -697,10 +698,22 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
         # Уведомление ДРУГОЙ стороне: кто не отменял (пассажир отменил → водителю, и наоборот).
         other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
         route = f"{ride.from_city} → {ride.to_city}"
+        # Раньше сюда уходил ГОЛЫЙ МАРШРУТ — «Бронь отменена · Уфа → Сибай», и всё. Человек,
+        # который рассчитывал уехать, оставался без двух вещей сразу: без причины и без
+        # понимания, что делать дальше (аудит сценариев 30.08). Причину пишем ту, что выбрал
+        # отменивший (список CANCEL_REASONS), а хвост про другие поездки — только пассажиру:
+        # водителю искать нечего, у него своя поездка на месте.
+        отменил_водитель = user.id != booking.passenger_id
+        причина_ru, причина_ba = cancel_reason_text(booking.cancel_reason)
+        тело_ru = route + (f". {причина_ru}" if причина_ru else "")
+        тело_ba = route + (f". {причина_ba}" if причина_ba else "")
+        if отменил_водитель:
+            тело_ru += " Посмотри другие поездки по этому маршруту — они есть."
+            тело_ba += " Был юл буйынса башҡа сәфәрҙәрҙе ҡара — улар бар."
         push_notification(
             session, other_id, "booking",
             "Бронь отменена", "Бронь ҡалдырылды",
-            route, route,
+            тело_ru, тело_ba,
             ref_kind="booking", ref_id=booking.id,
         )
     return booking

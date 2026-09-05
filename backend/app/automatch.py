@@ -23,7 +23,7 @@ from .config import settings
 from .db import engine
 from .models import DeviceToken, RequestResponse, RideRequest
 from .safety_logic import may_ride_together
-from .services import notify_admin_telegram, user_rating
+from .services import driver_rating, notify_admin_telegram
 from .timeutil import utcnow
 
 
@@ -36,11 +36,22 @@ def _best_response(session: Session, responses: list[RequestResponse]) -> Reques
     должно опираться на ту же цену, по которой создастся поездка."""
     from .routers.requests import price_on_table   # локальный импорт — без цикла на старте
 
+    # Балл ВОДИТЕЛЬСКИЙ, а не общий (волна 195; та же дыра, что чинили в 194 и 186).
+    # Общий балл человека складывается из всех его ролей: он и пассажир такси, и попутчик,
+    # и отправитель посылок. Здесь система сажает в машину пожилого человека, который сам
+    # выбрать не может, — значит и смотреть она обязана на то, как кандидат ВОДИТ, а не на
+    # то, как он ведёт себя в чужом салоне. Проба: Ильдар с тремя пятёрками за рулём
+    # проигрывал Рустему с четвёрками, потому что Ильдара когда-то оценили на единицу
+    # как пассажира.
+    #
+    # Считаем один раз на водителя, а не внутри ключа сортировки: ключ зовётся многократно,
+    # и каждый вызов — это поход в базу.
+    ranks = {r.driver_id: driver_rating(session, r.driver_id)[0] for r in responses}
+
     def rank(r: RequestResponse):
-        avg, _ = user_rating(session, r.driver_id)
         p = price_on_table(r)
         price_rank = p if p > 0 else float("inf")
-        return (-avg, price_rank, r.id)
+        return (-ranks.get(r.driver_id, 0.0), price_rank, r.id)
     return sorted(responses, key=rank)[0]
 
 

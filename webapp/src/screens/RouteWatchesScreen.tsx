@@ -18,6 +18,7 @@ import {
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow, IconBell, IconTrash } from "../components/Icons";
+import { track } from "../analytics";
 
 type Status = "loading" | "error" | "ready";
 
@@ -66,6 +67,7 @@ export default function RouteWatchesScreen() {
         to_city: to.trim(),
         direction,
       });
+      track("route_watch_create");
       setFrom("");
       setTo("");
       setDirection("forward");

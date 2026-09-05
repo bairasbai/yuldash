@@ -22,7 +22,7 @@ from sqlmodel import Session
 
 import app.services as svc
 from app.db import engine
-from app.models import CourierProfile, UserRole
+from app.models import CourierApplication, CourierProfile, UserRole
 
 
 @pytest.fixture(autouse=True)
@@ -48,6 +48,12 @@ def курьер_на_линии(client, user_factory):
     def создать(имя: str):
         человек = user_factory(имя, role=UserRole.driver)
         with Session(engine) as s:
+            # Одобрение живёт в ЗАЯВКЕ — её и спрашивают гейт курьера и рассылка
+            # (`courier.courier_not_allowed_reason`, волна 222). `status` на профиле ниже
+            # оставлен как был: он тут ни на что не влияет и никем не читается.
+            s.add(CourierApplication(user_id=человек["id"], status="approved",
+                                     full_name="Курьер Курьеров", transport="car",
+                                     rules_accepted=True))
             s.add(CourierProfile(
                 user_id=человек["id"], status="approved", online=True,
                 zone=None,          # зона не выбрана → курьер берёт любые заказы

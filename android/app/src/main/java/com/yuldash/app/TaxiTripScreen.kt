@@ -2,6 +2,7 @@ package com.yuldash.app
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -39,7 +40,10 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Place
@@ -47,6 +51,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -56,15 +61,14 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,6 +82,7 @@ import androidx.compose.ui.unit.dp
 import com.yandex.mapkit.geometry.Point
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.InstantOrderDto
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -119,8 +124,12 @@ private fun defaultStopFor(status: String): TaxiSheetStop = when (status) {
 internal fun TaxiTripScreen(
     order: InstantOrderDto,
     onCancel: () -> Unit,
+    /** Заказ обновился на сервере — экран выше забирает свежую версию. */
+    onOrderUpdated: (InstantOrderDto) -> Unit = {},
     onMinimize: () -> Unit = {},
     enableLiveTracking: Boolean = true,
+    /** Открыть выбор способа расчёта. Про наличные человек вспоминает уже сидя в машине. */
+    onOpenPayments: () -> Unit = {},
     mapContent: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
@@ -255,7 +264,7 @@ internal fun TaxiTripScreen(
                 if (order.status == "arriving") {
                     InstantWaitingRow(order)
                 }
-                TripPriceRow(order)
+                TripPriceRow(order, onOpenPayments)
             },
             extra = {
                 TripRouteBlock(
@@ -278,6 +287,10 @@ internal fun TaxiTripScreen(
                         onToggle = { wantsLight = !wantsLight },
                     )
                 }
+                // Просил сменить адрес, водитель молчит — можно отозвать просьбу.
+                TripDestinationPending(order = order, onWithdrawn = onOrderUpdated)
+                // Водитель забыл нажать «Завершить» — пассажир закрывает поездку сам.
+                TripFinishedPrompt(order = order, onClosed = onOrderUpdated)
                 TripCancelButton(
                     order = order,
                     onCancel = onCancel,
@@ -503,7 +516,7 @@ private fun TripCompactAction(
 @Composable
 private fun TripCompactPaymentSafety(order: InstantOrderDto, onSafety: () -> Unit) {
     val safetyLabel = appText("Безопасность", "Именлек")
-    val payment = "${formatTaxiKop(order.passengerPayKop)}  ·  ${payMethodLabel(order.paymentMethod)}"
+    val payment = "${formatTaxiKop(order.passengerPayKop)}  ·  ${PayMethods.title(order.paymentMethod)}"
     Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().padding(start = CanonSpace.md, end = CanonSpace.xs),
@@ -857,12 +870,17 @@ private fun TripLabeledAction(
  * в машину и вспоминал цену по памяти, а со скидкой по промокоду это прямой спор на дороге.
  */
 @Composable
-private fun TripPriceRow(order: InstantOrderDto) {
+private fun TripPriceRow(order: InstantOrderDto, onOpenPayments: () -> Unit = {}) {
     if (order.hasPromoDiscount) {
         TaxiPromoPayRow(order = order, forDriver = false)
         return
     }
-    Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        onClick = onOpenPayments,
+        color = CanonBg,
+        shape = CanonItemShape,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Row(
             Modifier.fillMaxWidth().padding(CanonSpace.md),
             verticalAlignment = Alignment.CenterVertically,
@@ -881,13 +899,24 @@ private fun TripPriceRow(order: InstantOrderDto) {
                 maxLines = 1,
             )
             Text("·", style = CanonBody, color = CanonMuted)
+            // `PayMethods.title`, а не `payMethodLabel`: второй знает только наличные и СБП,
+            // и оплата картой либо корпоративный счёт показывались как «Договоримся» —
+            // ровно та размытая формулировка, ради ухода от которой всё и делалось.
             Text(
-                payMethodLabel(order.paymentMethod),
+                PayMethods.title(order.paymentMethod),
                 style = CanonBody,
                 color = CanonMuted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
+            )
+            // Стрелка — единственное, что говорит «сюда можно нажать». Без неё строка
+            // кликабельна, но выглядит надписью, и способ никто не меняет.
+            Icon(
+                Icons.Default.KeyboardArrowRight,
+                contentDescription = appText("Сменить способ", "Ысулды алмаштырырға"),
+                tint = CanonMuted,
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -1005,6 +1034,189 @@ private fun TripRouteBlock(
 }
 
 /** Отмена. Поздняя стоит денег — говорим это ДО тапа, а не после. */
+/**
+ * «Ждём ответа водителя» по крупной смене адреса — и кнопка передумать.
+ *
+ * Раньше пассажир нажимал «Спросить водителя», шторка закрывалась — и всё. Ни слова о том,
+ * что вопрос ушёл, сколько его ждут и как его снять; человек ехал в тишине к старому адресу,
+ * не понимая, услышали его или нет (аудит сценариев 30.08).
+ *
+ * Живой счётчик «ждём N минут» — единственный честный сигнал: срока ответа мы обещать не
+ * можем, водитель за рулём и смотрит на дорогу, а не в телефон.
+ */
+@Composable
+private fun TripDestinationPending(order: InstantOrderDto, onWithdrawn: (InstantOrderDto) -> Unit) {
+    if (order.pendingToText.isBlank()) return
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var busy by remember(order.id) { mutableStateOf(false) }
+    val failMsg = appText("Не получилось снять вопрос. Проверь связь.",
+                          "Һорауҙы алып ташлап булманы. Бәйләнеште тикшер.")
+
+    // Минуты ожидания тикают сами: статичная надпись «ждём» через десять минут выглядит
+    // как зависшее приложение.
+    val askedMs = remember(order.pendingAskedAt) { order.pendingAskedAt?.let(::parseIsoUtcMillis) }
+    var minutes by remember(order.pendingAskedAt) { mutableIntStateOf(0) }
+    LaunchedEffect(askedMs) {
+        val start = askedMs ?: return@LaunchedEffect
+        while (true) {
+            minutes = ((System.currentTimeMillis() - start) / 60_000L).toInt().coerceAtLeast(0)
+            delay(20_000L)
+        }
+    }
+    // Хвост «· ждём N мин» появляется только со второй минуты: «ждём 0 мин» — это шум.
+    val хвостRu = if (minutes > 0) " · ждём $minutes мин" else ""
+    val хвостBa = if (minutes > 0) " · $minutes мин көтәбеҙ" else ""
+
+    Surface(color = CanonWarnBg, shape = CanonItemShape,
+            border = BorderStroke(1.dp, CanonWarn.copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(CanonSpace.lg),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = CanonWarn)
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text(
+                    appText("Спросили водителя про новый адрес",
+                            "Йөрөтөүсенән яңы адрес хаҡында һораныҡ"),
+                    style = CanonBody, fontWeight = FontWeight.Bold, color = CanonText,
+                )
+            }
+            Text(
+                appText(
+                    "${order.pendingToText} · ${order.pendingPrice} \u20BD$хвостRu",
+                    "${order.pendingToText} · ${order.pendingPrice} һум$хвостBa",
+                ),
+                style = CanonCaption, color = CanonMuted,
+            )
+            Text(
+                appText("Он за рулём и ответит, когда сможет. Пока едем по старому адресу.",
+                        "Ул руль артында, мөмкинлек тыуғас яуап бирер. Әлегә элекке адрес буйынса барабыҙ."),
+                style = CanonCaption, color = CanonMuted,
+            )
+            TextButton(
+                enabled = !busy,
+                onClick = {
+                    busy = true
+                    scope.launch {
+                        ApiClient.withdrawDestination(order.id)
+                            .onSuccess { ApiClient.getInstantOrder(order.id).onSuccess(onWithdrawn) }
+                            .onFailure {
+                                Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show()
+                            }
+                        busy = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Text(appText("Передумал, едем как ехали", "Уйланым, элеккесә барабыҙ"),
+                     style = CanonButton, color = CanonMuted)
+            }
+        }
+    }
+}
+
+/**
+ * «Поездка закончилась?» — выход из «В пути», когда водитель не нажал «Завершил».
+ *
+ * Довёз, высадил, уехал — и не закрыл поездку: сел телефон, отвлёкся, удалил приложение.
+ * Пассажир после этого заперт: оценить нельзя, новую машину заказать нельзя, а само собой
+ * это рассасывалось только ночной уборкой через 12 часов (аудит сценариев 30.08).
+ *
+ * Кнопку показывает СЕРВЕР (`passengerCanClose`) и только после расчётного времени поездки
+ * плюс запас — посреди дороги её не будет. Спрашиваем подтверждением, а не одним тапом:
+ * закрытие поездки необратимо и начисляет водителю комиссию.
+ */
+@Composable
+private fun TripFinishedPrompt(order: InstantOrderDto, onClosed: (InstantOrderDto) -> Unit) {
+    if (!order.passengerCanClose) return
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var ask by remember(order.id) { mutableStateOf(false) }
+    var busy by remember(order.id) { mutableStateOf(false) }
+    val failMsg = appText("Не получилось закрыть поездку. Проверь связь.",
+                          "Сәфәрҙе ябып булманы. Бәйләнеште тикшер.")
+
+    Surface(color = CanonMint, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(CanonSpace.lg),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            Text(
+                appText("Кажется, поездка уже закончилась", "Күрәһең, сәфәр тамамланған"),
+                style = CanonBody, fontWeight = FontWeight.Bold, color = CanonGreen2,
+            )
+            Text(
+                appText(
+                    "Едешь дольше расчётного времени. Если поездка закончилась, а водитель " +
+                        "не отметил это — закрой её сам, чтобы оценить поездку и заказать снова.",
+                    "Иҫәпләнгән ваҡыттан оҙағыраҡ бараһың. Әгәр сәфәр тамамланған, ә водитель " +
+                        "быны билдәләмәгән — үҙең яп, шунан сәфәрҙе баһалап, яңынан заказ итә алаһың.",
+                ),
+                style = CanonCaption, color = CanonMuted,
+            )
+            TextButton(
+                onClick = { if (!busy) ask = true },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Text(
+                    appText("Поездка закончилась", "Сәфәр тамамланды"),
+                    style = CanonButton, color = CanonGreen2,
+                )
+            }
+        }
+    }
+
+    if (ask) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) ask = false },
+            containerColor = CanonSurface,
+            title = {
+                Text(appText("Закрыть поездку?", "Сәфәрҙе ябырғамы?"),
+                     style = CanonHeading, color = CanonText)
+            },
+            text = {
+                Text(
+                    appText(
+                        "Отметим, что поездка закончилась. Вернуть это уже нельзя — водителю начислится " +
+                            "комиссия за поездку, как при обычном завершении.",
+                        "Сәфәр тамамланғанын билдәләйбеҙ. Быны кире ҡайтарып булмай — водителгә " +
+                            "ғәҙәти тамамлауҙағы кеүек комиссия иҫәпләнәсәк.",
+                    ),
+                    style = CanonCaption, color = CanonMuted,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !busy,
+                    onClick = {
+                        busy = true
+                        scope.launch {
+                            ApiClient.instantPassengerDone(order.id)
+                                .onSuccess { ask = false; onClosed(it) }
+                                .onFailure {
+                                    Toast.makeText(ctx, serverSaid(it, failMsg),
+                                                   Toast.LENGTH_LONG).show()
+                                }
+                            busy = false
+                        }
+                    },
+                ) {
+                    Text(appText("Да, закончилась", "Эйе, тамамланды"),
+                         style = CanonButton, color = CanonGreen2)
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = !busy, onClick = { ask = false }) {
+                    Text(appText("Ещё едем", "Әле барабыҙ"), style = CanonButton, color = CanonMuted)
+                }
+            },
+        )
+    }
+}
+
 @Composable
 private fun TripCancelButton(
     order: InstantOrderDto,

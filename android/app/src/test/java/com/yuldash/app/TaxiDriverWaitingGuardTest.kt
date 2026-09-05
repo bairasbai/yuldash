@@ -40,7 +40,11 @@ class TaxiDriverWaitingGuardTest {
         val screen = source("app/src/main/java/com/yuldash/app/InstantOrderScreen.kt")
         val profile = source("app/src/main/java/com/yuldash/app/ProfileScreen.kt")
         assertTrue(screen.contains("ApiClient.instantPresence"))
-        assertTrue(screen.contains("ApiClient.getDriverOffer()"))
+        // Не `getDriverOffer`, а `getDriverOfferState`: в том же ответе приходит причина,
+        // почему заказов не будет (документы, долг, смена, зона, проверка перед выездом).
+        // Со старым вызовом экран молчал и обещал заказ, которого не дождаться.
+        assertTrue(screen.contains("ApiClient.getDriverOfferState()"))
+        assertTrue(screen.contains("offerBlocked = "))
         assertTrue(screen.contains("ApiClient.getInstantDemand()"))
         assertTrue(screen.contains("if (online && current == null)"))
         assertTrue(screen.contains("if (online && current != null)"))

@@ -5,9 +5,9 @@ from typing import Optional
 import hmac
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import delete
+from sqlalchemy import delete, func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -19,7 +19,10 @@ from ..config import _phone_key, settings
 from ..db import engine, get_session
 from ..errors import herr
 from ..logs import admin_action, log
-from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, TgAuth, User, UserRole
+from ..models import (
+    Ad, Booking, DeviceToken, DriverProfile, Message, Notification, OtpCode, Payment,
+    Rating, RequestResponse, Ride, TgAuth, User, UserRole, WebPushSubscription,
+)
 from ..security import (
     current_user, gen_otp, is_placeholder_phone, issue_tokens, normalize_phone,
     revoke_all_refresh, rotate_refresh,
@@ -667,11 +670,22 @@ class RefreshIn(BaseModel):
 
 
 @router.post("/auth/refresh")
-def refresh(body: RefreshIn, session: Session = Depends(get_session)):
-    """Обновить пару токенов по refresh-токену (ротация: старый refresh гасится)."""
+def refresh(body: RefreshIn, session: Session = Depends(get_session),
+            x_device_id: str = Header(default="", alias="X-Device-Id")):
+    """Обновить пару токенов по refresh-токену (ротация: старый refresh гасится).
+
+    Бан устройства проверяем и здесь (аудит 2026-08-08, волна 204). Гейт стоял на трёх
+    дверях входа — запрос кода, проверка кода, Telegram, — а приложение продлевает вход
+    само и бесконечно. То есть забаненный работал дальше как ни в чём не бывало, и бан
+    выглядел выполненным: в админке он есть, новый вход режется, а человек на линии.
+
+    Заголовок шлёт клиент, значит его можно и не слать, — поэтому вторая половина проверки
+    живёт в `rotate_refresh` и смотрит на устройство, которое сервер запомнил сам.
+    """
     if not body.refresh_token.strip():
         raise herr(400, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
+    guard_device_not_banned(session, x_device_id)
     return rotate_refresh(session, body.refresh_token.strip())
 
 
@@ -706,6 +720,156 @@ class MeUpdateIn(BaseModel):
     # Пол — по желанию: "" (не указывать/снять) | female | male. Нужен для отметки
     # «только женщины» на попутке: она проверяется у ОБЕИХ сторон (аудит 2026-08-08).
     gender: Optional[str] = Field(None, max_length=8)
+
+
+@router.get("/me/data")
+def my_data(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Что Юлдаш знает о человеке — живыми числами и со сроками.
+
+    Зачем. «Удалить мои данные» люди просят не потому, что данные им мешают, а потому что
+    не знают, что именно у нас лежит и надолго ли. Общие слова в оферте на этот страх
+    не отвечают. Числа и сроки отвечают: переписка уходит сама через месяц, поездки —
+    через полгода, геолокацию мы вообще не храним.
+
+    Сроки берём из ретеншена (`cleanup.py`), а не пишем в клиенте: иначе приложение
+    начнёт обещать одно, а чистилка делать другое.
+
+    Документы водителя стоят отдельно: это единственное, что не чистится никогда,
+    и единственное, что можно удалить точечно (POST /me/driver-docs/delete).
+    """
+    from .. import cleanup
+
+    uid = user.id
+    def count(model, *where):
+        return int(session.exec(select(func.count()).select_from(model).where(*where)).one())
+
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == uid)).first()
+    docs = sum(1 for u in ((dp.license_url if dp else ""), (dp.car_photo_url if dp else "")) if u)
+    voices = count(Message, Message.sender_id == uid, Message.voice_url.is_not(None))
+    return {
+        "rides": count(Ride, Ride.driver_id == uid),
+        "rides_days": cleanup.TRIP_DAYS,
+        "bookings": count(Booking, Booking.passenger_id == uid),
+        "messages": count(Message, Message.sender_id == uid),
+        "messages_days": cleanup.MSG_DAYS,
+        "voices": voices,
+        "voices_days": cleanup.MEDIA_DAYS,
+        "notifications": count(Notification, Notification.user_id == uid),
+        "notifications_days": cleanup.NOTIF_DAYS,
+        "driver_docs": docs,
+        "driver_docs_removable": bool(dp and docs and not dp.online and dp.docs_status != "pending"),
+        # Отдельно и явно: этого у нас нет вовсе. Человеку это важнее любых счётчиков.
+        "location_stored": False,
+        "card_stored": False,
+    }
+
+
+@router.get("/me/export")
+def export_my_data(
+    lang: str = Query("ru"),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """«Скачать мои данные» — читаемый человеком файл, а не выгрузка для программиста.
+
+    Зачем именно текстом. Закон требует по запросу выдать человеку его сведения; формат
+    не назван. JSON выдал бы «сведения» формально: получатель — водитель или пенсионерка,
+    и файл со скобками ответом для них не является. Обычный текст открывается в любом
+    телефоне и читается вслух.
+
+    Чужого в файле нет. Сообщения — только свои отправленные: в переписке участвует
+    второй человек, и его слова не наши, чтобы их отдавать. Телефон попутчиков,
+    координаты и чужие оценки в выгрузку не идут по той же причине.
+
+    Объём ограничен: у активного водителя тысячи строк превратили бы файл в нечитаемый.
+    Обрезали — говорим об этом прямо в файле, а не молчим.
+    """
+    from ..services import pick_lang
+
+    lim = 300
+    uid = user.id
+    L = lambda ru, ba: pick_lang(lang, ru, ba)   # noqa: E731 — короткий алиас читается лучше в тексте
+
+    def dt(v) -> str:
+        return v.strftime("%d.%m.%Y %H:%M") if v else "—"
+
+    out: list[str] = []
+    out.append(L("МОИ ДАННЫЕ В ЮЛДАШЕ", "ЮЛДАШТА МИНЕҢ МӘҒЛҮМӘТТӘРЕМ"))
+    out.append(L("Файл собран", "Файл йыйылған") + ": " + dt(utcnow()))
+    out.append("")
+
+    out.append(L("ПРОФИЛЬ", "ПРОФИЛЬ"))
+    out.append(L("Имя", "Исем") + ": " + (user.name or "—"))
+    out.append(L("Телефон", "Телефон") + ": " + (user.phone or "—"))
+    out.append(L("Город", "Ҡала") + ": " + (user.city or "—"))
+    out.append(L("Язык приложения", "Ҡушымта теле") + ": " + (user.language or "ru"))
+    out.append(L("Профиль подтверждён", "Профиль раҫланған") + ": " + (L("да", "эйе") if user.verified else L("нет", "юҡ")))
+    out.append("")
+
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == uid)).first()
+    if dp:
+        out.append(L("ВОДИТЕЛЬ", "ШОФЕР"))
+        car = " ".join(x for x in (dp.car_make, dp.car_model, dp.car_color) if x)
+        out.append(L("Машина", "Машина") + ": " + (car or "—"))
+        out.append(L("Госномер", "Дәүләт һаны") + ": " + (dp.car_plate or "—"))
+        out.append(L("Документы", "Документтар") + ": " + {
+            "verified": L("проверены", "тикшерелгән"),
+            "pending": L("на проверке", "тикшереүҙә"),
+            "rejected": L("отклонены", "кире ҡағылған"),
+        }.get(dp.docs_status, L("не загружены", "һалынмаған")))
+        out.append(L("Поездок выполнено", "Үтәлгән сәфәр") + ": " + str(dp.trips_count or 0))
+        out.append("")
+
+    rides = session.exec(
+        select(Ride).where(Ride.driver_id == uid).order_by(Ride.depart_at.desc()).limit(lim)
+    ).all()
+    if rides:
+        out.append(L("МОИ ПОЕЗДКИ ЗА РУЛЁМ", "РУЛЬ АРТЫНДАҒЫ СӘФӘРҘӘРЕМ"))
+        for r in rides:
+            out.append(f"{dt(r.depart_at)}  {r.from_city} → {r.to_city}  {int(r.price or 0)} ₽")
+        out.append("")
+
+    books = session.exec(
+        select(Booking).where(Booking.passenger_id == uid).order_by(Booking.id.desc()).limit(lim)
+    ).all()
+    if books:
+        out.append(L("МОИ ПОЕЗДКИ ПАССАЖИРОМ", "ЮЛСЫ БУЛАРАҠ СӘФӘРҘӘРЕМ"))
+        for b in books:
+            r = session.get(Ride, b.ride_id)
+            route = f"{r.from_city} → {r.to_city}" if r else "—"
+            when = dt(r.depart_at) if r else "—"
+            out.append(f"{when}  {route}  {b.seats} " + L("мест", "урын") + f"  {int(b.price or 0)} ₽")
+        out.append("")
+
+    msgs = session.exec(
+        select(Message).where(Message.sender_id == uid).order_by(Message.id.desc()).limit(lim)
+    ).all()
+    if msgs:
+        out.append(L("МОИ СООБЩЕНИЯ", "МИНЕҢ ХӘБӘРҘӘРЕМ"))
+        out.append(L("Только отправленные мной — чужие слова не наши, чтобы их отдавать.",
+                     "Тик үҙем ебәргәндәр — башҡа кешенең һүҙҙәре беҙҙеке түгел."))
+        for m in msgs:
+            body = m.text or (L("[голосовое]", "[тауышлы хәбәр]") if m.voice_url else "")
+            if body:
+                out.append(f"{dt(m.created_at)}  {body}")
+        out.append("")
+
+    rates = session.exec(
+        select(Rating).where(Rating.rater_id == uid).order_by(Rating.id.desc()).limit(lim)
+    ).all()
+    if rates:
+        out.append(L("ОЦЕНКИ, КОТОРЫЕ Я СТАВИЛ", "МИН ҠУЙҒАН БАҺАЛАР"))
+        for g in rates:
+            out.append(f"{'★' * int(g.stars or 0)}  {g.text or ''}".rstrip())
+        out.append("")
+
+    out.append(L("ЧЕГО В ФАЙЛЕ НЕТ", "ФАЙЛДА НИМӘ ЮҠ"))
+    out.append(L("Точной геолокации — мы её не храним.", "Теүәл геолокация — беҙ уны һаҡламайбыҙ."))
+    out.append(L("Данных банковской карты — деньги идут мимо нас.",
+                 "Банк картаһы мәғлүмәттәре — аҡса беҙҙән үтмәй."))
+    out.append(L(f"Показано не больше {lim} записей в каждом разделе.",
+                 f"Һәр бүлектә {lim} яҙмананан артыҡ түгел күрһәтелгән."))
+    return {"filename": "yuldash-my-data.txt", "text": "\n".join(out)}
 
 
 @router.post("/me/update")
@@ -830,6 +994,114 @@ def push_register(body: PushTokenIn, user: User = Depends(current_user),
                 row.device_id = did
             session.add(row)
             session.commit()
+    return {"ok": True}
+
+
+class WebPushKeysIn(BaseModel):
+    """Ключи подписки браузера. Их выдаёт сам браузер, клиент только пересылает."""
+    p256dh: str = Field("", max_length=200)
+    auth: str = Field("", max_length=100)
+
+
+class WebPushSubIn(BaseModel):
+    """Подписка браузера на Web Push (стандарт RFC 8291).
+
+    `endpoint` — адрес пуш-сервиса браузера (Google/Mozilla/Apple), по нему и уходит
+    сообщение. `keys` — то, чем оно шифруется: без них отправить нельзя ничего.
+    """
+    endpoint: str = Field(..., max_length=1000)
+    keys: WebPushKeysIn = Field(default_factory=WebPushKeysIn)
+    # aes128gcm у современных браузеров, aesgcm у старых. Пусто → современный.
+    content_encoding: str = Field("aes128gcm", max_length=20)
+
+
+@router.post("/push/web/subscribe")
+def push_web_subscribe(body: WebPushSubIn, user: User = Depends(current_user),
+                       session: Session = Depends(get_session),
+                       x_device_id: str = Header(default="", alias="X-Device-Id")):
+    """Подписка браузера на уведомления.
+
+    Зачем отдельно от `/push/register`. Тот принимает FCM-токен приложения — одну строку,
+    которой достаточно для отправки. Браузер устроен иначе: сообщение шифруется ключами
+    самой подписки, и хранить их надо рядом с адресом.
+
+    Пара к `/push/unregister`: там отвязка FCM-токена, здесь — подписки браузера.
+
+    Перепривязка к текущему человеку разрешена и нужна: на общем телефоне отец вышел,
+    зашёл сын — уведомления должны идти тому, кто сейчас в аккаунте. Подменить чужую
+    подписку «зная строку» тут нельзя так же, как и у FCM: браузер выдаёт endpoint только
+    своему сайту и своему устройству, а перед перепривязкой мы всё равно требуем вход.
+
+    Идемпотентно: повторная подписка тем же браузером обновляет запись, а не плодит новую.
+    """
+    endpoint = (body.endpoint or "").strip()
+    p256dh = (body.keys.p256dh or "").strip()
+    auth_key = (body.keys.auth or "").strip()
+    # Без ключей подписка бесполезна: зашифровать сообщение нечем, и каждая отправка
+    # по ней будет молча падать. Честнее отказать сразу.
+    if not endpoint or not p256dh or not auth_key:
+        raise herr(400, "Не получилось подключить уведомления. Попробуй позже.",
+                   "Хәбәрҙәрҙе тоташтырып булманы. Һуңыраҡ ҡабатла.")
+    # Адрес пуш-сервиса — это всегда https. Всё остальное принимать незачем: своим
+    # запросом человек ничего не добьётся, а нам чинить потом «почему не приходит».
+    if not endpoint.startswith("https://"):
+        raise herr(400, "Не получилось подключить уведомления. Попробуй позже.",
+                   "Хәбәрҙәрҙе тоташтырып булманы. Һуңыраҡ ҡабатла.")
+
+    did = normalize_device_id(x_device_id)
+    enc = (body.content_encoding or "aes128gcm").strip() or "aes128gcm"
+    row = session.exec(
+        select(WebPushSubscription).where(WebPushSubscription.endpoint == endpoint)
+    ).first()
+    if row:
+        row.user_id = user.id
+        row.p256dh, row.auth, row.content_encoding = p256dh, auth_key, enc
+        if did:
+            row.device_id = did
+        session.add(row)
+        session.commit()
+        return {"ok": True}
+    try:
+        session.add(WebPushSubscription(
+            user_id=user.id, endpoint=endpoint, p256dh=p256dh, auth=auth_key,
+            content_encoding=enc, device_id=did,
+        ))
+        session.commit()
+    except IntegrityError:
+        # Тот же браузер успел подписаться параллельно (две вкладки) — перепривязываем.
+        session.rollback()
+        row = session.exec(
+            select(WebPushSubscription).where(WebPushSubscription.endpoint == endpoint)
+        ).first()
+        if row:
+            row.user_id = user.id
+            row.p256dh, row.auth, row.content_encoding = p256dh, auth_key, enc
+            if did:
+                row.device_id = did
+            session.add(row)
+            session.commit()
+    return {"ok": True}
+
+
+@router.post("/push/web/unsubscribe")
+def push_web_unsubscribe(body: WebPushSubIn, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)):
+    """Отписка браузера при выходе из аккаунта.
+
+    Та же приватность, что у FCM-токена: на общем телефоне следующий вошедший не должен
+    получать чужие уведомления — брони, чат, сигналы SOS. Только СВОЮ подписку.
+    Идемпотентно: нечего удалять — отвечаем «хорошо».
+    """
+    endpoint = (body.endpoint or "").strip()
+    if not endpoint:
+        return {"ok": True}
+    row = session.exec(select(WebPushSubscription).where(
+        WebPushSubscription.endpoint == endpoint,
+        WebPushSubscription.user_id == user.id,
+    )).first()
+    if row:
+        session.delete(row)
+        session.commit()
     return {"ok": True}
 
 

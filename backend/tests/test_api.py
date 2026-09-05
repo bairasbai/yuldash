@@ -263,7 +263,7 @@ def test_ads_lifecycle_founder_cap_and_public(client, user_factory):
     assert client.get("/admin/ads", headers=pax["auth"]).status_code == 403
     # создать standard → draft, публично не видно
     r = client.post("/admin/ads", headers=admin["auth"], json={
-        "partner_name": "Кафе", "title": "Чай", "text": "Горячий чай по дороге", "plan": "standard", "placements": "route", "erid": "X1"})
+        "partner_name": "Кафе", "title": "Чай", "text": "Горячий чай по дороге", "plan": "standard", "placements": "route", "erid": "2VtzqwX1"})
     assert r.status_code == 200, r.text
     aid = r.json()["id"]
     assert client.get("/ads").json() == []
@@ -301,7 +301,7 @@ def test_ads_lifecycle_founder_cap_and_public(client, user_factory):
 def test_ads_expiry_hidden(client, user_factory):
     admin = user_factory("Админ2", role=UserRole.admin)
     r = client.post("/admin/ads", headers=admin["auth"], json={
-        "partner_name": "СТО", "title": "т", "text": "проверка авто", "plan": "standard", "placements": "ridesList", "erid": "Z",
+        "partner_name": "СТО", "title": "т", "text": "проверка авто", "plan": "standard", "placements": "ridesList", "erid": "2VtzqwZ9",
         "ends_at": "2020-01-01T00:00:00"})
     aid = r.json()["id"]
     client.post(f"/admin/ads/{aid}/status", headers=admin["auth"], json={"status": "active"})

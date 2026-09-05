@@ -214,9 +214,21 @@ export default function DriverTaxiRidesScreen() {
                   </div>
 
                   <div className="money-row__foot">
-                    <span className={"badge " + (r.paid ? "badge--mint" : "badge--gold")}>
-                      {r.paid ? <IconCheck size={12} /> : null}{" "}
-                      {r.paid ? appText("Оплачено", "Түләнгән") : appText("Не отмечено", "Билдәләнмәгән")}
+                    {/* Разбор подтвердил, что денег не было. Такая поездка не должна
+                        выглядеть как оплаченная: за неё уже сняли комиссию, и без метки
+                        она смотрится выгоднее честной. */}
+                    <span
+                      className={
+                        "badge " +
+                        (r.unpaid_confirmed ? "badge--danger" : r.paid ? "badge--mint" : "badge--gold")
+                      }
+                    >
+                      {r.paid && !r.unpaid_confirmed ? <IconCheck size={12} /> : null}{" "}
+                      {r.unpaid_confirmed
+                        ? appText("Не заплатили — подтверждено", "Түләмәнеләр — раҫланған")
+                        : r.paid
+                          ? appText("Оплачено", "Түләнгән")
+                          : appText("Не отмечено", "Билдәләнмәгән")}
                     </span>
                     {badge && <span className={"badge " + badge.cls}>{badge.text}</span>}
                     <span style={{ marginLeft: "auto", display: "inline-flex" }}>

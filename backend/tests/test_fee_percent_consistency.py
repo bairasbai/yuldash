@@ -39,21 +39,24 @@ def _mk_order(driver_id: int, pax_id: int, *, created_at, done_at, price: int) -
 
 
 def test_cashless_fee_matches_debt_fee_when_order_crosses_tier_boundary(client, user_factory):
-    """Заказ создан на последнем дне 1-й ступени, завершён на первом дне 2-й.
+    """Заказ взят на последней поездке 1-й ступени, а пока он ехал — ступень поднялась.
 
-    Обе денежные ветки обязаны взять ставку на момент СОЗДАНИЯ (3%), а не завершения (5%):
+    Обе денежные ветки обязаны взять ставку на момент СОЗДАНИЯ (3%), а не завершения (8%):
     именно её водитель видел в оффере.
     """
     drv = user_factory(name="ГраницаВодитель", role=UserRole.driver)["id"]
     pax = user_factory(name="ГраницаПассажир")["id"]
     now = utcnow()
-    # Стаж считается от ПЕРВОГО завершённого заказа. Ставим его так, чтобы граница ступени
-    # прошла между created_at и done_at нашего заказа.
-    first_done = now - timedelta(days=settings.fee_tier1_days + 2)
-    _mk_order(drv, pax, created_at=first_done, done_at=first_done, price=100)
+    created_at = now - timedelta(hours=2)
+    done_at = now - timedelta(hours=1)
+    # Ступень считается по завершённым поездкам. Кладём столько, чтобы граница прошла
+    # МЕЖДУ созданием и завершением нашего заказа.
+    old = created_at - timedelta(days=2)
+    for i in range(settings.fee_tier1_trips - 1):                  # 29 поездок позади
+        _mk_order(drv, pax, created_at=old, done_at=old + timedelta(seconds=i), price=100)
+    # 30-я закрылась, пока наш заказ был в пути → на момент done ступень уже вторая.
+    _mk_order(drv, pax, created_at=created_at, done_at=created_at + timedelta(minutes=1), price=100)
 
-    created_at = first_done + timedelta(days=settings.fee_tier1_days)      # ещё 1-я ступень
-    done_at = first_done + timedelta(days=settings.fee_tier1_days + 1)     # уже 2-я
     order_id = _mk_order(drv, pax, created_at=created_at, done_at=done_at, price=1000)
 
     with Session(engine) as s:
@@ -115,9 +118,16 @@ def test_courier_never_pays_more_than_a_taxi_driver():
     )
     assert settings.courier_fee_tier1_percent <= settings.fee_tier1_percent
     assert settings.courier_fee_tier2_percent <= settings.fee_tier2_percent
-    # Сроки ступеней общие: «первый месяц дешевле» должно значить одно и то же в обоих режимах.
-    assert settings.courier_fee_tier1_days == settings.fee_tier1_days
-    assert settings.courier_fee_tier2_days == settings.fee_tier2_days
+    # Границы ступеней с 2026-08-23 меряются РАЗНЫМ: у таксиста — поездками (лесенка по
+    # календарю доставалась спящему водителю даром), у курьера — днями с одобрения заявки.
+    # Сравнивать их числа между собой больше нельзя, поэтому сторожим только сами ступени:
+    # у обоих их три и они растут, а не прыгают.
+    assert settings.fee_tier1_percent <= settings.fee_tier2_percent <= settings.service_fee_percent
+    assert (settings.courier_fee_tier1_percent <= settings.courier_fee_tier2_percent
+            <= settings.courier_service_fee_percent)
+    assert settings.fee_tier1_trips < settings.fee_tier2_trips, (
+        "первая ступень должна кончаться раньше второй — иначе лесенка не лесенка"
+    )
 
 
 def test_courier_ladder_reads_config_not_hardcode(client, user_factory, monkeypatch):
@@ -136,5 +146,5 @@ def test_courier_ladder_reads_config_not_hardcode(client, user_factory, monkeypa
         monkeypatch.setattr(settings, "courier_fee_tier1_percent", 1.5)
         assert cr.courier_fee_tier(s, cour["id"])[0] == 1.5, "ставка не читается из конфига"
         # Граница ступени тоже из конфига: сузили окно 1-й ступени → тот же курьер уже на 2-й.
-        monkeypatch.setattr(settings, "courier_fee_tier1_days", 5)
+        monkeypatch.setattr(settings, "courier_fee_tier1_deliveries", 0)
         assert cr.courier_fee_tier(s, cour["id"])[1] == "tier2"

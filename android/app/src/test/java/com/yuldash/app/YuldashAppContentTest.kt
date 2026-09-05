@@ -125,7 +125,7 @@ class YuldashAppContentTest {
         }
         composeRule.onNodeWithText("Безопасность").assertIsDisplayed()
         assertFalse(backFired)
-        // Кнопка «Назад» помечена contentDescription = appText("Назад", "Кире").
+        // Кнопка «Назад» помечена contentDescription = appText("Назад", "Артҡа").
         composeRule.onNodeWithContentDescription("Назад").performClick()
         assertTrue(backFired)
     }

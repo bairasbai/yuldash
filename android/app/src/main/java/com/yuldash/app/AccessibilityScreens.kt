@@ -952,7 +952,7 @@ internal fun CreatePassengerRequestContent(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    appText("Маршрут", "Маршрут"),
+                                    appText("Маршрут", "Юл"),
                                     style = CanonCaption,
                                     color = CanonMuted,
                                 )
@@ -1121,7 +1121,7 @@ internal fun CreatePassengerRequestContent(
                     item(key = "baggage") {
                         RequestToggleChip(
                             selected = baggage,
-                            label = appText("Багаж", "Багаж"),
+                            label = appText("Багаж", "Йөк"),
                             icon = Icons.Default.Luggage,
                             onClick = { onBaggageChange(!baggage) },
                         )

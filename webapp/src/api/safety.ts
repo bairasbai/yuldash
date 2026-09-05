@@ -182,9 +182,17 @@ export interface Restriction {
   note_ba: string;
 }
 
-export function fetchMyRestrictions(
-  signal?: AbortSignal
-): Promise<{ items?: Restriction[]; restrictions?: Restriction[] }> {
+export function fetchMyRestrictions(signal?: AbortSignal): Promise<{
+  items?: Restriction[];
+  restrictions?: Restriction[];
+  /**
+   * Куда идти, если не согласен. Приходит с сервера готовым на двух языках и стоит
+   * ПОД списком ограничений: человеку, которому что-то запретили, нужен не только
+   * список запретов, но и дверь, в которую можно постучаться.
+   */
+  support_ru?: string;
+  support_ba?: string;
+}> {
   return apiGet("/me/restrictions", { signal });
 }
 
@@ -197,4 +205,80 @@ export interface SafetyPolicy {
 
 export function fetchSafetyPolicy(signal?: AbortSignal): Promise<SafetyPolicy> {
   return apiGet<SafetyPolicy>("/safety/policy", { signal });
+}
+
+/**
+ * Зимняя проверка по ТАКСИ-заказу. Дорога та же: Сибай–Уфа зимой — четыре часа,
+ * и пассажир такси в машине один с незнакомым водителем.
+ */
+export function winterCheckOrder(orderId: number): Promise<WinterCheckResult> {
+  return apiPost<WinterCheckResult>(`/instant/orders/${orderId}/winter-check`);
+}
+
+/** «Доехал» по такси-заказу — отметить может только пассажир (правило сервера). */
+export function winterCheckOrderOk(orderId: number): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(`/instant/orders/${orderId}/winter-check/ok`);
+}
+
+/** Зимняя проверка по ДОСТАВКЕ: курьер едет по той же трассе и вдобавок один. */
+export function winterCheckParcel(parcelId: number): Promise<WinterCheckResult> {
+  return apiPost<WinterCheckResult>(`/parcels/${parcelId}/winter-check`);
+}
+
+/** «Доехал» по доставке — отмечает только курьер. */
+export function winterCheckParcelOk(parcelId: number): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(`/parcels/${parcelId}/winter-check/ok`);
+}
+
+// ================================================================
+//  «Застрял на трассе» (safety.py: /bookings|/instant/orders|/parcels
+//  → /stuck). Уровень мягче красной кнопки SOS: координаты уходят
+//  доверенным контактам и в ленту админа, паники нет.
+//
+//  Координаты необязательны: GPS мог не схватиться — сигнал без места
+//  всё равно лучше, чем ничего.
+// ================================================================
+
+/**
+ * Сколько близких РЕАЛЬНО предупреждено и сколько их вообще заведено.
+ *
+ * Два числа, а не одно: «звать некого» (никого не добавил) и «есть кого, но SMS не ушло»
+ * — для человека на трассе это разные новости и разные действия. Экран, который писал
+ * «близкие получили твои координаты» всегда, врал тому, кто контактов не заводил.
+ */
+export interface RoadsideResult {
+  contacts_notified: number;
+  contacts_total: number;
+  id?: number;
+  note?: string;
+}
+
+interface StuckWhere {
+  lat?: number | null;
+  lng?: number | null;
+  note?: string;
+}
+
+function stuckBody(w: StuckWhere) {
+  const body: Record<string, unknown> = { note: (w.note ?? "").slice(0, 500) };
+  if (w.lat != null && w.lng != null) {
+    body.lat = w.lat;
+    body.lng = w.lng;
+  }
+  return body;
+}
+
+/** Застрял в поездке-попутке. */
+export function roadsideHelpBooking(bookingId: number, where: StuckWhere): Promise<RoadsideResult> {
+  return apiPost<RoadsideResult>(`/bookings/${bookingId}/stuck`, stuckBody(where));
+}
+
+/** Застрял в такси-заказе. Доступно ОБЕИМ сторонам заказа. */
+export function roadsideHelpOrder(orderId: number, where: StuckWhere): Promise<RoadsideResult> {
+  return apiPost<RoadsideResult>(`/instant/orders/${orderId}/stuck`, stuckBody(where));
+}
+
+/** Застрял с посылкой. Отправителю уходит уведомление: его вещь не движется. */
+export function roadsideHelpParcel(parcelId: number, where: StuckWhere): Promise<RoadsideResult> {
+  return apiPost<RoadsideResult>(`/parcels/${parcelId}/stuck`, stuckBody(where));
 }

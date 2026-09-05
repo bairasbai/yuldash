@@ -72,11 +72,15 @@ def test_apply_accepts_and_returns_doc_dates(client, user_factory):
         "inn": "123456789012", "permit_number": "Т-778",
         "birth_date": "1990-01-01", "license_since_year": 2010,
         "osago_until": until, "permit_until": until, "inspection_until": until,
+        # ОСГОП — страховка ответственности перевозчика, обязательна с 01.09.2024. В контроль
+        # сроков она попала 30.08 (аудит сценариев): раньше поле в базе было, а на экране нет.
+        "osgop_until": until,
     })
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["osago_until"] == until
     assert body["inspection_until"] == until
+    assert body["osgop_until"] == until
     assert body["docs_missing"] == []          # всё заполнено → модератору нечего требовать
     assert body["docs_days_left"] == 200
 
@@ -90,7 +94,8 @@ def test_apply_without_dates_still_works_but_flags_missing(client, user_factory)
         "birth_date": "1990-01-01", "license_since_year": 2010,
     })
     assert r.status_code == 200, r.text
-    assert set(r.json()["docs_missing"]) == {"osago_until", "permit_until", "inspection_until"}
+    assert set(r.json()["docs_missing"]) == {"osago_until", "permit_until", "inspection_until",
+                                             "osgop_until"}
     assert r.json()["docs_days_left"] is None
 
 

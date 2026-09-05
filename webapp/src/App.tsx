@@ -86,6 +86,10 @@ const SavedPlacesScreen = lazyScreen(() => import("./screens/SavedPlacesScreen")
 const SimpleModeScreen = lazyScreen(() => import("./screens/SimpleModeScreen"));
 const SupportYuldashScreen = lazyScreen(() => import("./screens/SupportYuldashScreen"));
 const TaxiDocumentsScreen = lazyScreen(() => import("./screens/TaxiDocumentsScreen"));
+const TaxiClassesScreen = lazyScreen(() => import("./screens/TaxiClassesScreen"));
+const AdminPriceComplaintsScreen = lazyScreen(() => import("./screens/AdminPriceComplaintsScreen"));
+const AdminCarPhotoScreen = lazyScreen(() => import("./screens/AdminCarPhotoScreen"));
+const CarPhotoScreen = lazyScreen(() => import("./screens/CarPhotoScreen"));
 const TaxiOnboardingScreen = lazyScreen(() => import("./screens/TaxiOnboardingScreen"));
 const TrustScreen = lazyScreen(() => import("./screens/TrustScreen"));
 const VoiceRequestScreen = lazyScreen(() => import("./screens/VoiceRequestScreen"));
@@ -511,6 +515,24 @@ export default function App() {
             </RequireAuth>
           }
         />
+        {/* Классы машины и опции салона: что водителю доступно и что он берёт. */}
+        <Route
+          path="/taxi-classes"
+          element={
+            <RequireAuth>
+              <TaxiClassesScreen />
+            </RequireAuth>
+          }
+        />
+        {/* Фотоконтроль машины (580-ФЗ). Режим — в адресе: ?mode=courier для доставки. */}
+        <Route
+          path="/car-photo"
+          element={
+            <RequireAuth>
+              <CarPhotoScreen />
+            </RequireAuth>
+          }
+        />
         <Route
           path="/pretrip"
           element={
@@ -818,6 +840,24 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminTextFlagsScreen />
+            </RequireAdmin>
+          }
+        />
+        {/* Фотоконтроль машин (580-ФЗ): очередь снимков на просмотр человеком. */}
+        <Route
+          path="/admin/car-photo"
+          element={
+            <RequireAdmin>
+              <AdminCarPhotoScreen />
+            </RequireAdmin>
+          }
+        />
+        {/* Жалобы на цену: по ним меняют тариф, а не по ощущениям. */}
+        <Route
+          path="/admin/price-complaints"
+          element={
+            <RequireAdmin>
+              <AdminPriceComplaintsScreen />
             </RequireAdmin>
           }
         />

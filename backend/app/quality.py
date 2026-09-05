@@ -22,10 +22,10 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from .config import settings
+from .errors import herr
 from .models import DriverProfile, Report, User
 from .services import push_bilingual, push_notification
 from .timeutil import utcnow
@@ -93,11 +93,16 @@ def taxi_pause_until(session: Session, user_id: int, now: Optional[datetime] = N
     return None
 
 
-def taxi_pause_message() -> str:
-    """Тёплый текст гейта (RU + черновой BA одной строкой, detail показывается как есть)."""
+def taxi_pause_message() -> tuple:
+    """Тёплый текст гейта ПАРОЙ (ru, ba).
+
+    Раньше оба языка склеивались через « · » в одну строку и уходили обычным HTTPException.
+    Клиент такую строку показать не умеет и подменяет её общим «нет доступа» — башкироязычный
+    водитель видел «Был эшкә рөхсәт юҡ» вместо объяснения про паузу (аудит сценариев 30.08).
+    """
     return ("Такси на паузе до разбора жалоб. Попутка работает как обычно 💚 "
-            "Детали — в кабинете, вопросы — в поддержку."
-            " · Такси ялыуҙарҙы тикшергәнсе паузала. Юлдаш ғәҙәттәгесә эшләй 💚 "
+            "Детали — в кабинете, вопросы — в поддержку.",
+            "Такси ялыуҙарҙы тикшергәнсе паузала. Юлдаш ғәҙәттәгесә эшләй 💚 "
             "Ентеклеләр — кабинетта, һорауҙар — ярҙам хеҙмәтенә.")
 
 
@@ -105,7 +110,61 @@ def guard_taxi_quality(session: Session, driver_id: int, now: Optional[datetime]
     """Гейт такси по качеству (в стиле долгового/отдыха): presence/offer/accept.
     Активный заказ НЕ рубим (переходы arrived/onboard/done через гейт не ходят)."""
     if taxi_pause_until(session, driver_id, now) is not None:
-        raise HTTPException(403, taxi_pause_message())
+        raise herr(403, *taxi_pause_message())
+
+
+def under_severe_review(session: Session, user_id: int,
+                        now: Optional[datetime] = None) -> bool:
+    """Идёт ли прямо сейчас разбор ТЯЖЁЛОЙ жалобы на этого человека.
+
+    Тяжёлая — это `SEVERE_CATEGORIES`: угроза безопасности, высадил в пути, опасное вождение.
+    По ним сервис не ждёт накопления, а снимает человека с работы немедленно и зовёт живого
+    админа. Отличается от обычной паузы по накопленным жалобам (`reports`) и от ручной
+    админской (`admin`) — те про качество ТАКСИ-сервиса, эта про руль и чужую жизнь.
+    """
+    now = now or utcnow()
+    prof = _profile(session, user_id)
+    return bool(prof is not None
+                and prof.taxi_pause_reason == PAUSE_REASON_REVIEW
+                and prof.taxi_paused_until is not None
+                and prof.taxi_paused_until > now)
+
+
+def severe_review_message() -> tuple:
+    """Текст для платной работы на время разбора — ПАРОЙ (ru, ba).
+
+    Пришёл из волны 214 одной склеенной строкой «RU · BA». Такую строку клиент показать не
+    умеет и подменяет общим «нет доступа»: башкироязычный водитель видел «Был эшкә рөхсәт
+    юҡ» вместо объяснения — ровно то, что чинилось у отдыха и паузы по качеству
+    (аудит сценариев 30.08). Правило одно на все отказы: пара, а не склейка.
+    """
+    return ("Идёт разбор жалобы — решает живой человек. Пока он не закончил, платные рейсы "
+            "на паузе. Попутка работает как обычно 💚",
+            "Ялыу тикшерелә — тере кеше хәл итә. Ул бөткәнсе түләүле рейстар паузала. "
+            "Юлдаш ғәҙәттәгесә эшләй 💚")
+
+
+def guard_not_under_severe_review(session: Session, user_id: int,
+                                  now: Optional[datetime] = None) -> None:
+    """Гейт платной работы на время разбора тяжёлой жалобы (волна 214).
+
+    Стоит на такси (через `guard_taxi_quality`, где перекрыто более широкой паузой) И на
+    курьерской двери. Раньше пауза жила только в такси-гейте: на человека жаловались
+    за опасное вождение, сервис в ту же минуту снимал его с такси и звал админа — а он
+    открывал вкладку доставки и брал платный рейс Акъяр — Сибай. Тот же руль, та же трасса,
+    тот же неразобранный случай.
+
+    ПОПУТКУ не трогает намеренно, и «по пути» с коробкой тоже: «попутка мягче такси» —
+    записанный принцип, и текст паузы прямо обещает человеку «Попутка работает как обычно».
+    Сосед, который и так едет в Сибай, — не профессиональный рейс.
+
+    Накопленные жалобы (`reports`) и ручную паузу админа (`admin`) сюда НЕ тянем: они про
+    качество такси-сервиса, а у курьера своя лестница по своим оценкам (волна 186). Если
+    админу нужно остановить человека везде — для этого есть пауза «Справедливости», она
+    доходит до всех дверей.
+    """
+    if under_severe_review(session, user_id, now):
+        raise herr(403, *severe_review_message())
 
 
 def pause_taxi(session: Session, user_id: int, hours: Optional[int] = None,

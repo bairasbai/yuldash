@@ -2,12 +2,15 @@ package com.yuldash.app
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yandex.mapkit.geometry.Point
@@ -153,6 +157,25 @@ internal fun TaxiSearchingScreen(
                 color = CanonGreen2,
                 trackColor = CanonBorder,
             )
+            // Первый водитель отменил — человек видит, что поиск начался заново, и пугается:
+            // «а цена? а адрес?». Сказать это надо здесь и сразу, иначе он отменит сам.
+            AnimatedVisibility(
+                visible = order.reassigns > 0,
+                enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL)),
+            ) {
+                Surface(color = CanonWarnBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        appText(
+                            "Первый водитель отменил — ищем другую машину. Адрес и цена те же.",
+                            "Беренсе йөрөтөүсе баш тартты — башҡа машина эҙләйбеҙ. Адрес та, хаҡ та шул уҡ.",
+                        ),
+                        color = CanonWarn,
+                        style = CanonMicro,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+                    )
+                }
+            }
             SearchOrderSummary(order)
         },
         extra = {

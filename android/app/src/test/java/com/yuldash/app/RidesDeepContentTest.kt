@@ -78,7 +78,12 @@ class RidesDeepContentTest {
             }
         }
         composeRule.onNodeWithText("Откликов пока нет").assertIsDisplayed()
-        composeRule.onNodeWithText("Водители ещё не откликнулись. Загляни позже.").assertIsDisplayed()
+        // Текст сменился вместе с сутью: раньше пустой экран предлагал ждать и не давал ни
+        // одной кнопки. Теперь он объясняет, что заявка жива, и зовёт что-то сделать.
+        composeRule.onNodeWithText(
+            "Водители ещё не откликнулись. Заявка живёт и видна им — а пока можно " +
+                "поднять цену или поискать готовые поездки по маршруту.",
+        ).assertIsDisplayed()
     }
 
     @Test

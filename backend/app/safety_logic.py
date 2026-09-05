@@ -16,7 +16,7 @@ from .config import settings
 from .errors import herr
 from .models import (Booking, BookingStatus, DriverProfile, Incident, Rating, Ride, RideStatus,
                      SafetyProfile)
-from .services import is_blocked, user_rating
+from .services import driver_rating, is_blocked
 from .timeutil import utcnow
 
 # Коды типов инцидентов. Клиент локализует по коду.
@@ -581,7 +581,9 @@ def _exclude_linked_ratings(session: Session, incident: Incident) -> None:
             affected.add(r.ratee_id)
     session.flush()
     for ratee_id in affected:
-        avg, cnt = user_rating(session, ratee_id)     # уже фильтрует excluded (фаза 1)
+        # Водительским баллом, а не общим (волна 194): это число читает matcher, и в общий
+        # балл человека входят ещё и оценки, полученные им как пассажиром.
+        avg, cnt = driver_rating(session, ratee_id)   # уже фильтрует excluded (фаза 1)
         prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ratee_id)).first()
         if prof:
             prof.rating = round(avg, 1) if cnt > 0 else 5.0   # все сняты → нейтральный сид
@@ -798,6 +800,29 @@ def guard_women_only(user, *, msg: tuple[str, str]) -> None:
     if not g:
         raise herr(403, MSG_GENDER_UNKNOWN[0], MSG_GENDER_UNKNOWN[1])
     raise herr(403, msg[0], msg[1])
+
+
+def women_only_in_force(ride, driver, profile) -> bool:
+    """Действует ли отметка «только женщины» ПРЯМО СЕЙЧАС (волна 219).
+
+    Отметку ставят один раз при публикации, а подтверждение под ней живёт своей жизнью:
+    оно сгорает, когда модератор отклонил документы (`set_driver_docs_verdict`) или человек
+    переписал пол в профиле (`set_user_gender`). Поездка при этом остаётся активной —
+    отклонённые документы не снимают водителя с линии, это бейдж доверия, а не допуск.
+
+    Фильтр ленты (`GET /rides?women_only=1`) перечитывает подтверждение каждый раз и такую
+    поездку уже не показывает (волна 168). А витрина отдавала отметку прямо из базы: женщина
+    листала ОБЩУЮ ленту, видела на карточке «Только женщины» и выбирала поездку именно из-за
+    надписи. Фильтр обходят лента без фильтра, ссылка из чата и открытый экран.
+
+    Правило то же, что у бейджа «женщина за рулём» и у фильтра, — и живёт оно тут, рядом
+    с ними, чтобы двери снова не разъехались.
+
+    Отметка при этом остаётся в базе поездки: там это ПРАВИЛО ВОДИТЕЛЯ («беру только женщин»),
+    и бронь по-прежнему читает его напрямую. Гаснет только ОБЕЩАНИЕ ПАССАЖИРКЕ — то, ради
+    чего требовали подтверждение.
+    """
+    return bool(getattr(ride, "women_only", False)) and is_verified_female_driver(driver, profile)
 
 
 def have_met(session: Session, a_id: int, b_id: int) -> bool:

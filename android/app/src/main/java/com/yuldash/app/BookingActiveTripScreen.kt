@@ -314,7 +314,7 @@ private suspend fun saveTripPass(context: android.content.Context, d: com.yuldas
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BookingScreen(
-    ride: Ride,
+    ride: Ride?,
     bookingId: Int? = null,
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
@@ -323,8 +323,20 @@ internal fun BookingScreen(
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
     canOpenActiveTrip: Boolean = true,
+    // Состояние брони (pending | confirmed | cancelled | …). Нужно, чтобы человек, который
+    // ЖДЁТ ответа водителя, мог передумать, а тот, кому отказали, — узнал об этом
+    // (аудит сценариев 30.08, два P0). Пусто = состояние неизвестно, ведём себя как раньше.
+    bookingStatus: String = "",
+    onCancelBooking: () -> Unit = {},
+    onFindAnotherRide: () -> Unit = {},
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
+    // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
+    // не подставляем — молча возвращаемся назад.
+    if (ride == null) {
+        LaunchedEffect(Unit) { onBack() }
+        return
+    }
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
     val context = LocalContext.current
     var details by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
@@ -491,6 +503,32 @@ internal fun BookingScreen(
                     pickupLat = pickupLat,
                     pickupLng = pickupLng,
                 )
+            }
+            item {
+                // Кнопка звонка появляется не сразу. Без объяснения это читается как поломка,
+                // а на деле это защита: номер и точная точка встречи открываются только после
+                // согласия обеих сторон (§8 «между своими»).
+                if (contactUnlocked && driverPhone.isNotBlank()) {
+                    InfoCard(
+                        title = appText("Телефон водителя открыт", "Йөрөтөүсенең телефоны асылды"),
+                        text = driverPhone,
+                        icon = Icons.Default.Phone,
+                    )
+                } else {
+                    InfoCard(
+                        title = if (bookingId != null)
+                            appText("Телефон откроется после подтверждения водителем",
+                                    "Телефон йөрөтөүсе раҫлағас асыла")
+                        else
+                            appText("Телефон откроется после подтверждения поездки",
+                                    "Телефон сәфәр раҫланғандан һуң асыла"),
+                        text = appText(
+                            "Так мы защищаем номер и точную геолокацию до взаимного согласия.",
+                            "Шулай итеп номерҙы һәм теүәл геолокацияны ике яҡ ризалығына тиклем һаҡлайбыҙ.",
+                        ),
+                        icon = Icons.Default.Lock,
+                    )
+                }
             }
             item {
                 PayAgreementBlock(
@@ -1430,7 +1468,9 @@ internal fun ActiveTripScreen(
                 .onFailure { e ->
                     if (e is ApiException) {
                         failedIds = failedIds + tempId
-                        Toast.makeText(context, sendFailMsg, Toast.LENGTH_SHORT).show()
+                        // Сервер знает причину: чат закрылся после поездки, собеседник в блокировке.
+                        // «Не отправилось» об этом молчало, и человек писал в пустоту.
+                        Toast.makeText(context, serverSaid(e, sendFailMsg), Toast.LENGTH_LONG).show()
                     } else {
                         // Нет сети → в очередь на авто-ретрай. Сообщение остаётся на экране с меткой «в очереди».
                         Outbox.enqueue(context, Outbox.newMessage(bid, text))
@@ -1491,7 +1531,13 @@ internal fun ActiveTripScreen(
                         if (e !is ApiException) {
                             Outbox.enqueue(context, Outbox.newDriverStatus(bid, st))
                             Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
-                        } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
+                        } else {
+                            // Сервер объясняет отказ подробно: «ты ещё далеко от места
+                            // подачи (≈1.4 км)». Своё «проверь сеть» здесь неправда —
+                            // сеть работает, а водитель жмёт кнопку снова и снова.
+                            Toast.makeText(context, serverSaid(e, statusErrMsg),
+                                           Toast.LENGTH_LONG).show()
+                        }
                     }
             }
         } else {
@@ -1516,7 +1562,13 @@ internal fun ActiveTripScreen(
                         if (e !is ApiException) {
                             Outbox.enqueue(context, Outbox.newTripStatus(bid, st))
                             Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
-                        } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
+                        } else {
+                            // Сервер объясняет отказ подробно: «ты ещё далеко от места
+                            // подачи (≈1.4 км)». Своё «проверь сеть» здесь неправда —
+                            // сеть работает, а водитель жмёт кнопку снова и снова.
+                            Toast.makeText(context, serverSaid(e, statusErrMsg),
+                                           Toast.LENGTH_LONG).show()
+                        }
                     }
             }
         }
@@ -2869,13 +2921,22 @@ internal fun DriverApproachingBanner(
     }
 }
 
-/** Плашка кода посадки: пассажир называет код водителю для сверки машины. */
+/**
+ * Плашка кода посадки. У КАЖДОЙ стороны свой текст — раньше он был один на двоих.
+ *
+ * Водитель открывал экран и читал «Назови водителю — сверят»: инструкцию для пассажира,
+ * обращённую к нему самому. Что делать с цифрами, ему никто не говорил, и сверять было
+ * нечем — а весь смысл кода как раз в сверке (аудит сценариев 30.08).
+ *
+ * Блок «сверь машину» — только пассажиру: водитель свою машину знает.
+ */
 @Composable
 internal fun BoardingCodeCard(
     code: String,
     modifier: Modifier = Modifier,
     car: String = "",      // «белая Lada Vesta» — как выглядит машина
     plate: String = "",    // госномер: по нему и сверяют
+    isDriver: Boolean = false,
 ) {
     Surface(modifier = modifier, color = CanonMint, shape = CanonCardShape) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2886,7 +2947,16 @@ internal fun BoardingCodeCard(
                     Text(appText("Код посадки", "Ултырыу коды"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     // «он сверит» → «сверят»: за рулём бывают женщины, род тут не нужен.
                     // Башкирский был на «вы» (әйтегеҙ) — приложение везде обращается на «ты».
-                    Text(appText("Назови водителю — сверят. Это та самая машина.", "Йөрөтөүсегә әйт — тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                    Text(
+                        if (isDriver) appText(
+                            "Спроси код у пассажира — он назовёт эти цифры. Сошлись — сажай.",
+                            "Юлаусынан код һора — ул ошо һандарҙы әйтер. Тап килде — ултырт.",
+                        ) else appText(
+                            "Назови водителю — сверят. Это та самая машина.",
+                            "Йөрөтөүсегә әйт — тикшерер. Тап шул машина.",
+                        ),
+                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                    )
                 }
                 Spacer(Modifier.width(8.dp))
                 Text(code, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 34.sp, letterSpacing = 4.sp)
@@ -2894,7 +2964,7 @@ internal fun BoardingCodeCard(
             // Обещание «это та самая машина» до сих пор нечем было проверить: пассажир видел
             // марку, но не номер. Разбор конкурентов 2026-08-07 — у BlaBlaCar приезжала другая
             // машина с другим человеком за рулём. Показываем ровно то, что сверяют глазами.
-            if (car.isNotBlank() || plate.isNotBlank()) {
+            if (!isDriver && (car.isNotBlank() || plate.isNotBlank())) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Default.DirectionsCar,

@@ -46,6 +46,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.CheckCircle
@@ -201,6 +202,8 @@ internal fun CourierScreen(
     onBecomeCourier: () -> Unit,
     // «Мой заработок» курьера: раньше он видел только «должен Юлдашу столько-то».
     onEarnings: () -> Unit = {},
+    // Фотоконтроль машины (580-ФЗ): две стороны кузова и багажник раз в две недели.
+    onCarPhoto: () -> Unit = {},
 ) {
     var application by remember { mutableStateOf<CourierApplicationDto?>(null) }
     var applicationChecked by remember { mutableStateOf(false) }
@@ -285,7 +288,8 @@ internal fun CourierScreen(
                 m == null -> Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
                     AppErrorState(onRetry = { reloadKey++ })
                 }
-                else -> CourierWorkContent(m, onReloadMe = { reloadKey++ }, onEarnings = onEarnings, reloadingMe = loading)
+                else -> CourierWorkContent(m, onReloadMe = { reloadKey++ }, onEarnings = onEarnings,
+                                           onCarPhoto = onCarPhoto, reloadingMe = loading)
             }
         }
     }
@@ -317,7 +321,7 @@ private fun CourierNotApprovedView(
         else -> Triple(
             "🛵",
             appText("Стань курьером Юлдаша", "Юлдаш курьеры бул"),
-            appText("Развози посылки своим и зарабатывай. Комиссия по ступени — от 0% до 8%, всегда видна заранее.", "Үҙебеҙҙекеләргә бандеролдәр илт тә аҡса эшлә. Баҫҡыс буйынса комиссия 0%-тан 8%-ҡа тиклем, алдан уҡ күренә."),
+            appText("Развози посылки своим и зарабатывай. Комиссия по ступени — от 0% до 15%, всегда видна заранее.", "Үҙебеҙҙекеләргә бандеролдәр илт тә аҡса эшлә. Баҫҡыс буйынса комиссия 0%-тан 15%-ҡа тиклем, алдан уҡ күренә."),
         )
     }
     if (compact) {
@@ -416,6 +420,7 @@ private fun CourierWorkContent(
     me: CourierMeDto,
     onReloadMe: () -> Unit,
     onEarnings: () -> Unit = {},
+    onCarPhoto: () -> Unit = {},
     reloadingMe: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
@@ -753,7 +758,7 @@ private fun CourierWorkContent(
                     onGoOnline = { setOnline(true) },
                 )
                 1 -> CourierCarryingTab(online = online, list = carrying, onList = { carrying = it }, onGoOrders = { sub = 0 })
-                else -> CourierCabinetTab(me, onReloadMe, onEarnings, reloadingMe)
+                else -> CourierCabinetTab(me, onReloadMe, onEarnings, onCarPhoto, reloadingMe)
             }
         }
         // Живая позиция отправителям. Ничего не рисует — держит каналы открытыми, пока курьер
@@ -1241,6 +1246,11 @@ private fun CourierCarryingTab(
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val transitMsg = appText("Статус обновлён: в пути", "Статус яңырҙы: юлда")
+    // «Я на месте»: с этой минуты идёт платное ожидание. Сколько минут ждём бесплатно —
+    // говорит сервер, чтобы цифра в подсказке не разошлась с той, по которой считают деньги.
+    var waitFreeMin by remember { mutableIntStateOf(0) }
+    val arrivedSenderMsg = appText("Отметил: ты у отправителя", "Билдәләнде: ебәреүсе янында")
+    val arrivedReceiverMsg = appText("Отметил: ты у получателя", "Билдәләнде: алыусы янында")
     val deliveredMsg = appText("Заказ вручён. Спасибо!", "Заказ тапшырылды. Рәхмәт!")
     val goodsSavedMsg = appText("Стоимость покупки сохранена", "Һатып алыу хаҡы һаҡланды")
     val attemptMsg = appText(
@@ -1391,6 +1401,33 @@ private fun CourierCarryingTab(
                                 // Это вторая граница ответственности — «взял целой». Снимок
                                 // необязателен, отказаться можно одной кнопкой.
                                 onTransit = { if (busyId == 0) transitTarget = parcel },
+                                onArrived = {
+                                    if (busyId == 0) {
+                                        busyId = parcel.id
+                                        scope.launch {
+                                            ApiClient.parcelArrived(parcel.id)
+                                                .onSuccess { r ->
+                                                    waitFreeMin = r.waitFreeMin
+                                                    Toast.makeText(
+                                                        ctx,
+                                                        if (r.where == "sender") arrivedSenderMsg
+                                                        else arrivedReceiverMsg,
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                    reload()
+                                                }
+                                                .onFailure {
+                                                    Toast.makeText(
+                                                        ctx,
+                                                        (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr,
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
+                                            busyId = 0
+                                        }
+                                    }
+                                },
+                                waitFreeMin = waitFreeMin,
                                 onDeliver = { deliverTarget = parcel },
                                 onSetGoods = { goodsTarget = parcel },
                                 onDispute = { disputeTarget = parcel },
@@ -1816,6 +1853,9 @@ private fun CourierCarryingCard(
     p: ParcelDto,
     busy: Boolean,
     onTransit: () -> Unit,
+    onArrived: () -> Unit,
+    /** Сколько минут ждём бесплатно. 0 = сервер ещё не сказал — тогда подсказку не пишем. */
+    waitFreeMin: Int,
     onDeliver: () -> Unit,
     onSetGoods: () -> Unit,
     onDispute: () -> Unit,
@@ -1994,6 +2034,33 @@ private fun CourierCarryingCard(
                     )
                     DeliveryHint(appText("Сначала укажи стоимость покупки — потом сможешь вручить заказ.", "Тәүҙә һатып алыу хаҡын күрһәт — шунан заказды тапшыра алырһың."))
                 }
+                // «Я на месте» — та же кнопка, что у таксиста, и работает на обоих концах:
+                // у отправителя, когда забираешь, и у получателя, когда привёз. С этой минуты
+                // идёт платное ожидание — раньше курьер стоял у двери сорок минут бесплатно.
+                AppButton(
+                    text = appText("Я на месте", "Мин урында"),
+                    onClick = onArrived,
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.LocationCity,
+                    enabled = !busy,
+                    height = 48.dp,
+                )
+                if (waitFreeMin > 0) {
+                    DeliveryHint(appText(
+                        "Отмечено. Первые $waitFreeMin мин ждём бесплатно, дальше ожидание оплачивается.",
+                        "Билдәләнде. Тәүге $waitFreeMin мин түләүһеҙ көтәбеҙ, артабан көтөү түләүле.",
+                    ))
+                }
+                // Возврат — тоже поездка. Курьер, который привёз коробку назад и снова стоит
+                // под дверью, должен видеть: время идёт ему, а не в никуда, и выход есть.
+                if (p.status == "returning") {
+                    DeliveryHint(appText(
+                        "Везёшь обратно. Отметь «Я на месте» у отправителя — ожидание оплачивается и здесь. " +
+                            "Если и его нет дома, открой спор: коробку решит человек, а не приложение.",
+                        "Кире алып бараһың. Ебәреүсе янында «Мин урында» тип билдәлә — көтөү бында ла түләнә. " +
+                            "Ул да өйҙә булмаһа, бәхәс ас: ҡумтаны кеше хәл итер, ҡушымта түгел.",
+                    ))
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (p.status == "accepted") {
                         AppButton(
@@ -2143,6 +2210,7 @@ private fun CourierCabinetTab(
     me: CourierMeDto,
     onReloadMe: () -> Unit,
     onEarnings: () -> Unit = {},
+    onCarPhoto: () -> Unit = {},
     reloading: Boolean = false,
 ) {
     val ctx = LocalContext.current
@@ -2177,6 +2245,19 @@ private fun CourierCabinetTab(
                     icon = Icons.Default.Payments,
                 )
             }
+            // Фотоконтроль машины (580-ФЗ). Состояние показываем на самом экране: здесь
+            // дверь, а не сводка — иначе кабинет превращается в приборную панель.
+            item {
+                AppButton(
+                    text = appText("Фотоконтроль машины", "Машина фотоконтроле"),
+                    onClick = onCarPhoto,
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.PhotoCamera,
+                )
+            }
+            // ⭐ Мой приоритет: кому заказ падает первым и за что. Считается по ДОСТАВКАМ,
+            // отдельно от такси — работа разная, и заслуги одной роли не переносятся в другую.
+            item { PrioritySection(courier = true) }
             // Пауза по качеству (если задана) — тёплая плашка, не ругательно.
             me.pausedUntil?.takeIf { it.isNotBlank() }?.let { until ->
                 item {
@@ -2238,9 +2319,9 @@ private fun CourierCabinetTab(
                 item {
                     val tierLine = when (st.feeTier) {
                         "promo" -> appText("🎁 Промо для первых: 0% — пользуйся!", "🎁 Тәүгеләр өсөн промо: 0% — файҙалан!")
-                        "tier1" -> appText("Новичок: 3% — самая низкая ставка", "Яңы башлаусы: 3% — иң түбән ставка")
-                        "tier2" -> appText("Опытный курьер: 5%", "Тәжрибәле курьер: 5%")
-                        "tier3" -> appText("8% — обычная ставка", "8% — ғәҙәти ставка")
+                        "tier1" -> appText("Новичок: 3% — первые 30 доставок", "Яңы башлаусы: 3% — тәүге 30 илтеү")
+                        "tier2" -> appText("Опытный курьер: 8% — до 100 доставок", "Тәжрибәле курьер: 8% — 100 илтеүгә тиклем")
+                        "tier3" -> appText("15% — обычная ставка", "15% — ғәҙәти ставка")
                         else -> appText("Комиссия по твоей ступени", "Баҫҡысың буйынса комиссия")
                     }
                     val promo = st.feeTier == "promo"

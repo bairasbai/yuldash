@@ -516,8 +516,32 @@ private val PriceComplaintReasons = listOf(
 private fun TaxiPriceComplaintButton(estimate: InstantEstimateDto) {
     var open by remember { mutableStateOf(false) }
     var sent by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
     var comment by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+
+    // Жалоба не ушла — говорим об этом. Раньше «Спасибо, посмотрим» показывалось всегда,
+    // даже когда запрос не дошёл: человек считал, что его услышали, а его не услышал никто
+    // (аудит сценариев 30.08).
+    if (failed) {
+        Surface(shape = CanonItemShape, color = CanonDangerBg, modifier = Modifier.fillMaxWidth()) {
+            Column(
+                Modifier.padding(CanonSpace.md),
+                verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+            ) {
+                Text(
+                    appText("Жалоба не отправилась. Проверь связь.",
+                            "Ялыу ебәрелмәне. Бәйләнеште тикшер."),
+                    color = CanonRed, style = CanonMicro,
+                )
+                TextButton(onClick = { failed = false; open = true }) {
+                    Text(appText("Повторить", "Ҡабатларға"), color = CanonRed,
+                         style = CanonMicro, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        return
+    }
 
     if (sent) {
         Surface(shape = CanonItemShape, color = CanonPoolingBg, modifier = Modifier.fillMaxWidth()) {
@@ -563,7 +587,8 @@ private fun TaxiPriceComplaintButton(estimate: InstantEstimateDto) {
                                         "price" to estimate.price,
                                     ),
                                 )
-                                sent = true
+                                    .onSuccess { sent = true }
+                                    .onFailure { failed = true }
                             }
                         },
                         shape = CanonItemShape,
@@ -1735,6 +1760,8 @@ internal fun InstantOrderScreen(
                             order = o,
                             onCancel = { cancelReasonForId = o.id },
                             onMinimize = onBack,
+                            onOpenPayments = onOpenPayments,
+                            onOrderUpdated = { order = it },
                         )
                     }
                     "expired" -> current?.let { o ->
@@ -2382,6 +2409,19 @@ private fun InstantDestinationPicker(
                                 .background(CanonBorder),
                         )
                     }
+                    // Плюс исчез не сам по себе — упёрлись в предел. Молчание тут
+                    // читается как поломка: кнопка была и пропала. Говорим об этом
+                    // ровно в тот момент, когда объяснение нужно, и не раньше.
+                    if (stops.size >= InstantStopsMax) {
+                        Text(
+                            appText(
+                                "Больше трёх остановок в одну поездку не берём",
+                                "Бер сәфәргә өстән артыҡ туҡталыш алмайбыҙ",
+                            ),
+                            style = CanonCaption, color = CanonMuted,
+                            modifier = Modifier.padding(start = 50.dp, end = CanonSpace.md),
+                        )
+                    }
                     // Остановки по пути — между «откуда» и «куда», в порядке заезда.
                     // Раньше они жили отдельным блоком ниже по списку, и маршрут читался
                     // разорванным: две точки сверху, а то, что между ними, — где-то там.
@@ -2675,6 +2715,64 @@ private fun InstantDestinationPicker(
                     // Pricing v2 приходит только с сервера: клиент показывает
                     // базу, факторы и общий потолок, но не пересчитывает сумму сам.
                     TaxiPricingBreakdown(estimate)
+                    estimate?.let { оценка ->
+                        // Соскользнувший по карте палец — самая дорогая ошибка пассажира: заказ
+                        // Баймак → Владивосток формально корректен, просто человек ткнул не туда.
+                        // Расстояние мы уже ограничиваем сверху, но и внутри лимита стоит спросить.
+                        if (оценка.distanceKm >= 100) {
+                            Text(
+                                appText(
+                                    "Это дальняя поездка — ${оценка.distanceKm.toInt()} км. Проверь точку Б на карте.",
+                                    "Был алыҫ сәфәр — ${оценка.distanceKm.toInt()} км. Б нөктәһен карталан тикшер.",
+                                ),
+                                color = CanonWarn, style = CanonMicro,
+                            )
+                        }
+                        // Пока человек думает, цена не вырастет. Сказать об этом надо ЗДЕСЬ:
+                        // молчаливая заморозка не успокаивает — она успокаивает только названная.
+                        // 0 секунд = заморозка выключена или Redis недоступен, тогда молчим.
+                        // На предзаказе не обещаем: там цена считается на ВРЕМЯ ПОДАЧИ и честно
+                        // уточняется при подаче — обещать «не вырастет» значит соврать.
+                        if (оценка.priceLockedSec > 0 && scheduledAtMs == null) {
+                            val минут = (оценка.priceLockedSec + 59) / 60
+                            Text(
+                                appText(
+                                    "Цена закреплена на $минут ${pluralMinutesRu(минут)} — пока думаешь, не вырастет",
+                                    "Хаҡ $минут минутҡа беркетелгән — уйлағанда артмай",
+                                ),
+                                color = CanonGreen2, style = CanonMicro,
+                            )
+                        }
+                    }
+                    estimate?.let { оценка ->
+                        // Соскользнувший по карте палец — самая дорогая ошибка пассажира: заказ
+                        // Баймак → Владивосток формально корректен, просто человек ткнул не туда.
+                        // Расстояние мы уже ограничиваем сверху, но и внутри лимита стоит спросить.
+                        if (оценка.distanceKm >= 100) {
+                            Text(
+                                appText(
+                                    "Это дальняя поездка — ${оценка.distanceKm.toInt()} км. Проверь точку Б на карте.",
+                                    "Был алыҫ сәфәр — ${оценка.distanceKm.toInt()} км. Б нөктәһен карталан тикшер.",
+                                ),
+                                color = CanonWarn, style = CanonMicro,
+                            )
+                        }
+                        // Пока человек думает, цена не вырастет. Сказать об этом надо ЗДЕСЬ:
+                        // молчаливая заморозка не успокаивает — она успокаивает только названная.
+                        // 0 секунд = заморозка выключена или Redis недоступен, тогда молчим.
+                        // На предзаказе не обещаем: там цена считается на ВРЕМЯ ПОДАЧИ и честно
+                        // уточняется при подаче — обещать «не вырастет» значит соврать.
+                        if (оценка.priceLockedSec > 0 && scheduledAtMs == null) {
+                            val минут = (оценка.priceLockedSec + 59) / 60
+                            Text(
+                                appText(
+                                    "Цена закреплена на $минут ${pluralMinutesRu(минут)} — пока думаешь, не вырастет",
+                                    "Хаҡ $минут минутҡа беркетелгән — уйлағанда артмай",
+                                ),
+                                color = CanonGreen2, style = CanonMicro,
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -4726,8 +4824,76 @@ private fun InstantFinalCard(
  * (категории из перечня, анонимно). Обе стороны: пассажир оценивает водителя, водитель —
  * пассажира. Плавное появление, тач-цели 40dp+, честная строка «оценка анонимна».
  */
+/**
+ * Чем с водителем рассчитаются.
+ *
+ * До этого способ он видел ровно один раз — в предложении заказа, до того как согласился.
+ * Дальше пассажир мог сменить его на ходу (про наличные вспоминают, уже сидя в машине),
+ * водителю уходил пуш, и на этом всё: за рулём уведомления пропускают, а посмотреть глазами
+ * было негде. Приезжают — один достаёт телефон, другой ждёт наличные.
+ *
+ * Для водителя это не мелочь: наличные — сдача в кармане и налог, перевод — банк наготове.
+ *
+ * Обычное состояние спокойное: серая строка, которая просто есть. Сменили на ходу — та же
+ * строка становится жёлтой и просит «Понял», как это сделано со сменой адреса. Пока не
+ * нажал, пассажиру честно говорим, что водитель не в курсе.
+ */
 @Composable
-private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
+internal fun DriverPayMethodCard(
+    order: com.yuldash.app.data.InstantOrderDto,
+    onAck: () -> Unit,
+) {
+    val сменили = order.paymentChanged
+    Surface(
+        color = if (сменили) CanonWarnBg else CanonBg,
+        shape = CanonItemShape,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            Modifier.padding(CanonSpace.md),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            ) {
+                Icon(
+                    PayMethods.icon(order.paymentMethod),
+                    contentDescription = null,
+                    tint = if (сменили) CanonWarn else CanonGreen2,
+                    modifier = Modifier.size(22.dp),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (сменили) appText("Способ расчёта изменился", "Түләү ысулы үҙгәрҙе")
+                        else appText("Рассчитаются", "Иҫәпләшәләр"),
+                        style = CanonMicro, color = CanonMuted,
+                    )
+                    Text(
+                        PayMethods.title(order.paymentMethod),
+                        style = CanonBodyStrong, color = CanonText,
+                    )
+                }
+            }
+            // Кнопка только при смене: в спокойном состоянии подтверждать нечего, а лишняя
+            // кнопка на экране за рулём — это лишний повод в него посмотреть.
+            if (сменили) {
+                Button(
+                    onClick = onAck,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = CanonFieldShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonTaxi),
+                ) {
+                    Text(appText("Понял", "Аңланым"),
+                         style = CanonBodyStrong, color = CanonTaxiInk)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var stars by remember(order.id) { mutableIntStateOf(0) }
@@ -5006,7 +5172,14 @@ private fun TaxiComingSoonCard(
                     Text(appText("Ты в списке! 🎉", "Һин исемлектә! 🎉"), color = CanonGreen2, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text(
                         if (role == "driver")
-                            appText("Позовём одним из первых — 0% комиссии первые 3 месяца.", "Беренселәрҙән булып саҡырырбыҙ — тәүге 3 айҙа 0% комиссия.")
+                            // Про нулевую комиссию говорим, ТОЛЬКО пока сервер держит набор
+                            // в промо (аудит 2026-09-02): промо выключено по умолчанию
+                            // и кончается датой, а обещание в приложении жило вечно.
+                            if (availability.promoOn) appText(
+                                "Позовём одним из первых — ${promoFeeText(availability.promoPercent)} комиссии ${promoPeriodRu(availability.promoDays)}.",
+                                "Беренселәрҙән булып саҡырырбыҙ — ${promoPeriodBa(availability.promoDays)} ${promoFeeText(availability.promoPercent)} комиссия.",
+                            )
+                            else appText("Позовём одним из первых, как только такси заработает.", "Такси эшләй башлағас та беренселәрҙән булып саҡырырбыҙ.")
                         else appText("Сообщим, как только такси заработает в твоём городе.", "Такси һинең ҡалаңда эшләй башлағас та хәбәр итербеҙ."),
                         color = CanonText, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
                     )
@@ -5065,8 +5238,18 @@ private fun TaxiComingSoonCard(
                             color = CanonTaxiText, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 23.sp,
                         )
                         Text(
-                            appText("Первым водителям — 0% комиссии первые 3 месяца. Оставь номер как водитель, и город твой.",
-                                "Тәүге йөрөтөүселәргә — тәүге 3 айҙа 0% комиссия. Номерыңды йөрөтөүсе итеп ҡалдыр — ҡала һинеке."),
+                            if (availability.promoOn)
+                                appText(
+                                    "Первым водителям — ${promoFeeText(availability.promoPercent)} комиссии ${promoPeriodRu(availability.promoDays)}. Оставь номер как водитель, и город твой.",
+                                    "Тәүге йөрөтөүселәргә — ${promoPeriodBa(availability.promoDays)} ${promoFeeText(availability.promoPercent)} комиссия. Номерыңды йөрөтөүсе итеп ҡалдыр — ҡала һинеке.",
+                                )
+                            else
+                                // Промо не идёт — обещаем то, что правда всегда: комиссия ниже
+                                // конкурентов и видна заранее.
+                                appText(
+                                    "Комиссия ниже, чем у других служб, и видна заранее. Оставь номер как водитель, и город твой.",
+                                    "Комиссия башҡа хеҙмәттәргә ҡарағанда түбәнерәк һәм алдан күренә. Номерыңды йөрөтөүсе итеп ҡалдыр — ҡала һинеке.",
+                                ),
                             color = CanonTaxiText, fontSize = 14.sp, lineHeight = 20.sp,
                         )
                         if (role != "driver") {
@@ -5107,6 +5290,28 @@ private fun TaxiComingSoonCard(
 }
 
 /** Чип выбора роли в форме листа ожидания (тач-цель ≥48dp). */
+/** Процент акции словами: 0.0 → «0%», 2.5 → «2.5%». */
+private fun promoFeeText(percent: Double): String =
+    if (percent % 1.0 == 0.0) "${percent.toInt()}%" else "$percent%"
+
+/** Срок промо по-русски: 90 дней → «первые 3 мес.», иначе — днями. */
+private fun promoPeriodRu(days: Int): String =
+    if (days > 0 && days % 30 == 0) "первые ${days / 30} мес." else "первые $days дн."
+
+/** Срок промо по-башкирски. */
+private fun promoPeriodBa(days: Int): String =
+    if (days > 0 && days % 30 == 0) "тәүге ${days / 30} айҙа" else "тәүге $days көндә"
+
+/** «1 минуту», «2 минуты», «5 минут» — иначе фраза читается как машинная. */
+private fun pluralMinutesRu(n: Int): String {
+    val m10 = n % 10; val m100 = n % 100
+    return when {
+        m10 == 1 && m100 != 11 -> "минуту"
+        m10 in 2..4 && m100 !in 12..14 -> "минуты"
+        else -> "минут"
+    }
+}
+
 @Composable
 private fun WaitlistRoleChip(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
@@ -5159,6 +5364,8 @@ internal fun InstantDriverOnlineController(
     var demandZones by remember { mutableStateOf<List<com.yuldash.app.data.DemandZoneDto>>(emptyList()) }
     var demandLoading by remember { mutableStateOf(false) }
     var demandError by remember { mutableStateOf(false) }
+// пять причин молчали, и экран обещал заказ, которого не будет (аудит сценариев 30.08).
+    var offerBlocked by remember { mutableStateOf<String?>(null) }
     // Заказ, от которого водитель ТОЛЬКО ЧТО отказался и по которому мы необязательным шагом
     // спрашиваем «почему». Отказ уже ушёл на сервер — тут остался один вопрос, не блокирующий.
     var declineAskFor by remember { mutableStateOf<Int?>(null) }
@@ -5192,7 +5399,12 @@ internal fun InstantDriverOnlineController(
         if (!online) { offer = null; return@RepeatWhileVisible }
         while (isActive) {
             if (offer == null) {
-                val incoming = ApiClient.getDriverOffer().getOrNull()
+                // Спрашиваем СОСТОЯНИЕ, а не только оффер: в том же ответе приходит
+                // причина, почему заказов не будет. Без неё полоса-объяснение молчит
+                // и экран снова обещает заказ, которого не дождаться.
+                val состояние = ApiClient.getDriverOfferState().getOrNull()
+                offerBlocked = состояние?.blocked
+                val incoming = состояние?.offer
                 if (incoming != null && incoming.status == "offered") {
                     if (instantOfferRemainingMillis(incoming.offerExpiresAt, System.currentTimeMillis()) > 0L) {
                         offer = incoming
@@ -5234,6 +5446,7 @@ internal fun InstantDriverOnlineController(
             workday = workday,
             zone = zone,
             connectionLost = presenceFails >= 2,
+            blockedReason = offerBlocked,
             onGoOffline = onGoOffline,
         )
     }
@@ -5274,7 +5487,10 @@ internal fun InstantDriverOnlineController(
                             if (st == 409 || st == 410) {
                                 Toast.makeText(ctx, acceptTakenMsg, Toast.LENGTH_SHORT).show(); offer = null
                             } else {
-                                Toast.makeText(ctx, acceptNetMsg, Toast.LENGTH_SHORT).show()
+                                // Сервер уже объяснил отказ на двух языках — своё
+                                // «проверь связь» здесь бывает прямой неправдой.
+                                Toast.makeText(ctx, serverSaid(e, acceptNetMsg),
+                                               Toast.LENGTH_LONG).show()
                             }
                         }
                     accepting = false
@@ -5314,6 +5530,10 @@ internal fun InstantDriverWaitingScreen(
     workday: com.yuldash.app.data.TaxiWorkdayDto?,
     zone: com.yuldash.app.data.InstantZoneDto?,
     connectionLost: Boolean,
+    // Почему заказов нет: null = ждём по-настоящему, иначе код причины с сервера.
+    // Раньше все пять причин молчали, и экран обещал заказ, которого не будет
+    // (аудит сценариев 30.08). Премиальная вёрстка объяснение потеряла — возвращаем.
+    blockedReason: String? = null,
     onGoOffline: () -> Unit,
     initialStop: TaxiSheetStop = TaxiSheetStop.Peek,
     mapContent: (@Composable (Modifier) -> Unit)? = null,
@@ -5360,6 +5580,15 @@ internal fun InstantDriverWaitingScreen(
             }
         },
         body = {
+            // Стоит ПЕРВОЙ: молчащий сервер — временно, а закрытая линия
+            // не рассосётся сама.
+            AnimatedVisibility(
+                visible = blockedReason != null,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                DriverBlockedStrip(blockedReason)
+            }
             InstantWaitingDemandCard(
                 zones = demandZones,
                 loading = demandLoading,
@@ -5494,6 +5723,47 @@ private fun InstantWaitingCompactHeader(
             color = CanonGreen2,
             fontWeight = FontWeight.Bold,
         )
+    }
+}
+
+/**
+ * «Заказов не будет, и вот почему» — вместо честного, но бессмысленного ожидания.
+ *
+ * Коды приходят с сервера, подписи живут здесь: язык переключается кнопкой в профиле, и текст
+ * обязан меняться вместе с ним. Каждая строка отвечает на два вопроса сразу — что случилось
+ * и где это чинится.
+ */
+@Composable
+private fun DriverBlockedStrip(code: String?) {
+    val (что, где) = when (code) {
+        "debt" -> appText("Линия закрыта из-за долга по комиссии",
+                          "Комиссия бурысы арҡаһында линия ябыҡ") to
+            appText("Оплати в кабинете — вернёшься сразу", "Кабинетта түлә — шунда уҡ ҡайтаһың")
+        "rest" -> appText("Сейчас время отдыха", "Хәҙер ял ваҡыты") to
+            appText("Линия откроется, когда отдых закончится",
+                    "Ял бөткәс линия асыла")
+        "quality_pause" -> appText("Такси на паузе по жалобам", "Ялыуҙар буйынса такси паузала") to
+            appText("Подробности — в Центре справедливости", "Ентеклеләр — Ғәҙеллек үҙәгендә")
+        "review_pause" -> appText("Идёт разбор — такси на паузе", "Тикшереү бара — такси паузала") to
+            appText("Ответим, как только разберём", "Тикшереп бөткәс яуап бирербеҙ")
+        else -> appText("Допуск к такси сейчас закрыт", "Такси рөхсәте хәҙер ябыҡ") to
+            appText("Проверь документы и разрешение в кабинете",
+                    "Кабинетта документтарҙы һәм рөхсәтте ҡара")
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Surface(shape = CanonItemShape, color = CanonDangerBg) {
+            Column(
+                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(что, color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp,
+                     fontWeight = FontWeight.Bold)
+                Text(где, color = CanonRed, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+        }
     }
 }
 
@@ -5873,7 +6143,7 @@ internal fun InstantOfferOverlay(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Default.Map, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                Text(appText("Маршрут A → Б", "Маршрут A → Б"), style = CanonCaption, color = CanonText,
+                Text(appText("Маршрут A → Б", "Юл А → Б"), style = CanonCaption, color = CanonText,
                     fontWeight = FontWeight.Bold)
             }
         }
@@ -6054,6 +6324,18 @@ private fun InstantOfferMoneyAndClass(order: InstantOrderDto) {
             ) {
                 Text(appText("Предполагаемый доход", "Көтөлгән килем"), style = CanonMicro, color = CanonMutedStrong)
                 Text(income, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold, color = CanonText)
+                // Доход посчитан с ПОЛНОЙ цены — скидку пассажира оплачивает Юлдаш. Но наличными
+                // человек даст меньше, и узнать об этом водитель должен ДО того, как возьмёт
+                // заказ, а не в машине, где это выглядит как обман.
+                if (order.hasPromoDiscount) {
+                    Text(
+                        appText(
+                            "Наличными от пассажира меньше: у него промокод −${formatTaxiKop(order.promoDiscountKop)}, разницу платит Юлдаш",
+                            "Пассажирҙан наличный менән аҙыраҡ: унда промокод −${formatTaxiKop(order.promoDiscountKop)}, айырманы Юлдаш түләй",
+                        ),
+                        style = CanonMicro, color = CanonGreen2,
+                    )
+                }
             }
         }
         Column(
@@ -6063,7 +6345,10 @@ private fun InstantOfferMoneyAndClass(order: InstantOrderDto) {
             InstantOfferSmallFact(Icons.Default.LocalTaxi, categoryName, Modifier.weight(1f))
             InstantOfferSmallFact(
                 PayMethods.icon(order.paymentMethod),
-                payMethodLabel(order.paymentMethod),
+                // `PayMethods.title`, а не `payMethodLabel`: второй знает только наличные и СБП.
+                // Заказ с оплатой картой водитель видел как «Договоримся» и брал его,
+                // рассчитывая на наличные.
+                PayMethods.title(order.paymentMethod),
                 Modifier.weight(1f),
             )
         }
@@ -6408,6 +6693,12 @@ internal fun InstantDriverTripScreen(
                                         ApiClient.declineDestination(ord.id, reason)
                                     }
                                 },
+                            )
+                            // Чем рассчитаются. Ниже смены адреса, но выше остального:
+                            // адрес важнее (по нему едут), деньги — сразу за ним.
+                            DriverPayMethodCard(
+                                order = ord,
+                                onAck = { scope.launch { ApiClient.ackPaymentMethod(ord.id) } },
                             )
                             // Остановки: куда заезжать по пути и отметка стоянки.
                             if (ord.stops.isNotEmpty()) {

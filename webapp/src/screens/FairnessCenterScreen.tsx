@@ -60,6 +60,8 @@ export default function FairnessCenterScreen() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   // Активные ограничения: что именно нельзя и до когда. Автора жалобы сервер не раскрывает.
   const [limits, setLimits] = useState<Restriction[]>([]);
+  /** «Не согласен — напиши нам»: текст приходит с сервера, клиент его не сочиняет. */
+  const [supportNote, setSupportNote] = useState("");
 
   const load = useCallback((signal?: AbortSignal) => {
     setStatus("loading");
@@ -85,7 +87,10 @@ export default function FairnessCenterScreen() {
   useEffect(() => {
     const ac = new AbortController();
     fetchMyRestrictions(ac.signal)
-      .then((r) => setLimits(r.items ?? r.restrictions ?? []))
+      .then((r) => {
+        setLimits(r.items ?? r.restrictions ?? []);
+        setSupportNote((ru ? r.support_ru : r.support_ba) ?? "");
+      })
       .catch(() => setLimits([]));
     return () => ac.abort();
   }, []);
@@ -180,6 +185,19 @@ export default function FairnessCenterScreen() {
               </p>
             </div>
           ))}
+
+          {/* Дверь для несогласного. Человеку, которому что-то запретили, нужен не только
+              список запретов: без этой строки «Справедливость» читается как приговор. */}
+          {limits.length > 0 && supportNote && (
+            <button
+              type="button"
+              className="btn-soft"
+              style={{ width: "100%" }}
+              onClick={() => navigate("/support")}
+            >
+              {supportNote}
+            </button>
+          )}
 
           {/* Надёжность — шкала */}
           <div className="money-total">

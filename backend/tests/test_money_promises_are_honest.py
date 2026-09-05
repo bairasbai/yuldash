@@ -21,12 +21,13 @@ from datetime import timedelta
 from sqlmodel import Session
 
 from app.db import engine
-from app.ledger import reconcile
+from app.ledger import post_promo_compensation, reconcile
 from app.models import LedgerEntry, LedgerKind, Ride, RideStatus, User, UserRole
 from app.routers.referral import MAX_REFERRAL_CREDITS
 from app.timeutil import utcnow
 
 from test_api import _ride
+from test_ledger import _make_done_order
 
 
 def _кампания(client, админ, code: str, perk: int) -> int:
@@ -114,9 +115,16 @@ def test_бесплатное_поднятие_живой_поездки_раб�
 def test_сверка_показывает_расход_по_кампаниям(client, user_factory):
     """Отчёт, который показывает только доход, врёт о прибыльности кампании."""
     водитель = user_factory("ЧестьСверка", role=UserRole.driver)
+    пассажир = user_factory("ЧестьСверкаПас")
+    # Компенсацию кладём ЖИВЫМ кодом, а не руками. Раньше здесь стоял ручной посев
+    # с меткой в `note`, и он ничего не значил: отчёт считал по знаку суммы. С волны 217
+    # отчёт считает по ключу `ext_id`, а занимать пространство `promo:` руками запрещено —
+    # номера заказов в SQLite переиспользуются, и настоящая компенсация потом не дойдёт
+    # до водителя (сторож `test_the_flaky_promo_test_had_a_real_cause.py`, волна 206).
+    oid = _make_done_order(водитель["id"], пассажир["id"], price_rub=500)
     with Session(engine) as s:
-        s.add(LedgerEntry(driver_id=водитель["id"], kind=LedgerKind.adj, amount_kop=28140,
-                          note="promo:1"))
+        запись = post_promo_compensation(s, водитель["id"], order_id=oid, amount_kop=28140)
+        assert запись is not None and запись.amount_kop == 28140, "компенсация не создалась"
         s.add(LedgerEntry(driver_id=водитель["id"], kind=LedgerKind.fee, amount_kop=-1860,
                           note="комиссия"))
         s.commit()
@@ -129,6 +137,9 @@ def test_сверка_показывает_расход_по_кампаниям(
         "выглядит бесплатной"
     )
     assert отчёт["promo_comp_kop"] >= 28140, отчёт["promo_comp_kop"]
-    assert отчёт["platform_net_kop"] == отчёт["fee_kop"] - отчёт["promo_comp_kop"], (
-        "итог не сходится: доход минус расход должен быть виден одним числом"
+    # Итог вычитает ВСЕ расходы платформы, а не только маркетинговый (волна 217):
+    # возврат комиссии по разбору «не заплатили» и ручные доплаты админа — тоже наши деньги.
+    assert отчёт["platform_net_kop"] == (отчёт["fee_kop"] - отчёт["promo_comp_kop"]
+                                        - отчёт["refund_kop"] - отчёт["adj_other_kop"]), (
+        "итог не сходится: доход минус расходы должен быть виден одним числом"
     )

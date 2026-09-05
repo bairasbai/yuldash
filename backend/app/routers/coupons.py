@@ -39,9 +39,16 @@ router = APIRouter(tags=["coupons"])
 # без пересборки клиента. amount_kop — стоимость за period_days. premium=True даёт право
 # на выделенную метку купона на карте. Порядок = порядок показа в кабинете/прайсе.
 PARTNER_PLANS = {
-    "basic":    {"title": "Базовый",  "title_ba": "Базалы",   "amount_kop":  99_000, "period_days": 30, "premium": False},
-    "standard": {"title": "Стандарт", "title_ba": "Стандарт", "amount_kop": 199_000, "period_days": 30, "premium": False},
-    "premium":  {"title": "Премиум",  "title_ba": "Премиум",  "amount_kop": 299_000, "period_days": 30, "premium": True},
+    # Названия с приставкой «Купоны», чтобы не путались с рекламными тарифами на лендинге:
+    # там свои Основатель / Стандарт / Премиум и цены втрое выше (1990 / 4900 / 9900 ₽).
+    # Это разные товары: реклама — место на виду у всего города, купон — приведённый клиент
+    # за 10 ₽ погашения. Партнёр, пришедший с сайта, раньше требовал «Премиум за 2990».
+    # Разделитель — двоеточие, а не « · »: точка с пробелами в серверных строках считается
+    # склейкой двух языков (сторож test_two_languages_are_two_texts), и это правильно —
+    # такие строки уходят в пуши, где человек с башкирским интерфейсом видит мусор.
+    "basic":    {"title": "Купоны: Старт",         "title_ba": "Купондар: Башланғыс",      "amount_kop":  99_000, "period_days": 30, "premium": False},
+    "standard": {"title": "Купоны: Рост",          "title_ba": "Купондар: Үҫеш",           "amount_kop": 199_000, "period_days": 30, "premium": False},
+    "premium":  {"title": "Купоны: Всё включено",  "title_ba": "Купондар: Бөтәһе индерелгән", "amount_kop": 299_000, "period_days": 30, "premium": True},
 }
 
 # Комиссия платформы «за одно погашение» (для statement кабинета). Держим в коде роутера,
@@ -297,15 +304,35 @@ def coupon_redeem(body: RedeemIn, user: User = Depends(current_user), session: S
         raise herr(409, "Код уже погашён", "Код инде ҡулланылған")
     if red.status in ("canceled", "expired"):
         raise herr(409, "Код больше не действует", "Код артыҡ ғәмәлдә түгел")
-    red.status = "redeemed"
-    red.redeemed_at = utcnow()
-    red.redeemed_by = user.id
+    # Гасим АТОМАРНО: условие «код всё ещё свободен» живёт внутри самого UPDATE.
+    #
+    # Проверка `red.status == "redeemed"` выше осталась — она даёт человеку точную причину.
+    # Но защитой от ДВУХ ОДНОВРЕМЕННЫХ кассиров она быть не может: между чтением статуса
+    # и записью помещается чужой запрос. Раньше от этого спасала только блокировка строки
+    # (`with_for_update` выше), а её понимает Postgres и ИГНОРИРУЕТ SQLite — на котором
+    # живут все тесты, локальная разработка и демо-база эмулятора. Значит правило не
+    # проверял никто: удали блокировку при рефакторинге — всё осталось бы зелёным
+    # (аудит 2026-08-08, волна 201).
+    #
+    # Проба показала цену: второй кассир получал 200 и «ok», клиенту давали скидку дважды,
+    # а счётчик погашений — основа счёта партнёру по 10 ₽ за погашение — рос на два.
+    #
+    # Условие внутри UPDATE работает на ОБЕИХ базах: ноль изменённых строк = код уже погасили.
+    # Тот же приём, что при бронировании места (`routers/bookings.py`).
+    погашено = session.execute(
+        sa_update(CouponRedemption)
+        .where(CouponRedemption.id == red.id, CouponRedemption.status == "reserved")
+        .values(status="redeemed", redeemed_at=utcnow(), redeemed_by=user.id)
+    )
+    if погашено.rowcount == 0:
+        session.rollback()
+        raise herr(409, "Код уже погашён", "Код инде ҡулланылған")
     # Инкремент на стороне БД: read-modify-write в Python терял бы параллельные погашения
     # разных кодов (счётчик — основа statement'а партнёру по 10 ₽/погашение).
-    session.exec(sa_update(Coupon).where(Coupon.id == coupon.id)
-                 .values(redeemed_count=Coupon.redeemed_count + 1))
-    session.add(red)
+    session.execute(sa_update(Coupon).where(Coupon.id == coupon.id)
+                    .values(redeemed_count=Coupon.redeemed_count + 1))
     session.commit()
+    session.refresh(red)     # объект в памяти помнит прежний статус — перечитываем
     holder = session.get(User, red.user_id)
     return {
         "ok": True,

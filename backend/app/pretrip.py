@@ -122,13 +122,24 @@ def confirm(session: Session, driver_id: int, health_ok: bool, car_ok: bool,
     return c
 
 
+def blocks_line(session: Session, driver_id: int) -> bool:
+    """Мешает ли отсутствие осмотра работать ПРЯМО СЕЙЧАС (волна 221).
+
+    Отдельно от `is_confirmed` ради одной детали, на которой уже разъехались гейт и подбор:
+    осмотр может быть ВЫКЛЮЧЕН настройкой (`pretrip_check_required`), и тогда неподтверждённый
+    водитель работает совершенно законно. `is_confirmed` про настройку не знает — он отвечает
+    на вопрос «подтверждал ли», а не «можно ли на линию».
+
+    Спрашивают отсюда оба конца: гейт линии (`guard_pretrip` ниже) и подбор такси
+    (`instant_service.eligible`). Одна функция на обоих концах — урок волны 60.
+    """
+    return bool(settings.pretrip_check_required) and not is_confirmed(session, driver_id)
+
+
 def guard_pretrip(session: Session, driver_id: int) -> None:
     """Гейт такси: не подтвердил готовность для этой смены → 403 с понятным текстом."""
-    if not settings.pretrip_check_required:
-        return
-    if is_confirmed(session, driver_id):
-        return
-    raise herr(403, NEED_CHECK_RU, NEED_CHECK_BA)
+    if blocks_line(session, driver_id):
+        raise herr(403, NEED_CHECK_RU, NEED_CHECK_BA)
 
 
 def payload(session: Session, driver_id: int) -> dict:

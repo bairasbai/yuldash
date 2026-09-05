@@ -1047,7 +1047,7 @@ private val f8MonthsBa = listOf(
 )
 
 /** RU-плюрал: 1 поездка · 2 поездки · 5 поездок. */
-private fun tripsWordRu(n: Int): String {
+internal fun tripsWordRu(n: Int): String {
     val m100 = n % 100
     val m10 = n % 10
     return when {
@@ -1175,7 +1175,7 @@ private fun RidePrefChips(ride: Ride, modifier: Modifier = Modifier) {
         if (ride.womenOnly) PrefChip(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
         if (ride.childSeat) PrefChip(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"))
         if (ride.petsAllowed) PrefChip(R.drawable.yu_pet, appText("С животным", "Хайуан менән"))
-        if (ride.baggage) PrefChip(R.drawable.yu_luggage, appText("Багаж", "Багаж"))
+        if (ride.baggage) PrefChip(R.drawable.yu_luggage, appText("Багаж", "Йөк"))
         if (ride.airConditioner) PrefChip(R.drawable.yu_ac, appText("Кондиционер", "Кондиционер"))
         if (ride.quiet) PrefChip(R.drawable.yu_quiet, appText("Тихая поездка", "Тыныс сәфәр"))
         if (ride.smoking) PrefChip(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"))
@@ -2206,11 +2206,14 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
                                 Toast.makeText(ctx, withdrawnMsg, Toast.LENGTH_SHORT).show()
                                 reload()
                             }
-                            .onFailure { failure ->
+                            .onFailure { e ->
                                 withdrawing = false
-                                val alreadyTaken = (failure as? com.yuldash.app.data.ApiException)?.status == 409
-                                Toast.makeText(ctx, if (alreadyTaken) withdrawTakenErr else withdrawErr, Toast.LENGTH_LONG).show()
-                                if (alreadyTaken) { withdrawTarget = null; reload() }
+                                val taken = (e as? com.yuldash.app.data.ApiException)?.status == 409
+                                // 409 = отклик уже приняли, и наш текст об этом точнее. Любая
+                                // другая причина у сервера своя — её и показываем, а не «проверь сеть».
+                                Toast.makeText(ctx, if (taken) withdrawTakenErr else serverSaid(e, withdrawErr),
+                                               Toast.LENGTH_LONG).show()
+                                if (taken) { withdrawTarget = null; reload() }   // уже принят → обновим ленту
                             }
                     }
                 }) { Text(if (withdrawing) appText("Отзываем…", "Кире алабыҙ…") else appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
@@ -2303,7 +2306,7 @@ internal fun RequestOfferSheet(
             Text("${request.from} → ${request.to}", color = CanonGreen2, fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.Bold)
             val facts = buildList {
                 if (request.desiredAt.isNotBlank()) add(formatDepart(request.desiredAt))
-                request.maxPrice?.takeIf { it > 0 }?.let { add(appText("бюджет $it ₽", "бюджет $it ₽")) }
+                request.maxPrice?.takeIf { it > 0 }?.let { add(appText("бюджет $it ₽", "бюджет $it һум")) }
             }
             if (facts.isNotEmpty()) Text(facts.joinToString(" · "), color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 20.sp)
         }
@@ -2572,7 +2575,7 @@ private fun RequestPreferenceChip(key: String) {
         "child" -> PrefChip(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"))
         "pets" -> PrefChip(R.drawable.yu_pet, appText("С животным", "Хайуан менән"))
         "wheelchair" -> PrefChip(R.drawable.yu_accessible, appText("Коляска", "Коляска"))
-        "baggage" -> PrefChip(R.drawable.yu_luggage, appText("Багаж", "Багаж"))
+        "baggage" -> PrefChip(R.drawable.yu_luggage, appText("Багаж", "Йөк"))
         "nosmoke" -> PrefChip(Icons.Default.SmokeFree, appText("Без курения", "Тәмәке тартмаҫҡа"))
         "ac" -> PrefChip(R.drawable.yu_ac, appText("Кондиционер", "Кондиционер"))
     }
@@ -2614,6 +2617,20 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
     var reloadTick by remember { mutableStateOf(0) }
     var counterFor by remember { mutableStateOf<com.yuldash.app.data.ResponseDto?>(null) }
     val failMsg = appText("Не получилось принять", "Ҡабул итеп булманы")
+    // Своя цена нужна только пустому экрану — но узнать её можно лишь из списка заявок.
+    // Молчит сервер — кнопка «Поднять цену» просто не появится, врать цифрой нельзя.
+    var myRequest by remember(requestId) { mutableStateOf<com.yuldash.app.data.RequestDto?>(null) }
+    LaunchedEffect(requestId, loading, error, resps.isEmpty()) {
+        // Только когда отклики ЗАГРУЗИЛИСЬ и их правда нет: цена нужна одной кнопке на
+        // пустом экране, а тянуть весь список заявок при каждом открытии — лишняя работа.
+        if (!loading && !error && resps.isEmpty() && myRequest == null) {
+            ApiClient.getMyRequests().onSuccess { list -> myRequest = list.firstOrNull { it.id == requestId } }
+        }
+    }
+    val raiseOk = appText("Цену подняли — водители увидят новую",
+                          "Хаҡ күтәрелде — йөрөтөүселәр яңыһын күрәсәк")
+    val raiseFail = appText("Не получилось поднять цену. Проверь связь.",
+                            "Хаҡты күтәреп булманы. Бәйләнеште тикшер.")
     // Сбой загрузки откликов больше не выглядит как «откликов нет» — ошибка + «Повторить».
     LaunchedEffect(requestId, reloadTick) { loading = true; error = false; ApiClient.getRequestResponses(requestId).onSuccess { resps = it }.onFailure { error = true }; loading = false }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики на заявку", "Заявкаға яуаптар"), onBack) }) { padding ->
@@ -2623,6 +2640,25 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
             responses = resps,
             accepting = accepting,
             onRetry = { reloadTick++ },
+            maxPrice = myRequest?.maxPrice ?: 0,
+            // Поднять цену прямо отсюда: заявка редактируется той же ручкой, что и на экране
+            // правки, — новая цифра сразу уходит в ленту водителей.
+            onRaisePrice = if (myRequest == null) null else { newPrice ->
+                scope.launch {
+                    ApiClient.editRequest(requestId, maxPrice = newPrice)
+                        .onSuccess {
+                            myRequest = myRequest?.copy(maxPrice = newPrice)
+                            Toast.makeText(ctx, raiseOk, Toast.LENGTH_SHORT).show()
+                            reloadTick++
+                        }
+                        .onFailure {
+                            Toast.makeText(ctx, serverSaid(it, raiseFail), Toast.LENGTH_LONG).show()
+                        }
+                }
+            },
+            // Готовые поездки по этому маршруту живут на карточке заявки (подбор уже там):
+            // возвращаем человека туда, а не плодим второй такой же список.
+            onFindRides = onBack,
             onAccept = { r ->
                 if (accepting) return@ResponsesContent
                 accepting = true; val id = r.id
@@ -2683,6 +2719,12 @@ internal fun ResponsesContent(
     // Торг о цене: параметры со значениями по умолчанию — старые вызовы (и тесты) не ломаются.
     onCounter: (com.yuldash.app.data.ResponseDto) -> Unit = {},
     onDecline: (com.yuldash.app.data.ResponseDto) -> Unit = {},
+    // Что делать, когда откликов нет. Раньше пустой экран говорил «загляни позже» — и всё:
+    // человеку, который никуда не уехал, предлагали ждать без единой кнопки (аудит 30.08).
+    // Необязательные: пока колбэка нет, кнопка не рисуется, и старые вызовы целы.
+    maxPrice: Int = 0,
+    onRaisePrice: ((Int) -> Unit)? = null,
+    onFindRides: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = responses.firstOrNull()
@@ -2699,7 +2741,39 @@ internal fun ResponsesContent(
         } else if (error) {
             item { ListedError(appText("Не удалось загрузить отклики. Проверь сеть.", "Яуаптарҙы йөкләп булманы. Сетте тикшер."), onRetry = onRetry) }
         } else if (responses.isEmpty()) {
-            item { ListedEmpty(appText("Откликов пока нет", "Әлегә яуап юҡ"), appText("Водители ещё не откликнулись. Загляни позже.", "Йөрөтөүселәр яуап бирмәгән. Һуңыраҡ кер.")) }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ListedEmpty(
+                        appText("Откликов пока нет", "Әлегә яуап юҡ"),
+                        appText(
+                            "Водители ещё не откликнулись. Заявка живёт и видна им — а пока можно " +
+                                "поднять цену или поискать готовые поездки по маршруту.",
+                            "Йөрөтөүселәр яуап бирмәгән. Заявка йәшәй һәм уларға күренә — ә әлегә " +
+                                "хаҡты күтәрергә йәки маршрут буйынса әҙер сәфәрҙәрҙе ҡарарға була.",
+                        ),
+                    )
+                    // Поднять цену — самый прямой ход: чаще всего молчание значит «дёшево».
+                    // Шаг +100 ₽: мельче не сдвигает решение водителя, крупнее пугает пассажира.
+                    onRaisePrice?.let { raise ->
+                        AppButton(
+                            text = if (maxPrice > 0)
+                                appText("Поднять цену до ${maxPrice + 100} ₽",
+                                        "Хаҡты ${maxPrice + 100} һумға күтәрергә")
+                            else appText("Поднять цену", "Хаҡты күтәрергә"),
+                            onClick = { raise(maxPrice + 100) },
+                            icon = Icons.Default.TrendingUp,
+                        )
+                    }
+                    onFindRides?.let { find ->
+                        AppButton(
+                            text = appText("Посмотреть поездки по маршруту", "Маршрут буйынса сәфәрҙәрҙе ҡарау"),
+                            onClick = find,
+                            style = AppButtonStyle.Secondary,
+                            icon = Icons.Default.Search,
+                        )
+                    }
+                }
+            }
         } else {
             item(key = "hint") {
                 Text(

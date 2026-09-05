@@ -25,14 +25,19 @@ from ..models import (
 from ..security import current_user
 from ..services import notify_admin_telegram, push_notification
 from ..timeutil import local_date, utcnow
+import logging
+
 from .. import antifraud as af_mod
 from .. import car_class as cc
 from .. import class_rollout
+from .. import funnel as funnel_mod
 from .. import geo as geo_mod
 from .. import instant_service as isv
 from .. import pretrip as pretrip_mod
 from .. import taxi as taxi_mod
 from .drivers import _ensure_owned_doc_url, drop_replaced_doc
+
+log = logging.getLogger("yuldash")
 
 router = APIRouter(tags=["taxi"])
 
@@ -90,6 +95,7 @@ class TaxiApplyIn(BaseModel):
     car_ac: bool = False                              # рабочий кондиционер
     car_sedan: bool = False                           # кузов седан (нужно Бизнесу)
     car_leather: bool = False                         # кожа или комбинированный салон (Бизнес)
+    car_light_salon: bool = False                     # светлый салон — альтернатива коже (Бизнес)
     # Опции салона и классы, которые водитель хочет брать (коды из app/car_class.py).
     # Пустой список классов = берёт все доступные ему.
     car_options: list[str] = Field(default_factory=list)
@@ -106,8 +112,12 @@ class TaxiDocsIn(BaseModel):
     osago_until: Optional[date] = None
     permit_until: Optional[date] = None
     inspection_until: Optional[date] = None
+    # ОСГОП продлевается так же, как ОСАГО: раз в год. Без этого поля водитель мог указать
+    # срок только при первой подаче — и больше никогда (аудит сценариев 30.08).
+    osgop_until: Optional[date] = None
     osago_url: Optional[str] = Field(None, max_length=500)
     permit_photo_url: Optional[str] = Field(None, max_length=500)
+    osgop_url: Optional[str] = Field(None, max_length=500)
 
 
 def recalc_classes(dp: DriverProfile) -> None:
@@ -121,6 +131,7 @@ def recalc_classes(dp: DriverProfile) -> None:
         year=dp.car_year, seats=dp.seats or 0, has_ac=bool(dp.car_ac),
         clean_salon=bool(dp.car_clean), body_ok=bool(dp.car_body_ok),
         is_sedan=bool(dp.car_sedan), leather=bool(dp.car_leather),
+        light_salon=bool(dp.car_light_salon),
         color=dp.car_color, premium=bool(dp.car_premium_verified),
     )
     avail = cc.available_classes(
@@ -151,6 +162,7 @@ def _apply_car(session: Session, user_id: int, body: "TaxiApplyIn") -> None:
     dp.car_ac = bool(body.car_ac)
     dp.car_sedan = bool(body.car_sedan)
     dp.car_leather = bool(body.car_leather)
+    dp.car_light_salon = bool(body.car_light_salon)
     dp.car_options = cc.dump_options(body.car_options)
     dp.car_classes_enabled = cc.dump_classes(body.car_classes_enabled)
     recalc_classes(dp)
@@ -221,13 +233,15 @@ def _validate_apply(body: TaxiApplyIn) -> None:
                    "Юлдаш (попутка) теләһә ниндәй төҫ менән эшләй.")
 
 
-def _validate_doc_dates(osago: Optional[date], permit: Optional[date], inspection: Optional[date]) -> None:
+def _validate_doc_dates(osago: Optional[date], permit: Optional[date], inspection: Optional[date],
+                       osgop: Optional[date] = None) -> None:
     """Общая проверка сроков (подача заявки и обновление документов — одно правило)."""
     today = local_date(utcnow())
     for value, ru, ba in (
         (osago, "ОСАГО", "ОСАГО"),
         (permit, "разрешения на такси", "такси рөхсәтенең"),
         (inspection, "диагностической карты", "диагностика картаһының"),
+        (osgop, "ОСГОП", "ОСГОП"),
     ):
         if value is None:
             continue
@@ -246,6 +260,10 @@ def _doc_dates(app: TaxiApplication) -> dict:
         "osago_until": getattr(app, "osago_until", None),
         "permit_until": getattr(app, "permit_until", None),
         "inspection_until": getattr(app, "inspection_until", None),
+        # ОСГОП поехал в общий словарь со всеми (аудит сценариев 30.08): раньше поле в базе
+        # было, а на экран не уходило — страховка, обязательная по закону, нигде не
+        # показывалась и никогда не истекала.
+        "osgop_until": getattr(app, "osgop_until", None),
     }
     filled = [d for d in dates.values() if d is not None]
     soonest = min(filled) if filled else None
@@ -256,6 +274,14 @@ def _doc_dates(app: TaxiApplication) -> dict:
         "docs_missing": [k for k, v in dates.items() if v is None],
         # Сколько дней до ближайшего истечения (None = сроков нет; отрицательное = просрочен).
         "docs_days_left": ((soonest - today).days if soonest else None),
+        # --- Что ответил государственный реестр (580-ФЗ) ---
+        # Три состояния, и клиент обязан их различать: «реестр подтвердил» (зелено),
+        # «реестр сказал нет» (красное, с путём получить), «не спрашивали или реестр молчит»
+        # (ничего не показываем — человек не виноват в нашем таймауте и пугать его нечем).
+        "permit_registry_checked": getattr(app, "fgis_checked_at", None) is not None,
+        "permit_registry_ok": bool(getattr(app, "fgis_permit_ok", False)),
+        "permit_registry_until": (app.fgis_permit_until.isoformat()
+                                  if getattr(app, "fgis_permit_until", None) else None),
     }
 
 
@@ -384,20 +410,26 @@ def update_taxi_documents(body: TaxiDocsIn, user: User = Depends(current_user),
     app = taxi_mod.my_application(session, user.id)
     if not app:
         raise herr(404, "Заявка не подана", "Заявка бирелмәгән")
-    _validate_doc_dates(body.osago_until, body.permit_until, body.inspection_until)
+    _validate_doc_dates(body.osago_until, body.permit_until, body.inspection_until,
+                        body.osgop_until)
     if body.osago_until is not None:
         app.osago_until = body.osago_until
     if body.permit_until is not None:
         app.permit_until = body.permit_until
     if body.inspection_until is not None:
         app.inspection_until = body.inspection_until
+    if body.osgop_until is not None:
+        app.osgop_until = body.osgop_until
     # Фото — только СВОИ загруженные защищённые документы (анти-подмена чужих URL).
     if body.osago_url is not None and body.osago_url.strip():
         app.osago_url = _ensure_owned_doc_url(body.osago_url, user, None)
     if body.permit_photo_url is not None and body.permit_photo_url.strip():
         app.permit_photo_url = _ensure_owned_doc_url(body.permit_photo_url, user, None)
+    if body.osgop_url is not None and body.osgop_url.strip():
+        app.osgop_url = _ensure_owned_doc_url(body.osgop_url, user, None)
     today = local_date(utcnow())
-    dates = [d for d in (app.osago_until, app.permit_until, app.inspection_until) if d is not None]
+    dates = [d for d in (app.osago_until, app.permit_until, app.inspection_until,
+                         app.osgop_until) if d is not None]
     if app.docs_expired and dates and all(d >= today for d in dates):
         app.docs_expired = False
         app.docs_warned_at = None
@@ -449,6 +481,7 @@ def _classes_payload(session: Session, dp: Optional[DriverProfile]) -> dict:
         year=dp.car_year, seats=dp.seats or 0, has_ac=bool(dp.car_ac),
         clean_salon=bool(dp.car_clean), body_ok=bool(dp.car_body_ok),
         is_sedan=bool(dp.car_sedan), leather=bool(dp.car_leather),
+        light_salon=bool(dp.car_light_salon),
         color=dp.car_color, premium=bool(dp.car_premium_verified),
     )
     year_now = utcnow().year
@@ -485,7 +518,8 @@ def _classes_payload(session: Session, dp: Optional[DriverProfile]) -> dict:
         "car": {
             "year": dp.car_year, "seats": dp.seats, "color": dp.car_color,
             "ac": bool(dp.car_ac), "sedan": bool(dp.car_sedan),
-            "leather": bool(dp.car_leather), "premium": bool(dp.car_premium_verified),
+            "leather": bool(dp.car_leather), "light_salon": bool(dp.car_light_salon),
+            "premium": bool(dp.car_premium_verified),
             "clean": bool(dp.car_clean), "body_ok": bool(dp.car_body_ok),
             "color_ok": cc.color_allowed(dp.car_color),
         },
@@ -648,6 +682,7 @@ class ApproveIn(BaseModel):
     car_ac: Optional[bool] = None
     car_sedan: Optional[bool] = None
     car_leather: Optional[bool] = None
+    car_light_salon: Optional[bool] = None
 
 
 def _admin_apply_car(session: Session, user_id: int, body: ApproveIn) -> None:
@@ -660,7 +695,7 @@ def _admin_apply_car(session: Session, user_id: int, body: ApproveIn) -> None:
     if dp is None:
         dp = DriverProfile(user_id=user_id, online=False)
     for field in ("car_premium_verified", "car_clean", "car_body_ok",
-                  "car_ac", "car_sedan", "car_leather"):
+                  "car_ac", "car_sedan", "car_leather", "car_light_salon"):
         val = getattr(body, field)
         if val is not None:
             setattr(dp, field, bool(val))
@@ -692,6 +727,13 @@ def admin_approve_taxi(app_id: int, body: ApproveIn | None = None,
     if body is not None:
         _admin_apply_car(session, app.user_id, body)
     session.commit()
+    # Спрашиваем государственный реестр сразу при одобрении: госномер уже известен, а
+    # человек в этот момент как раз готов работать. Реестр промолчал — не беда, фоновая
+    # задача переспросит; допуск от этого не зависит (см. taxi.permit_missing).
+    try:
+        taxi_mod.refresh_permit_from_registry(session, app, force=True)
+    except Exception as e:  # noqa: BLE001 — сбой реестра не должен рвать одобрение заявки
+        log.warning("[FGIS] проверка при одобрении не удалась: %s", type(e).__name__)
     # Допуск к заработку человек ждёт днями — такое нельзя слать так, что оно может не дойти
     # (аудит 2026-08-08, волна 20). Запись остаётся, тап ведёт на экран заявки.
     push_notification(
@@ -830,6 +872,9 @@ def admin_taxi_pulse(user: User = Depends(current_user), session: Session = Depe
         # Анти-фрод (B8-8): отмены после открытия телефона/чата за день (такси + попутка).
         "contact_then_cancel_today": ctc_today,
         "avg_search_sec_today": (round(sum(waits) / len(waits), 1) if waits else None),
+        # Воронка «посмотрел цену → заказал» (app/funnel.py). Единственная цифра, по которой
+        # видно, что цена отпугнула: заказов стало меньше — это «людей мало» или «дорого»?
+        "funnel": funnel_mod.stats(isv._redis()),
         "by_city": [
             {"city": city, **counts}
             for city, counts in sorted(by_city.items(), key=lambda kv: -(kv[1]["online"] + kv[1]["active"]))

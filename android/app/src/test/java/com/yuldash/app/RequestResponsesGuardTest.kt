@@ -25,7 +25,8 @@ class RequestResponsesGuardTest {
         assertTrue(screen.contains("ResponseMoneyHero(response)"))
         assertTrue(screen.contains("ResponseDriverTrust(response)"))
         assertTrue(screen.indexOf("ResponseMoneyHero(response)") < screen.indexOf("ResponseDriverTrust(response)"))
-        assertTrue(screen.contains("Ваш бюджет"))
+        // «Твой», а не «Ваш»: в Юлдаше обращение на «ты», это держит ToneSourceGuardTest.
+        assertTrue(screen.contains("Твой бюджет"))
         assertTrue(screen.contains("Предложение"))
         assertTrue(screen.contains("Цена фиксируется после принятия"))
     }

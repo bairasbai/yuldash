@@ -9,6 +9,8 @@ from datetime import timedelta
 from typing import Optional
 
 from fastapi import HTTPException
+
+from .errors import herr
 from sqlmodel import Session, select
 
 from .logs import log
@@ -18,9 +20,13 @@ from .timeutil import utcnow
 # ------------------------------ устройство (B8-1) ------------------------------
 MAX_DEVICE_ID_LEN = 64
 
-# Текст 403 забаненному устройству: коротко, с путём в поддержку (RU + черновой BA).
-DEVICE_BANNED_MSG = ("Аккаунт заблокирован — напиши в поддержку."
-                     " · Аккаунт бикләнгән — ярҙам хеҙмәтенә яҙ.")
+# Текст 403 забаненному устройству: коротко, с путём в поддержку.
+#
+# ДВА ОТДЕЛЬНЫХ текста, а не один через точку. Человек читает это в минуту, когда не может
+# войти вообще, — и башкироязычный не должен разбирать сначала русскую половину
+# (docs/lessons.md, волна 20: любая надпись живёт на двух языках раздельно).
+DEVICE_BANNED_RU = "Аккаунт заблокирован — напиши в поддержку."
+DEVICE_BANNED_BA = "Аккаунт бикләнгән — ярҙам хеҙмәтенә яҙ."
 
 
 def normalize_device_id(raw: Optional[str]) -> str:
@@ -38,7 +44,7 @@ def device_banned(session: Session, device_id: Optional[str]) -> bool:
 def guard_device_not_banned(session: Session, device_id: Optional[str]) -> None:
     """Гейт регистрации/логина: забаненное устройство → 403 (обход бана новым номером)."""
     if device_banned(session, device_id):
-        raise HTTPException(403, DEVICE_BANNED_MSG)
+        raise herr(403, DEVICE_BANNED_RU, DEVICE_BANNED_BA)
 
 
 def ban_device(session: Session, device_id: str, reason: str = "",

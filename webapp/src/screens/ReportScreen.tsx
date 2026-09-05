@@ -20,6 +20,7 @@ import { ApiError } from "../api/client";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconCheck, IconShield, IconCar } from "../components/Icons";
+import { track } from "../analytics";
 
 type Status = "loading" | "error" | "form" | "sent";
 
@@ -102,6 +103,7 @@ export default function ReportScreen() {
         booking_id: bookingId,
         order_id: orderId,
       });
+      track("report_create");
       if (alsoBlock && targetId != null) {
         try {
           await blockUser(targetId);

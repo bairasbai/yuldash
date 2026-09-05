@@ -101,6 +101,7 @@ import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Edit
@@ -329,6 +330,7 @@ internal fun ProfileScreen(
     onParcels: () -> Unit = {},
     onCourier: () -> Unit = {},
     onPartnerCabinet: () -> Unit = {},
+    onMyData: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onAccountDeleted: () -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
@@ -350,6 +352,13 @@ internal fun ProfileScreen(
     var gender by remember { mutableStateOf("") }
     var showGenderPicker by remember { mutableStateOf(false) }
     var profileConfirmed by remember { mutableStateOf(ApiClient.isLoggedIn()) }
+    // Есть ли у человека бизнес. Раньше два партнёрских кабинета показывались ВСЕМ:
+    // пассажир из деревни листал мимо «Мой бизнес» и «Кабинет рекламы», чтобы дойти
+    // до своих поездок (разбор 2026-08-31). Кто не партнёр — видит одну строку-приглашение.
+    var hasBusiness by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (ApiClient.isLoggedIn()) ApiClient.getPartnerMe().onSuccess { hasBusiness = it.partner != null }
+    }
     // Три честных состояния шапки: грузим / пришло / сеть упала. Раньше сбой /me был немым —
     // человек видел кэшированное имя и не понимал, что данные устарели и что делать.
     var meLoading by remember { mutableStateOf(true) }
@@ -606,9 +615,18 @@ internal fun ProfileScreen(
             title = { Text(appText("Удалить аккаунт?", "Иҫәпте бөтөрәһеңме?"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
+                    // Обещание должно совпадать с тем, что код делает на самом деле.
+                    // Раньше здесь стояло «удалит все данные», а часть остаётся по закону:
+                    // финансовые записи (бухучёт, налоги) и обезличенные жалобы на человека,
+                    // где живут решение админа и улики второй стороны (см. account.py).
+                    // Обещать больше, чем выполняем, — то же враньё, только про приватность.
                     appText(
-                        "Это навсегда удалит твой профиль, поездки, заявки, брони, сообщения и рейтинг с наших серверов. Отменить нельзя.",
-                        "Был һинең профилде, сәфәрҙәрҙе, заявкаларҙы, брондәрҙе, хәбәрҙәрҙе һәм рейтингты серверҙарҙан бөтөнләй бөтөрә. Кире ҡайтарып булмай.",
+                        "Навсегда исчезнут: профиль, поездки, заявки, брони, сообщения, рейтинг, документы водителя.\n\n" +
+                            "По закону останутся: записи о деньгах (бухучёт и налоги) и жалобы на тебя — без твоего имени, только решение и доказательства второй стороны.\n\n" +
+                            "Отменить нельзя.",
+                        "Мәңгегә юғала: профиль, сәфәрҙәр, ғаризалар, брондәр, хәбәрҙәр, рейтинг, йөрөтөүсе документтары.\n\n" +
+                            "Закон буйынса ҡала: аҡса яҙмалары (бухучёт һәм һалым) һәм һиңә зарҙар — исемеңһеҙ, тик ҡарар һәм икенсе яҡтың дәлилдәре.\n\n" +
+                            "Кире ҡайтарып булмай.",
                     ),
                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
@@ -810,10 +828,14 @@ internal fun ProfileScreen(
                     }
                 }
             }
+            // Первой строкой — крупные кнопки. Разбор 2026-08-31: карточка лежала на пятом
+            // смахивании под заголовком «Для родителей и близких», то есть тот, кому она нужна,
+            // до неё не долистывал.
+            item { Box(Modifier.appearIn(1)) { SeniorAccessCard(onSimpleMode = onSimpleMode) } }
             item {
                 ProfileSectionLabel(appText("Личный кабинет", "Шәхси кабинет"))
             }
-            item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Мой Юлдаш", "Минең Юлдаш"), appText("Твои километры, поездки и звание", "Километрҙарың, сәфәрҙәрең һәм исемең"), Icons.Default.Insights, onMyStats) } }
+            item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Моя статистика", "Минең статистика"), appText("Километры, поездки и звание", "Километрҙар, сәфәрҙәр һәм исем"), Icons.Default.Insights, onMyStats) } }
             item {
                 ProfileSectionLabel(appText("Сервисы", "Хеҙмәттәр"))
             }
@@ -829,7 +851,6 @@ internal fun ProfileScreen(
             item {
                 ProfileSectionLabel(appText("Доверие и безопасность", "Ышаныс һәм хәүефһеҙлек"))
             }
-            item { Box(Modifier.appearIn(4)) { ProfileActionCard(appText("Проверка водителя", "Йөрөтөүсене тикшереү"), appText("Права, машина, фото авто", "Права, машина, авто фотоһы"), Icons.Default.Verified, onVerifyDriver) } }
             item { Box(Modifier.appearIn(5)) { ProfileActionCard(appText("Доверие", "Ышаныс"), appText("Твой уровень и круг «своих»", "Кимәлең һәм «үҙебеҙҙекеләр» түңәрәге"), Icons.Default.Handshake, onTrust) } }
             item { Box(Modifier.appearIn(6)) { ProfileActionCard(appText("Безопасность", "Хәүефһеҙлек"), appText("SOS, скрытый телефон, подтверждённые участники", "SOS, йәшерен телефон, раҫланған ҡатнашыусылар"), R.drawable.yu_safe_trip, onSafety) } }
             // Пол стоит рядом с «Безопасностью» не случайно: он нужен ровно для того, чтобы
@@ -855,27 +876,29 @@ internal fun ProfileScreen(
             item {
                 ProfileSectionLabel(appText("Для родителей и близких", "Ата-әсә һәм яҡындар өсөн"))
             }
-            item { Box(Modifier.appearIn(8)) { SeniorAccessCard(onSimpleMode = onSimpleMode) } }
             item { Box(Modifier.appearIn(9)) { ProfileActionCard(appText("Доверенные контакты", "Ышаныслы контакттар"), appText("Кому отправлять статус поездки", "Сәфәр статусын кемгә ебәрергә"), Icons.Default.Person, onTrustedContacts) } }
             item { Box(Modifier.appearIn(10)) { ProfileActionCard(appText("Попросить звонок", "Шылтыратыу һорау"), appText("Помощь без чата и сложных форм", "Чатһыҙ һәм ҡатмарлы формаларһыҙ ярҙам"), Icons.Default.HeadsetMic, onCallbackHelp) } }
             item {
                 ProfileSectionLabel(appText("Настройки и помощь", "Көйләүҙәр һәм ярҙам"))
             }
-            item { Box(Modifier.appearIn(3)) { ProfileActionCard(appText("Язык", "Тел"), if (isBashkir) "Башҡортса / Русский" else "Русский / Башҡортса", Icons.Default.Language, onToggleLanguage) } }
-            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Уведомления и карта", "Хәбәрҙәр һәм карта"), appText("Что присылать и как показывать карту", "Нимә ебәрергә һәм картаны нисек күрһәтергә"), Icons.Default.Settings, onSettings) } }
-            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Конфиденциальность", "Хосусилыҡ"), appText("Геолокация и разрешения", "Геолокация һәм рөхсәттәр"), Icons.Default.Shield, onPrivacy) } }
-            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Согласия и данные", "Ризалыҡтар һәм мәғлүмәт"), appText("Оферта, политика, геолокация", "Оферта, сәйәсәт, геолокация"), Icons.Default.Description, onConsents) } }
+            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Настройки", "Көйләүҙәр"), appText("Язык, тема, размер текста, выход", "Тел, тема, текст ҙурлығы, сығыу"), Icons.Default.Settings, onSettings) } }
             item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Помощь", "Ярҙам"), appText("Ответы на частые вопросы", "Йыш һорауҙарға яуаптар"), R.drawable.yu_support, onHelp) } }
             item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Оставить отзыв", "Фекер ҡалдырыу"), appText("Оцени приложение — лучшие попадут на сайт", "Ҡушымтаны баһала — иң яҡшылары сайтҡа эләгер"), R.drawable.yu_star, onReview) } }
             if (role == "admin") {
                 item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Модерация отзывов", "Фекерҙәрҙе модерациялау"), appText("Одобрить отзывы для сайта", "Сайт өсөн фекерҙәрҙе раҫларға"), Icons.Default.Verified, onAdminReviews) } }
-                item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Управление рекламой", "Реклама идаралау"), appText("Объявления партнёров: публикация, пауза, удаление", "Партнёр иғландары: баҫтырыу, пауза, бөтөрөү"), Icons.Default.AdminPanelSettings, onAdminAds) } }
+                item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Модерация объявлений", "Иғландарҙы модерациялау"), appText("Объявления партнёров: публикация, пауза, удаление", "Партнёр иғландары: баҫтырыу, пауза, бөтөрөү"), Icons.Default.AdminPanelSettings, onAdminAds) } }
             }
             item {
                 ProfileSectionLabel(appText("Партнёры Юлдаш", "Юлдаш партнёрҙары"))
             }
-            item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Мой бизнес", "Минең бизнес"), appText("Разместить купоны и привлечь клиентов", "Купон ҡуйып клиент йыйыу"), Icons.Default.Storefront, onPartnerCabinet) } }
-            item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Кабинет рекламы", "Реклама кабинеты"), appText("Объявления, erid, показы и клики", "Иғландар, erid, күрһәтеү һәм баҫыу"), Icons.Default.Payments, onAdsCabinet) } }
+            if (hasBusiness) {
+                item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Мой бизнес", "Минең бизнес"), appText("Купоны, подписка и счёт", "Купондар, яҙылыу һәм иҫәп"), Icons.Default.Storefront, onPartnerCabinet) } }
+                item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Кабинет рекламы", "Реклама кабинеты"), appText("Объявления, erid, показы и клики", "Иғландар, erid, күрһәтеү һәм баҫыу"), Icons.Default.Payments, onAdsCabinet) } }
+            } else {
+                // Бизнеса нет — одна строка-приглашение вместо двух кабинетов, которыми
+                // человеку пока нечего открывать. Путь внутрь тот же: там и регистрация.
+                item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("У меня есть бизнес", "Минең бизнесым бар"), appText("Купоны и реклама для местных заведений", "Ерле урындар өсөн купондар һәм реклама"), Icons.Default.Storefront, onPartnerCabinet) } }
+            }
             profileAd?.let { ad ->
                 item {
                     Box(Modifier.appearIn(12)) {
@@ -894,6 +917,18 @@ internal fun ProfileScreen(
             if (ApiClient.isLoggedIn()) {
                 item {
                     ProfileSectionLabel(appText("Аккаунт", "Иҫәп"))
+                }
+                // Мягкий выход перед «удалить всё»: человек, которому неуютно от собранных
+                // данных, сначала должен увидеть, что их немного и они уходят сами.
+                item {
+                    Box(Modifier.appearIn(14)) {
+                        ProfileActionCard(
+                            appText("Мои данные", "Минең мәғлүмәттәр"),
+                            appText("Что Юлдаш хранит и когда это исчезнет", "Юлдаш нимә һаҡлай һәм ул ҡасан юғала"),
+                            Icons.Default.Shield,
+                            onMyData,
+                        )
+                    }
                 }
                 item {
                     Box(Modifier.appearIn(14)) {
@@ -1368,6 +1403,10 @@ internal fun DriverCabinetScreen(
     var debtPaying by remember { mutableStateOf(false) }
     // Гейт такси (580-ФЗ): без одобренной заявки тумблер «Я на линии» заменяется CTA «Стать таксистом».
     var taxiApp by remember { mutableStateOf<com.yuldash.app.data.TaxiApplicationDto?>(null) }
+    // Готовность на сегодня (580-ФЗ). Без неё на линию не пускают, а в кабинете это была
+    // просто строка в списке настроек — ни одного сигнала, что она обязательна
+    // (аудит сценариев 30.08). Теперь кабинет знает и предупреждает заранее.
+    var pretripNeeded by remember { mutableStateOf(false) }
     var taxiAppLoaded by remember { mutableStateOf(false) }
     // Зона работы таксиста (география, волна 2): чип у тумблера + шторка выбора.
     var zone by remember { mutableStateOf<com.yuldash.app.data.InstantZoneDto?>(null) }
@@ -1400,8 +1439,12 @@ internal fun DriverCabinetScreen(
             archiveLoading = false
         }
     }
+    val tipsOnMsg = appText("Чаевые включены", "Сәйлек тоҡандырылды")
+    val tipsOffMsg = appText("Чаевые выключены", "Сәйлек һүндерелде")
+    val tipsErrMsg = appText("Не получилось сохранить. Проверь номер и сеть.", "Һаҡлап булманы. Номерҙы һәм сетте тикшер.")
     var isWomanDriver by remember { mutableStateOf(false) }   // F9: opt-in «я — женщина за рулём»
     var womanVerified by remember { mutableStateOf(false) }   // пол сверен модератором → бейдж уже работает
+    var tipsSbp by remember { mutableStateOf("") }            // СБП для чаевых; "" = водитель их не принимает
     // Выключение тумблера стирает пол целиком (сервер знает одно поле `User.gender`), а значит
     // забирает и женские поездки у неё же как у пассажирки. Молча так делать нельзя — спрашиваем.
     var confirmWomanOff by remember { mutableStateOf(false) }
@@ -1423,8 +1466,10 @@ internal fun DriverCabinetScreen(
         ApiClient.getDriverStatus().onSuccess {
             online = it.online; onlineLoaded = true
             isWomanDriver = it.gender == "female"; womanVerified = it.genderVerified
+            tipsSbp = it.tipsSbp
         }
         ApiClient.getInstantZone().onSuccess { zone = it }
+        ApiClient.getPretrip().onSuccess { pretripNeeded = it.required && !it.confirmed }
         ApiClient.getMyTaxiApplication()
             .onSuccess { taxiApp = it; taxiAppLoaded = true }
             .onFailure { e ->
@@ -1589,6 +1634,19 @@ internal fun DriverCabinetScreen(
                 }
             },
             womanVerified = womanVerified,
+            tipsSbp = tipsSbp,
+            onSaveTips = { phone ->
+                rateScope.launch {
+                    ApiClient.setTipsSbp(phone)
+                        .onSuccess {
+                            tipsSbp = phone.trim()
+                            Toast.makeText(ctx, if (it) tipsOnMsg else tipsOffMsg, Toast.LENGTH_SHORT).show()
+                        }
+                        // Сервер объясняет отказ по-человечески («неверный номер СБП»,
+                        // «только для водителя») — показываем его слова, а не общее «повтори».
+                        .onFailure { e -> Toast.makeText(ctx, serverSaid(e, tipsErrMsg), Toast.LENGTH_LONG).show() }
+                }
+            },
             onToggleWoman = onToggleWoman@{ v ->
                 if (!ApiClient.isLoggedIn()) {
                     Toast.makeText(ctx, womanLoginMsg, Toast.LENGTH_SHORT).show()
@@ -1696,7 +1754,9 @@ internal fun DriverCabinetScreen(
                             val msg = when ((e as? ApiException)?.status) {
                                 409 -> editPriceDownMsg
                                 400 -> editNotActiveMsg
-                                else -> editNetMsg
+                                // Всё остальное (403 «не твоя поездка», 422) сервер объясняет
+                                // сам — своё «проверь сеть» тут врало бы при работающей сети.
+                                else -> serverSaid(e, editNetMsg)
                             }
                             Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
                         }
@@ -1712,13 +1772,17 @@ internal fun DriverCabinetScreen(
             scheduleSection = { DriverScheduleSection() },
             // Спрос рядом — только одобренному таксисту; читает online как State (реагирует на тумблер).
             demandSection = if (!taxiAppLoaded || taxiApp?.status == "approved") {
-                { DriverDemandSection(online = online) }
+                { Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+                    PrioritySection()
+                    DriverDemandSection(online = online)
+                } }
             } else null,
             onWallet = onWallet,
             onEarnings = onEarnings,
             onTaxiRides = onTaxiRides,
             onTaxiDocs = onTaxiDocs,
             onPretrip = onPretrip,
+            pretripNeeded = pretripNeeded,
         )
         }
     }
@@ -1793,6 +1857,89 @@ internal fun DriverCabinetScreen(
  * это единственный канал доставки оффера). Что-то из этого выключено — вместо обещания
  * показываем, что именно сломано и как это починить в один тап.
  */
+/**
+ * Что мешает выйти на линию — до того, как человек нажмёт тумблер.
+ *
+ * ЗАЧЕМ. Кабинет молчал о трёх вещах сразу: допуск снят за просроченные документы, разрешения
+ * нет в государственном реестре, готовность на сегодня не отмечена. Про первое водитель узнавал
+ * из пуша (который мог не дойти), про остальное — упёршись в закрытую линию и не поняв, почему
+ * (аудит сценариев 30.08).
+ *
+ * Всё в порядке — карточки нет вообще. Пустая зелёная плашка «всё хорошо» в кабинете, куда
+ * заходят каждый день, превращается в шум, который перестают замечать, — а вместе с ней
+ * перестают замечать и красную.
+ */
+@Composable
+private fun DriverBlockersCard(
+    app: com.yuldash.app.data.TaxiApplicationDto?,
+    pretripNeeded: Boolean,
+    onTaxiDocs: () -> Unit,
+    onPretrip: () -> Unit,
+) {
+    if (app == null || app.status != "approved") return
+    val документыПросрочены = app.docsExpired || (app.docsDaysLeft ?: 1) < 0
+    // Реестр молчал или его не спрашивали — это не повод пугать человека: он не виноват
+    // в нашем таймауте (то же правило, что на экране документов).
+    val разрешенияНет = app.permitRegistryChecked && !app.permitRegistryOk
+    if (!документыПросрочены && !разрешенияНет && !pretripNeeded) return
+
+    // Порядок — по тяжести: без разрешения и документов не пустят вообще, готовность
+    // отмечается в один тап и только на сегодня.
+    Surface(color = CanonDangerBg, shape = CanonCardShape) {
+        Column(
+            Modifier.fillMaxWidth().padding(CanonSpace.lg),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CanonRed,
+                     modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text(
+                    appText("Заказы не придут, пока это не решено",
+                            "Быны хәл иткәнсе заказдар килмәйәсәк"),
+                    color = CanonRed, fontSize = 16.sp, lineHeight = 23.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            if (разрешенияНет) {
+                DriverBlockerRow(
+                    appText("В реестре такси нет действующего разрешения на машину",
+                            "Такси реестрында машинаға ғәмәлдәге рөхсәт юҡ"),
+                    appText("Как получить", "Нисек алырға"),
+                    onTaxiDocs,
+                )
+            }
+            if (документыПросрочены) {
+                DriverBlockerRow(
+                    appText("Срок документа истёк — впиши новую дату, допуск вернётся сразу",
+                            "Документ ваҡыты үткән — яңы датаны яҙ, рөхсәт шунда уҡ ҡайта"),
+                    appText("Открыть документы", "Документтарҙы асыу"),
+                    onTaxiDocs,
+                )
+            }
+            if (pretripNeeded) {
+                DriverBlockerRow(
+                    appText("Сегодня не отмечена готовность к работе",
+                            "Бөгөн эшкә әҙерлек билдәләнмәгән"),
+                    appText("Отметить — это одна минута", "Билдәләү — бер минутлыҡ эш"),
+                    onPretrip,
+                )
+            }
+        }
+    }
+}
+
+/** Одна строка препятствия: что не так и куда нажать. */
+@Composable
+private fun DriverBlockerRow(text: String, action: String, onClick: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+        Text(text, color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp)
+        TextButton(onClick = onClick, contentPadding = PaddingValues(0.dp)) {
+            Text(action, color = CanonRed, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
 @Composable
 private fun DriverOnlineHint(online: Boolean) {
     val ctx = LocalContext.current
@@ -2162,8 +2309,9 @@ private fun feePct(p: Double): String =
 /**
  * Дашборд таксиста (экран «на линии»): заработок и заказы ЗА СЕГОДНЯ крупной тёмно-зелёной
  * картой (белый текст читаем в обеих темах — фикс. CanonGreenInk, не адаптивный) + честная
- * ЛЕСЕНКА КОМИССИИ по стажу (3/8/15%): подсвечена текущая ступень, подпись «через N дней станет Y%».
- * Данные — из /instant/workday (debt.driver_dashboard). Лесенка по дням стажа, НЕ по деньгам.
+ * ЛЕСЕНКА КОМИССИИ по поездкам (3/8/15%): подсвечена текущая ступень, подпись
+ * «через N поездок станет Y%». Данные — из /instant/workday (debt.driver_dashboard).
+ * Ступень двигают ПОЕЗДКИ, а не календарь и не деньги.
  */
 @Composable
 private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
@@ -2173,12 +2321,12 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
     var netEarnTargetKop by remember { mutableIntStateOf(0) }
     LaunchedEffect(wd.netTodayKop) { netEarnTargetKop = wd.netTodayKop }
     val netEarnKop by animateIntAsState(netEarnTargetKop, tween(700), label = "netEarnKop")
-    val tiers = wd.feeTiers.ifEmpty { listOf(3.0, 5.0, 8.0) }
-    // Индекс текущей ступени по стажу (границы feeTierDays = [30,60]).
+    val tiers = wd.feeTiers.ifEmpty { listOf(3.0, 8.0, 15.0) }
+    // Индекс текущей ступени по числу поездок (границы feeTierTrips = [30,100]).
     val activeIdx = when {
-        wd.feeTierDays.size < 2 -> 0
-        wd.tenureDays <= wd.feeTierDays[0] -> 0
-        wd.tenureDays <= wd.feeTierDays[1] -> 1
+        wd.feeTierTrips.size < 2 -> 0
+        wd.tripsDone < wd.feeTierTrips[0] -> 0
+        wd.tripsDone < wd.feeTierTrips[1] -> 1
         else -> 2
     }
     Card(
@@ -2212,7 +2360,7 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                     Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(30.dp))
                 }
             }
-            // ── Лесенка комиссии (по стажу) ──
+            // ── Лесенка комиссии (по поездкам) ──
             Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(appText("Комиссия сервиса", "Сервис комиссияһы"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
@@ -2235,11 +2383,26 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                     }
                 }
                 // Честная подпись: когда ступень поднимется (или уже верхняя).
-                val note = if (wd.feeNextPercent != null && wd.feeDaysToNext != null) {
-                    val dn = wd.feeDaysToNext
+                // Промо запуска идёт ПЕРВЫМ: пока оно действует, ставку двигает календарь,
+                // а не поездки. Раньше этой ветки не было, и водителю на промо кабинет
+                // говорил либо «через N поездок станет 8%» (не тот срок, не та причина и
+                // не то число), либо «максимальная ставка 0%» — что просто бессмыслица.
+                val note = if (wd.promoActive) {
+                    val dl = wd.promoDaysLeft ?: 0
+                    val after = wd.feeAfterPromoPercent
+                    val хвостRu = if (after != null) " Потом — ${feePct(after)}." else ""
+                    val хвостBa = if (after != null) " Шунан — ${feePct(after)}." else ""
                     appText(
-                        "Сейчас ${feePct(wd.feePercent)} — стартовая ставка. Через $dn ${pluralDaysRu(dn)} станет ${feePct(wd.feeNextPercent)}. Всё равно ниже, чем у агрегаторов.",
-                        "Хәҙер ${feePct(wd.feePercent)} — башланғыс. $dn көндән ${feePct(wd.feeNextPercent)} булыр. Барыбер агрегаторҙарҙан түбәнерәк.",
+                        "Сейчас ${feePct(wd.feePercent)} — промо для первых водителей. " +
+                            "Осталось $dl ${pluralDaysRu(dl)}.$хвостRu Всё равно ниже, чем у агрегаторов.",
+                        "Хәҙер ${feePct(wd.feePercent)} — беренсе йөрөтөүселәр өсөн промо. " +
+                            "$dl көн ҡалды.$хвостBa Барыбер агрегаторҙарҙан түбәнерәк.",
+                    )
+                } else if (wd.feeNextPercent != null && wd.feeTripsToNext != null) {
+                    val tn = wd.feeTripsToNext
+                    appText(
+                        "Сейчас ${feePct(wd.feePercent)} — стартовая ставка. Через $tn ${pluralTripsRu(tn)} станет ${feePct(wd.feeNextPercent)}. Всё равно ниже, чем у агрегаторов.",
+                        "Хәҙер ${feePct(wd.feePercent)} — башланғыс. Тағы $tn юлдан ${feePct(wd.feeNextPercent)} булыр. Барыбер агрегаторҙарҙан түбәнерәк.",
                     )
                 } else {
                     appText("Максимальная ставка ${feePct(wd.feePercent)} — ниже, чем у агрегаторов (22–30%).",
@@ -2261,13 +2424,23 @@ private fun pluralOrdersRu(n: Int): String {
     }
 }
 
-/** RU-плюрал «день/дня/дней». */
+/** RU-плюрал «день/дня/дней» — промо запуска идёт по календарю, а не по поездкам. */
 private fun pluralDaysRu(n: Int): String {
     val m10 = n % 10; val m100 = n % 100
     return when {
         m10 == 1 && m100 != 11 -> "день"
         m10 in 2..4 && m100 !in 12..14 -> "дня"
         else -> "дней"
+    }
+}
+
+/** RU-плюрал «поездка/поездки/поездок» — лесенка комиссии считает именно их. */
+private fun pluralTripsRu(n: Int): String {
+    val m10 = n % 10; val m100 = n % 100
+    return when {
+        m10 == 1 && m100 != 11 -> "поездку"
+        m10 in 2..4 && m100 !in 12..14 -> "поездки"
+        else -> "поездок"
     }
 }
 
@@ -2286,15 +2459,18 @@ private fun TaxiShiftProgressCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
         border = BorderStroke(1.dp, if (warm) CanonWarn.copy(alpha = 0.35f) else CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Schedule, contentDescription = appText("Смена такси", "Такси сменаһы"),
+                // Не «смена такси»: с 29.08 в это же время считаются и доставки. Руль не
+                // спрашивает, человек в машине или коробка, — а надпись, обещающая одно,
+                // пока счётчик мерит другое, читается как обман, когда приходит блок.
+                Icon(Icons.Default.Schedule, contentDescription = appText("Смена за рулём", "Руль артындағы смена"),
                     tint = accent, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(appText("Смена такси", "Такси сменаһы"), color = CanonText,
+                Text(appText("Смена за рулём", "Руль артындағы смена"), color = CanonText,
                     fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
                 Text(appText("из ${wd.limitHours} ч", "${wd.limitHours} сәғәттән"), color = CanonMuted, fontSize = 14.sp)
             }
             Text(
-                appText("На линии ${shiftTimeRu(wd.secondsOnline)}", "Линияла ${shiftTimeBa(wd.secondsOnline)}"),
+                appText("За рулём ${shiftTimeRu(wd.secondsOnline)}", "Руль артында ${shiftTimeBa(wd.secondsOnline)}"),
                 color = CanonText, fontWeight = FontWeight.Bold, fontSize = 24.sp,
             )
             LinearProgressIndicator(
@@ -2308,11 +2484,70 @@ private fun TaxiShiftProgressCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                     "До отдыха меньше часа 🌙 Спокойно заверши дела на линии.",
                     "Ялға бер сәғәттән дә әҙерәк ҡалды 🌙 Линиялағы эштәреңде тыныс ҡына тамамла."
                 ) else appText(
-                    "После ${wd.limitHours} часов на линии — отдых до утра. Попутка в лимит не входит.",
-                    "Линияла ${wd.limitHours} сәғәттән һуң — иртәнгә тиклем ял. Юлдаш сәфәрҙәре иҫәпкә инмәй."
+                    "Считаем поездки и доставки вместе. После ${wd.limitHours} часов за рулём — " +
+                        "отдых до утра. Попутка в лимит не входит: это твоя дорога, а не работа.",
+                    "Сәфәрҙәрҙе һәм илтеүҙәрҙе бергә иҫәпләйбеҙ. Руль артында ${wd.limitHours} сәғәттән " +
+                        "һуң — иртәнгә тиклем ял. Юлдаш сәфәре иҫәпкә инмәй: был һинең юлың, эш түгел."
                 ),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
             )
+            // Неделя. День человек видит на полоске выше, а недельный потолок был невидим
+            // совсем: кабинет писал «смена свободна», линию закрывала неделя, и водитель не
+            // понимал, почему не идут заказы (аудит сценариев 30.08). Показываем ДО блока.
+            if (wd.weekSeconds > 0) {
+                val недельныйЛимит = wd.weekLimitHours * 3600
+                val близко = wd.weekSeconds >= недельныйЛимит - 4 * 3600   // остался вечер
+                Text(
+                    appText(
+                        "За неделю ${shiftTimeRu(wd.weekSeconds)} из ${wd.weekLimitHours} ч" +
+                            (if (близко) " — недельный запас на исходе" else ""),
+                        "Аҙна эсендә ${shiftTimeBa(wd.weekSeconds)}, ${wd.weekLimitHours} сәғәттән" +
+                            (if (близко) " — аҙналыҡ запас бөтөп бара" else ""),
+                    ),
+                    color = if (близко) CanonWarn else CanonMuted,
+                    fontSize = 14.sp, lineHeight = 20.sp,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Недельный потолок закрыл линию. Отдельная карточка, а не строка в дневной: причина другая,
+ * и срок другой — окно скользящее, «завтра с 6 утра» тут было бы враньём. Честно говорим, что
+ * освободится по мере того, как старые часы выпадут из недели.
+ */
+@Composable
+private fun TaxiWeekRestCard(wd: com.yuldash.app.data.TaxiWorkdayDto, onCreateRide: () -> Unit) {
+    Surface(color = CanonMint, shape = CanonItemShape,
+        border = BorderStroke(1.dp, CanonGreen2.copy(alpha = 0.35f))) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = CircleShape, color = CanonGreen2) {
+                    Icon(Icons.Default.Bedtime, contentDescription = appText("Отдых", "Ял"),
+                        tint = CanonSurface, modifier = Modifier.padding(8.dp).size(20.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Text(appText("Недельный отдых", "Аҙналыҡ ял"), color = CanonText,
+                    fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+            Text(
+                appText(
+                    "За неделю ты уже ${shiftTimeRu(wd.weekSeconds)} за рулём — это потолок " +
+                        "в ${wd.weekLimitHours} часов 🌙 Линия откроется сама, как только самые " +
+                        "старые часы выпадут из недели.",
+                    "Аҙна эсендә һин ${shiftTimeBa(wd.weekSeconds)} руль артында — был " +
+                        "${wd.weekLimitHours} сәғәтлек сик 🌙 Иң иҫке сәғәттәр аҙнанан төшкәс, " +
+                        "линия үҙе асыласаҡ.",
+                ),
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+            )
+            if (!wd.returnRideUsed) {
+                TextButton(onClick = onCreateRide, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(appText("Взять попутчика домой", "Өйгә юлдаш алырға"),
+                        color = CanonGreen2, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
@@ -2425,6 +2660,99 @@ private fun TaxiOnboardingCta(app: com.yuldash.app.data.TaxiApplicationDto?, onC
  * «Зона N · ищут: M», отсортированным по весу; чем выше вес — тем ярче/крупнее зелёный индикатор.
  * Загружаем при входе и, пока водитель на линии, мягко обновляем раз в 60с (вне линии — «Пока тихо»).
  */
+/**
+ * ⭐ Мой приоритет — кому заказ достаётся первым.
+ *
+ * Показываем ЦЕЛИКОМ: и сколько баллов, и за что каждый, и что их отнимает. Скрытый приоритет
+ * человек читает как «заказы раздают по блату» — это ровно та боль Яндекса, из-за которой
+ * их водители не понимают, почему им не падают заказы, и уходят.
+ *
+ * Отдельно проговариваем то, чего у них нет: за малый объём мы НЕ наказываем, и отказ
+ * от заказа не стоит ничего. Это надо сказать словами, иначе человек будет бояться по привычке.
+ */
+@Composable
+internal fun PrioritySection(courier: Boolean = false) {
+    var data by remember { mutableStateOf<com.yuldash.app.data.PriorityDto?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    LaunchedEffect(courier) {
+        val r = if (courier) ApiClient.getCourierPriority() else ApiClient.getDriverPriority()
+        r.onSuccess { data = it }
+        loading = false
+    }
+    val d = data
+    if (loading || d == null) return
+
+    Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+        Text(
+            appText("Твой приоритет", "Һинең өҫтөнлөгөң"),
+            color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+        )
+        Surface(color = CanonSurface, shape = CanonItemShape,
+            border = BorderStroke(1.dp, CanonBorder), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        appText("${d.points} из ${d.maxPoints}", "${d.maxPoints}-тан ${d.points}"),
+                        color = CanonGreen2, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.width(CanonSpace.sm))
+                    Text(
+                        if (d.points >= d.maxPoints)
+                            appText("заказы приходят первыми", "заказдар беренсе килә")
+                        else
+                            appText("чем больше баллов, тем раньше заказ", "балл күберәк — заказ иртәрәк"),
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    )
+                }
+                d.parts.forEach { p -> PriorityRow(p, earned = true) }
+                if (d.minus > 0) {
+                    Text(
+                        appText("−${d.minus}: бросил принятый заказ за последнюю неделю",
+                            "−${d.minus}: аҙнала алынған заказды ташлағанһың"),
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    )
+                }
+                if (courier && d.feedDelaySec > 0) {
+                    Text(
+                        appText("Новые заказы ты видишь на ${d.feedDelaySec} сек позже приоритетных",
+                            "Яңы заказдарҙы өҫтөнлөклөләрҙән ${d.feedDelaySec} сек һуңыраҡ күрәһең"),
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    )
+                }
+                Text(
+                    appText("Мало заказов — не страшно, за это мы не снимаем ничего. Отказаться от заказа тоже можно свободно.",
+                        "Заказ аҙ булыуы — ҡурҡыныс түгел, уның өсөн бер нәмә лә алмайбыҙ. Заказдан баш тартырға ла ирекле."),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+            }
+        }
+    }
+}
+
+/** Одна строка расклада: за что дали балл и с какой цифрой. */
+@Composable
+private fun PriorityRow(p: com.yuldash.app.data.PriorityPartDto, earned: Boolean) {
+    val текст = when (p.code) {
+        "rating" -> appText("Рейтинг ${"%.1f".format(p.value)}", "Рейтинг ${"%.1f".format(p.value)}")
+        "active" -> appText("${p.value.toInt()} заказов за неделю", "Аҙнала ${p.value.toInt()} заказ")
+        "hard_trips" -> appText("Возишь туда, куда не хотят: ночь, метель, село",
+            "Бүтәндәр теләмәгән ергә йөрөтәһең: төн, буран, ауыл")
+        "newbie" -> appText("Новичку — аванс на первые ${p.value.toInt()} дней",
+            "Яңы башлаусыға — тәүге ${p.value.toInt()} көнгә аванс")
+        else -> appText("Бросил принятый заказ", "Алынған заказды ташлағанһың")
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            if (p.points >= 0) "+${p.points}" else "${p.points}",
+            color = if (p.points >= 0 && earned) CanonGreen2 else CanonMuted,
+            fontSize = 14.sp, fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.width(CanonSpace.sm))
+        Text(текст, color = CanonText, fontSize = 12.sp, lineHeight = 17.sp)
+    }
+}
+
+
 @Composable
 internal fun DriverDemandSection(online: Boolean) {
     var zones by remember { mutableStateOf<List<com.yuldash.app.data.DemandZoneDto>>(emptyList()) }
@@ -2454,12 +2782,12 @@ internal fun DriverDemandSection(online: Boolean) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader(
             appText("Спрос рядом", "Яҡында ихтыяж"),
-            appText("Где сейчас чаще ищут попутку", "Хәҙер юлдашты нисә ерҙә йышыраҡ эҙләй"),
+            appText("Где сейчас чаще заказывают такси", "Хәҙер таксины ҡайҙа йышыраҡ заказ итә"),
         )
         when {
             !online -> EmptyStateCard(
                 title = appText("Пока тихо", "Әлегә тыныс"),
-                text = appText("Выйди на линию — покажем, где сейчас ищут попутку.", "Линияға сыҡ — юлдашты ҡайҙа эҙләгәнен күрһәтербеҙ."),
+                text = appText("Выйди на линию — покажем, где сейчас заказывают такси.", "Линияға сыҡ — таксины ҡайҙа заказ иткәнен күрһәтербеҙ."),
                 icon = Icons.Default.TravelExplore,
             )
             loading && zones.isEmpty() -> SkeletonCard(lines = 3)
@@ -2469,7 +2797,7 @@ internal fun DriverDemandSection(online: Boolean) {
             )
             zones.isEmpty() -> EmptyStateCard(
                 title = appText("Пока тихо", "Әлегә тыныс"),
-                text = appText("Рядом никто не ищет попутку. Мы сообщим, как появятся заказы.", "Яҡында бер кем дә юлдаш эҙләмәй. Заказ килеү менән хәбәр итербеҙ."),
+                text = appText("Рядом сейчас никто не заказывает. Мы сообщим, как появятся заказы.", "Яҡында хәҙер бер кем дә заказ итмәй. Заказ килеү менән хәбәр итербеҙ."),
                 icon = Icons.Default.TravelExplore,
             )
             else -> {
@@ -2501,8 +2829,13 @@ internal fun DriverDemandSection(online: Boolean) {
                                         .clip(CircleShape)
                                         .background(CanonGreen.copy(alpha = 0.35f + 0.55f * dot)),
                                 )
+                                // «Зона в ≈4 км» полезнее, чем «Зона 2»: водитель решает,
+                                // стоит ли туда ехать. Сервер считает расстояние по его живой
+                                // позиции; не знает — остаётся номер, а не выдуманные километры.
+                                val км = z.distKm?.let { if (it < 1.0) 1 else kotlin.math.round(it).toInt() }
                                 Text(
-                                    appText("Зона ${i + 1}", "${i + 1}-се зона"),
+                                    if (км != null) appText("Зона в ≈$км км", "≈$км км алыҫлыҡтағы зона")
+                                    else appText("Зона ${i + 1}", "${i + 1}-се зона"),
                                     color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
                                     modifier = Modifier.weight(1f),
                                 )
@@ -2610,6 +2943,9 @@ internal fun DriverCabinetContent(
     onTaxiRides: () -> Unit = {},    // «Мои поездки такси»: расшифровка денег по каждой поездке
     onTaxiDocs: () -> Unit = {},     // 580-ФЗ: сроки документов
     onPretrip: () -> Unit = {},      // 580-ФЗ: готовность к работе на сегодня
+    tipsSbp: String = "",            // СБП водителя для чаевых; "" = не принимает
+    onSaveTips: (String) -> Unit = {},
+    pretripNeeded: Boolean = false,  // сегодня ещё не отмечался → без этого на линию не пустят
 ) {
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
     val ridesDone = archive.count { it.status == "done" }
@@ -2620,10 +2956,24 @@ internal fun DriverCabinetContent(
         AlertDialog(
             onDismissRequest = { cancelTarget = null },
             title = { Text(appText("Снять поездку?", "Сәфәрҙе алырғамы?"), fontWeight = FontWeight.Bold) },
-            text = { Text(appText(
-                "${target.from} → ${target.to}. Все брони пассажиров будут отменены, им придёт уведомление.",
-                "${target.from} → ${target.to}. Пассажирҙарҙың бөтә брондары кире алына, уларға хәбәр килә."
-            )) },
+            text = {
+                // Сколько людей рассчитывали на эту машину. «Все брони будут отменены» —
+                // правда, но безличная: одно дело снять пустой рейс, другое — оставить
+                // на дороге троих (аудит сценариев 30.08). Мест всего минус свободные.
+                val людей = (target.seatsTotal - target.seats).coerceAtLeast(0)
+                Text(appText(
+                    "${target.from} → ${target.to}. " + when (людей) {
+                        0 -> "Пассажиров пока нет — отменяем только объявление."
+                        1 -> "Один человек уже забронировал место. Бронь снимется, ему придёт уведомление."
+                        else -> "Места забронировали $людей человек. Все брони снимутся, всем придёт уведомление."
+                    },
+                    "${target.from} → ${target.to}. " + when (людей) {
+                        0 -> "Юлаусылар әлегә юҡ — тик белдереүҙе генә кире алабыҙ."
+                        1 -> "Бер кеше урын брондаған. Брон кире алына, уға хәбәр китә."
+                        else -> "Урындарҙы $людей кеше брондаған. Бөтә брондар кире алына, барыһына ла хәбәр китә."
+                    },
+                ))
+            },
             confirmButton = {
                 Button(
                     onClick = { target.id.toIntOrNull()?.let(onCancelRide); cancelTarget = null },
@@ -2653,6 +3003,17 @@ internal fun DriverCabinetContent(
         // §9 Качество: активные ограничения (пауза такси по жалобам) + «написать в поддержку».
         if (restrictions != null && restrictions.items.isNotEmpty()) {
             item { RestrictionsCard(restrictions) }
+        }
+        // Что мешает выйти на линию — ОДНОЙ карточкой и до тумблера (аудит сценариев 30.08).
+        // Раньше кабинет молчал: про снятый допуск человек узнавал из пуша, который мог не
+        // дойти, а про неотмеченную готовность — только упёршись в закрытую линию.
+        item {
+            DriverBlockersCard(
+                app = taxiApplication,
+                pretripNeeded = pretripNeeded,
+                onTaxiDocs = onTaxiDocs,
+                onPretrip = onPretrip,
+            )
         }
         item {
             // Гейт такси (580-ФЗ): «на линию» может выйти только одобренный таксист.
@@ -2690,6 +3051,8 @@ internal fun DriverCabinetContent(
             }
             if (workday.blocked) {
                 item { TaxiRestCard(workday, onCreateRide) }
+            } else if (workday.weekBlocked) {
+                item { TaxiWeekRestCard(workday, onCreateRide) }
             } else if (online || workday.secondsOnline > 0) {
                 item { TaxiShiftProgressCard(workday) }
             }
@@ -2723,6 +3086,48 @@ internal fun DriverCabinetContent(
                     isWomanDriver,
                     onToggleWoman,
                 )
+            }
+        }
+        // Денежные чаевые. Платформа денег не касается: пассажир переводит водителю напрямую
+        // по СБП, и реквизит показывается только после завершённой поездки. Раньше сервер это
+        // умел, а включить было негде — водитель не мог получить чаевые, даже если хотел.
+        item {
+            var tipsOn by remember(tipsSbp) { mutableStateOf(tipsSbp.isNotBlank()) }
+            var tipsPhone by remember(tipsSbp) { mutableStateOf(tipsSbp) }
+            SettingsGroup {
+                SettingSwitchRow(
+                    Icons.Default.Favorite,
+                    appText("Принимать чаевые", "Сәйлек алыу"),
+                    if (tipsOn) appText(
+                        "Пассажир увидит твой номер после поездки и сможет перевести сам. Юлдаш денег не касается.",
+                        "Пассажир сәфәрҙән һуң номерыңды күрер һәм үҙе күсерә ала. Юлдаш аҡсаға ҡағылмай.",
+                    ) else appText(
+                        "По желанию: пассажир сможет сказать спасибо переводом напрямую тебе",
+                        "Теләк буйынса: пассажир туранан-тура һиңә күсереп рәхмәт әйтә ала",
+                    ),
+                    tipsOn,
+                ) { on ->
+                    tipsOn = on
+                    if (!on) { tipsPhone = ""; onSaveTips("") }   // выключил — реквизит сразу убираем
+                }
+                if (tipsOn) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = tipsPhone,
+                            onValueChange = { tipsPhone = it.take(20) },
+                            label = { Text(appText("Номер СБП", "СБП номеры")) },
+                            placeholder = { Text("+7") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        AppButton(
+                            text = appText("Сохранить номер", "Номерҙы һаҡлау"),
+                            onClick = { onSaveTips(tipsPhone) },
+                            style = AppButtonStyle.Secondary,
+                            enabled = tipsPhone.isNotBlank() && tipsPhone != tipsSbp,
+                        )
+                    }
+                }
             }
         }
         item {
@@ -2798,6 +3203,9 @@ internal fun DriverCabinetContent(
                         Spacer(Modifier.width(4.dp))
                         Text(appText("Изменить цену и комментарий", "Хаҡ һәм аңлатма үҙгәртеү"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
+                    // Поездка висит без броней — сервер знает почему: нет фото, не пройдена
+                    // проверка, цена выше средней, нет описания. Молчит, когда всё хорошо.
+                    ride.id.toIntOrNull()?.let { rid -> RideTipsCard(rid) }
                 }
             }
         }
@@ -2982,6 +3390,20 @@ internal fun DriverCabinetContent(
                 }
             }
         }
+        // ─── Чаевые: «спасибо деньгами» после поездки ───
+        // Реквизит показывается пассажиру ТОЛЬКО после завершённой поездки, и только если
+        // водитель сам его указал. Деньги идут напрямую — платформа их не касается.
+        item {
+            SectionHeader(
+                appText("Чаевые", "Аҡса рәхмәте"),
+                appText(
+                    "Пассажир сможет сказать спасибо переводом. Дело добровольное — и его, и твоё.",
+                    "Юлаусы аҡса күсереп рәхмәт әйтә ала. Был ирекле эш — уныҡы ла, һинеке лә.",
+                ),
+            )
+        }
+        item { DriverTipsCard() }
+
         // ─── Архив: прошлые поездки + счётчики (рейсов сделано / пассажиров отвезено) ───
         item {
             SectionHeader(
