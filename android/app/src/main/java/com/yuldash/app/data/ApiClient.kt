@@ -307,11 +307,7 @@ object ApiClient {
     internal fun myUserId(): Int? {
         val t = token ?: return null
         if (t == cachedUserIdForToken) return cachedUserId
-        val id = runCatching {
-            val payload = t.split(".")[1]
-            val json = String(android.util.Base64.decode(payload, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP))
-            JSONObject(json).optString("sub").toIntOrNull()
-        }.getOrNull()
+        val id = parseJwtUserId(t)
         cachedUserId = id
         cachedUserIdForToken = t
         return id
@@ -351,12 +347,12 @@ object ApiClient {
 
     // Персист публичной статики (цены пакетов/буста) в prefs → на холодном старте цены видны
     // мгновенно и работают оффлайн; сеть освежит по TTL. Приватности нет (данные публичные).
-    private fun parseAdPackages(arr: JSONArray): List<AdPackageDto> =
+    internal fun parseAdPackages(arr: JSONArray): List<AdPackageDto> =
         (0 until arr.length()).map { i ->
             val a = arr.getJSONObject(i)
             AdPackageDto(a.optString("code"), a.optString("title"), a.optString("title_ba"), a.optInt("amount_kop"), a.optInt("period_days"))
         }
-    private fun parseBoostPlans(arr: JSONArray): List<BoostPlanDto> =
+    internal fun parseBoostPlans(arr: JSONArray): List<BoostPlanDto> =
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             BoostPlanDto(o.optString("tier"), o.optString("title"), o.optInt("price"), o.optInt("hours"))
@@ -898,36 +894,7 @@ object ApiClient {
     /** Приватные детали брони: телефон и точная встреча открываются только после подтверждения. */
     suspend fun getBookingDetails(bookingId: Int): Result<BookingDetailsDto> =
         call("GET", "/bookings/$bookingId/details", null, auth = true).map { o ->
-            BookingDetailsDto(
-                bookingId = o.optInt("booking_id"),
-                rideId = o.optInt("ride_id"),
-                role = o.optString("role"),
-                status = o.optString("status"),
-                contactUnlocked = o.optBoolean("contact_unlocked"),
-                fromCity = o.optString("from_city"),
-                toCity = o.optString("to_city"),
-                departAt = o.optString("depart_at"),
-                seats = o.optInt("seats", 1),
-                price = o.optInt("price"),
-                payMethod = o.optString("pay_method", "negotiate"),
-                payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
-                driverName = o.optString("driver_name"),
-                driverVerified = o.optBoolean("driver_verified"),
-                driverPhone = o.optString("driver_phone"),
-                driverCar = o.optString("driver_car"),
-                driverPlate = o.optString("driver_plate"),
-                driverCarColor = o.optString("driver_car_color"),
-                minorPassenger = o.optBoolean("minor_passenger"),
-                minorGuardianName = o.optString("minor_guardian_name"),
-                minorGuardianPhone = o.optString("minor_guardian_phone"),
-                pickup = o.optString("pickup"),
-                pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
-                pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),
-                fromLat = if (o.isNull("from_lat")) null else o.optDouble("from_lat"),
-                fromLng = if (o.isNull("from_lng")) null else o.optDouble("from_lng"),
-                toLat = if (o.isNull("to_lat")) null else o.optDouble("to_lat"),
-                toLng = if (o.isNull("to_lng")) null else o.optDouble("to_lng"),
-            )
+            parseBookingDetailsDto(o)
         }
 
     // ---------- Заявки ----------
@@ -990,19 +957,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                RequestDto(
-                    id = o.optInt("id"),
-                    fromCity = o.optString("from_city"),
-                    toCity = o.optString("to_city"),
-                    seats = o.optInt("seats"),
-                    category = o.optString("category"),
-                    withKids = o.optBoolean("with_kids"),
-                    maxPrice = o.optInt("max_price"),
-                    comment = o.optString("comment"),
-                    forRelativeName = o.optString("for_relative_name").ifBlank { null },
-                    status = o.optString("status"),
-                    desiredAt = o.optString("desired_at").ifBlank { null },
-                )
+                parseRequestDto(o)
             }
         }
 
@@ -1098,13 +1053,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                ContactDto(
-                    id = o.optInt("id"),
-                    name = o.optString("name"),
-                    relation = o.optString("relation"),
-                    phone = o.optString("phone"),
-                    notifyByDefault = o.optBoolean("notify_by_default"),
-                )
+                parseContactDto(o)
             }
         }
     }
@@ -1266,24 +1215,7 @@ object ApiClient {
         call("GET", "/requests/feed", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                val pa = o.optJSONArray("prefs")
-                val prefs = if (pa != null) (0 until pa.length()).map { pa.optString(it) } else emptyList()
-                RequestFeedDto(
-                    id = o.optInt("id"), passengerName = o.optString("passenger_name"),
-                    from = o.optString("from_city"), to = o.optString("to_city"),
-                    seats = o.optInt("seats"), comment = o.optString("comment"),
-                    responded = o.optBoolean("responded"), passengerAvatar = o.optString("passenger_avatar"),
-                    prefs = prefs, myResponseId = if (o.isNull("my_response_id")) null else o.optInt("my_response_id"),
-                    detourKm = if (o.isNull("detour_km")) null else o.optInt("detour_km"),
-                    desiredAt = o.optString("desired_at"),
-                    maxPrice = if (o.isNull("max_price")) null else o.optInt("max_price"),
-                    distanceKm = if (o.isNull("distance_km")) null else o.optDouble("distance_km"),
-                    category = o.optString("category", "regular"),
-                    passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
-                    passengerRatingCount = o.optInt("passenger_rating_count"),
-                    passengerVerified = o.optBoolean("passenger_verified"),
-                )
+                parseRequestFeedDto(arr.getJSONObject(i))
             }
         }
 
@@ -1354,25 +1286,7 @@ object ApiClient {
     suspend fun acceptResponse(responseId: Int): Result<Int> =
         call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).map { it.optInt("booking_id") }.onSuccess { Analytics.log("accept_response") }
 
-    private fun JSONObject.toResponseDto() = ResponseDto(
-        id = optInt("id"), driverId = optInt("driver_id"), driverName = optString("driver_name"),
-        driverRating = if (isNull("driver_rating")) null else optDouble("driver_rating"),
-        price = optInt("price"), comment = optString("comment"), status = optString("status"),
-        driverAvatar = optString("driver_avatar"),
-        currentPrice = optInt("current_price"),
-        lastOfferBy = optString("last_offer_by").ifBlank { "driver" },
-        bargainRounds = optInt("bargain_rounds"),
-        canCounter = optBoolean("can_counter"), canAccept = optBoolean("can_accept"),
-        bargainHistory = optString("bargain_history"),
-        driverVerified = optBoolean("driver_verified"),
-        driverTripsCount = optInt("driver_trips_count"),
-        driverCar = optString("driver_car"),
-        requestFromCity = optString("request_from_city"),
-        requestToCity = optString("request_to_city"),
-        requestSeats = optInt("request_seats"),
-        requestMaxPrice = optInt("request_max_price"),
-        requestDesiredAt = optString("request_desired_at").ifBlank { null },
-    )
+
 
     /** Водитель отзывает свой отклик — пока пассажир его не принял (после accept сервер вернёт 409). */
     suspend fun deleteResponse(responseId: Int): Result<Unit> =
@@ -1384,9 +1298,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                PendingDriverDto(o.optInt("user_id"), o.optString("name"), o.optString("phone"), o.optString("car"), o.optString("license_url"), o.optString("car_photo_url"),
-                    o.optString("autocheck_result"), o.optDouble("autocheck_score", 0.0), o.optString("autocheck_data"),
-                    o.optString("gender_claimed"), o.optBoolean("gender_verified"))
+                parsePendingDriverDto(o)
             }
         }
 
@@ -1417,14 +1329,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                AdminReportDto(
-                    o.optInt("id"), o.optString("reporter_name"), o.optString("target_name"),
-                    o.optString("target_phone"), o.optString("reason"), o.optString("created_at"),
-                    category = o.optString("category", "other"),
-                    status = o.optString("status", "new"),
-                    resolution = if (o.isNull("resolution")) "" else o.optString("resolution"),
-                    targetUserId = o.optInt("target_user_id"),
-                )
+                parseAdminReportDto(o)
             }
         }
 
@@ -1455,7 +1360,7 @@ object ApiClient {
     suspend fun getReportableUsers(): Result<List<ReportableUserDto>> =
         call("GET", "/reportable-users", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i -> val o = arr.getJSONObject(i); ReportableUserDto(o.optInt("id"), o.optString("name")) }
+            (0 until arr.length()).map { i -> parseReportableUserDto(arr.getJSONObject(i)) }
         }
 
     /** Отзыв о приложении (идёт на лендинг после модерации published). */
@@ -1472,7 +1377,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                ReviewItem(o.optInt("id"), o.optString("name"), o.optString("city"), o.optInt("stars", 5), o.optString("text"))
+                parseReviewItem(o)
             }
         }
 
@@ -1496,19 +1401,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                BookingMineDto(
-                    id = o.optInt("id"),
-                    rideId = o.optInt("ride_id"),
-                    seats = o.optInt("seats", 1),
-                    price = o.optInt("price"),
-                    status = o.optString("status"),
-                    boardingCode = o.optString("boarding_code"),
-                    fromCity = o.optString("from_city"),
-                    toCity = o.optString("to_city"),
-                    departAt = o.optString("depart_at"),
-                    driverName = o.optString("driver_name"),
-                    driverVerified = o.optBoolean("driver_verified"),
-                )
+                parseBookingMineDto(o)
             }
         }
 
@@ -1636,23 +1529,7 @@ object ApiClient {
     /** Текущий статус проверки водителя. */
     suspend fun getDriverStatus(): Result<DriverStatusDto> =
         call("GET", "/driver/status", null, auth = true).map { o ->
-            DriverStatusDto(
-                docsStatus = o.optString("docs_status", "none"),
-                verified = o.optBoolean("verified"),
-                carMake = o.optString("car_make"),
-                carModel = o.optString("car_model"),
-                carColor = o.optString("car_color"),
-                carPlate = o.optString("car_plate"),
-                seats = o.optInt("seats", 4),
-                licenseUrl = o.optString("license_url"),
-                carPhotoUrl = o.optString("car_photo_url"),
-                online = o.optBoolean("online"),
-                gender = o.optString("gender"),
-                genderVerified = o.optBoolean("gender_verified"),
-                tipsSbp = o.optString("tips_sbp"),
-                autocheckResult = o.optString("autocheck_result"),
-                autocheckData = o.optString("autocheck_data"),
-            )
+            parseDriverStatusDto(o)
         }
 
     /** Водитель: я на линии (доступен сейчас) / не на линии. */
@@ -1670,14 +1547,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                DriverBookingDto(
-                    bookingId = o.optInt("booking_id"),
-                    passengerName = o.optString("passenger_name"),
-                    passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
-                    route = o.optString("route"),
-                    status = o.optString("status"),
-                    myStars = o.optInt("my_stars"),
-                )
+                parseDriverBookingDto(o)
             }
         }
 
@@ -1734,7 +1604,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                ConversationDto(o.optInt("booking_id"), o.optString("peer_name"), o.optString("route"), o.optString("last_message"), o.optString("peer_avatar"), o.optString("depart_at").ifBlank { null }, o.optBoolean("peer_verified"))
+                parseConversationDto(o)
             }
         }
 
@@ -1744,7 +1614,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                PopularRouteDto(o.optString("from_city"), o.optString("to_city"), o.optInt("count"))
+                parsePopularRouteDto(o)
             }
         }
     }
@@ -1755,7 +1625,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                PopularRouteDto(o.optString("from_city"), o.optString("to_city"), o.optInt("count"))
+                parsePopularRouteDto(o)
             }
         }
     }
@@ -1763,18 +1633,7 @@ object ApiClient {
     // Живая лента карты: счётчики поездок за период + топ-маршрут недели (из реальных данных).
     suspend fun getFeed(): Result<FeedDto> = cachedGet("feed", TTL_FEED) {
         call("GET", "/feed", null, auth = false).map { o ->
-            val tr = o.optJSONObject("top_route")
-            FeedDto(
-                today = o.optInt("today"),
-                week = o.optInt("week"),
-                month = o.optInt("month"),
-                year = o.optInt("year"),
-                drivers = o.optInt("drivers"),
-                topFrom = tr?.optString("from_city").orEmpty(),
-                topTo = tr?.optString("to_city").orEmpty(),
-                topCount = tr?.optInt("count") ?: 0,
-                donationsTotal = o.optInt("donations_total")
-            )
+            parseFeedDto(o)
         }
     }
 
@@ -1784,16 +1643,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             val items = (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                NotifDto(
-                    id = o.optInt("id"),
-                    type = o.optString("type"),
-                    titleRu = o.optString("title_ru"), titleBa = o.optString("title_ba"),
-                    bodyRu = o.optString("body_ru"), bodyBa = o.optString("body_ba"),
-                    refKind = o.optString("ref_kind"),
-                    refId = if (o.isNull("ref_id")) null else o.optInt("ref_id"),
-                    read = o.optBoolean("read"),
-                    createdAt = o.optString("created_at"),
-                )
+                parseNotifDto(o)
             }
             NotifFeed(unread = obj.optInt("unread"), items = items)
         }
@@ -1992,16 +1842,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                val pl = o.optJSONArray("placements")
-                AdDto(
-                    o.optString("id"), o.optString("title"), o.optString("text"), o.optString("button"), o.optString("erid"), o.optString("placement"),
-                    partner = o.optString("partner"), contact = o.optString("contact"), target = o.optString("target"),
-                    image = o.optString("image"), city = o.optString("city"),
-                    // Старый сервер массива не отдаёт — тогда падаем на одиночное `placement`,
-                    // чтобы объявление всё же где-то показалось, а не пропало совсем.
-                    placements = if (pl != null) (0 until pl.length()).map { j -> pl.getString(j) }
-                                 else listOfNotNull(o.optString("placement").takeIf { p -> p.isNotBlank() }),
-                )
+                parseAdDto(o)
             }
         }
 
@@ -2030,28 +1871,7 @@ object ApiClient {
             val arr = o.optJSONArray("items") ?: JSONArray()
             val items = (0 until arr.length()).map { i ->
                 val a = arr.getJSONObject(i)
-                val pls = a.optJSONArray("placements")
-                val placements = if (pls != null) (0 until pls.length()).joinToString(",") { pls.optString(it) } else ""
-                val cts = a.optJSONArray("cities")
-                val cities = if (cts != null) (0 until cts.length()).joinToString(",") { cts.optString(it) } else ""
-                AdminAdDto(
-                    id = a.optString("id"),
-                    partner = a.optString("partner"),
-                    title = a.optString("title"),
-                    text = a.optString("text"),
-                    plan = a.optString("plan"),
-                    status = a.optString("status"),
-                    placements = placements,
-                    erid = a.optString("erid"),
-                    endsAt = a.optString("ends_at").ifBlank { null },
-                    live = a.optBoolean("live"),
-                    expired = a.optBoolean("expired"),
-                    button = a.optString("button"),
-                    target = a.optString("target"),
-                    cities = cities,
-                    rejectReason = a.optString("reject_reason"),
-                    ownerId = if (a.isNull("owner_id")) null else a.optInt("owner_id"),
-                )
+                parseAdminAdDto(a)
             }
             AdminAdsDto(o.optInt("founder_used"), o.optInt("founder_limit", 10), items)
         }
@@ -2101,7 +1921,7 @@ object ApiClient {
         call("DELETE", "/admin/ads/$id", null, auth = true).map { }
 
     // ---------- Реклама: кабинет ПАРТНЁРА (self-serve) ----------
-    private fun parseMyAd(a: JSONObject): MyAdDto {
+    internal fun parseMyAd(a: JSONObject): MyAdDto {
         fun arrCsv(key: String): String {
             val arr = a.optJSONArray(key) ?: return ""
             return (0 until arr.length()).joinToString(",") { arr.optString(it) }
@@ -2357,17 +2177,7 @@ object ApiClient {
     /** Создать платёж за поднятие поездки. Возврат: статус + реквизиты СБП / ссылка ЮKassa. */
     suspend fun createBoost(rideId: Int, tier: String): Result<BoostResultDto> =
         call("POST", "/boost/create", JSONObject().put("ride_id", rideId).put("tier", tier), auth = true).map { o ->
-            val payee = o.optJSONObject("payee")
-            BoostResultDto(
-                status = o.optString("status"),
-                method = o.optString("method"),
-                paymentId = o.optInt("payment_id"),
-                amount = o.optInt("amount"),
-                confirmationUrl = o.optString("confirmation_url").ifBlank { null },
-                payeePhone = payee?.optString("phone")?.ifBlank { null },
-                payeeBank = payee?.optString("bank")?.ifBlank { null },
-                payeeName = payee?.optString("name")?.ifBlank { null },
-            )
+            parseBoostResultDto(o)
         }
 
     /**
@@ -2377,15 +2187,7 @@ object ApiClient {
      */
     suspend fun supportDonate(amountKop: Int): Result<BoostResultDto> =
         call("POST", "/support/donate", JSONObject().put("amount_kop", amountKop), auth = true).map { o ->
-            val payee = o.optJSONObject("payee")
-            BoostResultDto(
-                status = o.optString("status"), method = o.optString("method"),
-                paymentId = o.optInt("payment_id"), amount = o.optInt("amount"),
-                confirmationUrl = o.optString("confirmation_url").ifBlank { null },
-                payeePhone = payee?.optString("phone")?.ifBlank { null },
-                payeeBank = payee?.optString("bank")?.ifBlank { null },
-                payeeName = payee?.optString("name")?.ifBlank { null },
-            )
+            parseBoostResultDto(o)
         }
 
     /** Статус СВОЕГО платежа — клиент поллит после возврата из браузера ЮKassa (ON_RESUME экрана).
@@ -2403,15 +2205,7 @@ object ApiClient {
     /** Донат на платформу (интерим СБП): создаёт заявку на подтверждение, возвращает реквизиты (как boost). */
     suspend fun createDonation(amount: Int): Result<BoostResultDto> =
         call("POST", "/donate", JSONObject().put("amount", amount), auth = true).map { o ->
-            val payee = o.optJSONObject("payee")
-            BoostResultDto(
-                status = o.optString("status"), method = o.optString("method"),
-                paymentId = o.optInt("payment_id"), amount = o.optInt("amount"),
-                confirmationUrl = o.optString("confirmation_url").ifBlank { null },
-                payeePhone = payee?.optString("phone")?.ifBlank { null },
-                payeeBank = payee?.optString("bank")?.ifBlank { null },
-                payeeName = payee?.optString("name")?.ifBlank { null },
-            )
+            parseBoostResultDto(o)
         }
 
     // ---------- Админ: заявки на оплату (буст/донат на подтверждение) ----------
@@ -2420,11 +2214,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                PendingPaymentDto(
-                    o.optInt("payment_id"), o.optString("purpose"), o.optString("tier"),
-                    o.optInt("amount"), if (o.isNull("ride_id")) null else o.optInt("ride_id"),
-                    o.optString("payer_name"), o.optString("payer_phone"), o.optString("created_at"), o.optString("note"),
-                )
+                parsePendingPaymentDto(o)
             }
         }
 
@@ -2436,9 +2226,7 @@ object ApiClient {
 
     suspend fun getPaymentsSummary(): Result<PaymentsSummaryDto> =
         call("GET", "/admin/payments/summary", null, auth = true).map { o ->
-            val d = o.optJSONObject("donate") ?: JSONObject()
-            val b = o.optJSONObject("boost") ?: JSONObject()
-            PaymentsSummaryDto(d.optInt("count"), d.optInt("sum_rub"), b.optInt("count"), b.optInt("sum_rub"))
+            parsePaymentsSummaryDto(o)
         }
 
     // ---------- Долг по комиссии за такси (Модель А «на доверии») ----------
@@ -6331,7 +6119,7 @@ private fun JSONObject.toPickupPointDto() = PickupPointDto(
 
 /** JSON поездки с сервера → RideDto. Один шов вместо копипасты в getRides/getNearbyRides.
  *  distance_km нет в /rides → isNull(...) = null; есть в /rides/near → читаем. */
-private fun JSONObject.toRideDto() = RideDto(
+internal fun JSONObject.toRideDto() = RideDto(
     id = optInt("id"),
     fromCity = optString("from_city"),
     toCity = optString("to_city"),
@@ -6394,7 +6182,7 @@ private fun JSONObject.toSeasonalEventDto() = SeasonalEventDto(
     active = optBoolean("active", false),
 )
 
-private fun JSONObject.toRequestNearDto() = RequestNearDto(
+internal fun JSONObject.toRequestNearDto() = RequestNearDto(
     id = optInt("id"),
     passengerName = optString("passenger_name").ifBlank { "Пассажир" },
     fromCity = optString("from_city"),
@@ -6745,6 +6533,300 @@ data class MessageDto(
     val fromAdmin: Boolean = false,  // официальность (B8-9): бейдж «Юлдаш ✓» у сообщений админа/системы
 )
 
+/** Диалог в инбоксе: бронь, с кем и последнее сообщение. */
+internal fun parseConversationDto(o: JSONObject): ConversationDto {
+    return ConversationDto(o.optInt("booking_id"), o.optString("peer_name"), o.optString("route"), o.optString("last_message"), o.optString("peer_avatar"), o.optString("depart_at").ifBlank { null }, o.optBoolean("peer_verified"))
+}
+
+/** Отзыв, ждущий модерации. */
+internal fun parseReviewItem(o: JSONObject): ReviewItem {
+    return ReviewItem(o.optInt("id"), o.optString("name"), o.optString("city"), o.optInt("stars", 5), o.optString("text"))
+}
+
+/** Водитель, ждущий проверки документов. */
+internal fun parsePendingDriverDto(o: JSONObject): PendingDriverDto {
+    return PendingDriverDto(o.optInt("user_id"), o.optString("name"), o.optString("phone"), o.optString("car"), o.optString("license_url"), o.optString("car_photo_url"),
+        o.optString("autocheck_result"), o.optDouble("autocheck_score", 0.0), o.optString("autocheck_data"),
+        o.optString("gender_claimed"), o.optBoolean("gender_verified"))
+}
+
+/** Жалоба в кабинете админа. */
+internal fun parseAdminReportDto(o: JSONObject): AdminReportDto {
+    return AdminReportDto(
+        o.optInt("id"), o.optString("reporter_name"), o.optString("target_name"),
+        o.optString("target_phone"), o.optString("reason"), o.optString("created_at"),
+        category = o.optString("category", "other"),
+        status = o.optString("status", "new"),
+        resolution = if (o.isNull("resolution")) "" else o.optString("resolution"),
+        targetUserId = o.optInt("target_user_id"),
+    )
+}
+
+/** Доверенный контакт — кому уходит SOS. */
+internal fun parseContactDto(o: JSONObject): ContactDto {
+    return ContactDto(
+        id = o.optInt("id"),
+        name = o.optString("name"),
+        relation = o.optString("relation"),
+        phone = o.optString("phone"),
+        notifyByDefault = o.optBoolean("notify_by_default"),
+    )
+}
+
+/** Уведомление в списке. */
+internal fun parseNotifDto(o: JSONObject): NotifDto {
+    return NotifDto(
+        id = o.optInt("id"),
+        type = o.optString("type"),
+        titleRu = o.optString("title_ru"), titleBa = o.optString("title_ba"),
+        bodyRu = o.optString("body_ru"), bodyBa = o.optString("body_ba"),
+        refKind = o.optString("ref_kind"),
+        refId = if (o.isNull("ref_id")) null else o.optInt("ref_id"),
+        read = o.optBoolean("read"),
+        createdAt = o.optString("created_at"),
+    )
+}
+
+/** Бронь глазами водителя. */
+internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
+    return DriverBookingDto(
+        bookingId = o.optInt("booking_id"),
+        passengerName = o.optString("passenger_name"),
+        passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
+        route = o.optString("route"),
+        status = o.optString("status"),
+        myStars = o.optInt("my_stars"),
+    )
+}
+
+/** Моя бронь в списке поездок. */
+internal fun parseBookingMineDto(o: JSONObject): BookingMineDto {
+    return BookingMineDto(
+        id = o.optInt("id"),
+        rideId = o.optInt("ride_id"),
+        seats = o.optInt("seats", 1),
+        price = o.optInt("price"),
+        status = o.optString("status"),
+        boardingCode = o.optString("boarding_code"),
+        fromCity = o.optString("from_city"),
+        toCity = o.optString("to_city"),
+        departAt = o.optString("depart_at"),
+        driverName = o.optString("driver_name"),
+        driverVerified = o.optBoolean("driver_verified"),
+    )
+}
+
+/** Заявка пассажира «ищу попутку». */
+internal fun parseRequestDto(o: JSONObject): RequestDto {
+    return RequestDto(
+        id = o.optInt("id"),
+        fromCity = o.optString("from_city"),
+        toCity = o.optString("to_city"),
+        seats = o.optInt("seats"),
+        category = o.optString("category"),
+        withKids = o.optBoolean("with_kids"),
+        maxPrice = o.optInt("max_price"),
+        comment = o.optString("comment"),
+        forRelativeName = o.optString("for_relative_name").ifBlank { null },
+        status = o.optString("status"),
+        desiredAt = o.optString("desired_at").ifBlank { null },
+    )
+}
+
+/** Платёж, ждущий подтверждения админом. */
+internal fun parsePendingPaymentDto(o: JSONObject): PendingPaymentDto {
+    return PendingPaymentDto(
+        o.optInt("payment_id"), o.optString("purpose"), o.optString("tier"),
+        o.optInt("amount"), if (o.isNull("ride_id")) null else o.optInt("ride_id"),
+        o.optString("payer_name"), o.optString("payer_phone"), o.optString("created_at"), o.optString("note"),
+    )
+}
+
+/** Полная карточка брони. */
+internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
+    return BookingDetailsDto(
+        bookingId = o.optInt("booking_id"),
+        rideId = o.optInt("ride_id"),
+        role = o.optString("role"),
+        status = o.optString("status"),
+        contactUnlocked = o.optBoolean("contact_unlocked"),
+        fromCity = o.optString("from_city"),
+        toCity = o.optString("to_city"),
+        departAt = o.optString("depart_at"),
+        seats = o.optInt("seats", 1),
+        price = o.optInt("price"),
+        payMethod = o.optString("pay_method", "negotiate"),
+        payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
+        driverName = o.optString("driver_name"),
+        driverVerified = o.optBoolean("driver_verified"),
+        driverPhone = o.optString("driver_phone"),
+        driverCar = o.optString("driver_car"),
+        driverPlate = o.optString("driver_plate"),
+        driverCarColor = o.optString("driver_car_color"),
+        minorPassenger = o.optBoolean("minor_passenger"),
+        minorGuardianName = o.optString("minor_guardian_name"),
+        minorGuardianPhone = o.optString("minor_guardian_phone"),
+        pickup = o.optString("pickup"),
+        pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
+        pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),
+        fromLat = if (o.isNull("from_lat")) null else o.optDouble("from_lat"),
+        fromLng = if (o.isNull("from_lng")) null else o.optDouble("from_lng"),
+        toLat = if (o.isNull("to_lat")) null else o.optDouble("to_lat"),
+        toLng = if (o.isNull("to_lng")) null else o.optDouble("to_lng"),
+    )
+}
+
+/** Статус водителя: документы, машина, допуск. */
+internal fun parseDriverStatusDto(o: JSONObject): DriverStatusDto {
+    return DriverStatusDto(
+        docsStatus = o.optString("docs_status", "none"),
+        verified = o.optBoolean("verified"),
+        carMake = o.optString("car_make"),
+        carModel = o.optString("car_model"),
+        carColor = o.optString("car_color"),
+        carPlate = o.optString("car_plate"),
+        seats = o.optInt("seats", 4),
+        licenseUrl = o.optString("license_url"),
+        carPhotoUrl = o.optString("car_photo_url"),
+        online = o.optBoolean("online"),
+        gender = o.optString("gender"),
+        genderVerified = o.optBoolean("gender_verified"),
+        tipsSbp = o.optString("tips_sbp"),
+        autocheckResult = o.optString("autocheck_result"),
+        autocheckData = o.optString("autocheck_data"),
+    )
+}
+
+/** Живая лента карты: счётчики и топ-маршрут. */
+internal fun parseFeedDto(o: JSONObject): FeedDto {
+    val tr = o.optJSONObject("top_route")
+    return FeedDto(
+        today = o.optInt("today"),
+        week = o.optInt("week"),
+        month = o.optInt("month"),
+        year = o.optInt("year"),
+        drivers = o.optInt("drivers"),
+        topFrom = tr?.optString("from_city").orEmpty(),
+        topTo = tr?.optString("to_city").orEmpty(),
+        topCount = tr?.optInt("count") ?: 0,
+        donationsTotal = o.optInt("donations_total")
+    )
+}
+
+/** Сводка платежей в кабинете админа. */
+internal fun parsePaymentsSummaryDto(o: JSONObject): PaymentsSummaryDto {
+    val d = o.optJSONObject("donate") ?: JSONObject()
+    val b = o.optJSONObject("boost") ?: JSONObject()
+    return PaymentsSummaryDto(d.optInt("count"), d.optInt("sum_rub"), b.optInt("count"), b.optInt("sum_rub"))
+}
+
+/** Рекламное объявление для показа человеку. */
+internal fun parseAdDto(o: JSONObject): AdDto {
+    val pl = o.optJSONArray("placements")
+    return AdDto(
+        o.optString("id"), o.optString("title"), o.optString("text"), o.optString("button"), o.optString("erid"), o.optString("placement"),
+        partner = o.optString("partner"), contact = o.optString("contact"), target = o.optString("target"),
+        image = o.optString("image"), city = o.optString("city"),
+        // Старый сервер массива не отдаёт — тогда падаем на одиночное `placement`,
+        // чтобы объявление всё же где-то показалось, а не пропало совсем.
+        placements = if (pl != null) (0 until pl.length()).map { j -> pl.getString(j) }
+                     else listOfNotNull(o.optString("placement").takeIf { p -> p.isNotBlank() }),
+    )
+}
+
+/** Заявка в ленте водителя. */
+internal fun parseRequestFeedDto(o: JSONObject): RequestFeedDto {
+    val pa = o.optJSONArray("prefs")
+    val prefs = if (pa != null) (0 until pa.length()).map { pa.optString(it) } else emptyList()
+    return RequestFeedDto(
+        id = o.optInt("id"), passengerName = o.optString("passenger_name"),
+        from = o.optString("from_city"), to = o.optString("to_city"),
+        seats = o.optInt("seats"), comment = o.optString("comment"),
+        responded = o.optBoolean("responded"), passengerAvatar = o.optString("passenger_avatar"),
+        prefs = prefs, myResponseId = if (o.isNull("my_response_id")) null else o.optInt("my_response_id"),
+        detourKm = if (o.isNull("detour_km")) null else o.optInt("detour_km"),
+        desiredAt = o.optString("desired_at"),
+        maxPrice = if (o.isNull("max_price")) null else o.optInt("max_price"),
+        distanceKm = if (o.isNull("distance_km")) null else o.optDouble("distance_km"),
+        category = o.optString("category", "regular"),
+        passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
+        passengerRatingCount = o.optInt("passenger_rating_count"),
+        passengerVerified = o.optBoolean("passenger_verified"),
+    )
+}
+
+internal fun JSONObject.toResponseDto() = ResponseDto(
+    id = optInt("id"), driverId = optInt("driver_id"), driverName = optString("driver_name"),
+    driverRating = if (isNull("driver_rating")) null else optDouble("driver_rating"),
+    price = optInt("price"), comment = optString("comment"), status = optString("status"),
+    driverAvatar = optString("driver_avatar"),
+    currentPrice = optInt("current_price"),
+    lastOfferBy = optString("last_offer_by").ifBlank { "driver" },
+    bargainRounds = optInt("bargain_rounds"),
+    canCounter = optBoolean("can_counter"), canAccept = optBoolean("can_accept"),
+    bargainHistory = optString("bargain_history"),
+    driverVerified = optBoolean("driver_verified"),
+    driverTripsCount = optInt("driver_trips_count"),
+    driverCar = optString("driver_car"),
+    requestFromCity = optString("request_from_city"),
+    requestToCity = optString("request_to_city"),
+    requestSeats = optInt("request_seats"),
+    requestMaxPrice = optInt("request_max_price"),
+    requestDesiredAt = optString("request_desired_at").ifBlank { null },
+)
+
+/** Поднятие/донат: статус платежа и реквизиты для перевода. */
+internal fun parseBoostResultDto(o: JSONObject): BoostResultDto {
+    val payee = o.optJSONObject("payee")
+    return BoostResultDto(
+        status = o.optString("status"),
+        method = o.optString("method"),
+        paymentId = o.optInt("payment_id"),
+        amount = o.optInt("amount"),
+        confirmationUrl = o.optString("confirmation_url").ifBlank { null },
+        payeePhone = payee?.optString("phone")?.ifBlank { null },
+        payeeBank = payee?.optString("bank")?.ifBlank { null },
+        payeeName = payee?.optString("name")?.ifBlank { null },
+    )
+}
+
+/** Популярный маршрут: откуда, куда и сколько раз ездили. */
+internal fun parsePopularRouteDto(o: JSONObject): PopularRouteDto =
+    PopularRouteDto(o.optString("from_city"), o.optString("to_city"), o.optInt("count"))
+
+/** Человек, на которого можно пожаловаться. */
+internal fun parseReportableUserDto(o: JSONObject): ReportableUserDto =
+    ReportableUserDto(o.optInt("id"), o.optString("name"))
+
+/** Отклик водителя на заявку пассажира: цена, торг и доверие. */
+internal fun parseResponseDto(o: JSONObject): ResponseDto = o.toResponseDto()
+
+/** Объявление в кабинете админа: списки размещений и городов приходят массивами. */
+internal fun parseAdminAdDto(a: JSONObject): AdminAdDto {
+            val pls = a.optJSONArray("placements")
+            val placements = if (pls != null) (0 until pls.length()).joinToString(",") { pls.optString(it) } else ""
+            val cts = a.optJSONArray("cities")
+            val cities = if (cts != null) (0 until cts.length()).joinToString(",") { cts.optString(it) } else ""
+            return AdminAdDto(
+                id = a.optString("id"),
+                partner = a.optString("partner"),
+                title = a.optString("title"),
+                text = a.optString("text"),
+                plan = a.optString("plan"),
+                status = a.optString("status"),
+                placements = placements,
+                erid = a.optString("erid"),
+                endsAt = a.optString("ends_at").ifBlank { null },
+                live = a.optBoolean("live"),
+                expired = a.optBoolean("expired"),
+                button = a.optString("button"),
+                target = a.optString("target"),
+                cities = cities,
+                rejectReason = a.optString("reject_reason"),
+                ownerId = if (a.isNull("owner_id")) null else a.optInt("owner_id"),
+            )
+}
+
 internal fun parseMessageDto(o: JSONObject): MessageDto =
     MessageDto(
         id = o.optInt("id"),
@@ -6756,6 +6838,23 @@ internal fun parseMessageDto(o: JSONObject): MessageDto =
         flag = o.optString("flag"),
         fromAdmin = o.optBoolean("from_admin"),
     )
+
+/**
+ * Мой user_id из токена (поле `sub`). Кривой токен или не-число — `null`, без падения.
+ *
+ * Отдельной функцией, а не внутри класса, по одной причине: так её видит тест. Раньше
+ * разбор жил внутри `myUserId()` и опирался на `android.util.Base64` — а он часть Android,
+ * и в тестах на компьютере это пустышка, которая всегда отдаёт null. Проверить было нечем,
+ * хотя ошибка тут означала бы, что человек видит СВОИ сообщения в чате как чужие.
+ * `java.util.Base64` есть с Android 8, у нас minSdk 26 — работает и в приложении, и в тесте.
+ */
+internal fun parseJwtUserId(token: String): Int? = runCatching {
+    val payload = token.split(".").getOrNull(1) ?: return null
+    val pad = (4 - payload.length % 4) % 4          // JWT пишут без хвостовых «=», добавляем обратно
+    val normalized = payload + "=".repeat(pad)
+    val json = String(java.util.Base64.getUrlDecoder().decode(normalized), Charsets.UTF_8)
+    JSONObject(json).optString("sub").toIntOrNull()
+}.getOrNull()
 
 private fun JSONObject.optNullableString(key: String): String? {
     return normalizeOptionalJsonString(

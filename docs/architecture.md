@@ -3,6 +3,31 @@
 > Чтобы НЕ читать весь файл. Иди сразу в нужный ФАЙЛ (UI давно разрезан), `grep` по имени функции.
 > ⚠️ Числа строк ниже устарели — ищи через `grep`/`rg`. Актуальная карта файлов — сразу ниже.
 
+## ⭐ Разбор ответов сервера — отдельные функции внизу `ApiClient.kt` (2026-09-05)
+
+Раньше разбор JSON жил внутри сетевых методов и был непроверяем: тест не умеет ходить в сеть.
+Теперь каждый ответ разбирает функция верхнего уровня — её зовут и метод, и тест.
+
+Все они в конце `android/…/data/ApiClient.kt`, ищи по `internal fun parse`:
+
+| Функция | Что разбирает |
+|---|---|
+| `parseJwtUserId` | мой id из токена — по нему чат отличает свои сообщения от чужих |
+| `parseAdDto`, `parseAdminAdDto`, `parseMyAd` | рекламу: показ человеку и кабинет админа |
+| `parseBoostResultDto` | платёж за поднятие/донат/поддержку — один на все три случая |
+| `parseBookingDetailsDto`, `parseBookingMineDto`, `parseDriverBookingDto` | брони: полная карточка, моя, глазами водителя |
+| `parseRequestDto`, `parseRequestFeedDto`, `parseResponseDto` | заявки пассажира и отклики водителей |
+| `parseDriverStatusDto`, `parsePendingDriverDto` | допуск водителя и очередь на проверку |
+| `parseNotifDto`, `parseConversationDto`, `parseMessageDto` | уведомления и чаты |
+| `parseContactDto` | доверенные контакты — кому уходит SOS |
+| `parsePendingPaymentDto`, `parsePaymentsSummaryDto` | платежи в кабинете админа |
+| `parseFeedDto`, `parsePopularRouteDto` | живая лента карты и популярные маршруты |
+| `parseAdminReportDto`, `parseReportableUserDto`, `parseReviewItem` | жалобы и отзывы |
+| `toRideDto`, `toRequestNearDto` | поездки и заявки рядом (были и раньше, теперь открыты тесту) |
+
+Проверяет их `android/app/src/test/java/com/yuldash/app/ApiParsingTest.kt` — 19 тестов,
+каждый кормит функцию готовым JSON и сверяет результат.
+
 ## ⭐ Приоритет, ночная надбавка и курьер по правилам такси (2026-08-28, вечер)
 
 **`backend/app/priority.py`** (новый) — кому заказ достаётся первым.

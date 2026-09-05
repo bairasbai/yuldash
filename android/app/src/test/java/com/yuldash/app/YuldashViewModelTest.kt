@@ -176,4 +176,50 @@ class YuldashViewModelTest {
         assertTrue(vm.navPopping.value)
         assertEquals(Screen.Home, vm.navPrev.value)
     }
+
+    @Test
+    fun persistNavCanBeCalledRepeatedlyAfterNavigationChanges() {
+        val saved = SavedStateHandle()
+        val vm = YuldashViewModel(saved)
+
+        vm.screen.value = Screen.Login
+        vm.language.value = AppLanguage.Ru
+        vm.startHomeTab.value = HomeTab.Map
+        vm.persistNav()
+
+        vm.screen.value = Screen.Settings
+        vm.language.value = AppLanguage.Ba
+        vm.startHomeTab.value = HomeTab.Profile
+        vm.persistNav()
+
+        assertEquals(Screen.Settings.name, saved.get<String>("yuldash_screen"))
+        assertEquals(AppLanguage.Ba.name, saved.get<String>("yuldash_lang"))
+        assertEquals(HomeTab.Profile.name, saved.get<String>("yuldash_tab"))
+    }
+
+    @Test
+    fun adStatsAreInitializedForEveryDemoPartnerAd() {
+        val vm = YuldashViewModel(SavedStateHandle())
+
+        assertEquals(demoPartnerAds.map { it.id }.toSet(), vm.adStats.keys)
+        assertTrue(vm.adStats.values.all { it.impressions == 0 && it.clicks == 0 })
+    }
+
+    @Test
+    fun selectingRideDoesNotMutateRidesList() {
+        // Лента начинается ПУСТОЙ — это решение main: демо-поездки на карте вели к брони,
+        // которая всё равно не проходила. Поэтому поездки для проверки кладём сами.
+        val vm = YuldashViewModel(SavedStateHandle())
+        assertTrue("лента поездок должна начинаться пустой", vm.rides.isEmpty())
+        vm.rides.addAll(demoRides)
+        val before = vm.rides.toList()
+
+        vm.selectedRide.value = vm.rides.last()
+        vm.activeTrip.value = vm.rides.first()
+
+        // Выбор поездки — это чтение, а не правка: список обязан остаться прежним.
+        assertEquals(before, vm.rides.toList())
+        assertEquals(before.last(), vm.selectedRide.value)
+        assertEquals(before.first(), vm.activeTrip.value)
+    }
 }
