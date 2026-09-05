@@ -45,6 +45,8 @@ const SUITES = [
   { test: "privacy-guard-test", src: null, out: null, bundle: false },
   // Состояния экрана: пустое ведёт, у загрузки есть ошибка, у ошибки — повтор.
   { test: "states-test", src: null, out: null, bundle: false },
+  // Движение: приложение, PWA и сайт на одной шкале — числа сверяются, сырых нет.
+  { test: "motion-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.

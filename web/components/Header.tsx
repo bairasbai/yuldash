@@ -89,7 +89,7 @@ export function Header() {
     >
       <div className="mx-auto mt-3 max-w-6xl px-3 sm:px-4">
         <div
-          className={`flex items-center justify-between gap-4 rounded-full px-4 py-2.5 transition-all duration-300 ${
+          className={`flex items-center justify-between gap-4 rounded-full px-4 py-2.5 transition-all duration-slow ${
             scrolled
               ? "glass shadow-[0_10px_40px_-20px_rgba(0,0,0,0.7)]"
               : "border border-transparent bg-transparent"

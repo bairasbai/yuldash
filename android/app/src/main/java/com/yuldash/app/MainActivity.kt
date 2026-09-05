@@ -269,10 +269,14 @@ class MainActivity : ComponentActivity() {
         if (prefs.contains("dark_override")) ThemePrefs.darkOverride = prefs.getBoolean("dark_override", false)
         FontScalePrefs.load(this)   // «Крупный шрифт»: восстановить выбранный размер текста (yuldash_prefs)
         // «Удалить анимации» в спец.возможностях Android — это не каприз: вестибулярные
-        // нарушения, мигрень, укачивание. Читаем системный выключатель ОДИН раз при старте
-        // и гасим длительности во всём приложении (CanonMotion). Ноль означает «сразу
-        // конечное состояние»: карточки и экраны не перестают появляться, появляются мгновенно.
-        // Настройку меняют редко и с перезапуском — читать её на каждый кадр незачем.
+        // нарушения, мигрень, укачивание.
+        // ВАЖНО: сами анимации Compose эту настройку уже уважает — конечные досрочно
+        // завершает, бесконечные усыпляет (разбор со ссылками на исходники — в KDoc
+        // CanonMotion.enabled). Наш флаг нужен движению, которое Compose анимацией НЕ считает:
+        // своим таймлайнам на delay(), как ролик заставки (IntroScreen читает этот же флаг).
+        // Заодно он обнуляет ступени шкалы — так поведение остаётся предсказуемым и
+        // проверяемым тестом, не зависящим от версии Compose.
+        // Читаем ОДИН раз при старте: настройку меняют редко и с перезапуском приложения.
         CanonMotion.enabled = runCatching {
             android.provider.Settings.Global.getFloat(
                 contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f,
@@ -873,8 +877,11 @@ internal fun Modifier.bounceClick(onClick: () -> Unit): Modifier {
 @Composable
 internal fun Modifier.appearIn(index: Int = 0): Modifier {
     var shown by remember { mutableStateOf(false) }
-    val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(CanonMotion.SLOW, delayMillis = index * 55), label = "appearAlpha")
-    val ty by animateFloatAsState(if (shown) 0f else 40f, tween(CanonMotion.SLOW, delayMillis = index * 55), label = "appearY")
+    // Каскад — со шкалы (CanonMotion.cascadeIn), а не «индекс × 55». Своё число тут пряталось
+    // за именем переменной и потому пережило первую версию сторожа; заодно шкала ставит потолок,
+    // и хвост длинного списка больше не ждёт почти секунду.
+    val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(CanonMotion.SLOW, delayMillis = CanonMotion.cascadeIn(index)), label = "appearAlpha")
+    val ty by animateFloatAsState(if (shown) 0f else 40f, tween(CanonMotion.SLOW, delayMillis = CanonMotion.cascadeIn(index)), label = "appearY")
     LaunchedEffect(Unit) { shown = true }
     return this.graphicsLayer { this.alpha = alpha; translationY = ty }
 }

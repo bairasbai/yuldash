@@ -328,7 +328,7 @@ private fun RankProgressCard(s: MyStatsDto, language: AppLanguage) {
     val nextTitle = (if (language == AppLanguage.Ba) s.nextTitleBa else s.nextTitleRu).orEmpty()
     val nextAt = s.nextAt ?: return
     val progress = if (nextAt > 0) (s.trips.toFloat() / nextAt.toFloat()).coerceIn(0f, 1f) else 0f
-    val animated by animateFloatAsState(progress, animationSpec = tween(700), label = "rankProgress")
+    val animated by animateFloatAsState(progress, animationSpec = tween(CanonMotion.COUNT), label = "rankProgress")
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = CanonCardShape,

@@ -66,7 +66,7 @@ export function Features() {
               <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-green-bright/15 blur-3xl transition-opacity group-hover:opacity-80" />
 
               <div className="relative">
-                <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-green-bright/15 text-green-glow transition-transform duration-300 group-hover:scale-110">
+                <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-green-bright/15 text-green-glow transition-transform duration-slow group-hover:scale-110">
                   {featured.icon}
                 </div>
                 <h3 className="font-display text-2xl font-extrabold sm:text-3xl">{tr(featured.t)}</h3>
@@ -109,7 +109,7 @@ export function Features() {
                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
                 className="glass spotlight group h-full rounded-canon p-6"
               >
-                <div className="mb-5 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-green-bright/15 text-green-glow transition-all duration-300 group-hover:scale-110 group-hover:bg-green-bright/25">
+                <div className="mb-5 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-green-bright/15 text-green-glow transition-all duration-slow group-hover:scale-110 group-hover:bg-green-bright/25">
                   {f.icon}
                 </div>
                 <h3 className="font-display text-xl font-bold">{tr(f.t)}</h3>

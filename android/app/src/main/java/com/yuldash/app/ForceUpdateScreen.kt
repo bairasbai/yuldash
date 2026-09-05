@@ -52,8 +52,8 @@ internal fun ForceUpdateScreen(storeUrl: String) {
     // Мягкое появление (уровень iOS): контент чуть всплывает и проявляется.
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
-    val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(450), label = "fuAlpha")
-    val lift by animateFloatAsState(if (shown) 0f else 24f, tween(500), label = "fuLift")
+    val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(CanonMotion.ENTRY), label = "fuAlpha")
+    val lift by animateFloatAsState(if (shown) 0f else 24f, tween(CanonMotion.ENTRY), label = "fuLift")
 
     Box(
         Modifier

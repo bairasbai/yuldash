@@ -404,7 +404,7 @@ private fun StandingCard(st: StandingDto, policy: SafetyPolicyDto?) {
     // Надёжность подрастает до своего значения — число «оживает», а не подставляется.
     var counted by remember { mutableStateOf(false) }
     LaunchedEffect(st.reliability) { counted = true }
-    val reliability by animateIntAsState(if (counted) st.reliability else 0, tween(760), label = "fair-reliability")
+    val reliability by animateIntAsState(if (counted) st.reliability else 0, tween(CanonMotion.COUNT), label = "fair-reliability")
     val reliabilityTint = if (st.reliability >= 60) CanonGreen2 else CanonWarn
 
     val okTitle = appText("Всё в порядке", "Бөтәһе лә тәртиптә")

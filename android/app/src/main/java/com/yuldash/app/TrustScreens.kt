@@ -232,7 +232,7 @@ private fun TrustLadder(level: Int) {
             val reached = i <= level
             val fill by animateFloatAsState(
                 targetValue = if (reached) 1f else 0f,
-                animationSpec = tween(durationMillis = 480, delayMillis = i * 90),
+                animationSpec = tween(CanonMotion.ENTRY, delayMillis = CanonMotion.cascadeIn(i)),
                 label = "ladderFill$i",
             )
             Column(

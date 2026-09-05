@@ -51,11 +51,11 @@ export function VideoPromo() {
                   <img
                     src="/promo-wide-poster.jpg"
                     alt=""
-                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
+                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-count group-hover:scale-[1.03]"
                   />
                   <span className="absolute inset-0 bg-gradient-to-t from-night/70 via-transparent to-night/20" />
                   {/* кнопка play */}
-                  <span className="absolute left-1/2 top-1/2 flex h-20 w-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-green-bright text-night shadow-glow transition-transform duration-300 group-hover:scale-110">
+                  <span className="absolute left-1/2 top-1/2 flex h-20 w-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-green-bright text-night shadow-glow transition-transform duration-slow group-hover:scale-110">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-bright/50" />
                     <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="relative ml-1">
                       <path d="M8 5v14l11-7z" />

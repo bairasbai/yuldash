@@ -2408,7 +2408,7 @@ private fun ParcelCreatedView(
             // Ставить visible = true сразу нельзя: AnimatedVisibility тогда не проигрывает ничего.
             var sealShown by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) { sealShown = true }
-            AnimatedVisibility(visible = sealShown, enter = scaleIn(tween(420)) + fadeIn(tween(420))) {
+            AnimatedVisibility(visible = sealShown, enter = scaleIn(tween(CanonMotion.ENTRY)) + fadeIn(tween(CanonMotion.ENTRY))) {
                 Surface(color = CanonMint, shape = CircleShape) {
                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp).size(36.dp))
                 }

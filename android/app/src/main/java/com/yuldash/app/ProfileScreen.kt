@@ -2320,7 +2320,7 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
     // дашборд показывает водителю чистый доход после комиссии с точностью до копейки.
     var netEarnTargetKop by remember { mutableIntStateOf(0) }
     LaunchedEffect(wd.netTodayKop) { netEarnTargetKop = wd.netTodayKop }
-    val netEarnKop by animateIntAsState(netEarnTargetKop, tween(700), label = "netEarnKop")
+    val netEarnKop by animateIntAsState(netEarnTargetKop, tween(CanonMotion.COUNT), label = "netEarnKop")
     val tiers = wd.feeTiers.ifEmpty { listOf(3.0, 8.0, 15.0) }
     // Индекс текущей ступени по числу поездок (границы feeTierTrips = [30,100]).
     val activeIdx = when {
@@ -2447,14 +2447,14 @@ private fun pluralTripsRu(n: Int): String {
 @Composable
 private fun TaxiShiftProgressCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
     val warm = wd.remainingSec <= 3600                     // последний час — мягкое предупреждение
-    val accent by animateColorAsState(if (warm) CanonWarn else CanonGreen2, tween(500), label = "shiftAccent")
+    val accent by animateColorAsState(if (warm) CanonWarn else CanonGreen2, tween(CanonMotion.ENTRY), label = "shiftAccent")
     // Полоса заполняется на глазах: с нуля к реальной доле смены. Без этого на первом кадре
     // animateFloatAsState брал цель как есть и «рост» не был виден вообще.
     var progressTarget by remember { mutableStateOf(0f) }
     LaunchedEffect(wd.secondsOnline, wd.limitSec) {
         progressTarget = (wd.secondsOnline.toFloat() / wd.limitSec.coerceAtLeast(1)).coerceIn(0f, 1f)
     }
-    val progress by animateFloatAsState(progressTarget, tween(700), label = "shiftProgress")
+    val progress by animateFloatAsState(progressTarget, tween(CanonMotion.COUNT), label = "shiftProgress")
     Surface(color = if (warm) CanonWarnBg else CanonSurface, shape = CanonItemShape,
         border = BorderStroke(1.dp, if (warm) CanonWarn.copy(alpha = 0.35f) else CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2817,7 +2817,7 @@ internal fun DriverDemandSection(online: Boolean) {
                             // иначе точки просто «есть», рост спроса не читается.
                             var dotTarget by remember { mutableStateOf(0f) }
                             LaunchedEffect(norm) { delay(60L * i); dotTarget = norm }
-                            val dot by animateFloatAsState(targetValue = dotTarget, animationSpec = tween(520), label = "demandDot")
+                            val dot by animateFloatAsState(targetValue = dotTarget, animationSpec = tween(CanonMotion.ENTRY), label = "demandDot")
                             Row(
                                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,

@@ -78,12 +78,25 @@ class CanonScaleTest {
 
     @Test
     fun `длительности анимаций в разумных пределах`() {
-        // короче 150мс глаз не замечает, длиннее 350мс раздражает
+        // Отклик на действие: короче 150мс глаз не замечает, длиннее 350мс раздражает.
         listOf(CanonMotion.QUICK, CanonMotion.NORMAL, CanonMotion.SLOW).forEach {
             assertTrue("длительность вне диапазона: $it", it in 150..350)
         }
-        assertTrue(CanonMotion.QUICK < CanonMotion.NORMAL)
-        assertTrue(CanonMotion.NORMAL < CanonMotion.SLOW)
+        // Показ содержимого и фон: длиннее отклика, но человек их конца не ждёт.
+        assertTrue("приход элемента не должен быть короче перехода", CanonMotion.ENTRY > CanonMotion.SLOW)
+        // Лестница обязана идти вверх без повторов: две ступени с одинаковым числом —
+        // это не шкала, а два имени для одного и того же, и выбирать станет не из чего.
+        val ladder = listOf(
+            CanonMotion.QUICK, CanonMotion.NORMAL, CanonMotion.SLOW, CanonMotion.ENTRY,
+            CanonMotion.COUNT, CanonMotion.SCENE, CanonMotion.TICK, CanonMotion.PULSE,
+            CanonMotion.CINEMA, CanonMotion.DRIFT, CanonMotion.AMBIENT,
+        )
+        assertEquals("ступени шкалы повторяются или идут не по возрастанию: $ladder", ladder.sorted().distinct(), ladder)
+        // Каскад — это сдвиг между соседями, а не длительность: он обязан быть мельче самого быстрого движения.
+        assertTrue("сдвиг каскада больше самого движения", CanonMotion.cascadeIn(1) < CanonMotion.QUICK)
+        assertTrue("уходить должны быстрее, чем приходить", CanonMotion.cascadeOut(5) < CanonMotion.cascadeIn(5))
+        // Хвост длинного списка не должен ждать секундами.
+        assertEquals("каскад не упирается в потолок", CanonMotion.cascadeIn(8), CanonMotion.cascadeIn(40))
     }
 
     @Test

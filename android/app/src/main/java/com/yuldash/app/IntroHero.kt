@@ -1,11 +1,5 @@
 package com.yuldash.app
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
@@ -46,8 +40,9 @@ private val MOTES = listOf(
 /** Канвас золотой пыльцы в верхней полусфере (небо). `sceneAlpha` гасит её вместе с проявлением пейзажа. */
 @Composable
 internal fun SkyMotes(modifier: Modifier = Modifier, sceneAlpha: () -> Float) {
-    val inf = rememberInfiniteTransition(label = "motes")
-    val t by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing), RepeatMode.Restart), label = "t")
+    // Темп фонового дрейфа — со шкалы (CanonMotion.AMBIENT). При выключенных анимациях
+    // пыльца остаётся на своих местах: небо живое на вид, движения нет.
+    val t by canonDrift(label = "motes")
     Canvas(modifier) {
         val a = sceneAlpha()
         if (a <= 0f) return@Canvas

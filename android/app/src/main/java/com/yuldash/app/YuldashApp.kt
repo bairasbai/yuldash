@@ -1886,8 +1886,8 @@ internal fun OnboardingLangChip(text: String, active: Boolean, onClick: () -> Un
 /** Спокойное появление элемента: fade + лёгкий сдвиг вверх, стаггер по index. Играет, когда слайд стал активным. */
 @Composable
 private fun Modifier.onbAppear(index: Int, play: Boolean): Modifier {
-    val a by animateFloatAsState(if (play) 1f else 0f, tween(durationMillis = 430, delayMillis = if (play) index * 75 else 0), label = "onbA")
-    val ty by animateFloatAsState(if (play) 0f else 34f, tween(durationMillis = 430, delayMillis = if (play) index * 75 else 0), label = "onbY")
+    val a by animateFloatAsState(if (play) 1f else 0f, tween(CanonMotion.ENTRY, delayMillis = if (play) CanonMotion.cascadeIn(index) else 0), label = "onbA")
+    val ty by animateFloatAsState(if (play) 0f else 34f, tween(CanonMotion.ENTRY, delayMillis = if (play) CanonMotion.cascadeIn(index) else 0), label = "onbY")
     return graphicsLayer { this.alpha = a; translationY = ty }
 }
 

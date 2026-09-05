@@ -201,7 +201,7 @@ private fun EarnDayRow(day: DriverEarningsDayDto, maxSum: Int) {
     var grown by remember(day.date) { mutableStateOf(false) }
     LaunchedEffect(day.date) { grown = true }
     val target = if (grown) (day.sum.toFloat() / maxSum.toFloat()).coerceIn(0f, 1f) else 0f
-    val animated by animateFloatAsState(target, animationSpec = tween(600), label = "earnBar")
+    val animated by animateFloatAsState(target, animationSpec = tween(CanonMotion.COUNT), label = "earnBar")
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

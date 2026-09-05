@@ -65,11 +65,11 @@ export function HeroBackdrop() {
           fill
           sizes="100vw"
           style={{ opacity: videoReady ? 0 : 0.5 }}
-          className="hero-poster-ken absolute inset-0 h-full w-full scale-105 object-cover object-center transition-opacity duration-[1200ms] ease-out motion-safe:[animation:hero-kenburns_26s_ease-in-out_infinite_alternate]"
+          className="hero-poster-ken absolute inset-0 h-full w-full scale-105 object-cover object-center transition-opacity duration-scene ease-out motion-safe:[animation:hero-kenburns_26s_ease-in-out_infinite_alternate]"
         />
         {showVideo && (
           <video
-            className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[1200ms] ease-out"
+            className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-scene ease-out"
             style={{ opacity: videoReady ? 0.5 : 0 }}
             autoPlay
             muted

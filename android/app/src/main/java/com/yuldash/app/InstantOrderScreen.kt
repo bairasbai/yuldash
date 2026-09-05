@@ -12,11 +12,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -3634,7 +3630,7 @@ internal fun InstantWaitingRow(order: InstantOrderDto) {
     // полоска ползла, а не дёргалась. Стартовое значение = реальный остаток (это обратный
     // отсчёт, а не «рост»: анимировать его с нуля было бы враньём).
     val freeLeftFraction = if (freeSec > 0) ((freeSec - elapsedSec).toFloat() / freeSec).coerceIn(0f, 1f) else 0f
-    val freeProgress by animateFloatAsState(freeLeftFraction, tween(1000, easing = LinearEasing), label = "waitFree")
+    val freeProgress by animateFloatAsState(freeLeftFraction, tween(CanonMotion.TICK, easing = LinearEasing), label = "waitFree")
     Surface(shape = CanonItemShape, color = accent.copy(alpha = 0.08f), border = BorderStroke(1.dp, accent.copy(alpha = 0.4f))) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -5647,16 +5643,10 @@ private fun InstantWaitingOnlinePill(
     locationReady: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val transition = rememberInfiniteTransition(label = "driverOnlinePulse")
-    val pulse by transition.animateFloat(
-        initialValue = 0.82f,
-        targetValue = 1.18f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1_100, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "driverOnlinePulseScale",
-    )
+    // rest = 1f, а не край хода: покой этой пульсации лежит ПОСЕРЕДИНЕ (кружок нормального
+    // размера, ореол еле виден). Без него точка при остановке застыла бы раздутой на 1.18 —
+    // именно так её оставил бы skipToEnd() самого Compose.
+    val pulse by canonBreath(label = "driverOnlinePulseScale", from = 0.82f, to = 1.18f, rest = 1f)
     val text = when {
         connectionLost -> appText("Нет связи · переподключаемся", "Бәйләнеш юҡ · ҡабат тоташабыҙ")
         !locationReady -> appText("Уточняем геолокацию", "Геолокацияны асыҡлайбыҙ")

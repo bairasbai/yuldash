@@ -3,11 +3,6 @@ package com.yuldash.app
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -217,11 +212,9 @@ internal fun AdminSosScreen(onBack: () -> Unit) {
 /** Красная шапка списка: сколько сигналов ждут ответа. Иконка медленно «дышит» — это тревога, а не декор. */
 @Composable
 private fun SosAlarmBanner(count: Int) {
-    val pulse = rememberInfiniteTransition(label = "sosPulse")
-    val alpha by pulse.animateFloat(
-        initialValue = 0.4f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "sosPulseAlpha",
-    )
+    // Тот же темп дыхания, что у поиска машины и скелетонов. При выключенных анимациях
+    // иконка горит ровно — тревога видна, движения нет.
+    val alpha by canonBreath(label = "sosPulseAlpha", from = 0.4f, to = 1f)
     Surface(color = CanonDangerBg, shape = CanonItemShape) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),

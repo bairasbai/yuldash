@@ -542,7 +542,7 @@ private fun CourierStatusScaffold(
             // AnimatedVisibility не проигрывает ничего, и «⏳» просто возникал бы на месте.
             var badgeShown by remember { mutableStateOf(false) }
             LaunchedEffect(emoji) { badgeShown = true }
-            AnimatedVisibility(visible = badgeShown, enter = scaleIn(tween(420)) + fadeIn(tween(420))) {
+            AnimatedVisibility(visible = badgeShown, enter = scaleIn(tween(CanonMotion.ENTRY)) + fadeIn(tween(CanonMotion.ENTRY))) {
                 Surface(shape = CircleShape, color = tintBg, border = BorderStroke(1.dp, tint.copy(alpha = 0.3f))) {
                     Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) {
                         Text(emoji, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)

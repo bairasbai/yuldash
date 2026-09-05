@@ -114,10 +114,10 @@ internal fun StaggerWord(text: String, visible: Boolean, fontSize: TextUnit) {
         text.forEachIndexed { i, ch ->
             AnimatedVisibility(
                 visible = visible,
-                enter = fadeIn(tween(620, i * 38, EaseOutExpo)) +
-                    slideInVertically(tween(700, i * 38, EaseOutExpo)) { it / 2 },
-                exit = fadeOut(tween(CanonMotion.NORMAL, i * 12)) +
-                    slideOutVertically(tween(CanonMotion.SLOW, i * 12)) { -it / 3 },
+                enter = fadeIn(tween(CanonMotion.ENTRY, CanonMotion.cascadeIn(i), EaseOutExpo)) +
+                    slideInVertically(tween(CanonMotion.COUNT, CanonMotion.cascadeIn(i), EaseOutExpo)) { it / 2 },
+                exit = fadeOut(tween(CanonMotion.NORMAL, CanonMotion.cascadeOut(i))) +
+                    slideOutVertically(tween(CanonMotion.SLOW, CanonMotion.cascadeOut(i))) { -it / 3 },
             ) {
                 Text(ch.toString(), color = Color.White, fontSize = fontSize, fontWeight = FontWeight.Medium, fontFamily = Montserrat, letterSpacing = 1.sp)
             }
@@ -136,13 +136,11 @@ internal fun StaggerWord(text: String, visible: Boolean, fontSize: TextUnit) {
 @Composable
 internal fun IntroScreen(onComplete: () -> Unit) {
     val ctx = LocalContext.current
-    val reduceMotion = remember {
-        runCatching {
-            android.provider.Settings.Global.getFloat(
-                ctx.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f,
-            ) == 0f
-        }.getOrDefault(false)
-    }
+    // Ролик заставки — свой таймлайн на delay(), а не анимация Compose: фреймворк его не
+    // видит и при «Удалить анимации» не гасит, поэтому гасим сами. Читаем ту же единую точку
+    // правды, что и вся шкала движения (её выставляет MainActivity при старте) — раньше здесь
+    // стояло второе, независимое чтение системной настройки.
+    val reduceMotion = !CanonMotion.enabled
 
     val haptic = LocalHapticFeedback.current
     // Светлые (белые) иконки статус/нав-бара поверх тёмного пейзажа; вернуть прежние при уходе из интро.
@@ -184,9 +182,9 @@ internal fun IntroScreen(onComplete: () -> Unit) {
 
     LaunchedEffect(Unit) {
         if (reduceMotion) { delay(1000); finish(); return@LaunchedEffect }
-        launch { drift.animateTo(1.05f, tween(4700, easing = EaseInOutSine)) }
-        launch { sceneScale.animateTo(1f, tween(4700, easing = EaseInOutSine)) }   // пейзаж медленно «наезжает»
-        launch { sceneAlpha.animateTo(1f, tween(800, easing = EaseInOutSine)) }    // плавное проявление пейзажа из зелёного (без резкого «хлопка»)
+        launch { drift.animateTo(1.05f, tween(CanonMotion.DRIFT, easing = EaseInOutSine)) }
+        launch { sceneScale.animateTo(1f, tween(CanonMotion.DRIFT, easing = EaseInOutSine)) }   // пейзаж медленно «наезжает»
+        launch { sceneAlpha.animateTo(1f, tween(CanonMotion.SCENE, easing = EaseInOutSine)) }    // плавное проявление пейзажа из зелёного (без резкого «хлопка»)
         logoScale.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow))
         delay(160)
         showMeaning = true
@@ -195,7 +193,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         delay(420)                  // слово ПОЛНОСТЬЮ уходит до «Юлдаш» — без наложения
         showBrand = true
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)   // тактильный «тук» в момент появления бренда
-        launch { delay(360); sheen.animateTo(720f, tween(1100, easing = EaseInOutSine)) }   // медленный люкс-блик
+        launch { delay(360); sheen.animateTo(720f, tween(CanonMotion.CINEMA, easing = EaseInOutSine)) }   // медленный люкс-блик
         delay(500); showUnderline = true
         delay(780); showSlogan = true
         delay(1400); sloganBa = true    // русский слоган подышал — потом башкирский
@@ -203,12 +201,12 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         delay(500); finish()
     }
 
-    val brandIn by animateFloatAsState(if (showBrand) 1f else 0f, tween(780, easing = EaseOutExpo), label = "bIn")
+    val brandIn by animateFloatAsState(if (showBrand) 1f else 0f, tween(CanonMotion.SCENE, easing = EaseOutExpo), label = "bIn")
     val brandScale by animateFloatAsState(if (showBrand) 1f else 0.92f, spring(0.82f, Spring.StiffnessLow), label = "bSc")
-    val underline by animateFloatAsState(if (showUnderline) 1f else 0f, tween(820, easing = EaseOutExpo), label = "ul")
-    val exitAlpha by animateFloatAsState(if (exiting) 0f else 1f, tween(560, easing = EaseInOutSine), label = "exA")
-    val exitScale by animateFloatAsState(if (exiting) 1.06f else 1f, tween(580, easing = EaseInCubic), label = "exS")
-    val sloganAlpha by animateFloatAsState(if (showSlogan) 1f else 0f, tween(560, easing = EaseOutExpo), label = "sloA")
+    val underline by animateFloatAsState(if (showUnderline) 1f else 0f, tween(CanonMotion.SCENE, easing = EaseOutExpo), label = "ul")
+    val exitAlpha by animateFloatAsState(if (exiting) 0f else 1f, tween(CanonMotion.ENTRY, easing = EaseInOutSine), label = "exA")
+    val exitScale by animateFloatAsState(if (exiting) 1.06f else 1f, tween(CanonMotion.ENTRY, easing = EaseInCubic), label = "exS")
+    val sloganAlpha by animateFloatAsState(if (showSlogan) 1f else 0f, tween(CanonMotion.ENTRY, easing = EaseOutExpo), label = "sloA")
 
     val brandBrush = Brush.linearGradient(
         listOf(Color.White, Color.White, CanonGold, Color.White, Color.White),
@@ -288,7 +286,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                     targetState = sloganBa,
                     transitionSpec = {
                         // Сначала русский УХОДИТ (240мс), потом башкирский ПРИХОДИТ (delay 240) — без наложения строк.
-                        (fadeIn(tween(560, delayMillis = 240, easing = EaseOutExpo)) + slideInVertically(tween(560, delayMillis = 240, easing = EaseOutExpo)) { it / 4 })
+                        (fadeIn(tween(CanonMotion.ENTRY, delayMillis = CanonMotion.NORMAL, easing = EaseOutExpo)) + slideInVertically(tween(CanonMotion.ENTRY, delayMillis = CanonMotion.NORMAL, easing = EaseOutExpo)) { it / 4 })
                             .togetherWith(fadeOut(tween(CanonMotion.NORMAL, easing = EaseInOutSine)) + slideOutVertically(tween(CanonMotion.NORMAL, easing = EaseInOutSine)) { -it / 4 })
                     },
                     label = "slo",
@@ -308,8 +306,8 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         // Тач-цель 168×48dp, два языка (и для TalkBack — onClickLabel), уходит вместе со сценой.
         AnimatedVisibility(
             visible = showSkip && !exiting,
-            enter = fadeIn(tween(420, easing = EaseOutExpo)) +
-                slideInVertically(tween(520, easing = EaseOutExpo)) { it / 3 },
+            enter = fadeIn(tween(CanonMotion.ENTRY, easing = EaseOutExpo)) +
+                slideInVertically(tween(CanonMotion.ENTRY, easing = EaseOutExpo)) { it / 3 },
             exit = fadeOut(tween(CanonMotion.QUICK)),
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 32.dp),
         ) {

@@ -14,6 +14,44 @@
 
   /* Вертикальный ритм секций (мобайл → десктоп) */
   --sp-section: clamp(4rem, 9vw, 7rem);
+
+  /* ================= Движение (CanonMotion) =================
+     Одиннадцать ступеней, ОДИН В ОДИН с приложением (`CanonTokens.kt`, объект `CanonMotion`).
+     Меняешь число здесь — меняй и там, иначе сайт и приложение снова разойдутся.
+     Ступень выбирают по тому, ЧТО делает движение, а не «сколько тут красиво».
+
+     Отклик — человек ждёт результата своего действия: */
+  --motion-quick: 180ms; /* нажатие, смена иконки, мелкий чип */
+  --motion-normal: 260ms; /* появление карточки, переход вкладки */
+  --motion-slow: 320ms; /* шторка снизу, крупный экран */
+
+  /* Показ — человек не ждёт, а смотрит: */
+  --motion-entry: 500ms; /* приход одного элемента: бейдж, печать, баннер. Дольше slow: это событие, а не переход */
+  --motion-count: 700ms; /* докрутка числа и полоски — за ростом следят глазами */
+  --motion-scene: 820ms; /* проявление картины во весь экран, а не одного значения */
+
+  /* Длинное движение — про фон, а не про отклик: */
+  --motion-tick: 1000ms; /* дотяжка значения, обновляемого раз в секунду. Привязка к часам, не вкус */
+  --motion-pulse: 1100ms; /* полупериод «дыхания» ожидания (2,2с туда-обратно). Один темп на всё */
+  --motion-cinema: 1600ms; /* блик, наезд фотографии — живёт поверх уже видимой картинки */
+  --motion-drift: 4700ms; /* ken-burns заставки: привязано к длине ролика */
+  --motion-ambient: 9000ms; /* фон, который не должен ловить взгляд */
+
+  /* Каскад — сдвиг между соседями, а не длительность. Прощаться дольше, чем здороваться,
+     значит держать человека на пустом экране. */
+  --cascade-in: 40ms;
+  --cascade-out: 12ms;
+
+  /* ---- Бесконечные декорации и индикаторы: пары в приложении у них НЕТ ----
+     Северное сияние, бегущие блики, карта покрытия, спиннер. Отдельная группа именно
+     поэтому: чтобы они не смешивались со шкалой отклика и не притворялись, будто у них
+     есть соответствие в приложении. Одинакова для `web/` и `webapp/`. */
+  --loop-spin: 800ms; /* вращение индикатора загрузки */
+  --loop-pulse: 2400ms; /* короткое «сердцебиение»: рябь у аватара, пинг на макете */
+  --loop-shine: 3600ms; /* пробег блика по поверхности, «дыхание» кнопки */
+  --loop-run: 6000ms; /* длинный пробег: полосы света, вспышки, вращение луча */
+  --loop-map: 16000ms; /* бегущая карта покрытия (две копии, сдвиг = период ÷ −2) */
+  --loop-sky: 22000ms; /* северное сияние и медленный дрейф фона */
 }
 
 html {
@@ -67,7 +105,7 @@ body {
   }
 }
 .reveal-in {
-  animation: reveal-up 0.7s cubic-bezier(0.21, 0.47, 0.32, 0.98) both;
+  animation: reveal-up var(--motion-count) cubic-bezier(0.21, 0.47, 0.32, 0.98) both;
 }
 @media (prefers-reduced-motion: reduce) {
   .reveal-in {
@@ -136,13 +174,13 @@ p {
 }
 @media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
   .aurora-blob-1 {
-    animation: aurora-1 22s ease-in-out infinite;
+    animation: aurora-1 var(--loop-sky) ease-in-out infinite;
   }
   .aurora-blob-2 {
-    animation: aurora-2 26s ease-in-out infinite;
+    animation: aurora-2 var(--loop-sky) ease-in-out infinite;
   }
   .aurora-blob-3 {
-    animation: aurora-3 28s ease-in-out infinite;
+    animation: aurora-3 var(--loop-sky) ease-in-out infinite;
   }
 }
 @keyframes aurora-1 {
@@ -196,7 +234,7 @@ p {
   }
 }
 .coverage-ken {
-  animation: coverage-drift 46s ease-in-out infinite alternate;
+  animation: coverage-drift calc(var(--loop-sky) * 2) ease-in-out infinite alternate;
   will-change: transform;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -221,7 +259,7 @@ p {
   }
 }
 .route-flow {
-  animation: route-flow 3s linear infinite;
+  animation: route-flow var(--loop-shine) linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .route-flow {
@@ -245,7 +283,7 @@ p {
     transparent 39px 84px,
     rgba(232, 195, 107, 0.12) 84px 85px
   );
-  animation: streak-run 9s linear infinite;
+  animation: streak-run var(--motion-ambient) linear infinite;
 }
 .hero-streaks-2 {
   background-image: repeating-linear-gradient(
@@ -255,7 +293,7 @@ p {
     transparent 121px 230px
   );
   opacity: 0.35;
-  animation: streak-run 5.5s linear infinite;
+  animation: streak-run var(--loop-run) linear infinite;
 }
 @keyframes streak-run {
   to {
@@ -276,12 +314,12 @@ p {
   opacity: 0;
 }
 .hero-flare-a {
-  animation: flare-run 7s cubic-bezier(0.5, 0, 0.4, 1) infinite;
+  animation: flare-run var(--loop-run) cubic-bezier(0.5, 0, 0.4, 1) infinite;
 }
 .hero-flare-b {
   top: 52%;
   width: 32%;
-  animation: flare-run 7s cubic-bezier(0.5, 0, 0.4, 1) 3.4s infinite;
+  animation: flare-run var(--loop-run) cubic-bezier(0.5, 0, 0.4, 1) var(--loop-shine) infinite;
 }
 @keyframes flare-run {
   0% {
@@ -302,7 +340,7 @@ p {
 
 /* Пульсирующее свечение акцентного слова */
 .glow-pulse {
-  animation: glow-pulse 3.6s ease-in-out infinite;
+  animation: glow-pulse var(--loop-shine) ease-in-out infinite;
 }
 @keyframes glow-pulse {
   0%,
@@ -323,7 +361,7 @@ p {
   vertical-align: -0.12em;
   background: #7fe3ab;
   border-radius: 2px;
-  animation: tw-blink 1s steps(1) infinite;
+  animation: tw-blink var(--motion-tick) steps(1) infinite;
 }
 @keyframes tw-blink {
   50% {
@@ -337,7 +375,7 @@ p {
   inset: 0;
   border-radius: 9999px;
   border: 2px solid rgba(127, 227, 171, 0.6);
-  animation: avatar-ripple 2.4s ease-out infinite;
+  animation: avatar-ripple var(--loop-pulse) ease-out infinite;
 }
 @keyframes avatar-ripple {
   0% {
@@ -354,7 +392,7 @@ p {
 .star-pop {
   transform-box: fill-box;
   transform-origin: center;
-  animation: star-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: star-pop var(--motion-entry) cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 @keyframes star-pop {
   from {
@@ -373,7 +411,7 @@ p {
   inset: 0;
   transform: translateX(-130%);
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
-  animation: go-shine 3.4s ease-in-out infinite;
+  animation: go-shine var(--loop-shine) ease-in-out infinite;
 }
 @keyframes go-shine {
   0% {
@@ -385,7 +423,7 @@ p {
   }
 }
 .go-breathe {
-  animation: go-breathe 3.6s ease-in-out infinite;
+  animation: go-breathe var(--loop-shine) ease-in-out infinite;
 }
 @keyframes go-breathe {
   0%,
@@ -437,7 +475,7 @@ p {
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  animation: beam-spin 6s linear infinite;
+  animation: beam-spin var(--loop-run) linear infinite;
   opacity: 0.75;
 }
 @keyframes beam-spin {
@@ -465,7 +503,7 @@ p {
   border: 3px solid #0a1410;
   box-shadow: 0 0 0 4px rgba(47, 179, 110, 0.25);
   cursor: pointer;
-  transition: transform 0.15s ease;
+  transition: transform var(--motion-quick) ease;
 }
 .slider::-webkit-slider-thumb:hover {
   transform: scale(1.1);
@@ -490,7 +528,7 @@ p {
   border-radius: inherit;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.4s ease;
+  transition: opacity var(--motion-entry) ease;
   background: radial-gradient(
     220px circle at var(--mx, 50%) var(--my, 50%),
     rgba(47, 179, 110, 0.16),
@@ -512,7 +550,7 @@ p {
 .mockup-route {
   stroke-dasharray: 420;
   stroke-dashoffset: 420;
-  animation: route-draw 1.7s cubic-bezier(0.21, 0.47, 0.32, 0.98) 0.7s forwards;
+  animation: route-draw var(--motion-cinema) cubic-bezier(0.21, 0.47, 0.32, 0.98) var(--motion-count) forwards;
 }
 @keyframes route-draw {
   to {
@@ -525,7 +563,7 @@ p {
   offset-path: path("M66 290 C 110 245 120 175 168 145 S 224 90 220 64");
   offset-rotate: auto;
   offset-distance: 0%;
-  animation: mockup-drive 5s cubic-bezier(0.45, 0.05, 0.3, 1) 2.3s infinite;
+  animation: mockup-drive var(--loop-run) cubic-bezier(0.45, 0.05, 0.3, 1) var(--loop-pulse) infinite;
 }
 @keyframes mockup-drive {
   0% { offset-distance: 0%; opacity: 0; }
@@ -540,7 +578,7 @@ p {
   transform: scale(0);
   transform-origin: center;
   transform-box: fill-box;
-  animation: mockup-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 1.9s forwards;
+  animation: mockup-pop var(--motion-entry) cubic-bezier(0.34, 1.56, 0.64, 1) var(--motion-cinema) forwards;
 }
 @keyframes mockup-pop {
   to { transform: scale(1); }
@@ -550,7 +588,7 @@ p {
 .mockup-ping {
   transform-origin: center;
   transform-box: fill-box;
-  animation: mockup-ping 2.4s cubic-bezier(0.21, 0.47, 0.32, 0.98) infinite;
+  animation: mockup-ping var(--loop-pulse) cubic-bezier(0.21, 0.47, 0.32, 0.98) infinite;
 }
 @keyframes mockup-ping {
   0% { transform: scale(1); opacity: 0.7; }
@@ -570,11 +608,11 @@ p {
 }
 .coverage-runner {
   stroke-dashoffset: 0;
-  animation: coverage-flow 16s linear infinite;
+  animation: coverage-flow var(--loop-map) linear infinite;
 }
 .coverage-runner-2 {
-  animation-duration: 16s;
-  animation-delay: -8s;
+  animation-duration: var(--loop-map);
+  animation-delay: calc(var(--loop-map) / -2);
 }
 
 /* Уважаем prefers-reduced-motion */
@@ -653,5 +691,5 @@ p {
 }
 [style*="opacity:0;"]:not(video):not(img),
 [style$="opacity:0"]:not(video):not(img) {
-  animation: ssr-failsafe 0.5s ease 3s forwards;
+  animation: ssr-failsafe var(--motion-entry) ease var(--loop-shine) forwards;
 }

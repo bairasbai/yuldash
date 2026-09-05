@@ -53,7 +53,7 @@ internal fun SeasonalBanner(
 
     AnimatedVisibility(
         visible = shown,
-        enter = fadeIn(tween(420)) + slideInVertically(tween(420)) { it / 4 },
+        enter = fadeIn(tween(CanonMotion.ENTRY)) + slideInVertically(tween(CanonMotion.ENTRY)) { it / 4 },
     ) {
         val name = appText(event.nameRu, event.nameBa)
         val title =

@@ -41,7 +41,26 @@ const config: Config = {
         },
       },
       animation: {
-        shimmer: "shimmer 4s linear infinite",
+        shimmer: "shimmer var(--loop-shine) linear infinite",
+      },
+      // Длительности переходов — по именам шкалы, чтобы в разметке не было чисел.
+      // Значения живут в одном месте (app/globals.css) и совпадают с приложением.
+      transitionDuration: {
+        quick: "var(--motion-quick)",
+        normal: "var(--motion-normal)",
+        slow: "var(--motion-slow)",
+        entry: "var(--motion-entry)",
+        count: "var(--motion-count)",
+        scene: "var(--motion-scene)",
+        tick: "var(--motion-tick)",
+        pulse: "var(--motion-pulse)",
+        cinema: "var(--motion-cinema)",
+      },
+      transitionDelay: {
+        quick: "var(--motion-quick)",
+        normal: "var(--motion-normal)",
+        slow: "var(--motion-slow)",
+        entry: "var(--motion-entry)",
       },
     },
   },

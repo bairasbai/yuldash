@@ -11,10 +11,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.collectAsState
 import com.yuldash.app.data.ApiClient
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -247,11 +243,9 @@ internal fun SkeletonBox(
     height: Dp = 14.dp,
     shape: Shape = RoundedCornerShape(8.dp),
 ) {
-    val transition = rememberInfiniteTransition(label = "skeleton")
-    val alpha by transition.animateFloat(
-        initialValue = 0.45f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(820), RepeatMode.Reverse), label = "skeletonAlpha",
-    )
+    // Тот же темп, что у остальных «ожиданий» в приложении. При выключенных анимациях
+    // плашка стоит ровной заливкой — форма контента видна, мерцания нет.
+    val alpha by canonBreath(label = "skeletonAlpha", from = 0.45f, to = 1f)
     Box(
         modifier
             .then(if (widthFraction >= 1f) Modifier.fillMaxWidth() else Modifier.fillMaxWidth(widthFraction))

@@ -300,7 +300,7 @@ internal fun LoginScreen(
     LaunchedEffect(Unit) { appear = true }
     val cardIn by animateFloatAsState(
         targetValue = if (appear) 1f else 0f,
-        animationSpec = tween(560, delayMillis = 140, easing = EaseOutExpo),
+        animationSpec = tween(CanonMotion.ENTRY, delayMillis = CanonMotion.cascadeIn(3), easing = EaseOutExpo),
         label = "loginCardIn",
     )
     Surface(
@@ -966,13 +966,13 @@ private fun BrandHero(
     var appear by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { appear = true }
     val photoIn by animateFloatAsState(
-        if (appear) 1f else 1.06f, tween(1600, easing = EaseOutExpo), label = "heroPhoto",
+        if (appear) 1f else 1.06f, tween(CanonMotion.CINEMA, easing = EaseOutExpo), label = "heroPhoto",
     )
     val brandIn by animateFloatAsState(
-        if (appear) 1f else 0f, tween(620, delayMillis = 80, easing = EaseOutExpo), label = "heroBrand",
+        if (appear) 1f else 0f, tween(CanonMotion.ENTRY, delayMillis = CanonMotion.cascadeIn(2), easing = EaseOutExpo), label = "heroBrand",
     )
     val featuresIn by animateFloatAsState(
-        if (appear) 1f else 0f, tween(680, delayMillis = 300, easing = EaseOutExpo), label = "heroFeatures",
+        if (appear) 1f else 0f, tween(CanonMotion.ENTRY, delayMillis = CanonMotion.SLOW, easing = EaseOutExpo), label = "heroFeatures",
     )
     Box(
         modifier = modifier

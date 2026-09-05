@@ -88,7 +88,7 @@ description: Дизайн-система и правила UI Юлдаша — J
 | Отступ (воздух) | `CanonSpace` xs 4 · sm 8 · md 12 · **lg 16 (карточка и поле экрана)** · xl 24 · xxl 32 · huge 48 |
 | Радиус | `CanonCardShape` 28 · `CanonItemShape` 22 · `CanonFieldShape` 14 · `CanonTinyShape` 8 · `RoundedCornerShape(999.dp)` — пилюля |
 | Тень | `CanonDepth` flat 0 · **card 1 (по умолчанию)** · raised 4 (плавает над контентом) · sheet 12 (шторка) |
-| Движение | `CanonMotion` QUICK 180 · NORMAL 260 · SLOW 320 |
+| Движение | `CanonMotion` — 11 ступеней: QUICK 180 · NORMAL 260 · SLOW 320 · ENTRY 500 · COUNT 700 · SCENE 820 · TICK 1000 · PULSE 1100 · CINEMA 1600 · DRIFT 4700 · AMBIENT 9000 |
 
 Лестница отступов — про **воздух** (`padding`, `spacedBy`, `Spacer`). Геометрия (высота
 карточки, размер иконки) задаётся по месту.
@@ -102,10 +102,17 @@ description: Дизайн-система и правила UI Юлдаша — J
 |---|---|
 | Отклик на нажатие | `bounceClick` — scale 0.97, `CanonMotion.QUICK` |
 | Появление карточки | `appearIn(index)` — alpha 0→1 + сдвиг 40→0, `CanonMotion.SLOW` |
-| Каскад списка | задержка `индекс × 55 мс` |
+| Каскад списка | `CanonMotion.cascadeIn(index)` — 40 мс на соседа, с потолком |
+| Пульс ожидания | `canonBreath(label, from, to, rest)` — темп `CanonMotion.PULSE` |
+| Фоновый дрейф | `canonDrift(label)` — темп `CanonMotion.AMBIENT` |
 
-Своё число писать нельзя: `tween(200)` уронит сторожа. Вне 100–400 мс шкала не действует —
-таймеры и пульсации живут своей жизнью.
+Как выбирать ступень: `ENTRY` — приход одного элемента (бейдж, печать, баннер), `COUNT` —
+докрутка числа или полоски, `SCENE` — проявление картины во весь экран, `PULSE` — «дыхание»
+ожидания, `TICK` — дотяжка под секундный таймер, `CINEMA`/`DRIFT`/`AMBIENT` — заставка и фон.
+
+Своё число писать нельзя **нигде**: и `tween(200)`, и спрятанное за переменной
+`delayMillis = index * 55` уронят сторожа. Шкала действует и на таймерах, и на бесконечных
+циклах — заводить `infiniteRepeatable` руками сторож тоже не даст.
 
 ⚠️ **`appearIn` в `LazyColumn` требует `key` у item.** Без ключа элемент пересоздаётся,
 анимация стартует заново и **залипает на прозрачности 0** — блок просто не виден. Уже ловили.

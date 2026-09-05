@@ -34,6 +34,43 @@
     --radius-lg: 34px;
 
     /* плавные «дорогие» кривые (премиум-тайминг 400–600ms) */
+  /* ================= Движение (CanonMotion) =================
+     Одиннадцать ступеней, ОДИН В ОДИН с приложением (`CanonTokens.kt`, объект `CanonMotion`).
+     Меняешь число здесь — меняй и там, иначе сайт и приложение снова разойдутся.
+     Ступень выбирают по тому, ЧТО делает движение, а не «сколько тут красиво».
+
+     Отклик — человек ждёт результата своего действия: */
+  --motion-quick: 180ms; /* нажатие, смена иконки, мелкий чип */
+  --motion-normal: 260ms; /* появление карточки, переход вкладки */
+  --motion-slow: 320ms; /* шторка снизу, крупный экран */
+
+  /* Показ — человек не ждёт, а смотрит: */
+  --motion-entry: 500ms; /* приход одного элемента: бейдж, печать, баннер. Дольше slow: это событие, а не переход */
+  --motion-count: 700ms; /* докрутка числа и полоски — за ростом следят глазами */
+  --motion-scene: 820ms; /* проявление картины во весь экран, а не одного значения */
+
+  /* Длинное движение — про фон, а не про отклик: */
+  --motion-tick: 1000ms; /* дотяжка значения, обновляемого раз в секунду. Привязка к часам, не вкус */
+  --motion-pulse: 1100ms; /* полупериод «дыхания» ожидания (2,2с туда-обратно). Один темп на всё */
+  --motion-cinema: 1600ms; /* блик, наезд фотографии — живёт поверх уже видимой картинки */
+  --motion-drift: 4700ms; /* ken-burns заставки: привязано к длине ролика */
+  --motion-ambient: 9000ms; /* фон, который не должен ловить взгляд */
+
+  /* Каскад — сдвиг между соседями, а не длительность. Прощаться дольше, чем здороваться,
+     значит держать человека на пустом экране. */
+  --cascade-in: 40ms;
+  --cascade-out: 12ms;
+
+  /* ---- Бесконечные декорации и индикаторы: пары в приложении у них НЕТ ----
+     Северное сияние, бегущие блики, карта покрытия, спиннер. Отдельная группа именно
+     поэтому: чтобы они не смешивались со шкалой отклика и не притворялись, будто у них
+     есть соответствие в приложении. Одинакова для `web/` и `webapp/`. */
+  --loop-spin: 800ms; /* вращение индикатора загрузки */
+  --loop-pulse: 2400ms; /* короткое «сердцебиение»: рябь у аватара, пинг на макете */
+  --loop-shine: 3600ms; /* пробег блика по поверхности, «дыхание» кнопки */
+  --loop-run: 6000ms; /* длинный пробег: полосы света, вспышки, вращение луча */
+  --loop-map: 16000ms; /* бегущая карта покрытия (две копии, сдвиг = период ÷ −2) */
+  --loop-sky: 22000ms; /* северное сияние и медленный дрейф фона */
     --ease: cubic-bezier(.21,.47,.32,.98);
     --shadow-glow: 0 0 60px -12px rgba(47,179,110,.45);
     --shadow-card: 0 24px 60px -20px rgba(0,0,0,.55);
@@ -73,11 +110,11 @@
   }
   .blob { position: absolute; border-radius: 50%; filter: blur(140px); opacity: .85; }
   .blob.b1 { top: -16rem; left: 8%;  width: 44rem; height: 44rem; background: rgba(47,179,110,.28);
-             animation: drift1 22s var(--ease) infinite; }
+             animation: drift1 var(--loop-sky) var(--ease) infinite; }
   .blob.b2 { top: 10%;  right: 4%;  width: 38rem; height: 38rem; background: rgba(216,155,18,.22);
-             animation: drift2 26s var(--ease) infinite; }
+             animation: drift2 var(--loop-sky) var(--ease) infinite; }
   .blob.b3 { bottom: -14rem; left: 32%; width: 40rem; height: 40rem; background: rgba(11,107,58,.34);
-             animation: drift3 28s var(--ease) infinite; }
+             animation: drift3 var(--loop-sky) var(--ease) infinite; }
   .grain { position: absolute; inset: 0; opacity: .035; pointer-events: none;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
@@ -99,7 +136,7 @@
     max-width: 1120px; margin: 0 auto;
     display: flex; align-items: center; justify-content: space-between; gap: 16px;
     padding: 10px 16px; border-radius: 999px;
-    animation: dropIn .6s var(--ease) both;
+    animation: dropIn var(--motion-entry) var(--ease) both;
   }
   .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 800; font-size: 18px; }
   .brand .mark {
@@ -109,7 +146,7 @@
     box-shadow: var(--shadow-glow);
   }
   .nav-links { display: none; gap: 28px; font-size: 14px; color: var(--text-dim); }
-  .nav-links a { transition: color .2s var(--ease); }
+  .nav-links a { transition: color var(--motion-normal) var(--ease); }
   .nav-links a:hover { color: var(--text); }
 
   .lang {
@@ -120,7 +157,7 @@
   }
   .lang button {
     min-width: 44px; min-height: 36px; padding: 6px 12px; border-radius: 999px;
-    color: var(--text-mute); transition: color .25s var(--ease), background .25s var(--ease);
+    color: var(--text-mute); transition: color var(--motion-normal) var(--ease), background var(--motion-normal) var(--ease);
   }
   .lang button[aria-pressed="true"] { color: var(--night); background: var(--green-bright); }
 
@@ -138,7 +175,7 @@
   }
   .pulse { position: relative; width: 8px; height: 8px; }
   .pulse i { position: absolute; inset: 0; border-radius: 50%; background: var(--green-bright); }
-  .pulse i:first-child { animation: ping 1.8s var(--ease) infinite; }
+  .pulse i:first-child { animation: ping var(--motion-cinema) var(--ease) infinite; }
   @keyframes ping { 0%{transform:scale(1);opacity:.8} 75%,100%{transform:scale(2.4);opacity:0} }
 
   h1 {
@@ -150,7 +187,7 @@
     background-size: 200% auto;
     -webkit-background-clip: text; background-clip: text;
     -webkit-text-fill-color: transparent; color: transparent;
-    animation: shimmer 5s linear infinite;
+    animation: shimmer var(--loop-run) linear infinite;
   }
   @keyframes shimmer { to { background-position: 200% center; } }
 
@@ -169,14 +206,14 @@
     background: var(--green-bright); color: var(--night);
     font-family: var(--font-display); font-weight: 700; font-size: 16px;
     box-shadow: var(--shadow-glow);
-    transition: transform .3s var(--ease), box-shadow .3s var(--ease), background .3s var(--ease);
+    transition: transform var(--motion-slow) var(--ease), box-shadow var(--motion-slow) var(--ease), background var(--motion-slow) var(--ease);
   }
   .btn-primary .line { display: inline-flex; align-items: center; gap: 10px; }
   .btn-primary small { margin-top: 2px; font-weight: 600; font-size: 12px; color: rgba(10,20,16,.72); font-family: var(--font-sans); }
   .btn-primary::after {
     content: ""; position: absolute; inset: 0; transform: translateX(-120%);
     background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
-    transition: transform .7s var(--ease);
+    transition: transform var(--motion-count) var(--ease);
   }
   .btn-primary:hover { transform: translateY(-3px) scale(1.03); background: var(--green-glow);
     box-shadow: 0 0 80px -10px rgba(47,179,110,.6); }
@@ -188,7 +225,7 @@
     min-height: 56px; padding: 16px 28px; border-radius: var(--radius);
     border: 1px solid rgba(255,255,255,.16); color: rgba(234,242,236,.85);
     font-weight: 600; font-size: 15px;
-    transition: border-color .25s var(--ease), color .25s var(--ease), background .25s var(--ease), transform .25s var(--ease);
+    transition: border-color var(--motion-normal) var(--ease), color var(--motion-normal) var(--ease), background var(--motion-normal) var(--ease), transform var(--motion-normal) var(--ease);
   }
   .btn-ghost:hover { border-color: var(--green-glow); color: var(--text); background: rgba(47,179,110,.08); transform: translateY(-2px); }
   .btn-ghost:active { transform: translateY(0); }
@@ -206,7 +243,7 @@
     position: relative; width: 296px; height: 600px;
     border: 10px solid #1c2722; border-radius: 44px; background: var(--ink);
     box-shadow: var(--shadow-card);
-    animation: floatY 6s var(--ease) infinite;
+    animation: floatY var(--loop-run) var(--ease) infinite;
   }
   @keyframes floatY { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-14px)} }
   .phone::before { content: ""; position: absolute; inset: -24px; z-index: -1; border-radius: 60px; background: rgba(47,179,110,.2); filter: blur(48px); }
@@ -216,10 +253,10 @@
   .map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .roads { stroke: #22332b; stroke-width: 6; fill: none; stroke-linecap: round; opacity: .5; }
   .route { fill: none; stroke: var(--green-bright); stroke-width: 5; stroke-linecap: round;
-    stroke-dasharray: 320; stroke-dashoffset: 320; animation: draw 1.6s var(--ease) 1s forwards; }
+    stroke-dasharray: 320; stroke-dashoffset: 320; animation: draw var(--motion-cinema) var(--ease) var(--motion-tick) forwards; }
   @keyframes draw { to { stroke-dashoffset: 0; } }
   .dot-start { position: absolute; left: 60px; top: 244px; width: 14px; height: 14px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 5px rgba(216,155,18,.22); }
-  .dot-end { position: absolute; right: 44px; top: 60px; width: 24px; height: 24px; border-radius: 50%; background: var(--gold); color: var(--night); display: grid; place-items: center; transform: scale(0); animation: pop .5s var(--ease) 2.4s forwards; }
+  .dot-end { position: absolute; right: 44px; top: 60px; width: 24px; height: 24px; border-radius: 50%; background: var(--gold); color: var(--night); display: grid; place-items: center; transform: scale(0); animation: pop var(--motion-entry) var(--ease) var(--loop-pulse) forwards; }
   @keyframes pop { to { transform: scale(1); } }
   .eta { position: absolute; left: 12px; top: 12px; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--green-glow); }
 
@@ -237,9 +274,9 @@
   .go { padding: 11px; border-radius: 999px; background: var(--green-bright); color: var(--night); text-align: center; font-weight: 700; font-size: 14px; }
 
   /* ============ Анимации появления (стаггер на загрузке) ============ */
-  .reveal { opacity: 0; transform: translateY(26px); animation: rise .8s var(--ease) forwards; }
-  .d1 { animation-delay: .10s; } .d2 { animation-delay: .22s; } .d3 { animation-delay: .34s; }
-  .d4 { animation-delay: .46s; } .d5 { animation-delay: .58s; } .d6 { animation-delay: .70s; }
+  .reveal { opacity: 0; transform: translateY(26px); animation: rise var(--motion-scene) var(--ease) forwards; }
+  .d1 { animation-delay: calc(var(--cascade-in) * 3); } .d2 { animation-delay: calc(var(--cascade-in) * 6); } .d3 { animation-delay: calc(var(--cascade-in) * 9); }
+  .d4 { animation-delay: calc(var(--cascade-in) * 12); } .d5 { animation-delay: calc(var(--cascade-in) * 15); } .d6 { animation-delay: calc(var(--cascade-in) * 18); }
   @keyframes rise { to { opacity: 1; transform: translateY(0); } }
   @keyframes dropIn { from { opacity: 0; transform: translateY(-24px); } to { opacity: 1; transform: translateY(0); } }
 

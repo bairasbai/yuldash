@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --max-warnings=0"
+    "lint": "eslint . --max-warnings=0",
+    "check": "node ../webapp/tests/motion-test.mjs"
   },
   "dependencies": {
     "framer-motion": "^11.3.0",

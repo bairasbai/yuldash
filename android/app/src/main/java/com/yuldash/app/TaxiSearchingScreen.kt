@@ -3,11 +3,6 @@ package com.yuldash.app
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -485,13 +480,9 @@ private fun SearchActionButton(
 /** Пульс даёт живой, но спокойный признак работы поиска. */
 @Composable
 private fun SearchRadar(modifier: Modifier = Modifier) {
-    val infinite = rememberInfiniteTransition(label = "search")
-    val pulse by infinite.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1_150, easing = LinearEasing), RepeatMode.Reverse),
-        label = "searchPulse",
-    )
+    // Темп дыхания — общий для всего приложения (CanonMotion.PULSE). Выключил анимации
+    // в системе — радар спокойно стоит полным кругом, признак работы поиска остаётся.
+    val pulse by canonBreath(label = "searchPulse", from = 0.35f, to = 1f)
     Box(modifier.size(154.dp), contentAlignment = Alignment.Center) {
         Box(
             Modifier

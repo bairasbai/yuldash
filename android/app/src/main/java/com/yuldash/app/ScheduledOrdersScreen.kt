@@ -8,12 +8,6 @@ package com.yuldash.app
 // Все состояния: загрузка, пусто, ошибка+повтор, busy-guard и подтверждение отмены.
 
 import android.widget.Toast
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -376,12 +370,9 @@ private fun ScheduledOrderCard(
 // ---------- Карточка «Пора ехать» (уже активирован ко времени) ----------
 @Composable
 private fun ActivatedOrderCard(order: InstantOrderDto, onOpen: () -> Unit) {
-    val pulse = rememberInfiniteTransition(label = "ready-pulse")
-    val a by pulse.animateFloat(
-        initialValue = 0.5f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse),
-        label = "ready-alpha",
-    )
+    // Общий темп дыхания (CanonMotion.PULSE). При выключенных анимациях точка просто горит —
+    // карточка «пора ехать» остаётся заметной.
+    val a by canonBreath(label = "ready-alpha", from = 0.5f, to = 1f)
     Card(
         onClick = onOpen,
         modifier = Modifier.fillMaxWidth(),

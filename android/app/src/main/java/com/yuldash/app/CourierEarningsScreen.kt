@@ -351,7 +351,7 @@ private fun CourierDayRow(
     val target = if (grown) (day.netKop.toFloat() / maxNet).coerceIn(0f, 1f) else 0f
     val fraction by animateFloatAsState(
         targetValue = target,
-        animationSpec = tween(durationMillis = 560, delayMillis = 40 * index.coerceAtMost(6)),
+        animationSpec = tween(CanonMotion.ENTRY, delayMillis = CanonMotion.cascadeIn(index, max = 6)),
         label = "courierDayBar",
     )
 
