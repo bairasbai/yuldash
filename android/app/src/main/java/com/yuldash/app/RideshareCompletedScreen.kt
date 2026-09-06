@@ -808,7 +808,7 @@ private fun RideshareLostItemRow(opened: Boolean, busy: Boolean, onClick: () -> 
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     if (opened) appText("Чат поездки снова открыт", "Сәфәр чаты яңынан асылды")
-                    else appText("Забыли вещь?", "Әйбер оноттоңмо?"),
+                    else appText("Забыл вещь?", "Әйбер оноттоңмо?"),
                     style = CanonBodyStrong,
                     color = CanonText,
                 )

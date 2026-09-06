@@ -728,7 +728,7 @@ private fun TaxiAfterRideActions(
         TaxiReceiptActionRow(
             icon = if (lostOpened) Icons.Default.ChatBubble else Icons.Default.Search,
             title = if (lostOpened) appText("Открыть чат поездки", "Сәфәр чатын асыу")
-            else appText("Забыли вещь?", "Әйбер онотолдомо?"),
+            else appText("Забыл вещь?", "Әйбер оноттоңмо?"),
             text = if (lostOpened)
                 appText("Чат открыт на 48 часов", "Чат 48 сәғәткә асылды")
             else appText("Связаться по этой поездке", "Был сәфәр буйынса бәйләнешеү"),

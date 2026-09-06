@@ -217,7 +217,7 @@ private fun ReceiptCard(r: TripReceiptDto) {
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(appText("Забыли вещь?", "Әйбер онотолдомо?"),
+                        Text(appText("Забыл вещь?", "Әйбер оноттоңмо?"),
                             color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         Text(
                             if (lostOpened)

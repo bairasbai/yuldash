@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Payments
@@ -299,12 +300,14 @@ private fun TaxiDriverCancelledHeader(order: InstantOrderDto, modifier: Modifier
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
     ) {
-        Surface(shape = CircleShape, color = CanonMint, modifier = Modifier.size(64.dp)) {
+        // Отмена — новость нейтральная. Зелёная галочка здесь читалась как «всё отлично»
+        // ровно в тот момент, когда водитель зря съездил на подачу.
+        Surface(shape = CircleShape, color = CanonSurface, modifier = Modifier.size(64.dp)) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(
-                    if (order.noShow) Icons.Default.EventBusy else Icons.Default.CheckCircle,
+                    if (order.noShow) Icons.Default.EventBusy else Icons.Outlined.Info,
                     contentDescription = null,
-                    tint = CanonGreen2,
+                    tint = CanonMutedStrong,
                     modifier = Modifier.size(34.dp),
                 )
             }
@@ -463,10 +466,15 @@ private fun TaxiDriverCancelledMoney(order: InstantOrderDto, modifier: Modifier 
             "Кире алыу өсөн түләү теркәлмәгән.",
         )
     }
+    // Зелёным празднуем только реальные деньги. «Без компенсации» — нейтральная карточка:
+    // цвет успеха на нулевой сумме читается как издёвка.
     Surface(
-        color = CanonMint,
+        color = if (hasFee) CanonMint else CanonSurface,
         shape = CanonCardShape,
-        border = BorderStroke(1.dp, CanonGreen2.copy(alpha = 0.20f)),
+        border = BorderStroke(
+            1.dp,
+            if (hasFee) CanonGreen2.copy(alpha = 0.20f) else CanonBorder,
+        ),
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(
@@ -474,18 +482,27 @@ private fun TaxiDriverCancelledMoney(order: InstantOrderDto, modifier: Modifier 
             horizontalArrangement = Arrangement.spacedBy(CanonSpace.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(shape = CircleShape, color = CanonGreen2, modifier = Modifier.size(54.dp)) {
+            Surface(
+                shape = CircleShape,
+                color = if (hasFee) CanonGreen2 else CanonBg,
+                modifier = Modifier.size(54.dp),
+            ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(
-                        if (hasFee) Icons.Default.Payments else Icons.Default.CheckCircle,
+                        if (hasFee) Icons.Default.Payments else Icons.Outlined.Info,
                         contentDescription = null,
-                        tint = CanonOnFilled,
+                        tint = if (hasFee) CanonOnFilled else CanonMutedStrong,
                         modifier = Modifier.size(28.dp),
                     )
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
-                Text(label, style = CanonCaption, color = CanonGreen2, fontWeight = FontWeight.Bold)
+                Text(
+                    label,
+                    style = CanonCaption,
+                    color = if (hasFee) CanonGreen2 else CanonMutedStrong,
+                    fontWeight = FontWeight.Bold,
+                )
                 Text(formatTaxiKop(order.cancelFeeKop), style = CanonDisplay, color = CanonText)
                 Text(explanation, style = CanonMicro, color = CanonMutedStrong)
             }

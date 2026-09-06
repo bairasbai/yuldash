@@ -39,7 +39,9 @@ class TaxiPostTripGuardTest {
         assertTrue(receipt.contains("mutableIntStateOf(r.myStars)"))
         assertTrue(receipt.contains("ApiClient.rateInstantOrder(r.orderId, value, r.myRatingTags)"))
         assertTrue(receipt.contains("Поделиться чеком"))
-        assertTrue(receipt.contains("Забыли вещь?"))
+        // «Забыл», а не «Забыли»: тон Юлдаша — на «ты» (CLAUDE.md §9). Сторож тона это
+        // вежливое прошедшее раньше не ловил, поэтому «вы» дожило до чека (2026-09-06).
+        assertTrue(receipt.contains("Забыл вещь?"))
         assertTrue(receipt.contains("Проблема с поездкой"))
         assertTrue(receipt.contains("ReportCategoryDialog("))
         assertTrue(receipt.contains("FileIncidentDialog("))

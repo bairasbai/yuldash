@@ -194,7 +194,7 @@ internal fun TaxiPassengerCompletedScreen(
                 )
                 TaxiCompletedActionRow(
                     icon = Icons.Default.Search,
-                    label = appText("Забыли вещь?", "Әйбер оноттоңмо?"),
+                    label = appText("Забыл вещь?", "Әйбер оноттоңмо?"),
                     description = appText("Откроем чат поездки на 48 часов", "Сәфәр чатын 48 сәғәткә асабыҙ"),
                     busy = lostBusy,
                     onClick = {
