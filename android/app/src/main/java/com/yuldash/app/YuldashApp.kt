@@ -977,6 +977,63 @@ internal fun YuldashApp() {
         // ушедшего экрана вместе с его состоянием, и человек вводил адрес заново.
         screenStates.SaveableStateProvider(scr) {
         when (scr) {
+            // Кабинет админа — двадцать один экран, и все просят одно и то же:
+            // «назад» и «перейти». Держать их здесь значило раздувать выбор экрана до
+            // размера, который Android отказывается ускорять (см. AppNavAdmin.kt).
+            Screen.AdminCabinet,
+            Screen.AdminDrivers,
+            Screen.AdminReports,
+            Screen.AdminTextFlags,
+            Screen.AdminSupport,
+            Screen.AdminPaymentRequests,
+            Screen.AdminRequest,
+            Screen.AdminResponses,
+            Screen.AdminTaxi,
+            Screen.AdminWaitlist,
+            Screen.AdminTaxiPulse,
+            Screen.AdminSos,
+            Screen.AdminIncidents,
+            Screen.AdminRatings,
+            Screen.AdminReviews,
+            Screen.AdminAds,
+            Screen.AdminPartners,
+            Screen.AdminModeration,
+            Screen.AdminPromo,
+            Screen.AdminParcels,
+            Screen.AdminCourier -> AdminNav(
+                screen = scr,
+                onBack = { goBack() },
+                onOpen = { screen = it },
+            )
+            Screen.InstantOrder,
+            Screen.InstantDriverTrip,
+            Screen.InstantChat,
+            Screen.TaxiOnboarding,
+            Screen.TaxiReceipt,
+            Screen.DriverTaxiRides,
+            Screen.MyTaxiTrips,
+            Screen.ParcelChat,
+            Screen.TaxiDocuments,
+            Screen.CarPhoto,
+            Screen.PretripCheck,
+            Screen.CourierEarnings,
+            Screen.Parcels,
+            Screen.CourierOnboarding,
+            Screen.Courier -> OrdersNav(
+                screen = scr,
+                instantTripOrderId = instantTripOrderId,
+                instantChatOrderId = instantChatOrderId,
+                taxiReceiptOrderId = taxiReceiptOrderId,
+                carPhotoMode = carPhotoMode,
+                parcelChatId = parcelChatId,
+                parcelChatPeerIsCourier = parcelChatPeerIsCourier,
+                parcelChatStatus = parcelChatStatus,
+                onBack = { goBack() },
+                onOpen = { screen = it },
+                onOpenTaxiChat = { id -> instantChatOrderId = id; screen = Screen.InstantChat },
+                onOpenReceipt = { id -> taxiReceiptOrderId = id; screen = Screen.TaxiReceipt },
+                onOpenCarPhoto = { mode -> carPhotoMode = mode; screen = Screen.CarPhoto },
+            )
             Screen.Splash -> {
                 // Зелёный «мост» — продолжение СИСТЕМНОГО сплэша, БЕЗ повторной анимации лого.
                 // Это убирает «дубль» (раньше Compose-сплэш заново анимировал то же лого поверх системного).
@@ -1014,159 +1071,30 @@ internal fun YuldashApp() {
                     },
                 )
             }
-            Screen.Home -> HomeScreen(
-                rides = rides,
-                activeTrip = activeTrip,
-                requests = localRequests,
+            // Главный экран — самая большая ветка выбора (154 строки). Вынесена целиком,
+            // чтобы выбор экрана влезал в то, что Android соглашается ускорять (AppNavHome.kt).
+            Screen.Home -> HomeRoute(
+                vm = vm,
+                prefs = prefs,
+                appScope = appScope,
                 requestsLoading = requestsLoading,
                 requestsError = requestsError,
-                onRetryRequests = { requestsReload++ },
-                ads = partnerAds,
-                adStats = adStats,
-                voiceMessages = voiceMessages,
-                initialTab = startHomeTab,
-                onTabChange = { startHomeTab = it },   // «Назад» с под-экранов вернётся на активную вкладку Home
-                onCreateRide = { openCreateRide(returnScreen = Screen.Home, returnHomeTab = HomeTab.Request) },
-                onSeasonalPublish = { date -> openCreateRide(returnScreen = Screen.Home, returnHomeTab = HomeTab.Request, prefillDate = date) },   // F15: дата праздника уже в форме
-                onCreateRequest = { screen = Screen.CreateRequest },
-                onSupport = { screen = Screen.Support },
-                onMyStats = { screen = Screen.MyStats },
-                onCoupons = { screen = Screen.Coupons },
-                onPromo = { screen = Screen.PromoCode },
-                onParcels = { screen = Screen.Parcels },
-                onCourier = { screen = Screen.Courier },
-                onPartnerCabinet = { screen = Screen.PartnerCabinet },
-                onMyData = { screen = Screen.MyData },
-                onReview = { screen = Screen.AppReview },
-                onAdminReviews = { screen = Screen.AdminReviews },
-                onAdminAds = { screen = Screen.AdminAds },
-                onBoost = { screen = Screen.Boost },
-                onPublishRide = { ride ->
-                    rides.add(0, ride)
-                    Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка баҫтырылды" else "Заявка опубликована", Toast.LENGTH_SHORT).show()
-                },
-                onBookRide = { ride ->
-                    selectedRide = ride
-                    activeBookingId = null
-                    selectedBookingStatus = ""
-                    screen = Screen.Booking
-                },
-                onOpenBookingDetails = { ride, status ->
-                    selectedRide = ride
-                    activeTrip = null
-                    activeBookingId = ride.id.toIntOrNull()
-                    selectedBookingStatus = status
-                    screen = Screen.Booking
-                },
-                onOpenActiveTrip = { ride, status ->
-                    selectedRide = ride
-                    // Живое гео гейтится на activeTrip != null (см. эффект TripLocationService выше):
-                    // для подтверждённой поездки, открытой из списка, ставим activeTrip = ride, иначе
-                    // сервис заглохнет и попутчик не увидит позицию. Для неактивной брони — null (как было).
-                    activeTrip = if (bookingStatusAllowsActiveTrip(status)) ride else null
-                    activeBookingId = ride.id.toIntOrNull()
-                    selectedBookingStatus = status
-                    screen = if (bookingStatusAllowsActiveTrip(status)) Screen.ActiveTrip else Screen.Booking
-                },
-                onShareRide = { ride ->
-                    val rideTime = if (language == AppLanguage.Ba) ride.timeBa ?: ride.time else ride.time
-                    // Красивая расшариваемая ссылка: откроется в приложении (deep-link) либо покажет
-                    // веб-превью с OG-карточкой в WhatsApp/Telegram. Хост — из конфига, не localhost.
-                    val link = "${BuildConfig.YULDASH_WEB_BASE_URL.trimEnd('/')}/r/${ride.id}"
-                    val shareText = if (language == AppLanguage.Ba) {
-                        "Юлдаш: ${ride.from} → ${ride.to}, $rideTime, йөрөтөүсе ${ride.driver}, ${ride.price} ₽, буш урын: ${ride.seats}.\n$link"
-                    } else {
-                        "Юлдаш: ${ride.from} → ${ride.to}, $rideTime, водитель ${ride.driver}, ${ride.price} ₽, свободно ${ride.seats} места.\n$link"
-                    }
-                    shareRide(
-                        context = context,
-                        text = shareText,
-                        chooserTitle = if (language == AppLanguage.Ba) "Сәфәр менән бүлешеү" else "Поделиться поездкой"
-                    )
-                },
-                onAdImpression = ::trackAdImpression,
-                onAdClick = ::trackAdClick,
-                onAddVoiceMessage = { message ->
-                    voiceMessages.add(0, message)
-                    Toast.makeText(context, if (language == AppLanguage.Ba) "Тауыш хәбәре ебәрелде" else "Голосовое отправлено", Toast.LENGTH_SHORT).show()
-                },
-                onSos = { openSos() },
-                onVerifyDriver = { screen = Screen.VerifyDriver },
-                onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
-                onOpenScheduled = { screen = Screen.ScheduledOrders },
-                onSavedPlaces = { if (ApiClient.isLoggedIn()) screen = Screen.SavedPlaces else screen = Screen.Login },
                 payMethod = payMethod,
-                onOpenPayments = { screen = Screen.PaymentMethods },
-                onCourierMode = { if (ApiClient.isLoggedIn()) screen = Screen.Courier else screen = Screen.Login },
-                onNotifications = { screen = Screen.Notifications },
-                onRouteWatch = { from, to ->
+                onRetryRequests = { requestsReload++ },
+                onBookingStatus = { selectedBookingStatus = it },
+                onRouteWatchPrefill = { from, to ->
                     routeWatchPrefillFrom = from ?: ""
                     routeWatchPrefillTo = to ?: ""
-                    screen = Screen.RouteWatches
                 },
-                onOpenChat = { bid, peer, route ->
-                    val parts = route.split("→").map { it.trim() }
-                    selectedRide = Ride(id = bid.toString(), from = parts.getOrElse(0) { "" }, to = parts.getOrElse(1) { "" }, time = "", driver = peer, car = "", price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
-                    activeBookingId = bid
-                    selectedBookingStatus = ""
-                    screen = Screen.ActiveTrip
+                onCreateRide = { tab, date ->
+                    openCreateRide(returnScreen = Screen.Home, returnHomeTab = tab, prefillDate = date)
                 },
-                onOpenResponses = { id -> responsesRequestId = id; screen = Screen.RequestResponses },
-                onCancelRequest = { id ->
-                    // Отмена заявки: успех — по факту сервера (убираем из списка), при сбое — серверная причина
-                    // (matched-заявку нельзя отменить тут → бэк вернёт понятный текст).
-                    appScope.launch {
-                        ApiClient.cancelRequest(id)
-                            .onSuccess {
-                                localRequests.removeAll { it.serverId == id }
-                                Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка кире алынды" else "Заявка отменена", Toast.LENGTH_SHORT).show()
-                            }
-                            .onFailure { e ->
-                                Toast.makeText(context, (e as? com.yuldash.app.data.ApiException)?.message ?: if (language == AppLanguage.Ba) "Булманы. Ҡабатла" else "Не получилось. Повтори", Toast.LENGTH_LONG).show()
-                            }
-                    }
+                onSos = { openSos() },
+                onTrustedContacts = {
+                    openTrustedContacts(returnScreen = Screen.Home, returnHomeTab = HomeTab.Profile)
                 },
-                onEditRequest = { id, from, to, price, comment ->
-                    // F3: правка заявки. Успех — оптимистично обновляем карточку; сбой — серверная причина.
-                    appScope.launch {
-                        ApiClient.editRequest(id, fromCity = from, toCity = to, maxPrice = price, comment = comment)
-                            .onSuccess {
-                                val idx = localRequests.indexOfFirst { it.serverId == id }
-                                if (idx >= 0) {
-                                    val r = localRequests[idx]
-                                    localRequests[idx] = r.copy(route = "$from → $to", price = price, trustedContact = comment.ifBlank { null })
-                                }
-                                Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка үҙгәртелде" else "Заявка обновлена", Toast.LENGTH_SHORT).show()
-                            }
-                            .onFailure { e ->
-                                Toast.makeText(context, (e as? com.yuldash.app.data.ApiException)?.message ?: if (language == AppLanguage.Ba) "Булманы. Ҡабатла" else "Не получилось. Повтори", Toast.LENGTH_LONG).show()
-                            }
-                    }
-                },
-                onSafety = { screen = Screen.Safety },
-                onSettings = { screen = Screen.Settings },
-                onPrivacy = { screen = Screen.Privacy },
-                onTrust = { if (ApiClient.isLoggedIn()) screen = Screen.Trust else screen = Screen.Login },
-                onFairness = { if (ApiClient.isLoggedIn()) screen = Screen.FairnessCenter else screen = Screen.Login },
-                onConsents = { if (ApiClient.isLoggedIn()) screen = Screen.Consents else screen = Screen.Login },
-                onHelp = { screen = Screen.Help },
-                onPassengerCabinet = { prefs.edit().putString("preferred_role", RideRole.Passenger.name).apply(); screen = Screen.PassengerCabinet },
-                onDriverCabinet = { prefs.edit().putString("preferred_role", RideRole.Driver.name).apply(); screen = Screen.DriverCabinet },
-                onClinicRides = { screen = Screen.ClinicRides },
-                onSimpleMode = { screen = Screen.SimpleMode },
-                onTrustedContacts = { openTrustedContacts(returnScreen = Screen.Home, returnHomeTab = HomeTab.Profile) },
-                onCallbackHelp = { screen = Screen.CallbackHelp },
-                onAdsCabinet = { screen = Screen.AdsCabinet },
-                onToggleLanguage = {
-                    language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
-                },
-                onAccountDeleted = {
-                    endSession(context, vm)             // гасим весь live-GPS и чистим PII из памяти
-                    isAdmin = false
-                    startHomeTab = HomeTab.Map
-                    screen = Screen.Login
-                },
-                onInstantLogin = { screen = Screen.Login }   // такси требует входа → на экран входа
+                onAdImpression = { trackAdImpression(it) },
+                onAdClick = { trackAdClick(it) },
             )
             Screen.CreateRide -> CreateRideScreen(
                 prefillDate = createRidePrefillDate,   // F15: если пришли из баннера — дата праздника уже стоит
@@ -1372,37 +1300,7 @@ internal fun YuldashApp() {
                     screen = Screen.Login
                 }
             )
-            Screen.AdminCabinet -> AdminCabinetScreen(
-                onBack = { goBack() },
-                onAdminRequest = { screen = Screen.AdminRequest },
-                onAdminResponses = { screen = Screen.AdminResponses },
-                onAds = { screen = Screen.AdsCabinet },
-                onDrivers = { screen = Screen.AdminDrivers },
-                onReports = { screen = Screen.AdminReports },
-                onTextFlags = { screen = Screen.AdminTextFlags },
-                onSupportAdmin = { screen = Screen.AdminSupport },
-                onPaymentRequests = { screen = Screen.AdminPaymentRequests },
-                onTaxi = { screen = Screen.AdminTaxi },
-                onWaitlist = { screen = Screen.AdminWaitlist },
-                onTaxiPulse = { screen = Screen.AdminTaxiPulse },
-                onPartners = { screen = Screen.AdminPartners },
-                onModeration = { screen = Screen.AdminModeration },
-                onPromoAdmin = { screen = Screen.AdminPromo },
-                onParcelsAdmin = { screen = Screen.AdminParcels },
-                onCourierAdmin = { screen = Screen.AdminCourier },
-                onIncomeCalc = { screen = Screen.IncomeCalculator },
-                onSosFeed = { screen = Screen.AdminSos },
-                onIncidents = { screen = Screen.AdminIncidents },
-                onRatings = { screen = Screen.AdminRatings },
-            )
             Screen.IncomeCalculator -> IncomeCalculatorScreen(onBack = { goBack() })
-            Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
-            Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
-            Screen.AdminTextFlags -> AdminTextFlagsScreen(onBack = { goBack() })
-            Screen.AdminSupport -> AdminSupportScreen(onBack = { goBack() })
-            Screen.AdminPaymentRequests -> AdminPaymentRequestsScreen(onBack = { goBack() })
-            Screen.AdminRequest -> AdminRequestScreen(onBack = { goBack() })
-            Screen.AdminResponses -> AdminResponsesScreen(onBack = { goBack() })
             Screen.Help -> HelpScreen(
                 ads = partnerAds,
                 adStats = adStats,
@@ -1448,12 +1346,6 @@ internal fun YuldashApp() {
                 onPretrip = { if (ApiClient.isLoggedIn()) screen = Screen.PretripCheck else screen = Screen.Login },
                 onMyResponses = { if (ApiClient.isLoggedIn()) screen = Screen.DriverResponses else screen = Screen.Login },
             )
-            Screen.InstantOrder -> InstantOrderScreen(
-                onBack = { goBack() },
-                onLoginRequired = { screen = Screen.Login },
-                onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
-                onOpenScheduled = { screen = Screen.ScheduledOrders }
-            )
             Screen.ScheduledOrders -> ScheduledOrdersScreen(
                 onBack = { goBack() },
                 // Активировал предзаказ → в обычный экран заказа: он восстановит заказ в поиске.
@@ -1467,22 +1359,6 @@ internal fun YuldashApp() {
                 ticketId = supportTicketId,
                 onBack = { goBack() }
             )
-            Screen.InstantDriverTrip -> InstantDriverTripScreen(
-                orderId = instantTripOrderId,
-                onBack = { goBack() },
-                onFinished = { screen = Screen.DriverCabinet }
-            )
-            Screen.InstantChat -> InstantChatScreen(
-                orderId = instantChatOrderId,
-                onBack = { goBack() }
-            )
-            Screen.TaxiOnboarding -> TaxiOnboardingScreen(
-                onBack = { goBack() },
-                onOpenDriverCabinet = { screen = Screen.DriverCabinet }
-            )
-            Screen.AdminTaxi -> AdminTaxiScreen(onBack = { goBack() })
-            Screen.AdminWaitlist -> AdminWaitlistScreen(onBack = { goBack() })
-            Screen.AdminTaxiPulse -> AdminTaxiPulseScreen(onBack = { goBack() })
             Screen.RequestsFeed -> RequestsFeedScreen(onBack = { goBack() })
             Screen.DriverResponses -> DriverResponsesScreen(
                 onBack = { goBack() },
@@ -1581,50 +1457,12 @@ internal fun YuldashApp() {
             Screen.DriverEarnings -> DriverEarningsScreen(onBack = { goBack() })
             Screen.SavedPlaces -> SavedPlacesScreen(onBack = { goBack() })
             Screen.TripReceipt -> TripReceiptScreen(bookingId = receiptBookingId, onBack = { goBack() })
-            Screen.TaxiReceipt -> TaxiReceiptScreen(
-                orderId = taxiReceiptOrderId,
-                onBack = { goBack() },
-                // «Забыл вещь» открыл чат заказа на 48 часов → ведём прямо туда.
-                onOpenChat = { id -> instantChatOrderId = id; screen = Screen.InstantChat },
-            )
-            Screen.DriverTaxiRides -> DriverTaxiRidesScreen(
-                onBack = { goBack() },
-                onOpenReceipt = { id -> taxiReceiptOrderId = id; screen = Screen.TaxiReceipt },
-            )
-            // История поездок пассажира: у водителя такой экран был (DriverTaxiRides), у того,
-            // кто платит, — нет. Чек жил одну сессию и терялся вместе с экраном заказа.
-            Screen.MyTaxiTrips -> MyTaxiTripsScreen(
-                onBack = { goBack() },
-                onOpenReceipt = { id -> taxiReceiptOrderId = id; screen = Screen.TaxiReceipt },
-            )
-            // Чат по посылке. Роль и статус передаёт карточка, из которой пришли, — она их знает,
-            // и лишний запрос к серверу ради заголовка экрана тут не нужен.
-            Screen.ParcelChat -> ParcelChatScreen(
-                parcelId = parcelChatId,
-                peerIsCourier = parcelChatPeerIsCourier,
-                parcelStatus = parcelChatStatus,
-                onBack = { goBack() },
-            )
-            Screen.AdminSos -> AdminSosScreen(onBack = { goBack() })
-            Screen.TaxiDocuments -> TaxiDocumentsScreen(
-                onBack = { goBack() },
-                onCarPhoto = { carPhotoMode = "taxi"; screen = Screen.CarPhoto },
-            )
-            // Фотоконтроль машины: один экран на оба режима — просим разные кадры, но
-            // правила, лестница и тон одинаковые (580-ФЗ).
-            Screen.CarPhoto -> CarPhotoScreen(mode = carPhotoMode, onBack = { goBack() })
-            Screen.PretripCheck -> PretripCheckScreen(onBack = { goBack() })
             Screen.FairnessCenter -> FairnessCenterScreen(
                 onBack = { goBack() },
                 onOpenIncident = { id -> incidentId = id; screen = Screen.IncidentDetail },
             )
             Screen.IncidentDetail -> IncidentDetailScreen(incidentId = incidentId, onBack = { goBack() })
-            Screen.AdminIncidents -> AdminIncidentsScreen(onBack = { goBack() })
-            Screen.AdminRatings -> AdminRatingsScreen(onBack = { goBack() })
-            Screen.CourierEarnings -> CourierEarningsScreen(onBack = { goBack() })
             Screen.AppReview -> AppReviewScreen(onBack = { goBack() })
-            Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
-            Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })
             Screen.DriverProfile -> DriverProfileScreen(driverId = driverProfileId, onBack = { goBack() })
             Screen.Trust -> TrustScreen(
                 onBack = { goBack() },
@@ -1646,26 +1484,7 @@ internal fun YuldashApp() {
             )
             Screen.Coupons -> CouponsScreen(onBack = { goBack() })
             Screen.PartnerCabinet -> PartnerCabinetScreen(onBack = { goBack() })
-            Screen.AdminPartners -> AdminPartnersScreen(onBack = { goBack() })
-            Screen.AdminModeration -> AdminModerationScreen(
-                onBack = { goBack() },
-                onOpenPartners = { screen = Screen.AdminPartners },
-            )
             Screen.PromoCode -> PromoCodeScreen(onBack = { goBack() })
-            Screen.AdminPromo -> AdminPromoScreen(onBack = { goBack() })
-            Screen.Parcels -> ParcelsScreen(onBack = { goBack() })
-            Screen.AdminParcels -> AdminParcelsScreen(onBack = { goBack() })
-            Screen.CourierOnboarding -> CourierOnboardingScreen(
-                onBack = { goBack() },
-                onOpenCourier = { screen = Screen.Courier },
-            )
-            Screen.Courier -> CourierScreen(
-                onBack = { goBack() },
-                onBecomeCourier = { screen = Screen.CourierOnboarding },
-                onEarnings = { screen = Screen.CourierEarnings },
-                onCarPhoto = { carPhotoMode = "courier"; screen = Screen.CarPhoto },
-            )
-            Screen.AdminCourier -> AdminCourierScreen(onBack = { goBack() })
         }
         }
         }
