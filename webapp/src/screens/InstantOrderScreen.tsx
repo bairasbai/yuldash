@@ -97,6 +97,11 @@ const POLL_MS = 3500;
 /** Насколько вперёд сервер принимает предзаказ (`scheduled_max_days` в конфиге). */
 const SCHEDULE_MAX_DAYS = 7;
 
+function passengerOrderIsActive(order: InstantOrder): boolean {
+  return ACTIVE_PASSENGER_STATUSES.includes(order.status)
+    || (order.status === "expired" && serverMs(order.wait_until) > Date.now());
+}
+
 export default function InstantOrderScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
@@ -132,7 +137,7 @@ export default function InstantOrderScreen() {
       // Сначала — есть ли уже живой заказ (восстановление экрана).
       fetchMyOrders(5)
         .then((list) => {
-          const live = list.find((o) => ACTIVE_PASSENGER_STATUSES.includes(o.status));
+          const live = list.find(passengerOrderIsActive);
           if (live) {
             setOrder(live);
             setView("tracking");
@@ -1392,13 +1397,10 @@ function TrackingView({
                   "Яҡында буш машина табылманы. Бер-ике минуттан ҡабат ҡара."
                 )}
           </p>
-          <button type="button" className="btn-primary" onClick={onNewOrder}>
-            {appText("Попробовать снова", "Ҡабат ҡарау")}
-          </button>
           {/* Ждать — это ТРЕТИЙ ответ, между «попробовать снова» и «уехать попуткой».
               Ночью в райцентре машины освобождаются через десять минут, и человек
               обычно готов их дождаться, если ему не надо для этого сидеть в экране. */}
-          <WaitForCarCard order={order} onWaiting={onRefresh} />
+          <WaitForCarCard order={order} onWaiting={onRefresh} onCancelled={onCancelled} onNewOrder={onNewOrder} />
           {/* Машин нет — но в ту же сторону кто-то и так едет. Попутка дешевле
               и часто быстрее, чем ждать такси, которого в селе может не быть вовсе. */}
           <button type="button" className="btn-soft" onClick={() => navigate("/map")}>

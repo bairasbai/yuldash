@@ -22,6 +22,7 @@ const OUT = join(HERE, ".bundles");
 
 /** набор → что для него собрать (модуль сайта → имя файла сборки). */
 const SUITES = [
+  { test: "taxi-wait-cancel-test", src: null, out: null, bundle: false },
   { test: "taxi-origin-picker-test", src: null, out: null, bundle: false },
   { test: "ride-booking-path-test", src: null, out: null, bundle: false },
   { test: "commission-label-test", src: null, out: null, bundle: false },

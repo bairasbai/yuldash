@@ -26,6 +26,7 @@ import {
   setPaymentMethod,
   setWaypoints,
   waitForDriver,
+  cancelInstantOrder,
   type DestinationQuote,
   type InstantOrder,
   type PaymentMethod,
@@ -716,10 +717,52 @@ export function WinterCheckAnswer({ orderId, onDone }: { orderId: number; onDone
  * Раньше отказ был мгновенным и окончательным: человек получал «никого нет» за две
  * секунды и уходил к конкуренту. Теперь заказ встаёт в очередь, а поиск продолжается сам.
  */
-export function WaitForCarCard({ order, onWaiting }: { order: InstantOrder; onWaiting: () => void }) {
+export function WaitForCarCard({ order, onWaiting, onCancelled, onNewOrder }: {
+  order: InstantOrder; onWaiting: () => void; onCancelled: () => void; onNewOrder: () => void;
+}) {
   const { appText } = useLang();
   const [busy, setBusy] = useBusy();
   const [note, setNote] = useState("");
+  const [waitUntil, setWaitUntil] = useState(order.wait_until);
+  const inFlight = useRef(false);
+  useEffect(() => { setWaitUntil(order.wait_until); }, [order.wait_until]);
+  const waiting = serverMs(waitUntil) > Date.now();
+
+  async function stopWaiting(after: () => void) {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setNote("");
+    try {
+      await cancelInstantOrder(order.id, "changed_mind");
+      setWaitUntil(null);
+      after();
+    } catch {
+      setNote(appText("Не получилось остановить поиск. Заказ ещё в очереди — попробуй снова.",
+        "Эҙләүҙе туҡтатып булманы. Заказ әле сиратта — тағы ҡабатла."));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function wait() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setNote("");
+    try {
+      const result = await waitForDriver(order.id);
+      setWaitUntil(result.wait_until);
+      setNote(appText(`Ждём машину ещё ${result.wait_minutes} минут.`, `Машинаны тағы ${result.wait_minutes} минут көтәбеҙ.`));
+      onWaiting();
+    } catch {
+      setNote(appText("Не получилось встать в очередь. Попробуй ещё раз.", "Сиратҡа баҫып булманы. Тағы ҡабатла."));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="act-card">
@@ -736,32 +779,15 @@ export function WaitForCarCard({ order, onWaiting }: { order: InstantOrder; onWa
         type="button"
         className="btn-primary"
         disabled={busy}
-        onClick={() => {
-          setBusy(true);
-          setNote("");
-          waitForDriver(order.id)
-            .then((r) => {
-              setNote(
-                appText(
-                  `Ждём машину ещё ${r.wait_minutes} минут.`,
-                  `Машинаны тағы ${r.wait_minutes} минут көтәбеҙ.`
-                )
-              );
-              onWaiting();
-            })
-            .catch(() =>
-              setNote(
-                appText(
-                  "Не получилось встать в очередь. Попробуй ещё раз.",
-                  "Сиратҡа баҫып булманы. Тағы ҡабатла."
-                )
-              )
-            )
-            .finally(() => setBusy(false));
-        }}
+        onClick={waiting ? () => stopWaiting(onCancelled) : wait}
       >
-        {appText("Подождать машину", "Машинаны көтөү")}
+        {waiting ? appText("Не ждать машину", "Машинаны көтмәҫкә") : appText("Подождать машину", "Машинаны көтөү")}
       </button>
+      <button type="button" className="btn-ghost" disabled={busy} onClick={() => {
+        if (inFlight.current) return;
+        if (waiting) return stopWaiting(onNewOrder);
+        onNewOrder();
+      }}>{appText("Попробовать снова", "Ҡабат ҡарау")}</button>
       {note && (
         <div className="notice" role="status">
           {note}
