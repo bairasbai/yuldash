@@ -20,26 +20,36 @@ type Tab = {
 const tabs: Tab[] = [
   { to: "/map", key: "navMap", Icon: YuMapTab },
   { to: "/rides", key: "navRides", Icon: YuTripList },
-  { to: "/request", key: "navRequest", Icon: YuRequestAdd },
+  { to: "/my-requests", key: "navRequest", Icon: YuRequestAdd },
   { to: "/chat", key: "navChat", Icon: YuChat },
   { to: "/profile", key: "navProfile", Icon: YuProfile },
 ];
 
-export default function BottomNav() {
+export default function BottomNav({ debtBadge = false }: { debtBadge?: boolean }) {
   const { t, appText } = useLang();
   return (
     // Подпись для озвучки экрана — тоже надпись, и она была только по-русски:
     // незрячий человек с башкирским интерфейсом слышал чужой язык.
-    <nav className="bottom-nav" aria-label={appText("Основная навигация", "Төп навигация")}>
+    <nav
+      className="bottom-nav"
+      aria-label={appText("Основная навигация", "Төп навигация")}
+    >
       {tabs.map(({ to, key, Icon }) => (
         <NavLink
           key={to}
           to={to}
           className={({ isActive }) => "nav-item" + (isActive ? " is-active" : "")}
-          aria-label={t(key)}
+          aria-label={
+            key === "navProfile" && debtBadge
+              ? `${t(key)} · ${appText("К оплате сейчас", "Хәҙер түләргә")}`
+              : t(key)
+          }
         >
-          <Icon size={24} />
-          <span>{t(key)}</span>
+          <span className="nav-pill" aria-hidden>
+            <Icon size={21} />
+            {key === "navProfile" && debtBadge && <span className="nav-debt-badge" />}
+          </span>
+          <span className="nav-item__label">{t(key)}</span>
         </NavLink>
       ))}
     </nav>

@@ -116,6 +116,14 @@ export default function ProfileScreen() {
       authed: true,
     },
     {
+      key: "my-data",
+      to: "/my-data",
+      icon: <IconShield size={22} />,
+      title: appText("Мои данные", "Минең мәғлүмәттәр"),
+      sub: appText("Что хранится и когда удалится", "Нимә һаҡлана һәм ҡасан юйыла"),
+      authed: true,
+    },
+    {
       key: "driver",
       to: "/driver",
       icon: <IconWheel size={22} />,
@@ -216,6 +224,14 @@ export default function ProfileScreen() {
       icon: <IconMegaphone size={22} />,
       title: appText("Реклама", "Реклама"),
       sub: appText("Рассказать о деле попутчикам", "Юлдаштарға эшең тураһында һөйләргә"),
+      authed: true,
+    },
+    {
+      key: "payment-methods",
+      to: "/payment-methods",
+      icon: <IconWallet size={22} />,
+      title: appText("Способы оплаты", "Түләү ысулдары"),
+      sub: appText("Наличные, СБП или договориться", "Наличный, СБП йәки килешеү"),
       authed: true,
     },
     {
@@ -428,7 +444,7 @@ export default function ProfileScreen() {
         // Разделы, как в настройках iOS: тихие подписи + сгруппированные карточки.
         const sections: { label: string; keys: string[] }[] = [
           { label: appText("Управление", "Идара итеү"), keys: ["admin"] },
-          { label: appText("Аккаунт", "Иҫәп"), keys: ["settings", "notifications"] },
+          { label: appText("Аккаунт", "Иҫәп"), keys: ["settings", "notifications", "my-data"] },
           {
             label: appText("Заказать поездку", "Сәфәр заказ итеү"),
             keys: ["taxi", "parcels", "scheduled", "clinics", "family-order", "voice", "callback"],
@@ -443,7 +459,7 @@ export default function ProfileScreen() {
           },
           {
             label: appText("Выгода и бизнес", "Файҙа һәм бизнес"),
-            keys: ["coupons", "promo", "invites", "partner", "ads", "payment-info"],
+            keys: ["coupons", "promo", "invites", "partner", "ads", "payment-methods", "payment-info"],
           },
           {
             label: appText("Безопасность и доверие", "Именлек һәм ышаныс"),

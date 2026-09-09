@@ -57,6 +57,25 @@ const OFFER_POLL_MS = 3000;
 const DEMAND_MS = 60000; // карта спроса — авто-обновление раз в минуту на линии
 const ACTIVE_KEY = "yuldash.taxi.activeOrder";
 
+const BLOCKED_COPY: Record<string, { title: [string, string]; detail: [string, string] }> = {
+  debt: {
+    title: ["Линия закрыта из-за долга по комиссии", "Комиссия бурысы арҡаһында линия ябыҡ"],
+    detail: ["Оплати в кабинете — вернёшься сразу", "Кабинетта түлә — шунда уҡ ҡайтаһың"],
+  },
+  rest: {
+    title: ["Сейчас время отдыха", "Хәҙер ял ваҡыты"],
+    detail: ["Линия откроется, когда отдых закончится", "Ял бөткәс линия асыла"],
+  },
+  quality_pause: {
+    title: ["Такси на паузе по жалобам", "Ялыуҙар буйынса такси паузала"],
+    detail: ["Подробности — в Центре справедливости", "Ентеклеләр — Ғәҙеллек үҙәгендә"],
+  },
+  review_pause: {
+    title: ["Идёт разбор — такси на паузе", "Тикшереү бара — такси паузала"],
+    detail: ["Ответим, как только разберём", "Тикшереп бөткәс яуап бирербеҙ"],
+  },
+};
+
 /** Расстояние по прямой, км (хаверсин) — «зона в ≈N км от меня». */
 function distanceKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const rad = (d: number) => (d * Math.PI) / 180;
@@ -120,6 +139,10 @@ export default function InstantDriverTripScreen() {
   const posRef = useRef<GeoPoint | null>(null);
   /** Геолокацию не дали — «на линии» работать не будет. */
   const [geoNote, setGeoNote] = useState(false);
+  /** Два подряд недошедших heartbeat: сервер уже может не видеть водителя. */
+  const [presenceFails, setPresenceFails] = useState(0);
+  /** Серверная причина, по которой офферов не будет, хотя тумблер включён. */
+  const [offerBlocked, setOfferBlocked] = useState<string | null>(null);
 
   // ---------------- Загрузка: заявка таксиста + статус водителя + активная поездка ----------------
   const load = useCallback((signal?: AbortSignal) => {
@@ -191,17 +214,27 @@ export default function InstantDriverTripScreen() {
 
   // ---------------- Presence-heartbeat пока на линии ----------------
   useEffect(() => {
-    if (!online) return;
+    if (!online) {
+      setPresenceFails(0);
+      return;
+    }
     let alive = true;
     const beat = () => {
       const pos = posRef.current;
       if (!pos) return;
-      sendPresence(pos.lat, pos.lng).catch((e) => {
-        // 409 = «сначала включи на линии» рассинхрон; 403 = гейт → выключаем.
-        if (alive && e instanceof ApiError && e.status === 403) {
-          setDriver((d) => (d ? { ...d, online: false } : d));
-        }
-      });
+      sendPresence(pos.lat, pos.lng)
+        .then(() => alive && setPresenceFails(0))
+        .catch((e) => {
+          // 403 = гейт → выключаем. Остальные сбои считаем: молчащий heartbeat
+          // означает, что сервер уже не видит машину и не пришлёт заказ.
+          if (!alive) return;
+          if (e instanceof ApiError && e.status === 403) {
+            setPresenceFails(0);
+            setDriver((d) => (d ? { ...d, online: false } : d));
+          } else {
+            setPresenceFails((count) => Math.min(99, count + 1));
+          }
+        });
     };
     beat();
     const iv = window.setInterval(beat, PRESENCE_MS);
@@ -213,12 +246,16 @@ export default function InstantDriverTripScreen() {
 
   // ---------------- Опрос оффера (пока на линии и нет активной поездки) ----------------
   useEffect(() => {
-    if (!online || active) return;
+    if (!online || active) {
+      setOfferBlocked(null);
+      return;
+    }
     let alive = true;
     const tick = () => {
       fetchDriverOffer()
         .then((r) => {
           if (!alive) return;
+          setOfferBlocked(r.blocked ?? null);
           setOffer((prev) => {
             if (r.offer && (!prev || prev.id !== r.offer.id)) ringOffer();
             return r.offer;
@@ -582,6 +619,26 @@ export default function InstantDriverTripScreen() {
         </div>
       )}
 
+      {presenceFails >= 2 && online && (
+        <div className="act-card act-card--warn" role="status">
+          <div className="act-card__title"><IconWarn size={18} /> {appText("Нет связи · переподключаемся", "Бәйләнеш юҡ · ҡабат тоташабыҙ")}</div>
+          <p className="act-card__text">{appText("Повторим автоматически", "Үҙебеҙ ҡабатлап ҡарарбыҙ")}</p>
+        </div>
+      )}
+
+      {offerBlocked && online && (() => {
+        const copy = BLOCKED_COPY[offerBlocked] ?? {
+          title: ["Допуск к такси сейчас закрыт", "Такси рөхсәте хәҙер ябыҡ"] as [string, string],
+          detail: ["Проверь документы и разрешение в кабинете", "Кабинетта документтарҙы һәм рөхсәтте ҡара"] as [string, string],
+        };
+        return (
+          <div className="act-card act-card--danger" role="status">
+            <div className="act-card__title"><IconWarn size={18} /> {appText(copy.title[0], copy.title[1])}</div>
+            <p className="act-card__text">{appText(copy.detail[0], copy.detail[1])}</p>
+          </div>
+        );
+      })()}
+
       <DebtCard />
 
       {/* Где брать заказы. Без зоны они сыплются отовсюду, и человек читает
@@ -610,24 +667,30 @@ export default function InstantDriverTripScreen() {
         <span className={"switch" + (online ? " on" : "")} />
       </button>
 
-      {online ? (
+      {online && !offerBlocked ? (
         <>
           <div className="taxi-online-wait">
             <div className="taxi-search__pulse" aria-hidden>
               <IconCar size={38} />
             </div>
-            <h2>{appText("Ждём заказ", "Заказ көтәбеҙ")}</h2>
+            <h2>
+              {presenceFails >= 2
+                ? appText("Нет связи", "Бәйләнеш юҡ")
+                : appText("Ждём заказ", "Заказ көтәбеҙ")}
+            </h2>
             <p>
-              {appText(
-                "Как только рядом появится пассажир — покажем заказ со звуком. Держи телефон под рукой.",
-                "Яҡында юлаусы сыҡһа — заказды тауыш менән күрһәтәбеҙ. Телефоныңды әҙер тот."
-              )}
+              {presenceFails >= 2
+                ? appText("Повторим автоматически", "Үҙебеҙ ҡабатлап ҡарарбыҙ")
+                : appText(
+                    "Как только рядом появится пассажир — покажем заказ со звуком. Держи телефон под рукой.",
+                    "Яҡында юлаусы сыҡһа — заказды тауыш менән күрһәтәбеҙ. Телефоныңды әҙер тот."
+                  )}
             </p>
           </div>
           {/* Карта спроса: где сейчас ищут такси (анонимные зоны) */}
           <DemandNearby getPos={() => posRef.current} />
         </>
-      ) : (
+      ) : !online ? (
         <div className="state" style={{ paddingTop: 24 }}>
           <div className="state__icon"><YuMoon size={34} /></div>
           <h2>{appText("Ты не на линии", "Һин линияла түгел")}</h2>
@@ -638,7 +701,7 @@ export default function InstantDriverTripScreen() {
             )}
           </p>
         </div>
-      )}
+      ) : null}
 
       {/* Оффер — полноэкранный оверлей */}
       {offer && (

@@ -47,17 +47,19 @@ function Stars({ n }: { n: number }) {
   );
 }
 
-export default function AdminReviewsScreen() {
+export default function AdminReviewsScreen({ initialTab = "rides" }: { initialTab?: Tab }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
 
-  const [tab, setTab] = useState<Tab>("rides");
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [state, setState] = useState<State>("loading");
   const [rides, setRides] = useState<PendingRating[]>([]);
   const [apps, setApps] = useState<PendingAppReview[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [rowError, setRowError] = useState<{ id: number; msg: string } | null>(null);
+
+  useEffect(() => setTab(initialTab), [initialTab]);
 
   const load = useCallback((t: Tab, signal?: AbortSignal) => {
     setState("loading");

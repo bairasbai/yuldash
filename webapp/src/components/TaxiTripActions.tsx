@@ -465,13 +465,23 @@ function PayMethod({ order, onDone }: { order: InstantOrder; onDone: () => void 
 
   if (!open) {
     return (
-      <button type="button" className="btn-soft trip-btn" onClick={() => setOpen(true)}>
-        <IconWallet size={18} />{" "}
-        {appText(
-          `Расчёт: ${PAY_LABELS[current]?.ru ?? PAY_LABELS.negotiate.ru}`,
-          `Түләү: ${PAY_LABELS[current]?.ba ?? PAY_LABELS.negotiate.ba}`
+      <>
+        <button type="button" className="btn-soft trip-btn" onClick={() => setOpen(true)}>
+          <IconWallet size={18} />{" "}
+          {appText(
+            `Расчёт: ${PAY_LABELS[current]?.ru ?? PAY_LABELS.negotiate.ru}`,
+            `Түләү: ${PAY_LABELS[current]?.ba ?? PAY_LABELS.negotiate.ba}`
+          )}
+        </button>
+        {order.payment_ack_overdue && (
+          <div className="notice notice--warn" role="status">
+            {appText(
+              "Водитель ещё не подтвердил новый способ расчёта. Лучше скажи ему об этом.",
+              "Йөрөтөүсе яңы түләү ысулын әле раҫламаған. Уға был хаҡта әйтһәң яҡшыраҡ."
+            )}
+          </div>
         )}
-      </button>
+      </>
     );
   }
 
@@ -482,8 +492,8 @@ function PayMethod({ order, onDone }: { order: InstantOrder; onDone: () => void 
       </div>
       <p className="act-card__text">
         {appText(
-          "Водитель увидит выбор сразу — на высадке не будет неожиданностей.",
-          "Йөрөтөүсе һайлауыңды шунда уҡ күрә — төшкәндә көтөлмәгәнлек булмай."
+          "Отправим выбор водителю. Смена подтверждена, когда он нажмёт «Понял».",
+          "Һайлауҙы йөрөтөүсегә ебәрәбеҙ. Ул «Аңланым» тип баҫҡас, үҙгәреш раҫлана."
         )}
       </p>
       {(Object.keys(PAY_LABELS) as PaymentMethod[]).map((m) => (

@@ -103,6 +103,10 @@ export interface InstantOrder {
   women_only?: boolean;
   /** Чем рассчитываются: cash | sbp | negotiate. Видно ОБЕИМ сторонам. */
   payment_method?: string;
+  /** Пассажир сменил расчёт после принятия заказа; водитель должен подтвердить «Понял». */
+  payment_changed?: boolean;
+  /** Подтверждение задержалось — пассажиру нельзя обещать, что водитель уже увидел смену. */
+  payment_ack_overdue?: boolean;
 
   // --- смена адреса уже в поездке (аддитивно: старый сервер полей не шлёт) ---
   /** Сколько раз меняли адрес — объясняет в чеке, почему цена не та, что при заказе. */
@@ -406,8 +410,8 @@ export function sendPresence(lat: number, lng: number): Promise<PresenceResult> 
 }
 
 /** GET /instant/driver/offer — активный оффер для водителя (поллинг-фолбэк к пушу). */
-export function fetchDriverOffer(signal?: AbortSignal): Promise<{ offer: InstantOrder | null }> {
-  return apiGet<{ offer: InstantOrder | null }>("/instant/driver/offer", { signal });
+export function fetchDriverOffer(signal?: AbortSignal): Promise<{ offer: InstantOrder | null; blocked?: string | null }> {
+  return apiGet<{ offer: InstantOrder | null; blocked?: string | null }>("/instant/driver/offer", { signal });
 }
 
 export function acceptOrder(id: number): Promise<InstantOrder> {
@@ -961,6 +965,11 @@ export function setPaymentMethod(
   method: PaymentMethod
 ): Promise<{ payment_method: string; changed?: boolean }> {
   return apiPost(`/instant/orders/${orderId}/payment`, { method });
+}
+
+/** Водитель подтверждает, что увидел изменившийся способ расчёта. */
+export function ackPaymentMethod(orderId: number): Promise<{ ok: boolean }> {
+  return apiPost(`/instant/orders/${orderId}/payment/ack`);
 }
 
 // ------------------------------- «Что-то не так с ценой» -------------------------------

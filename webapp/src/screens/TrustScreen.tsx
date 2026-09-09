@@ -19,7 +19,7 @@ import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { fetchMyTrust, type TrustPhrase, type TrustSummary } from "../api/trust";
 import { LoadingList, ErrorState } from "../components/States";
-import { IconCheck, IconShield } from "../components/Icons";
+import { IconCheck, IconChevron, IconProfile, IconReceipt, IconShield } from "../components/Icons";
 import { SubHeader } from "./ConsentsScreen";
 
 /** Порядок уровней фиксирован: 0 → 3. Названия каждого берём с сервера. */
@@ -32,6 +32,13 @@ export default function TrustScreen() {
   const navigate = useNavigate();
   const [data, setData] = useState<TrustSummary | null>(null);
   const [state, setState] = useState<"loading" | "error" | "ready">("loading");
+
+  const openNext = () => {
+    const level = data?.next?.level;
+    if (level === 1) navigate("/profile/edit");
+    else if (level === 2) navigate("/verify-driver");
+    else if (level != null) navigate("/invites");
+  };
 
   const load = useCallback((signal?: AbortSignal) => {
     setState("loading");
@@ -122,6 +129,13 @@ export default function TrustScreen() {
                   </div>
                 ))}
               </div>
+              <button type="button" className="btn-primary trust-next-action" onClick={openNext}>
+                {data.next.level === 1
+                  ? appText("Заполнить профиль", "Профильде тултыр")
+                  : data.next.level === 2
+                    ? appText("Пройти проверку", "Тикшереүҙе үт")
+                    : appText("Ввести код приглашения", "Саҡырыу кодын индер")}
+              </button>
             </>
           )}
 
@@ -159,6 +173,25 @@ export default function TrustScreen() {
               {appText("Позвать своего", "Үҙеңдекен саҡырыу")}
             </button>
           )}
+
+          <div className="list trust-links">
+            <button type="button" className="list-row" onClick={() => navigate("/invites")}>
+              <span className="trust-row__dot"><IconProfile size={16} /></span>
+              <span className="list-row__main">
+                <span className="list-row__title">{appText("Позвать своего", "Үҙеңдекен саҡыр")}</span>
+                <span className="list-row__sub">{appText("Пригласительные коды в круг доверия", "Ышаныс түңәрәгенә саҡырыу кодтары")}</span>
+              </span>
+              <IconChevron size={18} />
+            </button>
+            <button type="button" className="list-row" onClick={() => navigate("/consents")}>
+              <span className="trust-row__dot"><IconReceipt size={16} /></span>
+              <span className="list-row__main">
+                <span className="list-row__title">{appText("Согласия и данные", "Ризалыҡтар һәм мәғлүмәт")}</span>
+                <span className="list-row__sub">{appText("Оферта, политика, геолокация", "Оферта, сәйәсәт, геолокация")}</span>
+              </span>
+              <IconChevron size={18} />
+            </button>
+          </div>
         </>
       )}
     </>

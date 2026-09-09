@@ -13,14 +13,16 @@ import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
   acceptDestination,
+  ackPaymentMethod,
   ackDestination,
   declineDestination,
   toggleStop,
   type DeclineDestinationReason,
   type InstantOrder,
 } from "../api/instant";
-import { IconCar, IconCheck, IconPin, IconClock } from "./Icons";
+import { IconCar, IconCheck, IconPin, IconClock, IconWallet } from "./Icons";
 import { RoadsideButton } from "./TaxiTripActions";
+import { PAY_METHODS_OPEN } from "./PayMethodPicker";
 
 /** Почему не могу ехать дальше. Причина нужна пассажиру, а не отчётности. */
 const DECLINE_REASONS: { code: DeclineDestinationReason; ru: string; ba: string }[] = [
@@ -211,6 +213,51 @@ function DestinationChanged({ order, onDone }: { order: InstantOrder; onDone: ()
   );
 }
 
+/** Способ расчёта всегда виден водителю; сменившийся требует явного «Понял». */
+function DriverPaymentMethod({ order, onDone }: { order: InstantOrder; onDone: () => void }) {
+  const { appText, lang } = useLang();
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const method = PAY_METHODS_OPEN.find((item) => item.code === order.payment_method) ?? PAY_METHODS_OPEN[2];
+  const changed = Boolean(order.payment_changed);
+
+  async function acknowledge() {
+    if (busy) return;
+    setBusy(true);
+    setNote("");
+    try {
+      await ackPaymentMethod(order.id);
+      onDone();
+    } catch (error) {
+      setNote(
+        error instanceof ApiError && error.message
+          ? error.message
+          : appText("Не отметилось. Попробуй ещё раз.", "Билдәләнмәне. Тағы ҡабатла.")
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={"act-card" + (changed ? " act-card--warn" : "")}>
+      <div className="act-card__title">
+        <IconWallet size={18} />
+        {changed
+          ? appText("Способ расчёта изменился", "Түләү ысулы үҙгәрҙе")
+          : appText("Рассчитаются", "Иҫәпләшәләр")}
+      </div>
+      <p className="act-card__text">{lang === "ba" ? method.ba : method.ru}</p>
+      {changed && (
+        <button type="button" className="btn-primary btn-taxi trip-btn" disabled={busy} onClick={() => void acknowledge()}>
+          <IconCheck size={18} /> {appText("Понял", "Аңланым")}
+        </button>
+      )}
+      {note && <div className="notice" role="status">{note}</div>}
+    </div>
+  );
+}
+
 /**
  * «Стоим» на остановке и «Поехали», когда тронулись.
  *
@@ -267,6 +314,7 @@ export default function TaxiDriverTripActions({
   return (
     <div className="trip-actions">
       <DestinationChanged order={order} onDone={onChanged} />
+      <DriverPaymentMethod order={order} onDone={onChanged} />
 
       {/* Куда заезжаем по пути. Водитель должен видеть это списком, а не узнавать голосом. */}
       {stops.length > 0 && (

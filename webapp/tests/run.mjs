@@ -47,6 +47,8 @@ const SUITES = [
   { test: "states-test", src: null, out: null, bundle: false },
   // Движение: приложение, PWA и сайт на одной шкале — числа сверяются, сырых нет.
   { test: "motion-test", src: null, out: null, bundle: false },
+  // Экран Android без маршрута PWA теперь ломает проверку в том же коммите.
+  { test: "parity-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.

@@ -73,6 +73,7 @@ import { YuMoon, YuQuiet, YuWomenOnly } from "../components/BrandIcons";
 import { priceLabel } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
 import { minDateTimeNow, maxDateTimeInDays } from "../utils/dateInput";
+import { setActiveTaxiOrder, setTaxiOrderOnScreen } from "../navSignals";
 
 /** Класс машины человеческой строкой (подписи живут в клиенте, коды — на сервере). */
 function categoryLabel(cat: string, appText: (ru: string, ba: string) => string): string {
@@ -112,6 +113,25 @@ export default function InstantOrderScreen() {
   const [to, setTo] = useState<Point | null>(null);
 
   const [order, setOrder] = useState<InstantOrder | null>(null);
+
+  // Как в Android: во время поиска и самой поездки нижние вкладки уходят, чтобы
+  // случайный тап не выбросил человека из критического сценария.
+  const liveTaxiOnScreen =
+    view === "tracking" && !!order && ACTIVE_PASSENGER_STATUSES.includes(order.status);
+  useEffect(() => {
+    setTaxiOrderOnScreen(liveTaxiOnScreen);
+    return () => setTaxiOrderOnScreen(false);
+  }, [liveTaxiOnScreen]);
+
+  // Android держит принятую поездку в NavSignals: при уходе на вкладки остаётся живая
+  // полоска, а экран способов оплаты знает номер текущего заказа без query-параметра.
+  useEffect(() => {
+    if (order && ["accepted", "arriving", "onboard"].includes(order.status)) {
+      setActiveTaxiOrder(order);
+    } else if (order && ["done", "cancelled", "expired"].includes(order.status)) {
+      setActiveTaxiOrder(null);
+    }
+  }, [order]);
 
   // ---------------- boot: гео → доступность → восстановление активного ----------------
   const boot = useCallback(() => {
@@ -195,6 +215,7 @@ export default function InstantOrderScreen() {
   }, [view, order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function backToCompose() {
+    setActiveTaxiOrder(null);
     setOrder(null);
     setTo(null);
     setView("compose");
