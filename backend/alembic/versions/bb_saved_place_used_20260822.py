@@ -47,4 +47,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     if _COLUMN in _columns(bind):
+        for index in inspect(bind).get_indexes(_TABLE):
+            if _COLUMN in index["column_names"]:
+                op.drop_index(index["name"], table_name=_TABLE)
         op.drop_column(_TABLE, _COLUMN)

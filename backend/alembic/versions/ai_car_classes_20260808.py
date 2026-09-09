@@ -77,19 +77,19 @@ def upgrade() -> None:
         op.add_column(table, sa.Column(name, type_, nullable=True, **kw))
     # Индекс под фоновую проверку сроков (app/doc_check.py ходит по каждому сроку отдельно).
     if "taxiapplication" in tables and "osgop_until" in _cols(bind, "taxiapplication"):
-        try:
+        if "ix_taxiapplication_osgop_until" not in {
+            index["name"] for index in inspect(bind).get_indexes("taxiapplication")
+        }:
             op.create_index("ix_taxiapplication_osgop_until", "taxiapplication", ["osgop_until"])
-        except Exception:  # noqa: BLE001 — индекс уже мог приехать из create_all
-            pass
 
 
 def downgrade() -> None:
     bind = op.get_bind()
     tables = _tables(bind)
-    try:
+    if "taxiapplication" in tables and "ix_taxiapplication_osgop_until" in {
+        index["name"] for index in inspect(bind).get_indexes("taxiapplication")
+    }:
         op.drop_index("ix_taxiapplication_osgop_until", table_name="taxiapplication")
-    except Exception:  # noqa: BLE001
-        pass
     for table, name, _type, _default in reversed(_COLUMNS):
         if table not in tables or name not in _cols(bind, table):
             continue

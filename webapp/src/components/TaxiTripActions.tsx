@@ -34,6 +34,17 @@ import { roadsideHelpOrder, winterCheckOrder, winterCheckOrderOk } from "../api/
 import { geocode } from "../api/discovery";
 import { serverMs } from "../utils/serverTime";
 import {
+  forgetWinterCheck,
+  rememberWinterCheck,
+  wasWinterCheckAsked,
+  winterCheckDelay,
+  winterCheckNeedsAnswer,
+} from "../utils/winterCheck.js";
+import {
+  LatestDestinationPreview,
+  type DestinationPreview,
+} from "../utils/destinationPreview.js";
+import {
   IconCar,
   IconCheck,
   IconPin,
@@ -46,6 +57,10 @@ interface Point {
   lat: number;
   lng: number;
   text: string;
+}
+
+function samePoint(left: Point, right: Point): boolean {
+  return left.lat === right.lat && left.lng === right.lng && left.text === right.text;
 }
 
 /** Пока идёт запрос — вторую кнопку не жмём: два «сменить адрес» подряд сервер отобьёт 429. */
@@ -139,34 +154,39 @@ function ChangeDestination({ order, onDone }: { order: InstantOrder; onDone: () 
   const ru = lang !== "ba";
   const [open, setOpen] = useState(false);
   const [point, setPoint] = useState<Point | null>(null);
-  const [quote, setQuote] = useState<DestinationQuote | null>(null);
+  const [preview, setPreview] = useState<DestinationPreview<Point, DestinationQuote> | null>(null);
+  const previewGate = useRef(new LatestDestinationPreview<Point, DestinationQuote>(samePoint));
   const [busy, setBusy] = useBusy();
   const [note, setNote] = useState("");
 
   async function ask(p: Point) {
+    const revision = previewGate.current.begin(p);
     setPoint(p);
-    setQuote(null);
+    setPreview(null);
     setNote("");
     setBusy(true);
     try {
-      setQuote(await previewDestination(order.id, p));
+      const next = previewGate.current.resolve(revision, await previewDestination(order.id, p));
+      if (next) setPreview(next);
     } catch (e) {
-      setNote(
-        e instanceof ApiError && e.message
-          ? e.message
-          : appText("Не получилось посчитать. Попробуй ещё раз.", "Иҫәпләп булманы. Тағы ҡабатла.")
-      );
+      if (previewGate.current.isCurrent(revision)) {
+        setNote(
+          e instanceof ApiError && e.message
+            ? e.message
+            : appText("Не получилось посчитать. Попробуй ещё раз.", "Иҫәпләп булманы. Тағы ҡабатла.")
+        );
+      }
     } finally {
-      setBusy(false);
+      if (previewGate.current.isCurrent(revision)) setBusy(false);
     }
   }
 
   async function apply() {
-    if (!point || busy) return;
+    if (!point || !preview || busy || !previewGate.current.canApply(point, preview)) return;
     setBusy(true);
     setNote("");
     try {
-      const r = await changeDestination(order.id, point);
+      const r = await changeDestination(order.id, preview.point);
       if (r.waiting_driver) {
         setNote(
           appText(
@@ -174,13 +194,15 @@ function ChangeDestination({ order, onDone }: { order: InstantOrder; onDone: () 
             "Йөрөтөүсенән һораныҡ — был алыҫ сәфәр. Бер минуттан яуап бирер."
           )
         );
-        setQuote(null);
+        previewGate.current.clear();
+        setPreview(null);
         setPoint(null);
         onDone();
         return;
       }
       setOpen(false);
-      setQuote(null);
+      previewGate.current.clear();
+      setPreview(null);
       setPoint(null);
       onDone();
     } catch (e) {
@@ -214,23 +236,26 @@ function ChangeDestination({ order, onDone }: { order: InstantOrder; onDone: () 
         )}
       </p>
 
-      {!quote && <AddressSearch placeholder={appText("Куда теперь", "Хәҙер ҡайҙа")} onPick={ask} />}
+      {!preview && <AddressSearch placeholder={appText("Куда теперь", "Хәҙер ҡайҙа")} onPick={ask} />}
 
-      {quote && point && (
+      {preview && point && (
         <>
           <div className="info-list" style={{ marginTop: 0 }}>
             <div className="info-row">
               <span className="info-row__k">{appText("Новый адрес", "Яңы адрес")}</span>
-              <span className="info-row__v">{point.text}</span>
+              <span className="info-row__v">{preview.point.text}</span>
             </div>
             <div className="info-row">
               <span className="info-row__k">{appText("Станет", "Буласаҡ")}</span>
               <span className="info-row__v">
-                <b>{ru ? `${quote.price} ₽` : `${quote.price} һум`}</b>
-                {quote.old_price > 0 && quote.old_price !== quote.price && (
+                <b>{ru ? `${preview.quote.price} ₽` : `${preview.quote.price} һум`}</b>
+                {preview.quote.old_price > 0 && preview.quote.old_price !== preview.quote.price && (
                   <span className="money-row__op">
                     {" "}
-                    {appText(`вместо ${quote.old_price} ₽`, `${quote.old_price} һум урынына`)}
+                    {appText(
+                      `вместо ${preview.quote.old_price} ₽`,
+                      `${preview.quote.old_price} һум урынына`
+                    )}
                   </span>
                 )}
               </span>
@@ -238,14 +263,17 @@ function ChangeDestination({ order, onDone }: { order: InstantOrder; onDone: () 
             <div className="info-row">
               <span className="info-row__k">{appText("Уже проехали", "Үтелгән")}</span>
               <span className="info-row__v">
-                {appText(`${quote.driven_km.toFixed(1)} км`, `${quote.driven_km.toFixed(1)} км`)}
+                {appText(
+                  `${preview.quote.driven_km.toFixed(1)} км`,
+                  `${preview.quote.driven_km.toFixed(1)} км`
+                )}
               </span>
             </div>
           </div>
 
-          {quote.needs_driver_ok && (
+          {preview.quote.needs_driver_ok && (
             <p className="act-card__text" style={{ marginTop: 10 }}>
-              {quote.ask_reason === "intercity"
+              {preview.quote.ask_reason === "intercity"
                 ? appText(
                     "Это уже другой город — сначала спросим водителя. Пять часов за руль он должен выбрать сам.",
                     "Был башҡа ҡала — тәүҙә йөрөтөүсенән һорайбыҙ. Биш сәғәт юл — уның ҡарары."
@@ -259,7 +287,7 @@ function ChangeDestination({ order, onDone }: { order: InstantOrder; onDone: () 
 
           <div className="act-card__actions">
             <button type="button" className="btn-primary" onClick={() => void apply()} disabled={busy}>
-              {quote.needs_driver_ok
+              {preview.quote.needs_driver_ok
                 ? appText("Спросить водителя", "Йөрөтөүсенән һорау")
                 : appText("Едем сюда", "Бында китәбеҙ")}
             </button>
@@ -267,7 +295,8 @@ function ChangeDestination({ order, onDone }: { order: InstantOrder; onDone: () 
               type="button"
               className="btn-ghost"
               onClick={() => {
-                setQuote(null);
+                previewGate.current.clear();
+                setPreview(null);
                 setPoint(null);
               }}
               disabled={busy}
@@ -663,6 +692,7 @@ export function WinterCheckAnswer({ orderId, onDone }: { orderId: number; onDone
           winterCheckOrderOk(orderId)
             .then(() => {
               track("winter_check_order_ok");
+              forgetWinterCheck(WINTER_ASKED_KEY(orderId));
               setDone(true);
               onDone?.();
             })
@@ -779,19 +809,17 @@ function winterDueAt(order: InstantOrder): number {
  * кого он везёт.
  */
 function useWinterCheck(order: InstantOrder): boolean {
-  const [ask, setAsk] = useState(false);
+  const [askForOrderId, setAskForOrderId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (order.role !== "passenger" || order.status !== "onboard") return;
-    let asked = false;
-    try {
-      asked = sessionStorage.getItem(WINTER_ASKED_KEY(order.id)) === "1";
-    } catch {
-      /* приватный режим — просто не дедупим */
+    if (order.role !== "passenger" || order.status !== "onboard") {
+      setAskForOrderId(null);
+      return;
     }
-    if (asked) return;
+    const key = WINTER_ASKED_KEY(order.id);
+    const asked = wasWinterCheckAsked(key);
 
-    const delay = Math.max(0, winterDueAt(order) - Date.now());
+    const delay = winterCheckDelay(asked, winterDueAt(order));
     if (!Number.isFinite(delay)) return;
     let alive = true;
     const timer = window.setTimeout(() => {
@@ -799,17 +827,14 @@ function useWinterCheck(order: InstantOrder): boolean {
       winterCheckOrder(order.id)
         .then((r) => {
           if (!alive) return;
-          if (["check_sent", "waiting", "no_share", "escalated"].includes(String(r.state))) {
-            try {
-              sessionStorage.setItem(WINTER_ASKED_KEY(order.id), "1");
-            } catch {
-              /* не критично */
-            }
-            setAsk(true);
-          }
+          const needsAnswer = winterCheckNeedsAnswer(r.state);
+          setAskForOrderId(needsAnswer ? order.id : null);
+          if (needsAnswer) rememberWinterCheck(key);
+          else if (r.state === "ok" || r.state === "closed") forgetWinterCheck(key);
         })
         .catch(() => {
-          /* нет ручки / нет сети — тихо, без вопроса */
+          // Уже полученный вопрос важнее временной ошибки сети: возможность ответить сохраняем.
+          if (alive && asked) setAskForOrderId(order.id);
         });
     }, delay);
     return () => {
@@ -818,7 +843,7 @@ function useWinterCheck(order: InstantOrder): boolean {
     };
   }, [order.id, order.role, order.status, order.eta_min, order.distance_km, order.created_at]);
 
-  return ask;
+  return askForOrderId === order.id;
 }
 
 // ----------------------------- Сборка -----------------------------
@@ -848,7 +873,7 @@ export default function TaxiTripActions({
   return (
     <div className="trip-actions">
       {/* Расчётное время вышло, а поездка идёт. Один вопрос — и близкие спокойны. */}
-      {winterAsk && <WinterCheckAnswer orderId={order.id} />}
+      {winterAsk && <WinterCheckAnswer key={order.id} orderId={order.id} />}
       {/* Водитель уже у подъезда — самая нужная кнопка сейчас одна. */}
       {arriving && <ImComing orderId={order.id} />}
 

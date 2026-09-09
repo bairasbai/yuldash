@@ -145,7 +145,7 @@ def _partner_text(partner: Partner) -> tuple:
 
 
 def _requeue_partner_after_edit(session: Session, partner: Partner, before: tuple) -> bool:
-    """Одобренный бизнес переписал видимый текст → карточка снова на модерации.
+    """Одобренный или отклонённый бизнес исправил текст → снова на модерацию.
 
     Зачем строго. Одобрение админом закрывало только ПЕРВЫЙ показ: карточку, одобренную
     чистой, владелец потом переписывал во что угодно, и она уходила в витрину сразу — это
@@ -155,8 +155,10 @@ def _requeue_partner_after_edit(session: Session, partner: Partner, before: tupl
     Цена решения принята сознательно: бизнес, поправивший телефон, пропадает из витрины до
     захода админа. Поэтому и re-moderation только на ТЕКСТ (см. `_PARTNER_TEXT_FIELDS`) и
     только при реальном изменении — повторное сохранение той же формы карточку не роняет.
+    Отклонённому бизнесу это даёт обещанную возможность исправить данные и отправить снова.
+    Приостановленные/архивные карточки правкой не возвращаем в очередь.
     """
-    if partner.status != "active" or _partner_text(partner) == before:
+    if partner.status not in ("active", "rejected") or _partner_text(partner) == before:
         return False
     partner.status = "pending"
     partner.reviewed_at = None

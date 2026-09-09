@@ -51,8 +51,7 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
     иначе → «Я оплатил» по СБП «на доверии» (долг → pending, админ подтверждает в /admin/debts)."""
     from ..config import settings
     from ..models import Payment
-    from ..payments import fetch_payment
-    from .payments import _activate_payment, _start_yookassa
+    from .payments import _activate_payment, _start_yookassa, _sync_provider_status
 
     if settings.is_prod and settings.payments_provider == "mock":
         raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
@@ -72,16 +71,27 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
                 Payment.user_id == user.id, Payment.purpose == "taxi_debt", Payment.status == "pending",
             ).order_by(Payment.id.desc())
         ).first()
-        if existing and existing.provider_id:
-            try:
-                info = fetch_payment(existing.provider_id)
-            except Exception:
-                info = None
-            if info and info["status"] == "succeeded":
-                _activate_payment(session, existing)
-                return {"ok": True, "method": "yookassa", "status": "succeeded", "payment_id": existing.id}
-            return {"ok": True, "method": "yookassa", "status": "pending", "payment_id": existing.id,
-                    "amount_kop": existing.amount_kop, "confirmation_url": (info or {}).get("confirmation_url", "")}
+        if existing and (existing.provider_id or existing.method == "yookassa"):
+            if existing.provider_id:
+                existing, info = _sync_provider_status(session, existing)
+                if existing.status == "succeeded":
+                    return {"ok": True, "method": "yookassa", "status": "succeeded", "payment_id": existing.id}
+                if existing.status == "pending":
+                    return {"ok": True, "method": "yookassa", "status": "pending", "payment_id": existing.id,
+                            "amount_kop": existing.amount_kop, "confirmation_url": (info or {}).get("confirmation_url", "")}
+                existing = None  # provider canceled окончательно: ниже создадим новую строку и ключ
+            if existing is not None:
+                # Предыдущий запрос мог дойти до ЮKassa, а ответ — потеряться. Повторяем именно
+                # сохранённую строку: _start_yookassa построит тот же Idempotence-Key из Payment.id.
+                res = _start_yookassa(session, existing, "Юлдаш · комиссия такси", user.phone)
+                existing.provider_id = res["provider_id"]
+                session.add(existing)
+                session.commit()
+                if res["status"] == "succeeded":
+                    _activate_payment(session, existing)
+                    return {"ok": True, "method": "yookassa", "status": "succeeded", "payment_id": existing.id}
+                return {"ok": True, "method": "yookassa", "status": "pending", "payment_id": existing.id,
+                        "amount_kop": existing.amount_kop, "confirmation_url": res["confirmation_url"]}
         payment = Payment(user_id=user.id, purpose="taxi_debt", amount_kop=owed_kop, method="yookassa", status="pending")
         session.add(payment)
         session.commit()

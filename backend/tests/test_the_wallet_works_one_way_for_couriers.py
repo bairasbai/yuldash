@@ -28,7 +28,12 @@
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
 import pytest
+from sqlalchemy import text, update
+from sqlalchemy.sql import Update
 from sqlmodel import Session, select
 
 from app import debt as debt_mod
@@ -316,47 +321,101 @@ def test_повторный_зачёт_не_списывает_второй_ра
         assert driver_balance(s, курьер["id"]) == 15000
 
 
-def test_два_зачёта_внахлёст_не_списывают_дважды(client, user_factory):
-    """Договор на условие внутри UPDATE — то, ради чего оно там и стоит (урок волны 201).
+@pytest.mark.skipif(
+    engine.dialect.name != "sqlite",
+    reason="детерминированная проверка SQLite conditional UPDATE; конкуренция проверяется отдельно",
+)
+def test_sqlite_условный_update_не_списывает_за_устаревшую_доставку(client, user_factory):
+    """SQLite: условие внутри UPDATE отсекает уже закрытую доставку.
 
     Замок на строке пользователя на SQLite пустышка, а на нём живут тесты и демо-база.
-    Значит чередование задаём принудительно, и вклиниваться надо ровно между чтением списка
-    доставок и записью: если вклиниться раньше, второй вызов увидит доставку уже закрытой,
-    и до самого UPDATE дело не дойдёт — тест будет зелёным, ничего не проверив.
-
-    Ловим момент по типу запроса: первый UPDATE в этой функции и есть закрытие доставки.
+    Поэтому перед UPDATE проверяемой функции вторая сессия закрывает доставку прямым UPDATE.
+    Вложенный settlement здесь запрещён: на PostgreSQL он может ждать замок внешнего вызова.
     """
-    from sqlalchemy.sql import Update
-
     from app.routers import courier as courier_mod
 
     курьер = _курьер(client, user_factory, "РустамГонка")
     отправитель = user_factory("ОтправительГонка")
-    _доставка_с_долгом(курьер["id"], отправитель["id"], 5000)
+    delivery_id = _доставка_с_долгом(курьер["id"], отправитель["id"], 5000)
     _в_кошелёк(курьер["id"], 20000)
 
     сработало = {"раз": False}
     with Session(engine) as s:
         исходный = s.execute
 
-        def execute_с_вклиниванием(statement, *a, **kw):
-            # Список доставок уже прочитан, запись ещё не сделана — самое узкое место.
+        def execute_с_устаревшей_строкой(statement, *a, **kw):
             if isinstance(statement, Update) and not сработало["раз"]:
                 сработало["раз"] = True
-                with Session(engine) as чужая:      # параллельный вызов проходит целиком
-                    courier_mod.settle_courier_commission_from_wallet(чужая, курьер["id"])
+                with Session(engine) as другая:
+                    result = другая.execute(
+                        update(ParcelDelivery)
+                        .where(
+                            ParcelDelivery.id == delivery_id,
+                            ParcelDelivery.commission_paid == False,  # noqa: E712
+                        )
+                        .values(commission_paid=True)
+                    )
+                    assert result.rowcount == 1
+                    другая.commit()
             return исходный(statement, *a, **kw)
 
-        s.execute = execute_с_вклиниванием
-        courier_mod.settle_courier_commission_from_wallet(s, курьер["id"])
+        s.execute = execute_с_устаревшей_строкой
+        снято = courier_mod.settle_courier_commission_from_wallet(s, курьер["id"])
 
     assert сработало["раз"], "вклиниться не удалось — тест слеп"
+    assert снято == 0
     with Session(engine) as s:
         списания = [e for e in s.exec(select(LedgerEntry).where(
             LedgerEntry.driver_id == курьер["id"])).all() if e.amount_kop < 0]
-    assert sum(-e.amount_kop for e in списания) == 5000, (
-        f"списаний на {sum(-e.amount_kop for e in списания) / 100:.2f} ₽ при долге 50 ₽: "
-        "одну доставку закрыли дважды и деньги сняли дважды"
-    )
+    assert списания == []
     with Session(engine) as s:
-        assert driver_balance(s, курьер["id"]) == 15000, "кошелёк ушёл ниже, чем должен"
+        assert driver_balance(s, курьер["id"]) == 20000
+
+
+def test_два_независимых_зачёта_внахлёст_списывают_ровно_один_раз(client, user_factory):
+    """Две Session стартуют вместе; оба исключения и зависание видны основному тесту."""
+    from app.routers import courier as courier_mod
+
+    курьер = _курьер(client, user_factory, "РустамГонкаПотоки")
+    отправитель = user_factory("ОтправительГонкаПотоки")
+    delivery_id = _доставка_с_долгом(курьер["id"], отправитель["id"], 5000)
+    _в_кошелёк(курьер["id"], 20000)
+    старт = Barrier(2)
+
+    def зачесть() -> int:
+        with Session(engine) as s:
+            if engine.dialect.name == "postgresql":
+                # Эти серверные пределы короче future.result(timeout=10): даже при
+                # сломанной блокировке executor получит исключение и сможет завершиться.
+                s.execute(text("SET LOCAL lock_timeout = '2s'"))
+                s.execute(text("SET LOCAL statement_timeout = '5s'"))
+            старт.wait(timeout=5)
+            return courier_mod.settle_courier_commission_from_wallet(s, курьер["id"])
+
+    ошибки: list[BaseException] = []
+    результаты: list[int] = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        задачи = [pool.submit(зачесть) for _ in range(2)]
+        for задача in задачи:
+            try:
+                результаты.append(задача.result(timeout=10))
+            except BaseException as exc:  # проверяем обе задачи, первая ошибка не скрывает вторую
+                ошибки.append(exc)
+
+    assert not ошибки, f"конкурентные settlement завершились с ошибками: {ошибки!r}"
+    assert sorted(результаты) == [0, 5000]
+
+    with Session(engine) as s:
+        баланс = driver_balance(s, курьер["id"])
+        списания = s.exec(
+            select(LedgerEntry).where(
+                LedgerEntry.driver_id == курьер["id"],
+                LedgerEntry.kind == LedgerKind.fee,
+            )
+        ).all()
+        доставка = s.get(ParcelDelivery, delivery_id)
+
+    assert баланс == 15000
+    assert len(списания) == 1
+    assert списания[0].amount_kop == -5000
+    assert доставка is not None and доставка.commission_paid is True

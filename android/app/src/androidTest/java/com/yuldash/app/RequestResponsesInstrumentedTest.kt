@@ -34,7 +34,7 @@ class RequestResponsesInstrumentedTest {
         composeRule.onNodeWithText("Отклики на заявку").assertIsDisplayed()
         composeRule.onNodeWithText("Баймак").assertIsDisplayed()
         composeRule.onNodeWithText("Сибай").assertIsDisplayed()
-        composeRule.onNodeWithText("Ваш бюджет").assertIsDisplayed()
+        composeRule.onNodeWithText("Твой бюджет").assertIsDisplayed()
         composeRule.onAllNodesWithText("450 ₽")[0].assertIsDisplayed()
         composeRule.onNodeWithText("Предложение").assertIsDisplayed()
         composeRule.onAllNodesWithText("480 ₽")[0].assertIsDisplayed()

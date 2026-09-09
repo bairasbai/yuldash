@@ -63,19 +63,20 @@ def upgrade() -> None:
         op.add_column(_TABLE, sa.Column(name, type_, nullable=True, server_default=default))
     # Ищем «кого пора перепроверить» по дате последней проверки — без индекса это полный
     # проход по всем заявкам каждые сутки.
-    try:
+    if "ix_taxiapplication_fgis_permit_until" not in {
+        index["name"] for index in inspect(op.get_bind()).get_indexes(_TABLE)
+    }:
         op.create_index("ix_taxiapplication_fgis_permit_until", _TABLE, ["fgis_permit_until"])
-    except Exception:  # noqa: BLE001 — индекс мог остаться от прошлого прогона
-        pass
 
 
 def downgrade() -> None:
-    try:
+    have = _columns(op.get_bind())
+    if not have:
+        return
+    if "ix_taxiapplication_fgis_permit_until" in {
+        index["name"] for index in inspect(op.get_bind()).get_indexes(_TABLE)
+    }:
         op.drop_index("ix_taxiapplication_fgis_permit_until", table_name=_TABLE)
-    except Exception:  # noqa: BLE001 — индекса может не быть, откат не должен падать
-        pass
     for name, _type, _default in reversed(_COLUMNS):
-        try:
+        if name in have:
             op.drop_column(_TABLE, name)
-        except Exception:  # noqa: BLE001 — колонки может не быть, откат не должен падать
-            pass

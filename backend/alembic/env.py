@@ -4,7 +4,7 @@ import sys
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, inspect
 
 # чтобы импортировать app.*
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -50,6 +50,22 @@ def run_migrations_online() -> None:
             # трафике), а не морозит прод. SET LOCAL — на время этой миграционной транзакции.
             if connection.dialect.name == "postgresql":
                 connection.exec_driver_sql("SET LOCAL lock_timeout = '3s'")
+                # Existing revision IDs include a 33-character ID. Alembic's default
+                # VARCHAR(32) rejects it on PostgreSQL (SQLite does not enforce length).
+                # Preserve existing IDs and widen old tables as well as fresh installs.
+                connection.exec_driver_sql(
+                    "CREATE TABLE IF NOT EXISTS alembic_version "
+                    "(version_num VARCHAR(128) NOT NULL PRIMARY KEY)"
+                )
+                version_column = next(
+                    column for column in inspect(connection).get_columns("alembic_version")
+                    if column["name"] == "version_num"
+                )
+                length = getattr(version_column["type"], "length", None)
+                if length is not None and length < 128:
+                    connection.exec_driver_sql(
+                        "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)"
+                    )
             context.run_migrations()
 
 

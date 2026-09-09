@@ -43,6 +43,8 @@ import RaiseBudget from "../components/RaiseBudget";
 import CourierOrderForm from "../components/CourierOrderForm";
 import { IconBox, IconCheck, IconChat, IconCopy, IconGift, IconRoute, IconShield, IconStar } from "../components/Icons";
 import { track } from "../analytics";
+import { useAuth } from "../auth/AuthProvider";
+import { canOpenParcelDispute } from "../utils/parcelDispute.js";
 
 type Tab = "send" | "mine" | "carry";
 
@@ -472,6 +474,7 @@ type Boot = "loading" | "error" | "ready";
 
 function MineTab() {
   const { appText } = useLang();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [boot, setBoot] = useState<Boot>("loading");
   const [items, setItems] = useState<Parcel[]>([]);
@@ -655,6 +658,16 @@ function MineTab() {
                   </button>
                 </>
               )
+            )}
+
+            {canOpenParcelDispute(p, user?.id) && (
+              <ParcelProblemActions
+                parcel={p}
+                role="sender"
+                onChanged={(next) => {
+                  if (next) setItems((prev) => prev.map((item) => (item.id === next.id ? next : item)));
+                }}
+              />
             )}
 
             {/* Доставлено — оцениваем курьера. Без истории оценок он для

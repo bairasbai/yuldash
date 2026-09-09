@@ -1534,6 +1534,43 @@ def courier_raise_budget(order_id: int, body: RaiseBudgetIn, user: User = Depend
 # ---------------------------------------------------------------------------
 # Кабинет курьера
 # ---------------------------------------------------------------------------
+_COURIER_SNAPSHOT_NAMESPACE = "courier_snapshot_"
+_COURIER_SNAPSHOT_PREFIX = "courier_snapshot_ids:v1:"
+_COURIER_SNAPSHOT_MAX_IDS = 10_000
+_COURIER_SNAPSHOT_MAX_CHARS = 220_000
+
+
+def _courier_snapshot_tier(parcel_ids: tuple[int, ...]) -> str:
+    """Версионированный точный состав счёта; поле tier в БД — VARCHAR без лимита длины."""
+    if not parcel_ids or len(parcel_ids) > _COURIER_SNAPSHOT_MAX_IDS:
+        raise ValueError("invalid courier snapshot size")
+    marker = _COURIER_SNAPSHOT_PREFIX + ",".join(str(parcel_id) for parcel_id in parcel_ids)
+    if len(marker) > _COURIER_SNAPSHOT_MAX_CHARS:
+        raise ValueError("courier snapshot marker is too long")
+    return marker
+
+
+def _courier_snapshot_ids(payment: Payment) -> Optional[tuple[int, ...]]:
+    """Точные ID; None — настоящий legacy, пустой tuple — повреждённый новый marker."""
+    tier = payment.tier or ""
+    if not tier.startswith(_COURIER_SNAPSHOT_NAMESPACE):
+        return None
+    if not tier.startswith(_COURIER_SNAPSHOT_PREFIX):
+        return ()
+    if len(tier) > _COURIER_SNAPSHOT_MAX_CHARS:
+        return ()
+    raw = tier[len(_COURIER_SNAPSHOT_PREFIX):]
+    parts = raw.split(",") if raw else []
+    if not parts or len(parts) > _COURIER_SNAPSHOT_MAX_IDS:
+        return ()
+    if any(not part.isascii() or not part.isdecimal() or part.startswith("0") for part in parts):
+        return ()
+    values = tuple(int(part) for part in parts)
+    if any(value <= 0 for value in values) or values != tuple(sorted(set(values))):
+        return ()
+    return values
+
+
 def settle_courier_commission_from_wallet(session: Session, courier_id: Optional[int],
                                           now=None) -> int:
     """Погасить комиссию курьера тем, что уже лежит у него в кошельке (волна 216).
@@ -1567,7 +1604,7 @@ def settle_courier_commission_from_wallet(session: Session, courier_id: Optional
 
     if courier_id is None:
         return 0
-    session.exec(select(User).where(User.id == courier_id).with_for_update()).one_or_none()
+    session.exec(select(User).where(User.id == courier_id).with_for_update(key_share=True)).one_or_none()
     balance = driver_balance(session, courier_id)
     # Ранний выход ниже РАВНОСИЛЬНЫЙ: с нулевым балансом цикл всё равно упёрся бы
     # в `total + amount > balance` на первой же доставке. Он здесь ради экономии запроса
@@ -1588,19 +1625,25 @@ def settle_courier_commission_from_wallet(session: Session, courier_id: Optional
     # доставку из снапшота платежа. Александр подтвердит перевод, активация пометит снапшот
     # оплаченным, и за одну и ту же комиссию человек отдаст и перевод, и деньги из кошелька.
     #
-    # Граница та же, что у активации платежа: снапшот — это `delivered_at <= created_at`.
-    # Доставки ПОСЛЕ снапшота в платёж не входят, их гасим как обычно: иначе висящий платёж
-    # замораживал бы кошелёк целиком, пока у Александра не дойдут руки.
+    # Новые платежи несут точный набор ID снимка. Ни timestamp, ни max(id) не описывают состав:
+    # ранее созданная active-заявка может завершиться уже после счёта. Старые Payment оставляем
+    # на прежней временной границе; повреждённый служебный marker закрывается безопасно.
     в_оплате = session.exec(
-        select(func.max(Payment.created_at)).where(
+        select(Payment).where(
             Payment.user_id == courier_id,
             Payment.purpose == "courier_commission",
             Payment.status == "pending",
-        )
-    ).one()
-    снапшот = в_оплате[0] if isinstance(в_оплате, (tuple, list)) else в_оплате
-    if снапшот is not None:
-        условия.append(ParcelDelivery.delivered_at > снапшот)
+        ).order_by(Payment.created_at.desc(), Payment.id.desc())
+    ).first()
+    if в_оплате is not None:
+        snapshot_ids = _courier_snapshot_ids(в_оплате)
+        if snapshot_ids:
+            условия.append(ParcelDelivery.id.not_in(snapshot_ids))
+        elif snapshot_ids == ():
+            условия.append(ParcelDelivery.id < 0)  # fail closed: состав счёта неизвестен
+        else:
+            # Старые Payment не несут ID-снимок: сохраняем совместимость с прежней границей.
+            условия.append(ParcelDelivery.delivered_at > в_оплате.created_at)
     rows = session.exec(
         select(ParcelDelivery).where(*условия)
         .order_by(ParcelDelivery.delivered_at, ParcelDelivery.id)
@@ -1630,19 +1673,25 @@ def settle_courier_commission_from_wallet(session: Session, courier_id: Optional
     return total
 
 
-def _commission_owed_kop(session: Session, courier_id: int) -> int:
-    """Комиссия платформы, которую курьер ещё НЕ оплатил: сумма commission_kop по моим
-    доставленным курьер-заказам, где commission_paid=False. Единый источник для /courier/me
-    и /courier/pay-commission (одна формула — не разъедутся)."""
-    owed = session.exec(
-        select(func.coalesce(func.sum(ParcelDelivery.commission_kop), 0)).where(
+def _courier_commission_snapshot(session: Session, courier_id: int) -> tuple[int, tuple[int, ...]]:
+    """Сумма и точный состав одного снимка неоплаченных доставок из одного SQL-запроса."""
+    rows = session.exec(
+        select(ParcelDelivery.id, ParcelDelivery.commission_kop).where(
             ParcelDelivery.courier_id == courier_id,
             ParcelDelivery.status == "delivered",
             ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
             ParcelDelivery.commission_paid == False,   # noqa: E712
-        )
-    ).one()
-    return int(owed or 0)
+        ).order_by(ParcelDelivery.id)
+    ).all()
+    return sum(int(row[1] or 0) for row in rows), tuple(int(row[0]) for row in rows)
+
+
+def _commission_owed_kop(session: Session, courier_id: int) -> int:
+    """Комиссия платформы, которую курьер ещё НЕ оплатил: сумма commission_kop по моим
+    доставленным курьер-заказам, где commission_paid=False. Единый источник для /courier/me
+    и /courier/pay-commission (одна формула — не разъедутся)."""
+    owed, _snapshot_ids = _courier_commission_snapshot(session, courier_id)
+    return owed
 
 
 @router.get("/courier/priority")
@@ -1867,8 +1916,7 @@ def courier_pay_commission(user: User = Depends(current_user), session: Session 
     После оплаты доставки помечаются commission_paid=True. Идемпотентно: есть pending — вернём его.
     Нет комиссии к оплате (owed==0) → 409. Гейт курьера."""
     _guard_courier(user, session, for_work=False)
-    from ..payments import fetch_payment
-    from .payments import _activate_payment, _start_yookassa
+    from .payments import _activate_payment, _start_yookassa, _sync_provider_status
     yk = settings.payments_provider == "yookassa"
     # В проде mock = «оплата» без денег → не даём гасить комиссию бесплатно.
     if settings.is_prod and settings.payments_provider == "mock":
@@ -1884,22 +1932,38 @@ def courier_pay_commission(user: User = Depends(current_user), session: Session 
     if existing:
         # Перепроверка у провайдера — ТОЛЬКО когда провайдер реально yookassa: при откате на
         # mock/sbp_manual fetch_payment честно отвечает «succeeded» (мок) → активация без денег.
-        if settings.payments_provider == "yookassa" and existing.method == "yookassa" and existing.provider_id:
-            try:
-                info = fetch_payment(existing.provider_id)
-            except Exception:
-                info = None
-            if info and info["status"] == "succeeded":
-                _activate_payment(session, existing)
-                return {"status": "succeeded", "method": "yookassa", "payment_id": existing.id}
-            return _commission_payment_payload(existing, (info or {}).get("confirmation_url", ""))
-        return _commission_payment_payload(existing)
+        if settings.payments_provider == "yookassa" and existing.method == "yookassa":
+            if existing.provider_id:
+                existing, info = _sync_provider_status(session, existing)
+                if existing.status == "succeeded":
+                    return {"status": "succeeded", "method": "yookassa", "payment_id": existing.id}
+                if existing.status == "pending":
+                    return _commission_payment_payload(existing, (info or {}).get("confirmation_url", ""))
+                existing = None  # Отменённый счёт закрыт: ниже создаём новый снимок и ключ.
+            # Первый запрос мог быть принят, но ответ потерян. Повторяем ту же Payment:
+            # Idempotence-Key останется прежним, сумма комиссии — исходным снимком.
+            if existing is not None:
+                res = _start_yookassa(session, existing, "Юлдаш · комиссия курьера", user.phone)
+                existing.provider_id = res["provider_id"]
+                session.add(existing)
+                session.commit()
+                if res["status"] == "succeeded":
+                    _activate_payment(session, existing)
+                    return {"status": "succeeded", "method": "yookassa", "payment_id": existing.id}
+                return _commission_payment_payload(existing, res["confirmation_url"])
+        if existing is not None:
+            return _commission_payment_payload(existing)
     settle_courier_commission_from_wallet(session, user.id)   # его деньги идут в счёт первыми
-    owed = _commission_owed_kop(session, user.id)
+    owed, snapshot_ids = _courier_commission_snapshot(session, user.id)
     if owed <= 0:
         raise herr(409, "Нет комиссии к оплате", "Түләргә комиссия юҡ")
+    try:
+        snapshot_tier = _courier_snapshot_tier(snapshot_ids)
+    except ValueError:
+        raise herr(409, "Слишком много доставок для одного платежа. Напиши в поддержку.",
+                   "Бер түләү өсөн тапшырыуҙар артыҡ күп. Ярҙәм хеҙмәтенә яҙ.")
     payment = Payment(user_id=user.id, purpose="courier_commission", amount_kop=owed,
-                      method=("yookassa" if yk else "sbp"), status="pending")
+                      method=("yookassa" if yk else "sbp"), status="pending", tier=snapshot_tier)
     session.add(payment)
     session.commit()
     session.refresh(payment)

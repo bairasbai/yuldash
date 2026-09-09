@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func
+from sqlalchemy import delete, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -20,8 +20,9 @@ from ..db import engine, get_session
 from ..errors import herr
 from ..logs import admin_action, log
 from ..models import (
-    Ad, Booking, DeviceToken, DriverProfile, Message, Notification, OtpCode, Payment,
-    Rating, RequestResponse, Ride, TgAuth, User, UserRole, WebPushSubscription,
+    Ad, Booking, DeviceToken, DriverProfile, InstantOrder, Message, Notification, OtpCode,
+    Payment, Rating, RequestResponse, Ride, SosEvent, TgAuth, User, UserRole,
+    WebPushSubscription,
 )
 from ..security import (
     current_user, gen_otp, is_placeholder_phone, issue_tokens, normalize_phone,
@@ -722,6 +723,58 @@ class MeUpdateIn(BaseModel):
     gender: Optional[str] = Field(None, max_length=8)
 
 
+_SOS_MAP_MARKER = "https://yandex.ru/maps/?pt="
+
+
+def _location_summary(session: Session, user_id: int) -> dict[str, int | bool]:
+    """Какие точные точки реально лежат в БД для этого человека.
+
+    Ride выбирается одним запросом по уникальным строкам: если человек одновременно водитель
+    и пассажир одной поездки, её pickup-точка считается один раз. У InstantOrder каждая
+    заполненная пара from/to — отдельная точка маршрута.
+    """
+    passenger_rides = select(Booking.ride_id).where(Booking.passenger_id == user_id)
+    rides = session.exec(
+        select(Ride).where(or_(Ride.driver_id == user_id, Ride.id.in_(passenger_rides)))
+    ).all()
+    route_points = sum(
+        1 for ride in rides
+        if ride.pickup_lat is not None and ride.pickup_lng is not None
+    )
+
+    orders = session.exec(
+        select(InstantOrder).where(or_(
+            InstantOrder.passenger_id == user_id,
+            InstantOrder.driver_id == user_id,
+        ))
+    ).all()
+
+    def real_point(lat: float | None, lng: float | None) -> bool:
+        # У старых/незаполненных InstantOrder координаты имеют техническое значение 0,0.
+        return lat is not None and lng is not None and (lat != 0.0 or lng != 0.0)
+
+    for order in orders:
+        route_points += int(real_point(order.from_lat, order.from_lng))
+        route_points += int(real_point(order.to_lat, order.to_lng))
+
+    sos_filter = (SosEvent.user_id == user_id, SosEvent.note.contains(_SOS_MAP_MARKER))
+    sos_locations = int(session.exec(
+        select(func.count()).select_from(SosEvent).where(*sos_filter)
+    ).one())
+    open_sos_locations = int(session.exec(
+        select(func.count()).select_from(SosEvent).where(
+            *sos_filter, SosEvent.status == "open",
+        )
+    ).one())
+    return {
+        "location_stored": bool(route_points or sos_locations),
+        "live_location_history_stored": False,
+        "route_location_points": route_points,
+        "sos_location_events": sos_locations,
+        "open_sos_location_events": open_sos_locations,
+    }
+
+
 @router.get("/me/data")
 def my_data(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Что Юлдаш знает о человеке — живыми числами и со сроками.
@@ -729,7 +782,7 @@ def my_data(user: User = Depends(current_user), session: Session = Depends(get_s
     Зачем. «Удалить мои данные» люди просят не потому, что данные им мешают, а потому что
     не знают, что именно у нас лежит и надолго ли. Общие слова в оферте на этот страх
     не отвечают. Числа и сроки отвечают: переписка уходит сама через месяц, поездки —
-    через полгода, геолокацию мы вообще не храним.
+    через полгода, а сохранённые точки поездок и SOS показываем отдельно от live-трека.
 
     Сроки берём из ретеншена (`cleanup.py`), а не пишем в клиенте: иначе приложение
     начнёт обещать одно, а чистилка делать другое.
@@ -758,8 +811,9 @@ def my_data(user: User = Depends(current_user), session: Session = Depends(get_s
         "notifications_days": cleanup.NOTIF_DAYS,
         "driver_docs": docs,
         "driver_docs_removable": bool(dp and docs and not dp.online and dp.docs_status != "pending"),
-        # Отдельно и явно: этого у нас нет вовсе. Человеку это важнее любых счётчиков.
-        "location_stored": False,
+        **_location_summary(session, uid),
+        "route_location_points_days": cleanup.TRIP_DAYS,
+        "sos_location_days_from_signal": cleanup.SOS_DAYS,
         "card_stored": False,
     }
 
@@ -784,6 +838,7 @@ def export_my_data(
     Объём ограничен: у активного водителя тысячи строк превратили бы файл в нечитаемый.
     Обрезали — говорим об этом прямо в файле, а не молчим.
     """
+    from .. import cleanup
     from ..services import pick_lang
 
     lim = 300
@@ -863,8 +918,37 @@ def export_my_data(
             out.append(f"{'★' * int(g.stars or 0)}  {g.text or ''}".rstrip())
         out.append("")
 
+    locations = _location_summary(session, uid)
+    out.append(L("ГЕОЛОКАЦИЯ", "ГЕОЛОКАЦИЯ"))
+    out.append(L(
+        "Историю точной геолокации в реальном времени отдельным архивом не храним.",
+        "Реаль ваҡытта теүәл геолокация тарихын айырым архив итеп һаҡламайбыҙ.",
+    ))
+    out.append(L(
+        f"Точки поездок: {locations['route_location_points']}. Они видны участникам поездки. "
+        f"Проверяем для удаления после {cleanup.TRIP_DAYS} дней; связанные записи могут "
+        "продлить срок.",
+        f"Сәфәр нөктәләре: {locations['route_location_points']}. Улар сәфәрҙә ҡатнашыусыларға "
+        f"күренә. {cleanup.TRIP_DAYS} көндән һуң юйыу өсөн тикшерәбеҙ; бәйле яҙмалар "
+        "һаҡлау ваҡытын оҙайта ала.",
+    ))
+    out.append(L(
+        f"Точки SOS: {locations['sos_location_events']}.",
+        f"SOS нөктәләре: {locations['sos_location_events']}.",
+    ))
+    out.append(L(
+        f"Открытые SOS с точкой: {locations['open_sos_location_events']}. "
+        "Они хранятся до обработки администратором.",
+        f"Нөктәле асыҡ SOS: {locations['open_sos_location_events']}. "
+        "Улар администратор эшкәрткәнгә тиклем һаҡлана.",
+    ))
+    out.append(L(
+        f"Закрытые SOS с точкой удаляются через {cleanup.SOS_DAYS} дней от даты сигнала.",
+        f"Нөктәле ябыҡ SOS сигнал көнөнән {cleanup.SOS_DAYS} көн үткәс таҙартыла.",
+    ))
+    out.append("")
+
     out.append(L("ЧЕГО В ФАЙЛЕ НЕТ", "ФАЙЛДА НИМӘ ЮҠ"))
-    out.append(L("Точной геолокации — мы её не храним.", "Теүәл геолокация — беҙ уны һаҡламайбыҙ."))
     out.append(L("Данных банковской карты — деньги идут мимо нас.",
                  "Банк картаһы мәғлүмәттәре — аҡса беҙҙән үтмәй."))
     out.append(L(f"Показано не больше {lim} записей в каждом разделе.",
@@ -935,6 +1019,10 @@ def logout(user: User = Depends(current_user), session: Session = Depends(get_se
     session.commit()
     revoke_all_refresh(session, user.id)
     for строка in session.exec(select(DeviceToken).where(DeviceToken.user_id == user.id)).all():
+        session.delete(строка)
+    for строка in session.exec(
+        select(WebPushSubscription).where(WebPushSubscription.user_id == user.id)
+    ).all():
         session.delete(строка)
     session.commit()
     return {"ok": True}

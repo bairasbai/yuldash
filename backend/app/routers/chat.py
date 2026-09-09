@@ -239,6 +239,8 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
         first = json.loads(await websocket.receive_text())
         if first.get("type") == "auth":
             token = first.get("token")
+    except WebSocketDisconnect:
+        return
     except Exception:
         token = None
     # Аутентификация: декод JWT + проверка существования юзера и ревокации (logout).
@@ -357,6 +359,8 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
         first = json.loads(await websocket.receive_text())
         if first.get("type") == "auth":
             token = first.get("token")
+    except WebSocketDisconnect:
+        return
     except Exception:
         token = None
     with Session(engine) as s:
@@ -520,6 +524,8 @@ async def parcel_chat_ws(websocket: WebSocket, parcel_id: int):
         first = json.loads(await websocket.receive_text())
         if first.get("type") == "auth":
             token = first.get("token")
+    except WebSocketDisconnect:
+        return
     except Exception:
         token = None
     with Session(engine) as s:

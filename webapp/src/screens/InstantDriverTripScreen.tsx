@@ -18,6 +18,7 @@ import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { fetchDriverStatus, setDriverOnline, type DriverStatus } from "../api/driver";
+import { commissionLabel } from "../utils/commissionLabel";
 import {
   fetchTaxiApplication,
   sendPresence,
@@ -50,6 +51,13 @@ import WorkZoneCard from "../components/WorkZoneCard";
 import TaxiDriverTripActions from "../components/TaxiDriverTripActions";
 import { serverMs } from "../utils/serverTime";
 import { track } from "../analytics";
+import {
+  canRestoreDriverOrder,
+  clearStoredDriverOrder,
+  isCurrentDriverOrderPoll,
+  isReleasedDriverOrderStatus,
+} from "../utils/driverActiveOrder";
+import { DriverOfferExpiry } from "../utils/driverOfferExpiry";
 
 type Boot = "loading" | "error" | "need-approval" | "ready";
 const PRESENCE_MS = 15000;
@@ -115,11 +123,19 @@ export default function InstantDriverTripScreen() {
   /** Почему не взяли: «уже взял другой» либо «проверь связь». Молчать тут нельзя. */
   const [acceptNote, setAcceptNote] = useState("");
   const [active, setActive] = useState<InstantOrder | null>(null);
+  const activeIdRef = useRef<number | null>(null);
+  /** Почему прежний заказ исчез: сообщение остаётся на экране ожидания следующего. */
+  const [endedNote, setEndedNote] = useState("");
   /** Действие по активной поездке не прошло — сказать словами, а не ждать поллинга. */
   const [tripNote, setTripNote] = useState("");
   const posRef = useRef<GeoPoint | null>(null);
   /** Геолокацию не дали — «на линии» работать не будет. */
   const [geoNote, setGeoNote] = useState(false);
+
+  const setCurrentActive = useCallback((order: InstantOrder | null) => {
+    activeIdRef.current = order?.id ?? null;
+    setActive(order);
+  }, []);
 
   // ---------------- Загрузка: заявка таксиста + статус водителя + активная поездка ----------------
   const load = useCallback((signal?: AbortSignal) => {
@@ -138,10 +154,11 @@ export default function InstantDriverTripScreen() {
           if (saved) {
             fetchInstantOrder(saved)
               .then((o) => {
-                if (["accepted", "arriving", "onboard"].includes(o.status)) setActive(o);
-                else localStorage.removeItem(ACTIVE_KEY);
+                if (!canRestoreDriverOrder(activeIdRef.current, saved)) return;
+                if (["accepted", "arriving", "onboard"].includes(o.status)) setCurrentActive(o);
+                else clearStoredDriverOrder(localStorage, ACTIVE_KEY, saved);
               })
-              .catch(() => localStorage.removeItem(ACTIVE_KEY));
+              .catch(() => clearStoredDriverOrder(localStorage, ACTIVE_KEY, saved));
           }
         });
       })
@@ -151,7 +168,7 @@ export default function InstantDriverTripScreen() {
         if (e instanceof ApiError && e.status === 404) setBoot("need-approval");
         else setBoot("error");
       });
-  }, []);
+  }, [setCurrentActive]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -238,13 +255,31 @@ export default function InstantDriverTripScreen() {
   useEffect(() => {
     if (!active) return;
     let alive = true;
+    const orderId = active.id;
     const iv = window.setInterval(() => {
-      fetchInstantOrder(active.id)
+      fetchInstantOrder(orderId)
         .then((o) => {
-          if (!alive) return;
-          setActive(o);
-          if (["done", "cancelled", "expired"].includes(o.status)) {
-            localStorage.removeItem(ACTIVE_KEY);
+          if (!alive || !isCurrentDriverOrderPoll(activeIdRef.current, orderId)) return;
+          if (isReleasedDriverOrderStatus(o.status)) {
+            clearStoredDriverOrder(localStorage, ACTIVE_KEY, orderId);
+            setCurrentActive(null);
+            setTripNote("");
+            setEndedNote(
+              o.status === "cancelled"
+                ? appText(
+                    "Пассажир отменил заказ. Ищем следующий.",
+                    "Пассажир заказды кире алды. Киләһе заказды эҙләйбеҙ."
+                  )
+                : appText(
+                    "Заказ больше не активен. Ищем следующий.",
+                    "Заказ инде әүҙем түгел. Киләһе заказды эҙләйбеҙ."
+                  )
+            );
+            return;
+          }
+          setCurrentActive(o);
+          if (o.status === "done") {
+            clearStoredDriverOrder(localStorage, ACTIVE_KEY, orderId);
           }
         })
         .catch(() => {});
@@ -269,21 +304,24 @@ export default function InstantDriverTripScreen() {
     }
   }
 
-  async function accept() {
-    if (!offer || accepting) return; // второй тап на медленной сети — не второй заказ
+  async function accept(): Promise<"accepted" | "retry" | "closed"> {
+    if (!offer || accepting) return "closed"; // второй тап на медленной сети — не второй заказ
     setAcceptNote("");
+    setEndedNote("");
     setAccepting(true);
     try {
       const o = await acceptOrder(offer.id);
-      setActive(o);
+      setCurrentActive(o);
       setOffer(null);
       localStorage.setItem(ACTIVE_KEY, String(o.id));
+      return "accepted";
     } catch (e) {
       const st = e instanceof ApiError ? e.status : -1;
       if (st === 409 || st === 410) {
         // Гонку проиграли: заказ уже у другого. Говорим об этом и ждём следующий.
         setOffer(null);
         setAcceptNote(appText("Заказ уже взял другой водитель", "Заказды башҡа йөрөтөүсе алды"));
+        return "closed";
       } else {
         // Связь оборвалась. Оффер НЕ убираем: раньше он молча исчезал, и водитель
         // не знал, взял он заказ или нет — а пассажир ждал машину, которая не едет.
@@ -293,6 +331,7 @@ export default function InstantDriverTripScreen() {
             "Заказды алып булманы. Бәйләнеште тикшереп ҡабатла."
           )
         );
+        return "retry";
       }
     } finally {
       setAccepting(false);
@@ -311,9 +350,10 @@ export default function InstantDriverTripScreen() {
    */
   const [askWhy, setAskWhy] = useState<number | null>(null);
 
-  async function skip() {
-    if (!offer || accepting) return; // пока берём заказ — «Пропустить» не должно срабатывать
+  async function skip(afterFailedAccept = false) {
+    if (!offer || (accepting && !afterFailedAccept)) return;
     const id = offer.id;
+    setAcceptNote("");
     setOffer(null);
     try {
       await declineOrder(id);
@@ -344,8 +384,11 @@ export default function InstantDriverTripScreen() {
    */
   function refreshActive() {
     if (!active) return;
-    fetchInstantOrder(active.id)
-      .then(setActive)
+    const orderId = active.id;
+    fetchInstantOrder(orderId)
+      .then((o) => {
+        if (isCurrentDriverOrderPoll(activeIdRef.current, orderId)) setCurrentActive(o);
+      })
       .catch(() => {});
   }
 
@@ -354,10 +397,10 @@ export default function InstantDriverTripScreen() {
     try {
       const fn = next === "arrived" ? arrivedOrder : next === "onboard" ? onboardOrder : doneOrder;
       const o = await fn(active.id);
-      setActive(o);
+      setCurrentActive(o);
       setTripNote("");
       if (o.status === "done") {
-        localStorage.removeItem(ACTIVE_KEY);
+        clearStoredDriverOrder(localStorage, ACTIVE_KEY, o.id);
         // Сразу на чек: там водитель отмечает «наличные получил», если пассажир ушёл.
         navigate(`/taxi-receipt/${o.id}`);
       }
@@ -392,8 +435,8 @@ export default function InstantDriverTripScreen() {
         return;
       }
     }
-    localStorage.removeItem(ACTIVE_KEY);
-    setActive(null);
+    clearStoredDriverOrder(localStorage, ACTIVE_KEY, active.id);
+    setCurrentActive(null);
   }
 
   // ---------------- Рендер ----------------
@@ -464,6 +507,12 @@ export default function InstantDriverTripScreen() {
         subtitle={appText("Принимай быстрые заказы рядом", "Яҡындағы тиҙ заказдарҙы ал")}
         onBack={() => navigate(-1)}
       />
+
+      {endedNote && (
+        <div className="notice" role="status">
+          {endedNote}
+        </div>
+      )}
 
       {/* Готовность на сегодня. Показываем ДО тумблера: это про «можно ли вообще ехать». */}
       {pretrip && !pretrip.confirmed && (
@@ -744,11 +793,29 @@ function OfferOverlay({
   ru: boolean;
   accepting: boolean;
   note: string;
-  onAccept: () => void;
-  onSkip: () => void;
+  onAccept: () => Promise<"accepted" | "retry" | "closed">;
+  onSkip: (afterFailedAccept?: boolean) => void;
 }) {
   const { appText } = useLang();
   const [left, setLeft] = useState(20);
+  const expiryRef = useRef(new DriverOfferExpiry(order.id));
+  if (expiryRef.current.orderId !== order.id) {
+    expiryRef.current = new DriverOfferExpiry(order.id);
+  }
+  const onSkipRef = useRef(onSkip);
+  onSkipRef.current = onSkip;
+
+  const beginAccept = () => {
+    if (!expiryRef.current.beginAccept(order.id)) return;
+    void onAccept().then((result) => {
+      const declineAfterFailure = expiryRef.current.finishAccept(order.id, result !== "retry");
+      if (declineAfterFailure) onSkipRef.current(true);
+    });
+  };
+
+  const skipOnce = () => {
+    if (expiryRef.current.manualDecline(order.id)) onSkipRef.current();
+  };
 
   useEffect(() => {
     const expMs = serverMs(order.offer_expires_at);
@@ -756,7 +823,7 @@ function OfferOverlay({
     const tick = () => {
       const sec = Math.max(0, Math.round((exp - Date.now()) / 1000));
       setLeft(sec);
-      if (sec <= 0) onSkip();
+      if (sec <= 0 && expiryRef.current.expire(order.id)) onSkipRef.current();
     };
     tick();
     const iv = window.setInterval(tick, 500);
@@ -835,10 +902,10 @@ function OfferOverlay({
         {note && <div className="offer-card__note">{note}</div>}
 
         <div className="offer-card__actions">
-          <button type="button" className="btn-ghost" onClick={onSkip} disabled={accepting}>
+          <button type="button" className="btn-ghost" onClick={skipOnce} disabled={accepting}>
             {appText("Пропустить", "Үткәреү")}
           </button>
-          <button type="button" className="btn-primary" onClick={onAccept} disabled={accepting}>
+          <button type="button" className="btn-primary" onClick={beginAccept} disabled={accepting}>
             {accepting
               ? appText("Берём…", "Алабыҙ…")
               : appText("Взять заказ", "Заказды алыу")}
@@ -892,8 +959,8 @@ function DriverTrip({
           </div>
           <p className="taxi-done__hint">
             {appText(
-              "Комиссия 8% начислена «на доверии». Спасибо, что возишь своих 🤝",
-              "8% комиссия «ышаныс менән» иҫәпләнде. Үҙеңдекеләрҙе йөрөткәнең өсөн рәхмәт 🤝"
+              commissionLabel(order.driver_fee_percent).ru,
+              commissionLabel(order.driver_fee_percent).ba
             )}
           </p>
         </div>
@@ -1100,8 +1167,8 @@ function ShiftCard({ wd }: { wd: Workday }) {
 
       <p className="shift-card__fee">
         {appText(
-          `Комиссия сервиса ${wd.fee_percent}% — ниже, чем у агрегаторов (22–30%).`,
-          `Сервис комиссияһы ${wd.fee_percent}% — агрегаторҙарҙан (22–30%) түбәнерәк.`
+          `Текущая комиссия сервиса — ${wd.fee_percent}%.`,
+          `Сервистың хәҙерге комиссияһы — ${wd.fee_percent}%.`
         )}
       </p>
 

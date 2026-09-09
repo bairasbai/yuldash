@@ -74,6 +74,9 @@ def test_sqlite_reuses_deleted_ids(client, user_factory):
         s.commit()
         второй = _заказ(s, d["id"], p["id"])
 
+    if engine.dialect.name == "postgresql":
+        assert второй > первый, "PostgreSQL sequence must not reuse the deleted order ID"
+        return
     assert второй == первый, (
         "номер удалённого заказа больше не переиспользуется — хорошо, но разбор волны 206 "
         "держался на обратном, перечитай его"
@@ -103,7 +106,10 @@ def test_reused_order_id_would_steal_someone_elses_compensation(client, user_fac
         s.delete(s.get(InstantOrder, занятый))     # номер освободился
         s.commit()
         новый_заказ = _заказ(s, наш["id"], p["id"])
-        assert новый_заказ == занятый, "проба не собралась: номер не переиспользовался"
+        if engine.dialect.name == "postgresql":
+            assert новый_заказ > занятый, "PostgreSQL must allocate a fresh order ID"
+        else:
+            assert новый_заказ == занятый, "проба не собралась: номер не переиспользовался"
 
         было = ledger.driver_balance(s, наш["id"])
         ledger.post_promo_compensation(s, наш["id"], новый_заказ, 5_000)
@@ -112,6 +118,9 @@ def test_reused_order_id_would_steal_someone_elses_compensation(client, user_fac
     # Это ФИКСАЦИЯ поведения, а не одобрение: пока номер занят чужой записью, деньги
     # не дойдут. Защита от такой ситуации — сторож ниже: тесты не занимают `promo:` руками,
     # а на боевом Postgres номера заказов не переиспользуются вовсе.
+    if engine.dialect.name == "postgresql":
+        assert стало - было == 5_000, "fresh PostgreSQL order must receive its own compensation"
+        return
     assert стало == было, (
         "поведение изменилось: теперь по занятому `ext_id` деньги всё-таки начисляются. "
         "Перечитай разбор волны 206 — сторож ниже писался под прежнее поведение"

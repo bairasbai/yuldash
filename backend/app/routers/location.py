@@ -45,6 +45,8 @@ async def map_feed(websocket: WebSocket):
         first = json.loads(await websocket.receive_text())
         if first.get("type") == "auth":
             token = first.get("token")
+    except WebSocketDisconnect:
+        return
     except Exception:
         token = None
     with Session(engine) as s:
@@ -116,6 +118,8 @@ async def trip_location(websocket: WebSocket, booking_id: int):
         first = json.loads(await websocket.receive_text())
         if first.get("type") == "auth":
             token = first.get("token")
+    except WebSocketDisconnect:
+        return
     except Exception:
         token = None
     with Session(engine) as s:
@@ -220,6 +224,8 @@ async def instant_location(websocket: WebSocket, order_id: int):
         first = json.loads(await websocket.receive_text())
         if first.get("type") == "auth":
             token = first.get("token")
+    except WebSocketDisconnect:
+        return
     except Exception:
         token = None
     with Session(engine) as s:
@@ -353,6 +359,8 @@ async def parcel_location(websocket: WebSocket, parcel_id: int):
         first = json.loads(await websocket.receive_text())
         if first.get("type") == "auth":
             token = first.get("token")
+    except WebSocketDisconnect:
+        return
     except Exception:
         token = None
     with Session(engine) as s:

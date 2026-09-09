@@ -20,7 +20,9 @@ export type ParcelStatus =
   | "created"
   | "accepted"
   | "in_transit"
+  | "returning"
   | "delivered"
+  | "returned"
   | "canceled";
 
 /** Размер посылки (тариф на сервере). */

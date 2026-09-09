@@ -455,7 +455,6 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
                InstantOrder.wait_until != None)          # noqa: E711 — SQL IS NOT NULL
         .values(wait_until=None)
     )
-    session.commit()
     existing = session.exec(
         select(InstantOrder).where(
             InstantOrder.passenger_id == user.id,
@@ -463,16 +462,9 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
         )
     ).first()
     if existing:
+        # Сохраняем очистку очереди, удержав lock до проверки активного заказа.
+        session.commit()
         return isv.order_payload(session, existing, user)
-    # Комментарий к заказу читает каждый водитель, кому уходит оффер. В такси с водителя берётся
-    # комиссия, поэтому «звони мне на +7…» здесь — не обмен контактами по-соседски, а увод сделки
-    # мимо приложения (и мимо защиты: вне заказа нет ни SOS, ни чека, ни разбора спора).
-    # Проверялись комментарий заявки и отклик, а этот — нет (аудит 2026-08-06).
-    # Вместе с комментарием проверяем АДРЕСА: их пишет человек руками, их читает водитель
-    # в оффере и любой, кому дали ссылку слежения (`/t/{token}` показывает «откуда → куда»).
-    # Проверка стояла только на комментарии — телефон в поле «Куда» проезжал мимо (волна 40).
-    moderate_open_text("\n".join(p for p in (body.comment, body.from_text, body.to_text) if p),
-                       user.id, place="order_comment", session=session)
     order = InstantOrder(
         passenger_id=user.id,
         from_lat=body.from_lat, from_lng=body.from_lng,
@@ -501,6 +493,10 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     session.add(order)
     session.commit()
     session.refresh(order)
+    # Помечаем контакты в комментарии и адресах ДО отправки оффера, но ПОСЛЕ сохранения заказа:
+    # журнал модерации делает commit и иначе снимет lock пассажира между проверкой и INSERT.
+    moderate_open_text("\n".join(p for p in (body.comment, body.from_text, body.to_text) if p),
+                       user.id, place="order_comment", session=session)
     # Скидка по промокоду ФИКСИРУЕТСЯ в заказе и списывается ровно один раз (row-lock + CAS
     # внутри). Делаем это ДО поиска водителя, чтобы и пассажир, и водитель уже в карточке
     # видели честную сумму «к оплате».
@@ -757,6 +753,10 @@ def accept(order_id: int, user: User = Depends(current_user), session: Session =
     # Анти-дубль назначения: нельзя взять ВТОРОЙ заказ при активном первом. Matcher мог
     # предложить одного водителя двум заказам, пока оба ещё offered (на малом рынке «между
     # своими» вероятно) → accept обоих дал бы двойное назначение, один пассажир брошен.
+    # Лочим ВОДИТЕЛЯ: блокировки разных заказов друг другу не мешают. NO KEY UPDATE
+    # сериализует принятия, не мешая внешним ключам ссылаться на пользователя.
+    # transition сохраняет назначение до отправки уведомлений и освобождает этот lock.
+    session.exec(select(User).where(User.id == user.id).with_for_update(key_share=True)).first()
     other_active = session.exec(
         select(InstantOrder.id).where(
             InstantOrder.driver_id == user.id,

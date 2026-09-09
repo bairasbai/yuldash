@@ -54,7 +54,9 @@ def upgrade() -> None:
     if _has_index(bind):
         return                                  # уже есть (create_all на свежей БД)
     pg = bind.dialect.name.startswith("postgres")
-    kind = "kind::text" if pg else "kind"       # на проде колонка бывает и enum, и varchar
+    # Untyped literal resolves to the column type (enum or varchar). Casting an enum
+    # to text is STABLE, not IMMUTABLE, and PostgreSQL rejects it in index predicates.
+    kind = "kind"
 
     # --- 1. Расшиваем дубли: у всех, кроме самой первой записи по ключу, меняем ext_id.
     dupes = bind.execute(sa.text(

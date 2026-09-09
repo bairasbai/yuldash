@@ -26,6 +26,8 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 from sqlmodel import Session, select
 
@@ -34,6 +36,9 @@ from app.config import settings
 from app.db import engine
 from app.ledger import driver_balance
 from app.models import ParcelDelivery, Payment, UserRole
+from app.routers.courier import (_courier_snapshot_ids, _courier_snapshot_tier,
+                                 settle_courier_commission_from_wallet)
+from app.routers.payments import _activate_payment
 from app.timeutil import utcnow
 from conftest import upload_doc
 
@@ -73,6 +78,19 @@ def _доставка(курьер_id: int, отправитель_id: int, ко
             delivery_type="courier", price=100000,
             accepted_at=utcnow(), delivered_at=utcnow(),
             commission_kop=комиссия_коп, commission_paid=False, settled=True)
+        s.add(p)
+        s.commit()
+        s.refresh(p)
+        return p.id
+
+
+def _активная_доставка(курьер_id: int, отправитель_id: int, комиссия_коп: int) -> int:
+    with Session(engine) as s:
+        p = ParcelDelivery(
+            sender_id=отправитель_id, courier_id=курьер_id, status="accepted",
+            from_city="Акъяр", to_city="Сибай", description="коробка",
+            delivery_type="courier", price=100000, accepted_at=utcnow(),
+            commission_kop=комиссия_коп, commission_paid=False, settled=False)
         s.add(p)
         s.commit()
         s.refresh(p)
@@ -150,7 +168,9 @@ def test_после_подтверждения_перевода_деньги_с�
 
 
 # ----------------------------- обратная сторона -----------------------------
-def test_новую_доставку_кошелёк_гасит_как_обычно(client, user_factory):
+@pytest.mark.parametrize("смещение_новой", [timedelta(0), timedelta(microseconds=1)],
+                         ids=["same-db-precision", "different-db-precision"])
+def test_новую_доставку_кошелёк_гасит_как_обычно(client, user_factory, смещение_новой):
     """Обратная сторона: доставка ВНЕ снапшота платежа — деньги кошелька идут в дело.
 
     Иначе «починкой» сошло бы «пока висит любой платёж, кошелёк заморожен»: у курьера
@@ -158,18 +178,173 @@ def test_новую_доставку_кошелёк_гасит_как_обычн
     """
     курьер, админ = _курьер(client, user_factory, "РустамНовая")
     отправитель = user_factory("ОтправительНовая")
-    _доставка(курьер["id"], отправитель["id"], 5000)                   # старшая: 50 ₽
+    старая_id = _доставка(курьер["id"], отправитель["id"], 5000)       # старшая: 50 ₽
 
     client.post("/courier/pay-commission", headers=курьер["auth"])     # снапшот: 50 ₽
 
-    _доставка(курьер["id"], отправитель["id"], 3000)                   # новая, ПОСЛЕ снапшота
+    новая_id = _доставка(курьер["id"], отправитель["id"], 3000)        # новая, ПОСЛЕ снапшота
+    # На реальной БД/ОС часы могут иметь более грубую точность: две последовательные записи
+    # получают одинаковое время. Причинная граница должна пережить это, поэтому фиксируем её.
+    граница = datetime(2035, 1, 2, 3, 4, 5, 123000)
+    with Session(engine) as s:
+        старая = s.get(ParcelDelivery, старая_id)
+        новая = s.get(ParcelDelivery, новая_id)
+        платёж = s.exec(select(Payment).where(
+            Payment.user_id == курьер["id"],
+            Payment.purpose == "courier_commission").order_by(Payment.id.desc())).first()
+        старая.delivered_at = граница
+        платёж.created_at = граница
+        новая.delivered_at = граница + смещение_новой
+        s.add(старая)
+        s.add(платёж)
+        s.add(новая)
+        s.commit()
     _вернули_в_кошелёк(курьер["id"], 3000, parcel_id=990003)
     client.get("/courier/me", headers=курьер["auth"])
 
     with Session(engine) as s:
+        платёж = s.exec(select(Payment).where(
+            Payment.user_id == курьер["id"],
+            Payment.purpose == "courier_commission").order_by(Payment.id.desc())).first()
         assert driver_balance(s, курьер["id"]) == 0, (
             "кошелёк не погасил новую доставку, которой нет в снапшоте платежа: деньги "
             "заморожены зря"
+        )
+        assert платёж.tier == f"courier_snapshot_ids:v1:{старая_id}"
+
+
+@pytest.mark.parametrize(
+    ("tier", "expected"),
+    [
+        ("", None),
+        ("day", None),
+        ("courier_snapshot_ids:v1:2,10", (2, 10)),
+        ("courier_snapshot_ids:v1:", ()),
+        ("courier_snapshot_ids:v1:2,2", ()),
+        ("courier_snapshot_ids:v1:10,2", ()),
+        ("courier_snapshot_ids:v1:0", ()),
+        ("courier_snapshot_ids:v2:2", ()),
+        ("courier_snapshot_id:2", ()),
+    ],
+)
+def test_маркер_снимка_различает_legacy_точный_и_повреждённый(tier, expected):
+    assert _courier_snapshot_ids(Payment(user_id=1, tier=tier)) == expected
+
+
+def test_маркер_снимка_имеет_безопасный_предел_размера():
+    with pytest.raises(ValueError):
+        _courier_snapshot_tier(tuple(range(1, 10_002)))
+    слишком_длинный = "courier_snapshot_ids:v1:" + "9" * 220_001
+    assert _courier_snapshot_ids(Payment(user_id=1, tier=слишком_длинный)) == ()
+
+
+def test_повреждённый_маркер_не_тратит_кошелёк_и_не_прощает_долг(user_factory):
+    курьер = user_factory("КурьерБитый", role=UserRole.driver)
+    отправитель = user_factory("ОтправительБитый")
+    delivery_id = _доставка(курьер["id"], отправитель["id"], 5000)
+    with Session(engine) as s:
+        payment = Payment(user_id=курьер["id"], purpose="courier_commission",
+                          amount_kop=5000, method="sbp", status="pending",
+                          tier="courier_snapshot_ids:v1:")
+        s.add(payment)
+        s.commit()
+        s.refresh(payment)
+        payment_id = payment.id
+    _вернули_в_кошелёк(курьер["id"], 5000, parcel_id=990007)
+
+    with Session(engine) as s:
+        assert settle_courier_commission_from_wallet(s, курьер["id"]) == 0
+        assert driver_balance(s, курьер["id"]) == 5000
+    with Session(engine) as s:
+        with pytest.raises(RuntimeError, match="invalid courier payment snapshot marker"):
+            _activate_payment(s, s.get(Payment, payment_id))
+        s.rollback()
+    with Session(engine) as s:
+        assert s.get(Payment, payment_id).status == "pending"
+        assert s.get(ParcelDelivery, delivery_id).commission_paid is False
+
+
+def test_старый_счёт_не_прощает_новую_доставку_при_откате_часов(client, user_factory):
+    курьер, админ = _курьер(client, user_factory, "РустамЧасы")
+    отправитель = user_factory("ОтправительЧасы")
+    старая_id = _доставка(курьер["id"], отправитель["id"], 5000)
+    client.post("/courier/pay-commission", headers=курьер["auth"])
+    новая_id = _доставка(курьер["id"], отправитель["id"], 3000)
+
+    граница = datetime(2035, 1, 2, 3, 4, 5, 123000)
+    with Session(engine) as s:
+        старая = s.get(ParcelDelivery, старая_id)
+        новая = s.get(ParcelDelivery, новая_id)
+        платёж = s.exec(select(Payment).where(
+            Payment.user_id == курьер["id"],
+            Payment.purpose == "courier_commission").order_by(Payment.id.desc())).first()
+        старая.delivered_at = граница - timedelta(microseconds=2)
+        платёж.created_at = граница
+        новая.delivered_at = граница - timedelta(microseconds=1)  # создана позже, часы ушли назад
+        s.add(старая)
+        s.add(платёж)
+        s.add(новая)
+        s.commit()
+        payment_id = платёж.id
+
+    подтвердил = client.post(f"/admin/payments/{payment_id}/confirm", headers=админ["auth"])
+    assert подтвердил.status_code == 200, подтвердил.text
+    with Session(engine) as s:
+        assert s.get(ParcelDelivery, старая_id).commission_paid is True
+        assert s.get(ParcelDelivery, новая_id).commission_paid is False, (
+            "новую доставку бесплатно включили в старый счёт только из-за отката часов"
+        )
+
+
+def test_pending_снимок_не_замораживает_завершённую_позже_старую_заявку(client, user_factory):
+    курьер, админ = _курьер(client, user_factory, "РустамСостав")
+    отправитель = user_factory("ОтправительСостав")
+    новая_по_id = _активная_доставка(курьер["id"], отправитель["id"], 3000)
+    вошла_в_счёт = _доставка(курьер["id"], отправитель["id"], 5000)
+    client.post("/courier/pay-commission", headers=курьер["auth"])
+
+    with Session(engine) as s:
+        позже = s.get(ParcelDelivery, новая_по_id)
+        позже.status = "delivered"
+        позже.delivered_at = datetime(2035, 1, 2, 3, 4, 5, 123000)
+        позже.settled = True
+        s.add(позже)
+        s.commit()
+    _вернули_в_кошелёк(курьер["id"], 3000, parcel_id=990006)
+    client.get("/courier/me", headers=курьер["auth"])
+
+    with Session(engine) as s:
+        assert driver_balance(s, курьер["id"]) == 0, (
+            "pending-счёт заморозил доставку с меньшим id, которая завершилась после снимка"
+        )
+        assert s.get(ParcelDelivery, новая_по_id).commission_paid is True
+        assert s.get(ParcelDelivery, вошла_в_счёт).commission_paid is False
+
+
+def test_оплата_гасит_точный_состав_а_не_все_id_до_границы(client, user_factory):
+    курьер, админ = _курьер(client, user_factory, "РустамТочныйСостав")
+    отправитель = user_factory("ОтправительТочныйСостав")
+    завершилась_позже = _активная_доставка(курьер["id"], отправитель["id"], 3000)
+    вошла_в_счёт = _доставка(курьер["id"], отправитель["id"], 5000)
+    client.post("/courier/pay-commission", headers=курьер["auth"])
+
+    with Session(engine) as s:
+        позже = s.get(ParcelDelivery, завершилась_позже)
+        позже.status = "delivered"
+        позже.delivered_at = datetime(2030, 1, 2, 3, 4, 5, 123000)
+        позже.settled = True
+        s.add(позже)
+        s.commit()
+        payment_id = s.exec(select(Payment.id).where(
+            Payment.user_id == курьер["id"],
+            Payment.purpose == "courier_commission").order_by(Payment.id.desc())).first()
+
+    подтвердил = client.post(f"/admin/payments/{payment_id}/confirm", headers=админ["auth"])
+    assert подтвердил.status_code == 200, подтвердил.text
+    with Session(engine) as s:
+        assert s.get(ParcelDelivery, вошла_в_счёт).commission_paid is True
+        assert s.get(ParcelDelivery, завершилась_позже).commission_paid is False, (
+            "старый счёт бесплатно погасил заявку только потому, что её id меньше границы"
         )
 
 

@@ -83,9 +83,9 @@ internal fun TaxiDriverCompletedScreen(
     val scope = rememberCoroutineScope()
     var stars by rememberSaveable(order.id) { mutableIntStateOf(0) }
     var selectedTags by rememberSaveable(order.id) { mutableStateOf(emptyList<String>()) }
-    var ratingSending by rememberSaveable(order.id) { mutableStateOf(false) }
+    var ratingSending by remember(order.id) { mutableStateOf(false) }
     var ratingSent by rememberSaveable(order.id) { mutableStateOf(false) }
-    var shiftEnding by rememberSaveable(order.id) { mutableStateOf(false) }
+    var shiftEnding by remember(order.id) { mutableStateOf(false) }
     var errorText by remember(order.id) { mutableStateOf<String?>(null) }
 
     val rateFail = appText(

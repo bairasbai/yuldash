@@ -407,10 +407,57 @@ internal fun BookingScreen(
         "Еду ${displayRide.from} → ${displayRide.to}, ${displayRide.timeText()}. ${displayRide.price} ₽. Поехали вместе в Юлдаше 👇\nhttps://yulbash.ru",
         "${displayRide.from} → ${displayRide.to}, ${displayRide.timeText()}. ${displayRide.price} ₽. Әйҙә бергә — Юлдашта 👇\nhttps://yulbash.ru"
     )
+    val normalizedBookingStatus = bookingStatus.trim().lowercase()
+    val bookingPending = bookingId != null && normalizedBookingStatus == "pending"
+    val bookingCancelled = bookingId != null && normalizedBookingStatus == "cancelled"
+    var showCancelConfirmation by rememberSaveable(bookingId, normalizedBookingStatus) { mutableStateOf(false) }
     val primaryLabel = when {
         bookingId == null -> appText("Забронировать место", "Урынды бронләү")
+        bookingPending -> appText("Отменить бронь", "Бронде кире алыу")
+        bookingCancelled -> appText("Найти другую поездку", "Башҡа сәфәр табыу")
         canOpenActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
         else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
+    }
+    val primaryEnabled = bookingId == null || bookingPending || bookingCancelled || canOpenActiveTrip
+    val primaryStyle = if (bookingPending) AppButtonStyle.Danger else AppButtonStyle.Primary
+    val primaryIcon = when {
+        bookingPending -> Icons.Default.Close
+        bookingCancelled -> Icons.Default.Search
+        primaryEnabled -> Icons.Default.EventSeat
+        else -> Icons.Default.Schedule
+    }
+    if (showCancelConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showCancelConfirmation = false },
+            title = { Text(appText("Отменить бронь?", "Бронде кире алырғамы?")) },
+            text = {
+                Text(
+                    appText(
+                        "Место освободится, а водитель получит уведомление.",
+                        "Урын бушаясаҡ, ә йөрөтөүсе хәбәр аласаҡ.",
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCancelConfirmation = false
+                        onCancelBooking()
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(appText("Да, отменить", "Эйе, кире алырға"), color = CanonRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showCancelConfirmation = false },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(appText("Оставить бронь", "Бронде ҡалдырырға"))
+                }
+            },
+        )
     }
     Scaffold(
         containerColor = CanonBg,
@@ -418,16 +465,22 @@ internal fun BookingScreen(
         bottomBar = {
             BookingDecisionBar(
                 primaryText = primaryLabel,
-                primaryEnabled = bookingId == null || canOpenActiveTrip,
+                primaryEnabled = primaryEnabled,
+                primaryStyle = primaryStyle,
+                primaryIcon = primaryIcon,
                 onMessage = onMessage,
                 onPrimary = {
-                    onConfirmRide(
-                        payMethod,
-                        payAmountText.trim().toIntOrNull(),
-                        minorPassenger,
-                        guardianName.trim(),
-                        guardianPhone.trim(),
-                    )
+                    when {
+                        bookingPending -> showCancelConfirmation = true
+                        bookingCancelled -> onFindAnotherRide()
+                        else -> onConfirmRide(
+                            payMethod,
+                            payAmountText.trim().toIntOrNull(),
+                            minorPassenger,
+                            guardianName.trim(),
+                            guardianPhone.trim(),
+                        )
+                    }
                 },
             )
         },
@@ -437,6 +490,29 @@ internal fun BookingScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
+            if (bookingPending) {
+                item {
+                    InfoCard(
+                        title = appText("Ждём ответа водителя", "Йөрөтөүсенең яуабын көтәбеҙ"),
+                        text = appText(
+                            "Водитель уже получил запрос. Пока он решает, бронь можно отменить.",
+                            "Йөрөтөүсе һорауҙы алды. Ул ҡарар иткәнсе бронде кире алырға була.",
+                        ),
+                        icon = Icons.Default.Schedule,
+                    )
+                }
+            } else if (bookingCancelled) {
+                item {
+                    InfoCard(
+                        title = appText("Бронь отменена", "Бронь кире алынды"),
+                        text = appText(
+                            "Место больше не забронировано. Найди подходящую поездку в списке.",
+                            "Урын бүтән бронләнмәгән. Исемлектән уңайлы сәфәр тап.",
+                        ),
+                        icon = Icons.Default.Close,
+                    )
+                }
+            }
             if (detailsLoading) {
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
@@ -589,6 +665,8 @@ internal fun BookingScreen(
 private fun BookingDecisionBar(
     primaryText: String,
     primaryEnabled: Boolean,
+    primaryStyle: AppButtonStyle,
+    primaryIcon: ImageVector,
     onMessage: () -> Unit,
     onPrimary: () -> Unit,
 ) {
@@ -607,7 +685,8 @@ private fun BookingDecisionBar(
                     text = primaryText,
                     onClick = onPrimary,
                     enabled = primaryEnabled,
-                    icon = if (primaryEnabled) Icons.Default.EventSeat else Icons.Default.Schedule,
+                    style = primaryStyle,
+                    icon = primaryIcon,
                 )
             }
         } else {
@@ -627,7 +706,8 @@ private fun BookingDecisionBar(
                     onClick = onPrimary,
                     modifier = Modifier.weight(1.35f).fillMaxHeight(),
                     enabled = primaryEnabled,
-                    icon = if (primaryEnabled) Icons.Default.EventSeat else Icons.Default.Schedule,
+                    style = primaryStyle,
+                    icon = primaryIcon,
                     fillWidth = false,
                 )
             }
@@ -1319,6 +1399,7 @@ internal fun ActiveTripScreen(
     var draft by remember(bookingId) { mutableStateOf("") }
     var editingId by remember(bookingId) { mutableStateOf<Int?>(null) }   // id редактируемого сообщения (null — обычная отправка)
     var status by remember(bookingId) { mutableStateOf<String?>(null) }
+    var showDriverFinishConfirmation by rememberSaveable(bookingId) { mutableStateOf(false) }
     var showShare by remember { mutableStateOf(false) }
     val shareSheet = rememberModalBottomSheetState()
     val tripSharedPrefix = appText("Поездка отправлена", "Сәфәр ебәрелде")
@@ -1591,6 +1672,44 @@ internal fun ActiveTripScreen(
         return
     }
 
+    if (showDriverFinishConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDriverFinishConfirmation = false },
+            title = { Text(appText("Завершить поездку?", "Сәфәрҙе тамамларғамы?")) },
+            text = {
+                Text(
+                    appText(
+                        "Подтверди, что поездка действительно закончилась.",
+                        "Сәфәр ысынлап та тамамланғанын раҫла.",
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDriverFinishConfirmation = false
+                        updateTripStatus("done")
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(
+                        appText("Да, завершить", "Эйе, тамамларға"),
+                        color = CanonGreen2,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDriverFinishConfirmation = false },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(appText("Не завершать", "Тамамламаҫҡа"))
+                }
+            },
+        )
+    }
+
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Моя поездка", "Минең сәфәр"), onBack) },
@@ -1608,6 +1727,10 @@ internal fun ActiveTripScreen(
                         }
                     },
                     onPrimary = { updateTripStatus(nextTripStatus) },
+                    finishText = if (role == "driver" && driverPhase == "departed") {
+                        appText("Завершить поездку", "Сәфәрҙе тамамлау")
+                    } else null,
+                    onFinish = { showDriverFinishConfirmation = true },
                 )
             }
         },
@@ -2819,12 +2942,14 @@ internal fun ActiveTripDecisionBar(
     primaryText: String,
     onMessage: () -> Unit,
     onPrimary: () -> Unit,
+    finishText: String? = null,
+    onFinish: () -> Unit = {},
 ) {
     val largeText = LocalDensity.current.fontScale >= 1.2f
     Surface(color = CanonSurface, shadowElevation = CanonDepth.sheet) {
         val barModifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)
-        if (largeText) {
-            Column(barModifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(barModifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (largeText) {
                 AppButton(
                     text = appText("Написать", "Яҙырға"),
                     onClick = onMessage,
@@ -2832,22 +2957,30 @@ internal fun ActiveTripDecisionBar(
                     icon = Icons.Default.ChatBubbleOutline,
                 )
                 AppButton(text = primaryText, onClick = onPrimary, icon = Icons.Default.KeyboardArrowRight)
+            } else {
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AppButton(
+                        text = appText("Написать", "Яҙырға"),
+                        onClick = onMessage,
+                        modifier = Modifier.weight(0.9f).fillMaxHeight(),
+                        style = AppButtonStyle.Secondary,
+                        fillWidth = false,
+                    )
+                    AppButton(
+                        text = primaryText,
+                        onClick = onPrimary,
+                        modifier = Modifier.weight(1.35f).fillMaxHeight(),
+                        icon = Icons.Default.KeyboardArrowRight,
+                        fillWidth = false,
+                    )
+                }
             }
-        } else {
-            Row(barModifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (finishText != null) {
                 AppButton(
-                    text = appText("Написать", "Яҙырға"),
-                    onClick = onMessage,
-                    modifier = Modifier.weight(0.9f).fillMaxHeight(),
+                    text = finishText,
+                    onClick = onFinish,
                     style = AppButtonStyle.Secondary,
-                    fillWidth = false,
-                )
-                AppButton(
-                    text = primaryText,
-                    onClick = onPrimary,
-                    modifier = Modifier.weight(1.35f).fillMaxHeight(),
-                    icon = Icons.Default.KeyboardArrowRight,
-                    fillWidth = false,
+                    height = 48.dp,
                 )
             }
         }

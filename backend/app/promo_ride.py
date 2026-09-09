@@ -239,15 +239,26 @@ def consume(session: Session, user_id: int, order: InstantOrder) -> int:
 def release(session: Session, order: InstantOrder) -> bool:
     """Поездка не состоялась → скидка возвращается пассажиру (не сгорает). Идемпотентно.
 
-    Возврат True — скидка действительно снята с этого заказа."""
-    if order is None or order.id is None or int(order.promo_discount_kop or 0) <= 0:
+    Возврат True — скидка действительно снята с этого заказа. Одного переданного id
+    недостаточно: статус проверяет атомарный UPDATE, поэтому ошибочный список не снимет
+    скидку с живой поездки."""
+    if order is None or order.id is None:
         return False
+    # Порядок блокировок совпадает с consume: сначала право на скидку, затем строка заказа.
+    # Иначе параллельные consume/release могли бы ждать друг друга в обратном порядке.
     red = session.exec(
         select(PromoRedemption).where(PromoRedemption.used_order_id == order.id).with_for_update()
     ).first()
-    session.execute(
-        update(InstantOrder).where(InstantOrder.id == order.id).values(promo_discount_kop=0)
+    cleared = session.execute(
+        update(InstantOrder).where(
+            InstantOrder.id == order.id,
+            InstantOrder.status.in_(_DEAD),
+            InstantOrder.promo_discount_kop > 0,
+        ).values(promo_discount_kop=0)
     )
+    if cleared.rowcount == 0:
+        session.rollback()
+        return False
     if red is not None:
         session.execute(
             update(PromoRedemption).where(PromoRedemption.id == red.id)

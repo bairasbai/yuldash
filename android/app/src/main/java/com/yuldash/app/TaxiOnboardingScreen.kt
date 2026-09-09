@@ -1,7 +1,7 @@
 package com.yuldash.app
 
 // ============================ «Стать таксистом Юлдаша» (580-ФЗ) ============================
-// Онбординг таксиста: тёплые правила простыми словами (комиссия 3→8→15%, оплата раз в неделю по СБП,
+// Онбординг таксиста: тёплые правила простыми словами (комиссия по данным кабинета, оплата по СБП,
 // лимит 8 часов на линии) + форма заявки (ИНН самозанятого, разрешение на такси, ОСАГО, возраст 20+,
 // стаж 2+). Состояния: форма → загрузка → на проверке (pending) → одобрено / отклонено (+повторная подача).
 // Бэкенд: POST /taxi/apply, GET /taxi/application (методы в data/ApiClient.kt).
@@ -362,14 +362,13 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TaxiRuleRow(
                         "💚",
-                        appText("Комиссия — ниже, чем у агрегаторов", "Комиссия — агрегаторҙарҙан түбәнерәк"),
-                        appText("Первые 30 поездок 3%, следующие 70 — 8%, дальше — 15%. Остальное — твоё.", "Тәүге 30 юл 3%, киләһе 70 — 8%, артабан — 15%. Ҡалғаны — һинеке."),
+                        appText("Комиссия", "Комиссия"),
+                        appText("Действующая ставка показана в кабинете водителя, начисленная сумма — в чеке поездки.", "Ғәмәлдәге ставка йөрөтөүсе кабинетында, иҫәпләнгән сумма сәфәр чегында күрһәтелгән."),
                     )
-                    TaxiCommissionSteps()
                     TaxiRuleRow(
                         "📅",
                         appText("Комиссия — раз в неделю по СБП", "Комиссия — аҙнаға бер СБП аша"),
-                        appText("Никаких автосписаний: раз в неделю переводишь долг сам, по-человечески.", "Бер ниндәй автоалыу юҡ: аҙнаға бер бурысты үҙең күсерәһең, кешеләрсә."),
+                        appText("Начисления и остаток к оплате проверяй в выписке и кошельке.", "Иҫәпләнгән сумманы һәм түләү ҡалдығын өҙөмтәлә һәм янсыҡта тикшер."),
                     )
                     TaxiRuleRow(
                         "⏱",
@@ -775,30 +774,6 @@ private fun TaxiChoiceChip(text: String, selected: Boolean, onClick: () -> Unit)
                 fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
             )
-        }
-    }
-}
-
-/** Шкала комиссии 3% → 8% → 15%: три шага по числу поездок. */
-@Composable
-private fun TaxiCommissionSteps() {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        TaxiCommissionStep("3%", appText("1–30 поездок", "1–30 юл"), Modifier.weight(1f))
-        TaxiCommissionStep("8%", appText("31–100 поездок", "31–100 юл"), Modifier.weight(1f))
-        TaxiCommissionStep("15%", appText("дальше", "артабан"), Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun TaxiCommissionStep(value: String, label: String, modifier: Modifier = Modifier) {
-    Surface(color = CanonMint, shape = RoundedCornerShape(14.dp), modifier = modifier) {
-        Column(
-            Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(value, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = TaxiType.Hero, lineHeight = TaxiType.HeroLine)
-            Text(label, color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine, maxLines = 1)
         }
     }
 }

@@ -2,7 +2,7 @@
 
 «Удалить мои данные» люди просят не потому, что данные мешают, а потому что не знают,
 что именно у нас лежит и надолго ли. Оферта на этот страх не отвечает. Отвечают числа:
-переписка уходит сама через месяц, поездки — через полгода, геолокацию мы не храним вовсе.
+переписка уходит сама через месяц, поездки — через полгода, точки поездок и SOS — отдельно.
 
 Сроки обязаны совпадать с настоящим ретеншеном: если приложение обещает одно,
 а чистилка делает другое — это то же враньё, только про приватность.
@@ -26,6 +26,11 @@ def test_empty_account_shows_honest_zeros(client, user_factory):
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["rides"] == 0 and d["messages"] == 0 and d["driver_docs"] == 0
+    assert d["location_stored"] is False
+    assert d["live_location_history_stored"] is False
+    assert d["route_location_points"] == 0
+    assert d["sos_location_events"] == 0
+    assert d["open_sos_location_events"] == 0
 
 
 def test_counts_are_real(client, user_factory):
@@ -60,14 +65,20 @@ def test_retention_days_match_the_real_cleaner(client, user_factory):
     assert d["voices_days"] == cleanup.MEDIA_DAYS
     assert d["notifications_days"] == cleanup.NOTIF_DAYS
     assert d["rides_days"] == cleanup.TRIP_DAYS
+    assert d["route_location_points_days"] == cleanup.TRIP_DAYS
+    assert d["sos_location_days_from_signal"] == cleanup.SOS_DAYS
 
 
-def test_we_say_plainly_what_we_do_not_store(client, user_factory):
-    """Точную геопозицию и данные карты не храним — и говорим это прямо."""
+def test_we_distinguish_live_history_from_saved_points(client, user_factory):
+    """Пустой аккаунт не имеет точек, а отдельного архива live-движения нет вообще."""
     u = user_factory("DataNotStored")
 
     d = client.get("/me/data", headers=u["auth"]).json()
     assert d["location_stored"] is False
+    assert d["live_location_history_stored"] is False
+    assert d["route_location_points"] == 0
+    assert d["sos_location_events"] == 0
+    assert d["open_sos_location_events"] == 0
     assert d["card_stored"] is False
 
 

@@ -43,6 +43,8 @@ export interface InstantOrder {
   category: TaxiCategory | string;
   price_estimate: number;
   price_final: number | null;
+  /** Серверная ставка водителя из instant_service.order_payload; старый API может не прислать. */
+  driver_fee_percent?: number;
   /**
    * Из чего сложилась сумма: поездка + дорога водителя к пассажиру (2026-08-23).
    * Пассажиру — чтобы видеть, за что платит; водителю — чтобы видеть, что компенсация

@@ -22,6 +22,11 @@ const OUT = join(HERE, ".bundles");
 
 /** набор → что для него собрать (модуль сайта → имя файла сборки). */
 const SUITES = [
+  { test: "taxi-origin-picker-test", src: null, out: null, bundle: false },
+  { test: "ride-booking-path-test", src: null, out: null, bundle: false },
+  { test: "commission-label-test", src: null, out: null, bundle: false },
+  { test: "map-lifecycle-test", src: null, out: null, bundle: false },
+  { test: "logout-without-worker-test", src: null, out: null, bundle: false },
   { test: "st-test", src: "src/utils/serverTime.ts", out: "st-bundle.mjs", bundle: true },
   { test: "outbox-test", src: "src/utils/outbox.ts", out: "outbox-bundle.mjs", bundle: true },
   { test: "draft-test", src: "src/utils/formDraft.ts", out: "draft-bundle.mjs", bundle: true },
@@ -47,6 +52,19 @@ const SUITES = [
   { test: "states-test", src: null, out: null, bundle: false },
   // Движение: приложение, PWA и сайт на одной шкале — числа сверяются, сырых нет.
   { test: "motion-test", src: null, out: null, bundle: false },
+  // Цена нового адреса принадлежит только последнему выбранному адресу.
+  { test: "destination-preview-test", src: null, out: null, bundle: false },
+  // Уже отправленный зимний вопрос восстанавливается после reload до подтверждения.
+  { test: "winter-check-reload-test", src: null, out: null, bundle: false },
+  // Отправитель открывает спор из своей карточки, когда назначен курьер.
+  { test: "parcel-sender-dispute-test", src: null, out: null, bundle: false },
+  // Лёгкий live-статус обновляет приватные details только по значимому событию/редко.
+  { test: "active-trip-details-sync-test", src: null, out: null, bundle: false },
+  { test: "payment-draft-sync-test", src: null, out: null, bundle: false },
+  // Отмена пассажиром освобождает экран водителя и не затирает следующий заказ.
+  { test: "driver-cancelled-order-test", src: null, out: null, bundle: false },
+  // Медленный accept не сопровождается противоречивым decline от таймера.
+  { test: "driver-offer-accept-race-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.

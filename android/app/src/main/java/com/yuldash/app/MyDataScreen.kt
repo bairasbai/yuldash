@@ -63,8 +63,9 @@ import java.io.File
  * Зачем экран. «Удалите мои данные» люди просят не потому, что данные им мешают, а потому что
  * не знают, что именно у нас лежит и надолго ли. Оферта на этот страх не отвечает: там общие
  * слова. Отвечают числа и сроки — переписка уходит сама через месяц, поездки через полгода,
- * точную геолокацию мы не храним вовсе. Раньше единственным ответом было «удалить аккаунт
- * целиком»: человеку, которому просто неуютно, приходилось уходить из приложения.
+ * а геолокация разделена на live-передачу, точки маршрутов и события SOS. Раньше единственным
+ * ответом было «удалить аккаунт целиком»: человеку, которому просто неуютно, приходилось
+ * уходить из приложения.
  *
  * Сроки приходят с сервера, а не зашиты в приложении: иначе экран начнёт обещать одно,
  * а чистилка базы делать другое — то же враньё, только про приватность.
@@ -186,6 +187,14 @@ internal fun MyDataScreen(onBack: () -> Unit) {
 
                     item {
                         FadeInCard(delayMs = CanonMotion.NORMAL) {
+                            LocationUsageCard(d)
+                        }
+                    }
+
+                    // Платёжные реквизиты не смешиваем с координатами: сервер отдельно сообщает,
+                    // что карты у Юлдаша нет, а геолокация выше объяснена по каждому назначению.
+                    if (!d.cardStored) item {
+                        FadeInCard(delayMs = CanonMotion.NORMAL) {
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = CanonSurface),
                                 shape = CanonCardShape,
@@ -198,29 +207,15 @@ internal fun MyDataScreen(onBack: () -> Unit) {
                                         fontSize = 16.sp, lineHeight = 23.sp,
                                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
                                     )
-                                    if (!d.locationStored) {
-                                        DataRow(
-                                            Icons.Default.LocationOff,
-                                            appText("Точная геолокация", "Теүәл геолокация"),
-                                            appText("Не храним", "Һаҡламайбыҙ"),
-                                            appText(
-                                                "Видно только попутчикам и только во время поездки",
-                                                "Юлдаштарға ғына һәм сәфәр барышында ғына күренә",
-                                            ),
-                                        )
-                                    }
-                                    if (!d.locationStored && !d.cardStored) RowDivider()
-                                    if (!d.cardStored) {
-                                        DataRow(
-                                            Icons.Default.CreditCardOff,
-                                            appText("Данные карты", "Карта мәғлүмәттәре"),
-                                            appText("Не храним", "Һаҡламайбыҙ"),
-                                            appText(
-                                                "Деньги идут мимо нас — напрямую водителю",
-                                                "Аҡса беҙҙән үтмәй — тура шоферға бара",
-                                            ),
-                                        )
-                                    }
+                                    DataRow(
+                                        Icons.Default.CreditCardOff,
+                                        appText("Данные карты", "Карта мәғлүмәттәре"),
+                                        appText("Не храним", "Һаҡламайбыҙ"),
+                                        appText(
+                                            "Деньги идут мимо нас — напрямую водителю",
+                                            "Аҡса беҙҙән үтмәй — тура шоферға бара",
+                                        ),
+                                    )
                                 }
                             }
                         }
@@ -407,6 +402,123 @@ private fun DataRow(icon: ImageVector, title: String, value: String, note: Strin
         }
         Spacer(Modifier.width(12.dp))
         Text(value, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 20.sp)
+    }
+}
+
+/**
+ * Геолокация — не один общий архив. Live-координаты, точки маршрутов и SOS имеют разные
+ * получателей и сроки, поэтому показываем их отдельными строками и не обещаем общего «не храним».
+ */
+@Composable
+private fun LocationUsageCard(data: MyDataDto) {
+    val routeCount = data.routeLocationPoints.coerceAtLeast(0)
+    val routeDays = data.routeLocationPointsDays.coerceAtLeast(0)
+    val sosCount = data.sosLocationEvents.coerceAtLeast(0)
+    val openSosCount = data.openSosLocationEvents.coerceAtLeast(0)
+    val sosDaysFromSignal = data.sosLocationDaysFromSignal.coerceAtLeast(0)
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonCardShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
+    ) {
+        Column(Modifier.padding(vertical = 4.dp)) {
+            Text(
+                appText("Как храним геолокацию", "Геолокацияны нисек һаҡлайбыҙ"),
+                color = CanonText,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                lineHeight = 23.sp,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
+            )
+            LocationDataRow(
+                icon = Icons.Default.LocationOff,
+                title = appText("Движение в реальном времени", "Реаль ваҡыттағы хәрәкәт"),
+                value = if (data.liveLocationHistoryStored) {
+                    appText("Отдельный архив есть", "Айырым архив бар")
+                } else {
+                    appText("Без отдельного архива", "Айырым архив юҡ")
+                },
+                note = if (data.liveLocationHistoryStored) {
+                    appText(
+                        "Архив доступен только по правилам сервера",
+                        "Архив сервер ҡағиҙәләре буйынса ғына асыҡ",
+                    )
+                } else {
+                    appText(
+                        "Координаты видны участникам только во время поездки",
+                        "Координаталар сәфәрҙә ҡатнашыусыларға сәфәр ваҡытында ғына күренә",
+                    )
+                },
+            )
+            RowDivider()
+            LocationDataRow(
+                icon = Icons.Default.DirectionsCar,
+                title = appText("Точки маршрутов поездок", "Сәфәр маршруттарының нөктәләре"),
+                value = appText(
+                    "$routeCount " + pluralRu(routeCount, "точка", "точки", "точек"),
+                    "$routeCount нөктә",
+                ),
+                note = if (routeDays > 0) {
+                    appText(
+                        "Видны только участникам поездки. Проверяем для удаления после $routeDays " +
+                            pluralRu(routeDays, "дня", "дней", "дней") +
+                            "; связанные записи могут продлить срок",
+                        "Сәфәрҙә ҡатнашыусыларға ғына күренә. $routeDays көндән һуң юйыу өсөн тикшерәбеҙ; " +
+                            "бәйле яҙмалар ваҡытты оҙайтыуы мөмкин",
+                    )
+                } else {
+                    appText(
+                        "Видны только участникам поездки; срок сообщает сервер",
+                        "Сәфәрҙә ҡатнашыусыларға ғына күренә; ваҡытты сервер хәбәр итә",
+                    )
+                },
+            )
+            RowDivider()
+            LocationDataRow(
+                icon = Icons.Default.Notifications,
+                title = appText("Геолокация при SOS", "SOS ваҡытындағы геолокация"),
+                value = appText(
+                    "$sosCount " + pluralRu(sosCount, "событие", "события", "событий") +
+                        " · $openSosCount " + pluralRu(openSosCount, "открыто", "открыты", "открыто") +
+                        " до обработки",
+                    "$sosCount ваҡиға · $openSosCount эшкәртелгәнсе асыҡ",
+                ),
+                note = if (sosDaysFromSignal > 0) {
+                    appText(
+                        "Обработанные записи исчезнут через $sosDaysFromSignal " +
+                            pluralRu(sosDaysFromSignal, "день", "дня", "дней") +
+                            " от даты сигнала; открытые остаются до решения администратора",
+                        "Эшкәртелгән яҙмалар сигнал көнөнән $sosDaysFromSignal көн үткәс юйыла; " +
+                            "асыҡтары администратор ҡарарына тиклем ҡала",
+                    )
+                } else {
+                    appText(
+                        "Доступна администратору до завершения проверки безопасности",
+                        "Хәүефһеҙлекте тикшереү тамамланғансы администраторға асыҡ",
+                    )
+                },
+            )
+        }
+    }
+}
+
+/** Длинные пояснения идут вертикально: так они не сжимаются на узком экране и крупном шрифте. */
+@Composable
+private fun LocationDataRow(icon: ImageVector, title: String, value: String, note: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Surface(color = CanonMint, shape = CanonTinyShape) {
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 23.sp)
+            Text(value, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 20.sp)
+            Text(note, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
+        }
     }
 }
 

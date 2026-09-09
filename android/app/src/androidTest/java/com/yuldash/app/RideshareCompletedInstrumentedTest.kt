@@ -45,7 +45,7 @@ class RideshareCompletedInstrumentedTest {
         holdIfRequested()
         composeRule.onNodeWithText("Сказать «Рәхмәт»").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Квитанция").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Забыли вещь?").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Забыл вещь?").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText("Итог поездки"))
         composeRule.onNodeWithText("Итог поездки").assertIsDisplayed()
         composeRule.onNodeWithText("Как договорились").assertIsDisplayed()
@@ -78,7 +78,7 @@ class RideshareCompletedInstrumentedTest {
 
         composeRule.onNodeWithText("Сказать «Рәхмәт»").performScrollTo().performClick()
         composeRule.onNodeWithText("Квитанция").performClick()
-        composeRule.onNodeWithText("Забыли вещь?").performScrollTo().performClick()
+        composeRule.onNodeWithText("Забыл вещь?").performScrollTo().performClick()
 
         assertEquals(true, thanksOpened)
         assertEquals(true, receiptOpened)

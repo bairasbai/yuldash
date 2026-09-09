@@ -130,8 +130,16 @@ def _reuse_fresh_pending(session: Session, user_id: int, purpose: str, amount_ko
 
 
 def _start_yookassa(session: Session, payment: Payment, description: str, phone: str) -> dict:
-    """M2: создать платёж в ЮKassa безопасно. При сбое (таймаут/недоступность ЮKassa) не роняем
-    500 и не оставляем висящий pending без provider_id — удаляем orphan-строку и просим повторить."""
+    """Создать платёж в ЮKassa с постоянным ключом нашей строки.
+
+    Таймаут не означает, что провайдер отклонил запрос: он мог создать платёж, а мы потеряли
+    только ответ. Поэтому локальную строку нельзя удалять. Помечаем способ ДО похода наружу:
+    такая строка не попадёт в ручную СБП-очередь, а повтор использует тот же Payment.id и,
+    следовательно, тот же Idempotence-Key у ЮKassa.
+    """
+    payment.method = "yookassa"
+    session.add(payment)
+    session.commit()
     try:
         return create_payment(
             payment.amount_kop, description, {"payment_id": str(payment.id)}, customer_phone=phone,
@@ -139,9 +147,7 @@ def _start_yookassa(session: Session, payment: Payment, description: str, phone:
             # в тот же платёж ЮKassa, а не создаст второй на тот же счёт.
             idempotence_key=f"yuldash-payment-{payment.id}",
         )
-    except Exception:  # noqa: BLE001 — сеть/ЮKassa недоступна: чистим orphan, отдаём мягкую 503
-        session.delete(payment)
-        session.commit()
+    except Exception:  # noqa: BLE001 — исход неизвестен: строку/ключ сохраняем для безопасного повтора
         raise herr(503, "Оплата временно недоступна. Попробуй ещё раз.", "Түләү ваҡытлыса эшләмәй. Тағы ҡабатла.")
 
 
@@ -167,7 +173,10 @@ def _activate_payment(session: Session, payment: Payment) -> None:
     начислением оставил бы водителя недоплаченным навсегда (ретрай упёрся бы в guard succeeded).
     Для АДДИТИВНЫХ эффектов (boost/ad/подписка) наоборот — succeeded первым (защита от двойного
     применения при повторном/параллельном webhook)."""
-    locked = session.exec(select(Payment).where(Payment.id == payment.id).with_for_update()).one_or_none()
+    locked = session.exec(
+        select(Payment).where(Payment.id == payment.id).with_for_update()
+        .execution_options(populate_existing=True)
+    ).one_or_none()
     if locked is None:
         return
     payment = locked
@@ -192,7 +201,7 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         return
     if payment.purpose == "courier_commission":
         # Курьер оплатил накопленную комиссию → помечаем paid его доставленные неоплаченные заказы,
-        # но ТОЛЬКО те, что вошли в снапшот суммы (delivered_at <= момент создания платежа). Иначе
+        # но ТОЛЬКО те, что вошли в причинный ID-снимок суммы (время — fallback старых строк). Иначе
         # доставки, сделанные в окне между «жму оплатить» и подтверждением, погасились бы бесплатно.
         # Идемпотентно (только ещё неоплаченные). Новые доставки останутся к оплате следующим платежом.
         # Тип доставки обязателен: сумма к оплате считается ТОЛЬКО по курьерским заказам
@@ -201,14 +210,23 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         # которую платформа не получала никогда (аудит 2026-08-08, волна 157). Список типов —
         # тот же, что у расчёта долга, не копия: две копии одного списка разъедутся.
         from ..models import ParcelDelivery
-        from .courier import _COURIER_TYPES
+        from .courier import _COURIER_TYPES, _courier_snapshot_ids
+        snapshot_ids = _courier_snapshot_ids(payment)
+        if snapshot_ids:
+            snapshot_condition = ParcelDelivery.id.in_(snapshot_ids)
+        elif snapshot_ids == ():
+            # Повреждение постоянного снимка — ошибка целостности. Не ставим succeeded и не
+            # прощаем произвольные доставки: провайдер/webhook сможет повторить после ремонта.
+            raise RuntimeError("invalid courier payment snapshot marker")
+        else:
+            snapshot_condition = ParcelDelivery.delivered_at <= payment.created_at
         rows = session.exec(
             select(ParcelDelivery).where(
                 ParcelDelivery.courier_id == payment.user_id,
                 ParcelDelivery.status == "delivered",
                 ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
                 ParcelDelivery.commission_paid == False,  # noqa: E712
-                ParcelDelivery.delivered_at <= payment.created_at,
+                snapshot_condition,
             )
         ).all()
         for pd in rows:
@@ -329,6 +347,44 @@ def _activate_payment(session: Session, payment: Payment) -> None:
             session.add(partner)
     session.commit()
     _tell_about_payment(session, payment, ok=True)
+
+
+def _sync_provider_status(session: Session, payment: Payment) -> tuple[Payment, dict | None]:
+    """Сверить локальный платёж с достоверным статусом ЮKassa под блокировкой строки.
+
+    Только два ответа провайдера меняют наши деньги: succeeded применяет платёж, canceled
+    окончательно закрывает ещё pending-счёт. Pending и ошибка сети ничего локально не меняют.
+    Внешний HTTP выполняем без DB-lock; строку блокируем и принудительно обновляем только перед
+    terminal-переходом, чтобы polling и webhook не применили stale-состояние из identity map.
+    """
+    if payment.status in ("succeeded", REFUND_DUE) or not payment.provider_id:
+        return payment, None
+    try:
+        info = fetch_payment(payment.provider_id)
+    except Exception:  # noqa: BLE001 — неизвестный исход: локальный статус сохраняем для ретрая
+        return payment, None
+
+    provider_status = (info or {}).get("status")
+    if provider_status not in ("succeeded", "canceled"):
+        return payment, info
+
+    locked = session.exec(
+        select(Payment).where(Payment.id == payment.id).with_for_update()
+        .execution_options(populate_existing=True)
+    ).one_or_none()
+    if locked is None or locked.status in ("succeeded", REFUND_DUE):
+        return locked or payment, info
+    if provider_status == "succeeded":
+        if locked.status == "pending":
+            _activate_payment(session, locked)
+        else:
+            # Локально счёт уже закрыт, но деньги всё-таки пришли по старой ссылке.
+            _handle_unclaimed_payment(session, locked)
+    elif provider_status == "canceled" and locked.status == "pending":
+        locked.status = "canceled"
+        session.add(locked)
+        session.commit()
+    return locked, info
 
 
 # Что человек получает за деньги — своими словами, для уведомления.
@@ -635,15 +691,7 @@ def payment_status(payment_id: int, user: User = Depends(current_user), session:
     # оставалась незамеченной и по второму пути тоже (аудит 2026-08-12, волна 26).
     if (payment.provider_id and settings.payments_provider == "yookassa"
             and payment.status not in ("succeeded", REFUND_DUE)):
-        try:
-            info = fetch_payment(payment.provider_id)   # перепроверка у ЮKassa (телу вебхука не доверяем)
-        except Exception:  # noqa: BLE001 — сеть/ЮKassa недоступна → вернём текущий статус, клиент повторит
-            info = None
-        if info and info["status"] == "succeeded":
-            if payment.status == "pending":
-                _activate_payment(session, payment)
-            else:
-                _handle_unclaimed_payment(session, payment)   # применить не к чему → возврат
+        payment, _ = _sync_provider_status(session, payment)
     boosted_until = None
     if payment.purpose == "boost" and payment.ride_id is not None:
         ride = session.get(Ride, payment.ride_id)
@@ -666,7 +714,7 @@ def admin_pending_payments(user: User = Depends(current_user), session: Session 
     и случайный тап «подтвердить» начислил бы водителю деньги, которых не было."""
     _require_admin(user)
     rows = session.exec(select(Payment).where(
-        Payment.status == "pending", Payment.provider_id == "",
+        Payment.status == "pending", Payment.provider_id == "", Payment.method != "yookassa",
     ).order_by(Payment.id.desc())).all()
     out = []
     for p in rows:
@@ -700,7 +748,7 @@ def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), s
         return {"payment_id": payment.id, "status": "succeeded"}
     # Карточный платёж (создан у провайдера) вручную не подтверждаем — его подтверждает вебхук
     # после реального списания. Ручной confirm здесь = начисление без денег (фантом в ledger).
-    if payment.provider_id:
+    if payment.provider_id or payment.method == "yookassa":
         raise herr(409, "Платёж у провайдера — подтвердится автоматически после оплаты", "Түләү провайдерҙа — түләгәс үҙе раҫлана")
     _activate_payment(session, payment)
     admin_action(user.id, "payment.confirm", payment_id=payment.id, user=payment.user_id,
@@ -762,16 +810,5 @@ async def yookassa_webhook(request: Request, session: Session = Depends(get_sess
     payment = session.exec(select(Payment).where(Payment.provider_id == provider_id)).first()
     if not payment or payment.status in ("succeeded", REFUND_DUE):
         return {"ok": True}
-    try:
-        info = fetch_payment(provider_id)   # верификация статуса у ЮKassa (телу не доверяем)
-    except Exception:  # noqa: BLE001 — ошибка сети/ЮKassa → игнор (ЮKassa повторит вебхук)
-        return {"ok": True}
-    if info["status"] != "succeeded":
-        return {"ok": True}
-    if payment.status == "pending":
-        _activate_payment(session, payment)
-    else:
-        # Деньги пришли, а применить их не к чему: платёж у нас уже отменён. Раньше здесь был
-        # молчаливый выход — деньги оставались у платформы, и об этом не знал НИКТО (волна 26).
-        _handle_unclaimed_payment(session, payment)
+    _sync_provider_status(session, payment)
     return {"ok": True}

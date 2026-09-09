@@ -147,7 +147,10 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
             log.warning(f"[TAXI-WORKER] закрытие зависшего #{o.id}: {type(e).__name__}: {e}")
     # Поездки не было → промокод возвращаем. Он даётся раз в жизни аккаунта, и сжигать его
     # за заказ, который закрыла сама система, нечестно (то же правило, что при отмене).
-    promo_ride.release_ids(closed)
+    # dry-run только показывает кандидатов: отдельная сессия release_ids иначе всё равно
+    # коммитила возврат скидки, хотя статус заказа здесь намеренно не менялся.
+    if not dry_run:
+        promo_ride.release_ids(closed)
     return closed
 
 
@@ -243,7 +246,9 @@ def finish_expired_waits(session: Session, dry_run: bool = False) -> list:
             log.warning(f"[TAXI-WORKER] закрытие ожидания #{o.id}: {type(e).__name__}: {e}")
     # Ждали до конца и машины так и не нашлось — скидку возвращаем: человек не виноват,
     # что рядом никого. Обещано в шапке `promo_ride`, а звалось только при отмене.
-    promo_ride.release_ids(finished)
+    # В режиме просмотра не должно быть побочных commit через отдельную сессию промокода.
+    if not dry_run:
+        promo_ride.release_ids(finished)
     return finished
 
 

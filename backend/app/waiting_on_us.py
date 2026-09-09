@@ -20,9 +20,9 @@
   отвечаем» — молчание страшнее задержки;
 - Александру шлёт одну сводку: что где висит и сколько ждёт самое старое дело.
 
-Отметку «уже писали» держим не новой колонкой, а самим уведомлением: у него есть `ref_kind`
-и `ref_id`, и этого хватает, чтобы не написать дважды. Меньше кода — меньше мест, где
-рассинхронизируется правда.
+Отметку «уже писали» держим не новой колонкой, а самим уведомлением: у него есть `ref_kind`,
+`ref_id` и время. Для поддержки время отделяет новый вопрос после ответа от старого цикла
+ожидания. Меньше кода — меньше мест, где рассинхронизируется правда.
 
 Живёт в общем ночном роботе (`taxi_worker.run_once`), рядом с эскалацией жалоб и напоминанием
 о переводах: то, что зависит от чужой занятости, не должно зависеть ещё и от того, открыл ли
@@ -53,14 +53,17 @@ PROMISE_DAYS = 2
 В_СВОДКЕ = 5
 
 
-def _уже_писали(session: Session, user_id: int, ref_kind: str, ref_id: Optional[int]) -> bool:
-    """Про это дело человеку уже напоминали? Отметка живёт в самом уведомлении."""
+def _уже_писали(session: Session, user_id: int, ref_kind: str, ref_id: Optional[int],
+                 *, цикл_с=None) -> bool:
+    """Про это дело (для поддержки — в текущем цикле ожидания) уже напоминали?"""
     q = select(Notification).where(
         Notification.user_id == user_id,
         Notification.ref_kind == ref_kind,
         Notification.ref_id == ref_id,
         Notification.title_ru == ЗАГОЛОВОК_RU,
     )
+    if цикл_с is not None:
+        q = q.where(Notification.created_at >= цикл_с)
     return session.exec(q).first() is not None
 
 
@@ -83,6 +86,13 @@ def _написать(session: Session, user_id: int, ref_kind: str, ref_id: Opt
     )
 
 
+def _последнее_сообщение(session: Session, ticket_id: int):
+    return session.exec(
+        select(SupportMessage).where(SupportMessage.ticket_id == ticket_id)
+        .order_by(SupportMessage.created_at.desc(), SupportMessage.id.desc())
+    ).first()
+
+
 def _ждут_ответа_тикеты(session: Session, порог) -> list:
     """Обращения, где последнее слово за нами: человек написал, админ не ответил."""
     открытые = session.exec(
@@ -93,28 +103,23 @@ def _ждут_ответа_тикеты(session: Session, порог) -> list:
     ).all()
     ждут = []
     for t in открытые:
-        ответы = session.exec(
-            select(SupportMessage).where(
-                SupportMessage.ticket_id == t.id,
-                SupportMessage.sender == SupportSender.admin,
-            )
-        ).first()
-        if ответы is None:
+        последнее = _последнее_сообщение(session, t.id)
+        # Реальный тикет всегда имеет первое сообщение. Пустой старый тикет всё равно
+        # оставляем в очереди: это повреждённое, но не решённое обращение.
+        if последнее is None:
+            ждут.append(t)
+            continue
+        sender = последнее.sender.value if hasattr(последнее.sender, "value") else последнее.sender
+        # Возраст текущего хода хранится в SupportTicket.updated_at: обе ручки сообщений
+        # обновляют его вместе с добавлением сообщения. Sender берём из самого последнего.
+        if sender == SupportSender.user.value:
             ждут.append(t)
     return ждут
 
 
-def remind_waiting_people(session: Session, dry_run: bool = False) -> dict:
-    """Написать тем, кто ждёт нас дольше обещанного, и дать Александру сводку.
-
-    Возврат: сколько человек предупредили в каждой очереди (для лога и тестов).
-    """
-    now = utcnow()
-    порог = now - timedelta(days=PROMISE_DAYS)
-    итог = {"support": 0, "taxi_app": 0, "courier_app": 0, "driver_docs": 0}
-    самое_старое = None
-
-    очереди = [
+def _очереди(session: Session, порог) -> list:
+    """Один источник состава очередей для reminder и ежедневной админской сводки."""
+    return [
         ("support", _ждут_ответа_тикеты(session, порог), "user_id", "created_at",
          "Ты написал в поддержку, и ответа пока нет.",
          "Һин ярҙам хеҙмәтенә яҙғайның, яуап әле юҡ."),
@@ -134,17 +139,70 @@ def remind_waiting_people(session: Session, dry_run: bool = False) -> dict:
          "Һинең документтарың тикшереүҙә."),
     ]
 
-    for вид, дела, поле_человека, поле_даты, текст_ru, текст_ba in очереди:
+
+def waiting_digest_line(session: Session, now=None) -> str:
+    """Текущий старый хвост очередей — только агрегаты, без имён и личных данных."""
+    now = now or utcnow()
+    порог = now - timedelta(days=PROMISE_DAYS)
+    counts = {"support": 0, "taxi_app": 0, "courier_app": 0, "driver_docs": 0}
+    самое_старое = None
+    for вид, дела, поле_человека, поле_даты, _ru, _ba in _очереди(session, порог):
+        for дело in дела:
+            if getattr(дело, поле_человека, None) is None:
+                continue
+            когда = дело.updated_at if вид == "support" else (
+                getattr(дело, поле_даты, None) if поле_даты else None
+            )
+            if поле_даты and (когда is None or когда > порог):
+                continue
+            counts[вид] += 1
+            if когда is not None and (самое_старое is None or когда < самое_старое):
+                самое_старое = когда
+
+    имена = {
+        "support": "поддержка",
+        "taxi_app": "заявки в таксисты",
+        "courier_app": "заявки в курьеры",
+        "driver_docs": "документы водителей",
+    }
+    части = [f"{имена[вид]} {число}" for вид, число in counts.items() if число]
+    if not части:
+        return f"ждут ответа дольше {PROMISE_DAYS} дн.: 0"
+    хвост = ""
+    if самое_старое is not None:
+        хвост = f" (самое старое {max(0, (now - самое_старое).days)} дн.)"
+    return f"ждут ответа дольше {PROMISE_DAYS} дн.: " + ", ".join(части) + хвост
+
+
+def remind_waiting_people(session: Session, dry_run: bool = False) -> dict:
+    """Написать тем, кто ждёт нас дольше обещанного, и дать Александру сводку.
+
+    Возврат: сколько человек предупредили в каждой очереди (для лога и тестов).
+    """
+    now = utcnow()
+    порог = now - timedelta(days=PROMISE_DAYS)
+    итог = {"support": 0, "taxi_app": 0, "courier_app": 0, "driver_docs": 0}
+    самое_старое = None
+
+    for вид, дела, поле_человека, поле_даты, текст_ru, текст_ba in _очереди(session, порог):
         for дело in дела:
             user_id = getattr(дело, поле_человека, None)
             if user_id is None:
                 continue
-            когда = getattr(дело, поле_даты, None) if поле_даты else None
+            if вид == "support":
+                последнее = _последнее_сообщение(session, дело.id)
+                когда = дело.updated_at
+                цикл_с = последнее.created_at if последнее is not None else дело.created_at
+            else:
+                когда = getattr(дело, поле_даты, None) if поле_даты else None
+                цикл_с = None
             if поле_даты and (когда is None or когда > порог):
                 continue
             if когда is not None and (самое_старое is None or когда < самое_старое):
                 самое_старое = когда
-            if _уже_писали(session, user_id, вид, дело.id):
+            # У обычных заявок один жизненный цикл. У поддержки после ответа админа человек
+            # может задать новый вопрос в том же тикете: старое напоминание этот цикл не гасит.
+            if _уже_писали(session, user_id, вид, дело.id, цикл_с=цикл_с):
                 continue
             итог[вид] += 1
             if dry_run:

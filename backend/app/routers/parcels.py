@@ -1197,6 +1197,9 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
         # волна 222 донесла до рассылки одну проверку из восьми, остальные остались за бортом
         # (отдых, готовность к рейсу, живой заказ такси, документы, разбор жалобы) — волна 223.
         _guard_courier_can_take(session, user)
+    # Проверяем фото до назначения: отказ 403 не должен оставлять заказ принятым.
+    photo = ((body.pickup_photo_url if body else "") or "").strip()
+    guard_own_evidence([photo] if photo else None, user.id, already=parcel.pickup_photo_url or "")
     # Посылку ЗАБИРАЕМ атомарно: условие «она всё ещё свободна» живёт внутри UPDATE.
     #
     # Блокировка строки выше (`with_for_update`) закрывает гонку на PostgreSQL, но SQLite её
@@ -1223,10 +1226,6 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
         from .courier import settle_courier_pickup
         settle_courier_pickup(session, parcel, user.id, now)
     session.refresh(parcel)
-    photo = ((body.pickup_photo_url if body else "") or "").strip()
-    # Своё фото, а не чужое: приватный снимок с чужим именем курьер мог бы предъявить админу
-    # в споре как собственное доказательство (аудит 2026-08-08, волна 9).
-    guard_own_evidence([photo] if photo else None, user.id, already=parcel.pickup_photo_url or "")
     if photo and is_own_media_url(photo):
         parcel.pickup_photo_url = photo
     session.add(parcel)
@@ -1272,6 +1271,9 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
     if new_status == "in_transit":
         if parcel.status != "accepted":
             raise herr(409, "Сначала прими посылку", "Башта бандерольде ал")
+        pickup_photo = (body.pickup_photo_url or "").strip()
+        guard_own_evidence([pickup_photo] if pickup_photo else None, user.id,
+                           already=parcel.pickup_photo_url or "")
         # Курьер тронулся — закрываем ожидание У ОТПРАВИТЕЛЯ (статус ещё accepted, по нему
         # функция и понимает, на чьей стороне он стоял).
         _settle_waiting_if_courier(session, parcel)
@@ -1280,9 +1282,6 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
         # реально стоит у посылки. Чужой хост не принимаем (открытие такой ссылки у оппонента
         # слило бы его IP) — то же правило, что у фото вручения. Пустое/чужое молча игнорим,
         # снимок необязателен и не должен ломать сам переход в путь.
-        pickup_photo = (body.pickup_photo_url or "").strip()
-        guard_own_evidence([pickup_photo] if pickup_photo else None, user.id,
-                           already=parcel.pickup_photo_url or "")
         if pickup_photo and is_own_media_url(pickup_photo):
             parcel.pickup_photo_url = pickup_photo
     else:  # delivered — нужен верный код вручения
@@ -1307,6 +1306,9 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
         code = (body.code or "").strip().upper()
         if not code or code != (parcel.confirm_code or "").upper():
             raise herr(422, "Неверный код получения", "Ялған алыу коды")
+        delivery_photo = (body.delivery_photo_url or "").strip()
+        guard_own_evidence([delivery_photo] if delivery_photo else None, user.id,
+                           already=parcel.delivery_photo_url or "")
         # Вручил — закрываем ожидание У ПОЛУЧАТЕЛЯ (статус ещё in_transit).
         _settle_waiting_if_courier(session, parcel)
         parcel.status = "delivered"
@@ -1316,9 +1318,6 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
         # приходил с телефона, экран рисовал «Фото приложено ✓» — и сервер его молча выбрасывал.
         # В споре «привёз битой» доказательства не оказывалось, хотя курьер был уверен, что снял.
         # Чужой хост не принимаем: открытие такой ссылки оппонентом слило бы его IP.
-        delivery_photo = (body.delivery_photo_url or "").strip()
-        guard_own_evidence([delivery_photo] if delivery_photo else None, user.id,
-                           already=parcel.delivery_photo_url or "")
         if delivery_photo and is_own_media_url(delivery_photo):
             parcel.delivery_photo_url = delivery_photo
         # C4: комиссия платформы финализируется ЗДЕСЬ — теперь известен назначенный курьер и его

@@ -82,7 +82,7 @@ internal fun TaxiDriverCancelledScreen(
     finishShift: suspend () -> Result<Unit> = { ApiClient.setOnline(false) },
 ) {
     val scope = rememberCoroutineScope()
-    var shiftEnding by rememberSaveable(order.id) { mutableStateOf(false) }
+    var shiftEnding by remember(order.id) { mutableStateOf(false) }
     var showProblemChoice by rememberSaveable(order.id) { mutableStateOf(false) }
     var showReport by rememberSaveable(order.id) { mutableStateOf(false) }
     var showDispute by rememberSaveable(order.id) { mutableStateOf(false) }

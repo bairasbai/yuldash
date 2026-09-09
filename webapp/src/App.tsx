@@ -8,6 +8,7 @@ import RequireAdmin from "./components/RequireAdmin";
 import { LoadingList } from "./components/States";
 import { lazyScreen, clearChunkReloadFlag } from "./lazyScreen";
 import RidesScreen from "./screens/RidesScreen";
+const RideDetailScreen = lazyScreen(() => import("./screens/RideDetailScreen"));
 import SplashScreen from "./screens/SplashScreen";
 import IntroScreen from "./screens/IntroScreen";
 import OnboardingScreen from "./screens/OnboardingScreen";
@@ -171,6 +172,7 @@ export default function App() {
       {/* Приложение с нижней навигацией */}
       <Route element={<Shell />}>
         <Route path="/rides" element={<RidesScreen />} />
+        <Route path="/rides/:id" element={<RideDetailScreen />} />
         {/* Home-витрина (карта) — публична, гость тоже видит */}
         <Route path="/map" element={<HomeScreen />} />
         <Route path="/chat" element={<ChatInboxScreen />} />

@@ -37,6 +37,7 @@ from sqlmodel import Session
 from app import instant_service
 from app.db import engine
 from app.models import InstantOrder, UserRole
+from test_instant import fake_redis  # noqa: F401 — matcher needs driver presence
 
 ANDROID = (Path(__file__).resolve().parents[2] / "android" / "app" / "src" / "main" / "java"
            / "com" / "yuldash" / "app" / "data" / "ApiClient.kt")
@@ -102,14 +103,18 @@ def test_водитель_всё_же_понимает_куда_ехать(clien
     assert "₽" in текст, f"водитель не видит заработок: {текст!r}"
 
 
-def test_согласившийся_водитель_получает_точный_адрес(client, user_factory):
+def test_согласившийся_водитель_получает_точный_адрес(client, user_factory, fake_redis):
     """Иначе он не найдёт человека у подъезда — прятать надо ДО согласия, а не после."""
     пассажирка = user_factory("ТаксиГульнара3")
     водитель = user_factory("ТаксиВодитель3", role=UserRole.driver)
+    онлайн = client.post("/driver/online", headers=водитель["auth"], json={"online": True})
+    assert онлайн.status_code == 200, онлайн.text
+    позиция = client.post("/instant/presence", headers=водитель["auth"],
+                         json={"lat": 52.59, "lng": 58.31})
+    assert позиция.status_code == 200, позиция.text
     oid = _заказ(client, пассажирка)
     взял = client.post(f"/instant/orders/{oid}/accept", headers=водитель["auth"])
-    if взял.status_code != 200:
-        pytest.skip(f"заказ не удалось принять в этом окружении: {взял.status_code}")
+    assert взял.status_code == 200, взял.text
 
     карточка = client.get(f"/instant/orders/{oid}", headers=водитель["auth"])
 

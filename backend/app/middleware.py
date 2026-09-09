@@ -18,6 +18,23 @@ from .logs import log
 
 _WINDOW_SEC = 60  # окно счёта запросов (согласовано с *_per_min в config)
 
+# После сбоя не создаём Redis-клиент на каждом HTTP-запросе, но и не остаёмся навсегда
+# на локальном счётчике. Пять секунд достаточно, чтобы пережить короткий обрыв без шторма
+# переподключений; следующий запрос после паузы снова попробует общий бюджет.
+_REDIS_RETRY_SEC = 5
+
+# INCR и срок жизни обязаны быть одной операцией. Два отдельных await оставляли бессрочный
+# ключ, если ответ терялся между INCR и EXPIRE. ttl<0 чинит и уже существующие такие ключи.
+_REDIS_WINDOW_LUA = """
+local n = redis.call('INCR', KEYS[1])
+local ttl = redis.call('TTL', KEYS[1])
+if ttl < 0 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+    ttl = tonumber(ARGV[1])
+end
+return {n, ttl}
+"""
+
 # Префиксы, где лимит строже (перебор кодов, спам SOS, флуд админа в Telegram). Совпадение и с /api/v1.
 # /callback, /donate, /boost/create шлют уведомление админу → без строгого лимита их можно заспамить.
 # /waitlist — публичный без auth (ранний доступ, §11) → строгий бюджет против спама номеров.
@@ -117,19 +134,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._hits_estimate: dict[str, deque] = defaultdict(deque)
         self._hits_events: dict[str, deque] = defaultdict(deque)
         self._redis = None
-        self._redis_tried = False
+        self._redis_next_retry_at = 0.0
 
     def _get_redis(self):
-        if self._redis_tried:
+        if self._redis is not None:
             return self._redis
-        self._redis_tried = True
-        if settings.redis_url:
-            try:
-                import redis.asyncio as aioredis
-                self._redis = aioredis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
-            except Exception as e:  # noqa: BLE001
-                log.warning(f"[RATELIMIT] redis init failed, fallback in-memory: {e}")
-                self._redis = None
+        if not settings.redis_url or time.monotonic() < self._redis_next_retry_at:
+            return None
+        try:
+            import redis.asyncio as aioredis
+            self._redis = aioredis.from_url(
+                settings.redis_url, encoding="utf-8", decode_responses=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning(f"[RATELIMIT] redis init failed, fallback in-memory: {e}")
+            self._redis = None
+            self._redis_next_retry_at = time.monotonic() + _REDIS_RETRY_SEC
         return self._redis
 
     def _over_mem(self, store: dict[str, deque], key: str, limit: int, now: float) -> tuple[bool, int]:
@@ -145,13 +165,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return False, 0
 
     async def _over_redis(self, client, key: str, limit: int) -> tuple[bool, int]:
-        """Фиксированное окно 60с в Redis: INCR + EXPIRE на первом хите.
+        """Фиксированное окно 60с в Redis: атомарные INCR + проверка/установка TTL.
         Возвращает (превышен?, сек до сброса окна = TTL ключа)."""
-        n = await client.incr(key)
-        if n == 1:
-            await client.expire(key, _WINDOW_SEC)
+        result = await client.eval(_REDIS_WINDOW_LUA, 1, key, _WINDOW_SEC)
+        n, ttl = int(result[0]), int(result[1])
         if n > limit:
-            ttl = await client.ttl(key)
             return True, (ttl if ttl and ttl > 0 else _WINDOW_SEC)
         return False, 0
 
@@ -187,8 +205,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     over, retry_after = await self._over_redis(client, f"rl:g:{ip}", settings.rate_limit_per_min)
             except Exception as e:  # noqa: BLE001 — Redis недоступен → in-memory
                 log.warning(f"[RATELIMIT] redis error, fallback in-memory: {e}")
+                failed_client = client
                 self._redis = None
+                self._redis_next_retry_at = time.monotonic() + _REDIS_RETRY_SEC
                 client = None
+                # Не копим connection pools при долгом outage. Ошибка закрытия вторична:
+                # запрос уже безопасно продолжит работу на локальном лимите.
+                try:
+                    close = getattr(failed_client, "aclose", None)
+                    if close is not None:
+                        await close()
+                except Exception:  # noqa: BLE001
+                    pass
         if client is None:
             now = time.monotonic()
             if strict:

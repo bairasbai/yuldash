@@ -2405,8 +2405,8 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                         "Хәҙер ${feePct(wd.feePercent)} — башланғыс. Тағы $tn юлдан ${feePct(wd.feeNextPercent)} булыр. Барыбер агрегаторҙарҙан түбәнерәк.",
                     )
                 } else {
-                    appText("Максимальная ставка ${feePct(wd.feePercent)} — ниже, чем у агрегаторов (22–30%).",
-                        "Иң юғары ставка ${feePct(wd.feePercent)} — агрегаторҙарҙан (22–30%) түбәнерәк.")
+                    appText("Текущая ставка комиссии — ${feePct(wd.feePercent)}.",
+                        "Хәҙерге комиссия ставкаһы — ${feePct(wd.feePercent)}.")
                 }
                 Text(note, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
             }
@@ -2630,7 +2630,7 @@ private fun TaxiOnboardingCta(app: com.yuldash.app.data.TaxiApplicationDto?, onC
         "rejected" -> appText("Заявку таксиста отклонили", "Таксист заявкаһы кире ҡағылды") to
             appText("Открой — там комментарий и кнопка «Подать снова».", "Ас — унда комментарий һәм «Ҡабат биреү» төймәһе.")
         else -> appText("Стать таксистом Юлдаша", "Юлдаш таксисы булыу") to
-            appText("Комиссия 3–15% и заказы рядом. Пройди проверку — и выходи на линию.", "Комиссия 3–15% һәм яҡындағы заказдар. Тикшереү үт — һәм линияға сыҡ.")
+            appText("Заказы рядом. Пройди проверку — действующая ставка комиссии будет в кабинете.", "Яҡындағы заказдар. Тикшереү үт — ғәмәлдәге комиссия ставкаһы кабинетта күрһәтелер.")
     }
     val accent = if (app?.status == "rejected") CanonRed else CanonTaxi
     Surface(

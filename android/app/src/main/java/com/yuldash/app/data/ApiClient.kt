@@ -497,6 +497,12 @@ object ApiClient {
                 driverDocs = o.optInt("driver_docs"),
                 driverDocsRemovable = o.optBoolean("driver_docs_removable"),
                 locationStored = o.optBoolean("location_stored"),
+                liveLocationHistoryStored = o.optBoolean("live_location_history_stored", false),
+                routeLocationPoints = o.optInt("route_location_points", 0),
+                routeLocationPointsDays = o.optInt("route_location_points_days", 0),
+                sosLocationEvents = o.optInt("sos_location_events", 0),
+                openSosLocationEvents = o.optInt("open_sos_location_events", 0),
+                sosLocationDaysFromSignal = o.optInt("sos_location_days_from_signal", 0),
                 cardStored = o.optBoolean("card_stored"),
             )
         }
@@ -2645,7 +2651,7 @@ object ApiClient {
     /** Водитель согласился на крупную смену (межгород / тройная цена). */
     suspend fun acceptDestination(orderId: Int): Result<InstantOrderDto> =
         call("POST", "/instant/orders/$orderId/destination/accept", null, auth = true)
-            .map { it.toInstantOrderDto() }
+            .mapCatching { it.getJSONObject("order").toInstantOrderDto() }
 
     /** Водитель не может ехать дальше.
      *
@@ -7090,6 +7096,12 @@ data class MyDataDto(
     val driverDocsRemovable: Boolean,
     val locationStored: Boolean,
     val cardStored: Boolean,
+    val liveLocationHistoryStored: Boolean = false,
+    val routeLocationPoints: Int = 0,
+    val routeLocationPointsDays: Int = 0,
+    val sosLocationEvents: Int = 0,
+    val openSosLocationEvents: Int = 0,
+    val sosLocationDaysFromSignal: Int = 0,
 )
 
 data class RecentPlaceDto(

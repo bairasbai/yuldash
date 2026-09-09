@@ -5,7 +5,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import org.junit.Ignore
+import androidx.test.filters.SdkSuppress
 import org.junit.Rule
 import org.junit.Test
 
@@ -14,13 +14,13 @@ import org.junit.Test
  * Проверяет ядро продукта: двуязычие. `appText` рендерит нужный язык по `LocalAppLanguage`.
  * Запуск: gradlew :app:connectedDebugAndroidTest
  *
- * ⚠️ @Ignore: текущий эмулятор — Android 17 / API 37 (будущая версия). Espresso 3.6.1 (latest stable,
- * под капотом у createComposeRule для idle-sync) на ней падает: NoSuchMethodException
+ * На Android 17 / API 37 Espresso 3.6.1 (под капотом у createComposeRule для idle-sync)
+ * падает: NoSuchMethodException
  * InputManager.getInstance (метод удалён в новом API, AndroidX ещё не догнал). Логика/каркас верны —
- * снять @Ignore на эмуляторе с поддерживаемым API (≤36) или когда выйдет совместимый Espresso.
+ * На поддерживаемых API ≤36 тест выполняется; ограничение применяется только к новым API.
  * Тем временем ViewModel покрыт YuldashViewModelInstrumentedTest (без Espresso → зелёный на API 37).
  */
-@Ignore("Espresso 3.6.1 несовместим с эмулятором API 37 (InputManager.getInstance удалён). Снять на API ≤36.")
+@SdkSuppress(maxSdkVersion = 36)
 class BilingualComposeTest {
 
     @get:Rule

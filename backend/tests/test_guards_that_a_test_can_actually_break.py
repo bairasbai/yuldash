@@ -18,6 +18,11 @@
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
+from fastapi import HTTPException
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app import debt as debt_mod
@@ -25,11 +30,32 @@ from app import ledger
 from app.db import engine
 from app.models import (
     CommissionDebt, Coupon, CouponRedemption, DebtStatus, InstantOrder,
-    InstantOrderStatus as S, LedgerEntry, LedgerKind, UserRole,
+    InstantOrderStatus as S, LedgerEntry, LedgerKind, User, UserRole,
 )
 from app.timeutil import utcnow
 
 from test_coupons import _make_active_coupon, _register_active_partner
+
+
+def _postgres_race(preload, action):
+    """Independent requests can commit; synchronous nested calls cannot release locks."""
+    barrier = Barrier(2)
+
+    def worker():
+        with Session(engine) as session:
+            session.execute(text("SET LOCAL lock_timeout = '4s'"))
+            session.execute(text("SET LOCAL statement_timeout = '8s'"))
+            pid = session.execute(text("SELECT pg_backend_pid()")).scalar_one()
+            # Keep the objects alive so the losing request really has stale ORM state.
+            loaded = preload(session)
+            barrier.wait(timeout=10)
+            return pid, action(session, loaded)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(worker) for _ in range(2)]
+        results = [future.result(timeout=20) for future in futures]
+    assert len({pid for pid, _ in results}) == 2
+    return [result for _, result in results]
 
 
 # ==================== 1. Купон: два кассира с одним QR ====================
@@ -92,10 +118,25 @@ def test_coupon_redeem_is_atomic_even_with_a_stale_read(client, user_factory, mo
                 чужая.commit()
         return настоящий()
 
-    monkeypatch.setattr(coupons_mod, "utcnow", время_с_вклиниванием)
-    ответ = client.post("/coupons/redeem", headers=owner["auth"], json={"code": код})
+    if engine.dialect.name == "postgresql":
+        def preload(session):
+            red = session.exec(select(CouponRedemption).where(CouponRedemption.code == код)).one()
+            assert red.status == "reserved"
+            return red, session.get(User, owner["id"])
 
-    assert ответ.status_code == 409, f"второе погашение прошло: {ответ.status_code}"
+        def redeem(session, loaded):
+            try:
+                result = coupons_mod.coupon_redeem(coupons_mod.RedeemIn(code=код), loaded[1], session)
+                assert result["ok"] is True
+                return 200
+            except HTTPException as exc:
+                return exc.status_code
+
+        assert sorted(_postgres_race(preload, redeem)) == [200, 409]
+    else:
+        monkeypatch.setattr(coupons_mod, "utcnow", время_с_вклиниванием)
+        ответ = client.post("/coupons/redeem", headers=owner["auth"], json={"code": код})
+        assert ответ.status_code == 409, f"второе погашение прошло: {ответ.status_code}"
     with Session(engine) as s:
         assert s.get(Coupon, cid).redeemed_count == 1
 
@@ -162,9 +203,20 @@ def test_wallet_settlement_is_atomic_even_with_a_stale_read(client, user_factory
                 debt_mod.settle_debt_from_wallet(чужая, водитель["id"])
         return настоящий()
 
-    monkeypatch.setattr(debt_mod, "utcnow", время_с_вклиниванием)
-    with Session(engine) as s:
-        debt_mod.settle_debt_from_wallet(s, водитель["id"])
+    if engine.dialect.name == "postgresql":
+        def preload(session):
+            debt = session.exec(select(CommissionDebt).where(CommissionDebt.order_id == oid)).one()
+            assert debt.status == DebtStatus.unpaid
+            return debt
+
+        amounts = _postgres_race(
+            preload, lambda session, loaded: debt_mod.settle_debt_from_wallet(session, водитель["id"]),
+        )
+        assert sorted(amounts) == [0, 20_000]
+    else:
+        monkeypatch.setattr(debt_mod, "utcnow", время_с_вклиниванием)
+        with Session(engine) as s:
+            debt_mod.settle_debt_from_wallet(s, водитель["id"])
 
     with Session(engine) as s:
         баланс = ledger.driver_balance(s, водитель["id"])

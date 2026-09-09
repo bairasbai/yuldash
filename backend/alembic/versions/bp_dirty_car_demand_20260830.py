@@ -59,22 +59,30 @@ def upgrade() -> None:
         op.add_column(table, sa.Column(name, type_, nullable=True, server_default=default))
     # «Открытое требование по жалобе у этого человека» и «чем кончилась жалоба» — оба
     # запроса идут по этим колонкам, и без индексов это полный проход по всем контролям.
+    indexes = ({index["name"] for index in inspect(bind).get_indexes("carphotocheck")}
+               if _columns(bind, "carphotocheck") else None)
     for name, cols in (("ix_carphotocheck_kind", ["kind"]),
                        ("ix_carphotocheck_report_id", ["report_id"])):
-        try:
+        if indexes is not None and name not in indexes:
             op.create_index(name, "carphotocheck", cols)
-        except Exception:  # noqa: BLE001 — индекс мог остаться от прошлого прогона
-            pass
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    indexes = ({index["name"] for index in inspect(bind).get_indexes("carphotocheck")}
+               if _columns(bind, "carphotocheck") else set())
     for name in ("ix_carphotocheck_report_id", "ix_carphotocheck_kind"):
-        try:
+        if name in indexes:
             op.drop_index(name, table_name="carphotocheck")
-        except Exception:  # noqa: BLE001 — индекса может не быть, откат не должен падать
-            pass
     for table, name, _type, _default in reversed(_COLUMNS):
-        try:
-            op.drop_column(table, name)
-        except Exception:  # noqa: BLE001 — колонки может не быть, откат не должен падать
-            pass
+        if name in _columns(bind, table):
+            if bind.dialect.name == "sqlite":
+                convention = {"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"}
+                with op.batch_alter_table(table, naming_convention=convention) as batch:
+                    for fk in inspect(bind).get_foreign_keys(table):
+                        if name in fk["constrained_columns"]:
+                            fk_name = fk["name"] or f"fk_{table}_{name}_{fk['referred_table']}"
+                            batch.drop_constraint(fk_name, type_="foreignkey")
+                    batch.drop_column(name)
+            else:
+                op.drop_column(table, name)

@@ -16,8 +16,13 @@
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from threading import Barrier
 
+import pytest
+from sqlalchemy import text, update
+from sqlalchemy.sql import Update
 from sqlmodel import Session, select
 
 from app import debt as debt_mod
@@ -104,41 +109,96 @@ def test_settlement_takes_a_row_lock_before_reading_the_balance(client, user_fac
     )
 
 
-def test_parallel_settlement_does_not_charge_twice(client, user_factory, monkeypatch):
-    """Сценарий: пока один вызов читает баланс, второй успевает пройти целиком.
+@pytest.mark.skipif(
+    engine.dialect.name != "sqlite",
+    reason="детерминированная проверка SQLite conditional UPDATE; конкуренция проверяется отдельно",
+)
+def test_sqlite_stale_debt_update_does_not_charge_wallet(client, user_factory):
+    """SQLite: устаревшая выборка не должна создать второе списание.
 
-    Принудительное чередование вместо настоящих потоков — так проверка детерминированна
-    и не зависит от того, какую СУБД подставили тестам.
+    `FOR UPDATE` на SQLite не работает. Поэтому здесь отдельно и детерминированно
+    вклиниваем только прямой UPDATE второй сессии перед UPDATE проверяемой функции.
+    Второй settlement синхронно не запускаем: такой шаблон самоблокируется на PostgreSQL.
     """
     водитель, _ = _водитель_с_долгом(user_factory, "ГонкаСценарий", 30_000, 20_000)
-    настоящий = debt_mod.driver_balance
     сработало = {"раз": False}
-
-    def баланс_с_вклиниванием(session, driver_id):
-        значение = настоящий(session, driver_id)
-        if not сработало["раз"]:
-            сработало["раз"] = True
-            with Session(engine) as чужая:      # параллельный запрос успевает целиком
-                debt_mod.settle_debt_from_wallet(чужая, driver_id)
-        return значение
-
-    monkeypatch.setattr(debt_mod, "driver_balance", баланс_с_вклиниванием)
     with Session(engine) as s:
-        debt_mod.settle_debt_from_wallet(s, водитель["id"])
+        исходный = s.execute
+
+        def execute_с_устаревшей_строкой(statement, *args, **kwargs):
+            if isinstance(statement, Update) and not сработало["раз"]:
+                сработало["раз"] = True
+                with Session(engine) as другая:
+                    result = другая.execute(
+                        update(CommissionDebt)
+                        .where(
+                            CommissionDebt.driver_id == водитель["id"],
+                            CommissionDebt.status == DebtStatus.unpaid,
+                        )
+                        .values(status=DebtStatus.paid)
+                    )
+                    assert result.rowcount == 1
+                    другая.commit()
+            return исходный(statement, *args, **kwargs)
+
+        s.execute = execute_с_устаревшей_строкой
+        снято = debt_mod.settle_debt_from_wallet(s, водитель["id"])
 
     with Session(engine) as s:
         баланс = ledger.driver_balance(s, водитель["id"])
-        списаний = [e for e in s.exec(
+        списания = [e for e in s.exec(
             select(LedgerEntry).where(LedgerEntry.driver_id == водитель["id"],
                                       LedgerEntry.kind == LedgerKind.fee)
         ).all()]
 
-    assert баланс == 10_000, (
-        f"в кошельке {баланс / 100:g} ₽ вместо 100 ₽: долг 200 ₽ списали дважды с 300 ₽"
-    )
-    assert sum(-e.amount_kop for e in списаний) == 20_000, (
-        f"списаний на {sum(-e.amount_kop for e in списаний) / 100:g} ₽ при долге 200 ₽"
-    )
+    assert сработало["раз"], "conditional UPDATE не был достигнут — тест ничего не проверил"
+    assert снято == 0
+    assert баланс == 30_000
+    assert списания == []
+
+
+def test_parallel_settlement_does_not_charge_twice(client, user_factory):
+    """Два независимых settlement одновременно списывают один долг ровно один раз."""
+    водитель, oid = _водитель_с_долгом(user_factory, "ГонкаПотоки", 30_000, 20_000)
+    старт = Barrier(2)
+
+    def зачесть() -> int:
+        with Session(engine) as s:
+            if engine.dialect.name == "postgresql":
+                # Future ждёт 10с. Сервер обязан прервать ожидание замка раньше,
+                # иначе выход из ThreadPoolExecutor снова мог бы ждать поток без границы.
+                s.execute(text("SET LOCAL lock_timeout = '2s'"))
+                s.execute(text("SET LOCAL statement_timeout = '5s'"))
+            старт.wait(timeout=5)
+            return debt_mod.settle_debt_from_wallet(s, водитель["id"])
+
+    ошибки: list[BaseException] = []
+    результаты: list[int] = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        задачи = [pool.submit(зачесть) for _ in range(2)]
+        for задача in задачи:
+            try:
+                результаты.append(задача.result(timeout=10))
+            except BaseException as exc:  # исключение каждого потока обязано попасть в основной тест
+                ошибки.append(exc)
+
+    assert not ошибки, f"конкурентные settlement завершились с ошибками: {ошибки!r}"
+    assert sorted(результаты) == [0, 20_000]
+
+    with Session(engine) as s:
+        баланс = ledger.driver_balance(s, водитель["id"])
+        списания = s.exec(
+            select(LedgerEntry).where(
+                LedgerEntry.driver_id == водитель["id"],
+                LedgerEntry.kind == LedgerKind.fee,
+            )
+        ).all()
+        долг = s.exec(select(CommissionDebt).where(CommissionDebt.order_id == oid)).one()
+
+    assert баланс == 10_000
+    assert len(списания) == 1
+    assert списания[0].amount_kop == -20_000
+    assert долг.status == DebtStatus.paid
 
 
 def test_debt_is_closed_exactly_once(client, user_factory, monkeypatch):

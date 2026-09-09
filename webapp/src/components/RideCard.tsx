@@ -1,4 +1,5 @@
 import { useLang } from "../i18n/lang";
+import { Link } from "react-router-dom";
 import type { Ride } from "../api/rides";
 import { IconArrow, IconCheck } from "./Icons";
 import { serverDate } from "../utils/serverTime";
@@ -28,7 +29,7 @@ function formatWhen(iso: string, ru: boolean): string {
   return `${dayMonthShort(d, ru)} ${time}`;
 }
 
-export default function RideCard({ ride, index }: { ride: Ride; index: number }) {
+export default function RideCard({ ride, index, to }: { ride: Ride; index: number; to?: string }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
 
@@ -37,7 +38,7 @@ export default function RideCard({ ride, index }: { ride: Ride; index: number })
       ? `${ride.price.toLocaleString("ru-RU")} ₽`
       : appText("Бесплатно", "Түләүһеҙ");
 
-  return (
+  const card = (
     <article
       className="ride-card"
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
@@ -109,4 +110,5 @@ export default function RideCard({ ride, index }: { ride: Ride; index: number })
       </div>
     </article>
   );
+  return to ? <Link to={to} style={{ display: "block", color: "inherit", textDecoration: "none" }}>{card}</Link> : card;
 }

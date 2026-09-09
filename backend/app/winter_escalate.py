@@ -54,6 +54,29 @@ _CLOSED_ORDER = ("done", "cancelled", "expired")
 _CLOSED_PARCEL = ("delivered", "canceled", "returned")
 
 
+def _winter_note(kind: str, obj_id: int) -> str:
+    """Читаемое описание одной зимней проверки."""
+    return (f"Зимний протокол ({kind}#{obj_id}): нет ответа "
+            f"{ESCALATE_AFTER_MIN} мин после проверки «доехал?»")
+
+
+def _winter_identity_pattern(kind: str, obj_id: int) -> str:
+    """Точный префикс идентичности без изменяемого текста и порога ожидания."""
+    return f"Зимний протокол ({kind}#{obj_id}):%"
+
+
+def _watch_user_lock_statement(user_id: int):
+    """Сериализовать проверку и создание тревог одного человека на PostgreSQL.
+
+    Блокировать ещё не созданную строку ``SosEvent`` нельзя. Строка пользователя уже
+    существует (на неё у события обязательный FK), поэтому два параллельных вызова для
+    него проходят участок «проверить → создать» по очереди. SQLite игнорирует
+    ``FOR UPDATE``; там локальные тесты доказывают только точное совпадение и обычную
+    идемпотентность, а конкурентную гарантию даёт PostgreSQL.
+    """
+    return select(User).where(User.id == user_id).with_for_update()
+
+
 def _phones_by_share(session: Session, *, booking_id=None, order_id=None) -> list[str]:
     """Телефоны тех, кому человек РАСШАРИЛ эту поездку.
 
@@ -103,12 +126,22 @@ def escalate_now(
         # Придумывать за него, кому звонить, мы не вправе.
         return {"state": "no_share"}
 
+    # Два воркера могут одновременно не увидеть ещё отсутствующее событие и оба отправить
+    # SMS. Блокируем существующую строку человека ДО проверки: на PostgreSQL второй вызов
+    # дождётся commit первого и увидит созданную тревогу. Это также оставляет схему без
+    # новой миграции только ради служебного ключа.
+    who_row = session.exec(_watch_user_lock_statement(watch_user_id)).first()
+
     # Повторно не эскалируем: иначе каждый следующий заход шлёт SMS заново — это и флуд,
     # и расход, и лишняя паника у того, кто уже поехал проверять.
+    note = _winter_note(kind, obj_id)
     already = session.exec(select(SosEvent).where(
         SosEvent.user_id == watch_user_id,
         SosEvent.category == "other",
-        SosEvent.note.like(f"%{kind}#{obj_id}%"),
+        # Старый LIKE без закрывающего разделителя путал order#1 с order#10/order#100.
+        # Префикс до двоеточия — точная идентичность; хвост намеренно свободный, чтобы
+        # смена текста или порога 30→45 минут не отправила тревогу повторно.
+        SosEvent.note.like(_winter_identity_pattern(kind, obj_id)),
     ).limit(1)).first()
     if already:
         return {"state": "escalated", "already": True, "sos_event_id": already.id}
@@ -118,14 +151,12 @@ def escalate_now(
         booking_id=obj_id if kind == "booking" else None,
         order_id=obj_id if kind == "order" else None,
         category="other",
-        note=(f"Зимний протокол ({kind}#{obj_id}): нет ответа "
-              f"{ESCALATE_AFTER_MIN} мин после проверки «доехал?»"),
+        note=note,
     )
     session.add(event)
     session.commit()
     session.refresh(event)
 
-    who_row = session.get(User, watch_user_id)
     who = (who_row.name or who_row.phone) if who_row else "человек"
     sms_text = f"Юлдаш: {who} не отметил(а), что доехал(а). Позвони, проверь, всё ли хорошо."
     # Скольким SMS реально уйдёт: на проде канал молчит, и «уведомлено: 3» дежурному

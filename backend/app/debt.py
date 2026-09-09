@@ -666,7 +666,9 @@ def refund_commission_to_wallet(session: Session, driver_id: Optional[int], amou
         select(LedgerEntry).where(LedgerEntry.ext_id == ext, LedgerEntry.kind == LedgerKind.adj)
     ).first()
     if prev is not None:
-        return prev
+        # Возврат уже был. None сообщает вызывающему коду, что НОВОГО движения денег нет:
+        # иначе повторный разбор снова покажет/отправит уведомление «деньги возвращены».
+        return None
     entry = LedgerEntry(driver_id=driver_id, order_id=order_id, kind=LedgerKind.adj,
                         amount_kop=int(amount_kop), ext_id=ext, note=note)
     session.add(entry)
@@ -698,6 +700,13 @@ def void_debt_for_order(session: Session, order_id: int, note: str = ""):
     if debt is None:
         return None
     if debt.status == DebtStatus.paid:
+        # `paid` здесь означает две разные вещи: либо платформа действительно получила
+        # комиссию, либо долг уже списали без оплаты. После первого разбора второй вариант
+        # тоже становится `paid`; возвращать его сумму при повторном разборе нельзя — этих
+        # денег у платформы никогда не было. Причину различаем тем же договором по note,
+        # который использует fee_charged_kop выше.
+        if (debt.note or "").startswith(WRITTEN_OFF_PREFIX):
+            return None
         # Деньги платформа УЖЕ получила — снимать нечего, надо возвращать (волна 215).
         # Только `paid`: это статус «админ подтвердил, что перевод пришёл». `pending` —
         # ещё слово водителя, и админ может его отклонить; вернуть по слову значило бы
@@ -706,8 +715,19 @@ def void_debt_for_order(session: Session, order_id: int, note: str = ""):
             session, debt.driver_id, debt.amount_kop, order_id=order_id) else None
     debt.status = DebtStatus.paid
     debt.confirmed_at = utcnow()
-    if not debt.note:                      # свой note (напр. от админского «простить») не трогаем
-        debt.note = note or f"{WRITTEN_OFF_PREFIX}: снят по разбору"
+    if not note:
+        # Пустой аргумент — именно списание без оплаты. Даже если на долге уже была служебная
+        # пометка, причина `paid` обязана быть машиночитаемой: повторный разбор распознаёт её
+        # по WRITTEN_OFF_PREFIX. Старый полезный текст не теряем.
+        прежняя_пометка = (debt.note or "").strip()
+        if not прежняя_пометка.startswith(WRITTEN_OFF_PREFIX):
+            debt.note = (
+                f"{WRITTEN_OFF_PREFIX}: снят по разбору"
+                + (f"; прежняя пометка: {прежняя_пометка}" if прежняя_пометка else "")
+            )[:300]
+    elif not debt.note:
+        # Непустой note передаёт онлайн-оплата: комиссия реально удержана, это не списание.
+        debt.note = note
     session.add(debt)
     return "voided"
 
@@ -780,7 +800,7 @@ def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
     # На SQLite `FOR UPDATE` — пустышка, и сценарием это правило не закрепить (он сериализует
     # запись сам). Поэтому в тестах проверяется ДОГОВОР: замок взят и взят ДО чтения баланса
     # (`tests/test_wallet_is_not_charged_twice.py`).
-    session.exec(select(User).where(User.id == driver_id).with_for_update()).one_or_none()
+    session.exec(select(User).where(User.id == driver_id).with_for_update(key_share=True)).one_or_none()
     balance = driver_balance(session, driver_id)
     if balance <= 0:
         return 0

@@ -143,7 +143,7 @@ export default function RidesScreen() {
             <div>
               {visible.map((ride, i) => (
                 <div key={ride.id}>
-                  <RideCard ride={ride} index={i} />
+                  <RideCard ride={ride} index={i} to={`/rides/${ride.id}`} />
                   {/* Реклама после третьей карточки: видно, но не в лицо с первого экрана */}
                   {inlineAd && i === 2 && <PartnerAdCard ad={inlineAd} label={adLabel} />}
                 </div>

@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 
 from app import instant_service as isv
 from app import models as M
+from app import pricing
 from app.db import engine
 from app.models import InstantOrderStatus as S, UserRole
 from app.timeutil import utcnow
@@ -38,6 +39,15 @@ def _order(passenger_id: int, driver_id: int, status=S.onboard) -> int:
 def test_estimate_reports_pickup_eta_separately(client, user_factory, monkeypatch):
     """«Через сколько приедет» и «сколько ехать» — разные числа, и оба честные."""
     monkeypatch.setattr(isv, "nearby_drivers", lambda lat, lng, limit=8, **kw: [{"lat": lat, "lng": lng, "eta_min": 4}])
+    monkeypatch.setattr(
+        pricing,
+        "route_metrics",
+        lambda frm, to: pricing.RouteMetrics(
+            distance_km=7.5,
+            duration_min=13.7,
+            source="test",
+        ),
+    )
     u = user_factory("Юлаусы")
     r = client.post("/instant/estimate", headers=u["auth"], json={
         "from_lat": 52.59, "from_lng": 58.31, "to_lat": 52.70, "to_lng": 58.40,
@@ -45,7 +55,7 @@ def test_estimate_reports_pickup_eta_separately(client, user_factory, monkeypatc
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["pickup_eta_min"] == 4
-    assert body["eta_min"] != 4 or body["eta_min"] > 0     # длительность поездки — отдельно
+    assert body["eta_min"] == 13.7
 
 
 def test_estimate_pickup_eta_is_null_when_no_cars(client, user_factory, monkeypatch):

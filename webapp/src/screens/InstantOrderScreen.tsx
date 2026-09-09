@@ -500,18 +500,10 @@ function ComposeView({
 
       {/* Точки маршрута */}
       <div className="taxi-route">
-        <div className="taxi-route__row">
-          <span className="taxi-route__dot taxi-route__dot--a" aria-hidden />
-          <div className="taxi-route__text">
-            <span className="taxi-route__label">{appText("Откуда", "Ҡайҙан")}</span>
-            <span className="taxi-route__value">
-              {from ? from.text : appText("Определяем место…", "Урын билдәләнә…")}
-            </span>
-          </div>
-        </div>
         <PlacePicker
-          value={to}
-          onPick={setTo}
+          origin
+          value={from}
+          onPick={(p) => { setGeoNote(""); setFrom(p); }}
           onUseMyLocation={
             from
               ? undefined
@@ -532,8 +524,8 @@ function ComposeView({
                     () =>
                       setGeoNote(
                         appText(
-                          "Не видим твоё место. Разреши геолокацию в настройках браузера или укажи точку подачи на карте.",
-                          "Урыныңды күрмәйбеҙ. Браузер көйләүҙәрендә геолокацияға рөхсәт бир йәки килеү нөктәһен картала күрһәт."
+                          "Не видим твоё место. Введи адрес подачи в поле «Откуда».",
+                          "Урыныңды күрмәйбеҙ. «Ҡайҙан» яланына килеү адресын яҙ."
                         )
                       ),
                     { timeout: 8000, maximumAge: 60000 }
@@ -541,6 +533,7 @@ function ComposeView({
                 }
           }
         />
+        <PlacePicker value={to} onPick={setTo} />
       </div>
 
       {geoNote && (
@@ -996,10 +989,12 @@ function PlacePicker({
   value,
   onPick,
   onUseMyLocation,
+  origin = false,
 }: {
   value: Point | null;
   onPick: (p: Point | null) => void;
   onUseMyLocation?: () => void;
+  origin?: boolean;
 }) {
   const { appText } = useLang();
   const [q, setQ] = useState("");
@@ -1086,9 +1081,9 @@ function PlacePicker({
 
   return (
     <div className="taxi-route__row taxi-route__row--pick">
-      <span className="taxi-route__dot taxi-route__dot--b" aria-hidden />
+      <span className={"taxi-route__dot taxi-route__dot--" + (origin ? "a" : "b")} aria-hidden />
       <div className="taxi-route__text" style={{ width: "100%" }}>
-        <span className="taxi-route__label">{appText("Куда", "Ҡайҙа")}</span>
+        <span className="taxi-route__label">{origin ? appText("Откуда", "Ҡайҙан") : appText("Куда", "Ҡайҙа")}</span>
         {value ? (
           <button type="button" className="taxi-route__chosen" onClick={() => onPick(null)}>
             <span className="taxi-route__value">{value.text || appText("Точка на карте", "Картала нөктә")}</span>
@@ -1101,7 +1096,7 @@ function PlacePicker({
             onChange={(e) => setQ(e.target.value)}
             onFocus={() => setFocus(true)}
             placeholder={appText("Адрес или место", "Адрес йәки урын")}
-            aria-label={appText("Куда едем", "Ҡайҙа барабыҙ")}
+            aria-label={origin ? appText("Откуда едем", "Ҡайҙан барабыҙ") : appText("Куда едем", "Ҡайҙа барабыҙ")}
             autoComplete="off"
           />
         )}

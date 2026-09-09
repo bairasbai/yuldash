@@ -13,7 +13,7 @@
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -33,7 +33,7 @@ from .observability import init_sentry
 from .routers import all_routers
 from .routers.health import API_VERSION
 from .services import MEDIA_DIR, init_chat_redis, seed_demo, seed_pickup_points
-from .storage import StorageError, get_storage
+from .storage import StorageError, _is_private, get_storage
 
 API_V1_PREFIX = "/api/v1"
 
@@ -155,6 +155,14 @@ def create_app() -> FastAPI:
     if storage.is_remote:
         @app.get("/media/{path:path}", name="media")
         def media_redirect(path: str):
+            # В локальном режиме приватные области лежат вне MEDIA_DIR и потому через
+            # публичный /media всегда дают 404. S3 должен сохранять ту же границу доступа:
+            # иначе знание ключа обходило авторизацию маршрутов /secure/*.
+            try:
+                if _is_private(path):
+                    raise HTTPException(status_code=404)
+            except ValueError:
+                raise HTTPException(status_code=404) from None
             return RedirectResponse(storage.url(path))
     else:
         app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")

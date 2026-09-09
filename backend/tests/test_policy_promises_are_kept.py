@@ -24,6 +24,7 @@
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -89,23 +90,34 @@ def test_скрипт_бэкапа_запускается_в_обычном_shel
     # Разбор самим bash-ом — только там, где он действительно есть. На Windows вызов «bash»
     # из Python уводит в WSL, которого может не быть: получилась бы ложная тревога.
     # В CI (Ubuntu) проверка отрабатывает по-настоящему.
-    _нужен_bash()
-    проверка = subprocess.run(["bash", "-n", str(BACKUP)], capture_output=True, text=True)
+    bash = _нужен_bash()
+    проверка = subprocess.run([bash, "-n", str(BACKUP)], capture_output=True, text=True, timeout=10)
     assert проверка.returncode == 0, f"скрипт бэкапа не разбирается: {проверка.stderr[:200]}"
 
 
-def _нужен_bash() -> None:
+def _нужен_bash() -> str:
     """Пропускаем шаги, требующие настоящего shell, если его в системе нет."""
-    if not shutil.which("bash"):
-        pytest.skip("bash недоступен — эти шаги проверяются в CI на Ubuntu")
-    проба = subprocess.run(["bash", "-c", "echo ok"], capture_output=True, text=True)
-    if проба.returncode != 0 or "ok" not in проба.stdout:
-        pytest.skip("bash не запускается из Python (на Windows это уводит в WSL) — проверка в CI")
+    candidates = [shutil.which("bash")]
+    if os.name == "nt":
+        # Windows может выбрать launcher WSL вместо установленного Git Bash.
+        git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+        if git_bash.is_file():
+            candidates.insert(0, str(git_bash))
+    for bash in candidates:
+        if not bash:
+            continue
+        try:
+            проба = subprocess.run([bash, "-c", "echo ok"], capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if проба.returncode == 0 and "ok" in проба.stdout:
+            return bash
+    pytest.skip("работающий bash недоступен — проверка в CI на Ubuntu")
 
 
 def test_логика_возраста_отбирает_правильные_файлы():
     """Проверка не по глазам, а прогоном: старые уходят, свежие и чужие остаются."""
-    _нужен_bash()
+    bash = _нужен_bash()
     сценарий = r'''
 DB_NAME=yuldash
 CUTOFF_DAY=20260802
@@ -119,7 +131,7 @@ for key in yuldash-20260710-0300.sql.gz.enc yuldash-20260801-0300.sql.gz.enc \
   if [ -n "$day" ] && [ "$day" -lt "$CUTOFF_DAY" ] 2>/dev/null; then echo "del $key"; else echo "keep $key"; fi
 done
 '''
-    вывод = subprocess.run(["bash", "-c", сценарий], capture_output=True, text=True).stdout
+    вывод = subprocess.run([bash, "-c", сценарий], capture_output=True, text=True, timeout=10).stdout
 
     assert "del yuldash-20260710-0300.sql.gz.enc" in вывод, вывод
     assert "del yuldash-20260801-0300.sql.gz.enc" in вывод, вывод

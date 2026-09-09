@@ -77,12 +77,13 @@ def test_о_снятии_паузы_тоже_говорят(client, user_factory
     rinat = _make_driver(client, user_factory, "СнятиеРинат")
     assert client.post(f"/admin/quality/{rinat['id']}/pause", headers=admin["auth"],
                        json={"hours": 24}).status_code == 200
-    before = len(_notes(rinat["id"]))
+    before_ids = {n.id for n in _notes(rinat["id"])}
 
     r = client.post(f"/admin/quality/{rinat['id']}/unpause", headers=admin["auth"])
     assert r.status_code == 200, r.text
 
-    texts = [f"{n.title_ru} {n.body_ru}" for n in _notes(rinat["id"])][before:]
+    # SELECT без ORDER BY не обещает порядок: новое уведомление может прийти первым.
+    texts = [f"{n.title_ru} {n.body_ru}" for n in _notes(rinat["id"]) if n.id not in before_ids]
     assert texts, "паузу сняли, а человек об этом не узнал"
     assert any("снят" in t.lower() or "доступн" in t.lower() for t in texts), texts
 

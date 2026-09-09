@@ -60,29 +60,43 @@ function loadYmaps(): Promise<any> {
 
   ymapsPromise = new Promise((resolve, reject) => {
     const existing = document.getElementById("ymaps-script") as HTMLScriptElement | null;
+    const s = existing ?? document.createElement("script");
+    let settled = false;
+    const timer = window.setTimeout(() => fail(), 15000);
+    const fail = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      s.remove();
+      reject(new Error("ymaps-load"));
+    };
     const onReady = () => {
-      if (w.ymaps?.ready) w.ymaps.ready(() => resolve(w.ymaps));
-      else reject(new Error("ymaps-missing"));
+      if (w.ymaps?.ready) w.ymaps.ready(() => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        resolve(w.ymaps);
+      });
+      else fail();
     };
     if (existing) {
       existing.addEventListener("load", onReady);
-      existing.addEventListener("error", () => reject(new Error("ymaps-load")));
+      existing.addEventListener("error", fail);
       // Скрипт мог уже загрузиться до навешивания слушателя.
       if (w.ymaps) onReady();
       return;
     }
-    const s = document.createElement("script");
     s.id = "ymaps-script";
     s.async = true;
     s.src = `https://api-maps.yandex.ru/2.1/?apikey=${encodeURIComponent(
       YMAPS_KEY
     )}&lang=ru_RU`;
     s.onload = onReady;
-    s.onerror = () => {
-      ymapsPromise = null; // дать шанс повторить
-      reject(new Error("ymaps-load"));
-    };
+    s.onerror = fail;
     document.head.appendChild(s);
+  }).catch((error) => {
+    ymapsPromise = null;
+    throw error;
   });
   return ymapsPromise;
 }
@@ -103,6 +117,7 @@ export default function YandexMap({
   const { appText } = useLang();
   const boxRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
+  const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<"idle" | "ready" | "nokey" | "error">(
     YANDEX_MAPS_ENABLED ? "idle" : "nokey"
   );
@@ -110,6 +125,7 @@ export default function YandexMap({
   // Инициализация карты один раз.
   useEffect(() => {
     if (!YANDEX_MAPS_ENABLED) return;
+    setStatus("idle");
     let cancelled = false;
     loadYmaps()
       .then((ymaps) => {
@@ -142,7 +158,7 @@ export default function YandexMap({
     };
     // Инициализация одноразовая; данные обновляем в отдельном эффекте.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [attempt]);
 
   // Перерисовка объектов (маршрут, точки, маркеры) при смене данных.
   useEffect(() => {
@@ -215,7 +231,7 @@ export default function YandexMap({
     } else if (bounds.length === 1) {
       map.setCenter(bounds[0], Math.max(zoom, 13));
     }
-  }, [from, to, route, me, markers, zoom]);
+  }, [status, from, to, route, me, markers, zoom]);
 
   const heightStyle = typeof height === "number" ? `${height}px` : height;
 
@@ -238,6 +254,11 @@ export default function YandexMap({
                 "Маршрут һәм нөктәләр карта асҡысы ҡушылғас күренәсәк."
               ) /* DRAFT */}
         </div>
+        {status === "error" && (
+          <button type="button" className="btn-soft" onClick={() => { setStatus("idle"); setAttempt((n) => n + 1); }}>
+            {appText("Повторить", "Ҡабатлау")}
+          </button>
+        )}
       </div>
     );
   }

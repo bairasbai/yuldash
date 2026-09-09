@@ -68,6 +68,8 @@ def build_digest(session: Session, day: date) -> str:
             CommissionDebt.created_at >= start, CommissionDebt.created_at < end)
     ).one() or 0)
     reports = _count(session, Report, Report.created_at, start, end)
+    from .waiting_on_us import waiting_digest_line
+    waiting = waiting_digest_line(session)
     return (
         f"📊 Юлдаш за {day.strftime('%d.%m.%Y')}:\n"
         f"поездок попутки {rides} (брони {bookings}),\n"
@@ -75,7 +77,8 @@ def build_digest(session: Session, day: date) -> str:
         f"новых пользователей {new_users},\n"
         f"водителей на линии {drivers_online},\n"
         f"выручка-комиссия ~{fee_kop // 100} ₽,\n"
-        f"жалоб новых {reports}"
+        f"жалоб новых {reports},\n"
+        f"{waiting}"
     )
 
 

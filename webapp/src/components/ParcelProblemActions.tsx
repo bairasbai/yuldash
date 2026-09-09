@@ -12,6 +12,8 @@
 //     объясняется, решение приходит с причиной.
 // ================================================================
 import { useState } from "react";
+import { Link } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
@@ -24,6 +26,7 @@ import {
   type ParcelDisputeType,
 } from "../api/parcels";
 import { IconArrow, IconFlag, IconWarn } from "./Icons";
+import { canOpenParcelDispute } from "../utils/parcelDispute.js";
 
 type Sheet = "none" | "failed" | "return" | "dispute" | "release";
 
@@ -46,18 +49,22 @@ export default function ParcelProblemActions({
   onChanged: (p?: Parcel) => void;
 }) {
   const { appText } = useLang();
+  const { user } = useAuth();
   const [sheet, setSheet] = useState<Sheet>("none");
   const [reason, setReason] = useState("");
   const [dtype, setDtype] = useState<ParcelDisputeType>("parcel_damage");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [incidentHref, setIncidentHref] = useState("");
 
   const returning = String(parcel.status) === "returning";
   const closed = ["delivered", "canceled", "returned"].includes(String(parcel.status));
   /** Коробка уже забрана. Дальше «не смогу везти» — это не отказ, а «уехал с чужой вещью». */
   const carrying = String(parcel.status) === "in_transit";
 
-  async function run(action: () => Promise<unknown>, okText?: string) {
+  const canDispute = canOpenParcelDispute(parcel, user?.id);
+
+  async function run(action: () => Promise<unknown>, okText?: string, notifyChanged = true) {
     if (busy) return;
     setBusy(true);
     setNote("");
@@ -66,7 +73,7 @@ export default function ParcelProblemActions({
       setSheet("none");
       setReason("");
       if (okText) setNote(okText);
-      onChanged((res as Parcel)?.id ? (res as Parcel) : undefined);
+      if (notifyChanged) onChanged((res as Parcel)?.id ? (res as Parcel) : undefined);
     } catch (e) {
       setNote(
         e instanceof ApiError && e.message
@@ -120,7 +127,7 @@ export default function ParcelProblemActions({
       )}
 
       {/* Обе стороны: спор */}
-      {!closed || role === "sender" ? (
+      {canDispute && (!closed || role === "sender") ? (
         sheet === "none" && (
           <button
             type="button"
@@ -329,8 +336,14 @@ export default function ParcelProblemActions({
               className="btn-primary"
               onClick={() =>
                 run(
-                  () => parcelDispute(parcel.id, { reason: reason.trim(), type: dtype }),
-                  appText("Спор открыт — смотри в «Справедливости»", "Бәхәс асылды — «Ғәҙеллек»тә ҡара")
+                  async () => {
+                    const created = await parcelDispute(parcel.id, { reason: reason.trim(), type: dtype });
+                    const incidentId = created.id ?? created.incident_id;
+                    setIncidentHref(incidentId ? `/incidents/${incidentId}` : "/fairness");
+                    return created;
+                  },
+                  appText("Спор открыт — смотри в «Справедливости»", "Бәхәс асылды — «Ғәҙеллек»тә ҡара"),
+                  false
                 )
               }
               disabled={busy || !reason.trim()}
@@ -345,6 +358,11 @@ export default function ParcelProblemActions({
       )}
 
       {note && <p className="demand__quiet">{note}</p>}
+      {incidentHref && (
+        <Link className="link-btn" to={incidentHref}>
+          <IconFlag size={14} /> {appText("Открыть разбор", "Бәхәсте асыу")}
+        </Link>
+      )}
     </>
   );
 }

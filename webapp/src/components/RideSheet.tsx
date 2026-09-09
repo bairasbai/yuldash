@@ -3,7 +3,7 @@
 //  Открывается тапом по поездке на витрине (Home). Гость → на вход.
 //  Бронь: POST /bookings → переход на активную поездку /trip/{id}.
 // ================================================================
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
@@ -27,7 +27,14 @@ export default function RideSheet({
   const navigate = useNavigate();
   const { isAuthed } = useAuth();
   const [busy, setBusy] = useState(false);
+  const bookingInFlight = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    return () => previous?.focus();
+  }, []);
 
   // Открыли карточку поездки — заинтересовался конкретной поездкой.
   useEffect(() => {
@@ -46,8 +53,9 @@ export default function RideSheet({
   const [guardPhone, setGuardPhone] = useState("");
 
   async function book() {
+    if (bookingInFlight.current) return;
     if (!isAuthed) {
-      navigate("/login", { state: { from: "/map" } });
+      navigate("/login", { state: { from: `/rides/${ride.id}` } });
       return;
     }
     if (minor && (!guardName.trim() || !guardPhone.trim())) {
@@ -59,6 +67,7 @@ export default function RideSheet({
       );
       return;
     }
+    bookingInFlight.current = true;
     setBusy(true);
     setError(null);
     track("booking_start");
@@ -80,19 +89,34 @@ export default function RideSheet({
           : appText("Не получилось забронировать. Попробуй снова.", "Бронларға булманы. Ҡабат ҡара."); // DRAFT
       setError(msg);
     } finally {
+      bookingInFlight.current = false;
       setBusy(false);
     }
   }
 
   return (
-    <div className="sheet-backdrop" onClick={onClose} role="presentation">
+    <div className="sheet-backdrop" onClick={() => { if (!bookingInFlight.current) onClose(); }} role="presentation">
       <div
+        ref={dialogRef}
         className="sheet"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        aria-label={appText("Поездка", "Сәфәр")}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && !bookingInFlight.current) onClose();
+          if (event.key !== "Tab") return;
+          const controls = dialogRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), a[href]");
+          if (!controls?.length) return;
+          const first = controls[0], last = controls[controls.length - 1];
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        }}
       >
         <div className="sheet__grip" aria-hidden />
+        <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
+          {appText("Закрыть", "Ябырға")}
+        </button>
         <div className="ride-card__route" style={{ fontSize: "var(--font-heading)" }}>
           <span>{ride.from_city}</span>
           <span className="ride-card__arrow">

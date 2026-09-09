@@ -61,6 +61,7 @@ internal fun TaxiDriverOnboardNavigator(
     onSafety: () -> Unit,
     onOpenExternalNavigator: () -> Unit,
     onFinish: () -> Unit,
+    tripControls: @Composable () -> Unit = {},
     mapContent: (@Composable (Modifier) -> Unit)? = null,
 ) {
     var stop by remember(order.id) { mutableStateOf(TaxiSheetStop.Half) }
@@ -92,6 +93,10 @@ internal fun TaxiDriverOnboardNavigator(
         halfBodyFraction = 0.42f,
         header = { DriverNavigatorHeader(order) },
         body = {
+            // Изменения маршрута, способа расчёта и стоянка требуют решения водителя.
+            // Держим слот первым в прокручиваемой части: срочное действие не теряется
+            // за обычными сведениями о пассажире и остаётся доступно в полной шторке.
+            tripControls()
             DriverNavigatorPassengerCard(
                 order = order,
                 onChat = onChat,

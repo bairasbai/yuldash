@@ -1474,6 +1474,9 @@ internal fun InstantOrderScreen(
     // выбор живёт выше и переживает уход с экрана — платят изо дня в день одинаково.
     payMethod: String = PayMethods.CASH,
     onOpenPayments: () -> Unit = {},
+    // JVM-тесты не могут загрузить нативную библиотеку Yandex MapKit. false заменяет только
+    // карту фоном; форма, её onClick и реальные вызовы ApiClient остаются теми же.
+    renderNativeMap: Boolean = true,
 ) {
     val scope = rememberCoroutineScope()
     val loggedIn = ApiClient.isLoggedIn()
@@ -1729,6 +1732,7 @@ internal fun InstantOrderScreen(
                         embedded = embedded,
                         payMethod = payMethod,
                         onOpenPayments = onOpenPayments,
+                        renderNativeMap = renderNativeMap,
                         onScheduled = { scheduled ->
                             scheduledConfirmId = scheduled.id
                             scheduledConfirmAt = scheduled.scheduledAt
@@ -2094,6 +2098,7 @@ private fun InstantDestinationPicker(
     embedded: Boolean = false,
     payMethod: String = PayMethods.CASH,
     onOpenPayments: () -> Unit = {},
+    renderNativeMap: Boolean = true,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -2219,15 +2224,24 @@ private fun InstantDestinationPicker(
         searchingAddr = false
     }
 
+    // Ответ разрешает заказ только для тех параметров, для которых он рассчитан.
+    // Сравнение в композиции закрывает и окно до старта LaunchedEffect/дебаунса.
+    val estimateInputs = listOf(
+        effFrom?.latitude, effFrom?.longitude, toPoint?.latitude, toPoint?.longitude,
+        category, estimateTick, roundTrip, returnWaitMin, stops, scheduledAtMs,
+    )
+    var acceptedEstimateInputs by remember { mutableStateOf<List<Any?>?>(null) }
+    val estimateCurrent = estimate != null && acceptedEstimateInputs == estimateInputs
     // Оценка цены, когда есть обе точки (и при смене класса — тариф другой).
-    LaunchedEffect(effFrom, toPoint, category, estimateTick, roundTrip, returnWaitMin, stops) {
+    LaunchedEffect(estimateInputs) {
         val f = effFrom; val t = toPoint
         if (f == null || t == null) { estimate = null; return@LaunchedEffect }
-        delay(350)   // дебаунс: позиция уточняется GPS-фиксами — не дёргаем /estimate на каждый
         estimating = true; errorText = null
+        delay(350)   // дебаунс: позиция уточняется GPS-фиксами — не дёргаем /estimate на каждый
         ApiClient.instantEstimate(f.latitude, f.longitude, t.latitude, t.longitude, fromText, toText, category,
-            roundTrip = roundTrip, returnWaitMin = returnWaitMin, stops = stops)
-            .onSuccess { estimate = it }
+            roundTrip = roundTrip, returnWaitMin = returnWaitMin, stops = stops,
+            scheduledAtIso = scheduledAtMs?.let(::isoFromMillis))
+            .onSuccess { estimate = it; acceptedEstimateInputs = estimateInputs }
             .onFailure {
                 estimate = null   // сбрасываем устаревшую цену → кнопка «Вызвать» гаснет, не заказываем по старой оценке
                 errorText = (it as? ApiException)?.message ?: estimateFailMsg
@@ -2295,15 +2309,19 @@ private fun InstantDestinationPicker(
             // Карта с РЕАЛЬНЫМИ машинами рядом (честно, без выдуманной цены): видно, что
             // помощь близко. Машинки — из presence, ≈ETA до подачи.
             Box(m) {
-                InstantRouteMap(
-                    from = effFrom,
-                    to = toPoint,
-                    nearbyDrivers = nearbyDrivers,
-                    userLocationFix = myLocationFix.takeUnless { fromManual },
-                    fromIsLiveLocation = !fromManual,
-                    recenterTick = mapRecenterTick,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                if (renderNativeMap) {
+                    InstantRouteMap(
+                        from = effFrom,
+                        to = toPoint,
+                        nearbyDrivers = nearbyDrivers,
+                        userLocationFix = myLocationFix.takeUnless { fromManual },
+                        fromIsLiveLocation = !fromManual,
+                        recenterTick = mapRecenterTick,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Box(Modifier.fillMaxSize().background(CanonBg))
+                }
                 InstantNearbyBadge(
                     count = nearbyDrivers.size,
                     loaded = nearbyLoaded,
@@ -2526,7 +2544,7 @@ private fun InstantDestinationPicker(
                 // open=false: показываем «скоро» вместо кнопки, за которой пусто. Ткнуть в пустоту и
                 // не дождаться — верный способ потерять человека навсегда.
                 if (toPoint != null) {
-                    val opts = estimate?.options.orEmpty().associateBy { it.category }
+                    val opts = estimate?.takeIf { estimateCurrent }?.options.orEmpty().associateBy { it.category }
                     LazyRow(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
@@ -2607,7 +2625,7 @@ private fun InstantDestinationPicker(
                         // на каждом пересчёте схлопывалась и раздувалась, и кнопка «Вызвать» прыгала
                         // под пальцем. Скелетон вместо спиннера держит форму будущего числа.
                         val estPhase = when {
-                            estimating -> "calc"
+                            estimating || (estimate != null && !estimateCurrent) -> "calc"
                             errorText != null -> "err"
                             estimate != null -> "ok"
                             else -> "none"
@@ -2939,6 +2957,7 @@ private fun InstantDestinationPicker(
                     }
                     Button(
                         onClick = {
+                            if (!estimateCurrent || creating) return@Button
                             val f = effFrom ?: return@Button
                             val t = toPoint ?: return@Button
                             creating = true; errorText = null
@@ -2947,7 +2966,18 @@ private fun InstantDestinationPicker(
                             scope.launch {
                                 if (scheduled) {
                                     val iso = isoFromMillis(scheduledAtMs!!)
-                                    ApiClient.scheduleInstantOrder(f.latitude, f.longitude, t.latitude, t.longitude, iso, fText, tText, category)
+                                    ApiClient.scheduleInstantOrder(
+                                        f.latitude, f.longitude, t.latitude, t.longitude, iso, fText, tText, category,
+                                        comment = comment, entrance = entrance,
+                                        forName = if (forOther) forName else "",
+                                        forPhone = if (forOther) forPhone else "",
+                                        womenOnly = womenOnly,
+                                        options = orderOptions.toList(),
+                                        roundTrip = roundTrip,
+                                        returnWaitMin = if (roundTrip) returnWaitMin else 0,
+                                        stops = stops,
+                                        paymentMethod = payMethod,
+                                    )
                                         .onSuccess {
                                             ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
                                             onScheduled(it)
@@ -2977,7 +3007,7 @@ private fun InstantDestinationPicker(
                                 creating = false
                             }
                         },
-                        enabled = effFrom != null && toPoint != null && estimate != null && !creating,
+                        enabled = effFrom != null && toPoint != null && estimateCurrent && !creating,
                         // heightIn: на крупном системном шрифте фиксированные 54dp срезали надпись с ценой.
                         modifier = Modifier.weight(1f).heightIn(min = 54.dp),
                         shape = InstantControlShape,
@@ -6564,6 +6594,35 @@ internal fun InstantDriverTripScreen(
         trackSocket.value?.sendLoc(p.latitude, p.longitude, bearing)
     }
 
+    // Одни и те же действия нужны до посадки и в новом onboard-навигаторе.
+    // API-вызовы определены один раз, чтобы ветки экрана не расходились снова.
+    val acknowledgeDestination: (InstantOrderDto) -> Unit = { ord ->
+        scope.launch {
+            ApiClient.ackDestination(ord.id)
+            openNavigator(ctx, ord.toLat, ord.toLng)
+        }
+    }
+    val acceptDestination: (InstantOrderDto) -> Unit = { ord ->
+        scope.launch {
+            ApiClient.acceptDestination(ord.id)
+                .onSuccess { accepted ->
+                    order = accepted
+                    actionError = null
+                    openNavigator(ctx, accepted.toLat, accepted.toLng)
+                }
+                .onFailure { actionError = (it as? ApiException)?.message ?: actionFailMsg }
+        }
+    }
+    val declineDestination: (InstantOrderDto, String) -> Unit = { ord, reason ->
+        scope.launch { ApiClient.declineDestination(ord.id, reason) }
+    }
+    val acknowledgePayment: (InstantOrderDto) -> Unit = { ord ->
+        scope.launch { ApiClient.ackPaymentMethod(ord.id) }
+    }
+    val toggleStop: (InstantOrderDto) -> Unit = { ord ->
+        scope.launch { ApiClient.toggleStop(ord.id) }
+    }
+
     Scaffold(
         containerColor = CanonBg,
         topBar = {
@@ -6623,6 +6682,16 @@ internal fun InstantDriverTripScreen(
                             }
                         }
                     },
+                    tripControls = {
+                        DriverMutableTripControls(
+                            order = current,
+                            onDestinationAck = { acknowledgeDestination(current) },
+                            onDestinationAccept = { acceptDestination(current) },
+                            onDestinationDecline = { reason -> declineDestination(current, reason) },
+                            onPaymentAck = { acknowledgePayment(current) },
+                            onStopToggle = { toggleStop(current) },
+                        )
+                    },
                     mapContent = mapContent,
                 )
                 else -> {
@@ -6656,64 +6725,13 @@ internal fun InstantDriverTripScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             TaxiTripProgress(status = current.status)
-                            // Смена адреса. Стоит ПЕРВОЙ и до всего остального: если пассажир
-                            // поменял точку Б, это самое важное на экране — водитель ведёт
-                            // маршрут во внешнем навигаторе, и тот сам о смене не узнает.
-                            // Локальная копия:  — изменяемая переменная, и внутри
-                            // лямбд компилятор за её содержимое не ручается.
-                            val ord = current
-                            DriverDestinationCard(
-                                order = ord,
-                                onAck = {
-                                    scope.launch {
-                                        ApiClient.ackDestination(ord.id)   // экран сам переспросит сервер через пару секунд
-                                        // Сразу открываем навигатор с новым адресом: водитель за рулём,
-                                        // и лишний тап — это лишний взгляд в телефон вместо дороги.
-                                        openNavigator(ctx, ord.toLat, ord.toLng)
-                                    }
-                                },
-                                onAccept = {
-                                    scope.launch {
-                                        ApiClient.acceptDestination(ord.id)
-                                        openNavigator(ctx, ord.toLat, ord.toLng)
-                                    }
-                                },
-                                onDecline = { reason ->
-                                    scope.launch {
-                                        ApiClient.declineDestination(ord.id, reason)
-                                    }
-                                },
-                            )
-                            // Чем рассчитаются. Ниже смены адреса, но выше остального:
-                            // адрес важнее (по нему едут), деньги — сразу за ним.
-                            DriverPayMethodCard(
-                                order = ord,
-                                onAck = { scope.launch { ApiClient.ackPaymentMethod(ord.id) } },
-                            )
-                            // Остановки: куда заезжать по пути и отметка стоянки.
-                            if (ord.stops.isNotEmpty()) {
-                                Surface(color = CanonMint, shape = CanonItemShape) {
-                                    Column(Modifier.fillMaxWidth().padding(CanonSpace.md),
-                                           verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
-                                        Text(appText("Остановки по пути", "Юлдағы туҡталыштар"),
-                                             style = CanonCaption, color = CanonMuted)
-                                        ord.stops.forEach { st ->
-                                            Row(verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
-                                                Icon(Icons.Default.Place, contentDescription = null,
-                                                     tint = if (st.done) CanonMuted else CanonGreen2,
-                                                     modifier = Modifier.size(18.dp))
-                                                Text(st.text, style = CanonBody,
-                                                     color = if (st.done) CanonMuted else CanonText,
-                                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            DriverStopButton(
-                                order = ord,
-                                onToggle = { scope.launch { ApiClient.toggleStop(ord.id) } },
+                            DriverMutableTripControls(
+                                order = current,
+                                onDestinationAck = { acknowledgeDestination(current) },
+                                onDestinationAccept = { acceptDestination(current) },
+                                onDestinationDecline = { reason -> declineDestination(current, reason) },
+                                onPaymentAck = { acknowledgePayment(current) },
+                                onStopToggle = { toggleStop(current) },
                             )
                             // Пассажир + телефон (после accept)
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -7427,6 +7445,63 @@ internal fun PickStopSheet(
             }
         }
     }
+}
+
+/**
+ * Изменяемая часть активной поездки водителя. Один блок используют и обычная карточка
+ * до посадки, и полноэкранный навигатор после посадки.
+ */
+@Composable
+private fun DriverMutableTripControls(
+    order: InstantOrderDto,
+    onDestinationAck: () -> Unit,
+    onDestinationAccept: () -> Unit,
+    onDestinationDecline: (String) -> Unit,
+    onPaymentAck: () -> Unit,
+    onStopToggle: () -> Unit,
+) {
+    DriverDestinationCard(
+        order = order,
+        onAck = onDestinationAck,
+        onAccept = onDestinationAccept,
+        onDecline = onDestinationDecline,
+    )
+    DriverPayMethodCard(order = order, onAck = onPaymentAck)
+    if (order.stops.isNotEmpty()) {
+        Surface(color = CanonMint, shape = CanonItemShape) {
+            Column(
+                Modifier.fillMaxWidth().padding(CanonSpace.md),
+                verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+            ) {
+                Text(
+                    appText("Остановки по пути", "Юлдағы туҡталыштар"),
+                    style = CanonCaption,
+                    color = CanonMuted,
+                )
+                order.stops.forEach { stop ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+                    ) {
+                        Icon(
+                            Icons.Default.Place,
+                            contentDescription = null,
+                            tint = if (stop.done) CanonMuted else CanonGreen2,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            stop.text,
+                            style = CanonBody,
+                            color = if (stop.done) CanonMuted else CanonText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+    DriverStopButton(order = order, onToggle = onStopToggle)
 }
 
 /** «Стоим» / «Поехали» — водитель отмечает стоянку на остановке.

@@ -165,12 +165,8 @@ def fake_redis():
     isv._redis_override = None
 
 
-@pytest.mark.skip(
-    reason="Назначение машины пассажир видит на экране заказа живьём (поллинг статуса), "
-           "поэтому запись в Центре уведомлений тут не нужна — она только засорила бы ленту. "
-           "След обязателен у ОТМЕНЫ (тест ниже): её человек может не увидеть вовремя."
-)
 def test_водитель_принял_заказ_пассажир_узнал(client, user_factory, fake_redis):
+    """Пассажир узнаёт о назначении через живую карточку, не через лишнее уведомление."""
     passenger = user_factory("TellTaxiPax")
     driver = user_factory("TellTaxiDrv", role=UserRole.driver)
     assert client.post("/driver/online", headers=driver["auth"], json={"online": True}).status_code == 200
@@ -180,13 +176,12 @@ def test_водитель_принял_заказ_пассажир_узнал(cl
         "from_lat": 52.5911, "from_lng": 58.3178, "to_lat": 52.9128, "to_lng": 58.6689,
         "from_text": "Баймак", "to_text": "Сибай",
     }).json()["id"]
-    before = len(_notes(passenger["id"]))
-
     accepted = client.post(f"/instant/orders/{oid}/accept", headers=driver["auth"])
     assert accepted.status_code == 200, f"водитель не принял заказ: {accepted.text[:200]}"
-    assert _new_notes(passenger["id"], before), (
-        "машина назначена, а пассажир не узнал — он продолжает ждать «ищем водителя»"
-    )
+    live = client.get(f"/instant/orders/{oid}", headers=passenger["auth"])
+    assert live.status_code == 200, live.text
+    assert live.json()["status"] == "accepted"
+    assert live.json()["driver_id"] == driver["id"]
 
 
 def test_водитель_отменил_принятый_заказ_пассажир_узнал(client, user_factory, fake_redis):

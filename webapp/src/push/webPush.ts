@@ -139,7 +139,10 @@ export async function disableWebPush(): Promise<void> {
   setWebPushEnabled(false);
   if (!pushSupported()) return;
   try {
-    const reg = await navigator.serviceWorker.ready;
+    // При выходе нужна только уже существующая регистрация. ready может ждать вечно,
+    // если worker не установлен (обычная вкладка/dev или неудачная установка PWA).
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return;
     const sub = await reg.pushManager.getSubscription();
     if (sub) {
       // Сначала говорим серверу, потом гасим подписку в браузере. Иначе на общем телефоне

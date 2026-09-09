@@ -26,7 +26,7 @@ import {
   ratingTags,
   setPayAgreement,
   type BookingDetails,
-  type PayMethod,
+  type BookingStatus,
   type TripState,
 } from "../api/bookings";
 import {
@@ -58,6 +58,21 @@ import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
 import { enqueue, outboxCount, subscribeOutbox, watchOutbox } from "../utils/outbox";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
+import {
+  forgetWinterCheck,
+  rememberWinterCheck,
+  wasWinterCheckAsked,
+  winterCheckDelay,
+  winterCheckNeedsAnswer,
+} from "../utils/winterCheck.js";
+import {
+  isTerminalBookingStatus,
+  shouldApplyBookingDetails,
+  shouldRefreshBookingDetails,
+  reconcilePaymentDraft,
+  acceptPaymentDraft,
+  type PaymentDraft,
+} from "../utils/tripDetailsSync.js";
 
 // ---- Зимняя проверка «доехал?» ----
 const WINTER_ASKED_KEY = (id: number) => `yuldash.winterAsk.${id}`;
@@ -96,6 +111,8 @@ export default function ActiveTripScreen() {
   const { user } = useAuth();
   const { id } = useParams();
   const bookingId = Number(id);
+  const currentBookingIdRef = useRef(bookingId);
+  currentBookingIdRef.current = bookingId;
 
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [details, setDetails] = useState<BookingDetails | null>(null);
@@ -109,14 +126,54 @@ export default function ActiveTripScreen() {
   const [pass, setPass] = useState<TripPass | null>(() => loadTripPass(bookingId));
   const [driverLoc, setDriverLoc] = useState<GeoPoint | null>(null);
   const [rated, setRated] = useState(false);
-  const [winterAsk, setWinterAsk] = useState(false); // показать мягкий вопрос «Ты доехал(а)?»
+  const [winterAskForId, setWinterAskForId] = useState<number | null>(null);
+  const winterAsk = winterAskForId === bookingId; // вопрос принадлежит только текущей брони
+  const [winterAnswerBusy, setWinterAnswerBusy] = useState(false);
+  const [winterAnswerNote, setWinterAnswerNote] = useState("");
   const [phaseBusy, setPhaseBusy] = useState(false); // водитель отправляет «выехал/подъезжаю/завершил»
   const [phaseNote, setPhaseNote] = useState("");
   // Договорённость об оплате — правит любая сторона, видят оба.
-  const [payMethod, setPayMethod] = useState<PayMethod>("cash");
-  const [payAmount, setPayAmount] = useState("");
+  const [payDraft, setPayDraft] = useState<PaymentDraft>({ bookingId, payMethod: "cash", payAmount: "", dirty: false });
+  const { payMethod, payAmount } = payDraft;
   const [payBusy, setPayBusy] = useState(false);
   const [payNote, setPayNote] = useState("");
+  const tripRef = useRef<TripState | null>(null);
+  const detailsStatusRef = useRef<BookingStatus | null>(null);
+  const detailsSyncBusyRef = useRef(false);
+  const lastDetailsAtRef = useRef(Date.now());
+
+  /** Один путь применения details: UI, форма оплаты и офлайн-паспорт не расходятся. */
+  const applyBookingDetails = useCallback(
+    (d: BookingDetails) => {
+      detailsStatusRef.current = d.status;
+      lastDetailsAtRef.current = Date.now();
+      setDetails(d);
+      if (isTerminalBookingStatus(d.status)) {
+        dropTripPass(bookingId);
+        setPass(null);
+      } else if (d.contact_unlocked) {
+        setPass((previous) => {
+          const snapshot = {
+            bookingId,
+            fromCity: d.from_city,
+            toCity: d.to_city,
+            departAt: d.depart_at,
+            driverName: d.driver_name,
+            driverCar: d.driver_car,
+            driverPlate: d.driver_plate ?? "",
+            driverPhone: d.driver_phone,
+            boardingCode: previous?.boardingCode ?? "",
+            pickup: d.pickup,
+            price: d.pay_amount ?? d.price,
+            seats: d.seats,
+          };
+          saveTripPass(snapshot);
+          return { ...snapshot, savedAt: Date.now() };
+        });
+      }
+    },
+    [bookingId]
+  );
 
   // ---- Загрузка деталей ----
   const load = useCallback(
@@ -128,41 +185,42 @@ export default function ActiveTripScreen() {
       setStatus("loading");
       fetchBookingDetails(bookingId, signal)
         .then((d) => {
-          setDetails(d);
+          applyBookingDetails(d);
           setStatus("ready");
-          // Снимок для показа без сети. Пишем, только когда контакты уже открыты:
-          // до подтверждения брони телефона и точки встречи ещё нет, а паспорт без них
-          // бесполезен. Поездка кончилась или отменена — снимок стираем: это телефон
-          // живого человека и код посадки, после поездки они не нужны никому.
-          if (d.status === "done" || d.status === "cancelled") {
-            dropTripPass(bookingId);
-            setPass(null);
-          } else if (d.contact_unlocked) {
-            const snapshot = {
-              bookingId,
-              fromCity: d.from_city,
-              toCity: d.to_city,
-              departAt: d.depart_at,
-              driverName: d.driver_name,
-              driverCar: d.driver_car,
-              driverPlate: d.driver_plate ?? "",
-              driverPhone: d.driver_phone,
-              boardingCode: "",
-              pickup: d.pickup,
-              price: d.pay_amount ?? d.price,
-              seats: d.seats,
-            };
-            saveTripPass(snapshot);
-            setPass({ ...snapshot, savedAt: Date.now() });
-          }
         })
         .catch((e) => {
           if (signal?.aborted || e?.name === "AbortError") return;
           setStatus("error");
         });
     },
-    [bookingId]
+    [applyBookingDetails, bookingId]
   );
+
+  /** Фоновая сверка не переводит весь экран в loading и не скрывает старые данные при ошибке. */
+  const syncBookingDetails = useCallback(async () => {
+    if (!bookingId || currentBookingIdRef.current !== bookingId || detailsSyncBusyRef.current) return;
+    detailsSyncBusyRef.current = true;
+    lastDetailsAtRef.current = Date.now();
+    try {
+      const fresh = await fetchBookingDetails(bookingId);
+      if (currentBookingIdRef.current !== bookingId) return;
+      if (shouldApplyBookingDetails(tripRef.current?.status, fresh.status)) {
+        applyBookingDetails(fresh);
+      }
+    } catch {
+      /* Оставляем последний честный снимок; следующий редкий тик повторит. */
+    } finally {
+      if (currentBookingIdRef.current === bookingId) detailsSyncBusyRef.current = false;
+    }
+  }, [applyBookingDetails, bookingId]);
+
+  useEffect(() => {
+    tripRef.current = null;
+    detailsStatusRef.current = null;
+    detailsSyncBusyRef.current = false;
+    lastDetailsAtRef.current = Date.now();
+    setPass(loadTripPass(bookingId));
+  }, [bookingId]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -173,9 +231,8 @@ export default function ActiveTripScreen() {
   // Форму оплаты заполняем тем, о чём уже договорились: человек правит, а не вводит заново.
   useEffect(() => {
     if (!details) return;
-    setPayMethod(details.pay_method);
-    setPayAmount(details.pay_amount != null ? String(details.pay_amount) : "");
-  }, [details]);
+    setPayDraft((current) => reconcilePaymentDraft(current, bookingId, details));
+  }, [bookingId, details]);
 
   // ---- Живой статус поездки: раз в 10 сек, пока экран виден ----
   // В фоне телефон таймеры всё равно морозит, а тут ещё и трафик экономим.
@@ -184,17 +241,31 @@ export default function ActiveTripScreen() {
   const tickTrip = useCallback(() => {
     if (!bookingId) return;
     fetchTripState(bookingId)
-      .then(setTrip)
+      .then((fresh) => {
+        if (currentBookingIdRef.current !== bookingId) return;
+        const previousStatus = tripRef.current?.status ?? detailsStatusRef.current;
+        tripRef.current = fresh;
+        setTrip(fresh);
+        if (isTerminalBookingStatus(fresh.status)) {
+          dropTripPass(bookingId);
+          setPass(null);
+          return;
+        }
+        const elapsed = Date.now() - lastDetailsAtRef.current;
+        if (shouldRefreshBookingDetails(previousStatus, fresh.status, elapsed)) {
+          void syncBookingDetails();
+        }
+      })
       .catch(() => {
         /* сеть моргнула — попробуем в следующий тик */
       });
-  }, [bookingId]);
+  }, [bookingId, syncBookingDetails]);
 
   useEffect(() => {
-    tickTrip();
-  }, [tickTrip]);
+    if (status === "ready") tickTrip();
+  }, [status, tickTrip]);
 
-  useVisibleInterval(10000, tickTrip, !!bookingId);
+  useVisibleInterval(10000, tickTrip, !!bookingId && status === "ready");
 
   const st = trip?.status ?? details?.status;
   const active = st === "confirmed" || st === "onboard";
@@ -233,18 +304,23 @@ export default function ActiveTripScreen() {
 
   // ---- Зимняя проверка «доехал?» — только пассажиру, один раз на бронь ----
   useEffect(() => {
-    if (!bookingId || !details) return;
-    if (details.role !== "passenger") return; // водителю не показываем
-    if (!(st === "confirmed" || st === "onboard")) return; // только живая поездка
-    let asked = false;
-    try {
-      asked = sessionStorage.getItem(WINTER_ASKED_KEY(bookingId)) === "1";
-    } catch {
-      /* приватный режим — просто не дедупим */
+    setWinterAnswerNote("");
+    if (!bookingId || !details) {
+      setWinterAskForId(null);
+      return;
     }
-    if (asked) return;
+    if (details.role !== "passenger") {
+      setWinterAskForId(null);
+      return; // водителю не показываем
+    }
+    if (!(st === "confirmed" || st === "onboard")) {
+      setWinterAskForId(null);
+      return; // только живая поездка
+    }
+    const key = WINTER_ASKED_KEY(bookingId);
+    const asked = wasWinterCheckAsked(key);
 
-    const delay = Math.max(0, winterDueAt(details) - Date.now());
+    const delay = winterCheckDelay(asked, winterDueAt(details));
     if (!isFinite(delay)) return;
     let alive = true;
     const timer = window.setTimeout(() => {
@@ -252,17 +328,13 @@ export default function ActiveTripScreen() {
       winterCheck(bookingId)
         .then((r) => {
           if (!alive) return;
-          if (["check_sent", "waiting", "no_share", "escalated"].includes(String(r.state))) {
-            try {
-              sessionStorage.setItem(WINTER_ASKED_KEY(bookingId), "1");
-            } catch {
-              /* не критично */
-            }
-            setWinterAsk(true);
-          }
+          const needsAnswer = winterCheckNeedsAnswer(r.state);
+          setWinterAskForId(needsAnswer ? bookingId : null);
+          if (needsAnswer) rememberWinterCheck(key);
+          else if (r.state === "ok" || r.state === "closed") forgetWinterCheck(key);
         })
         .catch(() => {
-          /* 404 до деплоя release / сеть — тихо, без вопроса */
+          if (alive && asked) setWinterAskForId(bookingId);
         });
     }, delay);
     return () => {
@@ -291,10 +363,24 @@ export default function ActiveTripScreen() {
     if (payBusy) return;
     setPayBusy(true);
     setPayNote("");
+    const submittedDraft = payDraft;
     try {
       const amount = payAmount.trim() ? Math.max(0, Math.round(Number(payAmount))) : null;
-      await setPayAgreement(bookingId, payMethod, amount);
-      load(); // перечитываем детали — договорённость показывается выше
+      const agreement = await setPayAgreement(bookingId, payMethod, amount);
+      if (currentBookingIdRef.current !== bookingId) return;
+      setPayDraft((current) => acceptPaymentDraft(current, submittedDraft, agreement));
+      lastDetailsAtRef.current = Date.now();
+      setDetails((current) =>
+        current
+          ? { ...current, pay_method: agreement.pay_method, pay_amount: agreement.pay_amount ?? current.pay_amount }
+          : current
+      );
+      setPass((current) => {
+        if (!current) return current;
+        const next = { ...current, price: agreement.pay_amount ?? current.price };
+        saveTripPass(next);
+        return next;
+      });
       setPayNote(appText("Записали. Вторая сторона это видит.", "Яҙҙыҡ. Икенсе яҡ быны күрә."));
     } catch (e) {
       setPayNote(
@@ -335,11 +421,23 @@ export default function ActiveTripScreen() {
   }
 
   async function winterAnswerOk() {
-    setWinterAsk(false);
+    if (winterAnswerBusy) return;
+    setWinterAnswerBusy(true);
+    setWinterAnswerNote("");
     try {
       await winterCheckOk(bookingId);
+      forgetWinterCheck(WINTER_ASKED_KEY(bookingId));
+      setWinterAskForId(null);
     } catch {
-      /* уже отмечено / нет ручки — не критично */
+      setWinterAskForId(bookingId);
+      setWinterAnswerNote(
+        appText(
+          "Ответ не отправился. Проверь связь и попробуй ещё раз.",
+          "Яуап ебәрелмәне. Бәйләнеште тикшереп, тағы ҡабатла."
+        )
+      );
+    } finally {
+      setWinterAnswerBusy(false);
     }
   }
 
@@ -438,13 +536,23 @@ export default function ActiveTripScreen() {
             )}
           </p>
           <div className="winter-check__actions">
-            <button type="button" className="btn-primary" onClick={winterAnswerOk}>
+            <button type="button" className="btn-primary" onClick={winterAnswerOk} disabled={winterAnswerBusy}>
               <IconCheck size={17} /> {appText("Доехал ✓", "Барып еттем ✓")}
             </button>
-            <button type="button" className="btn-ghost" onClick={() => setWinterAsk(false)}>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => setWinterAskForId(null)}
+              disabled={winterAnswerBusy}
+            >
               {appText("Ещё в пути", "Әле юлда")}
             </button>
           </div>
+          {winterAnswerNote && (
+            <div className="notice" role="status">
+              {winterAnswerNote}
+            </div>
+          )}
         </div>
       )}
 
@@ -541,7 +649,7 @@ export default function ActiveTripScreen() {
                 key={m}
                 type="button"
                 className={"seg__item" + (payMethod === m ? " is-active" : "")}
-                onClick={() => setPayMethod(m)}
+                onClick={() => setPayDraft((current) => ({ ...current, payMethod: m, dirty: true }))}
               >
                 {m === "cash"
                   ? appText("Наличными", "Наличный менән")
@@ -559,7 +667,10 @@ export default function ActiveTripScreen() {
               inputMode="numeric"
               min={0}
               value={payAmount}
-              onChange={(e) => setPayAmount(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setPayDraft((current) => ({ ...current, payAmount: value, dirty: true }));
+              }}
               placeholder={String(details.pay_amount ?? details.price ?? "")}
             />
           </label>

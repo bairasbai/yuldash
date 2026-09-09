@@ -15,7 +15,7 @@ from test_ledger import _make_done_order  # noqa: F401  (готовый done-з�
 
 # ------------------------------ B2: дедуп онлайн-оплаты ------------------------------
 def test_pay_dedups_pending_no_double_charge(client, user_factory, monkeypatch):
-    from app.routers import wallet
+    from app.routers import payments, wallet
     monkeypatch.setattr(wallet.settings, "payments_provider", "yookassa")
     calls = {"start": 0}
 
@@ -24,7 +24,7 @@ def test_pay_dedups_pending_no_double_charge(client, user_factory, monkeypatch):
         return {"status": "pending", "provider_id": f"pid_{payment.id}", "confirmation_url": "http://pay"}
 
     monkeypatch.setattr(wallet, "_start_yookassa", fake_start)
-    monkeypatch.setattr(wallet, "fetch_payment", lambda pid: {"status": "pending", "confirmation_url": "http://pay2"})
+    monkeypatch.setattr(payments, "fetch_payment", lambda pid: {"status": "pending", "confirmation_url": "http://pay2"})
 
     drv = user_factory("DedupDrv", role=UserRole.driver)
     pax = user_factory("DedupPax")

@@ -28,10 +28,9 @@ from ..models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus,
     LedgerEntry, LedgerKind, Payment, User, UserRole,
 )
-from ..payments import fetch_payment
 from ..security import current_user
 from ..timeutil import utcnow
-from .payments import _activate_payment, _start_yookassa
+from .payments import _activate_payment, _start_yookassa, _sync_provider_status
 
 router = APIRouter(tags=["wallet"])
 
@@ -83,16 +82,27 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
     )
     dq = dq.where(Payment.order_id == order_id) if order_id is not None else dq.where(Payment.booking_id == booking_id)
     existing = session.exec(dq.order_by(Payment.id.desc())).first()
-    if existing and existing.provider_id:
-        try:
-            info = fetch_payment(existing.provider_id)
-        except Exception:  # noqa: BLE001 — провайдер недоступен → отдаём известный pending
-            info = None
-        if info and info["status"] == "succeeded":
-            _activate_payment(session, existing)
-            return {"status": "succeeded", "method": "yookassa", "payment_id": existing.id}
-        return {"status": "pending", "method": "yookassa", "payment_id": existing.id,
-                "confirmation_url": (info or {}).get("confirmation_url", "")}
+    if existing and (existing.provider_id or existing.method == "yookassa"):
+        if existing.provider_id:
+            existing, info = _sync_provider_status(session, existing)
+            if existing.status == "succeeded":
+                return {"status": "succeeded", "method": "yookassa", "payment_id": existing.id}
+            if existing.status == "pending":
+                return {"status": "pending", "method": "yookassa", "payment_id": existing.id,
+                        "confirmation_url": (info or {}).get("confirmation_url", "")}
+            existing = None  # provider canceled окончательно: ниже создадим новую строку и ключ
+        if existing is not None:
+            # Неизвестный исход первого обращения: повторяем ту же локальную строку, поэтому
+            # _start_yookassa отправит провайдеру тот же Idempotence-Key и не создаст второе списание.
+            res = _start_yookassa(session, existing, description, payer.phone)
+            existing.provider_id = res["provider_id"]
+            session.add(existing)
+            session.commit()
+            if res["status"] == "succeeded":
+                _activate_payment(session, existing)
+                return {"status": "succeeded", "method": "yookassa", "payment_id": existing.id}
+            return {"status": "pending", "method": "yookassa", "payment_id": existing.id,
+                    "confirmation_url": res["confirmation_url"]}
     payment = Payment(
         user_id=payer.id, purpose=purpose, amount_kop=amount_kop, method=method,
         order_id=order_id, booking_id=booking_id,

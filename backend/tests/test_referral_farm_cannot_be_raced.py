@@ -18,6 +18,11 @@
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
+from fastapi import HTTPException
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app.db import engine
@@ -50,8 +55,36 @@ def test_two_codes_at_once_give_only_one_bonus(client, user_factory, monkeypatch
             client.post("/referral/redeem", headers=новичок["auth"], json={"code": код2})
         return настоящий(session, referrer)
 
-    monkeypatch.setattr(ref, "grant_referral_credit", начисление_с_вклиниванием)
-    client.post("/referral/redeem", headers=новичок["auth"], json={"code": код1})
+    if engine.dialect.name == "postgresql":
+        # A nested synchronous request would wait for the outer request's row lock,
+        # while that outer request waits for the nested one: a test-only deadlock.
+        # Real requests run independently and can commit to release their locks.
+        barrier = Barrier(2)
+
+        def redeem(code):
+            with Session(engine) as session:
+                session.execute(text("SET LOCAL lock_timeout = '4s'"))
+                session.execute(text("SET LOCAL statement_timeout = '8s'"))
+                pid = session.execute(text("SELECT pg_backend_pid()")).scalar_one()
+                user = session.get(User, новичок["id"])
+                assert user.referred_by is None
+                barrier.wait(timeout=10)
+                try:
+                    result = ref.referral_redeem(ref.RedeemIn(code=code), user, session)
+                    assert result["credits"] == 1
+                    status = 200
+                except HTTPException as exc:
+                    status = exc.status_code
+                return pid, status
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(redeem, code) for code in (код1, код2)]
+            results = [future.result(timeout=20) for future in futures]
+        assert len({pid for pid, _ in results}) == 2
+        assert sorted(status for _, status in results) == [200, 400]
+    else:
+        monkeypatch.setattr(ref, "grant_referral_credit", начисление_с_вклиниванием)
+        client.post("/referral/redeem", headers=новичок["auth"], json={"code": код1})
 
     with Session(engine) as s:
         я = s.get(User, новичок["id"])
