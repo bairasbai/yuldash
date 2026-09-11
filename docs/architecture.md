@@ -3976,3 +3976,20 @@ Android `AdminRatings` и `AdminReviews` больше не слиты в одн�
 пассажира — настоящий `/wallet`. `tests/parity-test.mjs` теперь проверяет не только наличие
 маршрута, но и эти действия, живую поездку, двустороннее подтверждение расчёта и состояния
 водителя.
+
+## Визуальный паритет PWA с Android — шрифты, сторож токенов, компоненты (12.09.2026)
+
+- **Шрифты** (`webapp/public/fonts/`, `@font-face` в `src/index.css`): Roboto 400/500/600/700
+  сабсетами latin / cyrillic / cyrillic-ext (башкирские буквы — в cyrillic-ext), Montserrat 500 и 900
+  (сконвертированы из `android/…/res/font`). `body` — `var(--font-family)` (Roboto первым, как Compose);
+  `.intro` — `var(--font-family-intro)` (Montserrat, как `IntroScreen.kt`). Веса — токены с именами
+  Compose: `--weight-normal/medium/semibold/bold`; семантические `--weight-title` и т.п. — их псевдонимы.
+- **Сторож токенов** `webapp/tests/canon-sync-test.mjs` (в `run.mjs`): читает `CanonTokens.kt` и
+  `index.css`; сверяет цвета (светлая и обе тёмные ветки по подписи `/* CanonX */`), радиусы,
+  `CanonSpace`, кегли/межстрочные/веса; запрещает `font-weight`/`font-size` числом; цвета и радиусы
+  числом в `ui.css` — храповик с бюджетом (сейчас 57 и 5, цель 0).
+- **Общие компоненты `ui.css`** по эталону: `.screen-header` = зелёный CanonTitle в потоке (не плашка),
+  `.screen-header--sub` = ScreenTopBar; `.btn-primary/.btn-soft/.btn-danger/.btn-accent` = четыре
+  стиля `AppButton` (54dp, Bold 16, CanonOnFilled), `.btn-ghost` = TextButton; `.state` =
+  EmptyStateCard/AppErrorState (карточка, круг 62); нижние вкладки по `YuldashBottomItem`.
+  Токен `--on-filled` = CanonBg в обеих темах.
