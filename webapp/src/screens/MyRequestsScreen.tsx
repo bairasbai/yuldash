@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { cancelRequest, fetchMatchRides, fetchMyRequests, type RideRequestRow } from "../api/requests";
 import type { Ride } from "../api/rides";
 import { useLang } from "../i18n/lang";
-import { IconArrow, IconPencil, IconRequest, IconTrash } from "../components/Icons";
+import { IconCalendar, IconChat, IconChevron, IconPencil, IconProfile, IconRequest, IconTrash, IconWallet } from "../components/Icons";
 import RideCard from "../components/RideCard";
 import RideSheet from "../components/RideSheet";
 import ScreenHeader from "../components/ScreenHeader";
@@ -13,9 +13,10 @@ import { formatWhen, pluralRu } from "../utils/format";
 type ViewState = "loading" | "error" | "ready";
 
 const STATUS: Record<string, [string, string, string]> = {
+  // В Android пилюля статуса всегда мятная (RequestSummaryCard: Surface(CanonMint)).
   active: ["Активна", "Әүҙем", "badge--mint"],
-  matched: ["Водитель найден", "Йөрөтөүсе табылды", "badge--gold"],
-  cancelled: ["Отменена", "Кире алынды", "badge--danger"],
+  matched: ["Водитель найден", "Йөрөтөүсе табылды", "badge--mint"],
+  cancelled: ["Отменена", "Кире алынды", "badge--mint"],
 };
 
 /** Автоподбор поездок под заявку: те же состояния и открытие карточки, что в Android. */
@@ -170,10 +171,7 @@ export default function MyRequestsScreen() {
 
   return (
     <>
-      <ScreenHeader
-        title={appText("Мои заявки", "Минең заявкалар")}
-        subtitle={appText("Водители увидят и откликнутся", "Йөрөтөүселәр күреп яуап бирер")}
-      />
+      <ScreenHeader title={appText("Мои заявки", "Минең заявкалар")} />
 
       {state === "loading" && <LoadingList count={3} />}
       {state === "error" && (
@@ -206,36 +204,39 @@ export default function MyRequestsScreen() {
                 style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
               >
                 <div className="my-request-card__head">
-                  <span className="my-request-card__icon" aria-hidden><IconRequest size={22} /></span>
-                  <div className="my-request-card__route">
-                    <strong>{request.from_city}</strong>
-                    <IconArrow size={18} />
-                    <strong>{request.to_city}</strong>
+                  <span className="my-request-card__icon" aria-hidden><IconRequest size={24} /></span>
+                  <div className="my-request-card__main">
+                    <div className="my-request-card__title-row">
+                      <h3 className="my-request-card__route">{request.from_city} → {request.to_city}</h3>
+                      <span className={`badge ${status[2]}`}>{appText(status[0], status[1])}</span>
+                    </div>
+                    <span className="my-request-card__meta"><IconCalendar size={16} /> {formatWhen(request.desired_at, ru)}</span>
+                    {request.comment && <span className="my-request-card__meta"><IconRequest size={16} /> {request.comment}</span>}
+                    <span className="my-request-card__meta">
+                      <IconWallet size={16} />{" "}
+                      {request.max_price
+                        ? appText(`${request.max_price} ₽ предлагаю`, `${request.max_price} ₽ тәҡдим итәм`)
+                        : appText("цена договорная", "хаҡ килешеү буйынса")}
+                    </span>
+                    <span className="my-request-card__meta">
+                      <IconProfile size={16} /> {appText(`${request.seats} ${pluralRu(request.seats, "место", "места", "мест")}`, `${request.seats} урын`)}
+                    </span>
                   </div>
-                  <span className={`badge ${status[2]}`}>{appText(status[0], status[1])}</span>
                 </div>
-                <div className="my-request-card__meta">
-                  <span>{formatWhen(request.desired_at, ru)}</span>
-                  <span>{appText(`${request.seats} ${pluralRu(request.seats, "место", "места", "мест")}`, `${request.seats} урын`)}</span>
-                  <span>
-                    {request.max_price
-                      ? appText(`до ${request.max_price} ₽`, `${request.max_price} ₽ тиклем`)
-                      : appText("цена договорная", "хаҡ килешеү буйынса")}
-                  </span>
-                </div>
-                {request.comment && <p className="my-request-card__comment">{request.comment}</p>}
                 <div className="my-request-card__actions">
-                  <button type="button" className="btn-soft" onClick={() => navigate(`/requests/${request.id}/responses`)}>
-                    {appText("Посмотреть отклики", "Яуаптарҙы ҡарау")}
+                  <button type="button" className="btn-soft my-request-card__responses" onClick={() => navigate(`/requests/${request.id}/responses`)}>
+                    <IconChat size={20} />
+                    <span>{appText("Посмотреть отклики", "Яуаптарҙы ҡарау")}</span>
+                    <IconChevron size={20} />
                   </button>
                   {active && (
-                    <>
+                    <div className="icon-row">
                       <button
                         type="button"
                         className="btn-ghost icon-label-btn"
                         onClick={() => navigate(`/requests/${request.id}/edit`)}
                       >
-                        <IconPencil size={18} /> {appText("Изменить", "Үҙгәртеү")}
+                        <IconPencil size={18} /> {appText("Редактировать", "Үҙгәртеү")}
                       </button>
                       <button
                         type="button"
@@ -245,9 +246,9 @@ export default function MyRequestsScreen() {
                           setCancelTarget(request);
                         }}
                       >
-                        <IconTrash size={18} /> {appText("Отменить", "Кире алыу")}
+                        <IconTrash size={18} /> {appText("Отменить заявку", "Заявканы кире алыу")}
                       </button>
-                    </>
+                    </div>
                   )}
                 </div>
                 <MatchingRidesSection requestId={request.id} />

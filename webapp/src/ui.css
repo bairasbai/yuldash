@@ -487,8 +487,11 @@
   padding-bottom: var(--space-lg);
 }
 .my-request-card {
+  /* RequestSummaryCard: Card без рамки, CanonCardShape, тень card, поля 12, шаг 12. */
   padding: var(--space-md);
-  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
   border-radius: var(--radius-card);
   background: var(--surface);
   box-shadow: var(--depth-card);
@@ -497,68 +500,82 @@
 .my-request-card__head {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-sm);
+  gap: var(--space-md);
 }
 .my-request-card__icon {
-  width: 46px;
-  height: 46px;
-  flex: 0 0 46px;
+  /* Surface(CanonMint, 14dp) { Icon.padding(12).size(24) } = 48×48. */
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
   display: grid;
   place-items: center;
   border-radius: var(--radius-field);
   background: var(--mint);
   color: var(--green2);
 }
-.my-request-card__route {
-  min-width: 0;
+.my-request-card__main {
   flex: 1;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+.my-request-card__title-row {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+.my-request-card__route {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   color: var(--text);
-  font-size: var(--font-body);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-.my-request-card__route svg { flex: none; color: var(--muted); }
 .my-request-card__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  margin: var(--space-md) 0 0 56px;
-  color: var(--muted-strong);
-  font-size: var(--font-caption);
-}
-.my-request-card__comment {
-  margin: var(--space-sm) 0 0 56px;
+  /* DetailMeta: иконка + строка, muted, 14. */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
   color: var(--muted);
   font-size: var(--font-caption);
   line-height: var(--line-caption);
 }
+
 .my-request-card__actions {
+  /* Разделитель 1dp CanonBorder, под ним OutlinedButton и ряд TextButton. */
   display: flex;
+  flex-direction: column;
   gap: var(--space-sm);
-  flex-wrap: wrap;
-  margin-top: var(--space-md);
   padding-top: var(--space-md);
   border-top: 1px solid var(--border);
 }
-.my-request-card__actions .btn-soft {
-  /* AppButton(Secondary) — самая частая кнопка Android: прозрачная, рамка 1.5 CanonGreen2, зелёная надпись. */
-  flex: 1;
-  min-height: 54px;
+.my-request-card__actions .icon-row {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border: 1.5px solid var(--green2);
-  border-radius: var(--radius-field);
-  background: transparent;
-  color: var(--green2);
-  font-size: var(--font-button);
-  line-height: var(--line-button);
-  font-weight: var(--weight-bold);
-  transition: transform var(--motion-quick) ease;
+  gap: var(--space-sm);
 }
+.my-request-card__responses {
+  width: 100%;
+  min-height: 48px;
+  justify-content: flex-start;
+  font-size: var(--font-caption);
+}
+.my-request-card__responses span {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .my-request-matches h3 {
   margin: 0 0 var(--space-sm);
   color: var(--green2);
@@ -601,22 +618,27 @@
 }
 .my-request-matches__list .ride-card-btn { scroll-snap-align: start; }
 .icon-label-btn {
+  /* TextButton 44dp: иконка 18 + Bold 14, CanonGreen2; отмена — CanonRed. */
   flex: 1;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-xs);
+  font-weight: var(--weight-bold);
 }
 .danger-text { color: var(--danger); }
 .my-requests-create {
+  /* CreateRequestButton: 56dp, CanonFieldShape, AddBox + Bold 16. */
   width: 100%;
+  min-height: 56px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-sm);
   margin-top: 0;
 }
-.request-empty .btn-primary { width: min(100%, 320px); }
+.request-empty .btn-primary { width: 100%; margin-top: 0; }
 .sheet__actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -625,30 +647,8 @@
 }
 .sheet__actions .btn-ghost,
 .sheet__actions .btn-danger {
-  /* AppButton(Danger): CanonRed + CanonOnFilled, те же 54dp и Bold. */
-  margin-top: 18px;
   width: 100%;
-  min-height: 54px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 0 22px;
-  border: 0;
-  border-radius: var(--radius-field);
-  background: var(--danger-btn);
-  color: var(--on-filled);
-  font-size: var(--font-button);
-  line-height: var(--line-button);
-  font-weight: var(--weight-bold);
-  transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
-}
-
-@media (max-width: 370px) {
-  .my-request-card__meta,
-  .my-request-card__comment { margin-left: 0; }
-  .my-request-card__head { flex-wrap: wrap; }
-  .my-request-card__route { flex-basis: calc(100% - 56px); }
+  margin: 0;
 }
 
 /* ---- Подсказка установки ---- */
@@ -1467,18 +1467,20 @@ button.list-row:active {
   gap: 10px;
 }
 .btn-soft {
+  /* AppButton(Secondary) — самая частая кнопка Android: прозрачная, рамка 1.5 CanonGreen2, зелёная надпись Bold 16, 54dp. */
   flex: 1;
-  min-height: 48px;
+  min-height: 54px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--green2);
   border-radius: var(--radius-field);
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-button);
+  line-height: var(--line-button);
+  font-weight: var(--weight-bold);
   transition: transform var(--motion-quick) ease;
 }
 /* «Показать ещё» под лентой: на всю ширину, с воздухом от последней карточки. */
@@ -4608,9 +4610,10 @@ button.list-row:active {
   border-radius: var(--radius-item);
 }
 .btn-danger {
+  /* AppButton(Danger): CanonRed + CanonOnFilled, те же 54dp и Bold 16. */
   margin-top: 18px;
   width: 100%;
-  min-height: 48px;
+  min-height: 54px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4619,7 +4622,9 @@ button.list-row:active {
   border: 0;
   border-radius: var(--radius-field);
   background: var(--danger-btn);
-  color: var(--on-accent);
+  color: var(--on-filled);
+  font-size: var(--font-button);
+  line-height: var(--line-button);
   font-weight: var(--weight-bold);
   transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
 }
