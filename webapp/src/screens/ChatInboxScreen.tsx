@@ -15,7 +15,7 @@ import { ApiError } from "../api/client";
 import { fetchConversations, type Conversation } from "../api/chat";
 import { LoadingList } from "../components/States";
 import ScreenHeader from "../components/ScreenHeader";
-import { IconCheck, IconChevron } from "../components/Icons";
+import { IconShield } from "../components/Icons";
 import { YuChat } from "../components/BrandIcons";
 import { formatWhen } from "../utils/format";
 
@@ -60,7 +60,7 @@ export default function ChatInboxScreen() {
     <>
       <ScreenHeader
         title={t("navChat")}
-        subtitle={appText("Переписка по поездкам", "Сәфәрҙәр буйынса яҙышыу")}
+        subtitle={appText("Общайся по активным поездкам и заявкам", "Актив сәфәрҙәр һәм заявкалар буйынса аралаш")}
       />
 
       {status === "loading" && <LoadingList count={3} />}
@@ -131,29 +131,27 @@ export default function ChatInboxScreen() {
                 className="inbox-row"
                 onClick={() => navigate(`/trip/${c.booking_id}`)}
               >
-                <span className="ride-card__avatar" aria-hidden>
-                  {(c.peer_name || "?").trim().charAt(0).toUpperCase()}
+                {/* ChatCard Android: аватар 58, имя 19 Bold + галочка, маршрут 16 Bold, последнее 14 muted, время справа. */}
+                <span className="inbox-row__avatar" aria-hidden>
+                  {c.peer_avatar ? (
+                    <img src={c.peer_avatar} alt="" />
+                  ) : (
+                    (c.peer_name || "?").trim().charAt(0).toUpperCase()
+                  )}
                 </span>
                 <span className="inbox-row__main">
-                  <span className="inbox-row__top">
-                    <span className="inbox-row__name">
-                      {c.peer_name}
-                      {c.peer_verified && (
-                        <span className="badge badge--mint" style={{ marginLeft: 6 }}>
-                          <IconCheck size={12} />
-                        </span>
-                      )}
-                    </span>
-                    {c.depart_at && (
-                      <span className="inbox-row__when">{formatWhen(c.depart_at, ru)}</span>
+                  <span className="inbox-row__name">
+                    {c.peer_name}
+                    {c.peer_verified && (
+                      <span className="inbox-row__verified" aria-label={appText("Проверен", "Тикшерелгән")}>
+                        <IconShield size={18} />
+                      </span>
                     )}
                   </span>
                   <span className="inbox-row__route">{c.route}</span>
-                  {c.last_message && (
-                    <span className="inbox-row__last">{c.last_message}</span>
-                  )}
+                  {c.last_message && <span className="inbox-row__last">{c.last_message}</span>}
                 </span>
-                <IconChevron size={18} />
+                {c.depart_at && <span className="inbox-row__when">{formatWhen(c.depart_at, ru)}</span>}
               </button>
             ))}
           </div>
