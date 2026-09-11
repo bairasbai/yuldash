@@ -6,29 +6,7 @@ import { fetchNotifUnread } from "../api/notifications";
 import { fetchSupportUnread } from "../api/support";
 import ScreenHeader from "../components/ScreenHeader";
 import BrandMark from "../components/BrandMark";
-import {
-  IconChevron,
-  IconGift,
-  IconLogout,
-  IconShield,
-  IconRides,
-  IconHome,
-  IconTrend,
-  IconBell,
-  IconFilter,
-  IconHospital,
-  IconWheel,
-  IconClock,
-  IconWallet,
-  IconReceipt,
-  IconSettings,
-  IconTicket,
-  IconStore,
-  IconMegaphone,
-  IconUsers,
-  IconHeart,
-  IconMic,
-} from "../components/Icons";
+import { IconChevron, IconGift, IconLogout, IconShield, IconRides, IconHome, IconTrend, IconBell, IconFilter, IconHospital, IconWheel, IconClock, IconWallet, IconReceipt, IconSettings, IconTicket, IconStore, IconMegaphone, IconUsers, IconHeart, IconMic, IconPencil, IconPin } from "../components/Icons";
 import {
   YuModeTaxi,
   YuModeParcel,
@@ -397,25 +375,34 @@ export default function ProfileScreen() {
               <span>{initials(user.name)}</span>
             )}
           </div>
+          {/* Герой Android ProfileScreen: имя 24 Bold + карандаш, роль · ★ рейтинг, город, подсказка о телефоне. */}
           <div className="profile-card__info">
             <div className="profile-card__name">
-              {user.name || appText("Без имени", "Исемһеҙ")}
+              <span>{user.name || appText("Без имени", "Исемһеҙ")}</span>
+              <span className="profile-card__edit" aria-hidden><IconPencil size={18} /></span>
             </div>
             <div className="profile-card__meta">
-              {user.verified && (
-                <span className="badge badge--mint">{appText("Проверен", "Тикшерелгән")}</span>
-              )}
+              <span className="profile-card__role">
+                {user.role === "driver"
+                  ? appText("Водитель", "Йөрөтөүсе")
+                  : user.role === "admin"
+                    ? appText("Администратор", "Администратор")
+                    : appText("Пассажир", "Пассажир")}
+              </span>
               {user.rating != null && (
                 <span className="profile-card__rating">
-                  <YuStar size={15} className="star" /> {user.rating.toFixed(1)}
+                  <YuStar size={14} className="star" /> {user.rating.toFixed(1)}
                 </span>
               )}
             </div>
-            {/* Профиль редактируется тапом по карточке — как в приложении */}
             <div className="profile-card__meta">
-              <span className="badge badge--muted">
-                {appText("Изменить профиль", "Профилде үҙгәртеү")}
+              <IconPin size={15} />
+              <span className={"profile-card__city" + (user.city ? "" : " is-empty")}>
+                {user.city || appText("Указать город", "Ҡаланы күрһәтергә")}
               </span>
+            </div>
+            <div className="profile-card__note">
+              {appText("Телефон скрыт до подтверждения поездки", "Телефон сәфәр раҫланғанға тиклем йәшерелгән")}
             </div>
           </div>
         </button>

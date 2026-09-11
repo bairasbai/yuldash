@@ -1274,11 +1274,12 @@
   margin-top: 16px;
 }
 .list-group__label {
-  margin: 0 4px 8px;
-  font-size: var(--font-micro);
-  font-weight: var(--weight-medium);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  /* ProfileSectionLabel: CanonMuted 14/20 Bold, разрядка 0.6, отступ сверху 8 и слева 4. */
+  margin: var(--space-sm) 0 0 var(--space-xs);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.04em;
   color: var(--muted);
 }
 .list-group .list {
@@ -1286,15 +1287,17 @@
   gap: 8px;
 }
 .list-row {
+  /* ProfileActionCard: CanonItemShape, тень card, без рамки, поля 12, шаг 12. */
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--space-md);
   width: 100%;
-  padding: 14px;
+  padding: var(--space-md);
   min-height: 48px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: var(--radius-item);
   background: var(--surface);
+  box-shadow: var(--depth-card);
   text-align: left;
   color: var(--text);
   animation: fadeUp var(--motion-normal) ease both;
@@ -1306,14 +1309,15 @@ button.list-row:active {
   transform: scale(0.99);
 }
 .list-row__icon {
+  /* Surface(CanonMint, 14dp) { Icon.padding(8) } = 40×40, иконка CanonGreen2. */
   flex: none;
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-field);
   display: grid;
   place-items: center;
   background: var(--mint);
-  color: var(--green);
+  color: var(--green2);
 }
 .list-row__main {
   flex: 1;
@@ -1321,13 +1325,14 @@ button.list-row:active {
 }
 .list-row__title {
   font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
 }
 .list-row__sub {
-  margin-top: 3px;
+  margin-top: var(--space-xs);
   font-size: var(--font-caption);
+  line-height: var(--line-caption);
   color: var(--muted);
-  line-height: 1.4;
 }
 .list-row__chev {
   flex: none;
@@ -1565,25 +1570,28 @@ button.list-row:active {
 /* ---- Профиль-хаб ---- */
 /* Шапка профиля — зелёный градиент + белый текст (как в андроиде: CanonGreenInk→InkDark). */
 .profile-card {
-  margin-top: 16px;
+  /* Герой профиля Android: Card CanonCardShape с градиентом CanonGreenInk → CanonGreenInkDark, поля 16. */
+  margin-top: var(--space-md);
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 18px;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-lg);
   border-radius: var(--radius-card);
-  background: linear-gradient(155deg, #0b6b3a, #063a20);
+  background: linear-gradient(155deg, var(--header-top), var(--header-bottom));
   border: 0;
-  color: #fff;
+  box-shadow: var(--depth-card);
+  color: var(--on-accent);
   animation: fadeUp var(--motion-normal) ease both;
 }
 .profile-card__avatar {
+  /* Круг 70, белый 18%, инициал 24 Bold — как в Android. */
   width: 70px;
   height: 70px;
   border-radius: 50%;
   flex: none;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.18);
-  color: #fff;
+  background: var(--glass-on-photo);
+  color: var(--on-accent);
   display: grid;
   place-items: center;
   font-size: var(--font-title);
@@ -1595,16 +1603,35 @@ button.list-row:active {
   object-fit: cover;
 }
 .profile-card__name {
-  font-size: var(--font-heading);
-  font-weight: var(--weight-semibold);
-  letter-spacing: -0.01em;
-  color: #fff;
-}
-.profile-card__meta {
-  margin-top: 8px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+  color: var(--on-accent);
+}
+.profile-card__edit {
+  display: inline-flex;
+  opacity: 0.85;
+}
+.profile-card__meta {
+  margin-top: var(--space-xs);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.profile-card__role,
+.profile-card__city.is-empty {
+  opacity: 0.78;
+}
+.profile-card__note {
+  margin-top: var(--space-sm);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  opacity: 0.78;
 }
 .profile-card__rating {
   display: inline-flex;
