@@ -142,11 +142,18 @@ export default function AdminCabinetScreen() {
     },
     // Волна 8Б — отзывы, реклама, такси, лист ожидания, пульс, доход.
     {
+      key: "ratings",
+      to: "/admin/ratings",
+      icon: <IconStar size={22} />,
+      title: appText("Отзывы о поездках", "Сәфәрҙәр тураһында фекерҙәр"),
+      sub: appText("Публикация и защита рейтинга", "Баҫтырыу һәм рейтингты һаҡлау"),
+    },
+    {
       key: "reviews",
       to: "/admin/reviews",
       icon: <IconStar size={22} />,
-      title: appText("Отзывы", "Кире бәйләнеш"),
-      sub: appText("Модерация отзывов", "Фекер текстарын тикшереү"),
+      title: appText("Отзывы о приложении", "Ҡушымта тураһында фекерҙәр"),
+      sub: appText("Отзывы для витрины Юлдаша", "Юлдаш витринаһы өсөн фекерҙәр"),
     },
     {
       key: "ads",

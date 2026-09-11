@@ -26,7 +26,13 @@ import { track } from "../analytics";
 /** Где лежит последний выбор. Человек платит одинаково почти всегда — спрашивать заново незачем. */
 const PREF_KEY = "yuldash.payMethod";
 
-const OPEN: { code: PaymentMethod; ru: string; ba: string; shortRu: string; shortBa: string }[] = [
+export const PAY_METHODS_OPEN: {
+  code: PaymentMethod;
+  ru: string;
+  ba: string;
+  shortRu: string;
+  shortBa: string;
+}[] = [
   { code: "cash", ru: "Наличными", ba: "Наличный менән", shortRu: "Наличные", shortBa: "Наличный" },
   { code: "sbp", ru: "Переводом по СБП", ba: "СБП аша күсереү", shortRu: "СБП", shortBa: "СБП" },
   {
@@ -39,12 +45,12 @@ const OPEN: { code: PaymentMethod; ru: string; ba: string; shortRu: string; shor
 ];
 
 /** Заведены, но выключены: без договора с банком принимать деньги нельзя. */
-const SOON: { code: string; ru: string; ba: string }[] = [
+export const PAY_METHODS_SOON: { code: "card" | "corporate"; ru: string; ba: string }[] = [
   { code: "card", ru: "Картой в приложении", ba: "Ҡушымтала карта менән" },
   { code: "corporate", ru: "Корпоративный счёт", ba: "Корпоратив иҫәп" },
 ];
 
-/** Последний выбор человека. Ничего не выбирал — «договоримся», как и на сервере. */
+/** Последний выбор человека. Ничего не выбирал — наличные, как в Android. */
 export function rememberedPayMethod(): PaymentMethod {
   try {
     const v = localStorage.getItem(PREF_KEY);
@@ -52,7 +58,16 @@ export function rememberedPayMethod(): PaymentMethod {
   } catch {
     /* приватный режим — просто умолчание */
   }
-  return "negotiate";
+  return "cash";
+}
+
+/** Запомнить выбор для следующего заказа — тот же ключ использует отдельный экран. */
+export function rememberPayMethod(method: PaymentMethod): void {
+  try {
+    localStorage.setItem(PREF_KEY, method);
+  } catch {
+    /* Приватный режим: текущий заказ всё равно получит выбор напрямую. */
+  }
 }
 
 export default function PayMethodPicker({
@@ -64,15 +79,11 @@ export default function PayMethodPicker({
 }) {
   const { appText } = useLang();
   const [open, setOpen] = useState(false);
-  const cur = OPEN.find((m) => m.code === value) ?? OPEN[2];
+  const cur = PAY_METHODS_OPEN.find((m) => m.code === value) ?? PAY_METHODS_OPEN[2];
 
   function pick(m: PaymentMethod) {
     onChange(m);
-    try {
-      localStorage.setItem(PREF_KEY, m);
-    } catch {
-      /* не критично: выбор всё равно уйдёт с заказом */
-    }
+    rememberPayMethod(m);
     setOpen(false);
   }
 
@@ -94,7 +105,7 @@ export default function PayMethodPicker({
             "Аҡса тура йөрөтөүсегә бара — ҡушымта уға ҡағылмай. Беҙ килешеүҙе генә яҙабыҙ, төшкәндә көтөлмәгәнлек булмаһын."
           )}
         </p>
-        {OPEN.map((m) => (
+        {PAY_METHODS_OPEN.map((m) => (
           <button
             key={m.code}
             type="button"
@@ -110,7 +121,7 @@ export default function PayMethodPicker({
         <span className="field__label" style={{ display: "block", marginTop: 12 }}>
           {appText("Скоро", "Тиҙҙән")}
         </span>
-        {SOON.map((m) => (
+        {PAY_METHODS_SOON.map((m) => (
           // Нажатие считается заявкой: по нему и решим, когда включать эквайринг.
           // Немой вопрос «а картой можно?» человек задаёт себе каждый заказ — пусть
           // этот вопрос хотя бы доходит до нас.

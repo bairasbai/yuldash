@@ -1,6 +1,7 @@
-import { Suspense, useEffect } from "react";
-import { Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { Suspense, useEffect, useState } from "react";
+import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import BottomNav from "./components/BottomNav";
+import ActiveTaxiBar from "./components/ActiveTaxiBar";
 import InstallPrompt from "./components/InstallPrompt";
 import OfflineBanner from "./components/OfflineBanner";
 import RequireAuth from "./components/RequireAuth";
@@ -26,6 +27,9 @@ import InstantDriverTripScreen from "./screens/InstantDriverTripScreen";
 import InstantChatScreen from "./screens/InstantChatScreen";
 import ChatInboxScreen from "./screens/ChatInboxScreen";
 import SosScreen from "./screens/SosScreen";
+import { useTaxiOrderOnScreen } from "./navSignals";
+import { useAuth } from "./auth/AuthProvider";
+import { fetchDriverDebt } from "./api/driver";
 
 
 /**
@@ -72,9 +76,11 @@ const IncidentDetailScreen = lazyScreen(() => import("./screens/IncidentDetailSc
 const IncomeCalculatorScreen = lazyScreen(() => import("./screens/IncomeCalculatorScreen"));
 const InvitesScreen = lazyScreen(() => import("./screens/InvitesScreen"));
 const MyStatsScreen = lazyScreen(() => import("./screens/MyStatsScreen"));
+const MyDataScreen = lazyScreen(() => import("./screens/MyDataScreen"));
 const PartnerCabinetScreen = lazyScreen(() => import("./screens/PartnerCabinetScreen"));
 const PayDoneScreen = lazyScreen(() => import("./screens/PayDoneScreen"));
 const PaymentInfoScreen = lazyScreen(() => import("./screens/PaymentInfoScreen"));
+const PaymentMethodsScreen = lazyScreen(() => import("./screens/PaymentMethodsScreen"));
 const PretripCheckScreen = lazyScreen(() => import("./screens/PretripCheckScreen"));
 const PricingInfoScreen = lazyScreen(() => import("./screens/PricingInfoScreen"));
 const PrivacyScreen = lazyScreen(() => import("./screens/PrivacyScreen"));
@@ -111,6 +117,7 @@ const FamilyOrderScreen = lazyScreen(() => import("./screens/FamilyOrderScreen")
 const FiltersScreen = lazyScreen(() => import("./screens/FiltersScreen"));
 const HelpScreen = lazyScreen(() => import("./screens/HelpScreen"));
 const MyTaxiTripsScreen = lazyScreen(() => import("./screens/MyTaxiTripsScreen"));
+const MyRequestsScreen = lazyScreen(() => import("./screens/MyRequestsScreen"));
 const NotificationsScreen = lazyScreen(() => import("./screens/NotificationsScreen"));
 const ParcelChatScreen = lazyScreen(() => import("./screens/ParcelChatScreen"));
 const ParcelsScreen = lazyScreen(() => import("./screens/ParcelsScreen"));
@@ -130,13 +137,33 @@ const WalletScreen = lazyScreen(() => import("./screens/WalletScreen"));
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
+  const taxiOrderOnScreen = useTaxiOrderOnScreen();
+  const { pathname } = useLocation();
+  const { status, user } = useAuth();
+  const [debtBadge, setDebtBadge] = useState(false);
+  const onMainTab = ["/map", "/rides", "/my-requests", "/chat", "/profile"].includes(pathname);
+  const showBottomNav = onMainTab && !taxiOrderOnScreen;
+
+  useEffect(() => {
+    if (status !== "authed" || user?.role !== "driver") {
+      setDebtBadge(false);
+      return;
+    }
+    const controller = new AbortController();
+    fetchDriverDebt(controller.signal)
+      .then((debt) => setDebtBadge((debt.pay_now_kop ?? 0) > 0))
+      .catch(() => setDebtBadge(false));
+    return () => controller.abort();
+  }, [pathname, status, user?.role]);
+
   return (
-    <div className="app-shell">
+    <div className={"app-shell" + (showBottomNav ? " has-bottom-nav" : "")}>
       <OfflineBanner />
       {/* Новая версия скачана — применится только после перезагрузки.
           Пока человек не нажал, исправленный баг у него всё ещё есть. */}
       <UpdateBanner />
       <main className="app-main">
+        <ActiveTaxiBar visible={onMainTab && !taxiOrderOnScreen} />
         {/* Экран из отдельного куска ещё летит — показываем скелетон,
             а навигация остаётся на месте: моргает только контент. */}
         <Suspense fallback={<LoadingList count={3} />}>
@@ -144,7 +171,7 @@ function Shell() {
         </Suspense>
       </main>
       <InstallPrompt />
-      <BottomNav />
+      {showBottomNav && <BottomNav debtBadge={debtBadge} />}
     </div>
   );
 }
@@ -188,6 +215,14 @@ export default function App() {
           element={
             <RequireAuth>
               <SettingsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/my-data"
+          element={
+            <RequireAuth>
+              <MyDataScreen />
             </RequireAuth>
           }
         />
@@ -632,6 +667,22 @@ export default function App() {
         {/* «Скидки по пути» и «Как оплатить» — публичные витрины */}
         <Route path="/coupons" element={<CouponsScreen />} />
         <Route path="/payment-info" element={<PaymentInfoScreen />} />
+        <Route
+          path="/payment-methods"
+          element={
+            <RequireAuth>
+              <PaymentMethodsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/my-requests"
+          element={
+            <RequireAuth>
+              <MyRequestsScreen />
+            </RequireAuth>
+          }
+        />
         {/* Сюда банк возвращает после оплаты картой (payment_return_url на сервере).
             Роута не было — человек попадал на заставку и не знал, прошла ли оплата. */}
         <Route path="/pay/done" element={<PayDoneScreen />} />
@@ -738,10 +789,18 @@ export default function App() {
 
         {/* --- Волна 8Б: отзывы, реклама, такси, лист ожидания, пульс, доход --- */}
         <Route
+          path="/admin/ratings"
+          element={
+            <RequireAdmin>
+              <AdminReviewsScreen initialTab="rides" />
+            </RequireAdmin>
+          }
+        />
+        <Route
           path="/admin/reviews"
           element={
             <RequireAdmin>
-              <AdminReviewsScreen />
+              <AdminReviewsScreen initialTab="app" />
             </RequireAdmin>
           }
         />

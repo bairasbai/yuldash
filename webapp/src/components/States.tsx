@@ -55,15 +55,23 @@ export function EmptyState() {
   );
 }
 
-export function ErrorState({ onRetry }: { onRetry: () => void }) {
+export function ErrorState({
+  onRetry,
+  title,
+  hint,
+}: {
+  onRetry: () => void;
+  title?: string;
+  hint?: string;
+}) {
   const { t } = useLang();
   return (
     <div className="state">
       <div className="state__icon state__icon--warn">
         <YuTripList size={36} />
       </div>
-      <h2>{t("errorTitle")}</h2>
-      <p>{t("errorHint")}</p>
+      <h2>{title ?? t("errorTitle")}</h2>
+      <p>{hint ?? t("errorHint")}</p>
       <button type="button" className="btn-primary" onClick={onRetry}>
         {t("retry")}
       </button>

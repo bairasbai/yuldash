@@ -175,10 +175,16 @@ export function SubHeader({
   subtitle?: string;
   onBack: () => void;
 }) {
+  const { appText } = useLang();
   return (
-    <header className="screen-header">
+    <header className="screen-header screen-header--sub">
       <div className="screen-header__row">
-        <button type="button" className="subheader__back" onClick={onBack} aria-label="←">
+        <button
+          type="button"
+          className="subheader__back"
+          onClick={onBack}
+          aria-label={appText("Назад", "Артҡа")}
+        >
           <span style={{ display: "inline-flex", transform: "rotate(180deg)" }}>
             <IconChevron size={22} />
           </span>

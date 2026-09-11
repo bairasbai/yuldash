@@ -3,7 +3,7 @@
 //  GET /bookings/mine: ближайшая активная бронь (pending→Booking,
 //  confirmed/onboard→ActiveTrip), история → квитанция/повтор.
 //  Плюс карточки: Мои адреса, Повтор, Мой Юлдаш, Подписки,
-//  Кошелёк (заглушка до волны 6), Квитанции. RequireAuth.
+//  Кошелёк, Квитанции. RequireAuth.
 // ================================================================
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -35,7 +35,6 @@ export default function PassengerCabinetScreen() {
 
   const [status, setStatus] = useState<Status>("loading");
   const [bookings, setBookings] = useState<MyBooking[]>([]);
-  const [walletNote, setWalletNote] = useState(false);
 
   const load = useCallback((signal?: AbortSignal) => {
     setStatus("loading");
@@ -81,7 +80,6 @@ export default function PassengerCabinetScreen() {
     icon: JSX.Element;
     title: string;
     onClick: () => void;
-    soon?: boolean;
   }[] = [
     {
       key: "places",
@@ -126,8 +124,7 @@ export default function PassengerCabinetScreen() {
       key: "wallet",
       icon: <IconWallet size={22} />,
       title: appText("Кошелёк", "Янсыҡ"),
-      onClick: () => setWalletNote((v) => !v),
-      soon: true,
+      onClick: () => navigate("/wallet"),
     },
   ];
 
@@ -191,23 +188,9 @@ export default function PassengerCabinetScreen() {
               >
                 <span className="cabinet-tile__icon">{t.icon}</span>
                 <span className="cabinet-tile__title">{t.title}</span>
-                {t.soon && (
-                  <span className="badge badge--gold cabinet-tile__soon">
-                    {appText("Скоро", "Тиҙҙән")}
-                  </span>
-                )}
               </button>
             ))}
           </div>
-
-          {walletNote && (
-            <div className="consents__status" style={{ marginTop: 12 }}>
-              {appText(
-                "Кошелёк и бонусы появятся позже. Пока оплата — напрямую водителю, по-соседски.",
-                "Янсыҡ һәм бонустар һуңынан буласаҡ. Хәҙергә түләү — тура йөрөтөүсегә, күршеләрсә."
-              )}
-            </div>
-          )}
 
           {/* История поездок */}
           {history.length > 0 && (

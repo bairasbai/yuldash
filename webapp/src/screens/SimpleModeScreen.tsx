@@ -14,7 +14,7 @@ import {
   YuChat,
   YuSupport,
 } from "../components/BrandIcons";
-import { IconMic, IconHeart, IconPhone, IconUsers } from "../components/Icons";
+import { IconMic, IconHeart, IconPhone, IconRoute, IconUsers } from "../components/Icons";
 
 interface Tile {
   to: string;
@@ -59,6 +59,12 @@ export default function SimpleModeScreen() {
       icon: <IconPhone size={38} />,
       title: appText("Перезвоните мне", "Миңә шылтыратығыҙ"),
       sub: appText("Мы поможем сами", "Беҙ ярҙам итәбеҙ"),
+    },
+    {
+      to: "/repeat",
+      icon: <IconRoute size={38} />,
+      title: appText("Частые маршруты", "Йыш маршруттар"),
+      sub: appText("В больницу, к детям, на рынок", "Больницаға, балаларға, баҙарға"),
     },
     {
       to: "/trusted",

@@ -66,6 +66,8 @@ const SUITES = [
   { test: "driver-cancelled-order-test", src: null, out: null, bundle: false },
   // Медленный accept не сопровождается противоречивым decline от таймера.
   { test: "driver-offer-accept-race-test", src: null, out: null, bundle: false },
+  // Экран Android без маршрута PWA теперь ломает проверку в том же коммите.
+  { test: "parity-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.

@@ -75,6 +75,13 @@ export default function SettingsScreen() {
 
   const links: { key: string; to: string; icon: JSX.Element; title: string; sub: string }[] = [
     {
+      key: "my-data",
+      to: "/my-data",
+      icon: <IconShield size={22} />,
+      title: appText("Мои данные", "Минең мәғлүмәттәр"),
+      sub: appText("Что хранится и когда удалится", "Нимә һаҡлана һәм ҡасан юйыла"),
+    },
+    {
       key: "blocklist",
       to: "/blocklist",
       icon: <IconBlock size={22} />,
@@ -108,6 +115,13 @@ export default function SettingsScreen() {
       icon: <IconReceipt size={22} />,
       title: appText("Правила сервиса", "Хеҙмәт ҡағиҙәләре"),
       sub: appText("Пользовательское соглашение", "Ҡулланыусы килешеүе"),
+    },
+    {
+      key: "payment-methods",
+      to: "/payment-methods",
+      icon: <IconWallet size={22} />,
+      title: appText("Способы оплаты", "Түләү ысулдары"),
+      sub: appText("Выбор для будущих поездок", "Киләһе сәфәрҙәр өсөн һайлау"),
     },
     {
       key: "payment-info",
