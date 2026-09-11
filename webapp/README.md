@@ -62,6 +62,9 @@ VITE_VAPID_PUBLIC_KEY=<public_vapid_ключ>
 
 ## Деплой на nginx (app.yulbash.ru)
 
+> Короткий путь: один раз настроить по [docs/deploy-pwa.md](../docs/deploy-pwa.md), дальше
+> каждая выкатка — `bash webapp/deploy.sh` (сборка → заливка → атомарная подмена → проверка).
+
 1. Собери статику: `npm ci && npm run build` → каталог `dist/`.
 2. Разложи `dist/` на сервер, напр. `/var/www/yuldash-webapp/dist`.
 3. Настрой nginx как статический SPA-сайт с fallback на `index.html`
