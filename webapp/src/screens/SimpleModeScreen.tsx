@@ -31,7 +31,7 @@ export default function SimpleModeScreen() {
 
   const tiles: Tile[] = [
     {
-      to: "/rides",
+      to: "/map",
       icon: <YuRoute size={40} />,
       title: appText("Найти поездку", "Сәфәр табыу"),
       sub: appText("Попутки рядом", "Яҡындағы юлдаштар"),

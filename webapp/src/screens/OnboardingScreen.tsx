@@ -62,7 +62,7 @@ export default function OnboardingScreen() {
     flags.setSimpleMode(simple);
     flags.setOnboarded();
     // Выбрал простой режим → сразу ведём в крупный хаб доступности.
-    navigate(simple ? "/simple" : "/rides", { replace: true });
+    navigate(simple ? "/simple" : "/map", { replace: true });
   };
 
   const next = () => (isSetup ? finish() : setStep((s) => s + 1));

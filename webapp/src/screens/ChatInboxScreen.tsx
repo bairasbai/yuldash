@@ -118,7 +118,7 @@ export default function ChatInboxScreen() {
                 "Сәфәр бронла — бында йөрөтөүсе менән чат күренәсәк."
               )}
             </p>
-            <button type="button" className="btn-primary" onClick={() => navigate("/rides")}>
+            <button type="button" className="btn-primary" onClick={() => navigate("/map")}>
               {appText("Найти поездку", "Сәфәр табыу")}
             </button>
           </div>

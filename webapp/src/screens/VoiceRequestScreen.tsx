@@ -168,7 +168,7 @@ export default function VoiceRequestScreen() {
               "Юлдаш эҙләй башланыҡ. Кәрәк булһа — шылтыратып асыҡлайбыҙ."
             )}
           </p>
-          <button type="button" className="btn-primary btn-lg" onClick={() => navigate("/rides")}>
+          <button type="button" className="btn-primary btn-lg" onClick={() => navigate("/map")}>
             {appText("Хорошо", "Яҡшы")}
           </button>
         </div>

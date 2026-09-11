@@ -8468,3 +8468,202 @@ select.field__input {
   line-height: var(--line-micro);
   color: var(--warn);
 }
+
+/* ================================================================
+   «Мои поездки» — зеркало Android RidesScreen / SegmentedTabs / MyTripCard / InfoCard.
+   Все размеры — из Compose-эталона, не «на глаз».
+   ================================================================ */
+/* SegmentedTabs: чипы радиус 14, выбранный — CanonGreen2 + белая надпись Bold, остальные —
+   surface с рамкой и приглушённая надпись Medium; кегль 14, поля 16×8, шаг 8. */
+.segmented {
+  display: flex;
+  gap: var(--space-sm);
+  overflow-x: auto;
+  padding-bottom: var(--space-xs);
+  scrollbar-width: none;
+}
+.segmented::-webkit-scrollbar {
+  display: none;
+}
+.segmented__item {
+  flex: none;
+  min-height: 44px;
+  padding: var(--space-sm) var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease, transform var(--motion-quick) ease;
+}
+.segmented__item:active {
+  transform: scale(0.97);
+}
+.segmented__item.is-selected {
+  border-color: transparent;
+  background: var(--green2);
+  color: var(--on-accent);
+  font-weight: var(--weight-bold);
+}
+
+.my-rides-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+.my-rides__action {
+  margin-top: 0;
+  width: 100%;
+}
+
+/* MyTripCard: CanonCardShape, тень card, поля 12, шаг 12. */
+.my-trip-card {
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.my-trip-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+/* Плитка статуса: Surface(CanonMint, 14dp) { Icon.padding(12).size(24) } = 48×48. */
+.my-trip-card__tile {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green2);
+}
+.my-trip-card__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+.my-trip-card__route {
+  margin: 0;
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* Пилюля статуса: поля 8×4, иконка 15, CanonGreen2 Bold 12. Подложка — по статусу. */
+.my-trip-card__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-pill);
+  color: var(--green2);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+}
+.my-trip-card__status.is-mint {
+  background: var(--mint);
+}
+.my-trip-card__status.is-warn {
+  background: var(--warn-bg);
+}
+.my-trip-card__status.is-danger {
+  background: var(--danger-bg);
+}
+.my-trip-card__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.my-trip-card__actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+/* Кнопки карточки: 44dp, радиус 14, Bold 14; основная — CanonGreen2, вторая — «тональная» мятная. */
+.my-trip-card__primary,
+.my-trip-card__tonal {
+  flex: 1;
+  min-height: 44px;
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: var(--radius-field);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: transform var(--motion-quick) ease;
+}
+.my-trip-card__primary {
+  background: var(--green2);
+  color: var(--on-accent);
+}
+.my-trip-card__tonal {
+  flex: 1.1;
+  background: var(--mint);
+  color: var(--green2);
+}
+.my-trip-card__primary:active,
+.my-trip-card__tonal:active {
+  transform: scale(0.97);
+}
+
+/* InfoCard: CanonItemShape, поля 16, мятная плитка 14dp с иконкой в полях 8. */
+.info-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin: var(--space-lg) 0 var(--space-huge);
+  padding: var(--space-lg);
+  background: var(--surface);
+  border-radius: var(--radius-item);
+  box-shadow: var(--depth-card);
+}
+.info-card__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: var(--space-sm);
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green2);
+}
+.info-card__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.info-card__main strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  color: var(--text);
+}
+.info-card__main small {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  color: var(--muted);
+}

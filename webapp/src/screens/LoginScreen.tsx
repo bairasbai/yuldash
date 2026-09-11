@@ -29,7 +29,7 @@ export default function LoginScreen() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const from = (location.state as { from?: string } | null)?.from ?? "/rides";
+  const from = (location.state as { from?: string } | null)?.from ?? "/map";
 
   const [step, setStep] = useState<Step>("choose");
   const [requestId, setRequestId] = useState("");
@@ -188,7 +188,7 @@ export default function LoginScreen() {
         <button
           type="button"
           className="auth__back"
-          onClick={() => (step === "code" ? setStep("choose") : navigate("/rides"))}
+          onClick={() => (step === "code" ? setStep("choose") : navigate("/map"))}
           aria-label={appText("Назад", "Артҡа")}
         >
           <span style={{ display: "inline-flex", transform: "rotate(180deg)" }}>

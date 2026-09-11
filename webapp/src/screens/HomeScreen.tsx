@@ -394,7 +394,7 @@ export default function HomeScreen() {
                 key={`${r.from.id}-${r.to.id}`}
                 type="button"
                 className="chip"
-                onClick={() => navigate(`/rides?from=${encodeURIComponent(a)}&to=${encodeURIComponent(b)}`)}
+                onClick={() => navigate(`/rides/feed?from=${encodeURIComponent(a)}&to=${encodeURIComponent(b)}`)}
               >
                 {a} → {b}
               </button>
