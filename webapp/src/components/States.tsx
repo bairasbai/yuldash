@@ -67,7 +67,7 @@ export function ErrorState({
   const { t } = useLang();
   return (
     <div className="state">
-      <div className="state__icon state__icon--warn">
+      <div className="state__icon state__icon--danger">
         <YuTripList size={36} />
       </div>
       <h2>{title ?? t("errorTitle")}</h2>

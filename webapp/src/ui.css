@@ -24,15 +24,16 @@
 
 /* ---- Шапка экрана ---- */
 .screen-header {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  margin: 0 -16px 8px;
-  padding: calc(env(safe-area-inset-top) + 16px) 16px 16px;
-  background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
-  color: #fff;
-  border-radius: 0 0 var(--radius-card) var(--radius-card);
-  box-shadow: var(--depth-card);
+  /* Как в Android (RidesScreen/MyRequestsScreen/ChatScreen): заголовок вкладки — зелёный текст
+     CanonTitle в потоке списка, без зелёной плашки и тени. Градиент остался только у героев
+     (профиль, кошелёк, чек) — они делаются на своих экранах. */
+  position: static;
+  margin: 0 0 var(--space-sm);
+  padding: calc(env(safe-area-inset-top) + var(--space-lg)) 0 0;
+  background: none;
+  color: var(--text);
+  border-radius: 0;
+  box-shadow: none;
 }
 .screen-header__row {
   display: flex;
@@ -43,19 +44,22 @@
 .screen-header h1 {
   margin: 0;
   font-size: var(--font-title);
+  line-height: var(--line-title);
   font-weight: var(--weight-bold);
-  letter-spacing: -0.02em;
+  color: var(--green);
 }
 .screen-header p {
-  margin: 4px 0 0;
+  margin: var(--space-xs) 0 0;
+  color: var(--muted);
   font-size: var(--font-caption);
-  opacity: 0.85;
+  line-height: var(--line-caption);
 }
 .screen-header--sub {
-  background: var(--bg);
+  /* Второстепенный экран: Android ScreenTopBar — фон экрана, тёмный жирный заголовок, стрелка назад. */
+  padding-top: calc(env(safe-area-inset-top) + var(--space-sm));
+}
+.screen-header--sub h1 {
   color: var(--text);
-  border-radius: 0;
-  box-shadow: none;
 }
 .screen-header--sub .subheader__back {
   color: var(--text);
@@ -67,8 +71,7 @@
   display: inline-flex;
   padding: 3px;
   border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.16);
-  backdrop-filter: blur(6px);
+  background: var(--mint);
 }
 .lang-toggle button {
   position: relative;
@@ -80,7 +83,7 @@
   border: 0;
   border-radius: var(--radius-pill);
   background: transparent;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--green2);
   font-size: var(--font-caption);
   font-weight: var(--weight-semibold);
   transition: background var(--motion-quick) ease, color var(--motion-quick) ease;
@@ -227,8 +230,18 @@
 
 /* ---- Пусто / ошибка ---- */
 .state {
+  /* EmptyStateCard / AppErrorState в Android — это карточка, а не голый текст на фоне. */
   text-align: center;
-  padding: 56px 20px;
+  padding: var(--space-lg);
+  margin: var(--space-md) 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--depth-card);
   animation: fadeUp var(--motion-normal) ease both;
 }
 .state__emoji {
@@ -238,14 +251,15 @@
    и «скоро» состояниях (кошелёк/поездки/чат и т.п.). Как аватар-плейсхолдер
    в андроиде: мятный круг + зелёная иконка. */
 .state__icon {
-  width: 76px;
-  height: 76px;
-  margin: 0 auto 2px;
+  /* Иконка 30 в круге с полями 16 — ровно как Surface(CircleShape){ Icon.padding(16).size(30) }. */
+  width: 62px;
+  height: 62px;
+  margin: 0 auto;
   border-radius: 50%;
   display: grid;
   place-items: center;
   background: var(--mint);
-  color: var(--green);
+  color: var(--green2);
 }
 .state__icon--warn {
   background: var(--warn-bg);
@@ -256,28 +270,36 @@
   color: var(--danger);
 }
 .state h2 {
-  margin: 14px 0 6px;
+  margin: 0;
   font-size: var(--font-heading);
-  font-weight: var(--weight-semibold);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
 }
 .state p {
   margin: 0 auto;
   max-width: 320px;
   color: var(--muted);
   font-size: var(--font-caption);
-  line-height: 1.45;
+  line-height: var(--line-caption);
 }
 .btn-primary {
+  /* AppButton(Primary): 54dp, радиус 14 (CanonFieldShape), Bold 16, CanonGreen2 + CanonOnFilled. */
   margin-top: 18px;
-  min-height: 52px;
+  min-height: 54px;
   padding: 0 22px;
   border: 0;
   border-radius: var(--radius-field);
-  background: var(--green-btn);
-  color: #fff;
-  font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
+  background: var(--green2);
+  color: var(--on-filled);
+  font-size: var(--font-button);
+  line-height: var(--line-button);
+  font-weight: var(--weight-bold);
   transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
+}
+.btn-accent {
+  /* AppButton(Accent): золотая — «поднять поездку» и другие платные действия. */
+  background: var(--canon-gold);
+  color: var(--gold-ink);
 }
 .btn-primary:active {
   transform: scale(0.97);
@@ -288,12 +310,13 @@
   color: var(--taxi-ink);
 }
 .btn-ghost {
+  /* Material TextButton: без рамки и заливки, надпись цветом primary (CanonGreen2), 14 Medium. */
   min-height: 48px;
   padding: 0 16px;
   border: 0;
   background: transparent;
-  color: var(--muted);
-  font-weight: var(--weight-semibold);
+  color: var(--green2);
+  font-weight: var(--weight-medium);
   font-size: var(--font-caption);
 }
 
@@ -345,8 +368,9 @@
   transition: color var(--motion-quick) ease, transform var(--motion-quick) ease;
 }
 .nav-item.is-active {
-  color: var(--canon-gold-ink);
+  color: var(--text);
 }
+
 .nav-pill {
   position: relative;
   min-height: 29px;
@@ -365,10 +389,11 @@
   height: 21px;
 }
 .nav-item.is-active .nav-pill {
-  color: var(--taxi-ink);
+  color: var(--text);
   background: var(--canon-gold);
   transform: scale(1.12);
 }
+
 .nav-item__label {
   max-width: 100%;
   overflow: hidden;
@@ -378,8 +403,9 @@
 }
 .nav-item.is-active .nav-item__label {
   font-weight: var(--weight-bold);
-  color: var(--canon-gold-ink);
+  color: var(--canon-gold);
 }
+
 .nav-debt-badge {
   position: absolute;
   top: 2px;
@@ -516,11 +542,22 @@
   padding-top: var(--space-md);
   border-top: 1px solid var(--border);
 }
-.my-request-card__actions .btn-soft { flex: 1 1 100%; }
-.my-request-matches {
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--border);
+.my-request-card__actions .btn-soft {
+  /* AppButton(Secondary) — самая частая кнопка Android: прозрачная, рамка 1.5 CanonGreen2, зелёная надпись. */
+  flex: 1;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1.5px solid var(--green2);
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-button);
+  line-height: var(--line-button);
+  font-weight: var(--weight-bold);
+  transition: transform var(--motion-quick) ease;
 }
 .my-request-matches h3 {
   margin: 0 0 var(--space-sm);
@@ -588,8 +625,23 @@
 }
 .sheet__actions .btn-ghost,
 .sheet__actions .btn-danger {
+  /* AppButton(Danger): CanonRed + CanonOnFilled, те же 54dp и Bold. */
+  margin-top: 18px;
   width: 100%;
-  margin: 0;
+  min-height: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: var(--radius-field);
+  background: var(--danger-btn);
+  color: var(--on-filled);
+  font-size: var(--font-button);
+  line-height: var(--line-button);
+  font-weight: var(--weight-bold);
+  transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
 }
 
 @media (max-width: 370px) {

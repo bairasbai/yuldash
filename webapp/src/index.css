@@ -185,6 +185,7 @@
      не был виден вообще, а бейдж нужен ровно для того, чтобы сверить номер. */
   --taxi-text: #3a2a00; /* CanonTaxiText light */
   --on-accent: #ffffff; /* CanonOnAccent — текст на фиксированно-тёмных подложках */
+  --on-filled: #fafaf6; /* CanonBg — CanonOnFilled: надпись на зелёной/красной кнопке = цвет фона, не белый (в тёмной теме кнопка светлеет) */
   --scrim: rgba(0, 0, 0, 0.9); /* CanonScrim — затемнение под фото */
   --glass-dark: rgba(0, 0, 0, 0.4); /* CanonGlassDark — кнопка поверх фото */
   --glass-on-photo: rgba(255, 255, 255, 0.4); /* CanonGlassOnPhoto */
@@ -306,6 +307,7 @@
     --canon-gold-soft: #4a3a14;
     --canon-gold-ink: #ffe3a1;
     --bg: #0f1613; /* CanonBg dark */
+    --on-filled: #0f1613; /* CanonBg dark */
     --surface: #192420;
     --surface-2: #101a16;
     --text: #eaf2ec;
@@ -349,6 +351,7 @@
   --canon-gold-soft: #4a3a14;
   --canon-gold-ink: #ffe3a1;
   --bg: #0f1613; /* CanonBg dark */
+  --on-filled: #0f1613; /* CanonBg dark */
   --surface: #192420;
   --surface-2: #101a16;
   --text: #eaf2ec;
