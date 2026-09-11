@@ -1829,8 +1829,8 @@ internal fun ActiveTripScreen(
                 val reviewSentMsg = appText("Спасибо! Отзыв на проверке", "Рәхмәт! Фекер тикшереүҙә")
                 val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
                 // Кого оцениваем: пассажир → водителя, водитель → пассажира.
-                val rateTitle = if (isDriver) appText("Оцени попутчика", "Юлдашты баһалағыҙ")
-                                else appText("Оцени водителя", "Йөрөтөүсене баһалағыҙ")
+                val rateTitle = if (isDriver) appText("Оцени попутчика", "Юлдашты баһала")
+                                else appText("Оцени водителя", "Йөрөтөүсене баһала")
                 Card(modifier = Modifier.appearIn(2), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(rateTitle, fontWeight = FontWeight.Bold)
@@ -2385,7 +2385,7 @@ internal fun ActiveTripScreen(
                 } else {
                 Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
                 if (contacts.isEmpty()) {
-                    Text(appText("Сначала добавь доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтәгеҙ"), color = CanonMuted)
+                    Text(appText("Сначала добавь доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтә"), color = CanonMuted)
                 }
                 contacts.forEach { c ->
                     Row(

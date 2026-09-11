@@ -3345,8 +3345,8 @@ internal fun DriverCabinetContent(
                         Text(
                             when {
                                 !editing -> appText("Твоя оценка: ${starsText(stars)}", "Һинең баһаң: ${starsText(stars)}")
-                                stars == 0 -> appText("Выбери оценку", "Баһа һайлағыҙ")
-                                else -> appText("Выбрано ${starsText(stars)} — подтверди", "${starsText(stars)} һайланды — раҫлағыҙ")
+                                stars == 0 -> appText("Выбери оценку", "Баһа һайла")
+                                else -> appText("Выбрано ${starsText(stars)} — подтверди", "${starsText(stars)} һайланды — раҫла")
                             },
                             color = CanonMuted, fontSize = 12.sp,
                         )

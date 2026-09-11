@@ -604,7 +604,7 @@ internal fun CreateRideFormContent(
                     onValueChange = {},
                     readOnly = true,
                     label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
-                    placeholder = { Text(appText("Выбери дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
+                    placeholder = { Text(appText("Выбери дату и время", "Дата һәм ваҡыт һайла")) },
                     leadingIcon = { Icon(Icons.Default.Schedule, null) },
                     trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
                     modifier = Modifier.fillMaxWidth(),
@@ -1055,7 +1055,7 @@ internal fun FuelHintBlock(km: Int, fuelRub: Int, perPerson: Int, seats: Int) {
                     color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp,
                 )
                 Text(
-                    appText("По-соседски: ≈ $perPerson ₽ с человека, если разделить на $seats.", "Күршеләрсә: бүлешһәгеҙ, ≈ $perPerson ₽ бер кешенән ($seats кешегә)."),
+                    appText("По-соседски: ≈ $perPerson ₽ с человека, если разделить на $seats.", "Күршеләрсә: бүлешһәң, ≈ $perPerson ₽ бер кешенән ($seats кешегә)."),
                     color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                 )
             }

@@ -980,7 +980,7 @@ internal fun VerifyDriverContent(
                     verified -> StatusBanner(Icons.Default.Verified, appText("Профиль подтверждён", "Профиль раҫланды"), appText("Тебе доверяют — значок «Проверен» виден пассажирам.", "Һеҙгә ышаналар — «Тикшерелгән» билдәһе күренә."), CanonMint, CanonGreen2)
                     docsStatus == "pending" -> StatusBanner(Icons.Default.Schedule, appText("На проверке", "Тикшереүҙә"), appText("Обычно занимает немного времени. Сообщим о результате.", "Ғәҙәттә әҙ ваҡыт ала. Һөҙөмтә тураһында хәбәр итәбеҙ."), CanonMint, CanonGreen2)
                     docsStatus == "rejected" -> StatusBanner(Icons.Default.Shield, appText("Отклонено", "Кире ҡағылды"), appText("Проверь фото и отправь снова.", "Фотоларҙы тикшереп, ҡабат ебәр."), CanonDangerBg, CanonRed)
-                    else -> StatusBanner(Icons.Default.Shield, appText("Проверка не пройдена", "Тикшереү үтелмәгән"), appText("Заполни данные авто и загрузи фото.", "Машина мәғлүмәтен тултырып, фото йөкләгеҙ."), CanonMint, CanonGreen2)
+                    else -> StatusBanner(Icons.Default.Shield, appText("Проверка не пройдена", "Тикшереү үтелмәгән"), appText("Заполни данные авто и загрузи фото.", "Машина мәғлүмәтен тултырып, фото йөклә."), CanonMint, CanonGreen2)
                 }
             }
             // Причина отказа/правки для ВОДИТЕЛЯ (раньше видел только админ): что не так и что делать.
