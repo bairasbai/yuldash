@@ -22,18 +22,11 @@ import {
   IconWallet,
 } from "../components/Icons";
 import { SubHeader } from "./ConsentsScreen";
+import { pluralRu } from "../utils/format";
 
 type IconType = (props: { size?: number }) => JSX.Element;
 type ViewState = "loading" | "error" | "ready";
 
-function pluralRu(n: number, one: string, few: string, many: string): string {
-  const mod100 = Math.abs(n) % 100;
-  const mod10 = mod100 % 10;
-  if (mod100 >= 11 && mod100 <= 14) return many;
-  if (mod10 === 1) return one;
-  if (mod10 >= 2 && mod10 <= 4) return few;
-  return many;
-}
 
 function DataRow({
   Icon,
@@ -166,9 +159,20 @@ export default function MyDataScreen() {
       const dump = await exportMyData(lang === "ba" ? "ba" : "ru");
       const filename = dump.filename.replace(/[\\/:*?"<>|]/g, "_").slice(0, 120) || "yuldash-data.txt";
       const file = new File([dump.text], filename, { type: "text/plain;charset=utf-8" });
+      let shared = false;
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: filename });
-      } else {
+        try {
+          await navigator.share({ files: [file], title: filename });
+          shared = true;
+        } catch (error) {
+          // Человек сам закрыл окно «поделиться» — это не ошибка, файл ему не нужен.
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          // Десктоп и часть браузеров заявляют «поделиться», но не дают (NotAllowedError).
+          // Раньше здесь показывалась ошибка «не получилось собрать файл», хотя файл уже
+          // собран — теперь просто скачиваем его обычным способом.
+        }
+      }
+      if (!shared) {
         const url = URL.createObjectURL(file);
         const anchor = document.createElement("a");
         anchor.href = url;

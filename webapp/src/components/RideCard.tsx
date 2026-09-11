@@ -5,7 +5,7 @@ import { IconArrow, IconCheck } from "./Icons";
 import { serverDate } from "../utils/serverTime";
 import { YuStar, YuWomenOnly } from "./BrandIcons";
 
-import { dayMonthShort, hhmm } from "../utils/format";
+import { dayMonthShort, hhmm, pluralRu } from "../utils/format";
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -54,7 +54,7 @@ export default function RideCard({ ride, index, to }: { ride: Ride; index: numbe
       <div className="ride-card__meta">
         <span>{formatWhen(ride.depart_at, ru)}</span>
         <span>
-          <b>{ride.seats_left}</b> {appText("мест", "урын")}
+          <b>{ride.seats_left}</b> {appText(pluralRu(ride.seats_left, "место", "места", "мест"), "урын")}
         </span>
         {ride.women_only && (
           <span className="badge badge--woman">

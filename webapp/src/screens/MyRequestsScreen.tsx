@@ -8,7 +8,7 @@ import RideCard from "../components/RideCard";
 import RideSheet from "../components/RideSheet";
 import ScreenHeader from "../components/ScreenHeader";
 import { ErrorState, LoadingList } from "../components/States";
-import { formatWhen } from "../utils/format";
+import { formatWhen, pluralRu } from "../utils/format";
 
 type ViewState = "loading" | "error" | "ready";
 
@@ -216,7 +216,7 @@ export default function MyRequestsScreen() {
                 </div>
                 <div className="my-request-card__meta">
                   <span>{formatWhen(request.desired_at, ru)}</span>
-                  <span>{appText(`${request.seats} мест`, `${request.seats} урын`)}</span>
+                  <span>{appText(`${request.seats} ${pluralRu(request.seats, "место", "места", "мест")}`, `${request.seats} урын`)}</span>
                   <span>
                     {request.max_price
                       ? appText(`до ${request.max_price} ₽`, `${request.max_price} ₽ тиклем`)
