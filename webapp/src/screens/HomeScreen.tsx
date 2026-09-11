@@ -9,6 +9,8 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import ScreenHeader from "../components/ScreenHeader";
+import ModeSwitch from "../components/ModeSwitch";
+import { pluralRu } from "../utils/format";
 import { fetchSeasonalEvents, type SeasonalEvent } from "../api/seasonal";
 import RideCard from "../components/RideCard";
 import RideSheet from "../components/RideSheet";
@@ -18,7 +20,7 @@ import CommunityFeedStrip from "../components/CommunityFeedStrip";
 import { fetchRidesNear, fetchRequestsNear, type NearRequest } from "../api/discovery";
 import type { Ride } from "../api/rides";
 import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
-import { IconRequest, IconRides, IconShield, IconGift, IconFilter, IconPin, IconCar } from "../components/Icons";
+import { IconRides, IconGift, IconFilter, IconPin, IconCar } from "../components/Icons";
 import { YuModeTaxi } from "../components/BrandIcons";
 import { PartnerAdSlot } from "../components/PartnerAd";
 import { fetchPopularRoutes, type PopularRoute } from "../api/geo";
@@ -217,45 +219,25 @@ export default function HomeScreen() {
     return list;
   }, [reqs]);
 
-  const quick = [
-    {
-      key: "taxi",
-      icon: <YuModeTaxi size={22} />,
-      title: appText("Вызвать такси", "Такси саҡырыу"),
-      onClick: () => navigate("/taxi"),
-    },
-    {
-      key: "create",
-      icon: <IconRequest size={22} />,
-      title: appText("Создать заявку", "Заявка ҡалдыр"),
-      onClick: () => navigate("/request"),
-    },
-    {
-      key: "feed",
-      icon: <IconRides size={22} />,
-      title: appText("Заявки рядом", "Яҡындағы заявкалар"),
-      onClick: () => navigate("/requests-feed"),
-    },
-    {
-      key: "trust",
-      icon: <IconShield size={22} />,
-      title: appText("Доверие", "Ышаныс"),
-      onClick: () => navigate("/trust"),
-    },
-    {
-      key: "invite",
-      icon: <IconGift size={22} />,
-      title: appText("Позови своего", "Үҙеңдекеләрҙе саҡыр"),
-      onClick: () => navigate("/invites"),
-    },
-  ];
 
   return (
     <>
-      <ScreenHeader
-        title={greeting}
-        subtitle={appText("Куда поедем?", "Ҡайҙа барабыҙ?")}
+      {/* Как в Android: ModeSwitchBar над всем, затем HomeHeader — приветствие мелким и «Куда поедем?». */}
+      <ModeSwitch
+        mode="pooling"
+        onSelect={(m) => {
+          if (m === "taxi") navigate("/taxi");
+          else if (m === "courier") navigate("/parcels");
+        }}
+        onExplain={() => {
+          const hint = document.querySelector<HTMLDetailsElement>(".modes-hint");
+          if (hint) {
+            hint.open = true;
+            hint.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }
+        }}
       />
+      <ScreenHeader eyebrow={greeting} title={appText("Куда поедем?", "Ҡайҙа барабыҙ?")} />
 
       {/* Сезон: сабантуй, курбан, начало учёбы — когда все едут в одну сторону.
           Ничего не навязываем: подсказка «сегодня будет много попутчиков». */}
@@ -315,21 +297,6 @@ export default function HomeScreen() {
           {geoNote}
         </div>
       )}
-
-      <div className="quick-row" role="list">
-        {quick.map((q) => (
-          <button
-            key={q.key}
-            type="button"
-            className="quick-tile"
-            role="listitem"
-            onClick={q.onClick}
-          >
-            <span className="quick-tile__icon">{q.icon}</span>
-            <span className="quick-tile__title">{q.title}</span>
-          </button>
-        ))}
-      </div>
 
       {/* «Такси, попутка, курьер» — три слова, за которыми три разные цены
           и три разных ожидания. Человек, который путает их, платит не за то,
@@ -408,9 +375,14 @@ export default function HomeScreen() {
           Числа настоящие, с сервера; пусто — полосы просто нет. */}
       <CommunityFeedStrip />
 
-      <h2 className="section-title">
-        {appText("Поездки рядом", "Яҡындағы сәфәрҙәр")}
-      </h2>
+      <div className="nearby-header">
+        <h2 className="section-title">{appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр")}</h2>
+        {status === "ready" && shownRides.length > 0 && (
+          <span className="nearby-header__count">
+            {appText(`${shownRides.length} ${pluralRu(shownRides.length, "поездка", "поездки", "поездок")}`, `${shownRides.length} сәфәр`)}
+          </span>
+        )}
+      </div>
 
       {status === "loading" && <LoadingList count={3} />}
       {status === "error" && <ErrorState onRetry={() => load(undefined, me)} />}

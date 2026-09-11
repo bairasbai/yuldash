@@ -1833,10 +1833,12 @@ button.list-row:active {
 }
 
 .section-title {
-  margin: 22px 0 2px;
-  font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
-  letter-spacing: -0.01em;
+  /* Заголовок блока — CanonHeading: 19/25 SemiBold, цвет текста. */
+  margin: var(--space-xl) 0 var(--space-sm);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-heading);
+  color: var(--text);
 }
 .ride-card-btn {
   display: block;
@@ -8728,4 +8730,112 @@ select.field__input {
   font-size: var(--font-caption);
   line-height: var(--line-caption);
   color: var(--muted);
+}
+
+/* ================================================================
+   Вкладка «Карта» — зеркало Android ModeSwitchBar / HomeHeader / nearby_header.
+   ================================================================ */
+.screen-header__eyebrow {
+  margin: 0 0 var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* ModeSwitchBar: пилюля CanonItemShape с рамкой, сегменты 48, активный сегмент — подложка режима
+   с рамкой акцента 42%, ездит на своё место за CanonMotion.NORMAL. */
+.mode-switch {
+  margin: var(--space-xs) 0 var(--space-md);
+}
+.mode-switch__pill {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  overflow: hidden;
+}
+.mode-switch__track {
+  position: relative;
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+.mode-switch__thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% / 3);
+  height: 48px;
+  border-radius: var(--radius-field);
+  border: 1px solid transparent;
+  transition: transform var(--motion-normal) ease, background var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.mode-switch--pooling .mode-switch__thumb { background: var(--pooling-bg); border-color: color-mix(in srgb, var(--pooling) 42%, transparent); }
+.mode-switch--taxi .mode-switch__thumb { background: var(--taxi-bg); border-color: color-mix(in srgb, var(--taxi) 42%, transparent); }
+.mode-switch--courier .mode-switch__thumb { background: var(--courier-bg); border-color: color-mix(in srgb, var(--courier) 42%, transparent); }
+.mode-switch__seg {
+  position: relative;
+  z-index: 1;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: 0 var(--space-sm);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-normal);
+  white-space: nowrap;
+  transition: color var(--motion-quick) ease;
+}
+.mode-switch__seg.is-on {
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}
+.mode-switch--pooling .mode-switch__seg.is-on svg { color: var(--pooling); }
+.mode-switch--taxi .mode-switch__seg.is-on svg { color: var(--taxi); }
+.mode-switch--courier .mode-switch__seg.is-on svg { color: var(--courier); }
+.mode-switch__divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+.mode-switch__explain {
+  width: 48px;
+  height: 48px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-body);
+  font-weight: var(--weight-bold);
+}
+.mode-switch__hint {
+  margin: var(--space-xs) 0 0 var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.nearby-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.nearby-header .section-title {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: var(--space-sm);
+}
+.nearby-header__count {
+  flex: none;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
 }
