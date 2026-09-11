@@ -269,6 +269,7 @@
   --line-caption: 20px;
   --font-micro: 12px;
   --line-micro: 17px;
+  --font-button: 16px; /* CanonButton: кегль как у Body, свой межстрочный и вес */
   --line-button: 20px;
   /* Веса — имена как FontWeight в Compose (Normal/Medium/SemiBold/Bold): в Android других нет,
      800/900 не существует. Семантические токены ниже — псевдонимы этих четырёх. */
@@ -332,6 +333,8 @@
     --nav-bg: rgba(16, 26, 22, 0.86);
     --skeleton: #212d28;
     --skeleton-shine: rgba(255, 255, 255, 0.06);
+    --btn-disabled-bg: rgba(255, 255, 255, 0.12);
+    --btn-disabled-fg: #7f887f;
   }
 }
 

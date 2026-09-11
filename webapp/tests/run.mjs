@@ -68,6 +68,8 @@ const SUITES = [
   { test: "driver-offer-accept-race-test", src: null, out: null, bundle: false },
   // Экран Android без маршрута PWA теперь ломает проверку в том же коммите.
   { test: "parity-test", src: null, out: null, bundle: false },
+  // Токены сайта читаются из CanonTokens.kt: цвет, радиус, отступ, кегль разошлись — набор красный.
+  { test: "canon-sync-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.
