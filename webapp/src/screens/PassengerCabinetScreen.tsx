@@ -166,7 +166,7 @@ export default function PassengerCabinetScreen() {
                     <div className="trip__meta">
                       <span>{formatWhen(b.depart_at, ru)}</span>
                       <StatusPill status={b.status} />
-                      <span style={{ marginLeft: "auto", fontWeight: 800 }}>
+                      <span style={{ marginLeft: "auto", fontWeight: "var(--weight-bold)" }}>
                         {priceLabel(b.price, ru)}
                       </span>
                     </div>

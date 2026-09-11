@@ -86,7 +86,7 @@ export default function IncomeCalculatorScreen() {
       {/* Такси (опционально) */}
       <div className="admin-card" style={{ marginTop: 12 }}>
         <label className="admin-check" style={{ marginTop: 0, justifyContent: "space-between" }}>
-          <span style={{ fontWeight: 700, fontSize: "var(--font-body)" }}>{appText("Включить такси (комиссия)", "Таксины ҡабыҙыу (комиссия)")}</span>
+          <span style={{ fontWeight: "var(--weight-bold)", fontSize: "var(--font-body)" }}>{appText("Включить такси (комиссия)", "Таксины ҡабыҙыу (комиссия)")}</span>
           <input type="checkbox" checked={taxiOn} onChange={(e) => setTaxiOn(e.target.checked)} aria-label={appText("Включить такси", "Таксины ҡабыҙыу")} />
         </label>
         {taxiOn ? (

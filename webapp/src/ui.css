@@ -43,7 +43,7 @@
 .screen-header h1 {
   margin: 0;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
 }
 .screen-header p {
@@ -82,7 +82,7 @@
   background: transparent;
   color: rgba(255, 255, 255, 0.85);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: background var(--motion-quick) ease, color var(--motion-quick) ease;
 }
 /* Тач-цель 44px без роста шапки: невидимая область поверх пилюли */
@@ -115,7 +115,7 @@
   align-items: center;
   gap: 10px;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
 }
 .ride-card__arrow {
@@ -158,10 +158,10 @@
   display: grid;
   place-items: center;
   color: var(--green);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .ride-card__driver-name {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   font-size: var(--font-body);
   white-space: nowrap;
   overflow: hidden;
@@ -173,7 +173,7 @@
 }
 .ride-card__price {
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
   white-space: nowrap;
 }
@@ -187,7 +187,7 @@
   padding: 0 10px;
   border-radius: var(--radius-pill);
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .badge--mint {
   background: var(--mint);
@@ -258,7 +258,7 @@
 .state h2 {
   margin: 14px 0 6px;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .state p {
   margin: 0 auto;
@@ -276,7 +276,7 @@
   background: var(--green-btn);
   color: #fff;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
 }
 .btn-primary:active {
@@ -293,7 +293,7 @@
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   font-size: var(--font-caption);
 }
 
@@ -341,7 +341,7 @@
   background: transparent;
   color: var(--muted);
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   transition: color var(--motion-quick) ease, transform var(--motion-quick) ease;
 }
 .nav-item.is-active {
@@ -377,7 +377,7 @@
   color: var(--muted-strong);
 }
 .nav-item.is-active .nav-item__label {
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--canon-gold-ink);
 }
 .nav-debt-badge {
@@ -450,7 +450,7 @@
   gap: 3px;
   color: var(--green2);
   font-size: var(--font-caption);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 /* Главная вкладка «Мои заявки». */
@@ -544,7 +544,7 @@
   background: transparent;
   color: var(--green2);
   font: inherit;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .my-request-matches__empty {
   margin: 0;
@@ -629,7 +629,7 @@
 .install-sheet h3 {
   margin: 0 0 4px;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .install-sheet p {
   margin: 0;
@@ -694,7 +694,7 @@
 .splash__word {
   margin-top: 18px;
   font-size: var(--font-display);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.01em;
   animation: fadeUp var(--motion-slow) ease both calc(var(--cascade-in) * 2);
 }
@@ -724,6 +724,8 @@
 
 /* ---- Intro ---- */
 .intro {
+  /* Montserrat — как IntroScreen.kt: единственный экран с брендовой гарнитурой. */
+  font-family: var(--font-family-intro);
   position: relative;
   min-height: 100dvh;
   width: 100%;
@@ -750,7 +752,7 @@
   overflow: hidden;
 }
 .intro__word {
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.01em;
 }
 .intro__word--meaning {
@@ -834,7 +836,7 @@
   background: transparent;
   color: var(--muted);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: background var(--motion-quick) ease, color var(--motion-quick) ease;
 }
 .onb__lang button[data-active="true"] {
@@ -859,7 +861,7 @@
 .onb__slide h1 {
   margin: 22px 0 10px;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
 }
 .onb__slide p {
@@ -914,7 +916,7 @@
 }
 .onb__role-title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .onb__role-sub {
@@ -1073,7 +1075,7 @@
 .auth__word {
   margin-top: 12px;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.01em;
 }
 .auth__slogan {
@@ -1092,7 +1094,7 @@
 .auth__card h1 {
   margin: 0 0 8px;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
 }
 .auth__lead {
@@ -1113,7 +1115,7 @@
   background: #229ed9;
   color: #fff;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
 }
 .btn-tg:active {
@@ -1129,7 +1131,7 @@
   background: transparent;
   color: var(--muted);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-decoration: underline;
   min-height: 44px;
 }
@@ -1168,7 +1170,7 @@
   color: var(--text);
   text-align: center;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: 0.32em;
   padding-left: 0.32em;
 }
@@ -1222,7 +1224,7 @@
 .list-group__label {
   margin: 0 4px 8px;
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
@@ -1267,7 +1269,7 @@ button.list-row:active {
 }
 .list-row__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .list-row__sub {
   margin-top: 3px;
@@ -1325,7 +1327,7 @@ button.list-row:active {
 .trust-hero__level {
   margin-top: 12px;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .trust-progress {
   margin: 14px auto 0;
@@ -1362,7 +1364,7 @@ button.list-row:active {
   background: var(--surface-2);
   color: var(--muted);
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .trust-row__dot.on {
   background: var(--green-btn);
@@ -1403,7 +1405,7 @@ button.list-row:active {
 .invite-card__code {
   margin-top: 6px;
   font-size: var(--font-display);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: 0.14em;
   color: var(--green);
 }
@@ -1424,7 +1426,7 @@ button.list-row:active {
   background: var(--surface-2);
   color: var(--text);
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: transform var(--motion-quick) ease;
 }
 /* «Показать ещё» под лентой: на всю ширину, с воздухом от последней карточки. */
@@ -1456,7 +1458,7 @@ button.list-row:active {
 .invite-stat b {
   display: block;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--text);
 }
 .invite-stat span {
@@ -1478,7 +1480,7 @@ button.list-row:active {
 }
 .invite-redeem__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .invite-redeem__row {
   margin-top: 12px;
@@ -1531,7 +1533,7 @@ button.list-row:active {
   display: grid;
   place-items: center;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .profile-card__avatar img {
   width: 100%;
@@ -1540,7 +1542,7 @@ button.list-row:active {
 }
 .profile-card__name {
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
   color: #fff;
 }
@@ -1555,7 +1557,7 @@ button.list-row:active {
   align-items: center;
   gap: 4px;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: rgba(255, 255, 255, 0.9);
 }
 .profile-guest {
@@ -1579,7 +1581,7 @@ button.list-row:active {
 .profile-guest h2 {
   margin: 12px 0 6px;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .profile-guest p {
   margin: 0 auto 4px;
@@ -1600,7 +1602,7 @@ button.list-row:active {
   background: transparent;
   color: var(--danger);
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 /* ================================================================
@@ -1657,7 +1659,7 @@ button.list-row:active {
 }
 .map-placeholder__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .map-placeholder__sub {
@@ -1687,7 +1689,7 @@ button.list-row:active {
   background: var(--surface);
   color: var(--text);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: transform var(--motion-quick) ease, border-color var(--motion-quick) ease, background var(--motion-quick) ease;
 }
 .chip:active {
@@ -1744,7 +1746,7 @@ button.list-row:active {
 }
 .quick-tile__title {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 1.25;
   color: var(--text);
 }
@@ -1752,7 +1754,7 @@ button.list-row:active {
 .section-title {
   margin: 22px 0 2px;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
 }
 .ride-card-btn {
@@ -1854,7 +1856,7 @@ button.list-row:active {
 }
 .field__label {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--muted);
 }
 .field__input {
@@ -1900,11 +1902,11 @@ button.list-row:active {
   background: var(--surface);
   color: var(--green);
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .stepper b {
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 /* Сегмент-переключатель (тип поездки) */
@@ -1925,7 +1927,7 @@ button.list-row:active {
   background: var(--surface);
   color: var(--text);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: border-color var(--motion-quick) ease, background var(--motion-quick) ease, transform var(--motion-quick) ease;
 }
 .seg__item span {
@@ -1951,7 +1953,7 @@ button.list-row:active {
   background: transparent;
   color: var(--text);
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .more-toggle__chev {
   transition: transform var(--motion-quick) ease;
@@ -1994,7 +1996,7 @@ button.list-row:active {
   background: var(--surface);
   color: var(--text);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: border-color var(--motion-quick) ease, background var(--motion-quick) ease, transform var(--motion-quick) ease;
 }
 .opt-chip:active {
@@ -2049,7 +2051,7 @@ button.list-row:active {
   border-radius: var(--radius-field);
   background: var(--mint);
   color: var(--green);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 /* ---- Детали брони / поездки ---- */
@@ -2104,7 +2106,7 @@ button.list-row:active {
 .info-row__v {
   text-align: right;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .info-row--link {
@@ -2126,7 +2128,7 @@ button.list-row:active {
   background: var(--mint);
   color: var(--green);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 1.4;
 }
 
@@ -2163,7 +2165,7 @@ button.list-row:active {
 .code-card__value {
   margin-top: 6px;
   font-size: var(--font-display);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: 0.28em;
   padding-left: 0.28em;
 }
@@ -2181,7 +2183,7 @@ button.list-row:active {
   background: var(--danger-bg);
   color: var(--danger);
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: transform var(--motion-quick) ease;
 }
 .sos-btn:active {
@@ -2198,7 +2200,7 @@ button.list-row:active {
 }
 .rate-card__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .rate-stars {
   margin-top: 14px;
@@ -2235,7 +2237,7 @@ button.list-row:active {
 .chat__title {
   padding: 14px 16px;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   border-bottom: 1px solid var(--border);
 }
 .chat__body {
@@ -2278,7 +2280,7 @@ button.list-row:active {
 .bubble__admin {
   display: block;
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--warn);
   margin-bottom: 2px;
 }
@@ -2332,7 +2334,7 @@ button.list-row:active {
 }
 .receipt__brand {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
 }
 .receipt__route {
@@ -2341,7 +2343,7 @@ button.list-row:active {
   align-items: center;
   gap: 8px;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
 }
 .receipt__date {
@@ -2370,7 +2372,7 @@ button.list-row:active {
 }
 .receipt__total b {
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--green);
 }
 .receipt__foot {
@@ -2452,7 +2454,7 @@ button.list-row:active {
   align-items: center;
   gap: 8px;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
   min-width: 0;
 }
@@ -2484,7 +2486,7 @@ button.list-row:active {
 .stat-tile b {
   display: block;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
   color: var(--green);
 }
@@ -2541,7 +2543,7 @@ button.list-row:active {
 }
 .cabinet-tile__title {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 1.3;
   color: var(--text);
 }
@@ -2592,7 +2594,7 @@ button.list-row:active {
 .trust-cta__text {
   flex: 1;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 1.4;
 }
 
@@ -2610,7 +2612,7 @@ button.list-row:active {
   background: var(--surface);
   color: var(--text);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: transform var(--motion-quick) ease, border-color var(--motion-quick) ease, background var(--motion-quick) ease;
 }
 .weekday-chip:active {
@@ -2641,7 +2643,7 @@ button.list-row:active {
   background: var(--mint);
   color: var(--green);
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   border: 1px solid var(--border);
 }
 .dprofile-avatar img {
@@ -2652,7 +2654,7 @@ button.list-row:active {
 .dprofile-name {
   margin-top: 12px;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.02em;
   color: var(--text);
 }
@@ -2663,14 +2665,14 @@ button.list-row:active {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--text);
 }
 .dprofile-rating svg {
   color: var(--canon-star);
 }
 .dprofile-rating__count {
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--muted);
   font-size: var(--font-caption);
 }
@@ -2706,7 +2708,7 @@ button.list-row:active {
   gap: 10px;
 }
 .review-card__author {
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--text);
 }
 .review-card__stars {
@@ -2747,7 +2749,7 @@ button.list-row:active {
 }
 .earn-bar__value {
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--green);
 }
 .earn-bar__track {
@@ -2841,7 +2843,7 @@ button.list-row:active {
 }
 .plan-card__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .plan-card__hours {
@@ -2851,7 +2853,7 @@ button.list-row:active {
 .plan-card__price {
   margin-top: 4px;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
 }
 
@@ -2862,7 +2864,7 @@ button.list-row:active {
 .pay-sbp__amount {
   text-align: center;
   font-size: var(--font-display);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
   color: var(--green);
   margin-top: 8px;
@@ -2893,7 +2895,7 @@ button.list-row:active {
 }
 .pay-sbp__value {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 
@@ -2937,7 +2939,7 @@ button.list-row:active {
 }
 .photo-slot__text b {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .photo-slot__text span {
   font-size: var(--font-caption);
@@ -2954,7 +2956,7 @@ button.list-row:active {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--text);
 }
 .verify-rules__head svg {
@@ -2994,7 +2996,7 @@ button.list-row:active {
 }
 .sheet__driver-more {
   color: var(--green);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 /* ================================================================
@@ -3046,7 +3048,7 @@ button.list-row:active {
 }
 .taxi-route__value {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3056,7 +3058,7 @@ button.list-row:active {
   border: none;
   background: transparent;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
   width: 100%;
   padding: 0;
@@ -3064,7 +3066,7 @@ button.list-row:active {
 }
 .taxi-route__input::placeholder {
   color: var(--muted);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .taxi-route__chosen {
   display: flex;
@@ -3080,7 +3082,7 @@ button.list-row:active {
 .taxi-route__change {
   flex: none;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
 }
 
@@ -3160,12 +3162,12 @@ button.list-row:active {
 }
 .taxi-class__name {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .taxi-class__price {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.02em;
   color: var(--green);
 }
@@ -3178,7 +3180,7 @@ button.list-row:active {
   border: 1px solid var(--taxi);
   color: var(--text);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 1.4;
 }
 
@@ -3201,7 +3203,7 @@ button.list-row:active {
 .taxi-pickup--win {
   background: var(--pooling-bg, var(--surface-2));
   color: var(--pooling, var(--text));
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 /* --- Воронка «смотрят цену → заказывают» (пульс такси у админа) --- */
@@ -3215,7 +3217,7 @@ button.list-row:active {
 }
 .funnel__top b {
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
   color: var(--green);
 }
@@ -3287,7 +3289,7 @@ button.list-row:active {
   border-radius: var(--radius-field);
   background: transparent;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--muted);
   transition: background var(--motion-quick) ease, color var(--motion-quick) ease;
 }
@@ -3392,7 +3394,7 @@ button.list-row:active {
 }
 .car-shot__name {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .car-shot__hint {
@@ -3503,7 +3505,7 @@ button.list-row:active {
 }
 .taxi-driver__name {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
   display: flex;
   align-items: center;
@@ -3522,7 +3524,7 @@ button.list-row:active {
   align-items: center;
   gap: 4px;
   color: var(--canon-star);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .taxi-driver__actions {
   display: flex;
@@ -3578,7 +3580,7 @@ button.list-row:active {
 }
 .taxi-fare b {
   font-size: var(--font-display);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
   color: var(--green);
 }
@@ -3636,7 +3638,7 @@ button.list-row:active {
   display: grid;
   place-items: center;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: #fff;
   background: var(--green-btn);
   animation: taxiPulse var(--motion-pulse) ease-in-out infinite;
@@ -3644,14 +3646,14 @@ button.list-row:active {
 .offer-card__title {
   text-align: center;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .offer-card__price {
   text-align: center;
   margin-top: 6px;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
   color: var(--green);
 }
@@ -3686,7 +3688,7 @@ button.list-row:active {
   color: var(--warn);
   font-size: var(--font-caption);
   line-height: var(--line-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 /* Оффер уже закрылся («взял другой»), но объяснение должно догнать водителя. */
@@ -3703,7 +3705,7 @@ button.list-row:active {
   background: var(--canon-gold-soft);
   color: var(--warn);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-align: center;
   box-shadow: var(--depth-card);
   /* 4 секунды — это не длительность движения (те берём со шкалы --motion-*),
@@ -3758,7 +3760,7 @@ button.list-row:active {
   align-items: center;
   gap: 6px;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .sched-card__meta {
@@ -3835,7 +3837,7 @@ button.list-row:active {
 }
 .parcel-card__to {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3854,7 +3856,7 @@ button.list-row:active {
 }
 .parcel-card__size {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
   padding: 4px 10px;
   border-radius: var(--radius-pill);
@@ -3863,7 +3865,7 @@ button.list-row:active {
 .parcel-card__price {
   margin-left: auto;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
 }
 .parcel-card__desc {
@@ -3890,7 +3892,7 @@ button.list-row:active {
   background: var(--mint);
   color: var(--green);
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .parcel-card__settle {
   display: flex;
@@ -3950,7 +3952,7 @@ button.list-row:active {
   align-items: center;
   gap: 8px;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .parcel-card__courier .btn-soft {
@@ -3970,7 +3972,7 @@ button.list-row:active {
 .parcel-done h2 {
   margin: 8px 0 6px;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
 }
 .parcel-code {
@@ -3985,13 +3987,13 @@ button.list-row:active {
 }
 .parcel-code__label {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
 }
 .parcel-code__value {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--font-display);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: 0.2em;
   color: var(--green);
 }
@@ -4015,7 +4017,7 @@ button.list-row:active {
   color: #6a4a00;
   font-size: var(--font-caption);
   line-height: 1.4;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 /* Кабинет курьера */
@@ -4032,7 +4034,7 @@ button.list-row:active {
   align-items: center;
   gap: 8px;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--green);
 }
 .courier-rating__meta {
@@ -4052,13 +4054,13 @@ button.list-row:active {
 }
 .courier-fee__pct {
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--green);
 }
 .courier-fee__label {
   font-size: var(--font-caption);
   color: var(--green);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 /* ================================================================
@@ -4093,13 +4095,13 @@ button.list-row:active {
 }
 .wallet-card__label {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   opacity: 0.9;
 }
 .wallet-card__amount {
   margin-top: 14px;
   font-size: var(--font-display);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
 }
 .wallet-card__hint {
@@ -4145,7 +4147,7 @@ button.list-row:active {
 }
 .ledger-row__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .ledger-row__sub {
@@ -4156,7 +4158,7 @@ button.list-row:active {
 .ledger-row__amount {
   flex: none;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -4197,7 +4199,7 @@ button.list-row:active {
   align-items: center;
   gap: 8px;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .coupon-card__pro {
@@ -4214,14 +4216,14 @@ button.list-row:active {
 .coupon-card__title {
   margin-top: 14px;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
   line-height: 1.35;
 }
 .coupon-card__discount {
   margin-top: 6px;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
   color: var(--canon-star);
 }
@@ -4240,7 +4242,7 @@ button.list-row:active {
 }
 .coupon-card__left {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--muted);
 }
 .coupon-card__btn {
@@ -4265,26 +4267,26 @@ button.list-row:active {
 .coupon-code__title {
   margin-top: 10px;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .coupon-code__discount {
   margin-top: 4px;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--canon-star);
 }
 .coupon-code__label {
   margin-top: 20px;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--muted);
 }
 .coupon-code__value {
   margin: 10px 0 18px;
   font-family: "SF Mono", ui-monospace, "Roboto Mono", Menlo, monospace;
   font-size: var(--font-display);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: 0.14em;
   color: var(--green);
 }
@@ -4319,20 +4321,20 @@ button.list-row:active {
 }
 .mycoupon-row__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .mycoupon-row__discount {
   margin-top: 2px;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--canon-star);
 }
 .mycoupon-row__code {
   margin-top: 6px;
   font-family: "SF Mono", ui-monospace, "Roboto Mono", Menlo, monospace;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: 0.1em;
   color: var(--green);
 }
@@ -4361,27 +4363,27 @@ button.list-row:active {
 .promo-applied__label {
   margin-top: 14px;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--muted);
 }
 .promo-applied__code {
   margin-top: 6px;
   font-family: "SF Mono", ui-monospace, "Roboto Mono", Menlo, monospace;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: 0.1em;
   color: var(--green);
 }
 .promo-applied__title {
   margin-top: 8px;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .promo-applied__perk {
   margin-top: 6px;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--canon-star);
 }
 
@@ -4434,7 +4436,7 @@ button.list-row:active {
 }
 .biz-item__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
   line-height: 1.35;
 }
@@ -4452,7 +4454,7 @@ button.list-row:active {
 .biz-item__stat b {
   display: block;
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
   line-height: 1.1;
 }
@@ -4485,13 +4487,13 @@ button.list-row:active {
 }
 .money-card__label {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--muted);
 }
 .money-card__amount {
   margin-top: 6px;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
   color: var(--text);
 }
@@ -4528,7 +4530,7 @@ button.list-row:active {
 }
 .pay-way__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .pay-way__badge {
@@ -4566,7 +4568,7 @@ button.list-row:active {
   border-radius: var(--radius-field);
   background: var(--danger-btn);
   color: var(--on-accent);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
 }
 .btn-danger:active {
@@ -4588,7 +4590,7 @@ button.list-row:active {
   background: transparent;
   color: var(--green);
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 /* ---- Успех / крупные состояния ---- */
@@ -4695,13 +4697,13 @@ button.list-row:active {
 }
 .sos-call__num {
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
   line-height: 1.1;
 }
 .sos-call__label {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
   opacity: 0.8;
 }
@@ -4727,7 +4729,7 @@ button.list-row:active {
 }
 .sos-panel__q {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   margin-bottom: 12px;
 }
 .sos-send {
@@ -4823,7 +4825,7 @@ button.list-row:active {
 .rec-time {
   margin: 14px 0 0;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
   color: var(--danger);
 }
@@ -4845,14 +4847,14 @@ button.list-row:active {
 }
 .fontscale__label {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   margin-bottom: 12px;
 }
 .fontscale__seg .seg__item {
   min-height: 68px;
 }
 .fontscale__a {
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   line-height: 1;
 }
 .fontscale__a--normal { font-size: var(--font-heading); }
@@ -4888,7 +4890,7 @@ button.list-row:active {
 }
 .hub-card__title {
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 1.2;
 }
 .hub-card__sub {
@@ -4923,7 +4925,7 @@ button.list-row:active {
   background: var(--green-btn);
   color: #fff;
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 /* --- Точка «непрочитано» --- */
@@ -4980,7 +4982,7 @@ button.list-row:active {
 }
 .notif-row__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 1.3;
   display: flex;
   align-items: center;
@@ -5000,7 +5002,7 @@ button.list-row:active {
   color: var(--muted);
 }
 .notif-row__open {
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--green);
 }
 
@@ -5061,7 +5063,7 @@ button.list-row:active {
   flex: 1;
   min-width: 0;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5131,7 +5133,7 @@ button.list-row:active {
   border: 0;
   color: var(--text);
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 1.35;
 }
 .faq-q__chev {
@@ -5160,7 +5162,7 @@ button.list-row:active {
 }
 .help-cta__lead {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   margin-bottom: 14px;
 }
 .help-tg {
@@ -5172,7 +5174,7 @@ button.list-row:active {
   padding: 0 14px;
   color: var(--green);
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-decoration: none;
 }
 
@@ -5183,7 +5185,7 @@ button.list-row:active {
 .rate-card__hint {
   margin-top: 10px;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
 }
 
@@ -5203,7 +5205,7 @@ button.list-row:active {
 }
 .danger-zone__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--danger);
 }
 .danger-zone__text {
@@ -5217,7 +5219,7 @@ button.list-row:active {
 }
 .danger-zone__confirm-q {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--danger);
   margin-bottom: 12px;
 }
@@ -5257,7 +5259,7 @@ button.list-row:active {
   line-height: 1.45;
 }
 .legal__link {
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   text-decoration: underline;
   word-break: break-word;
 }
@@ -5267,7 +5269,7 @@ button.list-row:active {
 .legal__h {
   margin: 0 0 8px;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
 }
 .legal__p {
@@ -5293,12 +5295,12 @@ button.list-row:active {
 }
 .report-target__label {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--muted);
 }
 .report-target__name {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-align: right;
   min-width: 0;
 }
@@ -5325,7 +5327,7 @@ button.list-row:active {
   background: transparent;
   color: var(--muted);
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: transform var(--motion-quick) ease, color var(--motion-quick) ease;
 }
 .report-link:active {
@@ -5371,7 +5373,7 @@ select.field__input {
   align-items: center;
   gap: 8px;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .admin-card__sub {
@@ -5386,7 +5388,7 @@ select.field__input {
   gap: 6px;
   margin-top: 4px;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
 }
 .admin-card__reason {
@@ -5429,7 +5431,7 @@ select.field__input {
 }
 .doc-photos__cap {
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--muted);
 }
 .doc-photo {
@@ -5523,7 +5525,7 @@ select.field__input {
   border-radius: var(--radius-pill);
   box-shadow: var(--depth-raised);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .wait-invite-bar .btn-primary {
@@ -5568,12 +5570,12 @@ select.field__input {
 }
 .income-hero__cap {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   opacity: 0.92;
 }
 .income-hero__net {
   font-size: var(--font-display);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   line-height: 1.1;
 }
 .income-hero__note {
@@ -5592,7 +5594,7 @@ select.field__input {
 }
 .income-breakdown b {
   color: var(--text);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .calc-list {
   display: flex;
@@ -5615,7 +5617,7 @@ select.field__input {
 }
 .calc-slider__label {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .calc-slider__value {
@@ -5625,7 +5627,7 @@ select.field__input {
   background: var(--mint);
   color: var(--green);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .calc-range {
   width: 100%;
@@ -5660,7 +5662,7 @@ select.field__input {
   background: var(--warn-bg);
   color: var(--warn);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-align: center;
   box-shadow: var(--depth-card);
   animation: fadeDown var(--motion-normal) ease both;
@@ -5716,7 +5718,7 @@ select.field__input {
 }
 .push-block__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .push-block__sub {
@@ -5753,7 +5755,7 @@ select.field__input {
 }
 .push-block__note {
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--muted);
   padding: 4px 10px;
   border-radius: var(--radius-pill);
@@ -5859,7 +5861,7 @@ select.field__input {
 }
 .winter-check__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
 }
 .winter-check__hint {
@@ -5914,12 +5916,12 @@ select.field__input {
 }
 .demand-row__name {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 .demand-row__count {
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--green2);
   white-space: nowrap;
 }
@@ -5950,7 +5952,7 @@ select.field__input {
   background: var(--surface);
   color: var(--green2);
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .payout__privacy {
   display: flex;
@@ -5995,7 +5997,7 @@ select.field__input {
   align-items: center;
   gap: 8px;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
 }
 .act-card--warn .act-card__title {
@@ -6026,7 +6028,7 @@ select.field__input {
 .receipt__num {
   float: right;
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--muted);
 }
 
@@ -6047,7 +6049,7 @@ select.field__input {
 }
 .money-row__route {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6055,7 +6057,7 @@ select.field__input {
 .money-row__net {
   flex: none;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
 }
 .money-row__date {
@@ -6093,13 +6095,13 @@ select.field__input {
 }
 .money-total__label {
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--muted-strong);
 }
 .money-total__value {
   margin-top: 2px;
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
   color: var(--green);
 }
@@ -6152,7 +6154,7 @@ select.field__input {
 }
 .doc-term__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .doc-term__sub {
   margin-top: 2px;
@@ -6162,7 +6164,7 @@ select.field__input {
 .doc-term__date {
   flex: none;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--muted-strong);
 }
 
@@ -6175,7 +6177,7 @@ select.field__input {
 }
 .bargain__label {
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--muted);
 }
 .bargain__steps {
@@ -6191,7 +6193,7 @@ select.field__input {
   background: var(--surface);
   border: 1px solid var(--border);
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .bargain__step--mine {
   background: var(--mint);
@@ -6214,7 +6216,7 @@ select.field__input {
 }
 .bargain-price__value {
   font-size: var(--font-heading);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green);
 }
 .bargain-turn {
@@ -6227,7 +6229,7 @@ select.field__input {
   background: var(--warn-bg);
   color: var(--warn);
   font-size: var(--font-micro);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .bargain-turn--mine {
   background: var(--mint);
@@ -6274,7 +6276,7 @@ select.field__input {
 }
 .weather-warn__title {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--warn);
 }
 .weather-warn--severe .weather-warn__title {
@@ -6302,7 +6304,7 @@ select.field__input {
   color: var(--danger);
 }
 .weather-warn__row--severe {
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .weather-warn__foot {
   margin: 12px 0 0;
@@ -6337,7 +6339,7 @@ select.field__input {
 }
 .inbox-row__name {
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6387,7 +6389,7 @@ select.field__input {
   cursor: pointer;
   list-style: none;
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green2);
 }
 .price-why > summary::-webkit-details-marker {
@@ -6420,7 +6422,7 @@ select.field__input {
 }
 .chat-voice-btn__time {
   font-size: var(--font-micro);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
 }
 .chat-voice {
@@ -6477,7 +6479,7 @@ select.field__input {
   justify-content: center;
   color: var(--green2);
   font-size: var(--font-heading);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .partner-ad__text {
   flex: 1;
@@ -6486,7 +6488,7 @@ select.field__input {
 .partner-ad__title {
   color: var(--text);
   font-size: var(--font-caption);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6510,7 +6512,7 @@ select.field__input {
   border-radius: var(--radius-pill);
   color: var(--green2);
   font-size: var(--font-micro);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   text-decoration: none;
   transition: transform var(--motion-quick) ease, background var(--motion-quick) ease;
 }
@@ -6547,7 +6549,7 @@ select.field__input {
 .invite-driver__title {
   color: var(--text);
   font-size: var(--font-body);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .invite-driver__sub {
   margin-top: var(--space-xs);
@@ -6592,7 +6594,7 @@ select.field__input {
   background: transparent;
   color: var(--green2);
   font-size: var(--font-micro);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   transition: transform var(--motion-quick) ease;
 }
 .chat-disclaimer__ok:active {
@@ -6710,7 +6712,7 @@ select.field__input {
   background: transparent;
   color: var(--green2);
   font-size: var(--font-micro);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 /* ---- Заказ такси: «только женщина за рулём» и «как меня найти» ---- */
@@ -6743,7 +6745,7 @@ select.field__input {
   gap: var(--space-xs);
   color: var(--text);
   font-size: var(--font-caption);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .taxi-women__sub {
   color: var(--muted);
@@ -6778,7 +6780,7 @@ select.field__input {
 .taxi-details__title {
   color: var(--text);
   font-size: var(--font-caption);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .taxi-details__sub {
   color: var(--muted);
@@ -6843,7 +6845,7 @@ select.field__input {
 .sheet__title {
   margin: var(--space-sm) 0 var(--space-md);
   font-size: var(--font-heading);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.01em;
 }
 .reason-list {
@@ -6873,7 +6875,7 @@ select.field__input {
   border-color: var(--green2);
   background: var(--mint);
   color: var(--green);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 /* ---- Промокод сработал (скидку платит Юлдаш) ---- */
@@ -6893,12 +6895,12 @@ select.field__input {
   flex: 1;
   color: var(--green);
   font-size: var(--font-caption);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .promo-hit__sum {
   color: var(--green2);
   font-size: var(--font-heading);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
 }
 .promo-hit__code {
@@ -6938,13 +6940,13 @@ select.field__input {
 .shift-card__time {
   color: var(--text);
   font-size: var(--font-heading);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
 }
 .shift-card__of {
   color: var(--muted);
   font-size: var(--font-micro);
-  font-weight: 400;
+  font-weight: var(--weight-normal);
 }
 .shift-card__bar {
   display: block;
@@ -6971,7 +6973,7 @@ select.field__input {
 .shift-card__net {
   color: var(--text);
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
@@ -7033,7 +7035,7 @@ select.field__input {
   gap: var(--space-xs);
   color: var(--text);
   font-size: var(--font-caption);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .debt-card--blocked .debt-card__title {
   color: var(--danger);
@@ -7048,7 +7050,7 @@ select.field__input {
 .debt-card__sum b {
   color: var(--text);
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
 }
 .debt-card__sum--pending b {
@@ -7143,7 +7145,7 @@ select.field__input {
 .city-field__name {
   color: var(--text);
   font-size: var(--font-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .city-field__sub {
   color: var(--muted);
@@ -7176,7 +7178,7 @@ select.field__input {
   margin: var(--space-sm) 0 var(--space-md);
   color: var(--text);
   font-size: var(--font-title);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
   user-select: all;
@@ -7228,7 +7230,7 @@ select.field__input {
 .workzone__title {
   color: var(--text);
   font-size: var(--font-caption);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .workzone__sub {
   color: var(--muted);
@@ -7239,7 +7241,7 @@ select.field__input {
   flex: none;
   color: var(--green2);
   font-size: var(--font-micro);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .workzone__body {
   padding: 0 var(--space-md) var(--space-md);
@@ -7297,7 +7299,7 @@ select.field__input {
   border-radius: var(--radius-tiny);
   background: transparent;
   font-size: var(--font-micro);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .update-banner__later {
   color: var(--muted);
@@ -7333,7 +7335,7 @@ select.field__input {
   align-items: center;
   color: var(--green2);
   font-size: var(--font-micro);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   cursor: pointer;
   list-style: none;
 }
@@ -7467,7 +7469,7 @@ select.field__input {
 .decline-why__title {
   color: var(--text);
   font-size: var(--font-caption);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 .decline-why__note {
   margin: var(--space-xs) 0 0;
@@ -7522,7 +7524,7 @@ select.field__input {
 .bargain__left--last {
   background: var(--warn-bg);
   color: var(--warn);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 /* Что делать после ввода промокода — ничего, и это надо сказать */
@@ -7568,7 +7570,7 @@ select.field__input {
   color: var(--green);
   font-size: var(--font-micro);
   line-height: var(--line-micro);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 /* Ожидания от доставки: везёт сосед, а не служба со страховкой */
@@ -7684,7 +7686,7 @@ select.field__input {
   background: transparent;
   color: var(--green2);
   font-size: var(--font-micro);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   text-align: left;
 }
 .ride-tips__list {
@@ -7873,7 +7875,7 @@ select.field__input {
 .class-row__title {
   font-size: var(--font-body);
   line-height: var(--line-body);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--text);
 }
 .class-row--on .class-row__title {
@@ -7950,7 +7952,7 @@ select.field__input {
   align-items: baseline;
   font-size: var(--font-caption);
   line-height: var(--line-caption);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text);
 }
 /* Сумма или множитель — справа от подписи, тем же весом: это часть факта, а не сноска. */
@@ -7995,13 +7997,13 @@ select.field__input {
 .feed-strip__eyebrow {
   font-size: var(--font-micro);
   line-height: var(--line-micro);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--green2);
 }
 .feed-strip__title {
   font-size: var(--font-body);
   line-height: var(--line-body);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--text);
 }
 .feed-strip__note {

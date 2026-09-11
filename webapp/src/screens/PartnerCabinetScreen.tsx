@@ -530,7 +530,7 @@ export default function PartnerCabinetScreen() {
               />
             </label>
           </div>
-          <p className="field__label" style={{ fontWeight: 400, marginTop: -6 }}>
+          <p className="field__label" style={{ fontWeight: "var(--weight-normal)", marginTop: -6 }}>
             {appText("0 — без общего ограничения.", "0 — дөйөм сикләүһеҙ.")}
           </p>
 
@@ -551,7 +551,7 @@ export default function PartnerCabinetScreen() {
               </span>
             </button>
           ) : (
-            <p className="field__label" style={{ fontWeight: 400 }}>
+            <p className="field__label" style={{ fontWeight: "var(--weight-normal)" }}>
               {appText(
                 "Premium-метка доступна на тарифе «Премиум».",
                 "Premium билдәһе «Премиум» тарифында бар."
@@ -782,7 +782,7 @@ export default function PartnerCabinetScreen() {
                         {c.title}
                         {c.premium && <span className="badge badge--gold" style={{ marginLeft: 8 }}>PREMIUM</span>}
                       </div>
-                      {c.discount_text && <div className="biz-item__meta" style={{ color: "var(--canon-star)", fontWeight: 700 }}>{c.discount_text}</div>}
+                      {c.discount_text && <div className="biz-item__meta" style={{ color: "var(--canon-star)", fontWeight: "var(--weight-bold)" }}>{c.discount_text}</div>}
                     </div>
                     <span className={m.cls}>{m.label}</span>
                   </div>

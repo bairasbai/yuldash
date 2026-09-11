@@ -256,7 +256,7 @@ export default function TaxiDocumentsScreen() {
                 {/* Предупреждение ДО покупки машины, а не после: человек в райцентре берёт
                     машину один раз на годы, и «выяснилось потом» здесь — потерянные деньги.
                     Формулировки осторожные: требования региональные и меняются. */}
-                <p className="act-card__text" style={{ margin: "0 0 6px", fontWeight: 600 }}>
+                <p className="act-card__text" style={{ margin: "0 0 6px", fontWeight: "var(--weight-semibold)" }}>
                   {appText("Если только собираешься покупать машину",
                            "Әгәр машина һатып алырға ғына йыйынаһың")}
                 </p>
