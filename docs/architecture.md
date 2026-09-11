@@ -3917,3 +3917,7 @@ RideCard поддерживает ссылку на /rides/:id; RideDetailScreen
 ## Ожидание такси в PWA — 09.09.2026
 
 Заказ со status=expired и будущим wait_until считается активным ожиданием при восстановлении InstantOrderScreen. WaitForCarCard умеет остановить его через существующий cancel endpoint; повторный заказ открывается после подтверждённой отмены живой очереди. Локальная API-семантика не менялась. Доказательства: audit-live-services-recheck.md.
+
+## Настоящая доставка FCM — 09.09.2026
+
+После явного разрешения проверена цепочка Firebase Admin SDK → Google FCM → FcmService.onMessageReceived → NotificationManager на Pixel_API35. Два opt-in инструментальных теста из main dd1523b5 прошли: регистрация устройства и обнаружение доставленного data-only уведомления. Production-регистрация/события поездки, deep-link и физические устройства этим не подтверждены. Артефакты и границы: audit-live-services-recheck.md.

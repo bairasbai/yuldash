@@ -133,3 +133,14 @@ backend/loadtest/results/
 /uber_q4_2024.html
 /uber_sub.json
 /uq423.html
+
+# Артефакты прогонов и аудитов — доказательства лежат рядом, но в git им не место (чистка 2026-09-11)
+/test-results/
+/artifacts/
+/artifacts-*/
+**/.claude-flow/
+# Скриншоты-референсы, которые копятся в корне; логотип — исключение, он нужен обзору
+/*.png
+!/yuldash_logo.png
+/*.bundle
+/android-current-ui.xml
