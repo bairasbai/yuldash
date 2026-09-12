@@ -13014,3 +13014,191 @@ button.settings-row:active {
   font-size: var(--font-caption);
   line-height: var(--line-caption);
 }
+
+/* ---- «Доверие» — зеркало TrustScreen (TrustScreens.kt): карточка уровня, лесенка, следующий уровень. ---- */
+.trust-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+}
+.trust-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.trust-card__badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.trust-card__badge.is-top {
+  background: var(--canon-gold);
+  color: var(--gold-ink);
+}
+.trust-card__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.trust-card__text small,
+.trust-invite .trust-card__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.trust-card__text strong {
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.trust-invite .trust-card__text strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+/* TrustLadder: четыре сегмента 6dp, достигнутые зелёные, текущий — золотой; подписи 12. */
+.trust-ladder {
+  display: flex;
+  gap: var(--space-xs);
+}
+.trust-ladder__step {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.trust-ladder__bar {
+  display: block;
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--border);
+}
+.trust-ladder__bar span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green2);
+  transition: width var(--motion-entry) ease;
+}
+.trust-ladder__step.is-reached .trust-ladder__bar span {
+  width: 100%;
+}
+.trust-ladder__step.is-current .trust-ladder__bar span {
+  background: var(--canon-gold);
+}
+.trust-ladder__step small {
+  color: var(--muted);
+  text-align: center;
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-medium);
+}
+.trust-ladder__step.is-reached small {
+  color: var(--text);
+}
+.trust-ladder__step.is-current small {
+  font-weight: var(--weight-bold);
+}
+.trust-benefits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.trust-benefits > strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.trust-benefit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.trust-benefit svg {
+  flex: none;
+  color: var(--green2);
+}
+/* TrustNextCard: CanonMint, CanonCardShape, «Следующий уровень» зелёным, название 19, как получить. */
+.trust-next {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-radius: var(--radius-card);
+  background: var(--mint);
+}
+.trust-next__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.trust-next__head small {
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.trust-next__head strong {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.trust-next__head span {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.trust-next .submit-btn {
+  margin-top: 0;
+}
+/* TrustInviteCallout: AppCard с мятным кругом и контурной «Позвать своего». */
+.trust-invite {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+}
+.trust-invite__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.trust-invite__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.trust-invite .btn-soft {
+  width: 100%;
+}
