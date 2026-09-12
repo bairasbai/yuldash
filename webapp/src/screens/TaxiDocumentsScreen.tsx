@@ -18,12 +18,12 @@ import {
   type TaxiApplication,
 } from "../api/instant";
 import { fetchCarPhoto, type CarPhotoState } from "../api/carphoto";
-import { LoadingList } from "../components/States";
+import { LoadingList, ErrorState, EmptyStateCard } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCamera, IconCheck, IconIdCard, IconShield, IconWarn, IconWheel } from "../components/Icons";
+import { IconCamera, IconCheck, IconChevron, IconClock, IconIdCard, IconInfo, IconShield, IconWarn, IconWheel } from "../components/Icons";
 
 type Status = "loading" | "error" | "none" | "ready";
-type DocKey = "osago_until" | "permit_until" | "inspection_until";
+type DocKey = "osago_until" | "permit_until" | "inspection_until" | "osgop_until";
 
 /** Сколько дней осталось до даты (отрицательное = просрочено). */
 function daysLeft(iso: string | null): number | null {
@@ -56,6 +56,8 @@ export default function TaxiDocumentsScreen() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [noteOk, setNoteOk] = useState(true);
+  const [permitHelp, setPermitHelp] = useState(false);
 
   const load = useCallback((signal?: AbortSignal) => {
     setStatus("loading");
@@ -89,8 +91,10 @@ export default function TaxiDocumentsScreen() {
       setApp(updated);
       setEditing(null);
       setDraft("");
+      setNoteOk(true);
       setNote(appText("Дата сохранена", "Дата һаҡланды"));
     } catch (e) {
+      setNoteOk(false);
       setNote(
         e instanceof ApiError && e.status === 400
           ? e.message
@@ -122,6 +126,12 @@ export default function TaxiDocumentsScreen() {
       title: appText("Диагностическая карта", "Диагностика картаһы"),
       hint: appText("Техосмотр машины", "Машинаның техник ҡарауы"),
       icon: <IconWheel size={20} />,
+    },
+    {
+      key: "osgop_until",
+      title: appText("ОСГОП", "ОСГОП"),
+      hint: appText("Страховка пассажиров — обязательна для такси с 2024 года", "Юлаусылар страховкаһы — 2024 йылдан такси өсөн мотлаҡ"),
+      icon: <IconShield size={20} />,
     },
   ];
 
@@ -159,251 +169,202 @@ export default function TaxiDocumentsScreen() {
     );
   }
 
+  const heroTone = expired ? "danger" : soon || attention ? "warn" : "ok";
+
   return (
     <>
-      <SubHeader
-        title={appText("Документы и сроки", "Документтар һәм ваҡыттар")}
-        onBack={() => navigate(-1)}
-      />
-
-      {status === "loading" && <LoadingList count={2} />}
-
-      {status === "error" && (
-        <div className="state" style={{ paddingTop: 32 }}>
-          <div className="state__icon state__icon--warn">
-            <IconIdCard size={34} />
-          </div>
-          <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
-          <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатлау")}
-          </button>
-        </div>
-      )}
-
-      {status === "none" && (
-        <div className="state" style={{ paddingTop: 32 }}>
-          <div className="state__icon">
-            <IconIdCard size={34} />
-          </div>
-          <h2>{appText("Заявка не подана", "Заявка бирелмәгән")}</h2>
-          <p>
-            {appText(
+      <SubHeader title={appText("Документы и сроки", "Документтар һәм ваҡыттар")} onBack={() => navigate(-1)} />
+      <div className="cabinet">
+        {status === "loading" && <LoadingList count={3} />}
+        {status === "error" && <ErrorState onRetry={() => load()} />}
+        {status === "none" && (
+          <EmptyStateCard
+            icon={<IconIdCard size={30} />}
+            title={appText("Заявка не подана", "Заявка бирелмәгән")}
+            text={appText(
               "Сроки документов появятся, когда подашь заявку «Стать таксистом Юлдаша».",
               "Документ ваҡыттары «Юлдаш таксисы булыу» заявкаһын биргәс күренәсәк."
             )}
-          </p>
-          <button type="button" className="btn-primary" onClick={() => navigate("/taxi-onboarding")}>
-            {appText("Подать заявку", "Заявка биреү")}
-          </button>
-        </div>
-      )}
+            action={appText("Подать заявку", "Заявка биреү")}
+            onAction={() => navigate("/taxi-onboarding")}
+          />
+        )}
 
-      {status === "ready" && app && (
-        <>
-          <div
-            className={
-              "act-card " + (expired ? "act-card--warn" : soon || attention ? "act-card--warn" : "act-card--mint")
-            }
-          >
-            <div className="act-card__title">
-              {expired || soon || attention ? <IconWarn size={18} /> : <IconCheck size={18} />}
-              {headTitle()}
-            </div>
-            <p className="act-card__text" style={{ margin: "6px 0 0" }}>
-              {headText()}
-            </p>
-          </div>
-
-          {/* Ответ государственного реестра — ВЫШЕ сроков: без разрешения на линию не выйти
-              вообще, и продлевать ОСАГО в этот момент бессмысленно. Не спрашивали или реестр
-              промолчал — не показываем ничего: человек не виноват в нашем таймауте. */}
-          {app.permit_registry_checked && (
-            app.permit_registry_ok ? (
-              <div className="act-card act-card--mint">
-                <div className="act-card__title">
-                  <IconCheck size={18} />
-                  {app.permit_registry_until
-                    ? appText(
-                        `Разрешение подтверждено реестром, действует до ${dateLabel(app.permit_registry_until)}`,
-                        `Рөхсәт реестр менән раҫланған, ${dateLabel(app.permit_registry_until)} тиклем ғәмәлдә`
-                      )
-                    : appText("Разрешение подтверждено государственным реестром",
-                              "Рөхсәт дәүләт реестры менән раҫланған")}
-                </div>
+        {status === "ready" && app && (
+          <>
+            {/* TaxiDocsHeader: AppCard, круг с иконкой (мятный / жёлтый / красный), заголовок 19 Bold, подпись. */}
+            <section className="docs-hero">
+              <span className={"docs-hero__icon docs-hero__icon--" + heroTone} aria-hidden>
+                {heroTone === "ok" ? <IconCheck size={24} /> : heroTone === "warn" ? <IconClock size={24} /> : <IconWarn size={24} />}
+              </span>
+              <span className="docs-hero__text">
+                <strong>{headTitle()}</strong>
+                <small>{headText()}</small>
+              </span>
+            </section>
+            {/* InlineNotice: «Дата сохранена» мятной строкой, ошибка — красной. */}
+            {note && (
+              <div className={"docs-notice" + (noteOk ? "" : " is-error")} role="status">
+                {noteOk ? <IconCheck size={20} /> : <IconWarn size={20} />}
+                <span>{note}</span>
               </div>
-            ) : (
-              <div className="act-card act-card--warn">
-                <div className="act-card__title">
-                  <IconWarn size={18} />
-                  {appText("Разрешения нет в реестре такси", "Такси реестрында рөхсәт юҡ")}
-                </div>
-                <p className="act-card__text" style={{ margin: "6px 0 0" }}>
-                  {appText(
-                    "Без него мы не имеем права давать тебе заказы такси — это закон, и отвечаем по нему мы вместе с тобой. Попутка работает как обычно: ей разрешение не нужно.",
-                    "Уныһыҙ һиңә такси заказдары бирергә хаҡыбыҙ юҡ — был закон, һәм уның буйынса беҙ һинең менән бергә яуап бирәбеҙ. Юлдаш ғәҙәттәгесә эшләй: уға рөхсәт кәрәкмәй."
-                  )}
-                </p>
-                <ol className="permit-steps">
-                  <li>{appText("Стань самозанятым — приложение «Мой налог», вид деятельности «перевозка пассажиров».",
-                               "Үҙең эшләүсе бул — «Мой налог» ҡушымтаһы, эшмәкәрлек төрө «юлаусылар ташыу».")}</li>
-                  <li>{appText("Подай заявление на Госуслугах. Бесплатно. Нужны паспорт, права, СТС и ОСАГО.",
-                               "Госуслуги-ла ғариза бир. Бушлай. Паспорт, права, СТС һәм ОСАГО кәрәк.")}</li>
-                  <li>{appText("Подожди 5–20 рабочих дней. Разрешение выдают на 5 лет.",
-                               "5–20 эш көнө көт. Рөхсәт 5 йылға бирелә.")}</li>
-                  <li>{appText("Возвращайся — проверим сами, вписывать ничего не нужно.",
-                               "Кире ҡайт — үҙебеҙ тикшерәбеҙ, бер нәмә лә яҙырға кәрәкмәй.")}</li>
-                </ol>
-                {/* Предупреждение ДО покупки машины, а не после: человек в райцентре берёт
-                    машину один раз на годы, и «выяснилось потом» здесь — потерянные деньги.
-                    Формулировки осторожные: требования региональные и меняются. */}
-                <p className="act-card__text" style={{ margin: "0 0 6px", fontWeight: "var(--weight-semibold)" }}>
-                  {appText("Если только собираешься покупать машину",
-                           "Әгәр машина һатып алырға ғына йыйынаһың")}
-                </p>
-                <ul className="permit-steps">
-                  <li>{appText(
-                    "С 1 марта 2026 новую машину вносят в реестр такси, только если она собрана в России или ЕАЭС. На другую разрешение могут не дать.",
-                    "2026 йылдың 1 мартынан яңы машинаны такси реестрына Рәсәйҙә йәки ЕАЭС-та йыйылған булһа ғына индерәләр. Башҡаһына рөхсәт бирмәҫкә мөмкиндәр.")}</li>
-                  <li>{appText(
-                    "Для нового разрешения могут потребовать ГЛОНАСС-терминал — уточни в своём районе заранее.",
-                    "Яңы рөхсәт өсөн ГЛОНАСС-терминал талап итеүҙәре мөмкин — үҙ районыңда алдан асыҡла.")}</li>
-                </ul>
-                <a className="btn-ghost" href="https://www.gosuslugi.ru/" target="_blank" rel="noreferrer">
-                  {appText("Открыть Госуслуги", "Госуслуги-ны асыу")}
-                </a>
-              </div>
-            )
-          )}
+            )}
 
-          {/* Фотоконтроль машины — рядом с реестром, до сроков: если машину давно не
-              показывали, линия встанет так же, как без разрешения. */}
-          {carPhoto?.enabled && (
-            <button
-              type="button"
-              className={
-                "act-card car-photo-link" +
-                (carPhoto.required && carPhoto.stage !== "ok" ? " act-card--warn" : " act-card--mint")
-              }
-              onClick={() => navigate("/car-photo")}
-            >
-              <div className="act-card__title">
-                <IconCamera size={18} />
-                {!carPhoto.required
-                  ? appText("Фотоконтроль пройден", "Фотоконтроль үтелгән")
-                  : carPhoto.status === "review"
-                    ? appText("Кадры у нас — смотрим", "Кадрҙар беҙҙә — ҡарайбыҙ")
-                    : carPhoto.stage === "blocked"
-                      ? appText("Заказы на паузе: нужно фото машины", "Заказдар паузала: машина фотоһы кәрәк")
-                      : carPhoto.stage === "slow"
-                        ? appText("Фото машины просрочено — заказы уходят другим",
-                                  "Машина фотоһы һуңлаған — заказдар башҡаларға китә")
-                        : carPhoto.stage === "remind"
-                          ? appText("Фото машины просрочено", "Машина фотоһы ваҡытында түгел")
-                          : appText("Покажи машину", "Машинаны күрһәт")}
-              </div>
-              <p className="act-card__text" style={{ margin: "6px 0 0" }}>
-                {!carPhoto.required || carPhoto.status === "review"
-                  ? appText("Работать можно как обычно.", "Ғәҙәттәгесә эшләргә була.")
-                  : appText("Несколько кадров с телефона — это пара минут.",
-                            "Телефондан бер нисә кадр — ике минутлыҡ эш.")}
-              </p>
-            </button>
-          )}
-
-          <h2 className="section-title">{appText("Документы", "Документтар")}</h2>
-
-          {docs.map((d) => {
-            const value = app[d.key];
-            const dl = daysLeft(value);
-            const isOver = dl !== null && dl < 0;
-            const isSoon = dl !== null && dl >= 0 && dl <= 14;
-            return (
-              <div key={d.key}>
-                <div
-                  className={
-                    "doc-term" + (isOver ? " doc-term--over" : isSoon ? " doc-term--soon" : "")
-                  }
-                >
-                  <span className="doc-term__ic">{d.icon}</span>
-                  <span className="doc-term__main">
-                    <span className="doc-term__title">{d.title}</span>
-                    <span className="doc-term__sub">
-                      {value
-                        ? appText(`до ${dateLabel(value)}`, `${dateLabel(value)} тиклем`)
-                        : appText("Дата не указана", "Дата күрһәтелмәгән")}
-                      {dl !== null && (
-                        <>
-                          {" · "}
-                          {isOver
-                            ? appText("Истёк", "Үткән")
-                            : appText(`${dl} дн.`, `${dl} көн`)}
-                        </>
-                      )}
-                    </span>
-                    <span className="doc-term__sub">{d.hint}</span>
+            {/* Ответ государственного реестра — ВЫШЕ сроков: без разрешения на линию не выйти
+                вообще, и продлевать ОСАГО в этот момент бессмысленно. Не спрашивали или реестр
+                промолчал — не показываем ничего: человек не виноват в нашем таймауте. */}
+            {app.permit_registry_checked &&
+              (app.permit_registry_ok ? (
+                <div className="docs-registry docs-registry--ok">
+                  <IconCheck size={20} />
+                  <span>
+                    {app.permit_registry_until
+                      ? appText(
+                          `Разрешение подтверждено реестром, действует до ${dateLabel(app.permit_registry_until)}`,
+                          `Рөхсәт реестр менән раҫланған, ${dateLabel(app.permit_registry_until)} тиклем ғәмәлдә`
+                        )
+                      : appText("Разрешение подтверждено государственным реестром", "Рөхсәт дәүләт реестры менән раҫланған")}
                   </span>
+                </div>
+              ) : (
+                <div className="docs-registry docs-registry--bad">
+                  <div className="docs-registry__head">
+                    <IconWarn size={20} />
+                    <strong>{appText("Разрешения нет в реестре такси", "Такси реестрында рөхсәт юҡ")}</strong>
+                  </div>
+                  <p>
+                    {appText(
+                      "Без него мы не имеем права давать тебе заказы такси — это закон, и отвечаем по нему мы вместе с тобой. Попутка работает как обычно: ей разрешение не нужно.",
+                      "Уныһыҙ һиңә такси заказдары бирергә хаҡыбыҙ юҡ — был закон, һәм уның буйынса беҙ һинең менән бергә яуап бирәбеҙ. Юлдаш ғәҙәттәгесә эшләй: уға рөхсәт кәрәкмәй."
+                    )}
+                  </p>
+                  <button type="button" className="btn-ghost docs-registry__more" onClick={() => setPermitHelp((v) => !v)}>
+                    {permitHelp ? appText("Свернуть", "Йыйыу") : appText("Как получить разрешение", "Рөхсәтте нисек алырға")}
+                  </button>
+                  {permitHelp && (
+                    <>
+                      <ol className="permit-steps">
+                        <li>{appText("Стань самозанятым — приложение «Мой налог», вид деятельности «перевозка пассажиров».", "Үҙмәшғүл бул — «Мой налог» ҡушымтаһы, эшмәкәрлек төрө — «юлаусыларҙы ташыу».")}</li>
+                        <li>{appText("Подай заявление на Госуслугах. Бесплатно. Нужны паспорт, права, СТС и ОСАГО.", "Госуслуги аша ғариза бир. Бушлай. Паспорт, права, СТС һәм ОСАГО кәрәк.")}</li>
+                        <li>{appText("Подожди 5–20 рабочих дней. Разрешение выдают на 5 лет.", "5–20 эш көнө көт. Рөхсәтте 5 йылға бирәләр.")}</li>
+                        <li>{appText("Возвращайся — проверим сами, вписывать ничего не нужно.", "Кире кил — үҙебеҙ тикшерәбеҙ, бер нәмә лә яҙырға кәрәкмәй.")}</li>
+                      </ol>
+                      <a className="btn-ghost" href="https://www.gosuslugi.ru/" target="_blank" rel="noreferrer">
+                        {appText("Открыть Госуслуги", "Госуслуги-ны асыу")}
+                      </a>
+                    </>
+                  )}
+                </div>
+              ))}
+
+            {/* Фотоконтроль машины (TaxiCarPhotoBlock): цвет по стадии, стрелка вправо. */}
+            {carPhoto?.enabled && (
+              <button
+                type="button"
+                className={
+                  "docs-photo " +
+                  (carPhoto.required && carPhoto.stage === "blocked"
+                    ? "docs-photo--danger"
+                    : carPhoto.required && (carPhoto.stage === "slow" || carPhoto.stage === "remind")
+                      ? "docs-photo--warn"
+                      : "docs-photo--ok")
+                }
+                onClick={() => navigate("/car-photo")}
+              >
+                <IconCamera size={20} />
+                <span className="docs-photo__text">
+                  <strong>
+                    {!carPhoto.required
+                      ? appText("Фотоконтроль пройден", "Фотоконтроль үтелгән")
+                      : carPhoto.status === "review"
+                        ? appText("Кадры у нас — смотрим", "Кадрҙар беҙҙә — ҡарайбыҙ")
+                        : carPhoto.stage === "blocked"
+                          ? appText("Заказы на паузе: нужно фото машины", "Заказдар паузала: машина фотоһы кәрәк")
+                          : carPhoto.stage === "slow"
+                            ? appText("Фото машины просрочено — заказы уходят другим", "Машина фотоһы һуңлаған — заказдар башҡаларға китә")
+                            : carPhoto.stage === "remind"
+                              ? appText("Фото машины просрочено", "Машина фотоһы ваҡытында түгел")
+                              : appText("Покажи машину", "Машинаны күрһәт")}
+                  </strong>
+                  <small>
+                    {!carPhoto.required || carPhoto.status === "review"
+                      ? appText("Работать можно как обычно.", "Ғәҙәттәгесә эшләргә була.")
+                      : appText("Несколько кадров с телефона — это пара минут.", "Телефондан бер нисә кадр — ике минутлыҡ эш.")}
+                  </small>
+                </span>
+                <IconChevron size={20} />
+              </button>
+            )}
+
+            <span className="docs-label">{appText("ДОКУМЕНТЫ", "ДОКУМЕНТТАР")}</span>
+
+            {docs.map((d) => {
+              const value = app[d.key] ?? null;
+              const dl = daysLeft(value);
+              const missing = !value;
+              const isOver = dl !== null && dl < 0;
+              const isSoon = dl !== null && dl >= 0 && dl <= 14;
+              const tone = isOver ? "danger" : isSoon ? "warn" : missing ? "muted" : "ok";
+              const open = editing === d.key;
+              return (
+                <div key={d.key} className={"doc-row doc-row--" + tone + (busy ? " is-busy" : "")}>
+                  <div className="doc-row__head">
+                    <span className="doc-row__icon" aria-hidden>{d.icon}</span>
+                    <span className="doc-row__text">
+                      <strong>{d.title}</strong>
+                      <small>{d.hint}</small>
+                    </span>
+                    {(isOver || isSoon) && (
+                      <span className="doc-row__pill">{isOver ? appText("Истёк", "Үткән") : appText(`${dl} дн.`, `${dl} көн`)}</span>
+                    )}
+                  </div>
                   <button
                     type="button"
-                    className="payout__change"
+                    className="doc-row__date"
                     onClick={() => {
-                      setEditing(editing === d.key ? null : d.key);
+                      setEditing(open ? null : d.key);
                       setDraft(value ?? "");
                       setNote("");
                     }}
+                    disabled={busy}
                   >
-                    {value ? appText("Изменить", "Үҙгәртеү") : appText("Указать", "Күрһәтеү")}
+                    <b>{missing ? appText("Дата не указана", "Дата күрһәтелмәгән") : appText(`до ${dateLabel(value)}`, `${dateLabel(value)} тиклем`)}</b>
+                    <span>
+                      {missing ? appText("Указать", "Күрһәтеү") : appText("Изменить", "Үҙгәртеү")} <IconChevron size={16} />
+                    </span>
                   </button>
-                </div>
-
-                {editing === d.key && (
-                  <div className="act-card">
-                    <label className="field">
-                      <span className="field__label">
-                        {appText("Действует до", "Ошо ваҡытҡа тиклем")}
-                      </span>
-                      <input
-                        className="field__input"
-                        type="date"
-                        value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
-                      />
-                    </label>
-                    <div className="act-card__actions" style={{ marginTop: 12 }}>
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        onClick={() => save(d.key)}
-                        disabled={busy || !draft}
-                      >
-                        {busy ? appText("Сохраняем…", "Һаҡлайбыҙ…") : appText("Сохранить", "Һаҡлау")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        onClick={() => {
-                          setEditing(null);
-                          setDraft("");
-                        }}
-                      >
-                        {appText("Отмена", "Баш тартыу")}
-                      </button>
+                  {open && (
+                    <div className="doc-row__edit">
+                      <label className="field dl-field">
+                        <span className="field__label">{appText("Действует до", "Ошо ваҡытҡа тиклем")}</span>
+                        <input className="field__input" type="date" value={draft} onChange={(e) => setDraft(e.target.value)} />
+                      </label>
+                      <div className="doc-row__actions">
+                        <button type="button" className="btn-primary" onClick={() => save(d.key)} disabled={busy || !draft}>
+                          {busy ? appText("Сохраняем…", "Һаҡлайбыҙ…") : appText("Сохранить", "Һаҡлау")}
+                        </button>
+                        <button type="button" className="btn-ghost" onClick={() => { setEditing(null); setDraft(""); }}>
+                          {appText("Отмена", "Баш тартыу")}
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <p className="docs-foot">
+              <IconInfo size={16} />
+              <span>
+                {appText(
+                  "Мы напомним за две недели и ещё раз за три дня. Если срок всё же выйдет — такси встанет на паузу, а попутки продолжат работать. Обновишь дату — допуск вернётся сразу.",
+                  "Ике аҙна алдан һәм тағы өс көн ҡалғас иҫкә төшөрәбеҙ. Ваҡыт үтһә — такси паузаға китә, ә юлдаш сәфәрҙәре эшләй бирә. Датаны яңыртҡас — рөхсәт шунда уҡ ҡайта."
                 )}
-              </div>
-            );
-          })}
-
-          {note && <p className="taxi-note">{note}</p>}
-
-          <p className="receipt__foot">
-            {appText(
-              "Обновление сроков не сбрасывает заявку: статус проверки остаётся, допуск вернётся сразу.",
-              "Ваҡыттарҙы яңыртыу заявканы кире ҡайтармай: тикшереү хәле ҡала, рөхсәт шунда уҡ ҡайта."
-            )}
-          </p>
-        </>
-      )}
+              </span>
+            </p>
+          </>
+        )}
+      </div>
     </>
   );
 }

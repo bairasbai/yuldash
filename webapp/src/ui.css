@@ -6362,60 +6362,305 @@ select.field__input {
 }
 
 /* ---- Срок документа: дата + сколько осталось ---- */
-.doc-term {
+/* ---- «Документы и сроки» — зеркало TaxiDocsScreens.kt (шапка, реестр, фотоконтроль, строки). ---- */
+.docs-hero {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px;
-  margin-top: 10px;
-  background: var(--surface);
+  gap: var(--space-lg);
+  padding: 20px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-item);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
 }
-.doc-term--soon {
-  background: var(--warn-bg);
-  border-color: transparent;
-}
-.doc-term--over {
-  background: var(--danger-bg);
-  border-color: var(--danger-border);
-}
-.doc-term__ic {
+.docs-hero__icon {
   flex: none;
-  width: 44px;
-  height: 44px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  transition: background var(--motion-slow) ease, color var(--motion-slow) ease;
+}
+.docs-hero__icon--ok {
   background: var(--mint);
   color: var(--green2);
 }
-.doc-term--soon .doc-term__ic {
-  background: rgba(255, 255, 255, 0.5);
+.docs-hero__icon--warn {
+  background: var(--warn-bg);
   color: var(--warn);
 }
-.doc-term--over .doc-term__ic {
-  background: rgba(255, 255, 255, 0.5);
+.docs-hero__icon--danger {
+  background: var(--danger-bg);
   color: var(--danger);
 }
-.doc-term__main {
+.docs-hero__text {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
 }
-.doc-term__title {
-  font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
+.docs-hero__text strong {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
 }
-.doc-term__sub {
-  margin-top: 2px;
+.docs-hero__text small {
+  color: var(--muted);
   font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.docs-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--hairline-green);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  animation: fadeIn var(--motion-quick) ease both;
+}
+.docs-notice.is-error {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.docs-registry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+}
+.docs-registry--ok {
+  flex-direction: row;
+  align-items: center;
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.docs-registry--bad {
+  background: var(--danger-bg);
+}
+.docs-registry__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--danger);
+}
+.docs-registry__head strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.docs-registry p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.docs-registry__more {
+  width: 100%;
+  font-weight: var(--weight-bold);
+}
+.docs-photo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-md);
+  border: 0;
+  border-radius: var(--radius-item);
+  text-align: left;
+}
+.docs-photo--ok {
+  background: var(--mint);
+  color: var(--green2);
+}
+.docs-photo--warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.docs-photo--danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.docs-photo__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.docs-photo__text strong {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.docs-photo__text small {
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.docs-label {
+  padding: var(--space-xs) 0 0 var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.07em;
+}
+/* TaxiDocRow: карточка CanonItemShape, круг 44 с иконкой в цвете срока, заголовок, подпись, пилюля, дата + «Изменить ›». */
+.doc-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  transition: opacity var(--motion-quick) ease;
+}
+.doc-row.is-busy {
+  opacity: 0.55;
+}
+.doc-row__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.doc-row__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  transition: background var(--motion-slow) ease, color var(--motion-slow) ease;
+}
+.doc-row--ok .doc-row__icon {
+  background: var(--mint);
+  color: var(--green2);
+}
+.doc-row--muted .doc-row__icon {
+  background: var(--bg);
   color: var(--muted);
 }
-.doc-term__date {
-  flex: none;
+.doc-row--warn .doc-row__icon {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.doc-row--danger .doc-row__icon {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.doc-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.doc-row__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.doc-row__text small {
+  color: var(--muted);
   font-size: var(--font-caption);
-  font-weight: var(--weight-semibold);
-  color: var(--muted-strong);
+  line-height: var(--line-caption);
+}
+.doc-row__pill {
+  flex: none;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+  animation: popIn var(--motion-quick) ease both;
+}
+.doc-row--warn .doc-row__pill {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.doc-row--danger .doc-row__pill {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.doc-row__date {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.doc-row__date b {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.doc-row--ok .doc-row__date b {
+  color: var(--green2);
+}
+.doc-row--muted .doc-row__date b {
+  color: var(--muted);
+}
+.doc-row--warn .doc-row__date b {
+  color: var(--warn);
+}
+.doc-row--danger .doc-row__date b {
+  color: var(--danger);
+}
+.doc-row__date span {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.doc-row__edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding-top: var(--space-xs);
+}
+.doc-row__actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+.doc-row__actions .btn-primary {
+  flex: 1;
+  margin-top: 0;
+}
+.docs-foot {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-caption);
+}
+.docs-foot svg {
+  flex: none;
+  margin-top: 2px;
 }
 
 /* ---- Торг: ход сторон ---- */

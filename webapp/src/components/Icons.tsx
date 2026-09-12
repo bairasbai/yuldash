@@ -356,6 +356,14 @@ export const IconWarn = ({ size = 22 }: P) => (
   </svg>
 );
 
+// Информация (Icons.Default.Info): кружок с «i» — сноски и подсказки.
+export const IconInfo = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5M12 8v.2" />
+  </svg>
+);
+
 // Удостоверение / бейдж (документы водителя).
 export const IconIdCard = ({ size = 22 }: P) => (
   <svg {...base(size)}>

@@ -492,6 +492,8 @@ export interface TaxiApplication {
   osago_until: string | null;
   permit_until: string | null;
   inspection_until: string | null;
+  /** ОСГОП — страховка пассажиров, обязательна для такси с 2024 года. Старый сервер поле не шлёт. */
+  osgop_until?: string | null;
   docs_expired: boolean; // хоть один срок вышел → допуск снят
   docs_missing: string[]; // какие сроки ещё не заполнены
   docs_days_left: number | null; // до ближайшего истечения; отрицательное = просрочен
@@ -752,6 +754,7 @@ export interface TaxiDocsInput {
   osago_until?: string | null; // YYYY-MM-DD
   permit_until?: string | null;
   inspection_until?: string | null;
+  osgop_until?: string | null;
   osago_url?: string;
   permit_photo_url?: string;
 }
