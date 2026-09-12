@@ -11648,3 +11648,206 @@ button.settings-row:active {
   background: var(--green2);
   transition: width var(--motion-count) ease;
 }
+
+/* ================================================================
+   Кабинет курьера (CourierCabinetTab): плашки с плиткой 48, выписка комиссии, факты.
+   ================================================================ */
+.cabinet > .btn-soft {
+  width: 100%;
+}
+/* Плашка: CanonCardShape, рамка 1, поля 16, плитка 48 (радиус 14) с иконкой 24. */
+.cab-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.cab-note--column {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-sm);
+}
+.cab-note__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.cab-note--mint {
+  border-color: var(--green2);
+  background: var(--mint);
+}
+.cab-note--warn {
+  border-color: var(--warn);
+  background: var(--warn-bg);
+}
+.cab-note--warn .cab-note__text strong,
+.cab-note--warn .cab-note__text small {
+  color: var(--warn);
+}
+.cab-note__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--warn);
+}
+.cab-note__tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green2);
+}
+.cab-note__tile--surface {
+  background: var(--surface);
+}
+.cab-note .cab-note__tile svg {
+  color: inherit;
+}
+.cab-note__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.cab-note__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.cab-note__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.cab-note__label {
+  font-weight: var(--weight-bold);
+}
+.cab-note__big {
+  color: var(--text);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+}
+.is-green {
+  color: var(--green2);
+}
+.cab-note .cab-note__text .is-green,
+.cab-note .dl-hint.is-green {
+  color: var(--green2);
+}
+/* Рейтинг: плитка мятная, звезда золотая. */
+.cab-note__tile .icon-star,
+.cab-note > .cab-note__tile:first-child svg {
+  color: var(--canon-star);
+}
+.cab-note--mint > .cab-note__tile:first-child svg {
+  color: var(--green2);
+}
+/* Выписка комиссии: CanonCardShape, рамка зелёная при долге, строки «подпись · сумма», «К оплате сейчас» крупно. */
+.statement {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.statement--due {
+  border-color: var(--green2);
+}
+.statement__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--green2);
+}
+.statement__head strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.statement__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.statement__row span {
+  flex: 1;
+  color: var(--muted);
+}
+.statement__row b {
+  color: var(--muted);
+  font-weight: var(--weight-bold);
+}
+.statement__row b.is-green {
+  color: var(--green2);
+}
+.statement__due {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+}
+.statement__due.is-due {
+  background: var(--mint);
+}
+.statement__due strong {
+  flex: 1;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.statement__due b {
+  color: var(--muted);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+}
+.statement__due.is-due b {
+  color: var(--green2);
+}
+.statement .submit-btn {
+  margin-top: 0;
+}
+.statement .dl-hint.is-green {
+  font-weight: var(--weight-bold);
+}
+/* Факты: транспорт и статус на линии (CanonItemShape, рамка 1, поля 16). */
+.cab-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.cab-facts strong {
+  color: var(--muted);
+  font-weight: var(--weight-bold);
+}
+.cab-facts strong.is-green {
+  color: var(--green2);
+}
+.cab-facts small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
