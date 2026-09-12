@@ -4024,3 +4024,17 @@ Android `AdminRatings` и `AdminReviews` больше не слиты в одн�
   (классы `.apply-hero`, `.section-head`, `.rules-list/.rule-row`, `.transport-chip`, `.invite-note`,
   `.agree-card`, `.gate*`); гейт «не курьер» в `CourierScreen.tsx` = `CourierNotApprovedView` (`.gate`).
   `.photo-slot` теперь = Android `UploadTile` (общий с экранами водителя).
+
+### Партия (г): кабинеты (12.09.2026)
+
+- `webapp/src/components/cabinetUi.tsx` — `SettingsGroup`, `SettingsNavRow`, `SettingSwitchRow`
+  (BookingActiveTripScreen.kt), `CabinetMetric`, `RestrictionsCard`, `SectionHeader` (UiKit), `ArchiveRideRow`
+  (ProfileScreen.kt). Стили — раздел «Кабинеты» в `ui.css` (`.cabinet`, `.settings-group/.settings-row`,
+  `.cab-metric(s)`, `.quick-order`, `.restrictions`, `.driver-ride*`, `.archive-row`).
+- `webapp/src/components/moneyUi.tsx` — `MoneyPeriodSwitch`, `EarnPeriodChips`, `MoneyTotalsCard`, `MoneyLine`,
+  `MoneySectionHeader`, `MoneyDayRow` (CourierEarningsScreen.kt `MoneyType`). Стили — «Денежные экраны».
+- `States.tsx` получил `EmptyStateCard({icon,title,text,action,onAction})` = Android `EmptyStateCard`.
+- Экраны: `PassengerCabinetScreen.tsx` = `PassengerCabinetContent`; `DriverCabinetScreen.tsx` =
+  `DriverCabinetContent` (порядок блоков как в приложении, `RideEditActions` с `editOnly`);
+  `WalletScreen.tsx` = `WalletScreen.kt` (баланс, `PayoutSoonCard`/`PayoutCard` с подтверждением, реестр);
+  `DriverEarningsScreen.tsx` / `CourierEarningsScreen.tsx` = `Driver/CourierEarningsScreen.kt`.
