@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useLang } from "../i18n/lang";
 import { YuTripList } from "./BrandIcons";
 
@@ -51,6 +52,34 @@ export function EmptyState() {
       </div>
       <h2>{t("emptyTitle")}</h2>
       <p>{t("emptyHint")}</p>
+    </div>
+  );
+}
+
+/** EmptyStateCard из Android UiKit: иконка в круге, заголовок, текст и (необязательно) кнопка действия. */
+export function EmptyStateCard({
+  icon,
+  title,
+  text,
+  action,
+  onAction,
+}: {
+  icon?: ReactNode;
+  title: string;
+  text: string;
+  action?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="state">
+      <div className="state__icon">{icon ?? <YuTripList size={36} />}</div>
+      <h2>{title}</h2>
+      <p>{text}</p>
+      {action && onAction && (
+        <button type="button" className="btn-primary" onClick={onAction}>
+          {action}
+        </button>
+      )}
     </div>
   );
 }

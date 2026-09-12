@@ -10961,3 +10961,237 @@ select.field__input {
 .dl-form > .submit-btn {
   margin-top: 0;
 }
+
+/* ================================================================
+   Кабинеты — зеркало Android PassengerCabinetScreen / SettingsGroup / CabinetMetric.
+   ================================================================ */
+.cabinet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding-bottom: var(--space-xl);
+}
+/* Заголовок кабинета: CanonGreen 24/30 Bold + подпись 14/20 muted. */
+.cabinet__intro h2 {
+  margin: 0;
+  color: var(--green);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.cabinet__intro p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* SettingsGroup: одна карточка CanonItemShape с тенью card, вертикальные поля 8. */
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-sm) 0;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+}
+/* SettingsNavRow: поля 12, мятная плитка 48 (радиус 14, иконка 24), заголовок 16 Bold, подпись, шеврон. */
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-md);
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+button.settings-row {
+  transition: transform var(--motion-quick) ease;
+}
+button.settings-row:active {
+  transform: scale(0.99);
+}
+.settings-row__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green2);
+}
+.settings-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.settings-row__text strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.settings-row__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.settings-row__badge {
+  flex: none;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  color: var(--on-filled);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+.settings-row__chev {
+  flex: none;
+  display: inline-flex;
+  color: var(--muted);
+}
+/* CabinetMetric: три плитки в ряд, рамка 1, радиус 14, значение 19 Bold зелёным, подпись 12. */
+.cab-metrics {
+  display: flex;
+  gap: var(--space-sm);
+}
+.cab-metric {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  text-align: center;
+}
+.cab-metric b {
+  color: var(--green2);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+}
+.cab-metric small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+/* «Быстрый заказ»: карточка CanonGreen2 с тенью raised, круг 22 % CanonBg, заголовок 19 Bold. */
+.quick-order {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-lg);
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--green2);
+  color: var(--on-filled);
+  box-shadow: var(--depth-raised);
+  text-align: left;
+  transition: transform var(--motion-quick) ease;
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.quick-order:active {
+  transform: scale(0.98);
+}
+.quick-order__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--on-filled) 22%, transparent);
+}
+.quick-order__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.quick-order__text strong {
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.quick-order__text small {
+  opacity: 0.9;
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.quick-order__chev {
+  flex: none;
+  display: inline-flex;
+}
+/* RestrictionsCard: CanonWarnBg, рамка 35 % CanonWarn, заголовок с замком, пункты, кнопка с рамкой. */
+.restrictions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  border-radius: var(--radius-item);
+  background: var(--warn-bg);
+}
+.restrictions__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--warn);
+}
+.restrictions__head strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.restrictions__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.restrictions__item strong {
+  color: var(--warn);
+  font-weight: var(--weight-bold);
+}
+.restrictions__item span {
+  color: var(--text);
+}
+.restrictions__item small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.restrictions__support {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.restrictions__btn {
+  min-height: 48px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.cabinet .my-trip-card {
+  margin: 0;
+}
+.cabinet .state {
+  margin: 0;
+}
