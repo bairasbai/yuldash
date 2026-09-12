@@ -785,19 +785,35 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: var(--space-xs);
   border: 0;
-  padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
-  background: radial-gradient(120% 80% at 50% 25%, #0e7d44 0%, #063a22 72%);
-  color: #fff;
+  padding: env(safe-area-inset-top) var(--space-xl) env(safe-area-inset-bottom);
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0%, color-mix(in srgb, var(--scrim) 39%, transparent) 100%),
+    linear-gradient(color-mix(in srgb, var(--scrim) 22%, transparent), color-mix(in srgb, var(--scrim) 22%, transparent)),
+    var(--header-top);
+  color: var(--on-accent);
   text-align: center;
 }
+/* BrandHero: белый круг 132 с логотипом (поля 24). */
 .intro__mark {
-  margin-bottom: 20px;
-  animation: fadeUp var(--motion-slow) ease both;
+  display: grid;
+  place-items: center;
+  width: 132px;
+  height: 132px;
+  margin-bottom: var(--space-xs);
+  padding: var(--space-xl);
+  border-radius: var(--radius-pill);
+  background: var(--on-accent);
+  animation: popIn var(--motion-entry) ease both;
+}
+.intro__mark svg,
+.intro__mark img {
+  width: 100%;
+  height: 100%;
 }
 .intro__stage {
-  height: 58px;
+  min-height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -805,15 +821,18 @@
 }
 .intro__word {
   font-weight: var(--weight-bold);
-  letter-spacing: -0.01em;
+  letter-spacing: 0.045em;
 }
 .intro__word--meaning {
-  font-size: var(--font-display);
-  opacity: 0.92;
+  font-size: var(--font-intro-meaning);
+  line-height: var(--line-intro-brand);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.03em;
   animation: letterIn var(--motion-slow) ease both;
 }
 .intro__word--brand {
-  font-size: var(--font-display);
+  font-size: var(--font-intro-brand);
+  line-height: var(--line-intro-brand);
   animation: brandIn var(--motion-entry) cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 @keyframes letterIn {
@@ -835,262 +854,350 @@
   to {
     opacity: 1;
     transform: scale(1);
-    letter-spacing: -0.01em;
+    letter-spacing: 0.045em;
   }
 }
 .intro__rule {
-  margin-top: 14px;
-  width: 46px;
-  height: 3px;
+  margin-top: var(--space-md);
+  width: 72px;
+  height: 4px;
   border-radius: var(--radius-tiny);
   background: var(--canon-gold);
   animation: fadeUp var(--motion-entry) ease both calc(var(--cascade-in) * 8);
 }
 .intro__slogan {
-  margin: 14px 0 0;
+  margin: var(--space-lg) 0 0;
   font-size: var(--font-body);
-  opacity: 0.85;
+  line-height: var(--line-body);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.03em;
+  opacity: 0.92;
   animation: fadeUp var(--motion-entry) ease both calc(var(--cascade-in) * 11);
 }
 .intro__skip {
   position: absolute;
   bottom: calc(env(safe-area-inset-bottom) + 18px);
   font-size: var(--font-caption);
-  color: rgba(255, 255, 255, 0.7);
+  color: color-mix(in srgb, var(--on-accent) 70%, transparent);
 }
 
-/* ---- Onboarding ---- */
+/* ---- Onboarding — зеркало OnboardingContent (YuldashApp.kt) ---- */
 .onb {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: calc(env(safe-area-inset-top) + 14px) 20px calc(env(safe-area-inset-bottom) + 16px);
+  padding: calc(env(safe-area-inset-top) + 12px) var(--space-lg) calc(env(safe-area-inset-bottom) + var(--space-lg));
   background: var(--bg);
   color: var(--text);
 }
 .onb__top {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
+  padding-bottom: var(--space-xs);
 }
-.onb__lang {
-  display: inline-flex;
-  padding: 3px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+.onb__top .login-lang {
+  position: static;
+  box-shadow: none;
 }
-.onb__lang button {
-  min-height: 44px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--font-caption);
-  font-weight: var(--weight-semibold);
-  transition: background var(--motion-quick) ease, color var(--motion-quick) ease;
-}
-.onb__lang button[data-active="true"] {
-  background: var(--green-btn);
-  color: #fff;
-}
-.onb__body {
+.onb__page {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0 var(--space-lg);
+  animation: fadeIn var(--motion-normal) ease both;
 }
-.onb__slide {
-  width: 100%;
-  text-align: center;
-  animation: fadeUp var(--motion-normal) ease both;
-}
-.onb__emoji {
-  font-size: var(--font-display);
-  line-height: 1;
-}
-.onb__slide h1 {
-  margin: 22px 0 10px;
-  font-size: var(--font-title);
-  font-weight: var(--weight-bold);
-  letter-spacing: -0.02em;
-}
-.onb__slide p {
-  margin: 0 auto;
-  max-width: 340px;
-  color: var(--muted);
-  font-size: var(--font-body);
-  line-height: 1.45;
-}
-.onb--big .onb__slide p,
-.onb--big .list-row__sub {
-  font-size: var(--font-heading);
-}
-.onb__setup {
-  text-align: left;
-}
-.onb__setup h1 {
-  text-align: center;
-}
-.onb__setup > p {
-  text-align: center;
-}
-.onb__roles {
-  margin-top: 20px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-.onb__role {
+/* OnboardingHeroCard: 318, CanonCardShape, фото + вертикальный и горизонтальный градиенты. */
+.onb-hero {
   position: relative;
+  height: 318px;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: var(--green2);
+}
+.onb-hero__photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.onb-hero__shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent 45%, color-mix(in srgb, var(--scrim) 16%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--scrim) 18%, transparent) 0%, transparent 46%, color-mix(in srgb, var(--scrim) 64%, transparent) 100%);
+}
+.onb-hero__logo {
+  position: absolute;
+  top: var(--space-lg);
+  left: var(--space-lg);
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: var(--space-xs);
+  border-radius: var(--radius-field);
+  background: var(--on-accent);
+  box-shadow: var(--depth-raised);
+}
+.onb-hero__logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+/* Стеклянная плашка: 18 % белого с рамкой 30 %, «Юлдаш» 24 Bold и подпись 16 Bold. */
+.onb-hero__glass {
+  position: absolute;
+  left: var(--space-lg);
+  right: 92px;
+  bottom: var(--space-lg);
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 16px;
-  min-height: 48px;
-  border: 1.5px solid var(--border);
+  gap: var(--space-xs);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--on-accent) 30%, transparent);
+  border-radius: var(--radius-item);
+  background: color-mix(in srgb, var(--on-accent) 18%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--on-accent);
+}
+.onb-hero__glass strong {
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.onb-hero__glass small {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  opacity: 0.94;
+}
+.onb-hero__icon {
+  position: absolute;
+  right: var(--space-lg);
+  bottom: var(--space-xl);
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border: 1px solid color-mix(in srgb, var(--on-accent) 34%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--on-accent) 20%, transparent);
+  color: var(--on-accent);
+}
+.onb__title {
+  margin: var(--space-xs) 0 0;
+  color: var(--text);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+}
+.onb__body {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-medium);
+}
+/* OnboardingFeatureCard: CanonItemShape, рамка 1, поля 16; круг 58 мятный с иконкой 30 и номером. */
+.onb-item,
+.onb-role {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
   border-radius: var(--radius-item);
   background: var(--surface);
+  color: var(--text);
   text-align: left;
-  transition: border-color var(--motion-quick) ease, transform var(--motion-quick) ease;
+  animation: fadeUp var(--motion-entry) ease both;
 }
-.onb__role:active {
-  transform: scale(0.98);
+.onb-bubble {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
 }
-.onb__role.is-active {
+.onb-bubble b {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  color: var(--on-filled);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+.onb-item__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.onb-item__text strong {
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.onb-item__text small {
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+/* OnboardingRoleCard: выбранная — мятная, справа радио. */
+.onb-roles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.onb-role {
+  animation-delay: calc(var(--cascade-in) * 2);
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.onb-role.is-active {
   border-color: var(--green2);
   background: var(--mint);
 }
-.onb__role-emoji {
-  font-size: var(--font-title);
-}
-.onb__role-title {
-  font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
-  color: var(--text);
-}
-.onb__role-sub {
-  font-size: var(--font-caption);
-  color: var(--muted);
-}
-.onb__role-check {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--green-btn);
-  color: #fff;
-  display: grid;
-  place-items: center;
-}
-.onb__simple {
-  margin-top: 14px;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  min-height: 48px;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-item);
-  background: var(--surface);
-  transition: border-color var(--motion-quick) ease;
-}
-.onb__simple.is-active {
-  border-color: var(--green2);
-}
-.onb__simple-emoji {
-  font-size: var(--font-heading);
-}
-/* Точка статуса «на линии» — вместо эмодзи 🟢/⚪️. Приглушённый кружок,
-   зелёный когда онлайн. Наследует Canon-токены (свет/тьма). */
-.status-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--muted);
-  opacity: 0.55;
-  flex: 0 0 auto;
-  display: inline-block;
-}
-.status-dot--on {
-  background: var(--green2);
-  opacity: 1;
-  box-shadow: 0 0 0 3px var(--mint);
-}
-.onb__simple-text {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  text-align: left;
-}
-.onb__simple-text b {
-  font-size: var(--font-body);
-  color: var(--text);
-}
-.onb__simple-text span {
-  font-size: var(--font-caption);
-  color: var(--muted);
-}
-.switch {
+.onb-role__radio {
   flex: none;
-  width: 46px;
-  height: 28px;
-  border-radius: var(--radius-pill);
-  background: var(--border);
-  position: relative;
-  transition: background var(--motion-quick) ease;
-}
-.switch::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
   width: 22px;
   height: 22px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: var(--depth-raised);
-  transition: transform var(--motion-quick) ease;
-}
-.switch.on {
-  background: var(--green-btn);
-}
-.switch.on::after {
-  transform: translateX(18px);
-}
-.onb__dots {
-  display: flex;
-  justify-content: center;
-  gap: 7px;
-  margin: 18px 0 14px;
-}
-.onb__dots span {
-  width: 8px;
-  height: 8px;
+  border: 2px solid var(--muted);
   border-radius: var(--radius-pill);
-  background: var(--border);
-  transition: width var(--motion-quick) ease, background var(--motion-quick) ease;
+  transition: border-color var(--motion-quick) ease, box-shadow var(--motion-quick) ease;
 }
-.onb__dots span.is-active {
-  width: 26px;
-  background: var(--green-btn);
+.onb-role.is-active .onb-role__radio {
+  border-color: var(--green2);
+  box-shadow: inset 0 0 0 5px var(--green2);
 }
-.onb__actions {
+/* OnboardingSimpleModeCard: мятная карточка, круг 46 белый, кнопка и «Не сейчас». */
+.onb-simple {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  animation: fadeUp var(--motion-entry) ease both;
+  animation-delay: calc(var(--cascade-in) * 3);
+}
+.onb-simple__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-md);
+}
+.onb-simple__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--green2);
+}
+.onb-simple__head strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.onb-simple p {
+  margin: 0;
+  color: var(--text);
+  opacity: 0.82;
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.onb-simple__on {
+  width: 100%;
+  margin-top: 0;
+}
+.onb-simple__later {
+  width: 100%;
+  color: var(--muted);
+  font-size: var(--font-body);
+  font-weight: var(--weight-bold);
+}
+/* OnboardingSafetyNote: мятная плашка с замком и жирным текстом. */
+.onb-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--hairline-green);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  animation: fadeUp var(--motion-entry) ease both;
+  animation-delay: calc(var(--cascade-in) * 5);
+}
+.onb-note svg {
+  flex: none;
+}
+/* Низ: «Назад» · точки (активная 26×8 зелёная) · «Пропустить», затем «Далее» 58 радиус 22. */
+.onb__foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.onb__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.onb__nav-btn {
+  flex: none;
+  display: inline-block;
+  min-width: 82px;
+  font-weight: var(--weight-bold);
+}
+.onb-dots {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.onb-dots span {
+  width: 8px;
+  height: 8px;
+  margin: 0 var(--space-xs);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--muted) 32%, transparent);
+  transition: width var(--motion-slow) ease, background var(--motion-slow) ease;
+}
+.onb-dots span.is-active {
+  width: 26px;
+  background: var(--green2);
 }
 .onb__next {
-  min-width: 130px;
-  min-height: 56px;
+  width: 100%;
+  min-height: 58px;
+  margin-top: 0;
   border-radius: var(--radius-item);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
 }
+
+/* Тумблер-строка «только свои» / «на линии» (CreateRequest, CreateRide, TaxiDrive) — общий вид. */
 
 /* ---- Auth (Login) ---- */
 .auth {
@@ -5960,22 +6067,6 @@ select.field__input {
 }
 
 /* Онбординг: hero-фото Башкортостана (как OnboardingHeroCard в андроиде) */
-.onb__hero {
-  width: 100%;
-  max-width: 340px;
-  aspect-ratio: 3 / 2;
-  object-fit: cover;
-  border-radius: var(--radius-card);
-  box-shadow: var(--depth-raised);
-}
-.onb__hero-accent {
-  margin-top: 18px;
-  color: var(--green);
-}
-.onb__role-emoji svg,
-.onb__simple-emoji svg {
-  color: var(--green);
-}
 
 /* Login: hero-баннер (Салават Юлаев) */
 .auth__hero {

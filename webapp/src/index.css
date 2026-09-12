@@ -274,6 +274,10 @@
   /* Витрина входа — LoginDisplay/LoginScreen.kt: слово «Юлдаш» на геро, один раз на экране. */
   --font-login-display: 52px;
   --line-login-display: 56px;
+  /* Интро — IntroBrandContent (IntroScreen.kt): «Попутчик» 36 Medium, «Юлдаш» 44 Bold. */
+  --font-intro-meaning: 36px;
+  --font-intro-brand: 44px;
+  --line-intro-brand: 56px;
   --line-button: 20px;
   /* Веса — имена как FontWeight в Compose (Normal/Medium/SemiBold/Bold): в Android других нет,
      800/900 не существует. Семантические токены ниже — псевдонимы этих четырёх. */
