@@ -43,7 +43,7 @@ import ParcelProblemActions from "../components/ParcelProblemActions";
 import ParcelPhoto from "../components/ParcelPhoto";
 import CityField from "../components/CityField";
 import { IconStar, IconCheck, IconCopy, IconBox, IconCamera, IconTrend } from "../components/Icons";
-import { YuCourierWalk } from "../components/BrandIcons";
+import { YuCourierWalk, YuModeCourier } from "../components/BrandIcons";
 import { serverMs } from "../utils/serverTime";
 import { rememberPayment } from "../utils/pendingPayment";
 import { track } from "../analytics";
@@ -210,28 +210,31 @@ export default function CourierScreen() {
         </div>
       )}
 
-      {/* Тумблер «на линии» */}
-      <button
-        type="button"
-        className={"onb__simple" + (online ? " is-active" : "")}
-        onClick={toggleOnline}
-        disabled={onlineBusy || paused}
-        style={{ marginTop: 14 }}
-      >
-        <span className={"status-dot" + (online ? " status-dot--on" : "")} aria-hidden />
-        <span className="onb__simple-text">
-          <b>{appText("Я на линии", "Мин линияла")}</b>
-          <span>
-            {online
-              ? appText("Ищем для тебя доставки рядом", "Һиңә яҡын доставкалар эҙләйбеҙ")
-              : appText("Включи, когда готов брать заказы", "Заказ алырға әҙер булғас ҡабыҙ")}
+      {/* CourierLineHero Android: карточка с градиентной шапкой на линии, тумблером и зоной работы внутри. */}
+      <section className={"line-hero" + (online ? " is-online" : "")}>
+        <button
+          type="button"
+          className="line-hero__head"
+          onClick={toggleOnline}
+          disabled={onlineBusy || paused}
+          aria-pressed={online}
+          aria-label={appText("Работа курьера", "Курьер эше")}
+        >
+          <span className="line-hero__tile" aria-hidden><YuModeCourier size={24} /></span>
+          <span className="line-hero__text">
+            <b>{online ? appText("Ты на линии", "Һин линияла") : appText("Готов к заказам?", "Заказдарға әҙерме?")}</b>
+            <span>
+              {online
+                ? appText("Показываем подходящие доставки", "Яраҡлы доставкаларҙы күрһәтәбеҙ")
+                : appText("Включи линию, когда будешь готов", "Әҙер булғас, линияны ҡабыҙ")}
+            </span>
           </span>
-        </span>
-        <span className={"switch" + (online ? " on" : "")} />
-      </button>
+          <span className={"switch" + (online ? " on" : "")} aria-hidden />
+        </button>
+        <div className="line-hero__zone">
 
       {/* Город работы: сервер по нему отбирает заказы, поэтому спрашиваем до выхода на линию */}
-      <label className="field" style={{ marginTop: 14 }}>
+      <label className="field" style={{ marginTop: 0 }}>
         <span className="field__label">{appText("Город работы", "Эш ҡалаһы")}</span>
         <input
           className="field__input"
@@ -277,7 +280,7 @@ export default function CourierScreen() {
       )}
 
       {/* Зона работы */}
-      <span className="field__label" style={{ marginTop: 14, display: "block" }}>
+      <span className="field__label" style={{ display: "block" }}>
         {appText("Зона работы", "Эш зонаһы")}
       </span>
       <div className="chips">
@@ -293,6 +296,8 @@ export default function CourierScreen() {
           {zoneNote}
         </div>
       )}
+        </div>
+      </section>
 
       {/* Вкладки */}
       <div className="taxi-when parcel-tabs" style={{ marginTop: 16 }}>

@@ -10,7 +10,7 @@ import { useLang } from "../i18n/lang";
 import type { Parcel, ParcelSize } from "../api/parcels";
 import { isCarrying } from "../api/parcels";
 import { dayMonthLong, rubLabel } from "../utils/format";
-import { IconArrow, IconPhone, IconCheck, IconChat } from "./Icons";
+import { IconArrow, IconPhone, IconCheck, IconChat, IconBox } from "./Icons";
 import ParcelPhoto from "./ParcelPhoto";
 
 // ------------------------------- Подписи -------------------------------
@@ -100,13 +100,30 @@ export function AvailableParcelCard({
   onPhoto?: (url: string) => void;
 }) {
   const { appText } = useLang();
+  // CourierOfferCard Android: плитка с коробкой, «Твой доход» + сумма 24 Bold (за вычетом комиссии), пилюля типа доставки.
+  const paid = p.price_kop > 0;
+  const netKop = Math.max(0, p.price_kop - (p.commission_kop ?? 0));
+  const deliveryLabel =
+    p.delivery_type === "buy_bring"
+      ? appText("Купи и привези", "Һатып ал да килтер")
+      : p.delivery_type === "courier"
+        ? appText("Курьер", "Курьер")
+        : appText("По пути", "Юл ыңғайы");
   return (
-    <div className="parcel-card">
-      <div className="parcel-card__head">
-        <div className="parcel-card__to">{appText("Кому", "Кемгә")}: {p.receiver_name || "—"}</div>
-        <StatusPillParcel status={p.status} />
+    <div className="parcel-card parcel-offer">
+      <div className="parcel-offer__head">
+        <span className="parcel-offer__tile" aria-hidden><IconBox size={22} /></span>
+        <span className="parcel-offer__price">
+          <small>{paid ? appText("Твой доход", "Һинең килем") : appText("Без оплаты", "Түләүһеҙ")}</small>
+          <b>{paid ? `≈ ${rubLabel(netKop)}` : appText("По-соседски", "Күрше хаҡы")}</b>
+        </span>
+        <span className="parcel-offer__type">{deliveryLabel}</span>
       </div>
       <ParcelRoute p={p} />
+      <div className="parcel-offer__tags">
+        <span className="parcel-offer__tag">{appText("Кому", "Кемгә")}: {p.receiver_name || "—"}</span>
+        <span className="parcel-offer__tag">{appText("Адрес — когда возьмёшь", "Алғас — адрес күренә")}</span>
+      </div>
       {onPhoto && <ParcelPhoto kind="pickup" url={photo ?? null} onReady={onPhoto} />}
       <button type="button" className="btn-primary" style={{ marginTop: 12 }} onClick={onTake} disabled={busy}>
         {busy ? appText("Берём…", "Алабыҙ…") : appText("Взять доставку", "Доставканы алыу")}

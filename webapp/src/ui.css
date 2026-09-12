@@ -4012,11 +4012,13 @@ button.list-row:active {
 
 /* Карточка заявки/доставки */
 .parcel-card {
-  margin-top: 12px;
-  padding: 16px;
+  /* AppCard: CanonCardShape, рамка 1, тень card, поля 16. */
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-item);
+  border-radius: var(--radius-card);
   background: var(--surface);
+  box-shadow: var(--depth-card);
   animation: fadeUp var(--motion-normal) ease both;
 }
 .parcel-card__head {
@@ -9401,4 +9403,174 @@ select.field__input {
 .taxi-sheet .taxi-route {
   margin-top: 0;
   padding: 0;
+}
+
+/* ================================================================
+   Курьер — зеркало Android CourierLineHero / CourierZoneChip / MobilitySegmentTab / CourierOfferCard.
+   ================================================================ */
+/* Герой линии: CanonCardShape, рамка (зелёная 55% на линии), шапка с градиентом GreenInk → InkDark. */
+.line-hero {
+  margin-top: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  overflow: hidden;
+  transition: border-color var(--motion-normal) ease;
+}
+.line-hero.is-online {
+  border-color: color-mix(in srgb, var(--green2) 55%, transparent);
+}
+.line-hero__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-lg);
+  border: 0;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: background var(--motion-normal) ease;
+}
+.line-hero.is-online .line-hero__head {
+  background: linear-gradient(90deg, var(--header-top), var(--header-bottom));
+  color: var(--on-accent);
+}
+.line-hero__tile {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-field);
+  background: var(--bg);
+  color: var(--green2);
+}
+.line-hero.is-online .line-hero__tile {
+  background: color-mix(in srgb, var(--on-accent) 14%, transparent);
+  color: var(--on-accent);
+}
+.line-hero__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.line-hero__text b {
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.line-hero__text span {
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  color: var(--muted-strong);
+}
+.line-hero.is-online .line-hero__text span {
+  color: color-mix(in srgb, var(--on-accent) 76%, transparent);
+}
+.line-hero__zone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md);
+}
+/* CourierZoneChip: 48dp, радиус 14, иконка 20 + Bold; активный — CanonGreen2 с надписью цвета фона. */
+.line-hero__zone .chips {
+  margin-top: 0;
+}
+.line-hero__zone .chip {
+  min-height: 48px;
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: var(--weight-bold);
+}
+.line-hero__zone .chip.chip--on {
+  border-color: transparent;
+  background: var(--green2);
+  color: var(--on-filled);
+}
+/* MobilitySegmentTab: вкладки 48dp радиус 14, активная — CanonText с надписью CanonBg, остальные прозрачные. */
+.parcel-tabs {
+  padding: 0;
+  gap: var(--space-sm);
+  background: transparent;
+}
+.parcel-tabs .taxi-when__tab {
+  min-height: 48px;
+  padding: 0 var(--space-sm);
+  color: var(--muted-strong);
+  font-weight: var(--weight-bold);
+}
+.parcel-tabs .taxi-when__tab.is-active {
+  background: var(--text);
+  color: var(--bg);
+  box-shadow: none;
+}
+/* CourierOfferCard: плитка 14dp с коробкой, «Твой доход» 12 Bold + сумма 24 Bold, пилюля типа доставки. */
+.parcel-offer__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+.parcel-offer__tile {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green2);
+}
+.parcel-offer__price {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.parcel-offer__price small {
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+.parcel-offer__price b {
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.parcel-offer__type {
+  flex: none;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-field);
+  background: color-mix(in srgb, var(--green2) 12%, transparent);
+  color: var(--green2);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+/* MobilitySmallTag: пилюля CanonBg с рамкой, 12 Bold muted-strong. */
+.parcel-offer__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+.parcel-offer__tag {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
 }
