@@ -3212,47 +3212,86 @@ button.list-row:active {
 
 /* --- Классы (Эконом/Комфорт) --- */
 .taxi-classes {
-  margin-top: 14px;
+  margin-top: var(--space-md);
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 .taxi-class {
+  /* TaxiServiceClassTile: CanonItemShape, рамка 1, поля 8, шаг 4; выбранный — CanonTaxiBg, рамка CanonGreen2, тень card. */
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  min-height: 76px;
-  justify-content: center;
-  padding: 10px 12px;
-  border: 1.5px solid var(--border);
+  align-items: stretch;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border: 1px solid var(--border);
   border-radius: var(--radius-item);
   background: var(--surface);
   text-align: left;
-  transition: transform var(--motion-quick) ease, border-color var(--motion-quick) ease, background var(--motion-quick) ease;
+  transition: transform var(--motion-quick) ease, border-color var(--motion-quick) ease, background var(--motion-quick) ease, box-shadow var(--motion-quick) ease;
 }
 .taxi-class:active {
   transform: scale(0.98);
 }
 /* Выбранный класс — зелёный тинт (как InstantClassCard в андроиде: Green2@8% + рамка 2dp). */
 .taxi-class.is-active {
-  border-width: 2px;
-  border-color: var(--canon-green-deep);
-  background: var(--mint);
+  border-color: var(--green2);
+  background: var(--taxi-bg);
+  box-shadow: var(--depth-card);
+}
+.taxi-class__car {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 440 / 240;
+  overflow: hidden;
+}
+.taxi-class__car img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.82;
+  transition: opacity var(--motion-quick) ease;
+}
+.taxi-class.is-active .taxi-class__car img {
+  opacity: 1;
+}
+.taxi-class__eta {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-tiny);
+  background: var(--surface);
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-micro);
+}
+.taxi-class.is-active .taxi-class__eta {
+  color: var(--text);
+}
+.taxi-class__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  min-width: 0;
 }
 .taxi-class__icon {
-  color: var(--green);
+  display: none;
 }
 .taxi-class__name {
   font-size: var(--font-caption);
-  font-weight: var(--weight-semibold);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-normal);
   color: var(--text);
 }
 .taxi-class__price {
+  flex: none;
   font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
-  letter-spacing: -0.02em;
-  color: var(--green);
+  line-height: var(--line-body);
+  font-weight: var(--weight-body-strong);
+  color: var(--text);
 }
 
 .taxi-surge {
@@ -3391,9 +3430,57 @@ button.list-row:active {
 
 /* --- Поиск машины --- */
 .taxi-search {
-  margin-top: 24px;
-  text-align: center;
-  padding: 12px;
+  margin-top: var(--space-md);
+  text-align: left;
+  padding: 0;
+}
+.taxi-search__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.taxi-search__title {
+  flex: 1;
+  margin: 0;
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+  color: var(--text);
+}
+.taxi-search__chip {
+  flex: none;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--green2);
+  color: var(--on-filled);
+  font-weight: var(--weight-bold);
+  box-shadow: var(--depth-raised);
+  font-variant-numeric: tabular-nums;
+}
+.taxi-search__bar {
+  margin: var(--space-md) 0;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--border);
+  overflow: hidden;
+}
+.taxi-search__bar span {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  animation: searchBar var(--motion-pulse) ease-in-out infinite alternate;
+}
+@keyframes searchBar {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+.taxi-search p {
+  margin: 0 0 var(--space-md);
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
 }
 .taxi-search h2 {
   margin: 18px 0 6px;
@@ -3561,38 +3648,59 @@ button.list-row:active {
 
 /* --- Карточка водителя/пассажира в поездке --- */
 .taxi-driver {
-  margin-top: 14px;
+  /* Строка водителя в карточке отслеживания Android: без рамки, тень card. */
+  margin-top: var(--space-md);
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-item);
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-radius: var(--radius-card);
   background: var(--surface);
+  box-shadow: var(--depth-card);
   animation: fadeUp var(--motion-normal) ease both;
 }
 .taxi-driver__avatar {
+  /* Surface(CircleShape, CanonBg, 46) { Icon(Person).padding(12) } */
   flex: none;
-  width: 48px;
-  height: 48px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--mint);
-  color: var(--green);
-  font-size: var(--font-heading);
+  background: var(--bg);
+  color: var(--green2);
+}
+.taxi-driver__verified {
+  display: inline-flex;
+  margin-left: var(--space-xs);
+  color: var(--green2);
+  vertical-align: middle;
+}
+.taxi-driver__plate {
+  display: inline-block;
+  margin-top: var(--space-xs);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-tiny);
+  background: var(--taxi-bg);
+  color: var(--taxi-text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.04em;
 }
 .taxi-driver__info {
   flex: 1;
   min-width: 0;
 }
 .taxi-driver__name {
-  font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
-  color: var(--text);
+  /* Имя CanonBody + галочка 16 в одну строку, как в Android. */
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  gap: var(--space-xs);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-body);
+  color: var(--text);
 }
 .taxi-driver__meta {
   margin-top: 3px;
@@ -7609,11 +7717,13 @@ select.field__input {
 
 /* Подпись под названием класса машины */
 .taxi-class__hint {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
+  min-width: 0;
+  color: var(--muted-strong);
   font-size: var(--font-micro);
   line-height: var(--line-micro);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Предупреждение в карточке посылки: отмена уже стоит кому-то денег */
@@ -8838,4 +8948,272 @@ select.field__input {
   line-height: var(--line-micro);
   font-weight: var(--weight-bold);
   white-space: nowrap;
+}
+
+/* ================================================================
+   Рельса прогресса поездки — зеркало Android MobilityProgressRail.
+   Линии 2dp, слот точки 20, точка текущего шага 18, пройденные 14 с галочкой.
+   ================================================================ */
+.progress-rail {
+  display: flex;
+  margin: var(--space-md) 0;
+  --rail-accent: var(--taxi);
+}
+.progress-rail--courier {
+  --rail-accent: var(--courier);
+}
+.progress-rail__step {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+.progress-rail__line-row {
+  width: 100%;
+  height: 20px;
+  display: flex;
+  align-items: center;
+}
+.progress-rail__line {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  transition: background var(--motion-normal) ease;
+}
+.progress-rail__line.is-on {
+  background: var(--rail-accent);
+}
+.progress-rail__line.is-hidden {
+  visibility: hidden;
+}
+.progress-rail__dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  color: var(--on-accent);
+  transition: width var(--motion-normal) ease, height var(--motion-normal) ease, background var(--motion-normal) ease;
+}
+.progress-rail__dot.is-done,
+.progress-rail__dot.is-active {
+  border-color: transparent;
+  background: var(--rail-accent);
+}
+.progress-rail__dot.is-active {
+  width: 18px;
+  height: 18px;
+}
+.progress-rail__core {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--on-accent);
+}
+.progress-rail__label {
+  margin-top: var(--space-sm);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-micro);
+}
+.progress-rail__label.is-active {
+  color: var(--text);
+}
+
+/* ================================================================
+   «Поездка завершена» — зеркало Android TaxiPassengerCompletedScreen.
+   ================================================================ */
+.taxi-done {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-md) 0;
+  text-align: left;
+}
+.taxi-done__person {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+/* Круг 76 CanonMint с инициалом CanonDisplay CanonGreen2; галочка — круг 26 CanonGreen2 снизу-справа. */
+.taxi-done__avatar {
+  position: relative;
+  flex: none;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-display);
+}
+.taxi-done__verified {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--green2);
+  color: var(--on-filled);
+}
+.taxi-done__who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.taxi-done__name {
+  margin: 0;
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+  color: var(--text);
+}
+.taxi-done__car {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.taxi-done .rate-card {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.taxi-done .rate-card__title {
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+  color: var(--text);
+}
+.taxi-done .rate-stars {
+  display: flex;
+  justify-content: space-evenly;
+}
+.taxi-done .rate-star {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--canon-star);
+}
+.taxi-done__thanks {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  text-align: center;
+}
+.taxi-done__thanks h2 {
+  margin: 0;
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.taxi-done__thanks-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green2);
+}
+/* TaxiCompletedMoney: CanonItemShape, поля 16, «Итого» CanonHeading + сумма. */
+.taxi-done__money {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+}
+.taxi-done__money h3 {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-heading);
+  color: var(--text);
+}
+.taxi-done__money p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.taxi-done__money b {
+  flex: none;
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+  color: var(--text);
+}
+.taxi-done__new {
+  margin-top: 0;
+}
+/* TaxiCompletedActionRow: CanonItemShape, круг 40 CanonMint с иконкой 20, подпись и стрелка. */
+.taxi-done__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: 0;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  color: var(--muted);
+  text-align: left;
+}
+.taxi-done__row-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green2);
+}
+.taxi-done__row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.taxi-done__row-main strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-body-strong);
+}
+.taxi-done__row-main small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
 }
