@@ -14,16 +14,16 @@ import {
   type DriverEarnings,
   type EarningsPeriod,
 } from "../api/driver";
-import { LoadingList } from "../components/States";
+import { LoadingList, ErrorState, EmptyStateCard } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconTrend } from "../components/Icons";
+import { EarnPeriodChips, MoneyDayRow, MoneyLine, MoneySectionHeader, MoneyTotalsCard } from "../components/moneyUi";
+import { IconCalendar, IconCar, IconClockCal, IconTrend } from "../components/Icons";
 
-import { dayMonthShort } from "../utils/format";
+import { pluralRu } from "../utils/format";
 type Status = "loading" | "error" | "soon" | "ready";
 
 export default function DriverEarningsScreen() {
-  const { appText, lang } = useLang();
-  const ru = lang !== "ba";
+  const { appText } = useLang();
   const navigate = useNavigate();
 
   const [period, setPeriod] = useState<EarningsPeriod>("week");
@@ -50,122 +50,84 @@ export default function DriverEarningsScreen() {
     return () => ac.abort();
   }, [load, period]);
 
-  const periods: { key: EarningsPeriod; label: string }[] = [
-    { key: "week", label: appText("Неделя", "Аҙна") },
-    { key: "month", label: appText("Месяц", "Ай") },
-    { key: "all", label: appText("Всё время", "Бөтә ваҡыт") },
-  ];
-
   const maxSum = data ? Math.max(1, ...data.by_day.map((d) => d.sum)) : 1;
-
-  function dayLabel(iso: string, ru: boolean): string {
-    const d = new Date(iso + "T00:00:00");
-    if (isNaN(d.getTime())) return iso;
-    return dayMonthShort(d, ru);
-  }
+  /** "2026-07-14" → "14.07", как shortDay в приложении; неожиданный формат — как есть. */
+  const shortDay = (iso: string) => (iso.length >= 10 && iso[4] === "-" && iso[7] === "-" ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}` : iso);
+  const tripsWord = (n: number) => pluralRu(n, "поездка", "поездки", "поездок");
+  const fmt = (n: number) => n.toLocaleString("ru-RU");
 
   return (
     <>
-      <SubHeader
-        title={appText("Мой заработок", "Минең табыш")}
-        subtitle={appText("Заработок с завершённых заказов", "Тамамланған заказдарҙан табыш")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Мой заработок", "Минең табыш")} onBack={() => navigate(-1)} />
+      <div className="cabinet">
+        {/* Период — чипами с иконками, как EarnPeriodChip в приложении. */}
+        <EarnPeriodChips
+          period={period}
+          onSelect={setPeriod}
+          items={[
+            { key: "week", label: appText("Неделя", "Аҙна"), icon: <IconCalendar size={16} /> },
+            { key: "month", label: appText("Месяц", "Ай"), icon: <IconCalendar size={16} /> },
+            { key: "all", label: appText("Всё время", "Бөтә ваҡыт"), icon: <IconClockCal size={16} /> },
+          ]}
+        />
 
-      {/* Переключатель периода */}
-      <div className="seg" style={{ marginTop: 4 }}>
-        {periods.map((p) => (
-          <button
-            key={p.key}
-            type="button"
-            className={"seg__item" + (period === p.key ? " is-active" : "")}
-            onClick={() => setPeriod(p.key)}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
-      {status === "loading" && <LoadingList count={2} />}
-
-      {status === "soon" && (
-        <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__icon">
-            <IconTrend size={34} />
-          </div>
-          <h2>{appText("Заработок скоро появится", "Табыш тиҙҙән буласаҡ")}</h2>
-          <p>
-            {appText(
+        {status === "loading" && <LoadingList count={2} />}
+        {status === "soon" && (
+          <EmptyStateCard
+            icon={<IconTrend size={30} />}
+            title={appText("Заработок скоро появится", "Табыш тиҙҙән буласаҡ")}
+            text={appText(
               "Раздел включится после ближайшего обновления. Все завершённые поездки уже считаются.",
               "Был бүлек яҡын яңыртыуҙан һуң эшләй башлар. Тамамланған сәфәрҙәр иҫәпләнә инде."
             )}
-          </p>
-        </div>
-      )}
+          />
+        )}
+        {status === "error" && <ErrorState onRetry={() => load(period)} />}
 
-      {status === "error" && (
-        <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__icon state__icon--warn">
-            <IconTrend size={34} />
-          </div>
-          <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
-          <button type="button" className="btn-primary" onClick={() => load(period)}>
-            {appText("Повторить", "Ҡабатлау")}
-          </button>
-        </div>
-      )}
+        {status === "ready" && data && (
+          <>
+            <MoneyTotalsCard label={appText("Заработано", "Табыш")} value={`${fmt(data.total)} ₽`}>
+              <MoneyLine icon={<IconCar size={16} />} label={appText("Поездок", "Сәфәр")} value={fmt(data.trips)} />
+            </MoneyTotalsCard>
 
-      {status === "ready" && data && (
-        <>
-          <div className="stat-grid" style={{ marginTop: 16 }}>
-            <div className="stat-tile">
-              <b>{data.total.toLocaleString("ru-RU")} ₽</b>
-              <span>{appText("заработано", "табылды")}</span>
-            </div>
-            <div className="stat-tile">
-              <b>{data.trips}</b>
-              <span>{appText("поездок", "сәфәр")}</span>
-            </div>
-          </div>
-
-          {data.trips === 0 ? (
-            <p className="stat-newbie">
+            {data.by_day.length === 0 ? (
+              <EmptyStateCard
+                icon={<IconCar size={30} />}
+                title={appText("Пока нет завершённых поездок", "Тамамланған сәфәрҙәр әлегә юҡ")}
+                text={appText(
+                  "Заверши первую поездку — и заработок появится здесь.",
+                  "Беренсе сәфәрҙе тамамла — табыш бында күренер."
+                )}
+              />
+            ) : (
+              <>
+                <MoneySectionHeader
+                  title={appText("По дням", "Көндәр буйынса")}
+                  caption={appText("Сумма и число поездок за каждый день.", "Һәр көн өсөн сумма һәм сәфәр һаны.")}
+                />
+                <div className="money-days">
+                  {data.by_day.map((d, i) => (
+                    <MoneyDayRow
+                      key={d.date}
+                      index={i}
+                      date={shortDay(d.date)}
+                      value={`${fmt(d.sum)} ₽`}
+                      fraction={d.sum / maxSum}
+                      caption={appText(`${d.trips} ${tripsWord(d.trips)}`, `${d.trips} сәфәр`)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+            <p className="dl-hint">
               {appText(
-                "Пока пусто. Возьми первый заказ — и заработок появится здесь.",
-                "Әле буш. Беренсе заказды ал — табыш бында күренер."
+                "Суммы — по фактической цене завершённых заказов. Комиссия платформы — отдельно.",
+                "Суммалар — тамамланған заказдарҙың факт хаҡы буйынса. Платформа комиссияһы — айырым."
               )}
             </p>
-          ) : (
-            <>
-              <h2 className="section-title">{appText("По дням", "Көндәр буйынса")}</h2>
-              <div className="earn-chart">
-                {data.by_day.map((d) => (
-                  <div key={d.date} className="earn-bar">
-                    <div className="earn-bar__value">{d.sum.toLocaleString("ru-RU")}</div>
-                    <div className="earn-bar__track">
-                      <div
-                        className="earn-bar__fill"
-                        style={{ height: `${Math.max(6, Math.round((d.sum / maxSum) * 100))}%` }}
-                      />
-                    </div>
-                    <div className="earn-bar__label">{dayLabel(d.date, ru)}</div>
-                    <div className="earn-bar__trips">
-                      {d.trips} {appText("п.", "с.")}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          <p className="receipt__foot">
-            {appText(
-              "Суммы — по фактической цене завершённых заказов. Комиссия платформы — отдельно.",
-              "Суммалар — тамамланған заказдарҙың факт хаҡы буйынса. Платформа комиссияһы — айырым."
-            )}
-          </p>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </>
   );
 }

@@ -11418,3 +11418,233 @@ button.settings-row:active {
   width: 100%;
   color: var(--text);
 }
+
+/* ================================================================
+   Денежные экраны — зеркало Android MoneyType (герой 34/40, значение 19/25, тело 14/20, подпись 12/17).
+   ================================================================ */
+/* MoneyPeriodSwitch: пилюля с рамкой, поля 4, сегменты 48, активный — мятный с волосяной рамкой. */
+.money-switch {
+  display: flex;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+}
+.money-switch__seg {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 var(--space-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.money-switch__seg.is-active {
+  border-color: var(--hairline-green);
+  background: var(--mint);
+  color: var(--green);
+}
+/* EarnPeriodChip: пилюля с иконкой 16; активная — залита CanonGreen2. */
+.earn-chips {
+  display: flex;
+  gap: var(--space-sm);
+}
+.earn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.earn-chip__icon {
+  display: inline-flex;
+  color: var(--green2);
+}
+.earn-chip.is-active {
+  border-color: transparent;
+  background: var(--green2);
+  color: var(--on-filled);
+}
+.earn-chip.is-active .earn-chip__icon {
+  color: var(--on-filled);
+}
+/* MoneyTotalsCard: AppCard, поля 16, зазор 16; герой 34/40 Bold с трекингом -0.5. */
+.money-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.money-card__hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.money-card__label {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.money-card__value {
+  color: var(--text);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.015em;
+}
+.money-card__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+/* MoneyLine: круг 32 с иконкой 16, подпись 14 muted, значение 19 Bold справа. */
+.money-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.money-line__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+}
+.money-line__icon--mint {
+  background: var(--mint);
+  color: var(--green2);
+}
+.money-line__icon--warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.money-line__label {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.money-line__value {
+  flex: none;
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  text-align: right;
+}
+.money-line__value.is-warn {
+  color: var(--warn);
+}
+/* MoneySectionHeader: 19 Bold + подпись 12 muted, отступ сверху 8. */
+.money-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding-top: var(--space-sm);
+}
+.money-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.money-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+/* MoneyDayRow: карточка с рамкой, дата · сумма, бар 8 мятный/зелёный, подпись. */
+.money-days {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.money-day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.money-day--courier {
+  gap: var(--space-md);
+  padding: var(--space-lg);
+}
+.money-day__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.money-day__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.money-day__text strong {
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.money-day__text small,
+.money-day__caption {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.money-day__value {
+  flex: none;
+  color: var(--green);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.money-day--courier .money-day__value {
+  color: var(--green2);
+}
+.money-day__track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-tiny);
+  background: var(--mint);
+}
+.money-day--courier .money-day__track {
+  border-radius: var(--radius-pill);
+}
+.money-day__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green2);
+  transition: width var(--motion-count) ease;
+}

@@ -12,17 +12,17 @@ import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { fetchCourierEarnings, type CourierEarnings } from "../api/courier";
-import { LoadingList } from "../components/States";
+import { LoadingList, ErrorState, EmptyStateCard } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
+import { MoneyDayRow, MoneyLine, MoneyPeriodSwitch, MoneySectionHeader, MoneyTotalsCard } from "../components/moneyUi";
 import { IconBox, IconTrend } from "../components/Icons";
-import { dayMonthShort, rubLabel } from "../utils/format";
+import { rubLabel } from "../utils/format";
 
 type Status = "loading" | "error" | "soon" | "ready";
 type Period = "week" | "month" | "all";
 
 export default function CourierEarningsScreen() {
-  const { appText, lang } = useLang();
-  const ru = lang !== "ba";
+  const { appText } = useLang();
   const navigate = useNavigate();
 
   const [period, setPeriod] = useState<Period>("week");
@@ -49,143 +49,97 @@ export default function CourierEarningsScreen() {
     return () => ac.abort();
   }, [load, period]);
 
-  const periods: { key: Period; label: string }[] = [
-    { key: "week", label: appText("Неделя", "Аҙна") },
-    { key: "month", label: appText("Месяц", "Ай") },
-    { key: "all", label: appText("Всё время", "Бөтә ваҡыт") },
-  ];
-
   const maxNet = data ? Math.max(1, ...data.by_day.map((d) => d.net_kop)) : 1;
-
-  function dayLabel(iso: string, ru: boolean): string {
-    const d = new Date(iso + "T00:00:00");
-    if (isNaN(d.getTime())) return iso;
-    return dayMonthShort(d, ru);
-  }
-
-  function emptyTitle(): string {
-    if (period === "week") return appText("За эту неделю доставок нет", "Был аҙнала илтеү юҡ");
-    if (period === "month") return appText("За этот месяц доставок нет", "Был айҙа илтеү юҡ");
-    return appText("Пока нет доставок", "Әлегә илтеү юҡ");
-  }
+  const dayLabel = (iso: string) => (iso.length >= 10 && iso[4] === "-" && iso[7] === "-" ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}` : iso);
+  const emptyTitle =
+    period === "week"
+      ? appText("За эту неделю доставок нет", "Был аҙнала илтеү юҡ")
+      : period === "month"
+        ? appText("За этот месяц доставок нет", "Был айҙа илтеү юҡ")
+        : appText("Пока нет доставок", "Әлегә илтеү юҡ");
 
   return (
     <>
-      <SubHeader
-        title={appText("Мой заработок", "Минең табыш")}
-        subtitle={appText("Чистыми за доставки", "Илтеүҙәр өсөн таҙа")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Мой заработок", "Минең табыш")} onBack={() => navigate(-1)} />
+      <div className="cabinet">
+        <MoneyPeriodSwitch
+          period={period}
+          onSelect={setPeriod}
+          labels={{ week: appText("Неделя", "Аҙна"), month: appText("Месяц", "Ай"), all: appText("Всё время", "Бөтә ваҡыт") }}
+        />
 
-      <div className="seg" style={{ marginTop: 4 }}>
-        {periods.map((p) => (
-          <button
-            key={p.key}
-            type="button"
-            className={"seg__item" + (period === p.key ? " is-active" : "")}
-            onClick={() => setPeriod(p.key)}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
-      {status === "loading" && <LoadingList count={2} />}
-
-      {status === "soon" && (
-        <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__icon">
-            <IconTrend size={34} />
-          </div>
-          <h2>{appText("Заработок скоро появится", "Табыш тиҙҙән буласаҡ")}</h2>
-          <p>
-            {appText(
+        {status === "loading" && <LoadingList count={2} />}
+        {status === "soon" && (
+          <EmptyStateCard
+            icon={<IconTrend size={30} />}
+            title={appText("Заработок скоро появится", "Табыш тиҙҙән буласаҡ")}
+            text={appText(
               "Раздел включится после ближайшего обновления. Все доставки уже считаются.",
               "Был бүлек яҡын яңыртыуҙан һуң эшләй башлар. Барлыҡ илтеүҙәр иҫәпләнә инде."
             )}
-          </p>
-        </div>
-      )}
+          />
+        )}
+        {status === "error" && (
+          <ErrorState
+            onRetry={() => load(period)}
+            title={appText("Не удалось обновить", "Яңырта алманыҡ")}
+            hint={appText("Цифры могут быть старыми.", "Һандар иҫке булыуы мөмкин.")}
+          />
+        )}
 
-      {status === "error" && (
-        <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__icon state__icon--warn">
-            <IconTrend size={34} />
-          </div>
-          <h2>{appText("Не удалось обновить", "Яңырта алманыҡ")}</h2>
-          <p>{appText("Цифры могут быть старыми.", "Һандар иҫке булыуы мөмкин.")}</p>
-          <button type="button" className="btn-primary" onClick={() => load(period)}>
-            {appText("Повторить", "Ҡабатлау")}
-          </button>
-        </div>
-      )}
-
-      {status === "ready" && data && (
-        <>
-          <div className="money-total">
-            <div className="money-total__label">
-              {appText("Заработано чистыми", "Таҙа эшләнде")}
-            </div>
-            <div className="money-total__value">{rubLabel(data.net_kop)}</div>
-            <div className="money-total__rows">
-              <div className="info-row">
-                <span className="info-row__k">{appText("Доставок", "Илтеү")}</span>
-                <span className="info-row__v">{data.deliveries}</span>
-              </div>
-              <div className="info-row">
-                <span className="info-row__k">{appText("Комиссия", "Комиссия")}</span>
-                <span className="info-row__v">{rubLabel(data.commission_kop)}</span>
-              </div>
-            </div>
-          </div>
-
-          {data.deliveries === 0 ? (
-            <div className="state" style={{ paddingTop: 28 }}>
-              <div className="state__icon">
-                <IconBox size={34} />
-              </div>
-              <h2>{emptyTitle()}</h2>
-              <p>
-                {appText(
+        {status === "ready" && data && (
+          <>
+            {data.deliveries === 0 ? (
+              <EmptyStateCard
+                icon={<IconBox size={30} />}
+                title={emptyTitle}
+                text={appText(
                   "Возьми первую доставку — и заработок появится здесь.",
                   "Беренсе илтеүҙе ал — табыш бында күренер."
                 )}
-              </p>
-              <button type="button" className="btn-primary" onClick={() => navigate("/courier")}>
-                <IconBox size={18} /> {appText("Смотреть заказы", "Заказдарҙы ҡарау")}
-              </button>
-            </div>
-          ) : (
-            <>
-              <h2 className="section-title">{appText("По дням", "Көндәр буйынса")}</h2>
-              <div className="earn-chart">
-                {data.by_day.map((d) => (
-                  <div key={d.date} className="earn-bar">
-                    <div className="earn-bar__value">{Math.round(d.net_kop / 100).toLocaleString("ru-RU")}</div>
-                    <div className="earn-bar__track">
-                      <div
-                        className="earn-bar__fill"
-                        style={{ height: `${Math.max(6, Math.round((d.net_kop / maxNet) * 100))}%` }}
-                      />
-                    </div>
-                    <div className="earn-bar__label">{dayLabel(d.date, ru)}</div>
-                    <div className="earn-bar__trips">
-                      {d.deliveries} {appText("д.", "и.")}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          <p className="receipt__foot">
-            {appText(
-              "«Чистыми» — цена доставки минус комиссия платформы. Деньги идут напрямую тебе.",
-              "«Таҙа» — илтеү хаҡы минус платформа комиссияһы. Аҡса тура һиңә бара."
+                action={appText("Смотреть заказы", "Заказдарҙы ҡарау")}
+                onAction={() => navigate("/courier")}
+              />
+            ) : (
+              <>
+                <MoneyTotalsCard label={appText("Заработано чистыми", "Таҙа эшләнде")} value={rubLabel(data.net_kop)}>
+                  <MoneyLine icon={<IconBox size={16} />} label={appText("Доставок", "Илтеү")} value={String(data.deliveries)} />
+                  <MoneyLine
+                    icon={<IconTrend size={16} />}
+                    tone="warn"
+                    label={appText("Комиссия", "Комиссия")}
+                    value={rubLabel(data.commission_kop)}
+                    valueTone="warn"
+                  />
+                </MoneyTotalsCard>
+                <MoneySectionHeader
+                  title={appText("По дням", "Көндәр буйынса")}
+                  caption={appText("Чистыми за каждый день и сколько было доставок.", "Һәр көн өсөн таҙа сумма һәм илтеү һаны.")}
+                />
+                <div className="money-days">
+                  {data.by_day.map((d, i) => (
+                    <MoneyDayRow
+                      key={d.date}
+                      index={i}
+                      date={dayLabel(d.date)}
+                      value={rubLabel(d.net_kop)}
+                      fraction={d.net_kop / maxNet}
+                      caption={appText(`Доставок: ${d.deliveries}`, `Илтеү: ${d.deliveries}`)}
+                      captionBelow={false}
+                    />
+                  ))}
+                </div>
+              </>
             )}
-          </p>
-        </>
-      )}
+            <p className="dl-hint">
+              {appText(
+                "«Чистыми» — цена доставки минус комиссия платформы. Деньги идут напрямую тебе.",
+                "«Таҙа» — илтеү хаҡы минус платформа комиссияһы. Аҡса тура һиңә бара."
+              )}
+            </p>
+          </>
+        )}
+      </div>
     </>
   );
 }
