@@ -13202,3 +13202,232 @@ button.settings-row:active {
 .trust-invite .btn-soft {
   width: 100%;
 }
+
+/* ---- SOS — зеркало SosScreen (SosVerifyScreens.kt). ---- */
+.sos-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+}
+.sos-head__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.sos-head__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.sos-head__text strong {
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.sos-head__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* «Позвонить 112» — CanonRed, 19 Bold, радиус 14, мин. 64. */
+.sos-112 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-height: 64px;
+  border-radius: var(--radius-field);
+  background: var(--danger);
+  color: var(--on-accent);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  text-decoration: none;
+}
+.sos-note,
+.sos-law {
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.sos-law {
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.sos-section {
+  text-align: center;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+/* SosDirectCallChip: три карточки в ряд — иконка 26 красная, подпись, номер на красной плашке. */
+.sos-services {
+  display: flex;
+  gap: var(--space-sm);
+}
+.sos-service {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--danger);
+  text-decoration: none;
+}
+.sos-service strong {
+  color: var(--text);
+  text-align: center;
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.sos-service b {
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-tiny);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+/* «Продиктуй оператору»: мятная карточка, координаты зелёным, две контурные кнопки. */
+.sos-dictate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.sos-dictate > strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.sos-dictate__note {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.sos-dictate__coords {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.sos-dictate__muted {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.sos-dictate__row {
+  display: flex;
+  gap: var(--space-sm);
+}
+.sos-dictate__row .btn-soft {
+  flex: 1;
+  min-height: 48px;
+}
+.sos-notify {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  text-align: center;
+}
+.sos-notify strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.sos-notify p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.sos-cats {
+  display: flex;
+  gap: var(--space-sm);
+}
+.sos-cat {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 48px;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease, color var(--motion-quick) ease;
+}
+.sos-cat.is-active {
+  border-color: var(--green2);
+  background: var(--mint);
+  color: var(--green2);
+}
+.sos-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.sos-info strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.sos-info span {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.sos-info--ok {
+  border-color: var(--green2);
+  background: var(--mint);
+}
+.sos-info--bad {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+.sos .submit-btn {
+  margin-top: 0;
+}
+.sos-back {
+  width: 100%;
+}
