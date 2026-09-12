@@ -90,13 +90,13 @@ export function MoneyLine({
   tone?: "mint" | "warn";
   label: string;
   value: string;
-  valueTone?: "text" | "warn";
+  valueTone?: "text" | "warn" | "green";
 }) {
   return (
     <div className="money-line">
       <span className={"money-line__icon money-line__icon--" + tone} aria-hidden>{icon}</span>
       <span className="money-line__label">{label}</span>
-      <b className={"money-line__value" + (valueTone === "warn" ? " is-warn" : "")}>{value}</b>
+      <b className={"money-line__value" + (valueTone === "warn" ? " is-warn" : valueTone === "green" ? " is-green" : "")}>{value}</b>
     </div>
   );
 }

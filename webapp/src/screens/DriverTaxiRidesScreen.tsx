@@ -12,10 +12,11 @@ import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { fetchDriverTaxiRides, type DriverTaxiRides } from "../api/driver";
-import { LoadingList } from "../components/States";
+import { LoadingList, ErrorState, EmptyStateCard } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCar, IconCheck, IconChevron, IconWallet } from "../components/Icons";
-import { kopExactLabel, priceLabel, rubLabel } from "../utils/format";
+import { MoneyLine, MoneySectionHeader, MoneyTotalsCard } from "../components/moneyUi";
+import { IconCar, IconCheck, IconChevron, IconTrend, IconWallet } from "../components/Icons";
+import { kopExactLabel, payMethodLabel, priceLabel, rubLabel } from "../utils/format";
 import { serverDate } from "../utils/serverTime";
 
 type Status = "loading" | "error" | "soon" | "ready";
@@ -28,13 +29,13 @@ function feeBadge(
   switch (status) {
     case "unpaid":
     case "pending":
-      return { text: appText("Комиссия не оплачена", "Комиссия түләнмәгән"), cls: "badge--gold" };
+      return { text: appText("Комиссия не оплачена", "Комиссия түләнмәгән"), cls: "ride-tag--warn" };
     case "declared":
-      return { text: appText("Оплату проверяем", "Түләүҙе тикшерәбеҙ"), cls: "badge--gold" };
+      return { text: appText("Оплату проверяем", "Түләүҙе тикшерәбеҙ"), cls: "ride-tag--warn" };
     case "paid":
-      return { text: appText("Комиссия оплачена", "Комиссия түләнгән"), cls: "badge--mint" };
+      return { text: appText("Комиссия оплачена", "Комиссия түләнгән"), cls: "ride-tag--mint" };
     case "void":
-      return { text: appText("Комиссия списана", "Комиссия һүндерелгән"), cls: "badge--mint" };
+      return { text: appText("Комиссия списана", "Комиссия һүндерелгән"), cls: "ride-tag--mint" };
     default:
       return null;
   }
@@ -82,172 +83,122 @@ export default function DriverTaxiRidesScreen() {
 
   return (
     <>
-      <SubHeader
-        title={appText("Мои поездки такси", "Такси сәфәрҙәрем")}
-        subtitle={appText("Цена → комиссия → чистыми", "Хаҡ → комиссия → таҙа")}
-        onBack={() => navigate(-1)}
-      />
-
-      {status === "loading" && <LoadingList count={3} />}
-
-      {status === "soon" && (
-        <div className="state" style={{ paddingTop: 32 }}>
-          <div className="state__icon">
-            <IconWallet size={34} />
-          </div>
-          <h2>{appText("Скоро здесь", "Тиҙҙән бында")}</h2>
-          <p>
-            {appText(
-              "Расшифровка по поездкам включится с ближайшим обновлением.",
-              "Сәфәрҙәр буйынса тарҡатыу яҡын яңыртыуҙа тоташа."
+      <SubHeader title={appText("Мои поездки такси", "Такси сәфәрҙәрем")} onBack={() => navigate(-1)} />
+      <div className="cabinet">
+        {status === "loading" && <LoadingList count={3} />}
+        {status === "soon" && (
+          <EmptyStateCard
+            icon={<IconWallet size={30} />}
+            title={appText("Скоро здесь", "Тиҙҙән бында")}
+            text={appText(
+              "Раздел включится после ближайшего обновления. Все поездки уже считаются.",
+              "Был бүлек яҡын яңыртыуҙан һуң эшләй башлар. Барлыҡ сәфәрҙәр иҫәпләнә инде."
             )}
-          </p>
-        </div>
-      )}
-
-      {status === "error" && (
-        <div className="state" style={{ paddingTop: 32 }}>
-          <div className="state__icon state__icon--warn">
-            <IconWallet size={34} />
-          </div>
-          <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
-          <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатлау")}
-          </button>
-        </div>
-      )}
-
-      {status === "ready" && data && data.rides.length === 0 && (
-        <div className="state" style={{ paddingTop: 32 }}>
-          <div className="state__icon">
-            <IconCar size={34} />
-          </div>
-          <h2>{appText("Поездок пока нет", "Сәфәрҙәр әлегә юҡ")}</h2>
-          <p>
-            {appText(
-              "Как только завершишь первый заказ — здесь появится расчёт до копейки.",
-              "Беренсе заказды тамамлағас — бында тин-тингә тиклем иҫәп күренәсәк."
+          />
+        )}
+        {status === "error" && <ErrorState onRetry={() => load()} />}
+        {status === "ready" && data && data.rides.length === 0 && (
+          <EmptyStateCard
+            icon={<IconCar size={30} />}
+            title={appText("Поездок пока нет", "Әлегә сәфәр юҡ")}
+            text={appText(
+              "Здесь появится расшифровка по каждой поездке: цена, наша комиссия и сколько остаётся тебе.",
+              "Бында һәр сәфәр буйынса яҙма күренәсәк: хаҡ, беҙҙең комиссия һәм һиңә күпме ҡала."
             )}
-          </p>
-        </div>
-      )}
+          />
+        )}
+        {status === "ready" && data && data.rides.length > 0 && (
+          <>
+            <MoneyTotalsCard label={appText("Чистыми за последние поездки", "Һуңғы сәфәрҙәр өсөн таҙа")} value={rubLabel(data.total_net_kop)}>
+              <MoneyLine icon={<IconWallet size={16} />} label={appText("Пассажиры заплатили", "Юлаусылар түләне")} value={priceLabel(data.total_price, ru)} />
+              <MoneyLine
+                icon={<IconTrend size={16} />}
+                tone="warn"
+                label={appText("Комиссия Юлдаша", "Юлдаш комиссияһы")}
+                value={"− " + rubLabel(data.total_fee_kop)}
+                valueTone="warn"
+              />
+              <span className="money-card__rule" aria-hidden />
+              <MoneyLine icon={<IconCheck size={16} />} label={appText("Осталось тебе", "Һиңә ҡалды")} value={rubLabel(data.total_net_kop)} valueTone="green" />
+            </MoneyTotalsCard>
 
-      {status === "ready" && data && data.rides.length > 0 && (
-        <>
-          <div className="money-total">
-            <div className="money-total__label">
-              {appText("Чистыми за последние поездки", "Һуңғы сәфәрҙәр өсөн таҙа")}
-            </div>
-            <div className="money-total__value">{rubLabel(data.total_net_kop)}</div>
-            <div className="money-total__rows">
-              <div className="info-row">
-                <span className="info-row__k">{appText("Пассажиры заплатили", "Юлаусылар түләне")}</span>
-                <span className="info-row__v">{priceLabel(data.total_price, ru)}</span>
-              </div>
-              <div className="info-row">
-                <span className="info-row__k">{appText("Комиссия Юлдаша", "Юлдаш комиссияһы")}</span>
-                <span className="info-row__v">−{rubLabel(data.total_fee_kop)}</span>
-              </div>
-              <div className="info-row">
-                <span className="info-row__k">{appText("Осталось тебе", "Һиңә ҡалды")}</span>
-                <span className="info-row__v">{rubLabel(data.total_net_kop)}</span>
-              </div>
-            </div>
-          </div>
+            <MoneySectionHeader
+              title={appText("Каждая поездка", "Һәр сәфәр")}
+              caption={appText("Цена пассажиру, наша комиссия и сколько осталось тебе.", "Юлаусыға хаҡ, беҙҙең комиссия һәм һиңә күпме ҡалғаны.")}
+            />
 
-          <h2 className="section-title">{appText("Каждая поездка", "Һәр сәфәр")}</h2>
-          <p className="demand__quiet">
-            {appText(
-              "Комиссия берётся фактическая — та, что начислена по этой поездке.",
-              "Комиссия факт буйынса алына — ошо сәфәргә иҫәпләнгәне."
-            )}
-          </p>
-
-          <div className="list" style={{ marginTop: 8 }}>
-            {data.rides.map((r) => {
-              const badge = feeBadge(r.fee_status, appText);
-              return (
-                <button
-                  key={r.order_id}
-                  type="button"
-                  className="money-row"
-                  style={{ width: "100%", textAlign: "left" }}
-                  onClick={() => navigate(`/taxi-receipt/${r.order_id}`)}
-                  aria-label={appText("Открыть чек поездки", "Сәфәр чеген асыу")}
-                >
-                  <div className="money-row__head">
-                    <span className="money-row__route">
-                      {r.from || appText("Точка А", "А нөктә")}
-                      <span className="money-row__op"> → </span>
-                      {r.to || appText("Точка Б", "Б нөктә")}
-                    </span>
-                    <span className="money-row__net">{kopExactLabel(r.net_kop)}</span>
-                  </div>
-                  <div className="money-row__date">
-                    {shortWhen(r.done_at)} · {appText("тебе", "һиңә")}
-                  </div>
-
-                  <div className="money-row__calc">
-                    <span>
-                      {appText("Цена", "Хаҡ")}: <b>{priceLabel(r.price, ru)}</b>
-                    </span>
-                    <span className="money-row__op">−</span>
-                    <span>
-                      {appText("Комиссия", "Комиссия")}: <b>{kopExactLabel(r.fee_kop)}</b>
-                    </span>
-                    {r.promo_discount_kop > 0 && (
-                      <>
-                        <span className="money-row__op">·</span>
-                        <span>
-                          {appText("Промокод", "Промокод")}: −{kopExactLabel(r.promo_discount_kop)}
+            <div className="money-days">
+              {data.rides.map((r) => {
+                const badge = feeBadge(r.fee_status, appText);
+                return (
+                  <button
+                    key={r.order_id}
+                    type="button"
+                    className="taxi-ride-row"
+                    onClick={() => navigate(`/taxi-receipt/${r.order_id}`)}
+                    aria-label={appText("Открыть чек поездки", "Сәфәр чеген асыу")}
+                  >
+                    <div className="taxi-ride-row__head">
+                      <span className="taxi-ride-row__main">
+                        <strong>{r.from || "—"} → {r.to || "—"}</strong>
+                        <small>{shortWhen(r.done_at)}</small>
+                      </span>
+                      <span className="taxi-ride-row__net">
+                        <b>{kopExactLabel(r.net_kop)}</b>
+                        <small>{appText("тебе", "һиңә")}</small>
+                      </span>
+                      <span className="taxi-ride-row__chev" aria-hidden><IconChevron size={20} /></span>
+                    </div>
+                    <div className="taxi-ride-row__ledger">
+                      <span className="taxi-ride-row__cell">
+                        <small>{appText("Цена", "Хаҡ")}</small>
+                        <b>{priceLabel(r.price, ru)}</b>
+                      </span>
+                      <span className="taxi-ride-row__cell">
+                        <small>{appText("Комиссия", "Комиссия")}</small>
+                        <b className="is-warn">− {kopExactLabel(r.fee_kop)}</b>
+                      </span>
+                      {r.promo_discount_kop > 0 && (
+                        <span className="taxi-ride-row__cell">
+                          <small>{appText("Промокод", "Промокод")}</small>
+                          <b>− {kopExactLabel(r.promo_discount_kop)}</b>
                         </span>
-                      </>
-                    )}
-                    {r.promo_comp_kop > 0 && (
-                      <>
-                        <span className="money-row__op">+</span>
-                        <span>
-                          {appText("Возврат Юлдаша", "Юлдаш ҡайтарыуы")}: {kopExactLabel(r.promo_comp_kop)}
+                      )}
+                      {r.promo_comp_kop > 0 && (
+                        <span className="taxi-ride-row__cell">
+                          <small>{appText("Возврат Юлдаша", "Юлдаш ҡайтарыуы")}</small>
+                          <b>+ {kopExactLabel(r.promo_comp_kop)}</b>
                         </span>
-                      </>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                    <div className="taxi-ride-row__tags">
+                      {/* Разбор подтвердил, что денег не было. Такая поездка не должна
+                          выглядеть как оплаченная: за неё уже сняли комиссию, и без метки
+                          она смотрится выгоднее честной. */}
+                      <span className={"ride-tag " + (r.unpaid_confirmed ? "ride-tag--danger" : r.paid ? "ride-tag--mint" : "ride-tag--warn")}>
+                        {r.unpaid_confirmed
+                          ? appText("Не заплатили — подтверждено", "Түләмәнеләр — раҫланған")
+                          : r.paid
+                            ? appText("Оплачено", "Түләнгән")
+                            : appText("Не отмечено", "Билдәләнмәгән")}
+                      </span>
+                      {r.payment_method && <span className="ride-tag ride-tag--mint">{payMethodLabel(r.payment_method, ru)}</span>}
+                      {badge && <span className={"ride-tag " + badge.cls}>{badge.text}</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
 
-                  <div className="money-row__foot">
-                    {/* Разбор подтвердил, что денег не было. Такая поездка не должна
-                        выглядеть как оплаченная: за неё уже сняли комиссию, и без метки
-                        она смотрится выгоднее честной. */}
-                    <span
-                      className={
-                        "badge " +
-                        (r.unpaid_confirmed ? "badge--danger" : r.paid ? "badge--mint" : "badge--gold")
-                      }
-                    >
-                      {r.paid && !r.unpaid_confirmed ? <IconCheck size={12} /> : null}{" "}
-                      {r.unpaid_confirmed
-                        ? appText("Не заплатили — подтверждено", "Түләмәнеләр — раҫланған")
-                        : r.paid
-                          ? appText("Оплачено", "Түләнгән")
-                          : appText("Не отмечено", "Билдәләнмәгән")}
-                    </span>
-                    {badge && <span className={"badge " + badge.cls}>{badge.text}</span>}
-                    <span style={{ marginLeft: "auto", display: "inline-flex" }}>
-                      <IconChevron size={18} />
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <p className="receipt__foot">
-            {appText(
-              "Деньги идут напрямую тебе — Юлдаш только показывает счёт и комиссию.",
-              "Аҡса тура һиңә бара — Юлдаш иҫәпте һәм комиссияны ғына күрһәтә."
-            )}
-          </p>
-        </>
-      )}
+            <p className="dl-hint">
+              {appText(
+                "Комиссию мы не удерживаем из твоих денег: пассажир платит тебе целиком, а комиссия копится долгом и платится отдельно.",
+                "Комиссияны һинең аҡсанан тотоп ҡалмайбыҙ: юлаусы һиңә тулыһынса түләй, комиссия айырым бурыс булып йыйыла."
+              )}
+            </p>
+          </>
+        )}
+      </div>
     </>
   );
 }

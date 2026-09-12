@@ -11851,3 +11851,125 @@ button.settings-row:active {
   font-size: var(--font-caption);
   line-height: var(--line-caption);
 }
+
+/* «Мои поездки такси» (DriverTaxiRidesScreen): карточка-строка с чеком, ячейки цена/комиссия, теги. */
+.money-line__value.is-green {
+  color: var(--green2);
+}
+.money-card__rule {
+  height: 1px;
+  background: var(--hairline-green);
+}
+.taxi-ride-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  color: var(--text);
+  text-align: left;
+  transition: transform var(--motion-quick) ease;
+}
+.taxi-ride-row:active {
+  transform: scale(0.99);
+}
+.taxi-ride-row__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.taxi-ride-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.taxi-ride-row__main strong {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.taxi-ride-row__main small,
+.taxi-ride-row__net small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.taxi-ride-row__net {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-xs);
+}
+.taxi-ride-row__net b {
+  color: var(--green2);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+}
+.taxi-ride-row__chev {
+  flex: none;
+  display: inline-flex;
+  color: var(--muted);
+}
+.taxi-ride-row__ledger {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+}
+.taxi-ride-row__cell {
+  flex: 1;
+  min-width: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.taxi-ride-row__cell small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.taxi-ride-row__cell b {
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.taxi-ride-row__cell b.is-warn {
+  color: var(--warn);
+}
+.taxi-ride-row__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+/* TaxiRideTag: пилюля, поля 12×4, 12 Bold. */
+.ride-tag {
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+.ride-tag--mint {
+  background: var(--mint);
+  color: var(--green2);
+}
+.ride-tag--warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.ride-tag--danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
