@@ -3993,3 +3993,24 @@ Android `AdminRatings` и `AdminReviews` больше не слиты в одн�
   стиля `AppButton` (54dp, Bold 16, CanonOnFilled), `.btn-ghost` = TextButton; `.state` =
   EmptyStateCard/AppErrorState (карточка, круг 62); нижние вкладки по `YuldashBottomItem`.
   Токен `--on-filled` = CanonBg в обеих темах.
+
+### Партии (а)–(в): экраны PWA по эталонам Android (12.09.2026)
+
+- `webapp/src/components/parcelForm.tsx` — кирпичи формы доставки, 1:1 с `ParcelsScreen.kt`:
+  `DeliverySectionTitle/Hint/ErrorCard/BlockedHint`, `ParcelStepProgress`, `DeliveryTypeCard`,
+  `ParcelSizeCard`, `UrgencyChip`, `DeliveryWaitNote`, `ParcelDeadlinePicker` (системный календарь
+  через `showPicker()`, иначе поле даты в форме), `EstimateCard`, `ParcelCargoTypePicker`,
+  `ParcelFragileSwitch`, `RulesCheckbox`, `ParcelRouteSummary`, `ParcelRouteRow`,
+  `MobilityScreenIntro`; плюс константы `PARCEL_MAX_WEIGHT_KG/ADDRESS_MAX_LEN/DESC_MAX/CARGO_TYPES`
+  и хелперы `cargoTypeLabel/Emoji`, `parcelSizeHint`, `deliveryDateAhead/Human`. Стили — раздел
+  «Форма доставки» в `ui.css` (`.dl-*`, `.pstep`, `.dtype-card`, `.urg-chip`, `.cargo-chip`,
+  `.fragile`, `.rules-card`, `.estimate`, `.screen-intro`, `.parcel-created`, `.parcel-status`).
+- `webapp/src/components/ParcelSendWizard.tsx` — вкладка «Отправить» на `/parcels`: мастер в три
+  шага (`STEP_ROUTE/PARCEL/RECEIVER`) как `SendParcelTab`; «по пути» → `createParcel`, курьер и
+  «купи и привези» → `resolveCity` (`searchSettlements`, затем `geocode`) → `estimateCourier` →
+  `createCourierOrder`; успех — `ParcelCreatedView`. Заменил старую простыню `SendTab` и отдельную
+  `CourierOrderForm.tsx` (удалена). `ParcelsScreen.tsx` оставил себе вкладки (`.parcel-tabs` =
+  `ParcelTab`), «Мои» (`MineTab`, шапка карточки = `MyParcelCard`) и «Возить».
+- `StatusPillParcel` (`parcelUi.tsx`) теперь = `ParcelStatusChip`: те же слова и цвета по статусу
+  (`created` — жёлтый «Ждёт курьера», `accepted/in_transit/delivered` — мятный, `canceled` — красный,
+  `returning/returned` — жёлтый).
