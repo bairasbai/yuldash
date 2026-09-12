@@ -4014,3 +4014,13 @@ Android `AdminRatings` и `AdminReviews` больше не слиты в одн�
 - `StatusPillParcel` (`parcelUi.tsx`) теперь = `ParcelStatusChip`: те же слова и цвета по статусу
   (`created` — жёлтый «Ждёт курьера», `accepted/in_transit/delivered` — мятный, `canceled` — красный,
   `returning/returned` — жёлтый).
+- Карточки посылки: блоки `ParcelAddressBlock`, `ParcelDeadlineNote`, `ParcelReturnNotice`,
+  `ParcelCourierRow`, `ParcelCodeCard`, `isParcelTerminal`, `deliveryDayName` — тоже в `parcelForm.tsx`;
+  рельса — `ProgressRail` (общая) + `CourierDeliveryProgress` / `courierProgressIndex` в
+  `TaxiTripProgress.tsx`. `CarryParcelCard` (`parcelUi.tsx`) = `CourierCarryingCard` с `CourierCargoRow`
+  и `CourierContact`; тело карточки «Мои» в `ParcelsScreen.tsx` = `MyParcelCard`. Тип `Parcel` получил
+  `overdue` (сервер шлёт `_is_overdue`).
+- Курьер: `CourierOnboardingScreen.tsx` = `CourierApplyFormContent` + `CourierStatusScaffold`
+  (классы `.apply-hero`, `.section-head`, `.rules-list/.rule-row`, `.transport-chip`, `.invite-note`,
+  `.agree-card`, `.gate*`); гейт «не курьер» в `CourierScreen.tsx` = `CourierNotApprovedView` (`.gate`).
+  `.photo-slot` теперь = Android `UploadTile` (общий с экранами водителя).
