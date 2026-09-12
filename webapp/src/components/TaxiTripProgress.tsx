@@ -15,20 +15,33 @@ export function taxiProgressIndex(status: string): number {
   }
 }
 
+/** Индекс шага доставки — courierProgressIndex в Android MobilityUi.kt. */
+export function courierProgressIndex(status: string): number {
+  switch (status) {
+    case "in_transit":
+    case "returning":
+      return 1;
+    case "delivered":
+    case "returned":
+      return 2;
+    default:
+      return 0;
+  }
+}
+
 /**
- * Рельса прогресса поездки — зеркало Android MobilityProgressRail / TaxiTripProgress:
- * четыре точки «Едет · На месте · В пути · Готово», линии 2dp, точка текущего шага 18,
- * пройденные 14 с галочкой; акцент — жёлтый такси.
+ * Рельса прогресса — зеркало Android MobilityProgressRail: точки по числу шагов, линии 2dp,
+ * точка текущего шага 18, пройденные 14 с галочкой; акцент — жёлтый такси или зелёный курьера.
  */
-export default function TaxiTripProgress({ status, accent = "taxi" }: { status: string; accent?: "taxi" | "courier" }) {
-  const { appText } = useLang();
-  const labels = [
-    appText("Едет", "Килә"),
-    appText("На месте", "Урында"),
-    appText("В пути", "Юлда"),
-    appText("Готово", "Әҙер"),
-  ];
-  const current = taxiProgressIndex(status);
+export function ProgressRail({
+  labels,
+  current,
+  accent = "taxi",
+}: {
+  labels: string[];
+  current: number;
+  accent?: "taxi" | "courier";
+}) {
   return (
     <div
       className={"progress-rail progress-rail--" + accent}
@@ -56,4 +69,27 @@ export default function TaxiTripProgress({ status, accent = "taxi" }: { status: 
       })}
     </div>
   );
+}
+
+/** Рельса поездки такси: «Едет · На месте · В пути · Готово» (Android TaxiTripProgress). */
+export default function TaxiTripProgress({ status, accent = "taxi" }: { status: string; accent?: "taxi" | "courier" }) {
+  const { appText } = useLang();
+  const labels = [
+    appText("Едет", "Килә"),
+    appText("На месте", "Урында"),
+    appText("В пути", "Юлда"),
+    appText("Готово", "Әҙер"),
+  ];
+  return <ProgressRail labels={labels} current={taxiProgressIndex(status)} accent={accent} />;
+}
+
+/** Рельса доставки: «Забрать · В пути · Вручить»; при возврате подписи меняются (Android CourierDeliveryProgress). */
+export function CourierDeliveryProgress({ status }: { status: string }) {
+  const { appText } = useLang();
+  const labels = [
+    appText("Забрать", "Алыу"),
+    status === "returning" ? appText("Возврат", "Кире илтеү") : appText("В пути", "Юлда"),
+    status === "returned" ? appText("Возвращено", "Кире бирелде") : appText("Вручить", "Тапшырыу"),
+  ];
+  return <ProgressRail labels={labels} current={courierProgressIndex(status)} accent="courier" />;
 }

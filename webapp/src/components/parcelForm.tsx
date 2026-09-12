@@ -13,8 +13,15 @@ import { useLang } from "../i18n/lang";
 import type { CourierEstimate } from "../api/courier";
 import type { ParcelSize } from "../api/parcels";
 import { kopExactLabel } from "../utils/format";
-import { IconBox, IconCar, IconCheck, IconClock, IconPin, IconWarn } from "./Icons";
-import { sizeLabel } from "./parcelUi";
+import { IconBox, IconCar, IconCheck, IconClock, IconCopy, IconFlag, IconPin, IconStar, IconWarn } from "./Icons";
+
+/** Двуязычная подпись размера посылки — та же, что parcelSizeLabel в Android. */
+export function sizeLabel(size: ParcelSize | string, ru: boolean): string {
+  if (size === "small") return ru ? "Маленькая" : "Бәләкәй";
+  if (size === "medium") return ru ? "Средняя" : "Уртаса";
+  if (size === "large") return ru ? "Большая" : "Ҙур";
+  return ru ? "Посылка" : "Бандероль";
+}
 
 /** Потолок веса в форме: больше 100 кг — это уже грузоперевозка, а не посылка «между своими». */
 export const PARCEL_MAX_WEIGHT_KG = 100;
@@ -474,6 +481,169 @@ export function MobilityScreenIntro({
           {badge && <span className="screen-intro__badge">{badge}</span>}
         </div>
         <p className="screen-intro__sub">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────── Блоки карточки посылки ─────────────────────────────
+
+export function isParcelTerminal(status: string): boolean {
+  return status === "delivered" || status === "returned" || status === "canceled" || status === "cancelled";
+}
+
+/** «Сегодня», «Завтра» или «5 августа»; пусто остаётся пустым. */
+export function deliveryDayName(date: string, ru: boolean): string {
+  if (!date) return "";
+  if (date === deliveryDateAhead(0)) return ru ? "Сегодня" : "Бөгөн";
+  if (date === deliveryDateAhead(1)) return ru ? "Завтра" : "Иртәгә";
+  return deliveryDateHuman(date, ru);
+}
+
+/**
+ * «Где забрать» и «Куда привезти» — свободный ориентир от отправителя. Пусто — блок не рисуем
+ * вовсе. [prominent] — карточка курьера (он по этому едет): зелёная рамка 2.
+ */
+export function ParcelAddressBlock({ from, to, prominent = false }: { from?: string; to?: string; prominent?: boolean }) {
+  const { appText } = useLang();
+  const hasFrom = !!from?.trim();
+  const hasTo = !!to?.trim();
+  if (!hasFrom && !hasTo) return null;
+  return (
+    <div className={"addr-block" + (prominent ? " addr-block--prominent" : "")}>
+      {hasFrom && (
+        <div className="addr-row">
+          <span className="addr-row__icon addr-row__icon--from" aria-hidden><IconPin size={18} /></span>
+          <span className="addr-row__text">
+            <small>{appText("Где забрать", "Ҡайҙан алырға")}</small>
+            <strong>{from}</strong>
+          </span>
+        </div>
+      )}
+      {hasFrom && hasTo && <span className="addr-block__rule" aria-hidden />}
+      {hasTo && (
+        <div className="addr-row">
+          <span className="addr-row__icon addr-row__icon--to" aria-hidden><IconFlag size={18} /></span>
+          <span className="addr-row__text">
+            <small>{appText("Куда привезти", "Ҡайҙа илтергә")}</small>
+            <strong>{to}</strong>
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Срок «нужно доставить»: синяя плашка, просрочка — красная с спокойной подписью. */
+export function ParcelDeadlineNote({
+  deliverBy,
+  overdue,
+  status,
+  forCourier,
+}: {
+  deliverBy?: string | null;
+  overdue?: boolean;
+  status: string;
+  forCourier: boolean;
+}) {
+  const { appText, lang } = useLang();
+  const ru = lang !== "ba";
+  const date = deliverBy ?? "";
+  if (!date || isParcelTerminal(status)) return null;
+  const late = !!overdue;
+  return (
+    <div className={"deadline-note" + (late ? " is-overdue" : "")}>
+      <span className="deadline-note__icon" aria-hidden><IconClock size={18} /></span>
+      <span className="deadline-note__text">
+        <small>{late ? appText("Срок вышел · было нужно", "Ваҡыт үтте · кәрәк ине") : appText("Нужно доставить", "Илтергә кәрәк")}</small>
+        <strong>{deliveryDayName(date, ru)}</strong>
+        {late && (
+          <span>
+            {forCourier
+              ? appText("Отправитель ждёт. Напиши ему, если не успеваешь.", "Ебәреүсе көтә. Өлгөрмәһәң, уға яҙ.")
+              : appText("Посылка ещё в пути. Так бывает, когда попутчик не нашёлся сразу.", "Бандероль әле юлда. Юлдаш шунда уҡ табылмаһа, шулай була.")}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** Возврат: получателя нет дома / отказался — курьер везёт посылку обратно. */
+export function ParcelReturnNotice({ status, reason, forCourier }: { status: string; reason?: string; forCourier: boolean }) {
+  const { appText } = useLang();
+  if (status !== "returning" && status !== "returned") return null;
+  const title =
+    status === "returned"
+      ? appText("Возврат завершён — посылка у отправителя", "Ҡайтарыу тамам — бандероль ебәреүселә")
+      : forCourier
+        ? appText("Ты везёшь посылку обратно отправителю", "Һин бандеролде ебәреүсегә кире илтәһең")
+        : appText("Курьер везёт посылку обратно", "Курьер бандеролде кире алып килә");
+  return (
+    <div className="return-notice">
+      <strong>{title}</strong>
+      {reason?.trim() && <span>{appText("Причина: ", "Сәбәбе: ")}{reason}</span>}
+    </div>
+  );
+}
+
+/** Строка курьера у отправителя: мятная плашка, круг с иконкой, имя, рейтинг или «новый курьер», телефон. */
+export function ParcelCourierRow({
+  name,
+  rating,
+  ratingCount,
+  phone,
+}: {
+  name?: string;
+  rating?: number | null;
+  ratingCount?: number;
+  phone?: string;
+}) {
+  const { appText } = useLang();
+  const hasRating = rating != null && rating > 0;
+  return (
+    <div className="courier-row">
+      <span className="courier-row__avatar" aria-hidden><IconCar size={20} /></span>
+      <span className="courier-row__text">
+        <strong>{name?.trim() || appText("Курьер", "Курьер")}</strong>
+        <span className="courier-row__meta">
+          {hasRating ? (
+            <span className="courier-row__rating">
+              <IconStar size={16} />
+              {rating.toFixed(1).replace(".", ",")}
+              {ratingCount ? ` · ${ratingCount}` : ""}
+            </span>
+          ) : (
+            <span>{appText("новый курьер", "яңы курьер")}</span>
+          )}
+          {phone && <a className="courier-row__phone" href={`tel:${phone}`}>{phone}</a>}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/** Код вручения в карточке: рамка 1 CanonGreen2, код 34/40 моно, кнопка «скопировать» мятным квадратом. */
+export function ParcelCodeCard({ code, label }: { code: string; label: string }) {
+  const { appText } = useLang();
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(code).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1800);
+      },
+      () => {}
+    );
+  };
+  return (
+    <div className="code-card">
+      <small>{label}</small>
+      <div className="code-card__row">
+        <b className="code-card__value">{code}</b>
+        <button type="button" className="code-card__copy" onClick={copy} aria-label={appText("Скопировать код", "Кодты күсереп алыу")}>
+          {copied ? <IconCheck size={20} /> : <IconCopy size={20} />}
+        </button>
       </div>
     </div>
   );

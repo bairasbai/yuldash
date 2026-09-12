@@ -4100,26 +4100,6 @@ button.list-row:active {
   color: var(--muted);
 }
 /* Подсказка внутри карточки: спокойный серый текст под кнопками, не крик. */
-.parcel-card__hint {
-  flex-basis: 100%;
-  margin: 4px 0 0;
-  font-size: var(--font-caption);
-  line-height: 1.4;
-  color: var(--muted);
-}
-.parcel-card__phone {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  min-height: 44px;
-  padding: 0 14px;
-  border-radius: var(--radius-field);
-  background: var(--mint);
-  color: var(--green);
-  font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
-}
 .parcel-card__settle {
   display: flex;
   align-items: center;
@@ -4140,52 +4120,19 @@ button.list-row:active {
 }
 .parcel-card__actions {
   display: flex;
-  gap: 10px;
-  margin-top: 14px;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
 }
 .parcel-card__actions .btn-primary,
 .parcel-card__actions .btn-soft {
   flex: 1;
+  margin-top: 0;
 }
-.parcel-card__code {
+.parcel-card__actions-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 12px;
-  padding: 10px 14px;
-  border-radius: var(--radius-field);
-  border: 1px dashed var(--border);
-  font-size: var(--font-caption);
-  color: var(--muted);
+  gap: var(--space-md);
 }
-.parcel-card__code b {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: var(--font-heading);
-  letter-spacing: 0.16em;
-  color: var(--green);
-}
-.parcel-card__courier {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.parcel-card__courier-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
-  color: var(--text);
-}
-.parcel-card__courier .btn-soft {
-  flex: none;
-  padding: 0 16px;
-}
-
 /* Диалог ввода кода (нижняя шторка) */
 .code-sheet {
   text-align: left;
@@ -7718,17 +7665,6 @@ select.field__input {
   white-space: nowrap;
 }
 
-/* Предупреждение в карточке посылки: отмена уже стоит кому-то денег */
-.parcel-card__warn {
-  margin-top: var(--space-md);
-  padding: var(--space-md);
-  border-radius: var(--radius-field);
-  background: var(--warn-bg);
-  color: var(--warn);
-  font-size: var(--font-micro);
-  line-height: var(--line-micro);
-}
-
 /* Сколько ходов осталось в торге: он конечен, и знать об этом надо заранее */
 .bargain__left {
   margin-top: var(--space-sm);
@@ -8941,8 +8877,9 @@ select.field__input {
   margin: var(--space-md) 0;
   --rail-accent: var(--taxi);
 }
+/* Рельса доставки (CourierDeliveryProgress): акцент CanonGreen2, а не синий курьера. */
 .progress-rail--courier {
-  --rail-accent: var(--courier);
+  --rail-accent: var(--green2);
 }
 .progress-rail__step {
   flex: 1;
@@ -10300,4 +10237,386 @@ select.field__input {
 .parcel-status--danger {
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+/* ================================================================
+   Карточка посылки — блоки Android MyParcelCard / CourierCarryCard.
+   ================================================================ */
+.parcel-card .progress-rail {
+  margin-bottom: var(--space-md);
+}
+.parcel-card > .btn-soft {
+  width: 100%;
+  margin-top: var(--space-md);
+}
+/* «Написать курьеру» — AppButton(Secondary) высотой 48, как в приложении. */
+.btn-soft--compact {
+  min-height: 48px;
+}
+/* Адреса «Где забрать / Куда привезти»: CanonItemShape, рамка 1 (у курьера 2 зелёная), поля 12. */
+.addr-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.addr-block--prominent {
+  border-color: var(--green2);
+  box-shadow: inset 0 0 0 1px var(--green2);
+}
+.addr-block__rule {
+  height: 1px;
+  background: var(--hairline-green);
+}
+.addr-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+.addr-row__icon {
+  flex: none;
+  display: inline-flex;
+  margin-top: 1px;
+}
+.addr-row__icon--from {
+  color: var(--green2);
+}
+.addr-row__icon--to {
+  color: var(--courier);
+}
+.addr-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.addr-row__text small {
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.addr-row__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  overflow-wrap: anywhere;
+}
+/* Срок доставки: синяя плашка CanonCourierBg; просрочка — CanonDangerBg с рамкой. */
+.deadline-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid transparent;
+  border-radius: var(--radius-item);
+  background: var(--courier-bg);
+  color: var(--courier);
+  transition: background var(--motion-slow) ease, color var(--motion-slow) ease;
+}
+.deadline-note.is-overdue {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.deadline-note__icon {
+  flex: none;
+  display: inline-flex;
+  margin-top: 1px;
+}
+.deadline-note__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.deadline-note__text small {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.deadline-note__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.deadline-note__text span {
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* Возврат: CanonWarnBg с рамкой CanonWarn, заголовок жирный, причина обычным. */
+.return-notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-item);
+  background: var(--warn-bg);
+}
+.return-notice strong {
+  color: var(--warn);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.return-notice span {
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* Плашки-предупреждения в карточке (компенсация, «товар уже куплен»): CanonWarnBg, 12/17 CanonWarn. */
+.parcel-card__warn {
+  margin: 0 0 var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+/* Курьер у отправителя: мятная плашка, белый круг с иконкой, имя, рейтинг / «новый курьер», телефон. */
+.courier-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.courier-row__avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--green2);
+}
+.courier-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.courier-row__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.courier-row__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.courier-row__rating {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--muted);
+}
+.courier-row__rating svg {
+  color: var(--canon-star);
+}
+.courier-row__phone {
+  color: var(--green2);
+  font-weight: var(--weight-bold);
+  text-decoration: none;
+}
+/* Код вручения в карточке: рамка 1 CanonGreen2, код 34/40 моно CanonGreen, копия — мятный квадрат 36. */
+.code-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--green2);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.code-card small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.code-card__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.code-card__value {
+  flex: 1;
+  min-width: 0;
+  font-family: "Roboto Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--green);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.code-card__copy {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green2);
+}
+/* «Курьер не застал получателя»: CanonWarnBg, поля 12, заголовок 16 Bold CanonWarn, подпись, кнопка. */
+.redeliver-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--warn-bg);
+  animation: fadeIn var(--motion-normal) ease both;
+}
+.redeliver-card strong {
+  color: var(--warn);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.redeliver-card span {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.redeliver-card .btn-soft {
+  width: 100%;
+}
+
+/* Попытки вручения у курьера: CanonWarnBg, 14 Bold CanonWarn. */
+.parcel-card__warn--strong {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.dl-hint--warn {
+  color: var(--warn);
+  font-weight: var(--weight-bold);
+}
+.parcel-card > .dl-hint {
+  margin-bottom: var(--space-md);
+}
+/* Теги груза (CourierCargoRow): радиус 14, поля 12×8, 14 Bold; «хрупкое» — с обводкой. */
+.cargo-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+.cargo-tag {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid transparent;
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.cargo-tag--warn {
+  border-color: var(--warn);
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+/* Контакты курьера: мятная плашка CanonItemShape, поля 12, зазор 12, разделитель — зелёная волосяная. */
+.contact-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.contact-block .btn-soft {
+  width: 100%;
+  margin-top: 0;
+}
+.contact-block__rule {
+  height: 1px;
+  background: var(--hairline-green);
+}
+.contact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.contact__label {
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.contact__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--green2);
+}
+.contact__name strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+/* Кнопка-строка «телефон · Позвонить»: CanonSurface, CanonItemShape, волосяная рамка, мин. 48. */
+.contact__call {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 48px;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--hairline-green);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--green2);
+  text-decoration: none;
+}
+.contact__call b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.contact__call span {
+  flex: none;
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
 }

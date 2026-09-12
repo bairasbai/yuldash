@@ -40,9 +40,17 @@ import RoadsideHelp from "../components/RoadsideHelp";
 import ParcelReceiptCard from "../components/ParcelReceiptCard";
 import RaiseBudget from "../components/RaiseBudget";
 import ParcelSendWizard from "../components/ParcelSendWizard";
-import { ParcelRouteRow } from "../components/parcelForm";
+import {
+  ParcelAddressBlock,
+  ParcelCodeCard,
+  ParcelCourierRow,
+  ParcelDeadlineNote,
+  ParcelReturnNotice,
+  ParcelRouteRow,
+} from "../components/parcelForm";
+import { CourierDeliveryProgress } from "../components/TaxiTripProgress";
 import { kopExactLabel } from "../utils/format";
-import { IconBox, IconCheck, IconChat, IconProfile, IconRoute, IconShield, IconStar } from "../components/Icons";
+import { IconBox, IconCheck, IconChat, IconProfile, IconShield } from "../components/Icons";
 import { useAuth } from "../auth/AuthProvider";
 import { canOpenParcelDispute } from "../utils/parcelDispute.js";
 
@@ -197,43 +205,41 @@ function MineTab() {
               </div>
               <StatusPillParcel status={p.status} />
             </div>
+            {/* Порядок блоков — как в Android MyParcelCard: рельса, возврат, срок, адреса, компенсация,
+                получатель, курьер, покупки, код, «заехать ещё раз», «Отменить». */}
+            {p.status !== "canceled" && p.status !== "cancelled" && (
+              <CourierDeliveryProgress status={p.status} />
+            )}
+            <ParcelReturnNotice status={p.status} reason={p.return_reason} forCourier={false} />
+            <ParcelDeadlineNote deliverBy={p.deliver_by} overdue={p.overdue} status={p.status} forCourier={false} />
+            <ParcelAddressBlock from={p.from_address} to={p.to_address} />
+            {(p.cancel_fee_kop ?? 0) > 0 && (
+              <div className="parcel-card__warn">
+                {appText("Компенсация курьеру после отмены: ", "Кире алғандан һуң курьерға компенсация: ")}
+                {kopExactLabel(p.cancel_fee_kop ?? 0)}
+                {appText(". Рассчитайтесь напрямую.", ". Туранан-тура иҫәпләшегеҙ.")}
+              </div>
+            )}
             <div className="parcel-card__receiver">
               <span className="parcel-card__receiver-icon" aria-hidden><IconProfile size={16} /></span>
               <span className="parcel-card__receiver-name">{appText("Получатель: ", "Алыусы: ")}{p.receiver_name || "—"}</span>
               {p.price_kop > 0 && <b className="parcel-card__price">{kopExactLabel(p.price_kop)}</b>}
             </div>
-            {/* Код вручения — свой, показываем отправителю */}
-            {p.confirm_code && active && (
-              <div className="parcel-card__code">
-                <span>{appText("Код вручения", "Тапшырыу коды")}</span>
-                <b>{p.confirm_code}</b>
-              </div>
-            )}
-            {/* Курьер, если принята */}
+            {/* Курьер, если принята: плашка + «Написать курьеру». Чат — где оставить, кому отдать,
+                когда будут дома: письменно, а не в звонке. */}
             {p.courier && (
-              <div className="parcel-card__courier">
-                <div className="parcel-card__courier-name">
-                  <IconRoute size={15} /> {p.courier.name || appText("Курьер", "Курьер")}
-                  {p.courier.rating != null && (
-                    <span className="taxi-driver__rating"><IconStar size={13} /> {p.courier.rating.toFixed(1)}</span>
-                  )}
-                </div>
-                {p.courier.phone && (
-                  <a className="btn-soft" href={`tel:${p.courier.phone}`}>{appText("Позвонить", "Шылтыратыу")}</a>
-                )}
-                {/* Чат: где оставить, кому отдать, когда будут дома — письменно, а не в звонке. */}
-                <button
-                  type="button"
-                  className="btn-soft"
-                  onClick={() => navigate(`/parcel-chat/${p.id}`)}
-                >
-                  <IconChat size={18} /> {appText("Чат", "Чат")}
+              <>
+                <ParcelCourierRow
+                  name={p.courier.name}
+                  rating={p.courier.rating}
+                  ratingCount={p.courier.rating_count}
+                  phone={p.courier.phone}
+                />
+                <button type="button" className="btn-soft btn-soft--compact" onClick={() => navigate(`/parcel-chat/${p.id}`)}>
+                  <IconChat size={18} /> {appText("Написать курьеру", "Курьерға яҙырға")}
                 </button>
-              </div>
+              </>
             )}
-            {/* Курьер уже потратил свои деньги на товар — просто «отменить» тут
-                нечестно по отношению к нему. Разбираться нужно через спор, где
-                слышны обе стороны. */}
             {/* «Купи и привези»: в магазине оказалось дороже согласованного. Без этой
                 кнопки курьер не мог провести расчёт — товар куплен на его деньги,
                 а сумма выше той, на которую согласился заказчик. Оба висели. */}
@@ -244,67 +250,72 @@ function MineTab() {
                 onDone={() => load()}
               />
             )}
-            {active && (p.settlement?.goods_actual_kop ?? 0) > 0 ? (
+            {/* Курьер уже потратил свои деньги на товар — просто «отменить» тут
+                нечестно по отношению к нему. Разбираться нужно через спор, где
+                слышны обе стороны. */}
+            {active && (p.settlement?.goods_actual_kop ?? 0) > 0 && (
               <div className="parcel-card__warn">
                 {appText(
                   "Курьер уже купил товар. Обычная отмена недоступна — если что-то пошло не так, открой спор.",
                   "Курьер тауарҙы һатып алған инде. Ғәҙәти кире алыу мөмкин түгел — проблема булһа, бәхәс ас."
                 )}
               </div>
-            ) : (
-              active && (
-                <>
-                  {/* Курьер уже в пути — отмена стоит ему времени и бензина.
-                      Сумму называем ДО нажатия, а не после. */}
-                  {p.courier && (
-                    <div className="parcel-card__warn">
-                      {(p.cancel_fee_preview_kop ?? 0) > 0
+            )}
+            {/* Код вручения — свой, показываем отправителю */}
+            {p.confirm_code && active && (
+              <ParcelCodeCard code={p.confirm_code} label={appText("Код вручения (передай получателю)", "Тапшырыу коды (алыусыға бир)")} />
+            )}
+            {active && (p.settlement?.goods_actual_kop ?? 0) <= 0 && (
+              <>
+                {/* Курьер уже в пути — отмена стоит ему времени и бензина.
+                    Сумму называем ДО нажатия, а не после. */}
+                {p.courier && (
+                  <div className="parcel-card__warn">
+                    {(p.cancel_fee_preview_kop ?? 0) > 0
+                      ? appText(
+                          `Курьер уже принял заказ. Отмена сейчас — компенсация курьеру ${Math.round((p.cancel_fee_preview_kop ?? 0) / 100)} ₽${cancelPartsRu(p)} за потраченное время и дорогу. Расчёт напрямую с курьером.`,
+                          `Курьер заказды алған инде. Хәҙер кире алһаң — курьерға ваҡыт һәм юл өсөн ${Math.round((p.cancel_fee_preview_kop ?? 0) / 100)} һум${cancelPartsBa(p)} компенсация. Иҫәпләшеү курьер менән туранан-тура.`
+                        )
+                      : appText(
+                          "Курьер уже принял заказ. После отмены сервис зафиксирует компенсацию за потраченное время и дорогу; сумма появится в карточке, расчёт — напрямую.",
+                          "Курьер заказды алған инде. Кире алғандан һуң сервис ваҡыт һәм юл өсөн компенсацияны теркәр; сумма карточкала күренер, иҫәпләшеү — туранан-тура."
+                        )}
+                  </div>
+                )}
+                {/* Курьер приехал и не застал получателя. Раньше у отправителя тут не
+                    было ничего, кроме чата: дозвонись как-нибудь сам, а нет — плати за
+                    возврат почти полную доставку. Теперь есть дешёвый выход. Цену заезда
+                    называем ДО нажатия и считаем на сервере. */}
+                {p.can_request_redelivery && (
+                  <div className="redeliver-card">
+                    <strong>{appText("Курьер не застал получателя", "Курьер алыусыны тапманы")}</strong>
+                    <span>
+                      {(p.return_fee_parts?.next_redeliver_kop ?? 0) > 0
                         ? appText(
-                            `Курьер уже принял заказ. Отмена сейчас — компенсация курьеру ${Math.round((p.cancel_fee_preview_kop ?? 0) / 100)} ₽${cancelPartsRu(p)} за потраченное время и дорогу. Расчёт напрямую с курьером.`,
-                            `Курьер заказды алған инде. Хәҙер кире алһаң — курьерға ваҡыт һәм юл өсөн ${Math.round((p.cancel_fee_preview_kop ?? 0) / 100)} һум${cancelPartsBa(p)} компенсация. Иҫәпләшеү курьер менән туранан-тура.`
+                            `Свяжись с ним и попроси курьера заехать ещё раз — заезд стоит ${Math.round((p.return_fee_parts?.next_redeliver_kop ?? 0) / 100)} ₽, это дешевле возврата (${Math.round((p.return_fee_parts?.total_kop ?? 0) / 100)} ₽).`,
+                            `Уның менән бәйләнеш тот һәм курьерҙан ҡабат инеүҙе һора — инеү ${Math.round((p.return_fee_parts?.next_redeliver_kop ?? 0) / 100)} һум тора, был кире ҡайтарыуҙан (${Math.round((p.return_fee_parts?.total_kop ?? 0) / 100)} һум) арзаныраҡ.`
                           )
                         : appText(
-                            "Курьер уже принял заказ. После отмены сервис зафиксирует компенсацию за потраченное время и дорогу; сумма появится в карточке, расчёт — напрямую.",
-                            "Курьер заказды алған инде. Кире алғандан һуң сервис ваҡыт һәм юл өсөн компенсацияны теркәр; сумма карточкала күренер, иҫәпләшеү — туранан-тура."
+                            "Свяжись с ним и попроси курьера заехать ещё раз — доплаты за этот заезд не будет.",
+                            "Уның менән бәйләнеш тот һәм курьерҙан ҡабат инеүҙе һора — был инеү өсөн өҫтәмә түләү булмаясаҡ."
                           )}
-                    </div>
-                  )}
-                  {/* Курьер приехал и не застал получателя. Раньше у отправителя тут не
-                      было ничего, кроме чата: дозвонись как-нибудь сам, а нет — плати за
-                      возврат почти полную доставку. Теперь есть дешёвый выход. Цену заезда
-                      называем ДО нажатия и считаем на сервере. */}
-                  {p.can_request_redelivery && (
-                    <div className="parcel-card__warn" style={{ marginTop: 10 }}>
-                      <strong>{appText("Курьер не застал получателя", "Курьер алыусыны тапманы")}</strong>
-                      <div style={{ marginTop: 4 }}>
-                        {(p.return_fee_parts?.next_redeliver_kop ?? 0) > 0
-                          ? appText(
-                              `Свяжись с ним и попроси курьера заехать ещё раз — заезд стоит ${Math.round((p.return_fee_parts?.next_redeliver_kop ?? 0) / 100)} ₽, это дешевле возврата (${Math.round((p.return_fee_parts?.total_kop ?? 0) / 100)} ₽).`,
-                              `Уның менән бәйләнеш тот һәм курьерҙан ҡабат инеүҙе һора — инеү ${Math.round((p.return_fee_parts?.next_redeliver_kop ?? 0) / 100)} һум тора, был кире ҡайтарыуҙан (${Math.round((p.return_fee_parts?.total_kop ?? 0) / 100)} һум) арзаныраҡ.`
-                            )
-                          : appText(
-                              "Свяжись с ним и попроси курьера заехать ещё раз — доплаты за этот заезд не будет.",
-                              "Уның менән бәйләнеш тот һәм курьерҙан ҡабат инеүҙе һора — был инеү өсөн өҫтәмә түләү булмаясаҡ."
-                            )}
-                      </div>
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        style={{ marginTop: 10 }}
-                        onClick={() => onRedeliver(p.id)}
-                        disabled={busyId === p.id}
-                      >
-                        {busyId === p.id
-                          ? appText("Просим…", "Һорайбыҙ…")
-                          : appText("Попросить заехать ещё раз", "Ҡабат инеүҙе һорау")}
-                      </button>
-                    </div>
-                  )}
-                  <button type="button" className="btn-ghost" style={{ marginTop: 10 }} onClick={() => onCancel(p.id)} disabled={busyId === p.id}>
-                    {busyId === p.id ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить", "Кире алыу")}
-                  </button>
-                </>
-              )
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-soft"
+                      onClick={() => onRedeliver(p.id)}
+                      disabled={busyId === p.id}
+                    >
+                      {busyId === p.id
+                        ? appText("Просим…", "Һорайбыҙ…")
+                        : appText("Попросить заехать ещё раз", "Ҡабат инеүҙе һорау")}
+                    </button>
+                  </div>
+                )}
+                <button type="button" className="btn-soft" onClick={() => onCancel(p.id)} disabled={busyId === p.id}>
+                  {busyId === p.id ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить", "Кире алыу")}
+                </button>
+              </>
             )}
 
             {canOpenParcelDispute(p, user?.id) && (

@@ -135,6 +135,8 @@ export interface Parcel {
   fragile?: boolean;
   /** «Нужно не позже» (ГГГГ-ММ-ДД). null = не срочно. */
   deliver_by?: string | null;
+  /** Срок вышел, а посылка ещё не вручена — считает сервер, клиент не гадает по часам. */
+  overdue?: boolean;
   /** Точные адреса — открываются принявшему курьеру (у чужих их нет). */
   from_address?: string;
   to_address?: string;

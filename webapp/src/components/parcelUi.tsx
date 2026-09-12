@@ -7,19 +7,24 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import type { Parcel, ParcelSize } from "../api/parcels";
+import type { Parcel } from "../api/parcels";
 import { isCarrying } from "../api/parcels";
 import { dayMonthLong, rubLabel } from "../utils/format";
-import { IconArrow, IconPhone, IconCheck, IconChat, IconBox } from "./Icons";
+import { IconArrow, IconPhone, IconCheck, IconChat, IconBox, IconProfile } from "./Icons";
 import ParcelPhoto from "./ParcelPhoto";
+import {
+  ParcelAddressBlock,
+  ParcelDeadlineNote,
+  ParcelReturnNotice,
+  ParcelRouteRow,
+  cargoTypeEmoji,
+  cargoTypeLabel,
+  sizeLabel,
+} from "./parcelForm";
+import { CourierDeliveryProgress } from "./TaxiTripProgress";
 
 // ------------------------------- Подписи -------------------------------
-export function sizeLabel(size: ParcelSize | string, ru: boolean): string {
-  if (size === "small") return ru ? "Маленькая" : "Бәләкәй";
-  if (size === "medium") return ru ? "Средняя" : "Уртаса";
-  if (size === "large") return ru ? "Большая" : "Ҙур";
-  return ru ? "Посылка" : "Бандероль";
-}
+export { sizeLabel } from "./parcelForm";
 
 /** Бейдж статуса — Android ParcelStatusChip: радиус 14, поля 12×4, подпись 14 Bold;
  *  ждёт — CanonWarnBg/CanonWarn, в работе и доставлена — CanonMint/CanonGreen2, отмена — красная. */
@@ -192,6 +197,11 @@ export function CodeDialog({
 }
 
 // ------------------------------- «Везу» — карточка с управлением -------------------------------
+/**
+ * Карточка доставки у курьера — зеркало Android CourierCarryingCard: маршрут и статус, рельса
+ * «Забрать · В пути · Вручить», возврат и попытки, срок, теги груза, адреса с зелёной рамкой,
+ * контакты мятной плашкой, доход, действия. Логика (статусы, код, «купи и привези») прежняя.
+ */
 export function CarryParcelCard({
   p,
   busy,
@@ -211,54 +221,104 @@ export function CarryParcelCard({
   onDeliver: () => void;
   onGoodsCost?: (kop: number) => void; // buy_bring: ввод фактической стоимости товара
 }) {
-  const { appText } = useLang();
+  const { appText, lang } = useLang();
+  const ru = lang !== "ba";
   const [goods, setGoods] = useState("");
-  const needGoods =
-    p.delivery_type === "buy_bring" && (p.settlement?.goods_actual_kop ?? 0) <= 0;
+  const buyBring = p.delivery_type === "buy_bring";
+  const needGoods = buyBring && (p.settlement?.goods_actual_kop ?? 0) <= 0;
+  const delivered = p.status === "delivered";
+  const returning = p.status === "returning" || p.status === "returned";
+  const showSender =
+    (p.status === "accepted" || p.status === "in_transit" || returning) &&
+    !!(p.sender_name?.trim() || p.sender_phone?.trim());
+  const myIncome = Math.max(0, p.price_kop - (p.commission_kop ?? 0));
 
   return (
     <div className="parcel-card">
-      <div className="parcel-card__head">
-        <div className="parcel-card__to">{appText("Кому", "Кемгә")}: {p.receiver_name || "—"}</div>
+      <div className="parcel-card__head parcel-card__head--route">
+        <div className="parcel-card__route">
+          <ParcelRouteRow from={p.from_city} to={p.to_city} />
+          <div className="dl-hint">
+            {sizeLabel(p.size, ru)}
+            {p.description ? `  ·  ${p.description}` : ""}
+          </div>
+        </div>
         <StatusPillParcel status={p.status} />
       </div>
-      <ParcelRoute p={p} />
-
-      {/* Телефон получателя — виден только принявшему курьеру */}
-      {p.receiver_phone && (
-        <a className="parcel-card__phone" href={`tel:${p.receiver_phone}`}>
-          <IconPhone size={18} /> {p.receiver_phone}
-        </a>
-      )}
-
-      {/* Телефон ОТПРАВИТЕЛЯ. Нужен ровно тогда, когда что-то пошло не так: получатель
-          не открывает, адрес не тот, вещь не влезает в багажник. Без него курьер стоял
-          у подъезда и звонить было некому. Гаснет вместе с остальными контактами. */}
-      {p.sender_phone && (
-        <a className="parcel-card__phone" href={`tel:${p.sender_phone}`}>
-          <IconPhone size={18} />{" "}
-          {appText(`Отправитель: ${p.sender_name || p.sender_phone}`, `Ебәреүсе: ${p.sender_name || p.sender_phone}`)}
-        </a>
-      )}
-
+      <CourierDeliveryProgress status={p.status} />
+      <ParcelReturnNotice status={p.status} reason={p.return_reason} forCourier />
       {/* Сколько раз уже пытались вручить. Курьеру это меняет план: на третий заход
           он поедет не «как получится», а договорившись по телефону заранее. */}
       {(p.delivery_attempts ?? 0) > 0 && (
-        <p className="parcel-card__desc">
-          {appText(
-            `Попыток вручить: ${p.delivery_attempts}`,
-            `Тапшырырға маташыу: ${p.delivery_attempts}`
-          )}
-          {p.return_reason ? ` · ${p.return_reason}` : ""}
-        </p>
+        <div className="parcel-card__warn parcel-card__warn--strong">
+          {appText("Попыток вручения: ", "Тапшырыу маташыуы: ")}
+          {p.delivery_attempts}
+          {appText(". Отправителю сообщили — посылка остаётся у тебя.", ". Ебәреүсегә хәбәр ителде — бандероль һиндә ҡала.")}
+        </div>
       )}
+      <ParcelDeadlineNote deliverBy={p.deliver_by} overdue={p.overdue} status={p.status} forCourier />
+      <CourierCargoRow p={p} />
+      <ParcelAddressBlock from={p.from_address} to={p.to_address} prominent />
+
+      {/* Контакты: получатель всегда, отправитель — пока посылка в работе (и при возврате —
+          это точка возврата). Телефон ОТПРАВИТЕЛЯ нужен ровно тогда, когда что-то пошло не так:
+          получатель не открывает, адрес не тот, вещь не влезает в багажник. */}
+      <div className="contact-block">
+        <CourierContact label={appText("Получатель", "Алыусы")} name={p.receiver_name} phone={p.receiver_phone} />
+        {showSender && (
+          <>
+            <span className="contact-block__rule" aria-hidden />
+            <CourierContact
+              label={returning ? appText("Отправитель · точка возврата", "Ебәреүсе · ҡайтарыу урыны") : appText("Отправитель · точка забора", "Ебәреүсе · алып китеү урыны")}
+              name={p.sender_name}
+              phone={p.sender_phone}
+            />
+            {/* Чат вместо звонка: за рулём написать проще, чем говорить. */}
+            <Link className="btn-soft btn-soft--compact" to={`/parcel-chat/${p.id}`}>
+              <IconChat size={18} /> {appText("Написать отправителю", "Ебәреүсегә яҙырға")}
+            </Link>
+          </>
+        )}
+      </div>
 
       {/* Расчёт с получателем (buy_bring) */}
-      {p.settlement && (p.settlement.goods_actual_kop > 0) && (
-        <div className="parcel-card__settle">
-          <span>{appText("Получатель платит", "Алыусы түләй")}</span>
-          <b>{rubLabel(p.settlement.total_due_kop)}</b>
-        </div>
+      {buyBring &&
+        (p.settlement && p.settlement.goods_actual_kop > 0 ? (
+          <div className="parcel-card__settle">
+            <span>{appText("Получатель платит", "Алыусы түләй")}</span>
+            <b>{rubLabel(p.settlement.total_due_kop)}</b>
+          </div>
+        ) : (
+          p.cod_amount_kop > 0 && (
+            <p className="dl-hint dl-hint--warn">
+              {appText("Выкуп товара: ", "Тауар выкупы: ")}
+              {rubLabel(p.cod_amount_kop)}
+            </p>
+          )
+        ))}
+
+      {/* Деньги одной строкой: при возврате комиссии нет, после отмены — компенсация, иначе доход. */}
+      {returning ? (
+        <p className="dl-hint dl-hint--warn">
+          {appText(
+            "При возврате комиссию Юлдаша не берём. Расчёт по расходам — напрямую с отправителем.",
+            "Ҡайтарғанда Юлдаш комиссия алмай. Сығымдар буйынса ебәреүсе менән туранан-тура иҫәпләш."
+          )}
+        </p>
+      ) : (p.cancel_fee_kop ?? 0) > 0 ? (
+        <p className="dl-hint dl-hint--warn">
+          {appText("Компенсация от отправителя: ", "Ебәреүсенән компенсация: ")}
+          {rubLabel(p.cancel_fee_kop ?? 0)}
+        </p>
+      ) : (
+        <p className="dl-hint">
+          {p.price_kop > 0
+            ? appText(
+                `Твой доход: ${rubLabel(myIncome)} (наш сбор ${rubLabel(p.commission_kop ?? 0)}${delivered ? "" : " ≈ ориентировочно"})`,
+                `Һинең килем: ${rubLabel(myIncome)} (беҙҙең сбор ${rubLabel(p.commission_kop ?? 0)}${delivered ? "" : " ≈ самаға"})`
+              )
+            : appText("По-соседски, без оплаты", "Күрше хаҡы, түләүһеҙ")}
+        </p>
       )}
 
       {/* buy_bring: сначала фактическая стоимость товара */}
@@ -276,18 +336,18 @@ export function CarryParcelCard({
             />
             <button
               type="button"
-              className="btn-primary"
-              style={{ flex: "none", padding: "0 18px" }}
+              className="btn-primary btn-accent"
+              style={{ flex: "none", padding: "0 18px", marginTop: 0 }}
               onClick={() => onGoodsCost(Number(goods) * 100)}
               disabled={busy || !goods}
             >
               {appText("Сохранить", "Һаҡлау")}
             </button>
           </div>
-          <p className="parcel-card__desc" style={{ marginTop: 6 }}>
+          <p className="dl-hint" style={{ marginTop: 6 }}>
             {appText(
-              "Получатель вернёт эту сумму + доставку при вручении.",
-              "Алыусы тапшырғанда был сумманы + доставканы ҡайтара."
+              "Сначала укажи стоимость покупки — потом сможешь вручить заказ.",
+              "Тәүҙә һатып алыу хаҡын күрһәт — шунан заказды тапшыра алырһың."
             )}
           </p>
         </div>
@@ -298,33 +358,74 @@ export function CarryParcelCard({
               отправителя, когда везёшь коробку назад. У доставки «по пути» её нет:
               там нет тарифа, а значит и платного ожидания. */}
           {onArrived && (
-            <button type="button" className="btn-soft" onClick={onArrived} disabled={busy}>
+            <button type="button" className="btn-soft btn-soft--compact" onClick={onArrived} disabled={busy}>
               {appText("Я на месте", "Мин урында")}
-            </button>
-          )}
-          {p.status === "accepted" && (
-            <button type="button" className="btn-soft" onClick={onDepart} disabled={busy}>
-              {appText("В пути", "Юлда")}
             </button>
           )}
           {/* Возврат — тоже поездка. Курьер, который привёз коробку назад и снова стоит под
               дверью, должен видеть: время идёт ему, а не в никуда, и выход есть. */}
           {p.status === "returning" && (
-            <p className="parcel-card__hint">
+            <p className="dl-hint">
               {appText(
                 "Везёшь обратно. Отметь «Я на месте» у отправителя — ожидание оплачивается и здесь. Если и его нет дома, открой спор: коробку решит человек, а не приложение.",
                 "Кире алып бараһың. Ебәреүсе янында «Мин урында» тип билдәлә — көтөү бында ла түләнә. Ул да өйҙә булмаһа, бәхәс ас: ҡумтаны кеше хәл итер, ҡушымта түгел."
               )}
             </p>
           )}
-          {/* Чат вместо звонка: за рулём написать проще, чем говорить. */}
-          <Link className="btn-soft" to={`/parcel-chat/${p.id}`}>
-            <IconChat size={18} /> {appText("Чат", "Чат")}
-          </Link>
-          <button type="button" className="btn-primary" onClick={onDeliver} disabled={busy}>
-            <IconCheck size={18} /> {appText("Доставлено", "Тапшырылды")}
-          </button>
+          <div className="parcel-card__actions-row">
+            {p.status === "accepted" && (
+              <button type="button" className="btn-soft" onClick={onDepart} disabled={busy}>
+                {appText("В пути", "Юлда")}
+              </button>
+            )}
+            <button type="button" className="btn-primary" onClick={onDeliver} disabled={busy}>
+              <IconCheck size={18} /> {appText("Доставлено", "Тапшырылды")}
+            </button>
+          </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Теги груза курьеру: вес, что внутри, «хрупкое» с обводкой — на них решается «беру / не беру». */
+function CourierCargoRow({ p }: { p: Parcel }) {
+  const { appText, lang } = useLang();
+  const ru = lang !== "ba";
+  const hasWeight = (p.weight_kg ?? 0) > 0;
+  const hasType = !!p.cargo_type?.trim();
+  if (!hasWeight && !hasType && !p.fragile) return null;
+  return (
+    <div className="cargo-tags">
+      {hasWeight && <span className="cargo-tag">⚖️  {String(p.weight_kg).replace(".", ",")} кг</span>}
+      {hasType && (
+        <span className="cargo-tag">
+          {cargoTypeEmoji(p.cargo_type ?? "")}  {cargoTypeLabel(p.cargo_type ?? "", ru)}
+        </span>
+      )}
+      {p.fragile && <span className="cargo-tag cargo-tag--warn">⚠️  {appText("Хрупкое", "Ватыла торған")}</span>}
+    </div>
+  );
+}
+
+/** Контакт стороны: подпись, имя с иконкой, кнопка-строка «телефон · Позвонить». */
+function CourierContact({ label, name, phone }: { label: string; name?: string; phone?: string }) {
+  const { appText } = useLang();
+  return (
+    <div className="contact">
+      <small className="contact__label">{label}</small>
+      {name?.trim() && (
+        <span className="contact__name">
+          <IconProfile size={16} />
+          <strong>{name}</strong>
+        </span>
+      )}
+      {phone?.trim() && (
+        <a className="contact__call" href={`tel:${phone}`}>
+          <IconPhone size={18} />
+          <b>{phone}</b>
+          <span>{appText("Позвонить", "Шылтыратыу")}</span>
+        </a>
       )}
     </div>
   );
