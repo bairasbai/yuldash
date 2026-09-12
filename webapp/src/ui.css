@@ -13522,3 +13522,1435 @@ button.settings-row:active {
 .sos-back {
   width: 100%;
 }
+
+/* ---- Админка — общие кирпичи (adminUi.tsx): зеркало Admin*Screen.kt ---- */
+/* Лента экрана: LazyColumn с полями 16 и интервалом 12. */
+.alist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding-bottom: var(--space-xl);
+}
+/* ListedEmpty / ListedError: Surface CanonItemShape с рамкой, поля 24, по центру. */
+.listed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xl);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  text-align: center;
+}
+.listed__icon {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.listed strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.listed > span {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.listed--error {
+  gap: var(--space-md);
+}
+.listed--error strong {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* Material Button/OutlinedButton/TextButton с радиусом 14: 44dp, Bold. */
+.abtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-height: 44px;
+  padding: 0 var(--space-lg);
+  border: 0;
+  border-radius: var(--radius-field);
+  background: var(--green2);
+  color: var(--on-filled);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
+}
+.abtn:active {
+  transform: scale(0.98);
+}
+.abtn:disabled {
+  opacity: 0.5;
+}
+.abtn--tall {
+  min-height: 54px;
+  font-size: var(--font-button);
+  line-height: var(--line-button);
+}
+.abtn--outline {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--green2);
+}
+.abtn--text {
+  background: transparent;
+  color: var(--green2);
+}
+.abtn--red {
+  color: var(--danger);
+}
+.abtn--warn {
+  color: var(--warn);
+}
+.abtn--muted {
+  color: var(--muted);
+}
+.abtn--small {
+  min-height: 40px;
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-normal);
+}
+.listed .abtn {
+  width: auto;
+}
+/* Фильтр-чипы: 48dp, радиус 14, активный — CanonMint + CanonGreen2. Цвета переезжают, не подменяются. */
+.afilter-row {
+  display: flex;
+  gap: var(--space-sm);
+  overflow-x: auto;
+  padding-bottom: var(--space-xs);
+  scrollbar-width: none;
+}
+.afilter-row::-webkit-scrollbar {
+  display: none;
+}
+.afilter {
+  flex: none;
+  height: 48px;
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease, color var(--motion-quick) ease;
+}
+.afilter.is-on {
+  border-color: var(--green2);
+  background: var(--mint);
+  color: var(--green2);
+}
+/* Бейдж статуса заявки: радиус 8, 12 Bold, поля 8×4. */
+.abadge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-tiny);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+}
+.abadge--ok {
+  background: var(--mint);
+  color: var(--green2);
+}
+.abadge--bad {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.abadge--wait {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.abadge--muted {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+/* Тег на подложке 12 % своего цвета (категория жалобы). */
+.atag {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-tiny);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+}
+.atag--green {
+  background: color-mix(in srgb, var(--green2) 12%, transparent);
+  color: var(--green2);
+}
+.atag--red {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+.atag--warn {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  color: var(--warn);
+}
+.atag--muted {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+/* Цветная строка 12–14 Bold без подложки (статус разбора, «Долг за такси», «Принято»). */
+.atext {
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+.atext--green {
+  color: var(--green2);
+}
+.atext--red {
+  color: var(--danger);
+}
+.atext--warn {
+  color: var(--warn);
+}
+.atext--muted {
+  color: var(--muted);
+}
+.acard__row .atext--green,
+.acard__row--between .atext {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* Карточка-счётчик: значение 19 Bold, подпись 12 muted. */
+.astat-row {
+  display: flex;
+  gap: var(--space-sm);
+}
+.astat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-md) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  text-align: center;
+}
+.astat b {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.astat span {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+/* Карточка админ-списка: Surface(CanonSurface, CanonItemShape, рамка), поля 16, интервал 8. */
+.acard {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.acard--tight {
+  gap: var(--space-xs);
+  padding: var(--space-md);
+}
+.acard--severe {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+.acard__title {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  overflow-wrap: anywhere;
+}
+.acard__sub {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  overflow-wrap: anywhere;
+}
+.acard__link {
+  text-decoration: none;
+}
+.acard__text {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  overflow-wrap: anywhere;
+}
+.acard__note {
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.acard__label {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.acard__date {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.acard__amount {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+}
+.acard__amount--green {
+  color: var(--green2);
+}
+.acard__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.acard__row--between {
+  justify-content: space-between;
+}
+.acard__row .acard__title {
+  min-width: 0;
+}
+.acard__spacer {
+  flex: 1;
+}
+.acard__actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+.acard__actions > * {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+}
+.acard .auth__error {
+  margin: 0;
+}
+/* Тумблер пола внутри карточки: та же SettingSwitchRow, без боковых полей карточки-группы. */
+.acard__switch .settings-row {
+  padding: var(--space-xs) 0;
+}
+/* AutoCheckRow: вердикт 14 Bold на подложке 10 % его цвета, распознанное 12 muted. */
+.autocheck {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border-radius: var(--radius-tiny);
+}
+.autocheck strong {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.autocheck small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.autocheck--green {
+  background: color-mix(in srgb, var(--green2) 10%, transparent);
+  color: var(--green2);
+}
+.autocheck--red {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+.autocheck--muted {
+  background: color-mix(in srgb, var(--muted) 10%, transparent);
+  color: var(--muted);
+}
+/* DocImage: фото документа на всю ширину, 180, радиус 14, нейтральный фон; без файла — строка 12. */
+.adoc {
+  display: block;
+  width: 100%;
+  height: 180px;
+  overflow: hidden;
+  border-radius: var(--radius-field);
+  background: var(--surface-2);
+}
+.adoc img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.adoc-none {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+/* SmallAvatar: круг с буквой на мятном фоне или фото. */
+.sm-avatar {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-body);
+  font-weight: var(--weight-bold);
+  object-fit: cover;
+}
+/* Поле + кнопка «Открыть» в один ряд (отклики по заявке). */
+.alookup {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-sm);
+}
+.alookup .field {
+  flex: 1;
+  margin: 0;
+}
+.alookup .abtn {
+  flex: none;
+  min-height: 54px;
+}
+.alist .field {
+  margin: 0;
+}
+
+/* ---- Тумблер (Material Switch): 46×28, бегунок 22, зелёная дорожка во включённом. ----
+   Общий для SettingSwitchRow, курьерской линии и админки; жил в блоке онбординга и ушёл
+   вместе с ним при выравнивании (c23c9ef3) — теперь живёт отдельно. */
+.switch {
+  flex: none;
+  position: relative;
+  width: 46px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--border);
+  transition: background var(--motion-quick) ease;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--on-filled);
+  box-shadow: var(--depth-raised);
+  transition: transform var(--motion-quick) ease;
+}
+.switch.on {
+  background: var(--green-btn);
+}
+.switch.on::after {
+  transform: translateX(18px);
+}
+
+/* ---- «Таксисты» (AdminTaxiScreen.kt): строка города / записи журнала, день, отклонение. ---- */
+.abtn--48 {
+  min-height: 48px;
+}
+.abtn--danger {
+  background: var(--danger-btn);
+  color: var(--on-filled);
+}
+.acard__grow {
+  flex: 1;
+  min-width: 0;
+}
+.acard__caption {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-semibold);
+}
+.acard__text--danger {
+  color: var(--danger);
+}
+.acard__reject {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.acard__reject .abtn {
+  width: 100%;
+}
+/* Строка города: иконка 22 (зелёная, если включено), название 16 Bold + подпись 12, тумблер, корзина. */
+.acity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.acity--pretrip {
+  padding: var(--space-md) var(--space-lg);
+}
+.acity__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--muted);
+}
+.acity.is-on .acity__icon,
+.acity--pretrip .acity__icon {
+  color: var(--green2);
+}
+.acity__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acity__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.acity__text small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.acity.is-on .acity__text small {
+  color: var(--green2);
+}
+.acity__switch {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.acity__del {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--danger);
+}
+/* Переключатель дня журнала: стрелки 48 по краям, подпись 16 Bold по центру. */
+.aday {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.aday strong {
+  flex: 1;
+  color: var(--text);
+  text-align: center;
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.aday__btn {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text);
+}
+.aday__btn svg {
+  transform: rotate(180deg);
+}
+.aday__btn--next svg {
+  transform: none;
+}
+.aday__btn:disabled {
+  color: var(--muted);
+}
+
+/* ---- «Пульс такси» (AdminTaxiPulseScreen.kt): плитки, строки городов, воронка. ---- */
+.pulse-row {
+  display: flex;
+  gap: var(--space-sm);
+}
+/* PulseTile: значение 24 Bold + подпись 12; акцентные — мятная подложка с зелёной рамкой 35 %. */
+.pulse-tile {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp var(--motion-entry) ease both;
+}
+.pulse-tile.is-accent {
+  border-color: color-mix(in srgb, var(--green2) 35%, transparent);
+  background: var(--mint);
+}
+.pulse-tile b {
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pulse-tile.is-accent b {
+  color: var(--green2);
+}
+.pulse-tile span {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pulse-funnel__pct {
+  color: var(--green2);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.acard__micro {
+  color: var(--text);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+/* Строка города: булавка 18 зелёная, название 16 Bold, две пары «● N подпись». */
+.pulse-city {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.pulse-city__pin {
+  flex: none;
+  display: inline-flex;
+  color: var(--green2);
+}
+.pulse-city > strong {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pulse-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-left: var(--space-xs);
+}
+.pulse-dot i {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+}
+.pulse-dot--taxi i {
+  background: var(--taxi);
+}
+.pulse-dot b {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.pulse-dot small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+
+/* ---- «Лист ожидания» (AdminWaitlistScreen.kt): чипы городов, строки с чекбоксом. ---- */
+.acity-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+}
+.await {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  cursor: pointer;
+}
+.await__check {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: var(--space-md);
+  accent-color: var(--green2);
+}
+.await__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.await__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.await__text small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.await .abadge {
+  margin-right: var(--space-sm);
+}
+
+/* ---- «Помеченные тексты» (AdminTextFlagsScreen.kt): чипы NearbyFilterChip, шапка карточки. ---- */
+.fchip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 48px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.fchip__icon {
+  display: inline-flex;
+  color: var(--green2);
+}
+.fchip.is-on {
+  border-color: transparent;
+  background: var(--green2);
+  color: var(--on-filled);
+}
+.fchip.is-on .fchip__icon {
+  color: var(--on-filled);
+}
+.tflag {
+  color: var(--muted);
+}
+.tflag--warn {
+  color: var(--danger);
+}
+.tflag strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.acard__body {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  overflow-wrap: anywhere;
+}
+
+/* ---- «Обращения» (AdminSupportScreen.kt): карточка-кнопка очереди, тред. ---- */
+.acard--btn {
+  width: 100%;
+  min-height: 48px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform var(--motion-quick) ease;
+}
+.acard--btn:active {
+  transform: scale(0.99);
+}
+.acard--btn .acard__row {
+  gap: var(--space-sm);
+}
+/* «Ждёт нас» — рамка 2 CanonGreen2. */
+.acard--waits {
+  border: 2px solid var(--green2);
+}
+.athread__subject {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+/* Сообщение треда: карточка с рамкой; наше — на подложке попутки с зелёной волосяной рамкой. */
+.amsg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.amsg--mine {
+  border-color: var(--hairline-green);
+  background: var(--pooling-bg);
+}
+.amsg__who {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+.amsg--mine .amsg__who {
+  color: var(--pooling);
+}
+.amsg p {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.alist > .field__area {
+  margin: 0;
+}
+
+/* ---- «Отзывы на модерации» (AdminRatingsScreen.kt) и «Модерация отзывов» (AdminReviewsScreen.kt). ---- */
+/* RatingsRulesCard: мятная карточка с «i», заголовок 16 Bold, текст 14 muted-strong. */
+.rules-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.rules-note__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--green2);
+}
+.rules-note__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.rules-note__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.rules-note__text span {
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* RatingStars: пять звёзд 20, закрашенные CanonStar, пустые muted. */
+.rstars {
+  display: inline-flex;
+  gap: var(--space-xs);
+}
+.rstars__on {
+  display: inline-flex;
+  color: var(--canon-star);
+}
+.rstars__on svg {
+  fill: currentColor;
+}
+.rstars__off {
+  display: inline-flex;
+  color: var(--muted);
+}
+.rstars--gold {
+  gap: 0;
+  color: var(--canon-gold);
+}
+/* PendingRatingCard: AppCard, круг настроения (мятный / жёлтый «внимание»), звёзды, кто → о ком, текст в рамке. */
+.rating-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-entry) ease both;
+}
+.rating-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.rating-card__mood {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.rating-card__mood.is-angry {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.rating-card__meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.rating-card__meta strong {
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.rating-card__meta small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.rating-card__text {
+  margin: 0;
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  overflow-wrap: anywhere;
+}
+.rating-card__publish {
+  margin-top: 0;
+  width: 100%;
+}
+.rating-card__shield {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-height: 48px;
+  padding: 0 var(--space-md);
+  border: 0;
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+/* Отзыв о приложении: Card 28 с тенью, золотые звёзды, цитата 16, имя·город Bold muted, зелёная кнопка 46 радиус 28. */
+.areview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+}
+.areview__quote {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  overflow-wrap: anywhere;
+}
+.areview__who {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.areview__ok {
+  min-height: 46px;
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--green);
+  color: var(--bg);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.areview__ok:disabled {
+  opacity: 0.5;
+}
+
+/* ---- «Разбор споров» (AdminIncidentsScreen.kt): полоса состояния, версии сторон, решение. ---- */
+.inc-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0 var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.inc-hint svg {
+  flex: none;
+}
+/* AppCard 28 с тенью; полоса состояния сверху в цвете тона. */
+.inc-card {
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-entry) ease both;
+}
+.inc-card__strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+}
+.inc-card__strip svg {
+  flex: none;
+}
+.inc-card__strip strong {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.inc-card__strip small {
+  flex: none;
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+.inc-card__strip.is-danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.inc-card__strip.is-warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.inc-card__strip.is-ok {
+  background: var(--mint);
+  color: var(--green2);
+}
+.inc-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+}
+.inc-card__body .btn-primary,
+.inc-card__body .btn-soft {
+  margin-top: 0;
+  width: 100%;
+}
+/* AdminSideBlock: фон CanonBg, рамка, кто 16 Bold, круг звонка 48 мятный, текст 16, «Пока без объяснения» жёлтой пилюлей. */
+.inc-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+}
+.inc-side__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.inc-side__head strong {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.inc-side__call {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.inc-side__text {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  overflow-wrap: anywhere;
+}
+.inc-side__wait {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-pill);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.inc-side__photos {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.inc-side .doc-photos {
+  margin-top: 0;
+}
+/* Апелляция: живая — красная подложка и рамка, разобранная — обычный блок истории. */
+.inc-appeal,
+.inc-resolution {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+}
+.inc-appeal {
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.inc-appeal.is-live {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+.inc-appeal small,
+.inc-resolution small {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+.inc-appeal.is-live small {
+  color: var(--danger);
+}
+.inc-appeal p,
+.inc-resolution p {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  overflow-wrap: anywhere;
+}
+/* Решение: мятное; наказание — жёлтое со знаком внимания. */
+.inc-resolution {
+  background: var(--mint);
+}
+.inc-resolution small {
+  color: var(--green2);
+}
+.inc-resolution.is-punished {
+  background: var(--warn-bg);
+}
+.inc-resolution.is-punished small {
+  color: var(--warn);
+}
+/* ResolveIncidentDialog: карточка с заголовком 19, «кто есть кто», выборы, поля, действия. */
+.inc-resolve {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.inc-resolve h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.inc-resolve__who {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.inc-resolve__label {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.inc-resolve__choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.inc-resolve__warn,
+.inc-resolve__conflict {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.inc-resolve__warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.inc-resolve__conflict {
+  border: 1px solid var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-weight: var(--weight-bold);
+}
+.inc-resolve__warn svg,
+.inc-resolve__conflict svg {
+  flex: none;
+}
+.inc-resolve__save {
+  color: var(--green2);
+  font-weight: var(--weight-bold);
+  font-size: var(--font-body);
+}
+.inc-resolve__save:disabled {
+  color: var(--muted);
+}
+.inc-resolve .field {
+  margin: 0;
+}
+/* ChoiceRow: 48, радиус 22, выбранная — мятная с зелёной рамкой; точка-радио 20. */
+.choice-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-normal);
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.choice-row.is-on {
+  border-color: var(--green2);
+  background: var(--mint);
+  font-weight: var(--weight-bold);
+}
+.choice-row__dot {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--muted);
+  border-radius: var(--radius-pill);
+  transition: border-color var(--motion-quick) ease, box-shadow var(--motion-quick) ease;
+}
+.choice-row.is-on .choice-row__dot {
+  border-color: var(--green2);
+  box-shadow: inset 0 0 0 4px var(--green2);
+}
+
+/* ---- «Сигналы SOS» админа (AdminSosScreen.kt): красная шапка, карточка сигнала. ---- */
+.asos-alarm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+}
+/* Иконка «дышит» тем же темпом, что ожидание машины; при выключенных анимациях горит ровно. */
+.asos-alarm__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--danger);
+  animation: sosBreath var(--motion-pulse) ease-in-out infinite alternate;
+}
+@keyframes sosBreath {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .asos-alarm__icon {
+    animation: none;
+  }
+}
+.asos-alarm__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.asos-alarm__text strong {
+  color: var(--danger);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.asos-alarm__text span {
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.asos-who {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.asos-who strong {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.asos-who span {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.asos-route {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.asos-route svg {
+  flex: none;
+  color: var(--muted);
+}
+/* «Позвонить»: у открытого — красная 60, у разобранного — контурная 54. */
+.inc-card__body .asos-call {
+  margin-top: 0;
+  width: 100%;
+  text-decoration: none;
+}
+.asos-call--open {
+  min-height: 60px;
+}
+.asos-note {
+  margin: 0;
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  overflow-wrap: anywhere;
+}
+.asos-note.is-open {
+  border-color: var(--danger-border);
+}
+.asos-handle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.asos-handle .field {
+  margin: 0;
+}
+.asos-handle .acard__actions {
+  gap: var(--space-md);
+}
+.asos-take {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-height: 48px;
+  border: 0;
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}

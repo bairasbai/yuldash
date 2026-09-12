@@ -420,3 +420,11 @@ export const IconLock = ({ size = 22 }: P) => (
     <path d="M12 14.5v2.5" />
   </svg>
 );
+
+/** Бумажный самолётик — «Отправить» (Icons.Default.Send). */
+export const IconSend = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M21 3 3 10.5l8 2.5 2.5 8L21 3Z" />
+    <path d="M11 13l10-10" />
+  </svg>
+);

@@ -4,6 +4,9 @@
 //  Фото прав/авто защищены (GET /secure/docs/{name}, только админ/владелец) —
 //  грузим с Bearer-токеном через fetchSecureDoc → blob-URL (<img> не шлёт заголовки).
 //  Одобрить/отклонить: POST /admin/drivers/{id}/moderate {approve}.
+//  Вид — зеркало AdminDriversContent (SecondaryScreens.kt): вводная строка,
+//  карточка с рамкой, AutoCheckRow, подписи документов, тумблер пола,
+//  «Одобрить» + контурная «Отклонить».
 // ================================================================
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -16,26 +19,11 @@ import {
   type PendingDriver,
 } from "../api/admin";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
-import { IconCheck, IconPhone } from "../components/Icons";
+import { AdminIntro, ListedEmpty, ListedError, ListedLoading } from "../components/adminUi";
+import { SettingSwitchRow } from "../components/cabinetUi";
+import { IconProfile } from "../components/Icons";
 
 type State = "loading" | "error" | "ready";
-
-/** Автопроверка → цвет/подпись подсказки админу. */
-function autocheckBadge(result: string, appText: (r: string, b: string) => string): { cls: string; label: string } | null {
-  switch (result) {
-    case "pass":
-      return { cls: "badge--mint", label: appText("Авто: ок", "Авто: ок") };
-    case "needs_human":
-      return { cls: "badge--gold", label: appText("Нужен глаз", "Кеше кәрәк") };
-    case "reject":
-      return { cls: "badge--danger", label: appText("Авто: отказ", "Авто: кире") };
-    case "error":
-      return { cls: "badge--gold", label: appText("Ошибка проверки", "Тикшереү хатаһы") };
-    default:
-      return null;
-  }
-}
 
 /**
  * Что распознала автопроверка: номер прав и срок действия. Модератору важен
@@ -49,6 +37,33 @@ function autocheckDetails(dataJson: string): { num: string; expiry: string } {
   } catch {
     return { num: "", expiry: "" }; // мусор в поле — просто не показываем строку
   }
+}
+
+/** AutoCheckRow: вердикт робота 14 Bold на подложке 10 % его цвета + распознанные данные 12. */
+function AutoCheckRow({ result, dataJson }: { result: string; dataJson: string }) {
+  const { appText } = useLang();
+  if (!result) return null;
+  const { num, expiry } = autocheckDetails(dataJson);
+  const [label, tone] =
+    result === "pass"
+      ? [appText("🤖 Авто: похоже на действительные права", "🤖 Авто: ысын права кеүек"), "green"]
+      : result === "reject"
+        ? [appText("🤖 Авто: фото не распознано", "🤖 Авто: фото танылманы"), "red"]
+        : result === "error"
+          ? [appText("🤖 Авто: проверка недоступна", "🤖 Авто: тикшереп булманы"), "muted"]
+          : [appText("🤖 Авто: нужна ручная проверка", "🤖 Авто: ҡул менән тикшерергә"), "muted"];
+  const recog = [
+    num ? appText("№ прав ", "права № ") + num : "",
+    expiry ? appText("срок до ", "ваҡыты ") + expiry : "",
+  ]
+    .filter(Boolean)
+    .join("  ·  ");
+  return (
+    <div className={`autocheck autocheck--${tone}`}>
+      <strong>{label}</strong>
+      {recog && <small>{recog}</small>}
+    </div>
+  );
 }
 
 /** Защищённое фото документа: тянем с токеном → objectURL, чистим при размонтировании. */
@@ -79,18 +94,15 @@ function SecureImage({ url, alt }: { url: string | null; alt: string }) {
     };
   }, [url]);
 
+  // Android DocImage: без файла — строка «нет файла» 12 muted, без пустой дыры.
   if (failed) {
-    return (
-      <div className="doc-photo doc-photo--empty" role="img" aria-label={alt}>
-        <span>{appText("Нет фото", "Фото юҡ")}</span>
-      </div>
-    );
+    return <small className="adoc-none">{appText("нет файла", "файл юҡ")}</small>;
   }
   if (!src) {
-    return <div className="doc-photo skeleton" aria-hidden />;
+    return <div className="adoc skeleton" aria-hidden />;
   }
   return (
-    <a href={src} target="_blank" rel="noreferrer" className="doc-photo">
+    <a href={src} target="_blank" rel="noreferrer" className="adoc">
       <img src={src} alt={alt} loading="lazy" />
     </a>
   );
@@ -159,127 +171,74 @@ export default function AdminDriversScreen() {
 
   return (
     <>
-      <SubHeader
-        title={appText("Модерация водителей", "Йөрөтөүселәрҙе тикшереү")}
-        subtitle={appText("Права и авто на проверке", "Права һәм авто тикшереүҙә")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Модерация водителей", "Йөрөтөүселәрҙе модерациялау")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        <AdminIntro>
+          {appText("Проверь права и фото авто. Одобри или отклони.", "Права һәм авто фотоһын тикшер. Раҫла йәки кире ҡаҡ.")}
+        </AdminIntro>
 
-      {state === "loading" && <LoadingList count={2} />}
-      {state === "error" && <ErrorState onRetry={() => load()} />}
+        {state === "loading" && <ListedLoading />}
+        {state === "error" && <ListedError onRetry={() => load()} />}
 
-      {state === "ready" && drivers.length === 0 && (
-        <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__icon"><IconCheck size={34} /></div>
-          <h2>{appText("Очередь пуста", "Сират буш")}</h2>
-          <p>{appText("Все заявки водителей проверены.", "Бар йөрөтөүсе заявкалары тикшерелгән.")}</p>
-        </div>
-      )}
+        {state === "ready" && drivers.length === 0 && (
+          <ListedEmpty
+            title={appText("Нет заявок на проверку", "Тикшереүгә заявка юҡ")}
+            subtitle={appText("Здесь появятся водители, отправившие документы.", "Бында документ ебәргән йөрөтөүселәр күренер")}
+          />
+        )}
 
-      {state === "ready" && drivers.length > 0 && (
-        <div className="admin-cards">
-          {drivers.map((d) => {
-            const ac = autocheckBadge(d.autocheck_result, appText);
-            return (
-              <div key={d.user_id} className="admin-card">
-                <div className="admin-card__head">
-                  <div className="admin-card__title">{d.name}</div>
-                  {ac && <span className={`badge ${ac.cls}`}>{ac.label}</span>}
-                </div>
+        {state === "ready" &&
+          drivers.map((d) => (
+            <article key={d.user_id} className="acard">
+              <strong className="acard__title">{d.name}</strong>
+              <span className="acard__sub">{(d.car || "—") + " · " + d.phone}</span>
+              <AutoCheckRow result={d.autocheck_result} dataJson={d.autocheck_data} />
 
-                {d.phone && (
-                  <a className="admin-card__phone" href={`tel:${d.phone}`}>
-                    <IconPhone size={16} /> {d.phone}
-                  </a>
-                )}
-                {d.car && <div className="admin-card__sub">{d.car}</div>}
-                {d.autocheck_score > 0 && (
-                  <div className="admin-card__sub">
-                    {appText("Оценка автопроверки", "Автотикшереү баһаһы")}: {d.autocheck_score.toFixed(2)}
-                  </div>
-                )}
-                {(() => {
-                  const { num, expiry } = autocheckDetails(d.autocheck_data);
-                  if (!num && !expiry) return null;
-                  return (
-                    <div className="admin-card__sub">
-                      {num && appText(`№ прав ${num}`, `права № ${num}`)}
-                      {num && expiry && "  ·  "}
-                      {expiry && appText(`срок до ${expiry}`, `ваҡыты ${expiry}`)}
-                    </div>
-                  );
-                })()}
+              <span className="acard__label">{appText("Водительское удостоверение", "Йөрөтөүсе таныҡлығы")}</span>
+              <SecureImage url={d.license_url} alt={appText("Водительские права", "Водитель праваһы")} />
+              <span className="acard__label">{appText("Фото автомобиля", "Автомобиль фотоһы")}</span>
+              <SecureImage url={d.car_photo_url} alt={appText("Фото авто", "Авто фотоһы")} />
 
-                <div className="doc-photos">
-                  <div className="doc-photos__item">
-                    <span className="doc-photos__cap">{appText("Права", "Права")}</span>
-                    <SecureImage url={d.license_url} alt={appText("Водительские права", "Водитель праваһы")} />
-                  </div>
-                  <div className="doc-photos__item">
-                    <span className="doc-photos__cap">{appText("Авто", "Авто")}</span>
-                    <SecureImage url={d.car_photo_url} alt={appText("Фото авто", "Авто фотоһы")} />
-                  </div>
-                </div>
-
-                {/* Пол подтверждает человек по фото прав. Пока не подтверждён — бейдж
-                    «женщина за рулём» скрыт и женские заказы такси не приходят: иначе
-                    фильтр, который женщина включает ради безопасности, ничего не значит. */}
-                {d.gender_claimed && (
-                  <>
-                    <label className="admin-check">
-                      <input
-                        type="checkbox"
-                        checked={genderOk[d.user_id] ?? d.gender_verified ?? false}
-                        onChange={(e) =>
-                          setGenderOk((prev) => ({ ...prev, [d.user_id]: e.target.checked }))
-                        }
-                      />
-                      <span>
-                        {d.gender_claimed === "female"
-                          ? appText("Это женщина — подтверждаю", "Был ҡатын-ҡыҙ — раҫлайым")
-                          : appText("Это мужчина — подтверждаю", "Был ир-ат — раҫлайым")}
-                      </span>
-                    </label>
-                    <div className="admin-card__sub">
-                      {appText(
-                        "Сверь с фото прав. Без подтверждения бейдж и женские заказы не работают.",
-                        "Права фотоһы менән сағыштыр. Раҫлауһыҙ билдә лә, ҡатын-ҡыҙ заказы ла эшләмәй."
-                      )}
-                    </div>
-                  </>
-                )}
-
-                {rowError?.id === d.user_id && <div className="auth__error">{rowError.msg}</div>}
-
-                <div className="field-row" style={{ marginTop: 12 }}>
-                  <button
-                    type="button"
-                    className="btn-danger"
-                    style={{ flex: 1, marginTop: 0 }}
-                    onClick={() => moderate(d.user_id, false)}
-                    disabled={busyId !== null}
-                  >
-                    {busyId === d.user_id ? appText("…", "…") : appText("Отклонить", "Кире ҡағыу")}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    style={{ flex: 1 }}
-                    onClick={() => moderate(d.user_id, true)}
-                    disabled={busyId !== null}
-                  >
-                    {busyId === d.user_id ? (
-                      appText("…", "…")
-                    ) : (
-                      <><IconCheck size={18} /> {appText("Одобрить", "Раҫлау")}</>
+              {/* Пол подтверждает человек по фото прав. Пока не подтверждён — бейдж
+                  «женщина за рулём» скрыт и женские заказы такси не приходят: иначе
+                  фильтр, который женщина включает ради безопасности, ничего не значит. */}
+              {d.gender_claimed && (
+                <div className="acard__switch">
+                  <SettingSwitchRow
+                    icon={<IconProfile size={24} />}
+                    title={
+                      d.gender_claimed === "female"
+                        ? appText("Это женщина — подтверждаю", "Был ҡатын-ҡыҙ — раҫлайым")
+                        : appText("Это мужчина — подтверждаю", "Был ир-ат — раҫлайым")
+                    }
+                    subtitle={appText(
+                      "Сверь с фото прав. Без подтверждения бейдж и женские заказы не работают.",
+                      "Права фотоһы менән сағыштыр. Раҫлауһыҙ билдә лә, ҡатын-ҡыҙ заказы ла эшләмәй."
                     )}
-                  </button>
+                    checked={genderOk[d.user_id] ?? d.gender_verified ?? false}
+                    onChange={(next) => setGenderOk((prev) => ({ ...prev, [d.user_id]: next }))}
+                  />
                 </div>
+              )}
+
+              {rowError?.id === d.user_id && <div className="auth__error">{rowError.msg}</div>}
+
+              <div className="acard__actions">
+                <button type="button" className="abtn" onClick={() => moderate(d.user_id, true)} disabled={busyId !== null}>
+                  {busyId === d.user_id ? appText("…", "…") : appText("Одобрить", "Раҫлау")}
+                </button>
+                <button
+                  type="button"
+                  className="abtn abtn--outline abtn--red"
+                  onClick={() => moderate(d.user_id, false)}
+                  disabled={busyId !== null}
+                >
+                  {busyId === d.user_id ? appText("…", "…") : appText("Отклонить", "Кире ҡағыу")}
+                </button>
               </div>
-            );
-          })}
-        </div>
-      )}
+            </article>
+          ))}
+      </div>
     </>
   );
 }

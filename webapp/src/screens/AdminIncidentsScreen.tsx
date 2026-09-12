@@ -1,7 +1,10 @@
 // ================================================================
 //  Разбор споров → /admin/incidents (RequireAdmin).
 //  GET /admin/incidents?status= + POST /admin/incidents/{id}/resolve.
-//  Зеркало Android AdminIncidentsScreen.kt.
+//  Зеркало Android AdminIncidentsScreen.kt: четыре состояния чипами с подсказкой,
+//  карточка с цветной полосой состояния, две версии рядом (кнопка звонка 48),
+//  апелляция и решение блоками, «Принять решение» → карточка решения как диалог:
+//  «Что решаем», «Кто виноват», пауза в днях, объяснение для обеих сторон.
 //
 //  Обе версии рядом, телефоны сторон (чтобы позвонить и разобраться
 //  по-человечески) и решение с обязательным объяснением: «наказали
@@ -18,95 +21,67 @@ import {
   type AdminIncident,
 } from "../api/admin";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
-import { IconCheck, IconPhone, IconShield, IconWarn } from "../components/Icons";
-import { formatRelative } from "../utils/format";
-import { incidentStatusLabel } from "./FairnessCenterScreen";
+import { RideCardSkeleton, ErrorState, EmptyStateCard } from "../components/States";
+import { NearbyChip } from "../components/adminUi";
+import { SettingSwitchRow } from "../components/cabinetUi";
+import { IconCheck, IconClock, IconPhone, IconShield, IconUsers, IconWarn } from "../components/Icons";
+import { formatWhen } from "../utils/format";
 
 type State = "loading" | "error" | "ready";
 /**
  * Вкладки те же, что в приложении. «Апелляции» отдельно не для порядка:
  * человек не согласен с уже принятым решением, и такой спор надо перечитать,
- * а не искать его среди сотни решённых.
+ * а не искать его среди сотни решённых. «Все» — только в вебе.
  */
 type Filter = "under_review" | "awaiting_response" | "appealed" | "resolved" | "all";
 
-const FILTERS: {
-  key: Filter;
-  ru: string;
-  ba: string;
-  hint_ru: string;
-  hint_ba: string;
-}[] = [
-  {
-    key: "under_review",
-    ru: "Ждут решения",
-    ba: "Ҡарар көтә",
-    hint_ru: "Обе версии есть — решение за тобой.",
-    hint_ba: "Ике яҡтың да һүҙе бар — ҡарар һинеке.",
-  },
-  {
-    key: "awaiting_response",
-    ru: "Ждём ответа",
-    ba: "Яуап көтәбеҙ",
-    hint_ru: "Ждём объяснения второй стороны.",
-    hint_ba: "Икенсе яҡтың аңлатмаһын көтәбеҙ.",
-  },
-  {
-    key: "appealed",
-    ru: "Апелляции",
-    ba: "Ялыуҙар",
-    hint_ru: "Человек не согласен с решением — перечитай.",
-    hint_ba: "Кеше ҡарар менән килешмәй — ҡабат уҡы.",
-  },
-  {
-    key: "resolved",
-    ru: "Архив",
-    ba: "Архив",
-    hint_ru: "Решения, которые уже приняты.",
-    hint_ba: "Ҡабул ителгән ҡарарҙар.",
-  },
-  { key: "all", ru: "Все", ba: "Барыһы", hint_ru: "", hint_ba: "" },
+const FILTERS: Filter[] = ["under_review", "awaiting_response", "appealed", "resolved", "all"];
+
+/** Иконка вкладки по смыслу: щит — разбор, часы — ожидание, сигнал — апелляция, галочка — архив. */
+function tabIcon(key: Filter, size: number) {
+  if (key === "under_review") return <IconShield size={size} />;
+  if (key === "awaiting_response") return <IconClock size={size} />;
+  if (key === "appealed") return <IconWarn size={size} />;
+  if (key === "resolved") return <IconCheck size={size} />;
+  return <IconUsers size={size} />;
+}
+
+/** Человеческое название типа спора — тот же перечень, что в приложении (FairnessScreens.kt). */
+const TYPE_LABEL: Record<string, [string, string]> = {
+  rude: ["Нагрубили", "Ҡупал һөйләште"],
+  unsafe: ["Опасная езда", "Хәүефле йөрөтөү"],
+  non_payment: ["Не заплатили", "Түләмәнеләр"],
+  overcharge: ["Взяли больше договорённого", "Килешкәндән артыҡ алдылар"],
+  route_detour: ["Повезли не той дорогой", "Икенсе юлдан алып барҙылар"],
+  passenger_no_show: ["Пассажир не вышел", "Юлаусы сыҡманы"],
+  driver_no_show: ["Водитель не приехал", "Йөрөтөүсе килмәне"],
+  harassment: ["Приставания, угрозы", "Бәйләнеү, янау"],
+  rules_violation: ["Нарушение правил", "Ҡағиҙәләрҙе боҙоу"],
+  parcel_damage: ["Посылку повредили", "Бандеролде боҙғандар"],
+  parcel_lost: ["Посылка пропала", "Бандероль юғалған"],
+  parcel_delay: ["Сильно опоздали", "Бик һуңланылар"],
+  recipient_absent: ["Получателя не было", "Алыусы юҡ ине"],
+  wrong_contents: ["Внутри не то", "Эсендә башҡа нәмә"],
+};
+
+/** Исходы разбора (resolutionOptions): страйк и пауза — наказания. */
+const RESOLUTIONS: { key: string; ru: string; ba: string; strike: boolean }[] = [
+  { key: "dismissed", ru: "Не подтвердилось", ba: "Раҫланманы", strike: false },
+  { key: "mutual_resolved", ru: "Договорились", ba: "Килештеләр", strike: false },
+  { key: "warning", ru: "Предупреждение", ba: "Иҫкәртеү", strike: false },
+  { key: "strike", ru: "Страйк", ba: "Страйк", strike: true },
+  { key: "suspend", ru: "Пауза аккаунта", ba: "Аккаунт паузаһы", strike: true },
 ];
 
-/** Исходы разбора. Каждый — с человеческой подписью, чтобы не выбирать вслепую. */
-const OUTCOMES: { key: string; ru: string; ba: string; hint_ru: string; hint_ba: string }[] = [
-  {
-    key: "dismissed",
-    ru: "Не подтвердилось",
-    ba: "Раҫланманы",
-    hint_ru: "Обвинение не нашло подтверждения — последствий нет",
-    hint_ba: "Ғәйепләү раҫланманы — эҙемтә юҡ",
-  },
-  {
-    key: "warning",
-    ru: "Предупреждение",
-    ba: "Иҫкәртеү",
-    hint_ru: "Первый раз, без страйка — человек услышит и поправится",
-    hint_ba: "Беренсе тапҡыр, страйкһыҙ — кеше ишетер ҙә төҙәлер",
-  },
-  {
-    key: "strike",
-    ru: "Страйк",
-    ba: "Страйк",
-    hint_ru: "Серьёзно: копится и влияет на надёжность",
-    hint_ba: "Етди: йыйыла һәм ышаныслылыҡҡа тәьҫир итә",
-  },
-  {
-    key: "suspend",
-    ru: "Пауза аккаунта",
-    ba: "Аккаунт паузаһы",
-    hint_ru: "Временно без новых заказов — укажи число дней",
-    hint_ba: "Ваҡытлыса яңы заказһыҙ — көн һанын күрһәт",
-  },
-  {
-    key: "mutual_resolved",
-    ru: "Решили миром",
-    ba: "Тыныслыҡ менән",
-    hint_ru: "Стороны договорились сами",
-    hint_ba: "Яҡтар үҙҙәре килешкән",
-  },
+const FAULTS: { key: string; ru: string; ba: string }[] = [
+  { key: "respondent", ru: "Вторая сторона", ba: "Икенсе яҡ" },
+  { key: "reporter", ru: "Заявитель", ba: "Ялыусы" },
+  { key: "both", ru: "Оба", ba: "Икеһе лә" },
+  { key: "none", ru: "Никто", ba: "Бер кем дә" },
+  { key: "unclear", ru: "Не ясно", ba: "Асыҡ түгел" },
 ];
+
+const PUNISHED = new Set(["warning", "strike", "suspend", "ban"]);
 
 /**
  * Фото-доказательство → адрес для <img>. Только свой хост: ссылку в спор
@@ -119,6 +94,53 @@ function evidenceSrc(url: string): string | null {
   return isOwnApiUrl(url) ? url : null;
 }
 
+/** Версия одной стороны: кто, кнопка звонка 48, текст (или «Пока без объяснения» жёлтым), фото. */
+function SideBlock({ who, phone, text, photos }: { who: string; phone: string; text: string; photos: string[] }) {
+  const { appText } = useLang();
+  const srcs = photos.map(evidenceSrc).filter((u): u is string => !!u);
+  return (
+    <div className="inc-side">
+      <div className="inc-side__head">
+        <strong>{who}</strong>
+        {phone && (
+          <a className="inc-side__call" href={`tel:${phone}`} aria-label={appText("Позвонить — ", "Шылтыратыу — ") + who}>
+            <IconPhone size={20} />
+          </a>
+        )}
+      </div>
+      {text ? (
+        <p className="inc-side__text">{text}</p>
+      ) : (
+        <span className="inc-side__wait">
+          <IconClock size={16} /> {appText("Пока без объяснения", "Әлегә аңлатмаһыҙ")}
+        </span>
+      )}
+      {srcs.length > 0 && (
+        <>
+          <span className="inc-side__photos">{appText(`Фото: ${srcs.length}`, `Фотолар: ${srcs.length}`)}</span>
+          <div className="doc-photos">
+            {srcs.map((u, n) => (
+              <a key={u} className="doc-photos__item" href={u} target="_blank" rel="noreferrer">
+                <img className="doc-photo" src={u} alt={appText(`Фото ${n + 1}`, `Фото ${n + 1}`)} loading="lazy" />
+              </a>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** ChoiceRow: строка-радио 48, выбранная — мятная с зелёной рамкой и жирной надписью. */
+function ChoiceRow({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
+  return (
+    <button type="button" role="radio" aria-checked={selected} className={"choice-row" + (selected ? " is-on" : "")} onClick={onClick}>
+      <span className="choice-row__dot" aria-hidden />
+      {label}
+    </button>
+  );
+}
+
 export default function AdminIncidentsScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
@@ -128,9 +150,10 @@ export default function AdminIncidentsScreen() {
   const [state, setState] = useState<State>("loading");
   const [rows, setRows] = useState<AdminIncident[]>([]);
   const [openFor, setOpenFor] = useState<number | null>(null);
-  const [outcome, setOutcome] = useState("dismissed");
+  const [resolution, setResolution] = useState("");
+  const [fault, setFault] = useState("respondent");
   const [note, setNote] = useState("");
-  const [days, setDays] = useState("7");
+  const [days, setDays] = useState("3");
   const [shield, setShield] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [err, setErr] = useState("");
@@ -157,17 +180,66 @@ export default function AdminIncidentsScreen() {
     return () => ac.abort();
   }, [load, filter]);
 
+  function typeLabel(t: string): string {
+    const l = TYPE_LABEL[t];
+    return l ? appText(l[0], l[1]) : appText("Спор", "Бәхәс");
+  }
+
+  function tabLabel(k: Filter): string {
+    if (k === "under_review") return appText("На разборе", "Ҡарала");
+    if (k === "awaiting_response") return appText("Ждут ответа", "Яуап көтә");
+    if (k === "appealed") return appText("Апелляции", "Ялыуҙар");
+    if (k === "resolved") return appText("Решённые", "Хәл ителгән");
+    return appText("Все", "Барыһы");
+  }
+
+  /** Одна строка про то, что вообще лежит в этой вкладке — чтобы не гадать спросонья. */
+  function tabHint(k: Filter): string {
+    if (k === "under_review") return appText("Обе версии есть — решение за тобой.", "Ике версия ла бар — ҡарар һиндә.");
+    if (k === "awaiting_response") return appText("Ждём объяснения второй стороны.", "Икенсе яҡтың аңлатмаһын көтәбеҙ.");
+    if (k === "appealed") return appText("Человек не согласен с решением — перечитай.", "Кеше ҡарар менән килешмәй — ҡабат уҡы.");
+    if (k === "resolved") return appText("Архив: решения, которые уже приняты.", "Архив: ҡабул ителгән ҡарарҙар.");
+    return appText("Все споры подряд, без фильтра.", "Бөтә бәхәстәр ҙә, фильтрһыҙ.");
+  }
+
+  function resolutionLabel(key: string): string {
+    const r = RESOLUTIONS.find((x) => x.key === key);
+    if (r) return appText(r.ru, r.ba);
+    if (key === "ban") return appText("Блокировка", "Блоклау");
+    return appText("Решение принято", "Ҡарар ҡабул ителде");
+  }
+
+  /** Тон карточки: живая апелляция и тяжёлое — красное, ждущее разбора — жёлтое, закрытое — мятное. */
+  function tone(i: AdminIncident): { cls: string; icon: JSX.Element; word: string } {
+    if (i.status === "appealed" || i.appeal_status === "requested")
+      return { cls: "is-danger", icon: <IconWarn size={20} />, word: appText("Апелляция", "Ялыу") };
+    if (i.status === "resolved" || i.status === "closed") return { cls: "is-ok", icon: <IconCheck size={20} />, word: "" };
+    if (i.severe) return { cls: "is-danger", icon: <IconWarn size={20} />, word: appText("Срочно", "Ашығыс") };
+    return { cls: "is-warn", icon: <IconShield size={20} />, word: "" };
+  }
+
+  function openResolve(i: AdminIncident) {
+    setOpenFor(i.id);
+    setResolution("");
+    setFault("respondent");
+    setNote("");
+    setDays("3");
+    setShield(false);
+    setErr("");
+  }
+
   async function decide(i: AdminIncident) {
-    if (!note.trim()) return; // причина обязательна — это правило, а не поле формы
+    const chosen = RESOLUTIONS.find((r) => r.key === resolution);
+    if (!chosen || !note.trim()) return; // причина обязательна — это правило, а не поле формы
     setBusyId(i.id);
     setErr("");
     try {
       await resolveIncident(i.id, {
-        resolution: outcome,
-        fault: outcome === "dismissed" ? "none" : "respondent",
+        resolution,
+        fault,
         note: note.trim(),
-        strike: outcome === "strike",
-        suspend_days: outcome === "suspend" ? Math.max(1, Number(days) || 1) : null,
+        strike: chosen.strike,
+        suspend_days: resolution === "suspend" ? Math.max(1, Number(days) || 3) : null,
         shield,
       });
       setOpenFor(null);
@@ -178,300 +250,195 @@ export default function AdminIncidentsScreen() {
       setErr(
         e instanceof ApiError && e.message
           ? e.message
-          : appText("Не получилось сохранить решение.", "Ҡарарҙы һаҡлап булманы.")
+          : appText("Не получилось сохранить решение. Проверь сеть.", "Ҡарарҙы һаҡлап булманы. Селтәрҙе тикшер.")
       );
     } finally {
       setBusyId(null);
     }
   }
 
+  const chosen = RESOLUTIONS.find((r) => r.key === resolution);
+  // Сервер отвергнет «виноват заявитель» вместе с наказанием — предупреждаем ДО отправки.
+  const conflict = fault === "reporter" && !!chosen && ["warning", "strike", "suspend"].includes(chosen.key);
+  const canSave = busyId === null && !!resolution && !!note.trim() && !conflict;
+
   return (
     <>
-      <SubHeader
-        title={appText("Разбор споров", "Бәхәстәрҙе ҡарау")}
-        subtitle={appText("Обе версии — рядом", "Ике версия — янәшә")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Разбор споров", "Бәхәстәрҙе ҡарау")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        {/* Четыре состояния спора — одной строкой, а не сеткой 2×2: взгляд идёт слева направо. */}
+        <div className="afilter-row" role="group" aria-label={appText("Состояние спора", "Бәхәс хәле")}>
+          {FILTERS.map((k) => (
+            <NearbyChip key={k} icon={tabIcon(k, 15)} label={tabLabel(k)} active={filter === k} onClick={() => setFilter(k)} />
+          ))}
+        </div>
+        <p key={filter} className="inc-hint">
+          {tabIcon(filter, 16)} {tabHint(filter)}
+        </p>
 
-      <div className="seg" style={{ marginTop: 4 }}>
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            type="button"
-            className={"seg__item" + (filter === f.key ? " is-active" : "")}
-            onClick={() => setFilter(f.key)}
-          >
-            {appText(f.ru, f.ba)}
-          </button>
-        ))}
-      </div>
+        {state === "loading" && (
+          <>
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+          </>
+        )}
+        {state === "error" && <ErrorState onRetry={() => load(filter)} />}
+        {state === "ready" && rows.length === 0 && (
+          <EmptyStateCard
+            icon={<IconUsers size={36} />}
+            title={appText("Здесь пусто", "Бында буш")}
+            text={appText("Споров в этом состоянии сейчас нет.", "Был хәлдәге бәхәстәр әлегә юҡ.")}
+          />
+        )}
 
-      {/* Подсказка под вкладкой: что именно тут лежит и что от тебя ждут */}
-      {(() => {
-        const f = FILTERS.find((x) => x.key === filter);
-        return f && f.hint_ru ? (
-          <p className="demand__quiet" style={{ marginTop: 8 }}>
-            {appText(f.hint_ru, f.hint_ba)}
-          </p>
-        ) : null;
-      })()}
-
-      {state === "loading" && <LoadingList count={3} />}
-      {state === "error" && <ErrorState onRetry={() => load(filter)} />}
-
-      {state === "ready" &&
-        (rows.length === 0 ? (
-          <div className="state" style={{ paddingTop: 32 }}>
-            <div className="state__icon">
-              <IconCheck size={34} />
-            </div>
-            <h2>{appText("Споров нет", "Бәхәс юҡ")}</h2>
-            <p>
-              {filter === "all"
-                ? appText(
-                    "Люди ездят спокойно. Новые разборы появятся здесь сами.",
-                    "Кешеләр тыныс йөрөй. Яңы бәхәстәр бында үҙе күренәсәк."
-                  )
-                : appText(
-                    "Споров в этом состоянии сейчас нет.",
-                    "Был хәлдә бәхәстәр хәҙер юҡ."
-                  )}
-            </p>
-          </div>
-        ) : (
-          <div className="admin-cards">
-            {rows.map((i) => (
-              <div key={i.id} className="admin-card">
-                <div className="admin-card__head">
-                  <div className="admin-card__title">
-                    {i.severe ? <IconWarn size={16} /> : <IconShield size={16} />} {i.type}
-                  </div>
-                  <span
-                    className={"badge " + (i.status === "resolved" ? "badge--mint" : "badge--gold")}
-                  >
-                    {incidentStatusLabel(i.status, appText)}
+        {state === "ready" &&
+          rows.map((i, idx) => {
+            const t = tone(i);
+            const liveAppeal = i.status === "appealed" || i.appeal_status === "requested";
+            const punished = PUNISHED.has(i.resolution);
+            return (
+              <article key={i.id} className="inc-card" style={{ animationDelay: `calc(var(--cascade-in) * ${Math.min(idx, 6)})` }}>
+                {/* Полоса состояния: суть спора и его вес видно раньше, чем прочитал текст. */}
+                <div className={"inc-card__strip " + t.cls}>
+                  {t.icon}
+                  <strong>{typeLabel(i.type)}</strong>
+                  {t.word && <small>{t.word}</small>}
+                </div>
+                <div className="inc-card__body">
+                  <span className="acard__sub">
+                    #{i.id} · {i.booking_route || appText("Без маршрута", "Маршрутһыҙ")} · {formatWhen(i.created_at, ru)}
                   </span>
-                </div>
 
-                <div className="admin-card__sub">
-                  {i.booking_route || appText("Без маршрута", "Маршрутһыҙ")} ·{" "}
-                  {formatRelative(i.created_at, ru)}
-                </div>
+                  {/* Две версии рядом. Пустое объяснение — это ожидание, а не «ничего не было». */}
+                  <SideBlock who={appText("Заявитель: ", "Ялыусы: ") + i.reporter_name} phone={i.reporter_phone} text={i.description} photos={i.evidence_urls} />
+                  <SideBlock who={appText("Вторая сторона: ", "Икенсе яҡ: ") + i.respondent_name} phone={i.respondent_phone} text={i.respondent_statement} photos={i.respondent_evidence_urls} />
 
-                {/* Версия заявителя */}
-                <div className="money-row" style={{ marginTop: 10 }}>
-                  <div className="money-row__head">
-                    <span className="money-row__route">
-                      {appText("Заявитель: ", "Ғариза биреүсе: ")}
-                      {i.reporter_name}
-                    </span>
-                  </div>
-                  <p style={{ margin: "8px 0 0" }}>
-                    {i.description || appText("Без описания", "Тасуирламаһыҙ")}
-                  </p>
-                  {i.reporter_phone && (
-                    <a className="admin-card__phone" href={`tel:${i.reporter_phone}`}>
-                      <IconPhone size={18} /> {i.reporter_phone}
-                    </a>
+                  {i.appeal_text && (
+                    /* Красная только ЖИВАЯ апелляция. Разобранная — обычный блок истории. */
+                    <div className={"inc-appeal" + (liveAppeal ? " is-live" : "")}>
+                      <small>
+                        {appText("Апелляция", "Ялыу")}
+                        {i.appeal_status === "accepted" ? appText(" · принята", " · ҡабул ителгән") : i.appeal_status === "rejected" ? appText(" · отклонена", " · кире ҡағылған") : ""}
+                      </small>
+                      <p>{i.appeal_text}</p>
+                    </div>
                   )}
-                  {i.evidence_urls.filter(evidenceSrc).length > 0 && (
-                    <div className="doc-photos" style={{ marginTop: 10 }}>
-                      {i.evidence_urls.filter(evidenceSrc).map((u, n) => (
-                        <a
-                          key={u}
-                          className="doc-photos__item"
-                          href={evidenceSrc(u)!}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <img
-                            className="doc-photo"
-                            src={evidenceSrc(u)!}
-                            alt={appText(`Фото ${n + 1}`, `Фото ${n + 1}`)}
+
+                  {i.resolution && (
+                    /* Спор закрыт — карточка спокойная, но само НАКАЗАНИЕ не должно выглядеть как «всё хорошо». */
+                    <div className={"inc-resolution" + (punished ? " is-punished" : "")}>
+                      <small>
+                        {punished ? <IconWarn size={16} /> : <IconCheck size={16} />} {resolutionLabel(i.resolution)}
+                      </small>
+                      {i.resolution_note && <p>{i.resolution_note}</p>}
+                    </div>
+                  )}
+
+                  {i.status !== "closed" && openFor !== i.id && (
+                    <button
+                      type="button"
+                      className={i.status === "resolved" ? "btn-soft" : "btn-primary inc-card__act"}
+                      onClick={() => openResolve(i)}
+                    >
+                      <IconCheck size={20} />{" "}
+                      {i.status === "resolved" ? appText("Пересмотреть решение", "Ҡарарҙы ҡабат ҡарау") : appText("Принять решение", "Ҡарар ҡабул итеү")}
+                    </button>
+                  )}
+
+                  {openFor === i.id && (
+                    /* ResolveIncidentDialog — в вебе карточкой под спором, содержимое то же. */
+                    <div className="inc-resolve">
+                      <h3>{appText(`Решение по спору #${i.id}`, `#${i.id} бәхәс буйынса ҡарар`)}</h3>
+                      {/* Кто есть кто — иначе «Вторая сторона» ниже это просто слово без лица. */}
+                      <div className="inc-resolve__who">
+                        <span>{appText("Заявитель: ", "Ялыусы: ") + i.reporter_name}</span>
+                        <span>{appText("Вторая сторона: ", "Икенсе яҡ: ") + i.respondent_name}</span>
+                      </div>
+                      <strong className="inc-resolve__label">{appText("Что решаем", "Нимә хәл итәбеҙ")}</strong>
+                      <div className="inc-resolve__choices" role="radiogroup">
+                        {RESOLUTIONS.map((r) => (
+                          <ChoiceRow key={r.key} label={appText(r.ru, r.ba)} selected={resolution === r.key} onClick={() => setResolution(r.key)} />
+                        ))}
+                      </div>
+                      {/* Наказание — не рядовой выбор: говорим вслух, что оно останется в истории человека. */}
+                      {chosen?.strike && (
+                        <p className="inc-resolve__warn">
+                          <IconWarn size={16} />{" "}
+                          {appText(
+                            "Это наказание: останется в истории и повлияет на доступ к заказам.",
+                            "Был яза: тарихта ҡала һәм заказдарға инеүгә тәьҫир итә."
+                          )}
+                        </p>
+                      )}
+                      <strong className="inc-resolve__label">{appText("Кто виноват", "Кем ғәйепле")}</strong>
+                      <div className="inc-resolve__choices" role="radiogroup">
+                        {FAULTS.map((f) => (
+                          <ChoiceRow key={f.key} label={appText(f.ru, f.ba)} selected={fault === f.key} onClick={() => setFault(f.key)} />
+                        ))}
+                      </div>
+                      {resolution === "suspend" && (
+                        <label className="field">
+                          <span className="field__label">{appText("Пауза, дней", "Пауза, көн")}</span>
+                          <input
+                            className="field__input"
+                            inputMode="numeric"
+                            value={days}
+                            onChange={(e) => setDays(e.target.value.replace(/\D/g, "").slice(0, 3))}
                           />
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Версия второй стороны */}
-                <div className="money-row">
-                  <div className="money-row__head">
-                    <span className="money-row__route">
-                      {appText("Вторая сторона: ", "Икенсе яҡ: ")}
-                      {i.respondent_name}
-                    </span>
-                  </div>
-                  <p style={{ margin: "8px 0 0" }}>
-                    {i.respondent_statement ||
-                      appText("Ещё не объяснился", "Әле аңлатма бирмәгән")}
-                  </p>
-                  {i.respondent_phone && (
-                    <a className="admin-card__phone" href={`tel:${i.respondent_phone}`}>
-                      <IconPhone size={18} /> {i.respondent_phone}
-                    </a>
-                  )}
-                  {i.respondent_evidence_urls.filter(evidenceSrc).length > 0 && (
-                    <div className="doc-photos" style={{ marginTop: 10 }}>
-                      {i.respondent_evidence_urls.filter(evidenceSrc).map((u, n) => (
-                        <a
-                          key={u}
-                          className="doc-photos__item"
-                          href={evidenceSrc(u)!}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <img
-                            className="doc-photo"
-                            src={evidenceSrc(u)!}
-                            alt={appText(`Фото ${n + 1}`, `Фото ${n + 1}`)}
-                          />
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {i.appeal_text && (
-                  <div className="admin-card__reason">
-                    {appText("Апелляция: ", "Ялыу: ")}
-                    {i.appeal_text}
-                  </div>
-                )}
-
-                {i.status === "resolved" ? (
-                  <div className="act-card act-card--mint" style={{ marginTop: 10 }}>
-                    <p className="act-card__text" style={{ margin: 0 }}>
-                      {i.resolution_note || appText("Решение принято.", "Ҡарар ҡабул ителде.")}
-                    </p>
-                  </div>
-                ) : openFor === i.id ? (
-                  <>
-                    <span className="field__label" style={{ marginTop: 12, display: "block" }}>
-                      {appText("Решение", "Ҡарар")}
-                    </span>
-                    <div className="chips" style={{ marginTop: 6 }}>
-                      {OUTCOMES.map((o) => (
-                        <button
-                          key={o.key}
-                          type="button"
-                          className={"chip" + (outcome === o.key ? " chip--on" : "")}
-                          onClick={() => setOutcome(o.key)}
-                        >
-                          {appText(o.ru, o.ba)}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="demand__quiet">
-                      {(() => {
-                        const o = OUTCOMES.find((x) => x.key === outcome);
-                        return o ? appText(o.hint_ru, o.hint_ba) : "";
-                      })()}
-                    </p>
-
-                    {outcome === "suspend" && (
-                      <label className="field" style={{ marginTop: 8 }}>
-                        <span className="field__label">{appText("Дней паузы", "Пауза көндәре")}</span>
-                        <input
-                          className="field__input"
-                          type="number"
-                          min={1}
-                          max={3650}
-                          value={days}
-                          onChange={(e) => setDays(e.target.value)}
+                        </label>
+                      )}
+                      {/* Есть только в вебе: щит рейтинга — спорная оценка перестаёт влиять на средний балл. */}
+                      <div className="acard__switch">
+                        <SettingSwitchRow
+                          icon={<IconShield size={24} />}
+                          title={appText("Щит рейтинга", "Рейтинг ҡалҡаны")}
+                          subtitle={appText("Снять спорную оценку со среднего — защита оболганного", "Бәхәсле баһаны уртасанан алыу — ғәйепләнгәнде яҡлау")}
+                          checked={shield}
+                          onChange={setShield}
+                        />
+                      </div>
+                      <label className="field">
+                        <span className="field__label">{appText("Объяснение для обеих сторон", "Ике яҡҡа ла аңлатма")}</span>
+                        <textarea
+                          className="field__input field__area"
+                          rows={3}
+                          maxLength={2000}
+                          value={note}
+                          onChange={(e) => setNote(e.target.value)}
                         />
                       </label>
-                    )}
-
-                    <label className="list-row list-row--check" style={{ marginTop: 8 }}>
-                      <span className="list-row__icon">
-                        <IconShield size={20} />
-                      </span>
-                      <div className="list-row__main">
-                        <div className="list-row__title">{appText("Щит рейтинга", "Рейтинг ҡалҡаны")}</div>
-                        <div className="list-row__sub">
-                          {appText(
-                            "Снять спорную оценку со среднего — защита оболганного",
-                            "Бәхәсле баһаны уртасанан алыу — ғәйепләнгәнде яҡлау"
-                          )}
-                        </div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        className="checkbox"
-                        checked={shield}
-                        onChange={() => setShield(!shield)}
-                        aria-label={appText("Щит рейтинга", "Рейтинг ҡалҡаны")}
-                      />
-                    </label>
-
-                    <label className="field" style={{ marginTop: 8 }}>
-                      <span className="field__label">
-                        {appText("Объяснение для обеих сторон", "Аңлатма (ике яҡ та күрәсәк)")}
-                      </span>
-                      <textarea
-                        className="field__area"
-                        rows={3}
-                        maxLength={2000}
-                        value={note}
-                        onChange={(e) => setNote(e.target.value)}
-                        placeholder={appText(
-                          "Что решили и почему — по-человечески",
-                          "Нимә хәл ителде һәм ниңә — кешесә"
+                      <p className="dl-hint">
+                        {appText(
+                          "Этот текст увидят оба участника — напиши так, чтобы решение было понятно и тому, кто с ним не согласен.",
+                          "Был текстты ике ҡатнашыусы ла күрә — килешмәгән кешегә лә аңлайышлы итеп яҙ."
                         )}
-                      />
-                      <span className="field__hint">
-                        {appText("Без объяснения решение не сохранится", "Аңлатмаһыҙ ҡарар һаҡланмай")}
-                      </span>
-                    </label>
-
-                    {err && <div className="auth__error">{err}</div>}
-
-                    <div className="act-card__actions" style={{ marginTop: 10 }}>
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        onClick={() => decide(i)}
-                        disabled={busyId === i.id || !note.trim()}
-                      >
-                        {busyId === i.id
-                          ? appText("Сохраняем…", "Һаҡлайбыҙ…")
-                          : appText("Принять решение", "Ҡарар ҡабул итеү")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        onClick={() => {
-                          setOpenFor(null);
-                          setNote("");
-                          setErr("");
-                        }}
-                      >
-                        {appText("Отмена", "Баш тартыу")}
-                      </button>
+                      </p>
+                      {conflict && (
+                        <p className="inc-resolve__conflict">
+                          <IconWarn size={16} />{" "}
+                          {appText(
+                            "Вина на заявителе — наказание легло бы на обвинённого. Заведи встречный спор, где заявитель будет второй стороной.",
+                            "Ғәйеп ялыусыла — яза ғәйепләнеүсегә төшөр ине. Ялыусы икенсе яҡ булған ҡаршы бәхәс ас."
+                          )}
+                        </p>
+                      )}
+                      {err && <div className="auth__error">{err}</div>}
+                      <div className="settings-confirm__row">
+                        <button type="button" className="btn-ghost settings-confirm__muted" onClick={() => setOpenFor(null)} disabled={busyId === i.id}>
+                          {appText("Отмена", "Кире алыу")}
+                        </button>
+                        <button type="button" className="btn-ghost inc-resolve__save" onClick={() => decide(i)} disabled={!canSave}>
+                          {busyId === i.id ? appText("Сохраняем…", "Һаҡлайбыҙ…") : appText("Сохранить решение", "Ҡарарҙы һаҡлау")}
+                        </button>
+                      </div>
                     </div>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    style={{ width: "100%", marginTop: 10 }}
-                    onClick={() => {
-                      setOpenFor(i.id);
-                      setOutcome("dismissed");
-                      setNote("");
-                      setShield(false);
-                      setErr("");
-                    }}
-                  >
-                    {appText("Разобрать", "Ҡарарға")}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        ))}
+                  )}
+                </div>
+              </article>
+            );
+          })}
+      </div>
     </>
   );
 }

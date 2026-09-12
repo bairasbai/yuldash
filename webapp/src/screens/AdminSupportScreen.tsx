@@ -22,8 +22,9 @@ import {
   type TicketThread,
 } from "../api/support";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
-import { IconCheck, IconChat, IconArrow } from "../components/Icons";
+import { RideCardSkeleton } from "../components/States";
+import { AdminIntro, ListedEmpty, ListedError, NearbyChip } from "../components/adminUi";
+import { IconCheck, IconChat, IconSend } from "../components/Icons";
 import { formatWhen } from "../utils/format";
 
 type State = "loading" | "error" | "ready";
@@ -77,90 +78,88 @@ export default function AdminSupportScreen() {
 
   return (
     <>
-      <SubHeader
-        title={appText("Обращения в поддержку", "Ярҙамға мөрәжәғәттәр")}
-        subtitle={appText("Ответ уходит человеку сразу", "Яуап кешегә шунда уҡ бара")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Обращения", "Мөрәжәғәттәр")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        <AdminIntro>
+          {appText(
+            "Человек написал и ждёт ответа. Ответ переоткрывает закрытое обращение — разговор продолжается, а не начинается заново.",
+            "Кеше яҙған һәм яуап көтә. Яуап ябылған мөрәжәғәтте ҡабат аса — һөйләшеү дауам итә, яңынан башланмай."
+          )}
+        </AdminIntro>
 
-      <div className="chips">
-        {(
-          [
-            ["open", appText("Открытые", "Асыҡ")],
-            ["closed", appText("Закрытые", "Ябыҡ")],
-            ["all", appText("Все", "Барыһы")],
-          ] as [Filter, string][]
-        ).map(([k, label]) => (
-          <button
-            key={k}
-            type="button"
-            className={"chip" + (filter === k ? " chip--on" : "")}
-            onClick={() => setFilter(k)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {state === "loading" && <LoadingList count={3} />}
-      {state === "error" && <ErrorState onRetry={() => load()} />}
-
-      {state === "ready" && tickets.length === 0 && (
-        <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__icon"><IconCheck size={34} /></div>
-          <h2>{appText("Обращений нет", "Мөрәжәғәт юҡ")}</h2>
-          <p>
-            {appText(
-              "Никто не ждёт ответа. Хороший знак.",
-              "Бер кем яуап көтмәй. Яҡшы билдә."
-            )}
-          </p>
-        </div>
-      )}
-
-      {state === "ready" && tickets.length > 0 && (
-        <div className="list">
-          {tickets.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className="list-row"
-              onClick={() =>
-                fetchAdminTicket(t.id)
-                  .then(setOpen)
-                  .catch(() => {
-                    /* не открылось — список остаётся на месте */
-                  })
-              }
-            >
-              <div className="list-row__main">
-                <div className="list-row__title">
-                  {t.subject || appText("Без темы", "Темаһыҙ")}
-                  {/* Последнее слово за человеком — значит ждут нас */}
-                  {t.last_sender === "user" && t.status === "open" && (
-                    <span className="badge badge--gold" style={{ marginLeft: 6 }}>
-                      {appText("ждёт ответа", "яуап көтә")}
-                    </span>
-                  )}
-                </div>
-                <div className="list-row__sub">
-                  {t.user_name} · {formatWhen(t.updated_at, ru)} · {t.message_count}{" "}
-                  {appText("сообщ.", "хәбәр")}
-                </div>
-                <div className="list-row__sub">{t.last_message}</div>
-              </div>
-              <span className="list-row__chev">
-                <IconArrow size={18} />
-              </span>
-            </button>
+        {/* В приложении два чипа — «Открытые» и «Все»; «Закрытые» есть только в вебе, тем же чипом. */}
+        <div className="afilter-row" role="group" aria-label={appText("Фильтр обращений", "Мөрәжәғәт фильтры")}>
+          {(
+            [
+              ["open", appText("Открытые", "Асыҡтар")],
+              ["all", appText("Все", "Барыһы")],
+              ["closed", appText("Закрытые", "Ябыҡтар")],
+            ] as [Filter, string][]
+          ).map(([k, label]) => (
+            <NearbyChip key={k} icon={<IconChat size={15} />} label={label} active={filter === k} onClick={() => setFilter(k)} />
           ))}
         </div>
-      )}
+
+        {state === "loading" && (
+          <>
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+          </>
+        )}
+        {state === "error" && (
+          <ListedError message={appText("Не удалось загрузить. Проверь сеть.", "Йөкләп булманы. Селтәрҙе тикшер.")} onRetry={() => load()} />
+        )}
+
+        {state === "ready" && tickets.length === 0 && (
+          <ListedEmpty
+            title={appText("Обращений нет", "Мөрәжәғәт юҡ")}
+            subtitle={appText(
+              "Никто не ждёт ответа. Загляни сюда позже — люди пишут не каждый день.",
+              "Бер кем яуап көтмәй. Һуңыраҡ кил — кешеләр һәр көн яҙмай."
+            )}
+          />
+        )}
+
+        {state === "ready" &&
+          tickets.map((t) => {
+            // «Последним написал человек» и есть признак «ждёт нас». Статус open тут мало
+            // говорит: открытым остаётся и тикет, где мы уже ответили.
+            const waitsUs = t.status === "open" && t.last_sender === "user";
+            return (
+              <button
+                key={t.id}
+                type="button"
+                className={"acard acard--btn" + (waitsUs ? " acard--waits" : "")}
+                onClick={() =>
+                  fetchAdminTicket(t.id)
+                    .then(setOpen)
+                    .catch(() => {
+                      /* не открылось — список остаётся на месте */
+                    })
+                }
+              >
+                <span className="acard__row">
+                  <strong className="acard__title">{t.user_name || appText("Без имени", "Исемһеҙ")}</strong>
+                  {waitsUs ? (
+                    <span className="atext atext--green">{appText("ждёт ответа", "яуап көтә")}</span>
+                  ) : t.status === "closed" ? (
+                    <small className="acard__date">{appText("закрыто", "ябылған")}</small>
+                  ) : null}
+                </span>
+                {t.subject && <span className="acard__text">{t.subject}</span>}
+                <span className="acard__sub">{t.last_message}</span>
+                {t.updated_at && <small className="acard__date">{formatWhen(t.updated_at, ru)}</small>}
+              </button>
+            );
+          })}
+      </div>
     </>
   );
 }
 
 // ----------------------------- Один тред -----------------------------
+/** Тред: тема 19 Bold, сообщения карточками (наши — на подложке попутки), поле ответа, «Ответить» и «Закрыть». */
 function TicketThreadView({
   thread,
   onBack,
@@ -209,54 +208,45 @@ function TicketThreadView({
 
   return (
     <>
-      <SubHeader
-        title={thread.subject || appText("Обращение", "Мөрәжәғәт")}
-        subtitle={
-          thread.status === "closed"
-            ? appText("Закрыто · ответ переоткроет", "Ябыҡ · яуап яңынан аса")
-            : appText("Открыто", "Асыҡ")
-        }
-        onBack={onBack}
-      />
-
-      <div className="chat chat--full">
-        <div className="chat__body">
-          {thread.messages.map((m) => (
-            <div
-              key={m.id}
-              className={"msg" + (m.sender === "admin" ? " msg--mine" : "")}
-            >
-              <div className={"bubble" + (m.sender === "admin" ? " bubble--mine" : "")}>
-                {m.body}
-              </div>
-              <span className="ticket-time">{formatWhen(m.created_at, ru)}</span>
+      <SubHeader title={appText("Обращение", "Мөрәжәғәт")} onBack={onBack} />
+      <div className="alist">
+        <h2 className="athread__subject">{thread.subject || appText("Без темы", "Темаһыҙ")}</h2>
+        {thread.messages.map((m) => {
+          const mine = m.sender === "admin";
+          return (
+            <div key={m.id} className={"amsg" + (mine ? " amsg--mine" : "")}>
+              <small className="amsg__who">{mine ? appText("Поддержка", "Ярҙам хеҙмәте") : appText("Человек", "Кеше")}</small>
+              <p>{m.body}</p>
+              {m.created_at && <small className="acard__date">{formatWhen(m.created_at, ru)}</small>}
             </div>
-          ))}
-        </div>
+          );
+        })}
 
         {error && <div className="auth__error">{error}</div>}
 
-        <div className="chat__input">
-          <input
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void send();
-            }}
-            placeholder={appText("Ответ человеку…", "Кешегә яуап…")}
-            aria-label={appText("Ответ", "Яуап")}
-          />
-          <button type="button" onClick={() => void send()} disabled={busy} aria-label={appText("Отправить", "Ебәреү")}>
-            <IconChat size={20} />
+        <textarea
+          className="field__input field__area"
+          value={text}
+          onChange={(e) => setText(e.target.value.slice(0, 4000))}
+          placeholder={appText("Ответ человеку", "Кешегә яуап")}
+          aria-label={appText("Ответ", "Яуап")}
+          rows={3}
+        />
+        <div className="acard__actions">
+          <button type="button" className="abtn abtn--48" onClick={() => void send()} disabled={busy || !text.trim()}>
+            <IconSend size={18} /> {appText("Ответить", "Яуап биреү")}
+          </button>
+          <button type="button" className="abtn abtn--48 abtn--outline" onClick={close} disabled={busy || thread.status === "closed"}>
+            <IconCheck size={18} /> {appText("Закрыть", "Ябыу")}
           </button>
         </div>
+        <small className="acard__date">
+          {appText(
+            "Закрытие не запрещает человеку написать снова: его ответ откроет обращение обратно.",
+            "Ябыу кешегә ҡабат яҙырға ҡамасауламай: уның яуабы мөрәжәғәтте кире аса."
+          )}
+        </small>
       </div>
-
-      {thread.status !== "closed" && (
-        <button type="button" className="btn-soft" style={{ marginTop: 12 }} onClick={close} disabled={busy}>
-          <IconCheck size={18} /> {appText("Вопрос решён — закрыть", "Мәсьәлә хәл ителде — ябырға")}
-        </button>
-      )}
     </>
   );
 }

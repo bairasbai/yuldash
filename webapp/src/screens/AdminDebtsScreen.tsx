@@ -1,5 +1,7 @@
 // ================================================================
-//  Долги по комиссии → /admin/debts (RequireAdmin).
+//  Долги по комиссии → /admin/debts (RequireAdmin). Есть только в вебе:
+//  в приложении этот раздел живёт внутри «Заявок на оплату», откуда и
+//  берём карточку DebtCard, чтобы вид был один.
 //  GET /admin/debts + confirm / reject / forgive.
 //
 //  Водитель заявил «оплатил» — админ подтверждает, что деньги пришли.
@@ -13,30 +15,20 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
-import {
-  confirmDebt,
-  fetchAdminDebts,
-  forgiveDebt,
-  rejectDebt,
-  type AdminDebt,
-} from "../api/admin";
+import { fetchAdminDebts, type AdminDebt } from "../api/admin";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
-import { IconCheck, IconPhone, IconWallet } from "../components/Icons";
-import { formatWhen, rubLabel } from "../utils/format";
+import { AdminIntro, AdminStatCard, ListedEmpty, ListedError, ListedLoading } from "../components/adminUi";
+import { DebtCard } from "./AdminPaymentRequestsScreen";
+import { kopExactLabel } from "../utils/format";
 
 type State = "loading" | "error" | "ready";
 
 export default function AdminDebtsScreen() {
-  const { appText, lang } = useLang();
-  const ru = lang !== "ba";
+  const { appText } = useLang();
   const navigate = useNavigate();
 
   const [state, setState] = useState<State>("loading");
   const [rows, setRows] = useState<AdminDebt[]>([]);
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [forgiveFor, setForgiveFor] = useState<number | null>(null);
-  const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
 
   const load = useCallback((signal?: AbortSignal) => {
@@ -61,200 +53,63 @@ export default function AdminDebtsScreen() {
     return () => ac.abort();
   }, [load]);
 
-  async function act(id: number, fn: () => Promise<unknown>, ok: string) {
-    if (busyId) return;
-    setBusyId(id);
-    setNote("");
-    try {
-      await fn();
-      setForgiveFor(null);
-      setReason("");
-      setNote(ok);
-      load();
-    } catch (e) {
-      setNote(
-        e instanceof ApiError && e.message
-          ? e.message
-          : appText("Не получилось. Проверь сеть.", "Булманы. Селтәрҙе тикшер.")
-      );
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   const total = rows.reduce((sum, r) => sum + r.amount_kop, 0);
 
   return (
     <>
-      <SubHeader
-        title={appText("Долги по комиссии", "Комиссия бурыстары")}
-        subtitle={appText("Водители заявили оплату", "Йөрөтөүселәр түләүҙе белдерҙе")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Долги по комиссии", "Комиссия бурыстары")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        <AdminIntro>
+          {appText(
+            "Водитель перевёл комиссию по СБП и нажал «Я оплатил». Сверь по имени и сумме — подтверди, и такси у него разблокируется.",
+            "Йөрөтөүсе комиссияны СБП аша күсереп «Мин түләнем» баҫҡан. Исем һәм сумма буйынса тикшер — раҫла, такси блокан асыла."
+          )}
+        </AdminIntro>
 
-      {state === "loading" && <LoadingList count={3} />}
-      {state === "error" && <ErrorState onRetry={() => load()} />}
+        {state === "loading" && <ListedLoading />}
+        {state === "error" && <ListedError onRetry={() => load()} />}
 
-      {state === "ready" && rows.length === 0 && (
-        <div className="state" style={{ paddingTop: 32 }}>
-          <div className="state__icon">
-            <IconCheck size={34} />
-          </div>
-          <h2>{appText("Ожидающих оплат нет", "Көтөлгән түләүҙәр юҡ")}</h2>
-          <p>
-            {appText(
+        {state === "ready" && rows.length === 0 && (
+          <ListedEmpty
+            title={appText("Ожидающих оплат нет", "Көтөлгән түләүҙәр юҡ")}
+            subtitle={appText(
               "Как только водитель отметит оплату комиссии — она появится здесь.",
               "Йөрөтөүсе комиссия түләүен билдәләү менән — бында күренәсәк."
             )}
-          </p>
-        </div>
-      )}
+          />
+        )}
 
-      {state === "ready" && rows.length > 0 && (
-        <>
-          <div className="money-total">
-            <div className="money-total__label">{appText("Ждёт подтверждения", "Раҫлауҙы көтә")}</div>
-            <div className="money-total__value">{rubLabel(total)}</div>
-            <div className="money-total__rows">
-              <div className="info-row">
-                <span className="info-row__k">{appText("Водителей", "Йөрөтөүсе")}</span>
-                <span className="info-row__v">{rows.length}</span>
-              </div>
-            </div>
+        {state === "ready" && rows.length > 0 && (
+          <div className="astat-row">
+            <AdminStatCard label={appText("Ждёт подтверждения", "Раҫлауҙы көтә")} value={kopExactLabel(total)} />
+            <AdminStatCard label={appText("Водителей", "Йөрөтөүсе")} value={String(rows.length)} />
           </div>
+        )}
 
-          <div className="admin-cards">
-            {rows.map((d) => (
-              <div key={d.debt_id} className="admin-card">
-                <div className="admin-card__head">
-                  <div className="admin-card__title">
-                    <IconWallet size={16} /> {d.driver_name || appText("Водитель", "Йөрөтөүсе")}
-                  </div>
-                  <span className="badge badge--gold">{rubLabel(d.amount_kop)}</span>
-                </div>
+        {note && <p className="dl-hint">{note}</p>}
 
-                <div className="admin-card__sub">
-                  {d.declared_at && (
-                    <>
-                      {appText("Отметил оплату: ", "Түләүҙе билдәләне: ")}
-                      {formatWhen(d.declared_at, ru)}
-                    </>
-                  )}
-                  {d.weeks.length > 0 && (
-                    <>
-                      <br />
-                      {appText("Недели: ", "Аҙналар: ")}
-                      {d.weeks.join(", ")}
-                    </>
-                  )}
-                </div>
+        {state === "ready" &&
+          rows.map((d) => (
+            <DebtCard
+              key={d.debt_id}
+              debt={d}
+              busy={false}
+              onDone={(msg) => {
+                setNote(msg);
+                load();
+              }}
+            />
+          ))}
 
-                {d.driver_phone && (
-                  <a className="admin-card__phone" href={`tel:${d.driver_phone}`}>
-                    <IconPhone size={18} /> {d.driver_phone}
-                  </a>
-                )}
-
-                {forgiveFor === d.debt_id ? (
-                  <>
-                    <label className="field" style={{ marginTop: 10 }}>
-                      <span className="field__label">
-                        {appText("Почему списываем (увидит водитель)", "Ниңә алып ташлайбыҙ (йөрөтөүсе күрәсәк)")}
-                      </span>
-                      <input
-                        className="field__input"
-                        value={reason}
-                        onChange={(e) => setReason(e.target.value)}
-                        maxLength={300}
-                        placeholder={appText(
-                          "«Пассажир не заплатил, поездка сорвалась»",
-                          "«Юлаусы түләмәне, сәфәр өҙөлдө»"
-                        )}
-                      />
-                    </label>
-                    <div className="act-card__actions" style={{ marginTop: 10 }}>
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        onClick={() =>
-                          act(
-                            d.debt_id,
-                            () => forgiveDebt(d.debt_id, reason.trim()),
-                            appText("Долг списан", "Бурыс алып ташланды")
-                          )
-                        }
-                        disabled={busyId === d.debt_id || !reason.trim()}
-                      >
-                        {appText("Списать долг", "Бурысты алып ташлау")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        onClick={() => {
-                          setForgiveFor(null);
-                          setReason("");
-                        }}
-                      >
-                        {appText("Отмена", "Баш тартыу")}
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="act-card__actions" style={{ marginTop: 10, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() =>
-                        act(
-                          d.debt_id,
-                          () => confirmDebt(d.debt_id),
-                          appText("Оплата подтверждена", "Түләү раҫланды")
-                        )
-                      }
-                      disabled={busyId === d.debt_id}
-                    >
-                      <IconCheck size={18} /> {appText("Деньги пришли", "Аҡса килде")}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-soft"
-                      onClick={() =>
-                        act(
-                          d.debt_id,
-                          () => rejectDebt(d.debt_id),
-                          appText("Вернули в «не оплачено»", "«Түләнмәгән»гә ҡайтарылды")
-                        )
-                      }
-                      disabled={busyId === d.debt_id}
-                    >
-                      {appText("Денег нет", "Аҡса юҡ")}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-soft"
-                      onClick={() => {
-                        setForgiveFor(d.debt_id);
-                        setReason("");
-                      }}
-                    >
-                      {appText("Списать", "Алып ташлау")}
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {note && <p className="taxi-note">{note}</p>}
-
-          <p className="receipt__foot">
+        {state === "ready" && rows.length > 0 && (
+          <p className="dl-hint">
             {appText(
               "«Списать» гасит долг честно и с причиной — «подтвердить» несуществующую оплату нельзя: это врёт в отчётах.",
-              "«Алып ташлау» бурысты сәбәбе менән дөрөҫ яба — булмаған түләүҙе «раҫлау» ярамай: ул отчётта ялған."
+              "«Һүндереү» бурысты сәбәбе менән дөрөҫ яба — булмаған түләүҙе «раҫлау» ярамай: ул отчётта ялған."
             )}
           </p>
-        </>
-      )}
+        )}
+      </div>
     </>
   );
 }

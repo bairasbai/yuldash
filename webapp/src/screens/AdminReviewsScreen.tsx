@@ -21,28 +21,38 @@ import {
   type PendingAppReview,
 } from "../api/admin";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
-import { formatRelative } from "../utils/format";
-import { IconCheck, IconShield } from "../components/Icons";
+import { RideCardSkeleton, ErrorState, EmptyStateCard } from "../components/States";
+import { formatWhen } from "../utils/format";
+import { IconCheck, IconInfo, IconShield, IconStar, IconWarn } from "../components/Icons";
 import { YuStar } from "../components/BrandIcons";
 
 type State = "loading" | "error" | "ready";
 type Tab = "rides" | "app";
 
-/** Звёзды строкой (доступно и без картинок). */
-function Stars({ n }: { n: number }) {
+/** Пять звёзд (RatingStars): закрашенные — CanonStar, пустые — muted, чтобы оценка читалась сразу. */
+function RatingStars({ n, size = 20 }: { n: number; size?: number }) {
   const { appText } = useLang();
   const c = Math.max(0, Math.min(5, n));
   return (
-    <span className="review-stars" aria-label={appText(`${c} из 5`, `5-тән ${c}`)}>
-      {Array.from({ length: c }).map((_, k) => (
-        <YuStar key={k} size={15} className="amenity-ic" />
+    <span className="rstars" aria-label={appText(`${c} из 5`, `5-тән ${c}`)}>
+      {Array.from({ length: 5 }).map((_, k) => (
+        <span key={k} className={k < c ? "rstars__on" : "rstars__off"}>
+          <IconStar size={size} />
+        </span>
       ))}
-      <span className="review-stars__dim">
-        {Array.from({ length: 5 - c }).map((_, k) => (
-          <YuStar key={k} size={15} className="amenity-ic" />
-        ))}
-      </span>
+    </span>
+  );
+}
+
+/** Звёзды отзыва о приложении: только закрашенные, золотые 16 (AdminReviewsContent). */
+function GoldStars({ n }: { n: number }) {
+  const { appText } = useLang();
+  const c = Math.max(0, Math.min(5, n));
+  return (
+    <span className="rstars rstars--gold" aria-label={appText(`${c} из 5`, `5-тән ${c}`)}>
+      {Array.from({ length: c }).map((_, k) => (
+        <YuStar key={k} size={16} className="amenity-ic" />
+      ))}
     </span>
   );
 }
@@ -127,124 +137,115 @@ export default function AdminReviewsScreen({ initialTab = "rides" }: { initialTa
 
   const list = tab === "rides" ? rides : apps;
 
+  // ---- /admin/reviews — отзывы о приложении (AdminReviewsScreen.kt) ----
+  if (tab === "app") {
+    return (
+      <>
+        <SubHeader title={appText("Модерация отзывов", "Фекерҙәрҙе модерациялау")} onBack={() => navigate(-1)} />
+        <div className="alist">
+          {state === "loading" && (
+            <>
+              <RideCardSkeleton />
+              <RideCardSkeleton />
+            </>
+          )}
+          {state === "error" && <ErrorState onRetry={() => load(tab)} />}
+          {state === "ready" && apps.length === 0 && (
+            <EmptyStateCard
+              icon={<IconCheck size={48} />}
+              title={appText("Новых отзывов нет", "Яңы фекерҙәр юҡ")}
+              text={appText("Всё разобрано", "Барыһы ла ҡаралған")}
+            />
+          )}
+          {state === "ready" &&
+            apps.map((r) => (
+              <article key={r.id} className="areview">
+                <GoldStars n={r.stars} />
+                <p className="areview__quote">«{r.text}»</p>
+                <span className="areview__who">
+                  {[r.name, r.city].filter(Boolean).join(", ") || appText("Аноним", "Аноним")}
+                </span>
+                {rowError?.id === r.id && <div className="auth__error">{rowError.msg}</div>}
+                <button type="button" className="areview__ok" onClick={() => publish(r.id, true)} disabled={busyId !== null}>
+                  {busyId === r.id ? appText("…", "…") : appText("Одобрить для сайта", "Сайт өсөн раҫларға")}
+                </button>
+              </article>
+            ))}
+        </div>
+      </>
+    );
+  }
+
+  // ---- /admin/ratings — текстовые отзывы о поездках (AdminRatingsScreen.kt) ----
   return (
     <>
-      <SubHeader
-        title={appText("Модерация отзывов", "Фекерҙәрҙе тикшереү")}
-        subtitle={appText("Одобрить текст к показу в профиле", "Текстарҙы күрһәтеүгә раҫлау")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Отзывы на модерации", "Модерациялағы фекерҙәр")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        {/* Правила модерации — один раз вверху, а не абзацем на каждой карточке. */}
+        <div className="rules-note">
+          <span className="rules-note__icon" aria-hidden><IconInfo size={20} /></span>
+          <span className="rules-note__text">
+            <strong>
+              {list.length > 0
+                ? appText(`На модерации: ${list.length}`, `Модерацияла: ${list.length}`)
+                : appText("Как работает модерация", "Модерация нисек эшләй")}
+            </strong>
+            <span>
+              {appText(
+                "Звёзды учитываются сразу, текст появляется в профиле только после твоего одобрения. Не одобряешь — просто пропусти: текст останется скрытым.",
+                "Йондоҙҙар шунда уҡ иҫәпләнә, текст профилдә тик һин раҫлағас күренә. Раҫламайһыңмы — үтеп кит: текст йәшерен ҡала."
+              )}
+            </span>
+          </span>
+        </div>
 
-      <div className="seg" style={{ marginBottom: 4 }} role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "rides"}
-          className={"seg__item" + (tab === "rides" ? " is-active" : "")}
-          onClick={() => setTab("rides")}
-        >
-          {appText("О поездках", "Сәфәрҙәр")}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "app"}
-          className={"seg__item" + (tab === "app" ? " is-active" : "")}
-          onClick={() => setTab("app")}
-        >
-          {appText("О приложении", "Ҡушымта")}
-        </button>
+        {state === "loading" && (
+          <>
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+          </>
+        )}
+        {state === "error" && <ErrorState onRetry={() => load(tab)} />}
+        {state === "ready" && rides.length === 0 && (
+          <EmptyStateCard
+            icon={<IconCheck size={36} />}
+            title={appText("Всё разобрано", "Бөтәһе лә ҡаралған")}
+            text={appText("Новых отзывов на модерации нет.", "Модерацияла яңы фекерҙәр юҡ.")}
+          />
+        )}
+
+        {state === "ready" &&
+          rides.map((r, i) => {
+            const stars = Math.max(0, Math.min(5, r.stars));
+            const angry = stars >= 1 && stars <= 2; // жалоба: смотреть внимательнее
+            return (
+              <article key={r.id} className="rating-card" style={{ animationDelay: `calc(var(--cascade-in) * ${Math.min(i, 6)})` }}>
+                <div className="rating-card__head">
+                  <span className={"rating-card__mood" + (angry ? " is-angry" : "")} aria-label={appText(`Оценка ${stars} из 5`, `Баһа: ${stars}, 5-тән`)}>
+                    {angry ? <IconWarn size={20} /> : <IconStar size={20} />}
+                  </span>
+                  <span className="rating-card__meta">
+                    <RatingStars n={stars} />
+                    {/* Кто → о ком: без этого решение «публиковать» принималось вслепую. */}
+                    <strong>{r.ratee ? appText(`${r.author} → о ${r.ratee}`, `${r.author} → ${r.ratee} тураһында`) : r.author}</strong>
+                    <small>{formatWhen(r.created_at, ru)}</small>
+                  </span>
+                </div>
+                {/* Сам отзыв — то единственное, ради чего открыли карточку. */}
+                <p className="rating-card__text">{r.text || appText("Текста нет — только звёзды.", "Текст юҡ — тик йондоҙҙар.")}</p>
+                {rowError?.id === r.id && <div className="auth__error">{rowError.msg}</div>}
+                <button type="button" className="btn-primary rating-card__publish" onClick={() => publish(r.id, false)} disabled={busyId !== null}>
+                  {busyId === r.id ? appText("…", "…") : <><IconCheck size={20} /> {appText("Опубликовать в профиле", "Профилдә баҫтырыу")}</>}
+                </button>
+                {/* Кнопки «скрыть» нет намеренно: неодобренный текст и так не виден никому. */}
+                <button type="button" className="rating-card__shield" onClick={() => shield(r.id)} disabled={busyId !== null}>
+                  <IconShield size={16} /> {appText("Оценка мстительная — снять из рейтинга", "Баһа үс алыу өсөн — рейтингтан алыу")}
+                </button>
+              </article>
+            );
+          })}
       </div>
-
-      {state === "loading" && <LoadingList count={3} />}
-      {state === "error" && <ErrorState onRetry={() => load(tab)} />}
-
-      {state === "ready" && list.length === 0 && (
-        <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__icon"><YuStar size={40} /></div>
-          <h2>{appText("Очередь пуста", "Сират буш")}</h2>
-          <p>
-            {tab === "rides"
-              ? appText("Новых отзывов о поездках нет.", "Сәфәр тураһында яңы фекерҙәр юҡ.")
-              : appText("Новых отзывов о приложении нет.", "Ҡушымта тураһында яңы фекерҙәр юҡ.")}
-          </p>
-        </div>
-      )}
-
-      {state === "ready" && list.length > 0 && (
-        <div className="admin-cards">
-          {tab === "rides"
-            ? rides.map((r) => (
-                <div key={r.id} className="admin-card">
-                  <div className="admin-card__head">
-                    <div className="admin-card__title"><Stars n={r.stars} /></div>
-                    <span className="admin-card__sub" style={{ marginTop: 0 }}>
-                      {formatRelative(r.created_at, ru)}
-                    </span>
-                  </div>
-                  <p className="admin-card__reason">«{r.text}»</p>
-                  <div className="admin-card__sub">
-                    {appText("Автор", "Автор")}: {r.author || appText("Аноним", "Аноним")}
-                    {r.ratee && (
-                      <>
-                        {" · "}
-                        {appText("о ком", "кем тураһында")}: {r.ratee}
-                      </>
-                    )}
-                  </div>
-                  {rowError?.id === r.id && <div className="auth__error">{rowError.msg}</div>}
-                  <div className="act-card__actions" style={{ marginTop: 12 }}>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() => publish(r.id, false)}
-                      disabled={busyId !== null}
-                    >
-                      {busyId === r.id ? appText("…", "…") : (
-                        <><IconCheck size={18} /> {appText("Опубликовать", "Баҫтырырға")}</>
-                      )}
-                    </button>
-                    {/* Щит рейтинга: одна месть-оценка не должна рушить рейтинг честного. */}
-                    <button
-                      type="button"
-                      className="btn-soft"
-                      onClick={() => shield(r.id)}
-                      disabled={busyId !== null}
-                    >
-                      <IconShield size={18} /> {appText("Снять с рейтинга", "Рейтингтан алыу")}
-                    </button>
-                  </div>
-                </div>
-              ))
-            : apps.map((r) => (
-                <div key={r.id} className="admin-card">
-                  <div className="admin-card__head">
-                    <div className="admin-card__title"><Stars n={r.stars} /></div>
-                    <span className="admin-card__sub" style={{ marginTop: 0 }}>
-                      {formatRelative(r.created_at, ru)}
-                    </span>
-                  </div>
-                  <p className="admin-card__reason">«{r.text}»</p>
-                  <div className="admin-card__sub">
-                    {r.name || appText("Аноним", "Аноним")}
-                    {r.city ? ` · ${r.city}` : ""}
-                  </div>
-                  {rowError?.id === r.id && <div className="auth__error">{rowError.msg}</div>}
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    style={{ width: "100%", marginTop: 12 }}
-                    onClick={() => publish(r.id, true)}
-                    disabled={busyId !== null}
-                  >
-                    {busyId === r.id ? appText("…", "…") : (
-                      <><IconCheck size={18} /> {appText("Опубликовать", "Баҫтырырға")}</>
-                    )}
-                  </button>
-                </div>
-              ))}
-        </div>
-      )}
     </>
   );
 }
