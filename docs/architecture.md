@@ -4044,3 +4044,28 @@ Android `AdminRatings` и `AdminReviews` больше не слиты в одн�
   `.doc-row*`, `.docs-foot`; тип `TaxiApplication.osgop_until`); `PretripCheckScreen.tsx` = `PretripCheckScreen`
   (`.pretrip-*`); `AdsCabinetScreen.tsx` = `AdsCabinetScreen` (`.ads-package`, `.ad-card*`, `.ad-badge*`, `submitAd`).
   Иконка `IconInfo` в `Icons.tsx`.
+
+### Партия (д): вход, онбординг, настройки, доверие, SOS (12.09.2026)
+
+- `LoginScreen.tsx` = `LoginScreen.kt`: `.login-hero` (фото `/login_salavat_yulaev_hero.webp`, `__shade` на
+  `--scrim`, `__logo`, `.login-lang` чипы через `setLang`, `__word`, `.login-features`), `.login-card` (наезд
+  на фото, радиус 44), `.login-tg` (green2, 72), `.login-error`; ветка СМС только при `SMS_LOGIN_ENABLED`
+  (`.login-divider`, `.login-phone`, `.login-sms`, `.login-input*`); согласия → `/consents`, `/privacy`.
+- `SettingsScreen.tsx` = `SettingsScreen.kt`: `.settings__title`, группы из `cabinetUi.tsx`, инлайн-пикеры
+  темы/размера (`picker` state → `.settings-group__body` с `.seg`), `PushToggle`, группа админа, веб-только
+  группа, «О приложении» (`VITE_APP_VERSION ?? "web"`), `logoutAsk`, `.danger-card` + `.settings-confirm--card`.
+- `TrustScreen.tsx` = `TrustScreens.kt`: `.trust-card` (`__badge.is-top` золотой, `.trust-ladder__step.is-reached/
+  .is-current`, `.trust-benefits`), `.trust-next` (мятная), `.trust-invite`, `SettingsGroup` ссылок.
+- `SosScreen.tsx` = `SosScreen.kt`: `.sos-head`, `.sos-112` (`tel:112`), `.sos-services` (102/101/103),
+  `.sos-dictate` (копирует заметку + координаты), `.sos-notify`, `.sos-cats`, `.sos-info--ok/--bad`, `.sos-law`.
+- `OnboardingScreen.tsx` = `OnboardingContent` (YuldashApp.kt): четыре слайда (`eyebrow/title/body/hero/items/note`),
+  `finish(to, simple)` ставит флаги и ведёт на `/login` (последний слайд), `/map` («Пропустить») или `/simple`
+  (карточка простого режима); `.onb__top` с `.login-lang onb__lang`, `.onb__page` (keyed), `.onb-hero`
+  (`/onboarding_bashkir_hero.webp`, `__shade`, `__logo`, `__glass`, `__icon`), `.onb-item` + `.onb-bubble`,
+  `.onb-roles/.onb-role` (radio), `.onb-simple`, `.onb-note`, `.onb__foot` (`.onb__nav`, `.onb-dots`, `.onb__next`).
+  Старые `.onb__simple*` (тумблер простого режима) остались — их используют `CreateRequestScreen`,
+  `CreateRideScreen`, `TaxiDrive`.
+- `IntroScreen.tsx` без изменений в логике; вид — `.intro` (виньетка + `--header-top`), `.intro__mark` 132,
+  `.intro__word--meaning/--brand` на токенах `--font-intro-*`, `.intro__rule` 72×4, `.intro__slogan`, `.intro__skip`.
+- Токены в `index.css`: `--font-login-display: 52px; --line-login-display: 56px; --font-intro-meaning: 36px;
+  --font-intro-brand: 44px; --line-intro-brand: 56px`. Каскад появления — `calc(var(--cascade-in) * N)`.
