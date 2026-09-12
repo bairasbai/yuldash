@@ -19,6 +19,7 @@ const useRef=initial=>{const b=h.bucket,i=b.ri++;return b.refs[i]??={current:ini
 const useEffect=fn=>h.bucket.effects.push(fn);
 const useLang=()=>({lang:'ru',appText:(ru,ba)=>ru}), useNavigate=()=>()=>{};
 const rememberedPayMethod=()=>'cash',useRouteWeather=()=>null,track=()=>{};
+const PAY_METHODS_OPEN=[{code:'cash',shortRu:'Наличные',shortBa:'Наличный'}];
 class ApiError extends Error{};
 const priceLabel=p=>p+' ₽',categoryLabel=cat=>cat,minDateTimeNow=()=>'',maxDateTimeInDays=()=>'',SCHEDULE_MAX_DAYS=7;
 const fetchNearbyDrivers=async()=>({drivers:[]});
@@ -40,7 +41,10 @@ async function compile(text) {
 const {ComposeView,PlacePicker}=await compile(views);
 const bucket=()=>({states:[],refs:[],si:0,ri:0,effects:[]});
 const render=(fn,props,b)=>{h.bucket=b;b.si=b.ri=0;b.effects=[];return fn(props)};
-const all=node=>!node||typeof node!=='object'?[]:[node,...[node.props?.children].flat(Infinity).flatMap(all)];
+// Дерево обходим и по слотам шторки (header/body/extra/footer/overlay/map) — форма заказа живёт
+// в TaxiSheet, а не в children.
+const SLOTS=['children','header','body','extra','footer','overlay','map'];
+const all=node=>!node||typeof node!=='object'?[]:[node,...SLOTS.flatMap(k=>[node.props?.[k]].flat(Infinity)).flatMap(all)];
 const picker=(tree,origin)=>all(tree).find(n=>n.type===PlacePicker&&!!n.props.origin===origin);
 const submit=tree=>all(tree).find(n=>n.type==='button'&&n.props.className?.includes('submit-btn'));
 let from=null,to=null,ordered=null;
@@ -48,7 +52,9 @@ const compose=bucket();
 const props=()=>({from,to,setFrom:p=>from=p,setTo:p=>to=p,onOrdered:o=>ordered=o,onScheduled(){}});
 let tree=render(ComposeView,props(),compose);
 assert.ok(picker(tree,true),'При from=null доступен выбор подачи');
-assert.equal(submit(tree).props.disabled,true);
+// Без назначения кнопки «Заказать» нет вовсе — как в Android (hasFooter = toPoint != null):
+// заказать нельзя ни так, ни так.
+assert.ok(!submit(tree)||submit(tree).props.disabled===true,'Без назначения заказать нельзя');
 const previousNavigator=Object.getOwnPropertyDescriptor(globalThis,'navigator');
 Object.defineProperty(globalThis,'navigator',{configurable:true,value:{geolocation:{getCurrentPosition(ok,fail){fail({code:1})}}}});
 try {

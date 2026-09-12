@@ -52,7 +52,12 @@ export default function TaxiSheet({
   // Копим жест до отпускания: решение принимаем один раз, а не на каждом кадре.
   const startY = useRef<number | null>(null);
   const moved = useRef(false);
+  // Шапка — зона хвата, но в ней живут поля и кнопки (адреса заказа): их нажатия — не жест.
+  const fromControl = (target: EventTarget | null) =>
+    target instanceof Element && target.closest("input, textarea, select, button, a, [role='button']") !== null &&
+    !(target instanceof Element && target.classList.contains("taxi-sheet__grip"));
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (fromControl(e.target)) return;
     startY.current = e.clientY;
     moved.current = false;
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -68,8 +73,8 @@ export default function TaxiSheet({
     else if (swipe > SWIPE_THRESHOLD) step(-1);
   };
   // Тап по шапке без движения — тоже переключает: half ↔ full (клавиатуре и мыши жест недоступен).
-  const onGripClick = () => {
-    if (moved.current) return;
+  const onGripClick = (e: { target: EventTarget | null }) => {
+    if (moved.current || fromControl(e.target)) return;
     setStop(stop === "full" ? "half" : "full");
   };
 
@@ -90,9 +95,10 @@ export default function TaxiSheet({
           onPointerCancel={() => { startY.current = null; }}
           onClick={onGripClick}
           onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
             if (e.key === "ArrowUp") { e.preventDefault(); step(1); }
             if (e.key === "ArrowDown") { e.preventDefault(); step(-1); }
-            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onGripClick(); }
+            if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); onGripClick(e); }
           }}
         >
           <span className="taxi-sheet__handle" aria-hidden />

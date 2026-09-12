@@ -9363,3 +9363,42 @@ select.field__input {
 .taxi-sheet .taxi-search__bar {
   margin: 0;
 }
+
+/* Подвал формы заказа — как в Android: чип оплаты 54dp + «Заказать» в одну строку. */
+.taxi-order-footer {
+  display: flex;
+  gap: var(--space-sm);
+}
+.taxi-order-footer__pay {
+  flex: none;
+  min-width: 64px;
+  height: 54px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 var(--space-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--green2);
+}
+.taxi-order-footer__pay span {
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-micro);
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.taxi-order-footer__cta {
+  flex: 1;
+  margin-top: 0;
+}
+.taxi-sheet .taxi-route {
+  margin-top: 0;
+  padding: 0;
+}

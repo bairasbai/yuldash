@@ -50,19 +50,19 @@ import ShareTripCard from "../components/ShareTripCard";
 import TaxiTripActions, { WaitForCarCard } from "../components/TaxiTripActions";
 import PriceComplaint from "../components/PriceComplaint";
 import PriceFactors from "../components/PriceFactors";
-import PayMethodPicker, { rememberedPayMethod } from "../components/PayMethodPicker";
+import PayMethodPicker, { PAY_METHODS_OPEN, rememberedPayMethod } from "../components/PayMethodPicker";
 import { TaxiOptions, TaxiRoundTrip, TaxiStops, type OrderStop } from "../components/TaxiOrderExtras";
 import WaitlistForm from "../components/WaitlistForm";
 import { LoadingList } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
-import { IconCar, IconStar, IconPhone, IconChat, IconHome, IconWork, IconPin, IconClock, IconCheck, IconBolt, IconReceipt, IconChevron, IconProfile, IconShield } from "../components/Icons";
+import { IconCar, IconStar, IconPhone, IconChat, IconHome, IconWork, IconPin, IconClock, IconCheck, IconBolt, IconReceipt, IconChevron, IconProfile, IconShield, IconWallet } from "../components/Icons";
 import { YuMoon, YuQuiet, YuWomenOnly } from "../components/BrandIcons";
 import { priceLabel } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
 import { minDateTimeNow, maxDateTimeInDays } from "../utils/dateInput";
 import { setActiveTaxiOrder, setTaxiOrderOnScreen } from "../navSignals";
 import TaxiTripProgress from "../components/TaxiTripProgress";
-import TaxiSheet, { TaxiSheetOverlayButton } from "../components/TaxiSheet";
+import TaxiSheet, { TaxiSheetOverlayButton, type TaxiSheetStop } from "../components/TaxiSheet";
 
 /** Класс машины человеческой строкой (подписи живут в клиенте, коды — на сервере). */
 function categoryLabel(cat: string, appText: (ru: string, ba: string) => string): string {
@@ -328,6 +328,13 @@ function ComposeView({
   const [geoNote, setGeoNote] = useState("");
   const [category, setCategory] = useState<TaxiCategory>("standard");
   const [estimate, setEstimate] = useState<EstimateResult | null>(null);
+  // Положение шторки: пока нет назначения — развёрнута (адреса и подсказки), после выбора —
+  // наполовину: карта важнее длинной формы. Тронул руками — больше не переключаем сами.
+  const [sheetStop, setSheetStop] = useState<TaxiSheetStop>("full");
+  const sheetTouched = useRef(false);
+  useEffect(() => {
+    if (!sheetTouched.current) setSheetStop(to ? "half" : "full");
+  }, [to]);
   const [estimating, setEstimating] = useState(false);
   const [when, setWhen] = useState<"now" | "later">("now");
   const [schedAt, setSchedAt] = useState("");
@@ -488,32 +495,33 @@ function ComposeView({
 
   const canOrder = !!from && !!to && !busy && (when === "now" || !!schedAt);
 
+  /* Как в Android: форма заказа живёт в шторке над картой (TaxiSheetScaffold, halfBodyFraction 0.32).
+     Пока нет назначения — шторка развёрнута, после выбора — наполовину, карта важнее длинной формы. */
   return (
     <>
-      <SubHeader
-        title={appText("Куда едем?", "Ҡайҙа барабыҙ?")}
-        subtitle={appText("Быстрый заказ · такси между своими", "Тиҙ заказ · үҙебеҙ араһында такси")}
-        onBack={() => navigate(-1)}
-      />
-
-      <div className="home-map" style={{ marginTop: 4 }}>
-        <YandexMap
-          from={from}
-          to={to}
-          route={!!(from && to)}
-          markers={
-            !to
-              ? nearby.map((d, i) => ({ id: `d${i}`, lat: d.lat, lng: d.lng, kind: "me" as const }))
-              : undefined
-          }
-          height={200}
-        />
-      </div>
-
-      {/* ❄️ Погода на маршруте — до заказа, а не когда машина уже едет */}
-      <WeatherWarningCard weather={weather} />
-
-      {/* Точки маршрута */}
+      <TaxiSheet
+        stop={sheetStop}
+        onStopChange={(next) => { sheetTouched.current = true; setSheetStop(next); }}
+        halfBodyFraction={0.32}
+        map={
+          <YandexMap
+            from={from}
+            to={to}
+            route={!!(from && to)}
+            markers={
+              !to
+                ? nearby.map((d, i) => ({ id: `d${i}`, lat: d.lat, lng: d.lng, kind: "me" as const }))
+                : undefined
+            }
+            height="100%"
+          />
+        }
+        overlay={
+          <TaxiSheetOverlayButton position="left" label={appText("Назад", "Артҡа")} onClick={() => navigate(-1)}>
+            <span style={{ display: "inline-flex", transform: "rotate(180deg)" }}><IconChevron size={22} /></span>
+          </TaxiSheetOverlayButton>
+        }
+        header={
       <div className="taxi-route">
         <PlacePicker
           origin
@@ -550,12 +558,17 @@ function ComposeView({
         />
         <PlacePicker value={to} onPick={setTo} />
       </div>
-
+        }
+        body={
+          <>
       {geoNote && (
         <div className="notice" role="status">
           {geoNote}
         </div>
       )}
+
+      {/* ❄️ Погода на маршруте — до заказа, а не когда машина уже едет */}
+      <WeatherWarningCard weather={weather} />
 
       {/* Классы с ценами */}
       {to && (
@@ -767,6 +780,10 @@ function ComposeView({
         </details>
       )}
 
+          </>
+        }
+        extra={
+          <>
       {/* Сейчас / На время */}
       {to && (
         <>
@@ -969,38 +986,43 @@ function ComposeView({
           )}
         </div>
       )}
-
-      <button
-        type="button"
-        className="btn-primary btn-taxi submit-btn"
-        style={{ marginTop: 14 }}
-        onClick={order}
-        disabled={!canOrder}
-      >
-        {busy ? (
-          appText("Отправляем…", "Ебәрәбеҙ…")
-        ) : when === "later" ? (
-          <>
-            <IconClock size={18} /> {appText("Заказать на время", "Ваҡытҡа заказ итеү")}
           </>
-        ) : (
-          <>
-            <IconCar size={18} />{" "}
-            {estimate
-              ? appText(`Вызвать за ${priceLabel(estimate.price, ru)}`, `${priceLabel(estimate.price, ru)} — саҡырыу`)
-              : appText("Вызвать машину", "Машина саҡырыу")}
-          </>
-        )}
-      </button>
-
-      <button
-        type="button"
-        className="btn-soft"
-        style={{ marginTop: 10 }}
-        onClick={() => navigate("/scheduled")}
-      >
-        <IconClock size={18} /> {appText("Мои предзаказы", "Алдан заказдарым")}
-      </button>
+        }
+        footer={
+          to ? (
+            <div className="taxi-order-footer">
+              {/* Чип способа оплаты 54dp (InstantControlShape) + «Заказать» CanonGreen2/CanonOnFilled, как в Android. */}
+              <button
+                type="button"
+                className="taxi-order-footer__pay"
+                onClick={() => navigate("/payment-methods")}
+                aria-label={appText("Способ оплаты", "Түләү ысулы")}
+              >
+                <IconWallet size={20} />
+                <span>{PAY_METHODS_OPEN.find((m) => m.code === payMethod)?.[ru ? "shortRu" : "shortBa"] ?? ""}</span>
+              </button>
+              <button
+                type="button"
+                className="btn-primary submit-btn taxi-order-footer__cta"
+                onClick={order}
+                disabled={!canOrder}
+              >
+                {busy
+                  ? appText("Отправляем…", "Ебәрәбеҙ…")
+                  : when === "later"
+                    ? appText("Заказать на время", "Ваҡытҡа заказ итеү")
+                    : estimate
+                      ? appText(`Заказать за ${priceLabel(estimate.price, ru)}`, `${priceLabel(estimate.price, ru)} — заказ итеү`)
+                      : appText("Заказать", "Заказ итеү")}
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="btn-soft" onClick={() => navigate("/scheduled")}>
+              <IconClock size={18} /> {appText("Мои предзаказы", "Алдан заказдарым")}
+            </button>
+          )
+        }
+      />
     </>
   );
 }
