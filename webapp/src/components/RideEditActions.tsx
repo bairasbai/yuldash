@@ -21,10 +21,13 @@ import { IconWarn } from "./Icons";
 export default function RideEditActions({
   ride,
   onChanged,
+  editOnly = false,
 }: {
   ride: Ride;
   /** Поездка изменилась — родителю надо перечитать список. */
   onChanged: (r?: Ride) => void;
+  /** Кабинет водителя: снятие рейса рисует родитель, здесь — только «Изменить цену и комментарий». */
+  editOnly?: boolean;
 }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
@@ -86,7 +89,12 @@ export default function RideEditActions({
 
   return (
     <>
-      {sheet === "none" && (
+      {sheet === "none" && editOnly && (
+        <button type="button" className="driver-ride__outlined driver-ride__outlined--wide" onClick={() => setSheet("edit")}>
+          {appText("Изменить цену и комментарий", "Хаҡ һәм аңлатма үҙгәртеү")}
+        </button>
+      )}
+      {sheet === "none" && !editOnly && (
         <div className="act-card__actions" style={{ marginTop: 8, flexWrap: "wrap" }}>
           <button type="button" className="btn-soft btn-soft--sm" onClick={() => setSheet("edit")}>
             {appText("Исправить", "Төҙәтеү")}

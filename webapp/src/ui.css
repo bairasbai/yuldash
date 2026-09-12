@@ -10781,7 +10781,7 @@ select.field__input {
   color: var(--text);
   font-size: var(--font-heading);
   line-height: var(--line-heading);
-  font-weight: var(--weight-bold);
+  font-weight: var(--weight-heading);
 }
 .section-head__sub {
   margin: 0;
@@ -11194,4 +11194,125 @@ button.settings-row:active {
 }
 .cabinet .state {
   margin: 0;
+}
+
+/* Кабинет водителя: рейс = MyTripCard + ряд контурных кнопок «Завершить рейс / Снять поездку». */
+.driver-ride {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.driver-ride__row {
+  display: flex;
+  gap: var(--space-sm);
+}
+.driver-ride__outlined {
+  flex: 1;
+  min-height: 48px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.driver-ride__outlined.is-danger {
+  color: var(--danger);
+}
+.driver-ride__ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 48px;
+  padding: 0 var(--space-md);
+  border: 0;
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+/* Архив: строка с кругом 38 (мятный — завершена, красный — нет), маршрут 16 Bold, дата · итог 12, цена. */
+.archive-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.archive-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.archive-row__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-pill);
+}
+.archive-row__icon.is-done {
+  background: var(--mint);
+  color: var(--green2);
+}
+.archive-row__icon.is-off {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.archive-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.archive-row__text strong,
+.archive-row__text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.archive-row__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.archive-row__text small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.archive-row__price {
+  flex: none;
+  color: var(--green2);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+/* Тело группы под тумблером (поле СБП + кнопка): поля 12 по бокам, зазор 12. */
+.settings-group__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: 0 var(--space-md) var(--space-sm);
+}
+.settings-group__body .btn-soft {
+  width: 100%;
+}
+.cabinet .act-card {
+  margin: 0;
+}
+.cabinet .taxi-note {
+  margin: 0;
+}
+.driver-ride__outlined--wide {
+  width: 100%;
+  color: var(--text);
 }

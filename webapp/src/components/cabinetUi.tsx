@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import type { Restriction } from "../api/safety";
 import { serverDate } from "../utils/serverTime";
-import { IconChevron, IconLock } from "./Icons";
+import { IconCheck, IconChevron, IconLock, IconWarn } from "./Icons";
 
 /** Группа строк меню: одна карточка CanonItemShape с тенью, внутри строки. */
 export function SettingsGroup({ children }: { children: ReactNode }) {
@@ -104,5 +104,86 @@ export function RestrictionsCard({
         {appText("Написать в поддержку", "Ярҙамға яҙыу")}
       </button>
     </section>
+  );
+}
+
+/** Строка с тумблером (SettingSwitchRow): та же плитка и подписи, справа переключатель. */
+export function SettingSwitchRow({
+  icon,
+  title,
+  subtitle,
+  checked,
+  onChange,
+  disabled = false,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      className="settings-row"
+      onClick={() => onChange(!checked)}
+      disabled={disabled}
+    >
+      <span className="settings-row__icon" aria-hidden>{icon}</span>
+      <span className="settings-row__text">
+        <strong>{title}</strong>
+        <small>{subtitle}</small>
+      </span>
+      <span className={"switch" + (checked ? " on" : "")} aria-hidden />
+    </button>
+  );
+}
+
+/** Заголовок раздела (SectionHeader из UiKit): CanonHeading + подпись CanonCaption. */
+export function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div className="section-head">
+      <h3 className="section-head__title">{title}</h3>
+      {subtitle && <p className="section-head__sub">{subtitle}</p>}
+    </div>
+  );
+}
+
+/** Строка архива поездки (ArchiveRideCard): круг 38 (мятный/красный), маршрут 16 Bold, дата · итог, цена. */
+export function ArchiveRideRow({
+  from,
+  to,
+  when,
+  status,
+  price,
+}: {
+  from: string;
+  to: string;
+  when: string;
+  status: string;
+  price: number;
+}) {
+  const { appText } = useLang();
+  const done = status === "done";
+  const label =
+    status === "done"
+      ? appText("Завершена", "Тамамланды")
+      : status === "expired"
+        ? appText("Не состоялась", "Булманы")
+        : appText("Отменена", "Баш тартылды");
+  return (
+    <div className="archive-row">
+      <span className={"archive-row__icon" + (done ? " is-done" : " is-off")} aria-hidden>
+        {done ? <IconCheck size={20} /> : <IconWarn size={20} />}
+      </span>
+      <span className="archive-row__text">
+        <strong>{from} → {to}</strong>
+        <small>{when} · {label}</small>
+      </span>
+      {price > 0 && <b className="archive-row__price">{price} ₽</b>}
+    </div>
   );
 }
