@@ -62,6 +62,7 @@ import { serverMs } from "../utils/serverTime";
 import { minDateTimeNow, maxDateTimeInDays } from "../utils/dateInput";
 import { setActiveTaxiOrder, setTaxiOrderOnScreen } from "../navSignals";
 import TaxiTripProgress from "../components/TaxiTripProgress";
+import TaxiSheet, { TaxiSheetOverlayButton } from "../components/TaxiSheet";
 
 /** Класс машины человеческой строкой (подписи живут в клиенте, коды — на сервере). */
 function categoryLabel(cat: string, appText: (ru: string, ba: string) => string): string {
@@ -1295,40 +1296,57 @@ function TrackingView({
   if (searching) {
     return (
       <>
-        <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
-        <div className="taxi-search">
-          {/* Шапка TaxiSearchingScreen: заголовок + чип «Ищем mm:ss», ниже статус и полоска прогресса. */}
-          <div className="taxi-search__head">
-            <h2 className="taxi-search__title">{appText("Ищем машину", "Машина эҙләйбеҙ")}</h2>
-            <SearchElapsedChip startedAt={order.created_at} />
-          </div>
-          <div className="taxi-search__bar" aria-hidden><span /></div>
-          {/* Заказ вернулся в поиск после того, как назначенный водитель отменил. Без этой
-              строки человек видит просто «ищем машину» там, где минуту назад к нему ехала
-              машина, — и решает, что приложение сбросило заказ. Главное сказать: делать
-              ничего не надо, адрес и цена прежние. */}
-          {(order.reassigns ?? 0) > 0 && (
-            <div className="taxi-search__note">
-              {appText(
-                "Первый водитель отменил — ищем другую машину. Адрес и цена те же.",
-                "Беренсе йөрөтөүсе баш тартты — башҡа машина эҙләйбеҙ. Адрес та, хаҡ та шул уҡ."
+        {/* TaxiSearchingScreen: карта во весь экран, поверх — шторка. Шапка: «Ищем машину» + чип-секундомер;
+            тело: статус, полоска прогресса, примерная цена; подвал: отмена поиска. */}
+        <TaxiSheet
+          halfBodyFraction={0.32}
+          map={<YandexMap from={fromPt} to={null} height="100%" />}
+          overlay={
+            <TaxiSheetOverlayButton position="left" label={appText("Назад", "Артҡа")} onClick={() => navigate(-1)}>
+              <span style={{ display: "inline-flex", transform: "rotate(180deg)" }}><IconChevron size={22} /></span>
+            </TaxiSheetOverlayButton>
+          }
+          header={
+            <div className="taxi-search__head">
+              <h2 className="taxi-search__title">{appText("Ищем машину", "Машина эҙләйбеҙ")}</h2>
+              <SearchElapsedChip startedAt={order.created_at} />
+            </div>
+          }
+          body={
+            <div className="taxi-search">
+              <p>
+                {appText(
+                  "Подбираем ближайшего водителя. Обычно это меньше минуты.",
+                  "Иң яҡын йөрөтөүсене табабыҙ. Ғәҙәттә бер минуттан кәм."
+                )}
+              </p>
+              <div className="taxi-search__bar" aria-hidden><span /></div>
+              {/* Заказ вернулся в поиск после того, как назначенный водитель отменил. Без этой
+                  строки человек видит просто «ищем машину» там, где минуту назад к нему ехала
+                  машина, — и решает, что приложение сбросило заказ. Главное сказать: делать
+                  ничего не надо, адрес и цена прежние. */}
+              {(order.reassigns ?? 0) > 0 && (
+                <div className="taxi-search__note">
+                  {appText(
+                    "Первый водитель отменил — ищем другую машину. Адрес и цена те же.",
+                    "Беренсе йөрөтөүсе баш тартты — башҡа машина эҙләйбеҙ. Адрес та, хаҡ та шул уҡ."
+                  )}
+                </div>
+              )}
+              <div className="taxi-fare-line">
+                <span>{appText("Примерная цена", "Яҡынса хаҡ")}</span>
+                <b>{priceLabel(order.price_estimate, ru)}</b>
+              </div>
+              {cancelNote && (
+                <div className="notice" role="status">
+                  {cancelNote}
+                </div>
               )}
             </div>
-          )}
-          <p>
-            {appText(
-              "Подбираем ближайшего водителя. Обычно это меньше минуты.",
-              "Иң яҡын йөрөтөүсене табабыҙ. Ғәҙәттә бер минуттан кәм."
-            )}
-          </p>
-          <div className="taxi-fare-line">
-            <span>{appText("Примерная цена", "Яҡынса хаҡ")}</span>
-            <b>{priceLabel(order.price_estimate, ru)}</b>
-          </div>
-        </div>
-
-        {/* Никого в выбранном классе — предлагаем соседний. Решает пассажир, цену видит заранее. */}
-        {alts && alts.length > 0 && (
+          }
+          extra={
+            /* Никого в выбранном классе — предлагаем соседний. Решает пассажир, цену видит заранее. */
+            alts && alts.length > 0 ? (
           <div className="act-card act-card--warn">
             <div className="act-card__title">
               <IconCar size={18} /> {appText("В твоём классе пока никого", "Һайлаған класта әлегә бер кем юҡ")}
@@ -1360,24 +1378,22 @@ function TrackingView({
               </button>
             ))}
           </div>
-        )}
-        <button
-          type="button"
-          className="btn-ghost"
-          style={{ marginTop: 8 }}
-          onClick={() => setCancelOpen(true)}
-          disabled={busy}
-        >
-          {appText("Отменить поиск", "Эҙләүҙе туҡтатыу")}
-        </button>
-
-        {/* Во время поиска отмена бесплатна — но «почему» спрашиваем так же:
-            «долго ждать» на этой фазе и есть самый ценный ответ. */}
-        {cancelNote && (
-          <div className="notice" role="status">
-            {cancelNote}
-          </div>
-        )}
+            ) : null
+          }
+          footer={
+            /* Во время поиска отмена бесплатна — но «почему» спрашиваем так же:
+               «долго ждать» на этой фазе и есть самый ценный ответ. */
+            <button
+              type="button"
+              className="btn-soft"
+              style={{ width: "100%" }}
+              onClick={() => setCancelOpen(true)}
+              disabled={busy}
+            >
+              {appText("Отменить поиск", "Эҙләүҙе туҡтатыу")}
+            </button>
+          }
+        />
         {cancelOpen && (
           <CancelSheet
             feeRub={0}
@@ -1527,27 +1543,38 @@ function TrackingView({
     ? appText("Водитель едет к тебе", "Йөрөтөүсе һиңә килә")
     : appText("В пути", "Юлда");
 
+  /* TaxiTripScreen Android: карта во весь экран, шторка с положениями. Шапка — статус и рельса;
+     тело — водитель и маршрут с ценой; развёрнутая — «поделиться», ожидание, действия в пути;
+     поверх карты — «свернуть» слева и SOS справа. */
   return (
     <>
-      <SubHeader
-        title={phaseTitle}
-        subtitle={
-          enRoute
-            ? appText(`≈ ${Math.round(order.eta_min)} мин до подачи`, `≈ ${Math.round(order.eta_min)} мин килеүгә`)
-            : appText("Хорошей дороги 🌿", "Юлың уң булһын 🌿")
+      <TaxiSheet
+        halfBodyFraction={order.status === "onboard" ? 0.44 : 0.36}
+        map={<YandexMap from={fromPt} to={toPt} route={!!(fromPt && toPt)} height="100%" />}
+        overlay={
+          <>
+            <TaxiSheetOverlayButton position="left" label={appText("Свернуть поездку", "Сәфәрҙе йыйыу")} onClick={() => navigate(-1)}>
+              <span style={{ display: "inline-flex", transform: "rotate(90deg)" }}><IconChevron size={22} /></span>
+            </TaxiSheetOverlayButton>
+            <TaxiSheetOverlayButton position="right" label={appText("Экстренная помощь", "Ашығыс ярҙам")} onClick={() => navigate("/sos")} large>
+              <span className="taxi-sheet__sos">SOS</span>
+            </TaxiSheetOverlayButton>
+          </>
         }
-        onBack={() => navigate(-1)}
-      />
-
-      {(fromPt || toPt) && (
-        <div className="home-map" style={{ marginTop: 4 }}>
-          <YandexMap from={fromPt} to={toPt} route={!!(fromPt && toPt)} height={200} />
-        </div>
-      )}
-
-      {/* Рельса прогресса — как TaxiTripProgress над строкой водителя в Android. */}
-      <TaxiTripProgress status={order.status} />
-
+        header={
+          <div className="taxi-trip-head">
+            <h1 className="taxi-trip-head__title">{phaseTitle}</h1>
+            <p className="taxi-trip-head__sub">
+              {enRoute
+                ? appText(`≈ ${Math.round(order.eta_min)} мин до подачи`, `≈ ${Math.round(order.eta_min)} мин килеүгә`)
+                : appText("Хорошей дороги 🌿", "Юлың уң булһын 🌿")}
+            </p>
+            {/* Рельса прогресса — как TaxiTripProgress в шапке поездки Android. */}
+            <TaxiTripProgress status={order.status} />
+          </div>
+        }
+        body={
+          <>
       {/* Карточка водителя */}
       {unlocked && (
         <div className="taxi-driver">
@@ -1615,6 +1642,10 @@ function TrackingView({
         )}
       </div>
 
+          </>
+        }
+        extra={
+          <>
       {/* Поделиться поездкой с близким: живая карта у него в браузере, без приложения */}
       {enRoute && <ShareTripCard orderId={order.id} />}
 
@@ -1644,6 +1675,16 @@ function TrackingView({
         </button>
       )}
 
+      <p className="taxi-note">
+        {appText(
+          "Юлдаш — такси между своими. Береги водителя, води себя по-доброму 🤝",
+          "Юлдаш — үҙебеҙ араһында такси. Йөрөтөүсегә иғтибарлы бул 🤝"
+        )}
+      </p>
+          </>
+        }
+      />
+
       {cancelOpen && (
         <CancelSheet
           feeRub={Math.round(order.cancel_fee_now_kop / 100)}
@@ -1654,13 +1695,6 @@ function TrackingView({
           onConfirm={() => void cancel(cancelReason ?? "")}
         />
       )}
-
-      <p className="taxi-note">
-        {appText(
-          "Юлдаш — такси между своими. Береги водителя, води себя по-доброму 🤝",
-          "Юлдаш — үҙебеҙ араһында такси. Йөрөтөүсегә иғтибарлы бул 🤝"
-        )}
-      </p>
     </>
   );
 }

@@ -9217,3 +9217,149 @@ select.field__input {
   font-size: var(--font-caption);
   line-height: var(--line-caption);
 }
+
+/* ================================================================
+   Шторка такси над картой — зеркало Android TaxiSheetScaffold / TaxiSheetHandle.
+   Карта во весь экран, панель снизу с тремя положениями; тянут за всю шапку.
+   ================================================================ */
+.taxi-sheet-scaffold {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--bg);
+  overflow: hidden;
+}
+.taxi-sheet-scaffold__map {
+  position: absolute;
+  inset: 0;
+}
+.taxi-sheet-scaffold__map .home-map,
+.taxi-sheet-scaffold__map .ymap,
+.taxi-sheet-scaffold__map > div {
+  height: 100%;
+}
+/* Surface(CanonSurface, 28dp сверху, тень sheet, кант 1dp CanonBorder), высота по содержимому. */
+.taxi-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 100dvh;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  box-shadow: var(--depth-sheet);
+  transition: transform var(--motion-slow) ease;
+  animation: sheetUp var(--motion-slow) cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.taxi-sheet__grip {
+  padding: 0 var(--space-lg) var(--space-md);
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+.taxi-sheet__grip:active {
+  cursor: grabbing;
+}
+/* Полоска 36×4 CanonMutedStrong в слоте 28 с полями 8 — нажимается вместе со всей шапкой. */
+.taxi-sheet__handle {
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: var(--space-sm) auto;
+  border-radius: var(--radius-tiny);
+  background: var(--muted-strong);
+}
+.taxi-sheet__handle::before {
+  content: "";
+  display: block;
+  height: 12px;
+  margin-top: -12px;
+}
+.taxi-sheet__body {
+  overflow-y: auto;
+  padding: 0 var(--space-lg) var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  transition: max-height var(--motion-slow) ease;
+}
+.taxi-sheet__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+.taxi-sheet__section > * {
+  margin-top: 0 !important;
+}
+.taxi-sheet__footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: 0 var(--space-lg) calc(var(--space-lg) + env(safe-area-inset-bottom));
+}
+.taxi-sheet__footer > * {
+  margin-top: 0 !important;
+}
+/* Кнопки поверх карты: круг 48 (52 у SOS) CanonSurface с тенью raised, под статус-баром. */
+.taxi-sheet__overlay-btn {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + var(--space-md));
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--depth-raised);
+}
+.taxi-sheet__overlay-btn--left {
+  left: var(--space-md);
+}
+.taxi-sheet__overlay-btn--right {
+  right: var(--space-md);
+}
+.taxi-sheet__overlay-btn.is-large {
+  width: 52px;
+  height: 52px;
+}
+.taxi-sheet__sos {
+  color: var(--danger);
+  font-size: var(--font-body);
+  font-weight: var(--weight-body-strong);
+}
+.taxi-trip-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.taxi-trip-head__title {
+  margin: 0;
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+  color: var(--text);
+}
+.taxi-trip-head__sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.taxi-trip-head .progress-rail {
+  margin-bottom: 0;
+}
+.taxi-sheet .taxi-search {
+  margin-top: 0;
+}
+.taxi-sheet .taxi-search p {
+  margin: 0;
+}
+.taxi-sheet .taxi-search__bar {
+  margin: 0;
+}
