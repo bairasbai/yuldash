@@ -4069,3 +4069,35 @@ Android `AdminRatings` и `AdminReviews` больше не слиты в одн�
   `.intro__word--meaning/--brand` на токенах `--font-intro-*`, `.intro__rule` 72×4, `.intro__slogan`, `.intro__skip`.
 - Токены в `index.css`: `--font-login-display: 52px; --line-login-display: 56px; --font-intro-meaning: 36px;
   --font-intro-brand: 44px; --line-intro-brand: 56px`. Каскад появления — `calc(var(--cascade-in) * N)`.
+
+### Партия (е): админка (12.09.2026)
+
+- `webapp/src/components/adminUi.tsx` — общие кирпичи админки: `AdminIntro` (вводная muted 14/20),
+  `ListedEmpty` / `ListedError` / `ListedLoading` (RidesRequestsChatScreens.kt), `AdminFilterChips`
+  (`.afilter`, 48/радиус 14, активный мятный), `AdminStatusBadge` (`.abadge--ok/bad/wait`), `AdminTag`
+  (`.atag--green/red/warn/muted`, подложка 12 %), `AdminStatCard` (`.astat`), `SmallAvatar`, `NearbyChip`
+  (`.fchip`, зеркало NearbyFilterChip). Стили — раздел «Админка — общие кирпичи» в `ui.css`: лента `.alist`,
+  карточка `.acard` (Surface CanonItemShape с рамкой, поля 16, интервал 8; `--tight`, `--severe`, `--btn`,
+  `--waits`), кнопки `.abtn` (Material Button 44/радиус 14; `--outline`, `--text`, `--red`, `--warn`,
+  `--muted`, `--danger`, `--48`, `--46`, `--tall`, `--tiny`), `.adoc` (DocImage 180/200), `.autocheck`,
+  `.alookup`, `.acity`/`.aday` (города и день журнала), `.await` (строка листа ожидания), `.pulse-*`,
+  `.tflag`, `.amsg`/`.athread__subject`, `.rules-note`/`.rstars`/`.rating-card`/`.areview`, `.inc-*`/`.choice-row`
+  (споры), `.asos-*` (SOS админа), `.queue-section`/`.pending-pill`/`.partner-tile`/`.promo-*`, `.pstatement`,
+  `.ads-*`, `.calc-*`.
+- Общий тумблер `.switch` (46×28, бегунок 22) теперь живёт своим блоком в `ui.css` — раньше лежал внутри
+  блока онбординга и ушёл вместе с ним.
+- `AdminCabinetScreen.tsx` = `AdminCabinetScreen` (SecondaryScreens.kt): `SettingsGroup`/`SettingsNavRow`,
+  три группы + четвёртая веб-только. Экраны: `AdminDriversScreen.tsx` (= `AdminDriversContent`, `AutoCheckRow`),
+  `AdminReportsScreen.tsx` (= `AdminReportsContent`, категории §9 из `reportCategoriesAll`),
+  `AdminPaymentRequestsScreen.tsx` (= `AdminPaymentRequestsScreen`, экспортирует `DebtCard`, который
+  переиспользует веб-только `AdminDebtsScreen.tsx`), `AdminRequestScreen.tsx`, `AdminResponsesScreen.tsx`,
+  `AdminTaxiScreen.tsx` (= `AdminTaxiScreen.kt`: заявки + экспортируемые `TaxiCitiesSection`,
+  `PretripJournalSection`; последний переиспользует веб-только `AdminPretripScreen.tsx`),
+  `AdminTaxiPulseScreen.tsx` (= `AdminTaxiPulseScreen.kt`, экспортирует `PriceComplaintCard` для веб-только
+  `AdminPriceComplaintsScreen.tsx`), `AdminWaitlistScreen.tsx`, `AdminTextFlagsScreen.tsx`, `AdminSupportScreen.tsx`,
+  `AdminReviewsScreen.tsx` (два маршрута: `/admin/ratings` = `AdminRatingsScreen.kt`, `/admin/reviews` =
+  `AdminReviewsScreen.kt`), `AdminIncidentsScreen.tsx` (типы спора — перечень `FairnessScreens.kt`),
+  `AdminSosScreen.tsx`, `AdminModerationScreen.tsx`, `AdminPartnersScreen.tsx`, `AdminPromoScreen.tsx`,
+  `AdminParcelsScreen.tsx`, `AdminCourierScreen.tsx`, `AdminAdsScreen.tsx` (форма создания/правки внутри;
+  `components/AdminAdCreate.tsx` удалён), `IncomeCalculatorScreen.tsx`, веб-только `AdminCarPhotoScreen.tsx`.
+- Иконка `IconSend` в `Icons.tsx`.
