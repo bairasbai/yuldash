@@ -4038,3 +4038,9 @@ Android `AdminRatings` и `AdminReviews` больше не слиты в одн�
   `DriverCabinetContent` (порядок блоков как в приложении, `RideEditActions` с `editOnly`);
   `WalletScreen.tsx` = `WalletScreen.kt` (баланс, `PayoutSoonCard`/`PayoutCard` с подтверждением, реестр);
   `DriverEarningsScreen.tsx` / `CourierEarningsScreen.tsx` = `Driver/CourierEarningsScreen.kt`.
+- Вторая половина (г): `CourierScreen.tsx::Cabinet` = `CourierCabinetTab` (`.cab-note*`, `.statement*`, `.cab-facts`);
+  `DriverTaxiRidesScreen.tsx` = `DriverTaxiRidesScreen.kt` (`.taxi-ride-row*`, `.ride-tag*`);
+  `TaxiDocumentsScreen.tsx` = `TaxiDocumentsScreen` (`.docs-hero`, `.docs-notice`, `.docs-registry`, `.docs-photo`,
+  `.doc-row*`, `.docs-foot`; тип `TaxiApplication.osgop_until`); `PretripCheckScreen.tsx` = `PretripCheckScreen`
+  (`.pretrip-*`); `AdsCabinetScreen.tsx` = `AdsCabinetScreen` (`.ads-package`, `.ad-card*`, `.ad-badge*`, `submitAd`).
+  Иконка `IconInfo` в `Icons.tsx`.
