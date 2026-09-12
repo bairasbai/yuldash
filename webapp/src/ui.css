@@ -12559,3 +12559,350 @@ button.settings-row:active {
   flex: 1;
   width: auto;
 }
+
+/* ================================================================
+   Вход — зеркало Android LoginScreen.kt: геро с фото, «Юлдаш» 52/56, три фичи, карточка
+   внахлёст (радиус 44 сверху, тень sheet), Telegram-кнопка CanonGreen2 72, согласие.
+   ================================================================ */
+.login {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+}
+.login-hero {
+  position: relative;
+  overflow: hidden;
+  min-height: 560px;
+  padding: calc(env(safe-area-inset-top) + 104px) var(--space-xl) 184px;
+  border-radius: 0 0 36px 36px;
+  background: var(--green2);
+  color: var(--on-accent);
+}
+.login-hero__photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: heroZoom var(--motion-cinema) ease-out both;
+}
+@keyframes heroZoom {
+  from {
+    transform: scale(1.06);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+.login-hero__shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--green2) 40%, transparent) 0%, transparent 55%, color-mix(in srgb, var(--scrim) 22%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--green2) 60%, transparent) 0%, color-mix(in srgb, var(--green2) 22%, transparent) 44%, color-mix(in srgb, var(--scrim) 16%, transparent) 72%, var(--scrim) 100%);
+}
+.login-hero__logo {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 16px);
+  left: var(--space-xl);
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  padding: var(--space-sm);
+  border-radius: var(--radius-item);
+  background: var(--on-accent);
+  box-shadow: var(--depth-raised);
+}
+.login-hero__logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.login-lang {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 16px);
+  right: var(--space-xl);
+  display: flex;
+  padding: var(--space-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  box-shadow: var(--depth-raised);
+}
+.login-lang__chip {
+  min-width: 64px;
+  min-height: 48px;
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-bold);
+  transition: background var(--motion-normal) ease, color var(--motion-normal) ease;
+}
+.login-lang__chip.is-active {
+  background: var(--green2);
+  color: var(--on-filled);
+}
+.login-hero__brand {
+  position: relative;
+  animation: fadeUp var(--motion-entry) ease both;
+}
+.login-hero__word {
+  margin: 0;
+  font-size: var(--font-login-display);
+  line-height: var(--line-login-display);
+  font-weight: var(--weight-bold);
+}
+.login-hero__slogan {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-medium);
+  opacity: 0.94;
+}
+.login-features {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  margin-top: var(--space-xl);
+  animation: fadeUp var(--motion-entry) ease both;
+  animation-delay: var(--motion-slow);
+}
+.login-feature {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+.login-feature__tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-field);
+  background: color-mix(in srgb, var(--green2) 92%, transparent);
+  color: var(--on-accent);
+  box-shadow: var(--depth-raised);
+}
+.login-feature__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.login-feature__text strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.login-feature__text small {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  opacity: 0.92;
+}
+/* Карточка входа: наезжает на геро на 120, радиус 44 сверху, тень sheet, поля 24, зазор 16. */
+.login-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-lg);
+  margin-top: -120px;
+  padding: var(--space-xl) var(--space-xl) calc(env(safe-area-inset-bottom) + var(--space-xl));
+  border-radius: 44px 44px 0 0;
+  background: var(--surface);
+  box-shadow: var(--depth-sheet);
+  animation: fadeUp var(--motion-entry) ease both;
+  animation-delay: var(--motion-normal);
+}
+.login-card__title {
+  margin: 0;
+  text-align: center;
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.login-card__lead {
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+/* Telegram — CanonGreen2, мин. 72, иконка 28: фирменный цвет Юлдаша, не синий. */
+.login-tg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-lg);
+  width: 100%;
+  min-height: 72px;
+  padding: 0 var(--space-lg);
+  border: 0;
+  border-radius: var(--radius-item);
+  background: var(--green2);
+  color: var(--on-filled);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  transition: transform var(--motion-quick) ease, opacity var(--motion-quick) ease;
+}
+.login-tg:active {
+  transform: scale(0.97);
+}
+.login-tg:disabled {
+  opacity: 0.7;
+}
+.login-hint {
+  margin: calc(-1 * var(--space-sm)) 0 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.login-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+  animation: fadeIn var(--motion-quick) ease both;
+}
+.login-error__row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  color: var(--danger);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.login-error__row svg {
+  flex: none;
+  margin-top: 2px;
+}
+.login-error small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.login-error .btn-soft {
+  width: 100%;
+}
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.login-divider span {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.login-divider em {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  font-style: normal;
+}
+.login-phone {
+  width: 100%;
+  min-height: 64px;
+  border-radius: var(--radius-item);
+}
+.login-sms {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.login-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-height: 64px;
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--muted);
+}
+.login-input-wrap:focus-within {
+  border-color: var(--green2);
+}
+.login-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  min-height: 64px;
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-body);
+  font-family: inherit;
+}
+.login-input-wrap .login-input {
+  min-height: 62px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.login-input:focus {
+  outline: none;
+  border-color: var(--green2);
+}
+.login-input--code {
+  min-height: 72px;
+  font-size: var(--font-title);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.25em;
+}
+.login-input-wrap .login-input--code {
+  min-height: 70px;
+}
+.login-primary {
+  width: 100%;
+  min-height: 64px;
+  margin-top: 0;
+  border-radius: var(--radius-item);
+}
+.login-link {
+  width: 100%;
+  text-align: center;
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-normal);
+}
+.login-link--muted {
+  color: var(--muted);
+  font-size: var(--font-caption);
+}
+.login-need-phone {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.login-need-phone svg {
+  flex: none;
+}
+.login-consent {
+  margin: var(--space-sm) 0 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.login-consent a {
+  color: var(--green2);
+  font-weight: var(--weight-bold);
+  text-decoration: none;
+}

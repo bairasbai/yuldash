@@ -271,6 +271,9 @@
   --font-micro: 12px;
   --line-micro: 17px;
   --font-button: 16px; /* CanonButton: кегль как у Body, свой межстрочный и вес */
+  /* Витрина входа — LoginDisplay/LoginScreen.kt: слово «Юлдаш» на геро, один раз на экране. */
+  --font-login-display: 52px;
+  --line-login-display: 56px;
   --line-button: 20px;
   /* Веса — имена как FontWeight в Compose (Normal/Medium/SemiBold/Bold): в Android других нет,
      800/900 не существует. Семантические токены ниже — псевдонимы этих четырёх. */

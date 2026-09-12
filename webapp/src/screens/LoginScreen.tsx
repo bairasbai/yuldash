@@ -13,8 +13,7 @@ import {
   verifySmsCode,
   SMS_LOGIN_ENABLED,
 } from "../api/auth";
-import BrandMark from "../components/BrandMark";
-import { IconChevron, IconTelegram } from "../components/Icons";
+import { IconBlock, IconLock, IconPhone, IconProfile, IconShield, IconTelegram, IconWarn } from "../components/Icons";
 import { track } from "../analytics";
 
 type Step = "choose" | "code";
@@ -25,7 +24,7 @@ type Step = "choose" | "code";
  * ввод кода → /auth/tg/verify → токены. SMS-вход отключён (нет юрлица) — спокойная заглушка.
  */
 export default function LoginScreen() {
-  const { appText } = useLang();
+  const { appText, lang, setLang } = useLang();
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -182,199 +181,249 @@ export default function LoginScreen() {
     }
   }
 
+  const langChip = (code: "ru" | "ba", label: string) => (
+    <button
+      type="button"
+      className={"login-lang__chip" + (lang === code ? " is-active" : "")}
+      onClick={() => setLang(code)}
+      aria-label={appText(`Сменить язык: ${label}`, `Телде алмаштырыу: ${label}`)}
+    >
+      {label}
+    </button>
+  );
+
   return (
-    <div className="auth">
-      <header className="auth__top">
-        <button
-          type="button"
-          className="auth__back"
-          onClick={() => (step === "code" ? setStep("choose") : navigate("/map"))}
-          aria-label={appText("Назад", "Артҡа")}
-        >
-          <span style={{ display: "inline-flex", transform: "rotate(180deg)" }}>
-            <IconChevron size={22} />
-          </span>
-        </button>
-      </header>
-
-      <img
-        className="auth__hero"
-        src="/login_salavat_yulaev_hero.webp"
-        alt=""
-        aria-hidden
-      />
-
-      <div className="auth__brand">
-        <BrandMark size={72} />
-        <div className="auth__word">Юлдаш</div>
-        <p className="auth__slogan">
-          {appText("Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу")}
-        </p>
-      </div>
-
-      {step === "choose" ? (
-        <div className="auth__card">
-          <h1>{appText("Вход в Юлдаш", "Юлдашҡа инеү")}</h1>
-          <p className="auth__lead">
-            {appText(
-              "Входим через Telegram — быстро и без пароля. Бот пришлёт короткий код.",
-              "Telegram аша инәбеҙ — тиҙ, парольһеҙ. Бот ҡыҫҡа код ебәрер."
-            )}
-          </p>
-
-          <button type="button" className="btn-tg" onClick={onStart} disabled={loading}>
-            <IconTelegram size={22} />
-            {loading
-              ? appText("Открываем…", "Асабыҙ…")
-              : appText("Войти через Telegram", "Telegram аша инеү")}
-          </button>
-
-          {error && <div className="auth__error">{error}</div>}
-
-          <button type="button" className="auth__sms-toggle" onClick={() => setSmsOpen((v) => !v)}>
-            {appText("Вход по SMS", "SMS аша инеү")}
-          </button>
-          {smsOpen &&
-            (SMS_LOGIN_ENABLED ? (
-              <div className="auth__code">
-                {smsStep === "phone" ? (
-                  <>
-                    <input
-                      className="field__input"
-                      type="tel"
-                      inputMode="tel"
-                      autoComplete="tel"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder={appText("+7 999 000-00-00", "+7 999 000-00-00")}
-                      aria-label={appText("Номер телефона", "Телефон номеры")}
-                    />
-                    {smsError && <div className="auth__error">{smsError}</div>}
-                    <button
-                      type="button"
-                      className="btn-primary submit-btn"
-                      onClick={smsRequest}
-                      disabled={smsBusy || phone.trim().length < 6}
-                    >
-                      {smsBusy
-                        ? appText("Отправляем…", "Ебәрәбеҙ…")
-                        : appText("Получить код", "Код алыу")}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    {/* one-time-code — айфон сам предложит код прямо над клавиатурой.
-                        Без этого человек запоминает цифры, уходит в сообщения
-                        и возвращается вписывать их руками. */}
-                    <input
-                      className="field__input"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      value={smsCode}
-                      onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, ""))}
-                      placeholder={appText("Код из SMS", "SMS коды")}
-                      aria-label={appText("Код из SMS", "SMS коды")}
-                    />
-                    <input
-                      className="field__input"
-                      style={{ marginTop: 8 }}
-                      autoComplete="name"
-                      value={smsName}
-                      onChange={(e) => setSmsName(e.target.value)}
-                      placeholder={appText("Как тебя зовут", "Исемең")}
-                      aria-label={appText("Имя", "Исем")}
-                    />
-                    {smsError && <div className="auth__error">{smsError}</div>}
-                    <button
-                      type="button"
-                      className="btn-primary submit-btn"
-                      onClick={smsVerify}
-                      disabled={smsBusy || smsCode.trim().length < 4}
-                    >
-                      {smsBusy ? appText("Входим…", "Инәбеҙ…") : appText("Войти", "Инеү")}
-                    </button>
-                    <button
-                      type="button"
-                      className="link-btn"
-                      onClick={() => {
-                        setSmsStep("phone");
-                        setSmsError(null);
-                      }}
-                    >
-                      {appText("Изменить номер", "Номерҙы үҙгәртеү")}
-                    </button>
-                  </>
-                )}
-              </div>
-            ) : (
-              <div className="auth__note">
-                {appText(
-                  "Вход по SMS пока недоступен. Мы включим его позже — сейчас входим через Telegram.",
-                  "SMS аша инеү әлегә юҡ. Һуңынан ҡабатыр — хәҙергә Telegram аша инәбеҙ."
-                )}
-              </div>
-            ))}
-
-          <p className="auth__legal">
-            {appText(
-              "Продолжая, ты принимаешь оферту и политику конфиденциальности.",
-              "Дауам итеп, оферта һәм ҡупшылыҡ сәйәсәтен ҡабул итәһең."
-            )}
-          </p>
+    <div className="login">
+      {/* BrandHero: фото Салавата Юлаева под зелёно-тёмным градиентом, логотип-плитка, переключатель
+          языка, «Юлдаш» крупно, слоган и три «фичи». Карточка входа наезжает снизу на 120. */}
+      <section className="login-hero">
+        <img className="login-hero__photo" src="/login_salavat_yulaev_hero.webp" alt="" aria-hidden />
+        <span className="login-hero__shade" aria-hidden />
+        <span className="login-hero__logo" aria-hidden>
+          <img src="/yuldash_logo.webp" alt="" />
+        </span>
+        <div className="login-lang" role="group" aria-label={appText("Язык", "Тел")}>
+          {langChip("ru", "РУС")}
+          {langChip("ba", "БАШ")}
         </div>
-      ) : (
-        <div className="auth__card">
-          <h1>{appText("Код из Telegram", "Telegram коды")}</h1>
-          <p className="auth__lead">
-            {appText(
-              "Открой чат с ботом, получи код и введи его сюда.",
-              "Бот менән чатты ас, кодты ал һәм бында индер."
-            )}
-          </p>
-
-          <input
-            className="auth__code"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={6}
-            placeholder="••••••"
-            value={code}
-            onChange={(e) => {
-              setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
-              setError(null);
-            }}
-            aria-label={appText("Код из Telegram", "Telegram коды")}
-          />
-
-          <input
-            className="auth__name"
-            type="text"
-            maxLength={120}
-            placeholder={appText("Как тебя зовут? (необязательно)", "Исемең? (мотлаҡ түгел)")}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            aria-label={appText("Имя", "Исем")}
-          />
-
-          {error && <div className="auth__error">{error}</div>}
-
-          <button type="button" className="btn-primary auth__submit" onClick={onVerify} disabled={loading}>
-            {loading ? appText("Входим…", "Инәбеҙ…") : appText("Войти", "Инеү")}
-          </button>
-
-          <button
-            type="button"
-            className="btn-ghost"
-            onClick={() =>
-              openTelegram(needPhone ? telegramChatUrl() : telegramStartUrl(requestId))
-            }
-          >
-            {needPhone
-              ? appText("Открыть Telegram и поделиться номером", "Telegram'ды асып, номер бүлешергә")
-              : appText("Открыть Telegram ещё раз", "Telegram'ды тағы асырға")}
-          </button>
+        <div className="login-hero__brand">
+          <h1 className="login-hero__word">Юлдаш</h1>
+          <p className="login-hero__slogan">{appText("Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу")}</p>
         </div>
-      )}
+        <div className="login-features">
+          <div className="login-feature">
+            <span className="login-feature__tile" aria-hidden><IconLock size={24} /></span>
+            <span className="login-feature__text">
+              <strong>{appText("Вход без пароля", "Парольһеҙ инеү")}</strong>
+              <small>{appText("Только код — ни паролей, ни анкет", "Бары код — пароль да, анкета ла юҡ")}</small>
+            </span>
+          </div>
+          <div className="login-feature">
+            <span className="login-feature__tile" aria-hidden><IconBlock size={24} /></span>
+            <span className="login-feature__text">
+              <strong>{appText("Никакого спама", "Спам юҡ")}</strong>
+              <small>{appText("Не звоним и не шлём SMS", "Шылтыратмайбыҙ, SMS ебәрмәйбеҙ")}</small>
+            </span>
+          </div>
+          <div className="login-feature">
+            <span className="login-feature__tile" aria-hidden><IconShield size={24} /></span>
+            <span className="login-feature__text">
+              <strong>{appText("Данные под защитой", "Мәғлүмәт һаҡлауҙа")}</strong>
+              <small>{appText("Шифруем и не передаём третьим", "Шифрлайбыҙ, өсөнсө яҡҡа бирмәйбеҙ")}</small>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section className="login-card">
+        <h2 className="login-card__title">{appText("Войти в Юлдаш", "Юлдашҡа инеү")}</h2>
+        {step === "choose" ? (
+          <>
+            <p className="login-card__lead">{appText("Заходи через Telegram — быстро и безопасно", "Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡуллан")}</p>
+
+            <button type="button" className="login-tg" onClick={onStart} disabled={loading}>
+              <IconTelegram size={28} />
+              {appText("Войти через Telegram", "Telegram аша инеү")}
+            </button>
+            {loading && <p className="login-hint">{appText("Открываем Telegram…", "Telegram'ды асабыҙ…")}</p>}
+
+            {/* Ошибка входа: что случилось + что делать + «Повторить». Вход — единственная дверь,
+                и «упало молча» здесь дороже всего. */}
+            {error && (
+              <div className="login-error" role="alert">
+                <div className="login-error__row">
+                  <IconWarn size={20} />
+                  <span>{error}</span>
+                </div>
+                <small>
+                  {appText(
+                    "Проверь интернет. Если код от бота ещё не дошёл — подожди пару секунд.",
+                    "Интернетты тикшер. Бот коды әле килмәһә — бер-ике секунд көт."
+                  )}
+                </small>
+                <button type="button" className="btn-soft" onClick={onStart} disabled={loading}>
+                  {appText("Повторить", "Ҡабатлау")}
+                </button>
+              </div>
+            )}
+
+            {SMS_LOGIN_ENABLED && (
+              <>
+                <div className="login-divider" aria-hidden>
+                  <span />
+                  <em>{appText("или", "йәки")}</em>
+                  <span />
+                </div>
+                <button type="button" className="btn-soft login-phone" onClick={() => setSmsOpen((v) => !v)}>
+                  <IconPhone size={24} /> {appText("Войти по номеру телефона", "Телефон номеры аша инеү")}
+                </button>
+                {smsOpen && (
+                  <div className="login-sms">
+                    <p className="login-card__lead">
+                      {smsStep === "phone"
+                        ? appText("Номер будет скрыт до подтверждения брони.", "Телефон номеры бронь раҫланғанға тиклем йәшерелә.")
+                        : appText(`Код отправлен на ${phone}`, `Код ${phone} номерыңа ебәрелде`)}
+                    </p>
+                    {smsStep === "phone" ? (
+                      <>
+                        <input
+                          className="login-input"
+                          type="tel"
+                          inputMode="tel"
+                          autoComplete="tel"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          placeholder={appText("Номер телефона", "Телефон номеры")}
+                          aria-label={appText("Номер телефона", "Телефон номеры")}
+                        />
+                        {smsError && <div className="auth__error">{smsError}</div>}
+                        <button type="button" className="btn-primary login-primary" onClick={smsRequest} disabled={smsBusy || phone.trim().length < 6}>
+                          {smsBusy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Получить код", "Код алыу")}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          className="login-input"
+                          autoComplete="name"
+                          value={smsName}
+                          onChange={(e) => setSmsName(e.target.value)}
+                          placeholder={appText("Твоё имя (необязательно)", "Исемең (мотлаҡ түгел)")}
+                          aria-label={appText("Имя", "Исем")}
+                        />
+                        {/* one-time-code — айфон сам предложит код прямо над клавиатурой. */}
+                        <input
+                          className="login-input login-input--code"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          value={smsCode}
+                          onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, ""))}
+                          placeholder={appText("Код из SMS", "SMS коды")}
+                          aria-label={appText("Код из SMS", "SMS коды")}
+                        />
+                        <button type="button" className="btn-ghost" onClick={() => { setSmsStep("phone"); setSmsError(null); }}>
+                          {appText("Изменить номер", "Номерҙы үҙгәртеү")}
+                        </button>
+                        {smsError && <div className="auth__error">{smsError}</div>}
+                        <button type="button" className="btn-primary login-primary" onClick={smsVerify} disabled={smsBusy || smsCode.trim().length < 4}>
+                          {smsBusy ? appText("Входим…", "Инәбеҙ…") : appText("Войти", "Инеү")}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* LoginConsent: 18+ и ссылки на условия и политику. */}
+            <p className="login-consent">
+              {appText("Входя, ты подтверждаешь, что тебе есть 18 лет, и принимаешь", "Инеп, һин 18 йәшең тулғанын раҫлайһың һәм ҡабул итәһең:")}
+              <br />
+              <a href="/consents" onClick={(e) => { e.preventDefault(); navigate("/consents"); }}>{appText("Условия", "Шарттарҙы")}</a>
+              {" "}{appText("и", "һәм")}{" "}
+              <a href="/privacy" onClick={(e) => { e.preventDefault(); navigate("/privacy"); }}>{appText("Политику", "Сәйәсәтте")}</a>
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="login-card__lead">
+              {appText("Открой Telegram, нажми «Старт» — бот пришлёт 6-значный код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот 6 һанлы код ебәрер. Шуны индер.")}
+            </p>
+            {needPhone && (
+              <div className="login-need-phone">
+                <IconShield size={24} />
+                <span>
+                  {appText(
+                    "Для безопасности нужен номер. В Telegram нажми «📱 Поделиться номером», потом вернись и нажми «Войти».",
+                    "Хәүефһеҙлек өсөн номер кәрәк. Telegram'да «📱 Номер менән бүлешергә» баҫ, аҙаҡ кире ҡайтып «Инеү» баҫ."
+                  )}
+                </span>
+              </div>
+            )}
+            <label className="login-input-wrap">
+              <IconProfile size={22} />
+              <input
+                className="login-input"
+                type="text"
+                maxLength={120}
+                placeholder={appText("Твоё имя (необязательно)", "Исемең (мотлаҡ түгел)")}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                aria-label={appText("Имя", "Исем")}
+              />
+            </label>
+            <label className="login-input-wrap">
+              <IconLock size={22} />
+              <input
+                className="login-input login-input--code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                placeholder={appText("Код из Telegram", "Telegram коды")}
+                value={code}
+                onChange={(e) => {
+                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                  setError(null);
+                }}
+                aria-label={appText("Код из Telegram", "Telegram коды")}
+              />
+            </label>
+            {error && (
+              <div className="login-error" role="alert">
+                <div className="login-error__row">
+                  <IconWarn size={20} />
+                  <span>{error}</span>
+                </div>
+                <small>
+                  {appText(
+                    "Проверь интернет. Если код от бота ещё не дошёл — подожди пару секунд.",
+                    "Интернетты тикшер. Бот коды әле килмәһә — бер-ике секунд көт."
+                  )}
+                </small>
+                <button type="button" className="btn-soft" onClick={onVerify} disabled={loading}>
+                  {appText("Повторить", "Ҡабатлау")}
+                </button>
+              </div>
+            )}
+            <button type="button" className="btn-primary login-primary" onClick={onVerify} disabled={loading}>
+              {appText("Войти", "Инеү")}
+            </button>
+            {loading && <p className="login-hint">{appText("Проверяем код…", "Кодты тикшерәбеҙ…")}</p>}
+            <button
+              type="button"
+              className="btn-ghost login-link"
+              onClick={() => openTelegram(needPhone ? telegramChatUrl() : telegramStartUrl(requestId))}
+            >
+              {needPhone
+                ? appText("Открыть Telegram и поделиться номером", "Telegram'ды асып, номер менән бүлешергә")
+                : appText("Открыть Telegram ещё раз", "Telegram'ды тағы асырға")}
+            </button>
+            <button type="button" className="btn-ghost login-link login-link--muted" onClick={() => setStep("choose")}>
+              {appText("Назад", "Артҡа")}
+            </button>
+          </>
+        )}
+      </section>
     </div>
   );
 }
