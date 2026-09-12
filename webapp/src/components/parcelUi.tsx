@@ -21,25 +21,29 @@ export function sizeLabel(size: ParcelSize | string, ru: boolean): string {
   return ru ? "Посылка" : "Бандероль";
 }
 
+/** Бейдж статуса — Android ParcelStatusChip: радиус 14, поля 12×4, подпись 14 Bold;
+ *  ждёт — CanonWarnBg/CanonWarn, в работе и доставлена — CanonMint/CanonGreen2, отмена — красная. */
 export function StatusPillParcel({ status }: { status: string }) {
   const { appText } = useLang();
   const map: Record<string, { ru: string; ba: string; cls: string }> = {
-    created: { ru: "Ищем курьера", ba: "Курьер эҙләйбеҙ", cls: "badge--gold" },
-    accepted: { ru: "Курьер найден", ba: "Курьер табылды", cls: "badge--mint" },
-    in_transit: { ru: "В пути", ba: "Юлда", cls: "badge--mint" },
-    delivered: { ru: "Доставлено", ba: "Тапшырылды", cls: "badge--mint" },
-    canceled: { ru: "Отменена", ba: "Кире алынды", cls: "badge--danger" },
+    created: { ru: "Ждёт курьера", ba: "Курьерҙы көтә", cls: "parcel-status--wait" },
+    accepted: { ru: "У курьера", ba: "Курьерҙа", cls: "parcel-status--mint" },
+    in_transit: { ru: "В пути", ba: "Юлда", cls: "parcel-status--mint" },
+    delivered: { ru: "Доставлена", ba: "Тапшырылды", cls: "parcel-status--mint" },
+    canceled: { ru: "Отменена", ba: "Кире алынған", cls: "parcel-status--danger" },
+    cancelled: { ru: "Отменена", ba: "Кире алынған", cls: "parcel-status--danger" },
     // Возврат (аудит сценариев 30.08, P0). Этих двух статусов в вебе не было, и человек,
     // чью коробку уже везут обратно, читал «Ищем курьера» — потому что незнакомый статус
     // молча падал в значение по умолчанию. Приложение показывает возврат давно.
-    returning: { ru: "Везут обратно", ba: "Кире алып ҡайталар", cls: "badge--gold" },
-    returned: { ru: "Вернули отправителю", ba: "Ебәреүсегә ҡайтарылды", cls: "badge--danger" },
+    returning: { ru: "Везут обратно", ba: "Кире алып киләләр", cls: "parcel-status--wait" },
+    returned: { ru: "Вернулась", ba: "Кире ҡайтты", cls: "parcel-status--wait" },
   };
-  // Незнакомый статус НЕ выдаём за «ищем курьера»: лучше показать сырое слово, чем
+  // Незнакомый статус НЕ выдаём за «ждёт курьера»: лучше показать сырое слово, чем
   // уверенно соврать. Так следующий новый статус на сервере будет видно сразу.
   const m = map[status];
-  if (!m) return <span className="badge">{status}</span>;
-  return <span className={`badge ${m.cls}`}>{appText(m.ru, m.ba)}</span>;
+  if (!m) return <span className="parcel-status">{status}</span>;
+  // key — чтобы новая подпись въезжала с затуханием (AnimatedContent), а не подменялась кадром.
+  return <span key={status} className={`parcel-status ${m.cls}`}>{appText(m.ru, m.ba)}</span>;
 }
 
 // ------------------------------- Маршрут + мета -------------------------------

@@ -4006,8 +4006,41 @@ button.list-row:active {
 /* ============================================================
    Волна 5 — Курьер и посылки
    ============================================================ */
+/* Вкладки посылок — Android ParcelTab: рамка 14 / 1px, внутри поля 4 и зазор 4; плитка 48,
+   активная — CanonMint + рамка CanonGreen2 + зелёная подпись Bold 16. */
 .parcel-tabs {
-  margin-top: 14px;
+  display: flex;
+  gap: var(--space-xs);
+  margin: var(--space-md) 0;
+  padding: var(--space-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+}
+.parcel-tabs__tab {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--muted-strong);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.parcel-tabs__tab.is-active {
+  border-color: var(--green2);
+  background: var(--mint);
+  color: var(--green2);
+}
+.parcel-tab-body {
+  animation: fadeIn var(--motion-quick) ease both;
 }
 
 /* Карточка заявки/доставки */
@@ -4151,49 +4184,6 @@ button.list-row:active {
 .parcel-card__courier .btn-soft {
   flex: none;
   padding: 0 16px;
-}
-
-/* Успех отправки — крупный код вручения */
-.parcel-done {
-  margin-top: 18px;
-  text-align: center;
-  animation: fadeUp var(--motion-normal) ease both;
-}
-.parcel-done__emoji {
-  font-size: var(--font-display);
-}
-.parcel-done h2 {
-  margin: 8px 0 6px;
-  font-size: var(--font-heading);
-  font-weight: var(--weight-semibold);
-  letter-spacing: -0.01em;
-}
-.parcel-code {
-  margin: 18px 0;
-  padding: 20px;
-  border-radius: var(--radius-item);
-  background: var(--mint);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.parcel-code__label {
-  font-size: var(--font-caption);
-  font-weight: var(--weight-semibold);
-  color: var(--green);
-}
-.parcel-code__value {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: var(--font-display);
-  font-weight: var(--weight-bold);
-  letter-spacing: 0.2em;
-  color: var(--green);
-}
-.parcel-code .btn-soft {
-  margin-top: 10px;
-  flex: none;
-  padding: 0 18px;
 }
 
 /* Диалог ввода кода (нижняя шторка) */
@@ -7802,16 +7792,6 @@ select.field__input {
 }
 
 /* Ожидания от доставки: везёт сосед, а не служба со страховкой */
-.parcel-expect {
-  margin: var(--space-md) 0 0;
-  padding: var(--space-md);
-  border-radius: var(--radius-field);
-  background: var(--mint);
-  color: var(--green);
-  font-size: var(--font-micro);
-  line-height: var(--line-micro);
-}
-
 /* Размещение рекламы на исходе: сказать до того, как показы встали */
 .biz-item__ending {
   margin: var(--space-sm) 0 0;
@@ -9573,4 +9553,751 @@ select.field__input {
   font-size: var(--font-micro);
   line-height: var(--line-micro);
   font-weight: var(--weight-bold);
+}
+
+/* ================================================================
+   Форма доставки — зеркало Android ParcelsScreen.kt (SendParcelTab и его кирпичи).
+   Шкала Delivery*: заголовок раздела 19/25 Bold, тело 16/23, подпись 14/20, цифра 34/40.
+   ================================================================ */
+.dl-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-xs) 0 var(--space-xxl);
+}
+.dl-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  animation: fadeIn var(--motion-quick) ease both;
+}
+.dl-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.dl-title {
+  margin: 0;
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  color: var(--text);
+}
+.dl-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.dl-hint--danger {
+  color: var(--danger);
+}
+/* Подсказка под полем — та же DeliveryHint, с отступом 12 от края поля. */
+.dl-field .field__hint {
+  margin: 0 0 0 var(--space-md);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.dl-field .field__label {
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-body-strong);
+}
+.dl-field__area {
+  min-height: 72px;
+}
+/* Ошибка формы: карточка CanonDangerBg с рамкой, иконка 20, текст CanonText 16/23. */
+.dl-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  animation: fadeIn var(--motion-quick) ease both;
+}
+.dl-error__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--danger);
+}
+/* Памятка отправителю: CanonMint, CanonItemShape, зелёный текст 14/20. */
+.dl-note {
+  margin: 0;
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* Чего не хватает под погасшей кнопкой — CanonWarn, по центру. */
+.dl-blocked {
+  margin: var(--space-sm) 0 0;
+  text-align: center;
+  color: var(--warn);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.dl-actions .submit-btn {
+  margin-top: 0;
+}
+.dl-actions .dl-blocked + .submit-btn {
+  margin-top: var(--space-sm);
+}
+.dl-back {
+  width: 100%;
+}
+.dl-wait {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+.dl-wait__icon {
+  flex: none;
+  display: inline-flex;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.dl-wait__text {
+  flex: 1;
+  animation: fadeIn var(--motion-quick) ease both;
+}
+
+/* Полоска прогресса мастера: полосы 5dp с зазором 4, подпись «Шаг N из M · …» 14 Bold muted. */
+.pstep {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.pstep__bars {
+  display: flex;
+  gap: var(--space-xs);
+}
+.pstep__bar {
+  flex: 1;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--border);
+  transition: background var(--motion-normal) ease;
+}
+.pstep__bar.is-passed {
+  background: var(--courier);
+}
+.pstep__label {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+
+/* Сводка «Откуда → Куда» на шагах 2–3: CanonSurface, CanonItemShape, рамка 1, поля 12. */
+.route-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.route-summary__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--courier);
+}
+.route-summary__text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.route-summary__edit {
+  flex: none;
+  min-height: 48px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  background: transparent;
+  color: var(--courier);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.route-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+.route-row__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--green2);
+}
+.route-row b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.route-row__arrow {
+  color: var(--muted);
+  font-size: var(--font-body);
+}
+
+/* Карточка выбора (тип доставки, размер): CanonItemShape, мин. 78, плитка иконки 14 / 8 + 20,
+   выбранная — CanonMint + рамка 2 CanonGreen2, плитка заливается зелёным, галочка 24. */
+.dtype-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 78px;
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease, box-shadow var(--motion-quick) ease;
+}
+.dtype-card.is-selected {
+  border-color: var(--green2);
+  background: var(--mint);
+  /* Рамка 1→2 без скачка сетки: вторая линия — тенью внутрь. */
+  box-shadow: inset 0 0 0 1px var(--green2);
+}
+.dtype-card__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green2);
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease;
+}
+.dtype-card.is-selected .dtype-card__icon {
+  background: var(--green2);
+  color: var(--on-filled);
+}
+.dtype-card__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.dtype-card__text strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.dtype-card__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.dtype-card__check {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  color: var(--on-filled);
+  animation: popIn var(--motion-quick) ease both;
+}
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Чип срочности / дня: CanonItemShape, мин. 64, поля 16×8; выбранный — мятный с зелёной подписью. */
+.urg-chip {
+  flex: 1;
+  min-width: 0;
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--space-sm) var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease, box-shadow var(--motion-quick) ease, color var(--motion-quick) ease;
+}
+.urg-chip.is-selected {
+  border-color: var(--green2);
+  background: var(--mint);
+  box-shadow: inset 0 0 0 1px var(--green2);
+  color: var(--green2);
+}
+.urg-chip strong,
+.urg-chip small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.urg-chip strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.urg-chip small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.deadline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.deadline__row {
+  display: flex;
+  gap: var(--space-md);
+}
+/* Системный календарь вызываем у скрытого поля: оно в потоке (иначе showPicker откажет), но не видно. */
+.deadline__native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Тип груза: заголовок 16 Bold, чипы 48 переносом, выбранный — мятный с зелёным текстом. */
+.cargo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.cargo__title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.cargo__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+.cargo-chip {
+  min-height: 48px;
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease, box-shadow var(--motion-quick) ease, color var(--motion-quick) ease;
+}
+.cargo-chip.is-selected {
+  border-color: var(--green2);
+  background: var(--mint);
+  box-shadow: inset 0 0 0 1px var(--green2);
+  color: var(--green2);
+}
+
+/* «Хрупкое»: переключатель с предупреждающей подложкой CanonWarnBg / CanonWarn, когда включён. */
+.fragile {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease, box-shadow var(--motion-quick) ease;
+}
+.fragile.is-on {
+  border-color: var(--warn);
+  background: var(--warn-bg);
+  box-shadow: inset 0 0 0 1px var(--warn);
+}
+.fragile__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--muted);
+  transition: color var(--motion-quick) ease;
+}
+.fragile.is-on .fragile__icon {
+  color: var(--warn);
+}
+.fragile__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.fragile__text strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.fragile__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
+/* Согласие с правилами: карточка-чекбокс, квадрат 24 радиус 8 рамка 2; отмечена — мятная. */
+.rules-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease, box-shadow var(--motion-quick) ease;
+}
+.rules-card.is-on {
+  border-color: var(--green2);
+  background: var(--mint);
+  box-shadow: inset 0 0 0 1px var(--green2);
+}
+.rules-card__box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border: 2px solid var(--muted);
+  border-radius: var(--radius-tiny);
+  background: transparent;
+  color: var(--on-filled);
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.rules-card.is-on .rules-card__box {
+  border-color: var(--green2);
+  background: var(--green2);
+}
+.rules-card__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.rules-card__text strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.rules-card__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
+/* Оценка цены: CanonCardShape, рамка 2 CanonGreen2, поля 16, зазор 12; сумма 34/40 CanonGreen,
+   разбивка — мятная подкарточка CanonItemShape с зелёными строками. */
+.estimate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 2px solid var(--green2);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.estimate__label {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.estimate__price {
+  color: var(--green);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+}
+.estimate__note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.estimate__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.estimate__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.estimate__row span {
+  flex: 1;
+}
+.estimate__row b {
+  font-weight: var(--weight-bold);
+}
+
+/* Вводная экрана (MobilityScreenIntro): плитка 14 с иконкой 25 на 14 % акцента, заголовок
+   CanonTitle + метка-пилюля CanonMicro, подпись CanonCaption CanonMutedStrong. */
+.screen-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+.screen-intro__tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 49px;
+  height: 49px;
+  border: 1px solid color-mix(in srgb, var(--green2) 28%, transparent);
+  border-radius: var(--radius-field);
+  background: color-mix(in srgb, var(--green2) 14%, transparent);
+  color: var(--green2);
+}
+.screen-intro--taxi .screen-intro__tile {
+  border-color: color-mix(in srgb, var(--taxi) 28%, transparent);
+  background: color-mix(in srgb, var(--taxi) 14%, transparent);
+  color: var(--taxi);
+}
+.screen-intro__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.screen-intro__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.screen-intro__title {
+  margin: 0;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-title);
+}
+.screen-intro__badge {
+  flex: none;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--green2) 14%, transparent);
+  color: var(--green2);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-micro);
+}
+.screen-intro--taxi .screen-intro__badge {
+  background: color-mix(in srgb, var(--taxi) 14%, transparent);
+  color: var(--taxi-ink);
+}
+.screen-intro__sub {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+
+/* Успех: печать 68 CanonMint, заголовок 19/25, код 34/40 моно CanonGreen в карточке с рамкой 2. */
+.parcel-created {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-md) 0 var(--space-xxl);
+  text-align: center;
+}
+.parcel-created__seal {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+  animation: popIn var(--motion-entry) ease both;
+}
+.parcel-created__title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.parcel-created__sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.parcel-created__code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-xl);
+  border: 2px solid var(--green2);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.parcel-created__code-label {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.parcel-created__code-value {
+  font-family: "Roboto Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--green);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.08em;
+}
+.parcel-created__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 48px;
+  padding: var(--space-sm) var(--space-lg);
+  border: 0;
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.parcel-created .dl-note {
+  width: 100%;
+  text-align: left;
+}
+.parcel-created__route {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  width: 100%;
+  text-align: left;
+}
+.parcel-created .submit-btn {
+  margin-top: 0;
+}
+
+/* Карточка «Мои посылки» — шапка как в Android MyParcelCard и бейдж статуса ParcelStatusChip. */
+.parcel-card__head--route {
+  align-items: flex-start;
+  margin-bottom: var(--space-md);
+}
+.parcel-card__route {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.parcel-card__route .dl-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.parcel-card__receiver {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+.parcel-card__receiver-icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--muted);
+}
+.parcel-card__receiver-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.parcel-card__price {
+  flex: none;
+  color: var(--green2);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.parcel-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--surface-2);
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  animation: fadeIn var(--motion-normal) ease both;
+  transition: background var(--motion-slow) ease, color var(--motion-slow) ease;
+}
+.parcel-status--wait {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.parcel-status--mint {
+  background: var(--mint);
+  color: var(--green2);
+}
+.parcel-status--danger {
+  background: var(--danger-bg);
+  color: var(--danger);
 }
