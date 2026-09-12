@@ -19,13 +19,19 @@ import { getUiPref, setUiPref, type UiPrefKey } from "../uiPrefs";
 import PushToggle from "../components/PushToggle";
 import { deleteAccount } from "../api/auth";
 import { ApiError } from "../api/client";
-import { SubHeader } from "./ConsentsScreen";
+import { SettingsGroup, SettingsNavRow, SettingSwitchRow } from "../components/cabinetUi";
 import {
+  IconBell,
   IconChevron,
+  IconFilter,
+  IconGlobe,
+  IconInfo,
+  IconMap,
   IconShield,
   IconBlock,
   IconFlag,
   IconReceipt,
+  IconTextSize,
   IconWallet,
   IconLogout,
   IconTrash,
@@ -33,7 +39,6 @@ import {
 } from "../components/Icons";
 import { YuSun, YuMoon } from "../components/BrandIcons";
 
-type Lang = "ru" | "ba";
 type DeleteState = "idle" | "confirm" | "deleting";
 
 export default function SettingsScreen() {
@@ -55,11 +60,8 @@ export default function SettingsScreen() {
 
   const [del, setDel] = useState<DeleteState>("idle");
   const [delError, setDelError] = useState<string | null>(null);
-
-  const langs: { key: Lang; label: string }[] = [
-    { key: "ru", label: "Русский" },
-    { key: "ba", label: "Башҡортса" },
-  ];
+  const [picker, setPicker] = useState<"theme" | "size" | null>(null); // ThemePickerDialog / FontScaleDialog
+  const [logoutAsk, setLogoutAsk] = useState(false);
 
   const themes: { key: ThemeMode; icon: JSX.Element; label: string }[] = [
     { key: "system", icon: <IconSettings size={20} />, label: appText("Как в системе", "Системалағыса") },
@@ -75,13 +77,6 @@ export default function SettingsScreen() {
 
   const links: { key: string; to: string; icon: JSX.Element; title: string; sub: string }[] = [
     {
-      key: "my-data",
-      to: "/my-data",
-      icon: <IconShield size={22} />,
-      title: appText("Мои данные", "Минең мәғлүмәттәр"),
-      sub: appText("Что хранится и когда удалится", "Нимә һаҡлана һәм ҡасан юйыла"),
-    },
-    {
       key: "blocklist",
       to: "/blocklist",
       icon: <IconBlock size={22} />,
@@ -94,13 +89,6 @@ export default function SettingsScreen() {
       icon: <IconFlag size={22} />,
       title: appText("Пожаловаться", "Зарланырға"),
       sub: appText("На попутчика или поездку", "Юлдашҡа йәки сәфәргә"),
-    },
-    {
-      key: "consents",
-      to: "/consents",
-      icon: <IconShield size={22} />,
-      title: appText("Согласия", "Ризалыҡтар"),
-      sub: appText("Оферта, приватность, гео (152-ФЗ)", "Оферта, ҡупшылыҡ, гео (152-ФЗ)"),
     },
     {
       key: "privacy",
@@ -122,13 +110,6 @@ export default function SettingsScreen() {
       icon: <IconWallet size={22} />,
       title: appText("Способы оплаты", "Түләү ысулдары"),
       sub: appText("Выбор для будущих поездок", "Киләһе сәфәрҙәр өсөн һайлау"),
-    },
-    {
-      key: "payment-info",
-      to: "/payment-info",
-      icon: <IconReceipt size={22} />,
-      title: appText("Как оплатить", "Нисек түләргә"),
-      sub: appText("Способы оплаты — честно и просто", "Түләү ысулдары — намыҫлы"),
     },
     {
       key: "pricing",
@@ -164,210 +145,203 @@ export default function SettingsScreen() {
     }
   }
 
+  const themeLabel = themes.find((t) => t.key === theme)?.label ?? "";
+  const sizeLabel = sizes.find((x) => x.key === scale)?.label ?? "";
+  const version = import.meta.env.VITE_APP_VERSION ?? "web";
+
   return (
-    <>
-      <SubHeader
-        title={appText("Настройки", "Көйләүҙәр")}
-        subtitle={appText("Язык, тема, размер текста", "Тел, тема, текст ҙурлығы")}
-        onBack={() => navigate(-1)}
-      />
-
-      {/* Язык */}
-      <div className="fontscale">
-        <div className="fontscale__label">{appText("Язык", "Тел")}</div>
-        <div className="seg">
-          {langs.map((l) => (
-            <button
-              key={l.key}
-              type="button"
-              className={"seg__item" + (lang === l.key ? " is-active" : "")}
-              onClick={() => setLang(l.key)}
-              aria-pressed={lang === l.key}
-            >
-              {l.label}
-            </button>
-          ))}
-        </div>
+    <div className="cabinet settings">
+      {/* Заголовок как в приложении: 34/40 Bold CanonGreen + подпись 16 muted; без верхней панели. */}
+      <div className="settings__title">
+        <h1>{appText("Настройки", "Көйләүҙәр")}</h1>
+        <p>{appText("Настрой приложение под себя", "Ҡушымтаны үҙеңә көйлә")}</p>
       </div>
 
-      {/* Тема */}
-      <div className="fontscale">
-        <div className="fontscale__label">{appText("Тема оформления", "Биҙәлеш темаһы")}</div>
-        <div className="seg">
-          {themes.map((th) => (
-            <button
-              key={th.key}
-              type="button"
-              className={"seg__item" + (theme === th.key ? " is-active" : "")}
-              onClick={() => setThemeMode(th.key)}
-              aria-pressed={theme === th.key}
-            >
-              <span aria-hidden>{th.icon}</span>
-              {th.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <SettingsGroup>
+        <SettingSwitchRow
+          icon={<IconBell size={24} />}
+          title={appText("Уведомления", "Хәбәрҙәр")}
+          subtitle={appText("Получать важные обновления и напоминания", "Мөһим иҫкәртеүҙәр алыу")}
+          checked={notifOn}
+          onChange={() => toggle("notifications", notifOn, setNotifOn)}
+        />
+        <SettingsNavRow
+          icon={<IconGlobe size={24} />}
+          title={appText("Язык", "Тел")}
+          subtitle={lang === "ba" ? "Башҡортса" : "Русский"}
+          onClick={() => setLang(lang === "ba" ? "ru" : "ba")}
+        />
+        <SettingsNavRow
+          icon={<IconMap size={24} />}
+          title={appText("Тема", "Тема")}
+          subtitle={themeLabel}
+          onClick={() => setPicker(picker === "theme" ? null : "theme")}
+        />
+        {picker === "theme" && (
+          <div className="settings-group__body">
+            <div className="seg">
+              {themes.map((th) => (
+                <button
+                  key={th.key}
+                  type="button"
+                  className={"seg__item" + (theme === th.key ? " is-active" : "")}
+                  onClick={() => { setThemeMode(th.key); setPicker(null); }}
+                  aria-pressed={theme === th.key}
+                >
+                  <span aria-hidden>{th.icon}</span>
+                  {th.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <SettingsNavRow
+          icon={<IconTextSize size={24} />}
+          title={appText("Размер текста", "Текст ҙурлығы")}
+          subtitle={sizeLabel}
+          onClick={() => setPicker(picker === "size" ? null : "size")}
+        />
+        {picker === "size" && (
+          <div className="settings-group__body">
+            <p className="dl-hint">{appText("Увеличь текст во всём приложении — так удобнее читать.", "Бөтә ҡушымтала текстты ҙурайт — уҡырға уңайлыраҡ.")}</p>
+            <div className="seg fontscale__seg">
+              {sizes.map((x) => (
+                <button
+                  key={x.key}
+                  type="button"
+                  className={"seg__item" + (scale === x.key ? " is-active" : "")}
+                  onClick={() => { setScale(x.key); setPicker(null); }}
+                  aria-pressed={scale === x.key}
+                >
+                  <span className={"fontscale__a fontscale__a--" + x.key} aria-hidden>{x.sample}</span>
+                  {x.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </SettingsGroup>
 
-      {/* Размер текста — тот же хук, что и в Простом режиме */}
-      <div className="fontscale">
-        <div className="fontscale__label">{appText("Размер текста", "Текст ҙурлығы")}</div>
-        <div className="seg fontscale__seg">
-          {sizes.map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              className={"seg__item" + (scale === s.key ? " is-active" : "")}
-              onClick={() => setScale(s.key)}
-              aria-pressed={scale === s.key}
-            >
-              <span className={"fontscale__a fontscale__a--" + s.key} aria-hidden>
-                {s.sample}
-              </span>
-              {s.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Уведомления / звуки */}
-      <h2 className="section-title">{appText("Уведомления", "Хәбәрҙәр")}</h2>
       {/* Web Push — честная подписка с мягкой деградацией (см. PushToggle) */}
       <PushToggle />
-      <div className="list">
-        <button
-          type="button"
-          className="list-row list-row--link"
-          onClick={() => toggle("notifications", notifOn, setNotifOn)}
-          aria-pressed={notifOn}
-        >
-          <div className="list-row__main">
-            <div className="list-row__title">{appText("Присылать уведомления", "Хәбәрҙәр ебәрергә")}</div>
-            <div className="list-row__sub">
-              {appText("Отклики, сообщения и новости", "Яуаптар, хәбәрҙәр һәм яңылыҡтар")}
-            </div>
-          </div>
-          <span className={"switch" + (notifOn ? " on" : "")} />
-        </button>
-        <button
-          type="button"
-          className="list-row list-row--link"
-          onClick={() => toggle("sounds", soundOn, setSoundOn)}
-          aria-pressed={soundOn}
-        >
-          <div className="list-row__main">
-            <div className="list-row__title">{appText("Звук и вибрация", "Тауыш һәм вибрация")}</div>
-            <div className="list-row__sub">
-              {appText("Сигнал при новом событии", "Яңы ваҡиғала сигнал")}
-            </div>
-          </div>
-          <span className={"switch" + (soundOn ? " on" : "")} />
-        </button>
-      </div>
+
+      <SettingsGroup>
+        <SettingsNavRow
+          icon={<IconShield size={24} />}
+          title={appText("Приватность", "Махсуслыҡ")}
+          subtitle={appText("Управление безопасностью и данными", "Хәүефһеҙлек һәм мәғлүмәт")}
+          onClick={() => navigate("/my-data")}
+        />
+        <SettingsNavRow
+          icon={<IconReceipt size={24} />}
+          title={appText("Согласия и данные", "Ризалыҡтар һәм мәғлүмәт")}
+          subtitle={appText("Оферта, политика, геолокация — 152-ФЗ", "Оферта, сәйәсәт, геолокация — 152-ФЗ")}
+          onClick={() => navigate("/consents")}
+        />
+        <SettingSwitchRow
+          icon={<IconBell size={24} />}
+          title={appText("Звуки", "Тауыштар")}
+          subtitle={appText("Звуковые уведомления и эффекты", "Тауышлы хәбәрҙәр")}
+          checked={soundOn}
+          onChange={() => toggle("sounds", soundOn, setSoundOn)}
+        />
+      </SettingsGroup>
+
+      <SettingsGroup>
+        <SettingsNavRow
+          icon={<IconFilter size={24} />}
+          title={appText("Фильтры по умолчанию", "Ғәҙәти фильтрҙар")}
+          subtitle={appText("Условия поиска поездок", "Сәфәр эҙләү шарттары")}
+          onClick={() => navigate("/filters")}
+        />
+        <SettingsNavRow
+          icon={<IconWallet size={24} />}
+          title={appText("Оплата поездок", "Сәфәр түләүе")}
+          subtitle={appText("Как оплачивать поездки в Юлдаш", "Юлдашта сәфәр өсөн нисек түләргә")}
+          onClick={() => navigate("/payment-info")}
+        />
+      </SettingsGroup>
 
       {/* Кабинет админа — только для role == "admin" */}
       {user?.role === "admin" && (
-        <>
-          <h2 className="section-title">{appText("Администрирование", "Идара итеү")}</h2>
-          <div className="list">
-            <button
-              type="button"
-              className="list-row list-row--link"
-              onClick={() => navigate("/admin")}
-            >
-              <span className="list-row__icon"><IconShield size={22} /></span>
-              <div className="list-row__main">
-                <div className="list-row__title">{appText("Кабинет админа", "Админ кабинеты")}</div>
-                <div className="list-row__sub">
-                  {appText("Модерация и управление", "Тикшереү һәм идара итеү")}
-                </div>
-              </div>
-              <span className="list-row__chev">
-                <IconChevron size={20} />
-              </span>
-            </button>
-          </div>
-        </>
+        <SettingsGroup>
+          <SettingsNavRow
+            icon={<IconShield size={24} />}
+            title={appText("Кабинет админа", "Админ кабинеты")}
+            subtitle={appText("Заявки, отклики, реклама — единый центр", "Заявкалар, яуаптар, реклама — берҙәм үҙәк")}
+            onClick={() => navigate("/admin")}
+          />
+        </SettingsGroup>
       )}
 
-      {/* Правовое и безопасность */}
-      <h2 className="section-title">{appText("Безопасность и правила", "Именлек һәм ҡағиҙәләр")}</h2>
-      <div className="list">
+      {/* Есть только в вебе: правила, жалоба, чёрный список, способы и честность оплаты. */}
+      <SettingsGroup>
         {links.map((r) => (
-          <button
-            key={r.key}
-            type="button"
-            className="list-row list-row--link"
-            onClick={() => navigate(r.to)}
-          >
-            <span className="list-row__icon">{r.icon}</span>
-            <div className="list-row__main">
-              <div className="list-row__title">{r.title}</div>
-              <div className="list-row__sub">{r.sub}</div>
-            </div>
-            <span className="list-row__chev">
-              <IconChevron size={20} />
-            </span>
-          </button>
+          <SettingsNavRow key={r.key} icon={r.icon} title={r.title} subtitle={r.sub} onClick={() => navigate(r.to)} />
         ))}
-      </div>
+      </SettingsGroup>
 
-      {/* Выход */}
-      <button type="button" className="logout-btn" onClick={() => void logout()}>
-        <IconLogout size={20} />
-        {appText("Выйти", "Сығырға")}
-      </button>
+      <SettingsGroup>
+        <SettingsNavRow
+          icon={<IconInfo size={24} />}
+          title={appText("О приложении", "Ҡушымта тураһында")}
+          subtitle={appText(`Версия ${version}`, `Нөсхә ${version}`)}
+        />
+      </SettingsGroup>
 
-      {/* Опасная зона — удаление аккаунта */}
-      <div className="danger-zone">
-        <div className="danger-zone__title">{appText("Удалить аккаунт", "Аккаунтты бөтөрөргә")}</div>
-        <p className="danger-zone__text">
-          {appText(
-            "Удаление необратимо: пропадут профиль, поездки, отзывы и все данные. Восстановить не получится.",
-            "Бөтөрөү кире ҡайтарылмай: профиль, сәфәрҙәр, фекерҙәр һәм бар мәғлүмәт юғала. Кире ҡайтарып булмай."
-          )}
-        </p>
-
-        {del === "idle" && (
-          <button type="button" className="btn-danger" onClick={() => setDel("confirm")}>
-            <IconTrash size={19} />
-            {appText("Удалить аккаунт", "Аккаунтты бөтөрөргә")}
-          </button>
-        )}
-
-        {(del === "confirm" || del === "deleting") && (
-          <div className="danger-zone__confirm">
-            <div className="danger-zone__confirm-q">
-              {appText("Точно удалить? Это навсегда.", "Ысынлап бөтөрәбеҙме? Был мәңгегә.")}
-            </div>
-            {delError && <div className="danger-zone__err">{delError}</div>}
-            <div className="danger-zone__actions">
-              <button
-                type="button"
-                className="btn-soft"
-                disabled={del === "deleting"}
-                onClick={() => {
-                  setDel("idle");
-                  setDelError(null);
-                }}
-              >
-                {appText("Оставить", "Ҡалдырырға")}
+      <SettingsGroup>
+        <SettingsNavRow
+          icon={<IconLogout size={24} />}
+          title={appText("Выйти из аккаунта", "Иҫәптән сығыу")}
+          subtitle={appText("Завершить сеанс на этом устройстве", "Был ҡоролмала сеансты тамамлау")}
+          onClick={() => setLogoutAsk((v) => !v)}
+        />
+        {logoutAsk && (
+          <div className="settings-group__body settings-confirm">
+            <strong>{appText("Выйти из аккаунта?", "Иҫәптән сығаһыңмы?")}</strong>
+            <span>{appText("Нужно будет снова войти через Telegram.", "Telegram аша яңынан инергә кәрәк буласаҡ.")}</span>
+            <div className="settings-confirm__row">
+              <button type="button" className="btn-ghost settings-confirm__danger" onClick={() => void logout()}>
+                {appText("Выйти", "Сығыу")}
               </button>
-              <button
-                type="button"
-                className="btn-danger"
-                style={{ marginTop: 0 }}
-                disabled={del === "deleting"}
-                onClick={() => void confirmDelete()}
-              >
-                {del === "deleting"
-                  ? appText("Удаляем…", "Бөтөрәбеҙ…")
-                  : appText("Да, удалить навсегда", "Эйе, мәңгегә бөтөр")}
+              <button type="button" className="btn-ghost settings-confirm__muted" onClick={() => setLogoutAsk(false)}>
+                {appText("Отмена", "Баш тартыу")}
               </button>
             </div>
           </div>
         )}
-      </div>
-    </>
+      </SettingsGroup>
+
+      {/* Удалить аккаунт — DangerActionCard: красная рамка, красная плитка с корзиной. */}
+      <button type="button" className="danger-card" onClick={() => setDel(del === "idle" ? "confirm" : "idle")}>
+        <span className="danger-card__icon" aria-hidden><IconTrash size={24} /></span>
+        <span className="danger-card__text">
+          <strong>{appText("Удалить аккаунт", "Аккаунтты бөтөрөргә")}</strong>
+          <small>
+            {appText(
+              "Профиль, поездки и чаты удалятся без возврата.",
+              "Профиль, сәфәрҙәр һәм чаттар кире ҡайтарылмайынса юйыла."
+            )}
+          </small>
+        </span>
+        <span className="settings-row__chev" aria-hidden><IconChevron size={20} /></span>
+      </button>
+      {del !== "idle" && (
+        <div className="settings-confirm settings-confirm--card">
+          <strong>{appText("Точно удалить? Это навсегда.", "Ысынлап бөтөрәбеҙме? Был мәңгегә.")}</strong>
+          {delError && <div className="auth__error">{delError}</div>}
+          <div className="settings-confirm__row">
+            <button type="button" className="btn-soft" onClick={() => { setDel("idle"); setDelError(null); }} disabled={del === "deleting"}>
+              {appText("Оставить", "Ҡалдырырға")}
+            </button>
+            <button type="button" className="btn-danger" onClick={() => void confirmDelete()} disabled={del === "deleting"}>
+              {del === "deleting" ? appText("Удаляем…", "Бөтөрәбеҙ…") : appText("Да, удалить навсегда", "Эйе, мәңгегә бөтөр")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p className="settings__copy">Юлдаш © 2026</p>
+    </div>
   );
 }

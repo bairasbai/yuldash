@@ -356,6 +356,21 @@ export const IconWarn = ({ size = 22 }: P) => (
   </svg>
 );
 
+// Язык (Icons.Default.Language): глобус.
+export const IconGlobe = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18M12 3c2.6 2.8 2.6 15.2 0 18M12 3c-2.6 2.8-2.6 15.2 0 18" />
+  </svg>
+);
+
+// Размер текста (Icons.Default.FormatSize): большая и маленькая «А».
+export const IconTextSize = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M3 18 8 6l5 12M4.8 14h6.4M14 18l3-7 3 7M15.1 15.5h3.8" />
+  </svg>
+);
+
 // Информация (Icons.Default.Info): кружок с «i» — сноски и подсказки.
 export const IconInfo = ({ size = 22 }: P) => (
   <svg {...base(size)}>

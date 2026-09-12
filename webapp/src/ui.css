@@ -12906,3 +12906,111 @@ button.settings-row:active {
   font-weight: var(--weight-bold);
   text-decoration: none;
 }
+
+/* ---- Настройки — зеркало SettingsScreen (SecondaryScreens.kt): заголовок 34/40, группы строк. ---- */
+.settings__title {
+  padding-top: var(--space-sm);
+}
+.settings__title h1 {
+  margin: 0;
+  color: var(--green);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+}
+.settings__title p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.settings .settings-group__body .seg {
+  margin: 0;
+}
+.settings-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.settings-confirm strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.settings-confirm span {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.settings-confirm__row {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+.settings-confirm--card {
+  padding: var(--space-lg);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.settings-confirm--card .settings-confirm__row .btn-soft,
+.settings-confirm--card .settings-confirm__row .btn-danger {
+  flex: 1;
+  margin-top: 0;
+}
+.settings-confirm__danger {
+  color: var(--danger);
+  font-weight: var(--weight-bold);
+}
+.settings-confirm__muted {
+  color: var(--muted);
+}
+/* DangerActionCard: CanonItemShape, рамка 35 % красного, плитка 40 с корзиной на 12 % красного. */
+.danger-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-md);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  color: var(--text);
+  text-align: left;
+}
+.danger-card__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-field);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+.danger-card__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.danger-card__text strong {
+  color: var(--danger);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.danger-card__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.settings__copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
