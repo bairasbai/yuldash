@@ -4215,75 +4215,82 @@ button.list-row:active {
    ================================================================ */
 
 /* ---- Кошелёк: крупная карточка баланса ---- */
+/* WalletBalanceCard: CanonGreenInk → CanonGreenInkDark, поля 24, зазор 12, круг 46 (18 % CanonOnAccent),
+   подпись 14 Medium, сумма 34/40 Bold, подпись про выплаты 14/20. */
 .wallet-card {
-  margin-top: 18px;
-  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-xl);
   border-radius: var(--radius-card);
-  background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
-  color: #fff;
-  box-shadow: var(--depth-sheet);
+  background: linear-gradient(180deg, var(--header-top), var(--header-bottom));
+  color: var(--on-accent);
+  box-shadow: var(--depth-raised);
   animation: fadeUp var(--motion-normal) ease both;
 }
 .wallet-card__top {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-md);
 }
 .wallet-card__chip {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-field);
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-pill);
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
+  background: color-mix(in srgb, var(--on-accent) 18%, transparent);
+  color: var(--on-accent);
 }
 .wallet-card__label {
   font-size: var(--font-caption);
-  font-weight: var(--weight-semibold);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-medium);
   opacity: 0.9;
 }
 .wallet-card__amount {
-  margin-top: 14px;
   font-size: var(--font-display);
+  line-height: var(--line-display);
   font-weight: var(--weight-bold);
-  letter-spacing: -0.02em;
 }
 .wallet-card__hint {
-  margin: 12px 0 0;
+  margin: 0;
   font-size: var(--font-caption);
-  line-height: 1.45;
-  opacity: 0.86;
+  line-height: var(--line-caption);
+  opacity: 0.82;
 }
 
-/* ---- Кошелёк: строка операции (ledger) ---- */
+/* ---- Кошелёк: строка операции (WalletLedgerRow): круг 36 (мятный приход / фон списание),
+   название 16/23 Bold, дата 12, сумма 16 Bold зелёная или приглушённая. ---- */
+.ledger {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
 .ledger-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: var(--space-md);
+  padding: var(--space-md);
   border: 1px solid var(--border);
   border-radius: var(--radius-item);
   background: var(--surface);
   animation: fadeUp var(--motion-normal) ease both;
 }
-.ledger-row + .ledger-row {
-  margin-top: 10px;
-}
 .ledger-row__icon {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   flex: none;
-  border-radius: var(--radius-field);
+  border-radius: var(--radius-pill);
   display: grid;
   place-items: center;
   background: var(--mint);
-  color: var(--green);
+  color: var(--green2);
   transform: rotate(-90deg); /* стрелка вверх = приход */
 }
 .ledger-row__icon.is-out {
-  background: var(--surface-2);
-  color: var(--muted);
+  background: var(--bg);
+  color: var(--muted-strong);
   transform: rotate(90deg); /* стрелка вниз = списание */
 }
 .ledger-row__main {
@@ -4292,23 +4299,26 @@ button.list-row:active {
 }
 .ledger-row__title {
   font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
   color: var(--text);
 }
 .ledger-row__sub {
-  margin-top: 2px;
-  font-size: var(--font-caption);
+  margin-top: var(--space-xs);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
   color: var(--muted);
 }
 .ledger-row__amount {
   flex: none;
   font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
-  color: var(--muted);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  color: var(--muted-strong);
   white-space: nowrap;
 }
 .ledger-row__amount.is-in {
-  color: var(--green);
+  color: var(--green2);
 }
 
 /* ---- «Скидки по пути»: карточка купона ---- */
@@ -6089,26 +6099,118 @@ select.field__input {
 }
 
 /* ---- Выплаты на карту (кошелёк) ---- */
-.payout {
-  margin-top: 4px;
-}
-.payout__change {
-  margin-left: 10px;
-  padding: 6px 12px;
+/* PayoutSoonCard / PayoutCard: карточка CanonCardShape с рамкой, круг с иконкой, заголовок 16 Bold. */
+.payout-soon,
+.payout-card {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-lg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-card);
   background: var(--surface);
-  color: var(--green2);
-  font-size: var(--font-micro);
-  font-weight: var(--weight-medium);
 }
-.payout__privacy {
+.payout-soon {
+  align-items: center;
+}
+.payout-soon__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.payout-soon__text,
+.payout-card__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.payout-soon__text strong,
+.payout-card__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.payout-soon__text small,
+.payout-card__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.payout-card {
+  flex-direction: column;
+}
+.payout-card__head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 2px 2px 6px;
-  font-size: var(--font-micro);
+  gap: var(--space-md);
+}
+.payout-card__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.payout-card__change {
+  flex: none;
+  font-weight: var(--weight-bold);
+}
+.payout-card .btn-soft,
+.payout-card .submit-btn {
+  width: 100%;
+  margin-top: 0;
+}
+.payout-card__amount-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.payout-card__amount-row .field__input {
+  flex: 1;
+}
+.payout-card__amount-row .btn-ghost {
+  flex: none;
+  font-weight: var(--weight-bold);
+}
+.payout-card .field__hint.is-error {
+  color: var(--danger);
+}
+.payout-card__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.payout-card__confirm strong {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.payout-card__confirm span {
   color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.payout-card__confirm-row {
+  display: flex;
+  gap: var(--space-sm);
+}
+.payout-card__confirm-row .btn-primary {
+  flex: 1;
+  margin-top: 0;
 }
 
 /* ================================================================

@@ -20,10 +20,11 @@ import {
   type WalletBalance,
   type PayoutStatus,
 } from "../api/wallet";
-import { LoadingList } from "../components/States";
+import { LoadingList, ErrorState, EmptyStateCard } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
+import { SectionHeader } from "../components/cabinetUi";
 import { rubLabel, formatWhen } from "../utils/format";
-import { IconWallet, IconArrow, IconReceipt, IconCheck, IconLock } from "../components/Icons";
+import { IconWallet, IconArrow, IconReceipt, IconClock, IconLock } from "../components/Icons";
 
 /** Ключ идемпотентности выплаты — новый uuid на каждую попытку. */
 function payoutKey(): string {
@@ -50,7 +51,7 @@ function kindLabel(e: LedgerEntry, ru: boolean): string {
 
 /** «+1 200 ₽» / «−150 ₽» — знак по сумме (amount_kop уже знаковый). */
 function signedRub(kop: number): string {
-  const sign = kop >= 0 ? "+ " : "− ";
+  const sign = kop >= 0 ? "+" : "−"; // как kopToRub в приложении: знак вплотную к сумме
   return sign + rubLabel(Math.abs(kop));
 }
 
@@ -96,126 +97,86 @@ export default function WalletScreen() {
 
   return (
     <>
-      <SubHeader
-        title={appText("Кошелёк", "Янсыҡ")}
-        subtitle={appText(
-          "Заработок с безналичных поездок",
-          "Аҡсаһыҙ сәфәрҙәрҙән табыш"
-        )}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Кошелёк", "Янсыҡ")} onBack={() => navigate(-1)} />
 
       {status === "loading" && <LoadingList count={2} />}
 
       {status === "soon" && (
-        <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__icon">
-            <IconWallet size={34} />
-          </div>
-          <h2>{appText("Кошелёк скоро", "Янсыҡ тиҙҙән")}</h2>
-          <p>
-            {appText(
-              "Раздел включится после ближайшего обновления. Все безналичные поездки уже считаются.",
-              "Был бүлек яҡын яңыртыуҙан һуң эшләй башлар. Аҡсаһыҙ сәфәрҙәр иҫәпләнә инде."
-            )}
-          </p>
-        </div>
+        <EmptyStateCard
+          icon={<IconWallet size={30} />}
+          title={appText("Кошелёк скоро", "Янсыҡ тиҙҙән")}
+          text={appText(
+            "Раздел включится после ближайшего обновления. Все безналичные поездки уже считаются.",
+            "Был бүлек яҡын яңыртыуҙан һуң эшләй башлар. Аҡсаһыҙ сәфәрҙәр иҫәпләнә инде."
+          )}
+        />
       )}
 
-      {status === "error" && (
-        <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__icon state__icon--warn">
-            <IconWallet size={34} />
-          </div>
-          <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
-          <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатлау")}
-          </button>
-        </div>
-      )}
+      {status === "error" && <ErrorState onRetry={() => load()} />}
 
       {status === "ready" && balance && (
-        <>
-          <div className="wallet-card">
+        <div className="cabinet">
+          {/* WalletBalanceCard: тёмно-зелёный градиент, круг с иконкой, сумма 34/40, подпись про выплаты. */}
+          <section className="wallet-card">
             <div className="wallet-card__top">
-              <span className="wallet-card__chip">
-                <IconWallet size={18} />
-              </span>
-              <span className="wallet-card__label">
-                {appText("Доступно на балансе", "Балансыңда бар")}
-              </span>
+              <span className="wallet-card__chip" aria-hidden><IconWallet size={22} /></span>
+              <span className="wallet-card__label">{appText("Баланс кошелька", "Янсыҡ балансы")}</span>
             </div>
-            <div className="wallet-card__amount">
-              {rubLabel(balance.balance_kop)}
-            </div>
+            <div className="wallet-card__amount">{rubLabel(balance.balance_kop)}</div>
             <p className="wallet-card__hint">
-              {appText(
-                "Наличные идут напрямую тебе — здесь только безналичные поездки.",
-                "Аҡса һиңә тура килә — бында тик аҡсаһыҙ сәфәрҙәр."
-              )}
+              {payout?.enabled === true
+                ? appText("Доступно к выводу через СБП", "СБП аша сығарырға мөмкин")
+                : payout?.enabled === false
+                  ? appText(
+                      "Здесь бонусы и возвраты. За поездки платят тебе напрямую.",
+                      "Бында бонустар һәм ҡайтарыуҙар. Сәфәрҙәр өсөн һиңә туранан-тура түләйҙәр."
+                    )
+                  : appText("Бонусы и возвраты", "Бонустар һәм ҡайтарыуҙар")}
             </p>
-          </div>
+          </section>
 
           {/* Выплаты на карту — блок виден, только если ручка status уже на проде */}
           {payout && <PayoutSection payout={payout} onChanged={() => load()} />}
 
-          <h2 className="section-title">{appText("История", "Тарих")}</h2>
+          <SectionHeader
+            title={appText("История операций", "Операциялар тарихы")}
+            subtitle={appText("Начисления за поездки и комиссии сервиса.", "Сәфәрҙәр өсөн килем һәм сервис комиссияһы.")}
+          />
 
           {ledger.length === 0 ? (
-            <div className="state" style={{ paddingTop: 12 }}>
-              <div className="state__icon">
-                <IconReceipt size={32} />
-              </div>
-              <p>
-                {appText(
-                  "Пока операций нет. Заверши безналичную поездку — начисление появится здесь.",
-                  "Әле операциялар юҡ. Аҡсаһыҙ сәфәр тамамла — иҫәпләү бында күренер."
-                )}
-              </p>
-            </div>
+            <EmptyStateCard
+              icon={<IconReceipt size={30} />}
+              title={appText("Пока операций нет", "Әле операциялар юҡ")}
+              text={appText(
+                "Заверши безналичную поездку — начисление появится здесь.",
+                "Аҡсаһыҙ сәфәр тамамла — иҫәпләү бында күренер."
+              )}
+            />
           ) : (
-            <div className="list">
+            <div className="ledger">
               {ledger.map((e) => {
                 const positive = e.amount_kop >= 0;
                 return (
                   <div key={e.id} className="ledger-row">
-                    <span
-                      className={
-                        "ledger-row__icon" + (positive ? "" : " is-out")
-                      }
-                    >
+                    <span className={"ledger-row__icon" + (positive ? "" : " is-out")} aria-hidden>
                       <IconArrow size={18} />
                     </span>
                     <div className="ledger-row__main">
-                      <div className="ledger-row__title">
-                        {e.note || kindLabel(e, ru)}
-                      </div>
-                      <div className="ledger-row__sub">
-                        {formatWhen(e.created_at, ru)}
-                      </div>
+                      <div className="ledger-row__title">{e.note || kindLabel(e, ru)}</div>
+                      <div className="ledger-row__sub">{formatWhen(e.created_at, ru)}</div>
                     </div>
-                    <div
-                      className={
-                        "ledger-row__amount" + (positive ? " is-in" : "")
-                      }
-                    >
-                      {signedRub(e.amount_kop)}
-                    </div>
+                    <div className={"ledger-row__amount" + (positive ? " is-in" : "")}>{signedRub(e.amount_kop)}</div>
                   </div>
                 );
               })}
             </div>
           )}
-
-          {!payout?.enabled && (
-            <p className="receipt__foot">
-              {appText(
-                "Выплаты пока проводятся вручную по реестру. Вопросы — в поддержку.",
-                "Түләүҙәр әлегә ҡулдан үткәрелә. Һорауҙар — ярҙамға."
-              )}
+          {ledger.length >= 100 && (
+            <p className="dl-hint" style={{ textAlign: "center" }}>
+              {appText("Показаны последние 100 операций", "Һуңғы 100 операция күрһәтелгән")}
             </p>
           )}
-        </>
+        </div>
       )}
     </>
   );
@@ -237,18 +198,25 @@ function PayoutSection({
   const [busy, setBusy] = useState(false); // общий замок: карта/выплата — двойной клик исключён
   const [error, setError] = useState<string | null>(null);
   const [okNote, setOkNote] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false); // «Вывести N ₽?» — как AlertDialog в приложении
 
   const minRub = Math.round(payout.min_kop / 100);
   const maxRub = Math.round(payout.max_kop / 100);
 
   if (!payout.enabled) {
+    // PayoutSoonCard: честно и спокойно — вывод готовим, расчёты работают как раньше.
     return (
-      <div className="consents__status" style={{ marginTop: 12 }}>
-        <IconLock size={16} />{" "}
-        {appText(
-          "Выплаты на карту скоро — включим после подключения платёжного провайдера.",
-          "Картаға түләүҙәр тиҙҙән — түләү провайдерын ялғағас ҡабыҙабыҙ."
-        )}
+      <div className="payout-soon">
+        <span className="payout-soon__icon" aria-hidden><IconClock size={20} /></span>
+        <span className="payout-soon__text">
+          <strong>{appText("Выплаты на карту — скоро", "Картаға түләүҙәр — оҙаҡламай")}</strong>
+          <small>
+            {appText(
+              "Готовим вывод на карту. Пока комиссия и расчёты работают как раньше.",
+              "Картаға сығарыуҙы әҙерләйбеҙ. Әлегә комиссия һәм иҫәпләшеүҙәр элеккесә эшләй."
+            )}
+          </small>
+        </span>
       </div>
     );
   }
@@ -306,30 +274,44 @@ function PayoutSection({
     }
   }
 
-  return (
-    <div className="payout">
-      <h2 className="section-title">{appText("Вывод на карту", "Картаға сығарыу")}</h2>
+  const amountRub = Math.max(0, parseInt(amount, 10) || 0);
+  const amountKop = amountRub * 100;
+  const balanceRub = Math.round(payout.balance_kop / 100);
+  const amountError =
+    amountRub <= 0
+      ? null
+      : amountKop < payout.min_kop
+        ? appText(`Минимум ${minRub} ₽`, `Кәм тигәндә ${minRub} ₽`)
+        : amountKop > payout.max_kop
+          ? appText(`Максимум ${maxRub} ₽ за раз`, `Бер юлы иң күбе ${maxRub} ₽`)
+          : amountKop > payout.balance_kop
+            ? appText(`На балансе только ${balanceRub} ₽`, `Баланста ${balanceRub} ₽ ғына`)
+            : null;
+  const canWithdraw = amountRub > 0 && !amountError && !busy;
 
-      {/* Карта для выплат */}
-      {payout.has_requisite && !cardOpen ? (
-        <div className="info-list">
-          <div className="info-row">
-            <span className="info-row__k">{appText("Карта", "Карта")}</span>
-            <span className="info-row__v">
-              •••• {payout.card_last4}
-              <button
-                type="button"
-                className="payout__change"
-                onClick={() => setCardOpen(true)}
-              >
-                {appText("Изменить", "Үҙгәртеү")}
-              </button>
-            </span>
-          </div>
-        </div>
-      ) : (
-        <div className="form" style={{ marginTop: 4 }}>
-          <label className="field">
+  return (
+    <section className="payout-card">
+      <div className="payout-card__head">
+        <span className="payout-card__icon" aria-hidden><IconWallet size={20} /></span>
+        <span className="payout-card__text">
+          <strong>{appText("Вывод на карту", "Картаға сығарыу")}</strong>
+          <small>
+            {payout.has_requisite
+              ? appText(`Карта ····${payout.card_last4}`, `Карта ····${payout.card_last4}`)
+              : appText("Карта пока не добавлена", "Карта әлегә өҫтәлмәгән")}
+          </small>
+        </span>
+        {payout.has_requisite && !cardOpen && (
+          <button type="button" className="btn-ghost payout-card__change" onClick={() => setCardOpen(true)} disabled={busy}>
+            {appText("Изменить", "Үҙгәртеү")}
+          </button>
+        )}
+      </div>
+
+      {/* Карта для выплат. ПРИВАТНОСТЬ: полный номер не покидает устройство — на сервер идут ТОЛЬКО последние 4. */}
+      {(!payout.has_requisite || cardOpen) && (
+        <>
+          <label className="field dl-field">
             <span className="field__label">{appText("Номер карты для выплат", "Түләүҙәр өсөн карта номеры")}</span>
             <input
               className="field__input"
@@ -339,59 +321,81 @@ function PayoutSection({
               onChange={(e) => setCardNum(e.target.value)}
               placeholder="0000 0000 0000 0000"
             />
+            <span className="field__hint">
+              <IconLock size={14} />{" "}
+              {appText(
+                "Мы сохраняем только последние 4 цифры — полный номер никуда не отправляется.",
+                "Беҙ тик һуңғы 4 һанды ғына һаҡлайбыҙ — тулы номер бер ҡайҙа ла ебәрелмәй."
+              )}
+            </span>
           </label>
-          <p className="payout__privacy">
-            <IconLock size={14} />{" "}
-            {appText(
-              "Мы сохраняем только последние 4 цифры — полный номер никуда не отправляется.",
-              "Беҙ тик һуңғы 4 һанды ғына һаҡлайбыҙ — тулы номер бер ҡайҙа ла ебәрелмәй."
-            )}
-          </p>
           <button type="button" className="btn-soft" onClick={saveCard} disabled={busy}>
-            {busy ? appText("Сохраняем…", "Һаҡлайбыҙ…") : appText("Сохранить карту", "Картаны һаҡларға")}
+            {busy ? appText("Сохраняем…", "Һаҡлайбыҙ…") : payout.has_requisite ? appText("Сохранить карту", "Картаны һаҡларға") : appText("Добавить карту", "Карта өҫтәү")}
           </button>
-        </div>
+        </>
       )}
 
-      {/* Вывод */}
+      {/* Вывод: поле суммы с подсказкой лимитов, «Всё», «Вывести N ₽» и подтверждение перед списанием. */}
       {payout.has_requisite && (
-        <div className="form" style={{ marginTop: 10 }}>
-          <label className="field">
-            <span className="field__label">
-              {appText(`Сумма, ₽ (от ${minRub} до ${maxRub})`, `Сумма, ₽ (${minRub} — ${maxRub})`)}
+        <>
+          <label className="field dl-field">
+            <span className="field__label">{appText("Сумма, ₽", "Сумма, ₽")}</span>
+            <div className="payout-card__amount-row">
+              <input
+                className="field__input"
+                type="number"
+                inputMode="numeric"
+                value={amount}
+                onChange={(e) => { setAmount(e.target.value); setConfirming(false); }}
+                placeholder={String(minRub)}
+              />
+              {payout.balance_kop >= payout.min_kop && (
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => { setAmount(String(Math.min(balanceRub, maxRub))); setConfirming(false); }}
+                >
+                  {appText("Всё", "Барыһы")}
+                </button>
+              )}
+            </div>
+            <span className={"field__hint" + (amountError ? " is-error" : "")}>
+              {amountError ?? appText(`От ${minRub} до ${maxRub} ₽ за раз`, `Бер юлы ${minRub} — ${maxRub} ₽`)}
             </span>
-            <input
-              className="field__input"
-              type="number"
-              inputMode="numeric"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder={String(minRub)}
-            />
           </label>
-          <button
-            type="button"
-            className="btn-primary submit-btn"
-            onClick={withdraw}
-            disabled={busy}
-          >
-            {busy ? (
-              appText("Выводим…", "Сығарабыҙ…")
-            ) : (
-              <>
-                <IconCheck size={18} /> {appText("Вывести", "Сығарырға")}
-              </>
-            )}
-          </button>
-        </div>
+          {!confirming ? (
+            <button type="button" className="btn-primary submit-btn" onClick={() => setConfirming(true)} disabled={!canWithdraw}>
+              {amountRub > 0 ? appText(`Вывести ${amountRub} ₽`, `${amountRub} ₽ сығарыу`) : appText("Вывести", "Сығарыу")}
+            </button>
+          ) : (
+            <div className="payout-card__confirm">
+              <strong>{appText(`Вывести ${amountRub} ₽?`, `${amountRub} ₽ сығарырғамы?`)}</strong>
+              <span>
+                {appText(
+                  `Деньги уйдут на карту ····${payout.card_last4}. Обычно приходят за несколько минут.`,
+                  `Аҡса ····${payout.card_last4} картаһына китә. Ғәҙәттә бер нисә минутта килә.`
+                )}
+              </span>
+              <div className="payout-card__confirm-row">
+                <button type="button" className="btn-primary" onClick={() => { setConfirming(false); void withdraw(); }} disabled={busy}>
+                  {busy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Да, вывести", "Эйе, сығарырға")}
+                </button>
+                <button type="button" className="btn-ghost" onClick={() => setConfirming(false)} disabled={busy}>
+                  {appText("Отмена", "Кире алыу")}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {error && <div className="auth__error">{error}</div>}
       {okNote && (
-        <div className="consents__status ok" style={{ marginTop: 10 }}>
+        <div className="consents__status ok" style={{ marginTop: 0 }}>
           {okNote}
         </div>
       )}
-    </div>
+    </section>
   );
 }
+
