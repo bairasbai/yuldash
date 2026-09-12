@@ -12,16 +12,14 @@ import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
   approveCoupon,
-  approvePartner,
   blockCoupon,
   fetchModerationQueue,
-  rejectPartner,
   type AdminCoupon,
   type AdminPartner,
 } from "../api/admin";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
-import { IconCheck, IconStore, IconTicket, IconWarn } from "../components/Icons";
+import { RideCardSkeleton } from "../components/States";
+import { AdminIntro, ListedEmpty, ListedError } from "../components/adminUi";
 
 type State = "loading" | "error" | "ready";
 
@@ -74,225 +72,142 @@ export default function AdminModerationScreen() {
 
   const total = partners.length + coupons.length;
 
+  /** Метка автопроверки → слово, понятное человеку. */
+  function flagLabel(flag: string): string {
+    if (flag === "contact") return appText("телефон или ссылка", "телефон йәки һылтанма");
+    if (flag === "abuse") return appText("резкие слова", "ҡаты һүҙҙәр");
+    if (flag === "warn") return appText("похоже на развод", "алдау һымаҡ");
+    return appText("метка проверки", "тикшереү билдәһе");
+  }
+
+  /** Почему купон в очереди — человеческим языком, а не кодом состояния. */
+  function reviewReason(c: AdminCoupon): { tone: string; text: string } {
+    if (c.review === "held")
+      return {
+        tone: "red",
+        text: appText(`Задержан проверкой (${flagLabel(c.review_flag)}) — людям не виден`, `Тикшереү тотто (${flagLabel(c.review_flag)}) — кешеләргә күренмәй`),
+      };
+    if (c.reports_count > 0)
+      return {
+        tone: "warn",
+        text: appText(`Жалоб: ${c.reports_count} — люди говорят, что тут что-то не так`, `Зар: ${c.reports_count} — кешеләр ниҙер дөрөҫ түгел ти`),
+      };
+    return { tone: "green", text: appText("Виден людям, но ты его ещё не смотрел", "Кешеләргә күренә, әммә һин ҡарамағанһың") };
+  }
+
   return (
     <>
-      <SubHeader
-        title={appText("Очередь модерации", "Модерация сираты")}
-        subtitle={
-          total > 0
-            ? appText(`Не посмотрено: ${total}`, `Ҡаралмаған: ${total}`)
-            : appText("Бизнесы и купоны", "Бизнестар һәм купондар")
-        }
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Модерация", "Тикшереү")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        <AdminIntro>
+          {appText(
+            "Всё, что ещё не смотрел. Сверху — то, что ждёт тебя: задержанное проверкой и то, на что пожаловались. Ниже — уже видное людям, но не проверенное.",
+            "Һин ҡарамағандың бөтәһе. Өҫтә — һине көткәне: тикшереү тотҡаны һәм зарланғаны. Аҫта — кешеләргә күренә, әммә тикшерелмәгәне."
+          )}
+        </AdminIntro>
 
-      {state === "loading" && <LoadingList count={3} />}
-      {state === "error" && <ErrorState onRetry={() => load()} />}
-
-      {state === "ready" && total === 0 && (
-        <div className="state" style={{ paddingTop: 32 }}>
-          <div className="state__icon">
-            <IconCheck size={34} />
+        {/* Бизнесы одобряются на своём экране — здесь только плашка-счётчик с переходом, как в приложении. */}
+        {partners.length > 0 && (
+          <div className="queue-section">
+            <strong>
+              {appText(`Бизнесы ждут первого одобрения: ${partners.length}`, `Бизнестар беренсе раҫлауҙы көтә: ${partners.length}`)}
+            </strong>
+            <button type="button" className="btn-ghost queue-section__go" onClick={() => navigate("/admin/partners")}>
+              {appText("Открыть список бизнесов", "Бизнестар исемлеген асыу")}
+            </button>
           </div>
-          <h2>{appText("Очередь пуста", "Сират буш")}</h2>
-          <p>
-            {appText(
-              "Всё просмотрено. Новые заявки и купоны появятся здесь сами.",
-              "Барыһы ла ҡаралған. Яңы заявкалар һәм купондар бында үҙе күренәсәк."
-            )}
-          </p>
-        </div>
-      )}
+        )}
 
-      {state === "ready" && partners.length > 0 && (
-        <>
-          <h2 className="section-title">{appText("Бизнесы на проверке", "Тикшереүҙәге бизнестар")}</h2>
-          <div className="admin-cards">
-            {partners.map((p) => {
-              const key = `p${p.id}`;
-              return (
-                <div key={key} className="admin-card">
-                  <div className="admin-card__head">
-                    <div className="admin-card__title">
-                      <IconStore size={16} /> {p.name}
-                    </div>
-                    <span className="badge badge--gold">{appText("Новый", "Яңы")}</span>
-                  </div>
-                  <div className="admin-card__sub">
-                    {p.category} · {p.city}
-                    {p.address && (
-                      <>
-                        <br />
-                        {p.address}
-                      </>
-                    )}
-                  </div>
-                  {p.description && <div className="admin-card__reason">{p.description}</div>}
+        {state === "loading" && (
+          <>
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+          </>
+        )}
+        {state === "error" && <ListedError onRetry={() => load()} />}
 
-                  {rejectFor === key ? (
-                    <>
-                      <label className="field" style={{ marginTop: 10 }}>
-                        <span className="field__label">
-                          {appText("Причина отказа (её увидит владелец)", "Кире ҡағыу сәбәбе (хужа күрәсәк)")}
-                        </span>
-                        <input
-                          className="field__input"
-                          value={reason}
-                          onChange={(e) => setReason(e.target.value)}
-                          placeholder={appText("Коротко и по делу", "Ҡыҫҡа һәм эш буйынса")}
-                        />
-                      </label>
-                      <div className="act-card__actions" style={{ marginTop: 10 }}>
-                        <button
-                          type="button"
-                          className="btn-danger"
-                          onClick={() => act(key, () => rejectPartner(p.id, reason.trim()))}
-                          disabled={busyId === key || !reason.trim()}
-                        >
-                          {appText("Отклонить", "Кире ҡағыу")}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-ghost"
-                          onClick={() => {
-                            setRejectFor(null);
-                            setReason("");
-                          }}
-                        >
-                          {appText("Отмена", "Баш тартыу")}
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="act-card__actions" style={{ marginTop: 10 }}>
+        {state === "ready" && total === 0 && (
+          <ListedEmpty
+            title={appText("Всё проверено", "Бөтәһе тикшерелгән")}
+            subtitle={appText("Новые купоны и бизнесы появятся здесь сами.", "Яңы купондар һәм бизнестар бында үҙҙәре күренер.")}
+          />
+        )}
+
+        {state === "ready" &&
+          coupons.map((c, i) => {
+            const key = `c${c.id}`;
+            const why = reviewReason(c);
+            return (
+              <article key={key} className="acard" style={{ animationDelay: `calc(var(--cascade-in) * ${Math.min(i, 6)})` }}>
+                <span className={`atag atag--${why.tone} atag--wrap`}>{why.text}</span>
+                <strong className="acard__title">{c.title}</strong>
+                {c.discount_text && <span className="atext atext--green acard__caption">{c.discount_text}</span>}
+                {c.description && <span className="acard__sub">{c.description}</span>}
+                {/* Название бизнеса и город — данные, а не надпись: переводить нечего. */}
+                <span className="acard__sub">{c.partner_name} · {c.city}</span>
+
+                {rejectFor === key ? (
+                  /* Снятие купона: причину обязательно — её увидит владелец бизнеса и сможет поправить. */
+                  <div className="settings-confirm settings-confirm--card">
+                    <strong>{appText("Снять купон", "Купонды алыу")}</strong>
+                    <span>
+                      {appText(
+                        "Напиши причину — её увидит владелец бизнеса и сможет поправить текст.",
+                        "Сәбәбен яҙ — уны бизнес хужаһы күрер һәм текстты төҙәтә алыр."
+                      )}
+                    </span>
+                    <label className="field">
+                      <input
+                        className="field__input"
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value.slice(0, 500))}
+                        placeholder={appText("Например: скидки на деле нет", "Мәҫәлән: ташлама ысынында юҡ")}
+                        autoFocus
+                      />
+                    </label>
+                    <div className="settings-confirm__row">
                       <button
                         type="button"
-                        className="btn-primary"
-                        onClick={() => act(key, () => approvePartner(p.id))}
-                        disabled={busyId === key}
-                      >
-                        <IconCheck size={18} /> {appText("Одобрить", "Раҫлау")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-soft"
+                        className="btn-ghost settings-confirm__muted"
                         onClick={() => {
-                          setRejectFor(key);
+                          setRejectFor(null);
                           setReason("");
                         }}
                       >
-                        {appText("Отклонить", "Кире ҡағыу")}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
-
-      {state === "ready" && coupons.length > 0 && (
-        <>
-          <h2 className="section-title">{appText("Купоны без решения", "Ҡарарһыҙ купондар")}</h2>
-          <div className="admin-cards">
-            {coupons.map((c) => {
-              const key = `c${c.id}`;
-              const held = c.review === "held";
-              return (
-                <div key={key} className="admin-card">
-                  <div className="admin-card__head">
-                    <div className="admin-card__title">
-                      <IconTicket size={16} /> {c.title}
-                    </div>
-                    <span className={"badge " + (held ? "badge--danger" : "badge--gold")}>
-                      {held
-                        ? appText("Скрыт до проверки", "Тикшергәнгә тиклем йәшерен")
-                        : appText("Не просмотрен", "Ҡаралмаған")}
-                    </span>
-                  </div>
-                  <div className="admin-card__sub">
-                    {c.partner_name} · {c.city} · {c.discount_text}
-                  </div>
-                  {c.description && <div className="admin-card__reason">{c.description}</div>}
-
-                  <div className="money-row__foot" style={{ marginTop: 8 }}>
-                    {c.reports_count > 0 && (
-                      <span className="badge badge--danger">
-                        <IconWarn size={12} />{" "}
-                        {appText(`Жалоб: ${c.reports_count}`, `Зарланыу: ${c.reports_count}`)}
-                      </span>
-                    )}
-                    {c.review_flag && <span className="badge badge--gold">{c.review_flag}</span>}
-                    <span className={"badge " + (c.visible ? "badge--mint" : "badge--muted")}>
-                      {c.visible
-                        ? appText("Виден людям", "Кешеләргә күренә")
-                        : appText("Не виден", "Күренмәй")}
-                    </span>
-                  </div>
-
-                  {rejectFor === key ? (
-                    <>
-                      <label className="field" style={{ marginTop: 10 }}>
-                        <span className="field__label">
-                          {appText("Причина блокировки", "Блоклау сәбәбе")}
-                        </span>
-                        <input
-                          className="field__input"
-                          value={reason}
-                          onChange={(e) => setReason(e.target.value)}
-                          placeholder={appText("Что не так с купоном", "Купон менән нимә дөрөҫ түгел")}
-                        />
-                      </label>
-                      <div className="act-card__actions" style={{ marginTop: 10 }}>
-                        <button
-                          type="button"
-                          className="btn-danger"
-                          onClick={() => act(key, () => blockCoupon(c.id, reason.trim()))}
-                          disabled={busyId === key || !reason.trim()}
-                        >
-                          {appText("Заблокировать", "Блоклау")}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-ghost"
-                          onClick={() => {
-                            setRejectFor(null);
-                            setReason("");
-                          }}
-                        >
-                          {appText("Отмена", "Баш тартыу")}
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="act-card__actions" style={{ marginTop: 10 }}>
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        onClick={() => act(key, () => approveCoupon(c.id))}
-                        disabled={busyId === key}
-                      >
-                        <IconCheck size={18} /> {appText("Всё в порядке", "Бөтәһе лә тәртиптә")}
+                        {appText("Отмена", "Кире ҡағыу")}
                       </button>
                       <button
                         type="button"
-                        className="btn-soft"
-                        onClick={() => {
-                          setRejectFor(key);
-                          setReason("");
-                        }}
+                        className="btn-ghost settings-confirm__danger"
+                        onClick={() => act(key, () => blockCoupon(c.id, reason.trim()))}
+                        disabled={busyId === key || !reason.trim()}
                       >
-                        {appText("Заблокировать", "Блоклау")}
+                        {appText("Снять", "Алыу")}
                       </button>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+                  </div>
+                ) : (
+                  <div className="acard__actions">
+                    <button type="button" className="abtn abtn--tiny" onClick={() => act(key, () => approveCoupon(c.id))} disabled={busyId === key}>
+                      {appText("Всё в порядке", "Бөтәһе яҡшы")}
+                    </button>
+                    <button
+                      type="button"
+                      className="abtn abtn--tiny abtn--outline abtn--red"
+                      onClick={() => {
+                        setRejectFor(key);
+                        setReason("");
+                      }}
+                      disabled={busyId === key}
+                    >
+                      {appText("Снять", "Алыу")}
+                    </button>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+      </div>
     </>
   );
 }

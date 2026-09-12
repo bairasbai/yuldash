@@ -18,10 +18,11 @@ import {
 import { ApiError } from "../api/client";
 import type { Parcel } from "../api/parcels";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
+import { RideCardSkeleton } from "../components/States";
+import { AdminFilterChips, AdminIntro, ListedEmpty, ListedError } from "../components/adminUi";
 import { sizeLabel, StatusPillParcel } from "../components/parcelUi";
-import { rubLabel, formatRelative } from "../utils/format";
-import { IconArrow, IconBox, IconPhone } from "../components/Icons";
+import { kopExactLabel } from "../utils/format";
+import { IconBox, IconCheck, IconPin, IconProfile, IconWallet } from "../components/Icons";
 
 type State = "loading" | "error" | "ready";
 
@@ -47,6 +48,7 @@ export default function AdminParcelsScreen() {
   const ru = lang !== "ba";
   const navigate = useNavigate();
 
+  // Фильтр по состоянию есть только в вебе (в приложении — один список, активные сверху).
   const [filter, setFilter] = useState<string>("active");
   const [state, setState] = useState<State>("loading");
   const [parcels, setParcels] = useState<Parcel[]>([]);
@@ -79,329 +81,244 @@ export default function AdminParcelsScreen() {
     return [...rows].sort((a, b) => sortWeight(a.status) - sortWeight(b.status) || b.id - a.id);
   }, [parcels, filter]);
 
-  const activeN = parcels.filter((p) => ACTIVE_STATUSES.includes(p.status)).length;
-
   return (
     <>
-      <SubHeader
-        title={appText("Доставки посылок", "Бандероль доставкалары")}
-        subtitle={appText("Контроль и поддержка", "Контроль һәм ярҙам")}
-        onBack={() => navigate(-1)}
-      />
-
-      {/* Плашка дохода платформы: собрано ₽ + доставлено N. */}
-      <div className="income-hero" style={{ marginBottom: 8 }}>
-        <span className="income-hero__cap">{appText("Собрано по доставкам", "Доставкалар буйынса йыйылды")}</span>
-        <span className="income-hero__net">{rubLabel(statement?.collected_fee_kop ?? 0)}</span>
-        <span className="income-hero__note">
+      <SubHeader title={appText("Посылки", "Бандеролдәр")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        <AdminIntro>
           {appText(
-            `Доставлено: ${statement?.delivered_count ?? 0} · В работе: ${activeN}`,
-            `Тапшырылған: ${statement?.delivered_count ?? 0} · Эштә: ${activeN}`
+            "Все доставки посылок и собранный сбор Юлдаша. Видно только администратору.",
+            "Бөтә бандероль илтеүҙәре һәм йыйылған Юлдаш сборы. Тик админға күренә."
           )}
-        </span>
-      </div>
+        </AdminIntro>
 
-      {/* Что стоит за цифрой «собрано». Начисленное, но неоплаченное — это ещё не деньги,
-          а попутный сбор выставить вообще некому: там нет курьера-плательщика. Без этих
-          двух строк доход выглядит больше, чем он есть. */}
-      {((statement?.owed_commission_kop ?? 0) > 0 || (statement?.unbilled_fee_kop ?? 0) > 0) && (
-        <div className="info-list" style={{ marginTop: 0 }}>
-          {(statement?.owed_commission_kop ?? 0) > 0 && (
-            <div className="info-row">
-              <span className="info-row__k">{appText("Начислено, не оплачено", "Иҫәпләнгән, түләнмәгән")}</span>
-              <span className="info-row__v">{rubLabel(statement?.owed_commission_kop ?? 0)}</span>
+        {/* ParcelStatementCard: три разных числа, и каждое означает ровно то, что написано. */}
+        {statement && (
+          <div className="pstatement">
+            <div className="pstatement__head">
+              <span className="pstatement__icon" aria-hidden><IconWallet size={26} /></span>
+              <span className="pstatement__text">
+                <small>{appText("Курьеры оплатили", "Курьерҙар түләне")}</small>
+                <b>{kopExactLabel(statement.collected_fee_kop)}</b>
+                <span>{appText(`Доставлено посылок: ${statement.delivered_count}`, `Тапшырылған бандеролдәр: ${statement.delivered_count}`)}</span>
+              </span>
             </div>
-          )}
-          {(statement?.unbilled_fee_kop ?? 0) > 0 && (
-            <div className="info-row">
-              <span className="info-row__k">{appText("Попутные — не выставляем", "Юл ыңғайы — иҫәпләмәйбеҙ")}</span>
-              <span className="info-row__v">{rubLabel(statement?.unbilled_fee_kop ?? 0)}</span>
-            </div>
-          )}
-        </div>
-      )}
+            {((statement.owed_commission_kop ?? 0) > 0 || (statement.unbilled_fee_kop ?? 0) > 0) && (
+              <>
+                <hr className="pstatement__rule" />
+                {(statement.owed_commission_kop ?? 0) > 0 && (
+                  <div className="pstatement__row">
+                    <span className="pstatement__label">
+                      <strong>{appText("Ждём от курьеров", "Курьерҙарҙан көтәбеҙ")}</strong>
+                      <small>{appText("начислено, ещё не оплачено", "иҫәпләнгән, әле түләнмәгән")}</small>
+                    </span>
+                    <b className="atext--warn">{kopExactLabel(statement.owed_commission_kop ?? 0)}</b>
+                  </div>
+                )}
+                {(statement.unbilled_fee_kop ?? 0) > 0 && (
+                  <div className="pstatement__row">
+                    <span className="pstatement__label">
+                      <strong>{appText("Сбор «по пути»", "«Юл ыңғайы» йыйымы")}</strong>
+                      <small>{appText("выставить некому — это не выручка", "талап итер кеше юҡ — был килем түгел")}</small>
+                    </span>
+                    <b className="atext--muted">{kopExactLabel(statement.unbilled_fee_kop ?? 0)}</b>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
-      <div className="chip-scroll" role="tablist" aria-label={appText("Фильтр посылок", "Бандероль фильтры")}>
-        {FILTERS.map((f) => (
-          <button
-            key={f.key || "all"}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.key}
-            className={"chip" + (filter === f.key ? " chip--on" : "")}
-            onClick={() => setFilter(f.key)}
-          >
-            {appText(f.ru, f.ba)}
-          </button>
-        ))}
+        <AdminFilterChips
+          label={appText("Фильтр посылок", "Бандероль фильтры")}
+          options={FILTERS.map((f) => ({ key: f.key, label: appText(f.ru, f.ba) }))}
+          value={filter}
+          onChange={setFilter}
+        />
+
+        {state === "loading" && (
+          <>
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+          </>
+        )}
+        {state === "error" && <ListedError onRetry={() => load()} />}
+
+        {state === "ready" && shown.length === 0 && (
+          <ListedEmpty
+            icon={<IconBox size={34} />}
+            title={appText("Пока нет посылок", "Әлегә бандеролдәр юҡ")}
+            subtitle={appText("Здесь появятся все отправленные посылки.", "Бында бөтә ебәрелгән бандеролдәр күренер.")}
+          />
+        )}
+
+        {state === "ready" && shown.map((p, i) => <ParcelAdminCard key={p.id} parcel={p} ru={ru} index={i} onReleased={() => load()} />)}
       </div>
-
-      {state === "loading" && <LoadingList count={3} />}
-      {state === "error" && <ErrorState onRetry={() => load()} />}
-
-      {state === "ready" && shown.length === 0 && (
-        <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__icon"><IconBox size={40} /></div>
-          <h2>{appText("Здесь пусто", "Бында буш")}</h2>
-          <p>{appText("Посылок в этом разделе нет.", "Был бүлектә бандеролдәр юҡ.")}</p>
-        </div>
-      )}
-
-      {state === "ready" && shown.length > 0 && (
-        <div className="admin-cards">
-          {shown.map((p) => (
-            <ParcelAdminCard key={p.id} parcel={p} ru={ru} onReleased={() => load()} />
-          ))}
-        </div>
-      )}
     </>
   );
 }
 
-const DTYPE_LABEL: Record<string, [string, string]> = {
-  poputka: ["По пути", "Юл ыңғайы"],
-  courier: ["Курьер", "Курьер"],
-  buy_bring: ["Купи и привези", "Һатып ал да килтер"],
-};
+type ActionKind = "cancel" | "release" | "close";
 
 function ParcelAdminCard({
   parcel: p,
   ru,
+  index,
   onReleased,
 }: {
   parcel: Parcel;
   ru: boolean;
+  index: number;
   onReleased: () => void;
 }) {
   const { appText } = useLang();
-  const dtype = DTYPE_LABEL[p.delivery_type] ?? DTYPE_LABEL.poputka;
-  const [release, setRelease] = useState<number | null>(null);
-  /** Разбор вручную: отменить доставку или закрыть её итогом. */
-  const [resolve, setResolve] = useState(false);
-  const [outcome, setOutcome] = useState<"canceled" | "returned" | "delivered">("canceled");
+  /** Рычаги админа для зависшей доставки: три честных выхода, все с причиной для сторон. */
+  const [action, setAction] = useState<ActionKind | null>(null);
+  const [closeStatus, setCloseStatus] = useState<"returned" | "delivered" | "canceled">("returned");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState("");
+  const [err, setErr] = useState("");
 
-  async function doRelease(id: number) {
-    if (busy) return;
+  const finished = ["delivered", "canceled", "cancelled", "returned"].includes(String(p.status));
+  const delivered = p.delivered_at ? p.delivered_at.slice(0, 10) : "";
+
+  function open(kind: ActionKind) {
+    setAction(kind);
+    setReason("");
+    setErr("");
+  }
+
+  async function confirm() {
+    if (busy || !action) return;
     setBusy(true);
-    setNote("");
+    setErr("");
     try {
-      await releaseParcelCourier(id, reason.trim());
-      setRelease(null);
+      if (action === "cancel") await adminCancelParcel(p.id, reason.trim());
+      else if (action === "release") await releaseParcelCourier(p.id, reason.trim());
+      else await adminCloseParcel(p.id, closeStatus, reason.trim());
+      setAction(null);
       setReason("");
       onReleased();
     } catch (e) {
-      setNote(
+      setErr(
         e instanceof ApiError && e.message
           ? e.message
-          : appText("Не получилось снять курьера.", "Курьерҙы алып булманы.")
+          : appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
       );
     } finally {
       setBusy(false);
     }
   }
 
-  /** Итог разбора: «отменена» — отдельной ручкой, остальное — закрытием с итогом. */
-  async function doResolve(id: number) {
-    if (busy) return;
-    setBusy(true);
-    setNote("");
-    try {
-      if (outcome === "canceled") await adminCancelParcel(id, reason.trim());
-      else await adminCloseParcel(id, outcome, reason.trim());
-      setResolve(false);
-      setReason("");
-      onReleased();
-    } catch (e) {
-      setNote(
-        e instanceof ApiError && e.message
-          ? e.message
-          : appText("Не получилось закрыть доставку.", "Илтеүҙе ябып булманы.")
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
+  const title =
+    action === "cancel"
+      ? appText("Отменить доставку", "Илтеүҙе кире алыу")
+      : action === "release"
+        ? appText("Снять курьера", "Курьерҙы алыу")
+        : appText("Закрыть доставку", "Илтеүҙе ябыу");
+  const hint =
+    action === "cancel"
+      ? appText("Обе стороны получат причину. Комиссию за неоказанную услугу не берём.", "Ике яҡ та сәбәбен ала. Күрһәтелмәгән хеҙмәт өсөн комиссия алмайбыҙ.")
+      : action === "release"
+        ? appText("Посылка вернётся в общий список — её сможет взять другой курьер.", "Бандероль дөйөм исемлеккә ҡайта — уны башҡа курьер ала ала.")
+        : appText(
+            "Когда разобрались вне приложения. При «вернулась» и «отменена» комиссия обнуляется.",
+            "Ҡулланманан тыш хәл ителгәс. «Ҡайтты» һәм «кире алынды» осрағында комиссия юҡҡа сыға."
+          );
 
   return (
-    <div className="admin-card">
-      <div className="admin-card__head">
-        <div className="repeat-route" style={{ margin: 0 }}>
-          <span>{p.from_city || appText("Откуда", "Ҡайҙан")}</span>
-          <span className="repeat-route__arrow"><IconArrow size={16} /></span>
-          <span>{p.to_city || appText("Куда", "Ҡайҙа")}</span>
-        </div>
+    <article className="acard" style={{ animationDelay: `calc(var(--cascade-in) * ${Math.min(index, 6)})` }}>
+      <div className="acard__row">
+        <span className="acard__route acard__grow">
+          <IconPin size={16} />
+          <strong>{p.from_city || "—"}</strong>
+          <span>→</span>
+          <strong>{p.to_city || "—"}</strong>
+        </span>
         <StatusPillParcel status={p.status} />
       </div>
-
-      <div className="admin-card__sub">
-        #{p.id} · {sizeLabel(p.size, ru)} · {appText(dtype[0], dtype[1])} · {rubLabel(p.fee_kop)}
+      <span className="acard__sub">{sizeLabel(p.size, ru) + (p.description ? `  ·  ${p.description}` : "")}</span>
+      <div className="acard__row">
+        <span className="acard__text acard__iconline acard__grow">
+          <IconProfile size={15} /> {appText("Получатель: ", "Алыусы: ") + (p.receiver_name || "—")}
+        </span>
+        {/* Сумма сделки — что отправитель платит курьеру; наш сбор здесь не показываем. */}
+        {p.price_kop > 0 && <b className="acard__amount--green acard__caption">{kopExactLabel(p.price_kop)}</b>}
       </div>
-      {p.description && <p className="admin-card__reason">{p.description}</p>}
-
-      <div className="admin-card__sub">
-        {appText("Получатель", "Алыусы")}: <b>{p.receiver_name || "—"}</b>
-        {p.receiver_phone && (
-          <a className="admin-card__phone" href={`tel:${p.receiver_phone}`} style={{ marginLeft: 8 }}>
-            <IconPhone size={14} /> {p.receiver_phone}
-          </a>
-        )}
-      </div>
-
-      {p.confirm_code && (
-        <div className="admin-card__sub">
-          {appText("Код вручения", "Тапшырыу коды")}:{" "}
-          <b style={{ fontFamily: "monospace", letterSpacing: 1 }}>{p.confirm_code}</b>
-        </div>
+      {/* Есть только в вебе: приватное для поддержки — телефон получателя и код вручения. */}
+      {(p.receiver_phone || p.confirm_code) && (
+        <small className="acard__date">
+          {p.receiver_phone ? appText("Телефон: ", "Телефон: ") + p.receiver_phone : ""}
+          {p.receiver_phone && p.confirm_code ? "  ·  " : ""}
+          {p.confirm_code ? appText("Код вручения: ", "Тапшырыу коды: ") + p.confirm_code : ""}
+        </small>
       )}
-      <div className="admin-card__sub">
-        {p.courier_id
-          ? appText(`Курьер назначен (id ${p.courier_id})`, `Курьер билдәләнгән (id ${p.courier_id})`)
-          : appText("Курьер не найден", "Курьер табылманы")}
-      </div>
-      {p.created_at && (
-        <div className="admin-card__sub">{formatRelative(p.created_at, ru)}</div>
+      {(p.courier || p.courier_id) && (
+        <span className="acard__sub acard__iconline">
+          <IconBox size={15} /> {appText("Курьер: ", "Курьер: ") + (p.courier?.name || `#${p.courier?.id ?? p.courier_id}`)}
+        </span>
+      )}
+      {delivered && (
+        <span className="atext atext--green acard__iconline">
+          <IconCheck size={15} /> {appText(`Доставлена ${delivered}`, `${delivered} тапшырылды`)}
+        </span>
       )}
 
-      {/* Курьер пропал и не отвечает — снимаем, посылка вернётся в общий список.
-          Без этой кнопки заявка висела «в работе» у человека, который её не повезёт. */}
-      {p.courier_id && !["delivered", "canceled", "returned"].includes(String(p.status)) && (
-        release === p.id ? (
-          <>
-            <label className="field" style={{ marginTop: 10 }}>
-              <span className="field__label">
-                {appText("Почему снимаем (увидят обе стороны)", "Ниңә алабыҙ (ике яҡ та күрәсәк)")}
-              </span>
-              <input
-                className="field__input"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                maxLength={200}
-                placeholder={appText("«Не выходит на связь второй день»", "«Икенсе көн бәйләнешкә сыҡмай»")}
-              />
-            </label>
-            <div className="act-card__actions" style={{ marginTop: 10 }}>
-              <button
-                type="button"
-                className="btn-danger"
-                onClick={() => doRelease(p.id)}
-                disabled={busy || !reason.trim()}
-              >
-                {busy ? appText("Снимаем…", "Алабыҙ…") : appText("Снять курьера", "Курьерҙы алыу")}
+      {err && <div className="auth__error">{err}</div>}
+
+      {/* Рычаги — только пока доставка живая: закрытую трогать нечего. */}
+      {!finished && action === null && (
+        <>
+          <div className="acard__actions">
+            {(p.courier || p.courier_id) && (
+              <button type="button" className="btn-soft" onClick={() => open("release")}>
+                {appText("Снять курьера", "Курьерҙы алыу")}
               </button>
-              <button
-                type="button"
-                className="btn-ghost"
-                onClick={() => {
-                  setRelease(null);
-                  setReason("");
-                }}
-              >
-                {appText("Отмена", "Баш тартыу")}
-              </button>
-            </div>
-          </>
-        ) : (
-          <button
-            type="button"
-            className="btn-soft"
-            style={{ width: "100%", marginTop: 10 }}
-            onClick={() => {
-              setRelease(p.id);
-              setReason("");
-            }}
-          >
-            {appText("Снять курьера с доставки", "Курьерҙы илтеүҙән алыу")}
+            )}
+            <button type="button" className="btn-danger" onClick={() => open("cancel")}>
+              {appText("Отменить", "Кире алыу")}
+            </button>
+          </div>
+          <button type="button" className="abtn abtn--text abtn--muted" onClick={() => open("close")}>
+            {appText("Закрыть вручную", "Ҡулдан ябыу")}
           </button>
-        )
+        </>
       )}
 
-      {/* Разбор вручную: звонит бабушка, курьер пропал, стороны договорились сами.
-          Причину получают обе стороны — молчаливая отмена читается как «сервис
-          забрал посылку», а это худшее, что можно сделать с доверием. */}
-      {!["delivered", "canceled", "returned"].includes(String(p.status)) &&
-        (resolve ? (
-          <>
-            <span className="field__label" style={{ marginTop: 12, display: "block" }}>
-              {appText("Чем закончилось", "Нимә менән бөттө")}
-            </span>
-            <div className="seg" style={{ marginTop: 6 }}>
+      {!finished && action !== null && (
+        /* AdminParcelActionDialog — в вебе карточкой внутри. */
+        <div className="settings-confirm settings-confirm--card">
+          <strong>{title}</strong>
+          <span>{hint}</span>
+          {action === "close" && (
+            <div className="inc-resolve__choices" role="radiogroup">
               {(
                 [
-                  ["canceled", appText("Отменена", "Кире алынған")],
                   ["returned", appText("Вернулась отправителю", "Ебәреүсегә ҡайтты")],
-                  ["delivered", appText("Всё-таки доставлена", "Барыбер тапшырылды")],
-                ] as ["canceled" | "returned" | "delivered", string][]
+                  ["delivered", appText("Всё-таки доставлена", "Барыбер тапшырылған")],
+                  ["canceled", appText("Отменена", "Кире алынған")],
+                ] as ["returned" | "delivered" | "canceled", string][]
               ).map(([k, label]) => (
-                <button
-                  key={k}
-                  type="button"
-                  className={"seg__item" + (outcome === k ? " is-active" : "")}
-                  onClick={() => setOutcome(k)}
-                >
-                  {label}
+                <button key={k} type="button" role="radio" aria-checked={closeStatus === k} className={"choice-row choice-row--sm" + (closeStatus === k ? " is-on" : "")} onClick={() => setCloseStatus(k)}>
+                  {closeStatus === k ? <IconCheck size={18} /> : <IconPin size={18} />} {label}
                 </button>
               ))}
             </div>
-
-            <label className="field" style={{ marginTop: 10 }}>
-              <span className="field__label">
-                {appText("Причина (её увидят стороны)", "Сәбәп (яҡтар күрәсәк)")}
-              </span>
-              <input
-                className="field__input"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                maxLength={200}
-                placeholder={appText("«Договорились сами, посылку забрали»", "«Үҙҙәре килешкән, аҫылманы алғандар»")}
-              />
-            </label>
-
-            <p className="demand__quiet">
-              {appText(
-                "При «вернулась» и «отменена» комиссию за неоказанную услугу не берём.",
-                "«Ҡайтты» һәм «кире алынды» осрағында күрһәтелмәгән хеҙмәт өсөн комиссия алмайбыҙ."
-              )}
-            </p>
-
-            <div className="act-card__actions" style={{ marginTop: 10 }}>
-              <button
-                type="button"
-                className="btn-danger"
-                onClick={() => doResolve(p.id)}
-                disabled={busy || !reason.trim()}
-              >
-                {busy ? appText("Закрываем…", "Ябабыҙ…") : appText("Закрыть доставку", "Илтеүҙе ябыу")}
-              </button>
-              <button
-                type="button"
-                className="btn-ghost"
-                onClick={() => {
-                  setResolve(false);
-                  setReason("");
-                }}
-              >
-                {appText("Отмена", "Баш тартыу")}
-              </button>
-            </div>
-          </>
-        ) : (
-          <button
-            type="button"
-            className="btn-ghost"
-            style={{ width: "100%", marginTop: 10 }}
-            onClick={() => {
-              setResolve(true);
-              setReason("");
-            }}
-          >
-            {appText("Разобрать вручную", "Ҡул менән хәл итеү")}
-          </button>
-        ))}
-
-      {note && <p className="demand__quiet">{note}</p>}
-    </div>
+          )}
+          <label className="field">
+            <span className="field__label">{appText("Причина (её увидят стороны)", "Сәбәбе (яҡтар күрәсәк)")}</span>
+            <textarea className="field__input field__area" rows={2} value={reason} onChange={(e) => setReason(e.target.value.slice(0, 200))} autoFocus />
+          </label>
+          <div className="settings-confirm__row">
+            <button type="button" className="btn-ghost settings-confirm__muted" onClick={() => setAction(null)} disabled={busy}>
+              {appText("Отмена", "Кире алыу")}
+            </button>
+            <button type="button" className="btn-ghost inc-resolve__save" onClick={confirm} disabled={busy}>
+              {busy ? appText("…", "…") : appText("Подтвердить", "Раҫлау")}
+            </button>
+          </div>
+        </div>
+      )}
+    </article>
   );
 }

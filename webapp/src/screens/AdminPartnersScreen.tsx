@@ -16,12 +16,13 @@ import {
   type AdminPartner,
 } from "../api/admin";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
-import { formatRelative } from "../utils/format";
-import { IconCheck, IconPhone, IconWork } from "../components/Icons";
+import { RideCardSkeleton } from "../components/States";
+import { AdminFilterChips, AdminIntro, ListedEmpty, ListedError } from "../components/adminUi";
+import { IconPhone, IconPin, IconStar, IconStore, IconTicket } from "../components/Icons";
 
 type State = "loading" | "error" | "ready";
 
+/** Фильтр по статусу есть только в вебе (в приложении — один список, pending сверху). */
 const FILTERS: { key: string; ru: string; ba: string }[] = [
   { key: "pending", ru: "На проверке", ba: "Тикшереүҙә" },
   { key: "active", ru: "Активные", ba: "Әүҙем" },
@@ -29,36 +30,62 @@ const FILTERS: { key: string; ru: string; ba: string }[] = [
   { key: "", ru: "Все", ba: "Барыһы" },
 ];
 
-const CATEGORY_LABEL: Record<string, [string, string]> = {
-  cafe: ["Кафе", "Кафе"],
-  shop: ["Магазин", "Магазин"],
-  service: ["Услуги", "Хеҙмәттәр"],
-  beauty: ["Красота", "Матурлыҡ"],
-  auto: ["Авто", "Авто"],
-  health: ["Здоровье", "Һаулыҡ"],
-  other: ["Другое", "Башҡа"],
-};
+/** Подпись категории — как couponCategoryLabel в приложении; незнакомую отдаём как есть. */
+function categoryLabel(category: string, appText: (r: string, b: string) => string): string {
+  switch (category.toLowerCase()) {
+    case "cafe":
+      return appText("Кафе", "Кафе");
+    case "restaurant":
+      return appText("Ресторан", "Ресторан");
+    case "food":
+    case "grocery":
+      return appText("Продукты", "Аҙыҡ-түлек");
+    case "beauty":
+      return appText("Красота", "Матурлыҡ");
+    case "auto":
+    case "car":
+      return appText("Авто", "Авто");
+    case "pharmacy":
+      return appText("Аптека", "Дарыухана");
+    case "fuel":
+    case "gas":
+      return appText("Заправка", "Заправка");
+    case "shop":
+    case "store":
+      return appText("Магазин", "Кибет");
+    case "":
+      return appText("Заведение", "Урын");
+    default:
+      return category;
+  }
+}
 
-function statusBadge(s: string): { cls: string; ru: string; ba: string } {
+/** Иконка категории (couponCategoryIcon): витрина для еды, звезда для красоты, ярлык для прочего. */
+function categoryIcon(category: string) {
+  const c = category.toLowerCase();
+  if (["cafe", "restaurant", "food", "кафе", "ресторан", "еда"].includes(c)) return <IconStore size={22} />;
+  if (["beauty", "салон", "красота"].includes(c)) return <IconStar size={22} />;
+  return <IconTicket size={22} />;
+}
+
+/** AdminPartnerStatusChip: активен — мятный, отклонён — красный, пауза/проверка — жёлтый, архив — muted. */
+function statusChip(s: string): { tone: string; ru: string; ba: string } {
   switch (s) {
     case "active":
-      return { cls: "badge--mint", ru: "Активен", ba: "Әүҙем" };
-    case "pending":
-      return { cls: "badge--gold", ru: "На проверке", ba: "Тикшереүҙә" };
+      return { tone: "ok", ru: "Активен", ba: "Актив" };
     case "rejected":
-      return { cls: "badge--danger", ru: "Отклонён", ba: "Кире" };
+      return { tone: "bad", ru: "Отклонён", ba: "Кире ҡағылған" };
     case "paused":
-      return { cls: "badge--muted", ru: "Пауза", ba: "Пауза" };
+      return { tone: "wait", ru: "Пауза", ba: "Пауза" };
     case "archived":
-      return { cls: "badge--muted", ru: "Архив", ba: "Архив" };
+      return { tone: "muted", ru: "Архив", ba: "Архив" };
     default:
-      return { cls: "badge--muted", ru: s, ba: s };
+      return { tone: "wait", ru: "На проверке", ba: "Тикшереүҙә" };
   }
 }
 
 export default function AdminPartnersScreen() {
-  const { appText, lang } = useLang();
-  const ru = lang !== "ba";
+  const { appText } = useLang();
   const navigate = useNavigate();
 
   const [filter, setFilter] = useState<string>("pending");
@@ -69,7 +96,9 @@ export default function AdminPartnersScreen() {
     setState("loading");
     fetchAdminPartners({ limit: 300, signal })
       .then((list) => {
-        setPartners(list);
+        // pending — сверху, затем по дате (свежие выше), как в приложении.
+        const rank = (p: AdminPartner) => (p.status === "pending" ? 1 : 0);
+        setPartners([...list].sort((a, b) => rank(b) - rank(a) || (b.created_at ?? "").localeCompare(a.created_at ?? "")));
         setState("ready");
       })
       .catch((e) => {
@@ -90,75 +119,56 @@ export default function AdminPartnersScreen() {
 
   const shown = filter ? partners.filter((p) => p.status === filter) : partners;
   const pendingN = partners.filter((p) => p.status === "pending").length;
-  const activeN = partners.filter((p) => p.status === "active").length;
 
   return (
     <>
-      <SubHeader
-        title={appText("Модерация бизнесов", "Бизнестарҙы тикшереү")}
-        subtitle={appText("Партнёрские компании", "Партнёр компаниялар")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Бизнесы-партнёры", "Партнёр-бизнестар")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        <AdminIntro>
+          {appText(
+            "Проверь заведения, которые хотят размещать купоны. Одобри — бизнес сможет публиковать скидки.",
+            "Купон ҡуйырға теләгән урындарҙы тикшер. Раҫла — бизнес ташлама баҫтыра алыр."
+          )}
+        </AdminIntro>
+        {pendingN > 0 && (
+          <span className="pending-pill">{appText(`Ждут проверки: ${pendingN}`, `Тикшереүҙе көтә: ${pendingN}`)}</span>
+        )}
 
-      <div className="stat-grid" style={{ marginBottom: 4 }}>
-        <div className="stat-tile">
-          <b>{pendingN}</b>
-          <span>{appText("на проверке", "тикшереүҙә")}</span>
-        </div>
-        <div className="stat-tile">
-          <b>{activeN}</b>
-          <span>{appText("активных", "әүҙем")}</span>
-        </div>
-        <div className="stat-tile">
-          <b>{partners.length}</b>
-          <span>{appText("всего", "барлығы")}</span>
-        </div>
+        <AdminFilterChips
+          label={appText("Фильтр бизнесов", "Бизнес фильтры")}
+          options={FILTERS.map((f) => ({ key: f.key, label: appText(f.ru, f.ba) }))}
+          value={filter}
+          onChange={setFilter}
+        />
+
+        {state === "loading" && (
+          <>
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+          </>
+        )}
+        {state === "error" && <ListedError onRetry={() => load()} />}
+
+        {state === "ready" && shown.length === 0 && (
+          <ListedEmpty
+            title={appText("Пока нет заявок", "Әлегә заявкалар юҡ")}
+            subtitle={appText("Здесь появятся заведения, которые хотят стать партнёрами.", "Бында партнёр булырға теләгән урындар күренер.")}
+          />
+        )}
+
+        {state === "ready" && shown.map((p, i) => <PartnerCard key={p.id} partner={p} index={i} onPatch={patch} />)}
       </div>
-
-      <div className="chip-scroll" role="tablist" aria-label={appText("Фильтр бизнесов", "Бизнес фильтры")}>
-        {FILTERS.map((f) => (
-          <button
-            key={f.key || "all"}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.key}
-            className={"chip" + (filter === f.key ? " chip--on" : "")}
-            onClick={() => setFilter(f.key)}
-          >
-            {appText(f.ru, f.ba)}
-          </button>
-        ))}
-      </div>
-
-      {state === "loading" && <LoadingList count={3} />}
-      {state === "error" && <ErrorState onRetry={() => load()} />}
-
-      {state === "ready" && shown.length === 0 && (
-        <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__icon"><IconWork size={40} /></div>
-          <h2>{appText("Здесь пусто", "Бында буш")}</h2>
-          <p>{appText("Бизнесов в этом разделе нет.", "Был бүлектә бизнестар юҡ.")}</p>
-        </div>
-      )}
-
-      {state === "ready" && shown.length > 0 && (
-        <div className="admin-cards">
-          {shown.map((p) => (
-            <PartnerCard key={p.id} partner={p} ru={ru} onPatch={patch} />
-          ))}
-        </div>
-      )}
     </>
   );
 }
 
 function PartnerCard({
   partner,
-  ru,
+  index,
   onPatch,
 }: {
   partner: AdminPartner;
-  ru: boolean;
+  index: number;
   onPatch: (id: number, next: Partial<AdminPartner>) => void;
 }) {
   const { appText } = useLang();
@@ -167,14 +177,13 @@ function PartnerCard({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
 
-  const badge = statusBadge(partner.status);
-  const cat = CATEGORY_LABEL[partner.category] ?? [partner.category, partner.category];
+  const chip = statusChip(partner.status);
 
   function fail(e: unknown) {
     setError(
       e instanceof ApiError && e.message
         ? e.message
-        : appText("Не получилось. Попробуй ещё раз.", "Булманы. Ҡабат ҡара.") // DRAFT
+        : appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     );
   }
 
@@ -197,9 +206,11 @@ function PartnerCard({
     setBusy("reject");
     setError(null);
     try {
-      const updated = await rejectPartner(partner.id, reason.trim());
+      // Пустая причина → «Не прошло модерацию», как в приложении.
+      const updated = await rejectPartner(partner.id, reason.trim() || appText("Не прошло модерацию", "Модерацияны үтмәне"));
       onPatch(partner.id, updated);
       setRejecting(false);
+      setReason("");
     } catch (e) {
       fail(e);
     } finally {
@@ -207,102 +218,77 @@ function PartnerCard({
     }
   }
 
-  const canModerate = partner.status === "pending";
+  // Действия — только для тех, кого ещё можно модерировать.
+  const canAct = partner.status === "pending" || partner.status === "rejected";
 
   return (
-    <div className="admin-card">
-      <div className="admin-card__head">
-        <div className="admin-card__title">{partner.name || appText("Без названия", "Исемһеҙ")}</div>
-        <span className={`badge ${badge.cls}`}>{appText(badge.ru, badge.ba)}</span>
+    <article className="acard" style={{ animationDelay: `calc(var(--cascade-in) * ${Math.min(index, 6)})` }}>
+      <div className="acard__row acard__row--md">
+        <span className="partner-tile" aria-hidden>{categoryIcon(partner.category)}</span>
+        <span className="acard__stack acard__grow">
+          <strong className="acard__title">{partner.name || appText("Без названия", "Исемһеҙ")}</strong>
+          <span className="acard__sub">
+            {categoryLabel(partner.category, appText)}
+            {partner.city ? `  ·  ${partner.city}` : ""}
+          </span>
+        </span>
+        <span className={`abadge abadge--${chip.tone}`}>{appText(chip.ru, chip.ba)}</span>
       </div>
-
-      <div className="admin-card__sub">
-        {appText(cat[0], cat[1])}
-        {partner.city && <> · {partner.city}</>}
-      </div>
-      {partner.address && <div className="admin-card__sub">{partner.address}</div>}
+      {partner.address && (
+        <span className="acard__text acard__iconline">
+          <IconPin size={16} /> {partner.address}
+        </span>
+      )}
       {partner.phone && (
-        <a className="admin-card__phone" href={`tel:${partner.phone}`}>
-          <IconPhone size={14} /> {partner.phone}
+        <a className="acard__text acard__iconline acard__link" href={`tel:${partner.phone}`}>
+          <IconPhone size={16} /> {partner.phone}
         </a>
       )}
-      {partner.description && <p className="admin-card__reason">{partner.description}</p>}
-
-      <div className="admin-card__sub">
-        {partner.subscription_active
-          ? appText("Подписка активна", "Яҙылыу әүҙем")
-          : appText("Без подписки", "Яҙылыуһыҙ")}
-        {partner.subscription_plan && <> · {partner.subscription_plan}</>}
-      </div>
-      {partner.created_at && (
-        <div className="admin-card__sub">{formatRelative(partner.created_at, ru)}</div>
-      )}
-
-      {partner.reject_reason && partner.status === "rejected" && (
-        <p className="admin-card__sub">{appText("Причина", "Сәбәп")}: {partner.reject_reason}</p>
+      {partner.description && <span className="acard__sub">{partner.description}</span>}
+      {/* Есть только в вебе: подписка бизнеса и дата заявки. */}
+      <small className="acard__date">
+        {partner.subscription_active ? appText("Подписка активна", "Яҙылыу әүҙем") : appText("Без подписки", "Яҙылыуһыҙ")}
+        {partner.subscription_plan ? ` · ${partner.subscription_plan}` : ""}
+        {partner.created_at ? ` · ${partner.created_at.slice(0, 10)}` : ""}
+      </small>
+      {partner.status === "rejected" && partner.reject_reason && (
+        <span className="partner-rejected">{appText("Отклонён: ", "Кире ҡағылды: ") + partner.reject_reason}</span>
       )}
 
       {error && <div className="auth__error">{error}</div>}
 
-      {canModerate && !rejecting && (
-        <div className="field-row" style={{ marginTop: 12 }}>
-          <button
-            type="button"
-            className="btn-soft"
-            style={{ flex: 1 }}
-            onClick={() => setRejecting(true)}
-            disabled={busy !== null}
-          >
+      {canAct && !rejecting && (
+        <div className="acard__actions">
+          {partner.status === "pending" && (
+            <button type="button" className="abtn abtn--46" onClick={approve} disabled={busy !== null}>
+              {busy === "approve" ? appText("…", "…") : appText("Одобрить", "Раҫлау")}
+            </button>
+          )}
+          <button type="button" className="abtn abtn--46 abtn--outline abtn--red" onClick={() => setRejecting(true)} disabled={busy !== null}>
             {appText("Отклонить", "Кире ҡағыу")}
-          </button>
-          <button
-            type="button"
-            className="btn-primary"
-            style={{ flex: 1 }}
-            onClick={approve}
-            disabled={busy !== null}
-          >
-            {busy === "approve" ? appText("…", "…") : (
-              <><IconCheck size={18} /> {appText("Одобрить", "Раҫлау")}</>
-            )}
           </button>
         </div>
       )}
 
-      {canModerate && rejecting && (
-        <>
-          <textarea
-            className="field__input field__area"
-            style={{ marginTop: 12, minHeight: 76, paddingTop: 12 }}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder={appText(
-              "Причина отказа — бизнес увидит и исправит",
-              "Кире ҡағыу сәбәбе — бизнес күрер һәм төҙәтер"
-            )}
-          />
-          <div className="field-row" style={{ marginTop: 10 }}>
-            <button
-              type="button"
-              className="btn-soft"
-              style={{ flex: 1 }}
-              onClick={() => setRejecting(false)}
-              disabled={busy !== null}
-            >
-              {appText("Назад", "Артҡа")}
+      {canAct && rejecting && (
+        /* Диалог отклонения с причиной — в вебе карточкой внутри. */
+        <div className="settings-confirm settings-confirm--card">
+          <strong>{appText("Отклонить бизнес", "Бизнесты кире ҡағыу")}</strong>
+          <span>{appText("Напиши причину — заведение увидит её и сможет исправить.", "Сәбәпте яҙ — урын уны күрер һәм төҙәтә алыр.")}</span>
+          <label className="field">
+            <span className="field__label">{appText("Причина отказа", "Кире ҡағыу сәбәбе")}</span>
+            <textarea className="field__input field__area" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} autoFocus />
+          </label>
+          <div className="settings-confirm__row">
+            <button type="button" className="btn-ghost settings-confirm__muted" onClick={() => setRejecting(false)} disabled={busy !== null}>
+              {appText("Отмена", "Баш тартыу")}
             </button>
-            <button
-              type="button"
-              className="btn-danger"
-              style={{ flex: 1, marginTop: 0 }}
-              onClick={reject}
-              disabled={busy !== null}
-            >
+            <button type="button" className="btn-ghost settings-confirm__danger" onClick={reject} disabled={busy !== null}>
               {busy === "reject" ? appText("…", "…") : appText("Отклонить", "Кире ҡағыу")}
             </button>
           </div>
-        </>
+        </div>
       )}
-    </div>
+    </article>
   );
 }
