@@ -12218,3 +12218,186 @@ button.settings-row:active {
   background: var(--danger-bg);
   color: var(--danger);
 }
+
+/* ---- «Готовность к работе» — зеркало PretripCheckScreen (TaxiDocsScreens.kt). ---- */
+.pretrip-intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+}
+.pretrip-intro strong {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.pretrip-intro p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.pretrip-intro p.is-required {
+  color: var(--danger);
+  font-weight: var(--weight-bold);
+}
+.pretrip-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-xs) 0;
+}
+.pretrip-progress__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+.pretrip-progress__row span {
+  letter-spacing: 0.07em;
+}
+.pretrip-progress__row b.is-done {
+  color: var(--green2);
+}
+.pretrip-progress__track {
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+}
+.pretrip-progress__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green2);
+  transition: width var(--motion-slow) ease;
+}
+/* PretripCheckItem: карточка мин. 72, круг с иконкой, заголовок, подпись, круг-галочка справа. */
+.pretrip-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 72px;
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: background var(--motion-normal) ease, border-color var(--motion-normal) ease, transform var(--motion-quick) ease;
+}
+.pretrip-item:active {
+  transform: scale(0.98);
+}
+.pretrip-item.is-on {
+  border-color: var(--green2);
+  background: var(--mint);
+}
+.pretrip-item__bubble {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--muted);
+  transition: background var(--motion-normal) ease, color var(--motion-normal) ease;
+}
+.pretrip-item.is-on .pretrip-item__bubble {
+  background: var(--surface);
+  color: var(--green2);
+}
+.pretrip-item__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.pretrip-item__text strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.pretrip-item__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.pretrip-item__mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--muted);
+  border-radius: var(--radius-pill);
+  color: var(--on-filled);
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.pretrip-item.is-on .pretrip-item__mark {
+  border-color: var(--green2);
+  background: var(--green2);
+}
+.pretrip-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.pretrip-confirm .submit-btn {
+  margin-top: 0;
+}
+.pretrip-confirm__hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-caption);
+}
+/* PretripDoneCard: карточка с полями 24, печать 64 мятная, заголовок 19 Bold, пожелание, время. */
+.pretrip-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xl);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  text-align: center;
+}
+.pretrip-done__seal {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+  animation: popIn var(--motion-slow) ease both;
+}
+.pretrip-done strong {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.pretrip-done span {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.pretrip-done small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}

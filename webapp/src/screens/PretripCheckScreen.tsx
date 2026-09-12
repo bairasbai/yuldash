@@ -12,9 +12,9 @@ import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { confirmPretrip, fetchPretrip, type PretripState } from "../api/instant";
-import { LoadingList } from "../components/States";
+import { LoadingList, ErrorState, EmptyStateCard } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCheck, IconHeart, IconShield, IconWheel } from "../components/Icons";
+import { IconCheck, IconHeart, IconShield, IconWarn, IconWheel } from "../components/Icons";
 import { formatWhen } from "../utils/format";
 
 type Status = "loading" | "error" | "soon" | "ready";
@@ -101,154 +101,128 @@ export default function PretripCheckScreen() {
     },
   ];
 
+  const done = [health, car, sober].filter(Boolean).length;
+
   return (
     <>
-      <SubHeader
-        title={appText("Готовность к работе", "Эшкә әҙерлек")}
-        subtitle={appText("Перед выходом на линию", "Линияға сығыр алдынан")}
-        onBack={() => navigate(-1)}
-      />
-
-      {status === "loading" && <LoadingList count={2} />}
-
-      {status === "soon" && (
-        <div className="state" style={{ paddingTop: 32 }}>
-          <div className="state__icon">
-            <IconCheck size={34} />
-          </div>
-          <h2>{appText("Скоро здесь", "Тиҙҙән бында")}</h2>
-          <p>
-            {appText(
-              "Отметка готовности включится с ближайшим обновлением.",
-              "Әҙерлек билдәһе яҡын яңыртыуҙа тоташа."
+      <SubHeader title={appText("Готовность к работе", "Эшкә әҙерлек")} onBack={() => navigate(-1)} />
+      <div className="cabinet">
+        {status === "loading" && <LoadingList count={3} />}
+        {status === "soon" && (
+          <EmptyStateCard
+            icon={<IconShield size={30} />}
+            title={appText("Скоро здесь", "Тиҙҙән бында")}
+            text={appText(
+              "Раздел включится после ближайшего обновления.",
+              "Был бүлек яҡын яңыртыуҙан һуң эшләй башлар."
             )}
-          </p>
-        </div>
-      )}
+          />
+        )}
+        {status === "error" && <ErrorState onRetry={() => load()} />}
 
-      {status === "error" && (
-        <div className="state" style={{ paddingTop: 32 }}>
-          <div className="state__icon state__icon--warn">
-            <IconCheck size={34} />
-          </div>
-          <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
-          <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатлау")}
-          </button>
-        </div>
-      )}
-
-      {status === "ready" && state && (
-        <>
-          {state.confirmed ? (
-            <div className="act-card act-card--mint">
-              <div className="act-card__title">
-                <IconCheck size={18} /> {appText("Готовность подтверждена", "Әҙерлек раҫланды")}
-              </div>
-              <p className="act-card__text" style={{ margin: "6px 0 0" }}>
-                {appText("Хорошей смены и лёгкой дороги 💚", "Уңышлы смена һәм еңел юл 💚")}
+        {status === "ready" && state && (
+          <>
+            {state.confirmed ? (
+              /* PretripDoneCard: печать вырастает, заголовок 19 Bold, пожелание, время отметки. */
+              <section className="pretrip-done">
+                <span className="pretrip-done__seal" aria-hidden><IconCheck size={32} /></span>
+                <strong>{appText("Готовность подтверждена", "Әҙерлек раҫланды")}</strong>
+                <span>{appText("Хорошей смены и лёгкой дороги 💚", "Уңышлы смена һәм еңел юл 💚")}</span>
                 {state.confirmed_at && (
-                  <>
-                    <br />
-                    {appText("Отмечено: ", "Билдәләнде: ")}
-                    {formatWhen(state.confirmed_at, ru)}
-                  </>
+                  <small>{appText("Отмечено: ", "Билдәләнде: ")}{formatWhen(state.confirmed_at, ru)}</small>
                 )}
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="act-card">
-                <div className="act-card__title">
-                  <IconShield size={18} /> {appText("Перед выходом на линию", "Линияға сығыр алдынан")}
-                </div>
-                <p className="act-card__text" style={{ margin: "6px 0 0" }}>
-                  {appText(
-                    "Это самодекларация, а не медосмотр: врача у нас нет. Но осознанное «да» работает — и при разборе видно, что ты заявил.",
-                    "Был — үҙ-үҙеңде раҫлау, медосмотр түгел: беҙҙә врач юҡ. Әммә аңлы «эйе» эшләй — тикшереү булһа, нимә әйткәнең күренә."
-                  )}
-                </p>
-                {!state.required && (
-                  <p className="act-card__text" style={{ margin: "8px 0 0" }}>
+              </section>
+            ) : (
+              <>
+                {/* PretripIntroCard: что это и почему честно. */}
+                <section className="pretrip-intro">
+                  <strong>{appText("Перед выходом на линию", "Линияға сығыр алдынан")}</strong>
+                  <p>
                     {appText(
-                      "Сейчас отметка необязательна — но она остаётся в истории как твой след.",
-                      "Хәҙер билдә мотлаҡ түгел — әммә ул тарихта эҙең булып ҡала."
+                      "Отметь три пункта — раз в день. Это не медосмотр: врача у нас нет, и мы не будем притворяться. Это твоё слово, и оно остаётся записью — если что-то случится, будет видно, что ты подтвердил в этот день.",
+                      "Өс пунктты билдәлә — көнөнә бер тапҡыр. Был медосмотр түгел: табибыбыҙ юҡ, һәм беҙ уны уйнап күрһәтмәйбеҙ. Был — һинең һүҙең, ул яҙма булып ҡала: берәй хәл булһа, ошо көндә нимә раҫлағаның күренәсәк."
                     )}
                   </p>
-                )}
-              </div>
+                  <p className={state.required ? "is-required" : ""}>
+                    {state.required
+                      ? appText("Сегодня без этой отметки заказы такси брать нельзя.", "Бөгөн был билдәһеҙ такси заказдары алып булмай.")
+                      : appText(
+                          "Пока не обязательно — но отметка сохранится и пригодится при разборе.",
+                          "Әлегә мотлаҡ түгел — әммә билдә һаҡлана һәм тикшереүҙә ярҙам итә."
+                        )}
+                  </p>
+                </section>
 
-              <div className="list" style={{ marginTop: 12 }}>
+                {/* PretripProgress: «ОТМЕЧЕНО · 2 / 3» и полоска 4dp. */}
+                <div className="pretrip-progress">
+                  <div className="pretrip-progress__row">
+                    <span>{appText("ОТМЕЧЕНО", "БИЛДӘЛӘНГӘН")}</span>
+                    <b className={done === items.length ? "is-done" : ""}>{done} / {items.length}</b>
+                  </div>
+                  <div className="pretrip-progress__track" aria-hidden>
+                    <div className="pretrip-progress__fill" style={{ width: `${(done / items.length) * 100}%` }} />
+                  </div>
+                </div>
+
                 {items.map((it) => (
-                  <label key={it.title} className="list-row list-row--check">
-                    <span className="list-row__icon">{it.icon}</span>
-                    <div className="list-row__main">
-                      <div className="list-row__title">{it.title}</div>
-                      <div className="list-row__sub">{it.sub}</div>
-                    </div>
-                    <input
-                      type="checkbox"
-                      className="checkbox"
-                      checked={it.on}
-                      onChange={() => it.set(!it.on)}
-                      aria-label={it.title}
-                    />
-                  </label>
+                  <button
+                    key={it.title}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={it.on}
+                    className={"pretrip-item" + (it.on ? " is-on" : "")}
+                    onClick={() => it.set(!it.on)}
+                  >
+                    <span className="pretrip-item__bubble" aria-hidden>{it.icon}</span>
+                    <span className="pretrip-item__text">
+                      <strong>{it.title}</strong>
+                      <small>{it.sub}</small>
+                    </span>
+                    <span className="pretrip-item__mark" aria-hidden>{it.on && <IconCheck size={14} />}</span>
+                  </button>
                 ))}
-              </div>
 
-              <label className="field" style={{ marginTop: 12 }}>
-                <span className="field__label">
-                  {appText("Заметка (необязательно)", "Билдә (мотлаҡ түгел)")}
-                </span>
-                <textarea
-                  className="field__area"
-                  rows={2}
-                  maxLength={300}
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder={appText(
-                    "«Заменил лампу ближнего света»",
-                    "«Яҡын ут лампаһын алмаштырҙым»"
+                <label className="field dl-field">
+                  <span className="field__label">{appText("Заметка (необязательно)", "Билдә (мотлаҡ түгел)")}</span>
+                  <textarea
+                    className="field__input field__area dl-field__area"
+                    rows={2}
+                    maxLength={300}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder={appText("«Заменил лампу ближнего света»", "«Яҡын ут лампаһын алмаштырҙым»")}
+                  />
+                  <span className="field__hint">
+                    {note.length === 0
+                      ? appText("Коротко, до 300 знаков", "Ҡыҫҡа, 300 билдәгә тиклем")
+                      : appText(`${note.length} / 300`, `${note.length} / 300`)}
+                  </span>
+                </label>
+
+                <div className="pretrip-confirm">
+                  <button type="button" className="btn-primary submit-btn" onClick={confirm} disabled={!allChecked || busy}>
+                    {busy ? appText("Отмечаем…", "Билдәләйбеҙ…") : appText("Подтвердить готовность", "Әҙерлекте раҫлау")}
+                  </button>
+                  {!allChecked && (
+                    <p className="dl-blocked pretrip-confirm__hint">
+                      {appText(
+                        "Если хоть один пункт не про тебя сегодня — не выезжай. Заказы подождут, здоровье нет.",
+                        "Бөгөн пункттарҙың береһе лә тап килмәһә — сыҡма. Заказдар көтә, ә һаулыҡ көтмәй."
+                      )}
+                    </p>
                   )}
-                />
-                <span className="field__hint">
-                  {appText("Коротко, до 300 знаков", "Ҡыҫҡа, 300 билдәгә тиклем")}
-                </span>
-              </label>
-
-              {err && <p className="taxi-note">{err}</p>}
-
-              <button
-                type="button"
-                className="btn-primary"
-                style={{ width: "100%", marginTop: 12 }}
-                onClick={confirm}
-                disabled={!allChecked || busy}
-              >
-                {busy
-                  ? appText("Отмечаем…", "Билдәләйбеҙ…")
-                  : appText("Подтвердить готовность", "Әҙерлекте раҫлау")}
-              </button>
-              {!allChecked && (
-                <p className="demand__quiet" style={{ textAlign: "center" }}>
-                  {appText(
-                    "Отметь все три пункта — «частично готов» это не готов.",
-                    "Өс пунктты ла билдәлә — «өлөшләтә әҙер» әҙер түгел ул."
+                  {err && (
+                    <div className="docs-notice is-error" role="alert">
+                      <IconWarn size={20} />
+                      <span>{err}</span>
+                    </div>
                   )}
-                </p>
-              )}
-            </>
-          )}
-
-          <p className="receipt__foot">
-            {appText(
-              "Запись остаётся в журнале за сегодняшний день — это след, а не тумблер.",
-              "Яҙма бөгөнгө көн журналында ҡала — был тумблер түгел, эҙ."
+                </div>
+              </>
             )}
-          </p>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </>
   );
 }
