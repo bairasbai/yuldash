@@ -42,7 +42,7 @@ import { AvailableParcelCard, CarryParcelCard, CodeDialog } from "../components/
 import ParcelProblemActions from "../components/ParcelProblemActions";
 import ParcelPhoto from "../components/ParcelPhoto";
 import CityField from "../components/CityField";
-import { IconStar, IconCheck, IconCopy, IconBox, IconCamera, IconTrend } from "../components/Icons";
+import { IconStar, IconCheck, IconCopy, IconBox, IconCamera, IconTrend, IconRoute } from "../components/Icons";
 import { YuCourierWalk, YuModeCourier } from "../components/BrandIcons";
 import { serverMs } from "../utils/serverTime";
 import { rememberPayment } from "../utils/pendingPayment";
@@ -175,17 +175,21 @@ export default function CourierScreen() {
     );
   }
   if (boot === "need-approval") {
+    // CourierNotApprovedView (Android): круг 96 мятный с иконкой, заголовок 19 Bold, текст, золотая кнопка.
     return (
       <>
         <SubHeader title={appText("Курьер Юлдаш", "Юлдаш курьеры")} onBack={() => navigate(-1)} />
-        <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__icon">
-            <YuCourierWalk size={36} />
-          </div>
-          <h2>{appText("Сначала стань курьером", "Башта курьер бул")}</h2>
-          <p>{appText("Чтобы брать заказы, нужна одобренная заявка. Это займёт пару минут.", "Заказ алыр өсөн хупланған ғариза кәрәк. Был бер-ике минут.")}</p>
-          <button type="button" className="btn-primary" onClick={() => navigate("/courier-onboarding")}>
-            {appText("Стать курьером", "Курьер булыу")}
+        <div className="gate">
+          <span className="gate__badge gate__badge--mint" aria-hidden><YuModeCourier size={48} /></span>
+          <h2 className="gate__title">{appText("Стань курьером Юлдаша", "Юлдаш курьеры бул")}</h2>
+          <p className="gate__body">
+            {appText(
+              "Развози посылки своим и зарабатывай. Текущая ставка комиссии — в кабинете курьера.",
+              "Үҙебеҙҙекеләргә бандеролдәр илт тә аҡса эшлә. Хәҙерге комиссия ставкаһы — курьер кабинетында."
+            )}
+          </p>
+          <button type="button" className="btn-primary btn-accent gate__primary" onClick={() => navigate("/courier-onboarding")}>
+            <IconRoute size={18} /> {appText("Стать курьером", "Курьер булыу")}
           </button>
         </div>
       </>

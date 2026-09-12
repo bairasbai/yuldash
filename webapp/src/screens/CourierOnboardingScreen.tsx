@@ -22,8 +22,9 @@ import {
   type CourierTransport,
 } from "../api/courier";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList } from "../components/States";
-import { IconCheck, IconCamera, IconShield, IconBox, IconCar, IconClock, IconWarn } from "../components/Icons";
+import { LoadingList, ErrorState } from "../components/States";
+import { IconCheck, IconCamera, IconBox, IconCar, IconRoute } from "../components/Icons";
+import { DeliveryErrorCard, DeliveryHint, DeliverySectionTitle } from "../components/parcelForm";
 import { useDraftSync, clearDraft } from "../utils/formDraft";
 import { track } from "../analytics";
 
@@ -141,7 +142,7 @@ export default function CourierOnboardingScreen() {
   if (boot === "loading") {
     return (
       <>
-        <SubHeader title={appText("Стать курьером", "Курьер булыу")} onBack={() => navigate(-1)} />
+        <SubHeader title={appText("Курьер Юлдаш", "Юлдаш курьеры")} onBack={() => navigate(-1)} />
         <LoadingList count={2} />
       </>
     );
@@ -150,83 +151,97 @@ export default function CourierOnboardingScreen() {
   if (boot === "error") {
     return (
       <>
-        <SubHeader title={appText("Стать курьером", "Курьер булыу")} onBack={() => navigate(-1)} />
-        <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
-          <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
-          <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатлау")}
-          </button>
-        </div>
+        <SubHeader title={appText("Курьер Юлдаш", "Юлдаш курьеры")} onBack={() => navigate(-1)} />
+        <ErrorState onRetry={() => load()} />
       </>
     );
   }
 
-  // Статус: заявка уже подана и не в режиме редактирования.
+  // Статус: заявка уже подана и не в режиме редактирования (CourierStatusScaffold в Android).
   const st = app?.status;
   if (app && !editing && (st === "pending" || st === "approved" || st === "rejected")) {
-    const map = {
-      approved: {
-        Icon: IconCheck,
-        warn: false,
-        title: appText("Ты курьер Юлдаша!", "Һин Юлдаш курьеры!"),
-        body: appText(
-          "Заявка одобрена. Выходи на линию — бери доставки рядом и зарабатывай.",
-          "Ғариза хупланды. Линияға сыҡ — яҡындағы доставкаларҙы ал һәм эшлә."
-        ),
-      },
-      pending: {
-        Icon: IconClock,
-        warn: false,
-        title: appText("Заявка на проверке", "Ғариза тикшереүҙә"),
-        body: appText(
-          "Мы проверяем селфи и приглашение. Обычно это недолго — пришлём уведомление.",
-          "Селфи менән саҡырыуҙы тикшерәбеҙ. Ғәҙәттә оҙаҡ түгел — хәбәр итәбеҙ."
-        ),
-      },
-      rejected: {
-        Icon: IconWarn,
-        warn: true,
-        title: appText("Заявка отклонена", "Ғариза кире ҡағылды"),
-        body: appText(
-          "Поправь фото и подай снова.",
-          "Фотоны төҙәт тә ҡабат ебәр."
-        ),
-      },
-    }[st as "approved" | "pending" | "rejected"];
+    const view =
+      st === "approved"
+        ? {
+            emoji: "🎉",
+            tone: "mint",
+            title: appText("Поздравляем — ты курьер Юлдаша!", "Ҡотлайбыҙ — һин Юлдаш курьеры!"),
+            body: appText(
+              "Заявка одобрена. Открывай «Режим курьера», включай «На линии» — и заказы начнут приходить.",
+              "Заявка раҫланды. «Курьер режимын» ас, «Линияла» тумблерын ҡабыҙ — заказдар килә башлар."
+            ),
+            summary: false,
+            primary: appText("В режим курьера", "Курьер режимына"),
+            onPrimary: () => navigate("/courier"),
+            secondary: null as string | null,
+            onSecondary: undefined as (() => void) | undefined,
+          }
+        : st === "rejected"
+          ? {
+              emoji: "✋",
+              tone: "danger",
+              title: appText("Заявку пока отклонили", "Заявка әлегә кире ҡағылды"),
+              body: app.reject_reason
+                ? appText("Причина: ", "Сәбәбе: ") + app.reject_reason
+                : appText(
+                    "Проверь селфи и транспорт — и подай снова. Мы поможем разобраться.",
+                    "Селфи менән транспортты тикшер ҙә ҡабат бир. Аңларға ярҙам итәбеҙ."
+                  ),
+              summary: true,
+              primary: appText("Подать снова", "Ҡабат биреү"),
+              onPrimary: () => {
+                setTransport((app.transport as CourierTransport) || "car");
+                setEditing(true);
+              },
+              secondary: appText("Позже", "Һуңыраҡ"),
+              onSecondary: () => navigate(-1),
+            }
+          : {
+              emoji: "⏳",
+              tone: "warn",
+              title: appText("Заявка на проверке", "Заявка тикшереүҙә"),
+              body: appText(
+                "Мы уже смотрим твою заявку. Обычно это занимает меньше дня — пришлём уведомление, как только всё готово.",
+                "Заявкаңды ҡарайбыҙ инде. Ғәҙәттә был бер көндән дә әҙерәк ваҡыт ала — әҙер булыу менән хәбәр ебәрәбеҙ."
+              ),
+              summary: true,
+              primary: appText("Обновить статус", "Статусты яңыртыу"),
+              onPrimary: () => load(),
+              secondary: appText("Понятно", "Аңлашылды"),
+              onSecondary: () => navigate(-1),
+            };
 
     return (
       <>
         <SubHeader title={appText("Курьер Юлдаш", "Юлдаш курьеры")} onBack={() => navigate(-1)} />
-        <div className="state" style={{ paddingTop: 36 }}>
-          <div className={"state__icon" + (map.warn ? " state__icon--warn" : "")}>
-            <map.Icon size={34} />
-          </div>
-          <h2>{map.title}</h2>
-          <p>{map.body}</p>
-          {st === "rejected" && app.reject_reason && (
-            <div className="consents__status" style={{ marginTop: 4 }}>
-              <IconWarn size={15} /> {app.reject_reason}
+        <div className="gate">
+          <span className={"gate__badge gate__badge--" + view.tone} aria-hidden>{view.emoji}</span>
+          <h2 className="gate__title">{view.title}</h2>
+          <p className="gate__body">{view.body}</p>
+          {view.summary && (
+            <div className="gate__summary">
+              <div className="gate__row">
+                <span>{appText("Транспорт", "Транспорт")}</span>
+                <b>{courierTransportLabel(app.transport, appText)}</b>
+              </div>
+              <div className="gate__row">
+                <span>{appText("Селфи", "Селфи")}</span>
+                <b>{app.selfie_url ? appText("загружено", "йөкләнгән") : appText("нет", "юҡ")}</b>
+              </div>
+              {app.invited_by != null && (
+                <div className="gate__row">
+                  <span>{appText("Пригласил", "Саҡырҙы")}</span>
+                  <b>#{app.invited_by}</b>
+                </div>
+              )}
             </div>
           )}
-          {st === "approved" ? (
-            <button type="button" className="btn-primary" onClick={() => navigate("/courier")}>
-              {appText("Выйти на линию", "Линияға сығыу")}
-            </button>
-          ) : st === "rejected" ? (
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => {
-                setTransport((app.transport as CourierTransport) || "car");
-                setEditing(true);
-              }}
-            >
-              {appText("Подать снова", "Ҡабат ебәреү")}
-            </button>
-          ) : (
-            <button type="button" className="btn-soft" onClick={() => navigate("/parcels")}>
-              {appText("К посылкам", "Бандеролдәргә")}
+          <button type="button" className="btn-primary gate__primary" onClick={view.onPrimary}>
+            {view.primary}
+          </button>
+          {view.secondary && view.onSecondary && (
+            <button type="button" className="btn-ghost gate__secondary" onClick={view.onSecondary}>
+              {view.secondary}
             </button>
           )}
         </div>
@@ -234,188 +249,258 @@ export default function CourierOnboardingScreen() {
     );
   }
 
-  // Форма заявки.
+  // Форма заявки — CourierApplyFormContent.
   return (
     <>
-      <SubHeader
-        title={appText("Стать курьером Юлдаша", "Юлдаш курьеры булыу")}
-        subtitle={appText("Доставка между своими · честная комиссия", "Үҙебеҙ араһында доставка · ғәҙел комиссия")}
-        onBack={() => navigate(-1)}
-      />
-
-      <div className="verify-rules">
-        <div className="verify-rules__head">
-          <IconShield size={22} />
-          {appText("Как это работает", "Был нисек эшләй")}
-        </div>
-        <ul>
-          <li>{appText("Возишь посылки и товары «между своими»", "«Үҙебеҙ араһында» бандеролдәр һәм тауар йөрөтәһең")}</li>
-          <li>{appText("Текущая ставка комиссии — в кабинете курьера, сумма по доставке — в её расчёте", "Хәҙерге комиссия ставкаһы — курьер кабинетында, илтеү өсөн сумма — уның иҫәбендә")}</li>
-          <li>{appText("Оплата от получателя — напрямую тебе", "Түләү алыусынан — тура һиңә")}</li>
-          <li>{appText("Проверка Уровень 1: селфи с документом", "1-се кимәл тикшереү: документ менән селфи")}</li>
-        </ul>
-        <p>
-          {appText(
-            "Селфи видит только модератор. Мы не публикуем его и телефон.",
-            "Селфины тик модератор күрә. Уны һәм телефонды баҫмайбыҙ."
-          )}
-        </p>
-      </div>
-
-      {/* На что человек соглашается. Он берёт в руки чужое — и должен знать
-          границы ДО заявки, а не выяснять их в первом же споре. */}
-      <div className="verify-rules" style={{ marginTop: 12 }}>
-        <div className="verify-rules__head">
-          <IconWarn size={22} />
-          {appText("Что важно знать заранее", "Алдан белергә кәрәк")}
-        </div>
-
-        <div className="courier-rule">
-          <b>{appText("Что нельзя возить", "Нимә йөрөтөргә ярамай")}</b>
+      <SubHeader title={appText("Курьер Юлдаш", "Юлдаш курьеры")} onBack={() => navigate(-1)} />
+      <div className="dl-form">
+        {/* Герой: мятная карточка, зелёный круг с иконкой, заголовок 19 Bold, текст. */}
+        <section className="apply-hero">
+          <div className="apply-hero__head">
+            <span className="apply-hero__icon" aria-hidden><IconRoute size={24} /></span>
+            <h2>{appText("Стать курьером Юлдаша", "Юлдаш курьеры булыу")}</h2>
+          </div>
           <p>
             {appText(
+              "Развози посылки своим — по-соседски и без жадных процентов. Оставь заявку, мы проверим тебя и подключим к заказам.",
+              "Үҙебеҙҙекеләргә бандеролдәр илт — күршеләрсә һәм йыртҡыс процентһыҙ. Заявка ҡалдыр, беҙ һине тикшереп заказдарға тоташтырабыҙ."
+            )}
+          </p>
+        </section>
+
+        <SectionHeader title={appText("Наши условия", "Беҙҙең шарттар")} subtitle={appText("Просто и честно", "Ябай һәм намыҫлы")} />
+        <div className="rules-list">
+          <RuleRow
+            emoji="💚"
+            title={appText("Комиссия — по ступени, прозрачно", "Комиссия — баҫҡыс буйынса, асыҡ")}
+            body={appText(
+              "Текущая ставка комиссии — в кабинете курьера, сумма по доставке — в её расчёте.",
+              "Хәҙерге комиссия ставкаһы — курьер кабинетында, илтеү өсөн сумма — уның иҫәбендә."
+            )}
+          />
+          <RuleRow
+            emoji="🚫"
+            title={appText("Что нельзя возить", "Нимә илтергә ярамай")}
+            body={appText(
               "Деньги, документы на предъявителя, лекарства без рецепта, скоропорт, оружие, запрещённое законом.",
-              "Аҡса, күрһәтеүсегә документтар, рецепһыҙ дарыуҙар, тиҙ боҙолған аҙыҡ, ҡорал, закон тыйған нәмәләр."
+              "Аҡса, күрһәтеүсегә документтар, рецептһыҙ дарыу, тиҙ боҙолған аҙыҡ, ҡорал, закон менән тыйылған."
             )}
-          </p>
-        </div>
-
-        <div className="courier-rule">
-          <b>{appText("Ответственность на курьере", "Яуаплылыҡ курьерҙа")}</b>
-          <p>
-            {appText(
+          />
+          <RuleRow
+            emoji="🤝"
+            title={appText("Ответственность на курьере", "Яуаплылыҡ курьерҙа")}
+            body={appText(
               "Ты отвечаешь за сохранность посылки от приёма до вручения по коду. Береги чужое как своё.",
-              "Алғандан алып код буйынса тапшырғанға тиклем бандероль өсөн һин яуаплы. Кеше әйберен үҙеңдеке кеүек һаҡла."
+              "Бандеролде алғандан код буйынса тапшырғанға тиклем һаҡлау — һинең өҫтөңдә. Кеше әйберен үҙеңдеке кеүек һаҡла."
             )}
-          </p>
+          />
+          <RuleRow
+            emoji="🛒"
+            title={appText("«Купи и привези» — до 5000 ₽", "«Ал да килтер» — 5000 ₽-ға тиклем")}
+            body={appText(
+              "Можешь купить товар за клиента и привезти. Лимит суммы покупки — 5000 ₽, чтобы ты не рисковал крупным.",
+              "Клиент өсөн тауар алып килтерә алаһың. Һатып алыу лимиты — 5000 ₽, ҙур аҡса менән тәүәккәлләмәҫ өсөн."
+            )}
+          />
         </div>
 
-        <div className="courier-rule">
-          <b>{appText("«Купи и привези» — до 5000 ₽", "«Һатып ал һәм килтер» — 5000 ₽-ға тиклем")}</b>
-          <p>
-            {appText(
-              "Можешь купить товар за клиента и привезти. Лимит покупки — 5000 ₽, чтобы ты не рисковал крупным.",
-              "Клиент өсөн тауар һатып алып килтерә алаһың. Лимит — 5000 ₽, ҙур аҡса менән тәүәкәлләмәҫкә."
-            )}
-          </p>
-        </div>
-      </div>
-
-      {/* Транспорт */}
-      <span className="field__label" style={{ marginTop: 14, display: "block" }}>
-        {appText("На чём возишь", "Нимәлә йөрөтәһең")}
-      </span>
-      <div className="seg" style={{ marginTop: 6 }}>
-        <button
-          type="button"
-          className={"seg__item" + (transport === "car" ? " is-active" : "")}
-          onClick={() => setTransport("car")}
-        >
-          <span><IconCar size={20} /></span>
-          {appText("Легковой", "Еңел авто")}
-        </button>
-        <button
-          type="button"
-          className={"seg__item" + (transport === "cargo" ? " is-active" : "")}
-          onClick={() => setTransport("cargo")}
-        >
-          <span><IconBox size={20} /></span>
-          {appText("Грузовой", "Йөк авто")}
-        </button>
-      </div>
-
-      {/* Селфи с документом */}
-      <h2 className="section-title">{appText("Проверка", "Тикшереү")}</h2>
-      <button
-        type="button"
-        className={"photo-slot" + (selfieUrl ? " is-done" : "")}
-        onClick={() => fileRef.current?.click()}
-        disabled={uploading}
-      >
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) pickSelfie(f);
-            e.target.value = "";
-          }}
-        />
-        <span className="photo-slot__icon">
-          {selfieUrl ? <IconCheck size={24} /> : <IconCamera size={24} />}
-        </span>
-        <span className="photo-slot__text">
-          <b>{appText("Селфи с документом", "Документ менән селфи")}</b>
-          <span>
-            {uploading
-              ? appText("Загружаем…", "Йөкләйбеҙ…")
-              : selfieUrl
-                ? appText("Фото загружено", "Фото йөкләнде")
-                : appText("Лицо и паспорт/права в кадре", "Йөҙ һәм паспорт/права кадрҙа")}
-          </span>
-        </span>
-      </button>
-
-      {/* Кто везёт. Имя — как в документе на селфи: модератор сверяет одно с другим. */}
-      <label className="field" style={{ marginTop: 14 }}>
-        <span className="field__label">{appText("Фамилия и имя как в документе", "Документтағыса фамилия һәм исем")}</span>
-        <input
-          className="field__input"
-          value={fullName}
-          maxLength={120}
-          onChange={(e) => setFullName(e.target.value)}
-          placeholder={appText("Иванов Ринат", "Иванов Ринат")}
-          autoComplete="name"
-        />
-      </label>
-
-      <label className="field">
-        <span className="field__label">{appText("Госномер машины", "Машинаның дәүләт номеры")}</span>
-        <input
-          className="field__input"
-          value={carPlate}
-          maxLength={16}
-          onChange={(e) => setCarPlate(e.target.value.toUpperCase())}
-          placeholder="А123ВС102"
-          autoComplete="off"
-        />
-        <span className="field__hint">
-          {appText("По нему тебя узнают у подъезда", "Уның буйынса подъезд янында һине таныйҙар")}
-        </span>
-      </label>
-
-      <label className="admin-check">
-        <input type="checkbox" checked={rulesOk} onChange={(e) => setRulesOk(e.target.checked)} />
-        <span>{appText("Согласен с правилами доставки", "Илтеү ҡағиҙәләре менән килешәм")}</span>
-      </label>
-      <p className="courier-rule" style={{ marginTop: 4 }}>
-        <span style={{ display: "block" }}>
-          {appText(
-            "Везу бережно, не вскрываю, запрещённое не беру. Если что-то пошло не так — говорю сразу, а не молчу.",
-            "Һаҡ илтәм, асмайым, тыйылғанды алмайым. Берәй нәмә дөрөҫ булмаһа — шунда уҡ әйтәм, өндәшмәй ҡалмайым."
-          )}
-        </span>
-      </p>
-
-      {error && <div className="auth__error">{error}</div>}
-
-      <button
-        type="button"
-        className="btn-primary submit-btn"
-        style={{ marginTop: 14 }}
-        onClick={submit}
-        disabled={!canSubmit}
-      >
-        {busy ? (
-          appText("Отправляем…", "Ебәрәбеҙ…")
-        ) : (
-          <>
-            <IconBox size={18} /> {appText("Отправить заявку", "Ғариза ебәреү")}
-          </>
+        {editing && app?.reject_reason && (
+          <div className="dl-error" role="alert">
+            <span>
+              <strong className="dl-error__title">{appText("Причина отказа", "Кире ҡағыу сәбәбе")}</strong>
+              {app.reject_reason}
+            </span>
+          </div>
         )}
-      </button>
+
+        <SectionHeader title={appText("Транспорт", "Транспорт")} subtitle={appText("На чём возишь", "Нимәлә йөрөтәһең")} />
+        <div className="deadline__row" role="radiogroup" aria-label={appText("Транспорт", "Транспорт")}>
+          <TransportChip
+            title={appText("Легковой", "Еңел машина")}
+            subtitle={appText("посылки, покупки", "бандероль, һатып алыу")}
+            icon={<IconCar size={24} />}
+            selected={transport === "car"}
+            onClick={() => setTransport("car")}
+          />
+          <TransportChip
+            title={appText("Грузовой", "Йөк машинаһы")}
+            subtitle={appText("крупное, мебель", "ҙур, мебель")}
+            icon={<IconBox size={24} />}
+            selected={transport === "cargo"}
+            onClick={() => setTransport("cargo")}
+          />
+        </div>
+
+        {/* Кто пригласил — берём из реферального кода, отдельного поля нет. */}
+        <div className="invite-note">
+          <span className="invite-note__emoji" aria-hidden>🤝</span>
+          <span className="invite-note__text">
+            <strong>{appText("Кто пригласил", "Кем саҡырҙы")}</strong>
+            <DeliveryHint>
+              {app?.invited_by != null
+                ? appText("Тебя пригласил: ", "Һине саҡырҙы: ") + `#${app.invited_by}`
+                : appText(
+                    "Возьмём из твоего реферального кода — так админ видит, кто за тебя поручился.",
+                    "Реферал кодыңдан алабыҙ — админ кем һинең өсөн яуаплы икәнен күрер."
+                  )}
+            </DeliveryHint>
+          </span>
+        </div>
+
+        <SectionHeader title={appText("Селфи с документом", "Документ менән селфи")} subtitle={appText("Чтобы возил именно ты", "Нәҡ һин йөрөтөүең өсөн")} />
+        <DeliveryHint>
+          {appText(
+            "Сделай селфи с паспортом или правами в руках — так соседи знают, кому доверяют посылку (как в Яндекс.Доставке).",
+            "Ҡулыңда паспорт йәки права менән селфи яһа — шулай күршеләр бандеролде кемгә ышанғандарын белә (Яндекс.Доставка кеүек)."
+          )}
+        </DeliveryHint>
+        <button
+          type="button"
+          className={"photo-slot" + (selfieUrl ? " is-done" : "")}
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+        >
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) pickSelfie(f);
+              e.target.value = "";
+            }}
+          />
+          <span className="photo-slot__icon">
+            {selfieUrl ? <IconCheck size={24} /> : <IconCamera size={24} />}
+          </span>
+          <span className="photo-slot__text">
+            <b>{appText("Селфи с документом в руках", "Ҡулыңда документ менән селфи")}</b>
+            <span>
+              {uploading
+                ? appText("Загружаем…", "Йөкләйбеҙ…")
+                : selfieUrl
+                  ? appText("Фото загружено", "Фото йөкләнде")
+                  : appText("Лицо и паспорт/права в кадре", "Йөҙ һәм паспорт/права кадрҙа")}
+            </span>
+          </span>
+        </button>
+
+        <DeliverySectionTitle>{appText("О себе", "Үҙең тураһында")}</DeliverySectionTitle>
+        {/* Имя — как в документе на селфи: модератор сверяет одно с другим. */}
+        <label className="field dl-field">
+          <span className="field__label">{appText("Фамилия и имя как в документе", "Документтағыса фамилия һәм исем")}</span>
+          <input
+            className="field__input"
+            value={fullName}
+            maxLength={120}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder={appText("Иванов Ринат", "Иванов Ринат")}
+            autoComplete="name"
+          />
+        </label>
+        <label className="field dl-field">
+          <span className="field__label">{appText("Госномер машины", "Машинаның дәүләт номеры")}</span>
+          <input
+            className="field__input"
+            value={carPlate}
+            maxLength={16}
+            onChange={(e) => setCarPlate(e.target.value.toUpperCase())}
+            placeholder="Х123УХ102"
+            autoComplete="off"
+          />
+          <span className="field__hint">
+            {appText("По нему тебя узнают у подъезда", "Уның буйынса подъезд янында һине таныйҙар")}
+          </span>
+        </label>
+
+        {/* Согласие — карточка-переключатель, как в приложении: круг-галочка, заголовок, что обещаешь. */}
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={rulesOk}
+          className={"agree-card" + (rulesOk ? " is-on" : "")}
+          onClick={() => setRulesOk((v) => !v)}
+        >
+          <span className="agree-card__mark" aria-hidden>{rulesOk && <IconCheck size={14} />}</span>
+          <span className="agree-card__text">
+            <strong>{appText("Согласен с правилами доставки", "Илтеү ҡағиҙәләре менән килешәм")}</strong>
+            <DeliveryHint>
+              {appText(
+                "Везу бережно, не вскрываю, запрещённое не беру. Если что-то пошло не так — говорю сразу, а не молчу.",
+                "Һаҡ илтәм, асмайым, тыйылғанды алмайым. Берәй хәл булһа — шунда уҡ әйтәм, өндәшмәй ҡалмайым."
+              )}
+            </DeliveryHint>
+          </span>
+        </button>
+
+        <DeliveryErrorCard message={error} />
+
+        <button type="button" className="btn-primary btn-accent submit-btn" onClick={submit} disabled={!canSubmit}>
+          {busy ? (
+            appText("Отправляем…", "Ебәрәбеҙ…")
+          ) : (
+            <>
+              <IconRoute size={18} /> {app ? appText("Подать снова", "Ҡабат биреү") : appText("Отправить заявку", "Заявка ебәреү")}
+            </>
+          )}
+        </button>
+        <DeliveryHint>
+          {appText("Фото нужно только для проверки и не видно другим пользователям.", "Фото тик тикшереү өсөн, башҡаларға күренмәй.")}
+        </DeliveryHint>
+      </div>
     </>
   );
+}
+
+/** Заголовок раздела с подписью — SectionHeader из Android UiKit. */
+function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="section-head">
+      <h3 className="section-head__title">{title}</h3>
+      <p className="section-head__sub">{subtitle}</p>
+    </div>
+  );
+}
+
+/** Строка правила: плитка 40 с эмодзи, заголовок 16 Bold, пояснение (CourierRuleRow). */
+function RuleRow({ emoji, title, body }: { emoji: string; title: string; body: string }) {
+  return (
+    <div className="rule-row">
+      <span className="rule-row__tile" aria-hidden>{emoji}</span>
+      <span className="rule-row__text">
+        <strong>{title}</strong>
+        <DeliveryHint>{body}</DeliveryHint>
+      </span>
+    </div>
+  );
+}
+
+/** Чип транспорта (CourierTransportChip): иконка 24, заголовок, подпись, мин. 96, выделение рамкой. */
+function TransportChip({
+  title,
+  subtitle,
+  icon,
+  selected,
+  onClick,
+}: {
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" role="radio" aria-checked={selected} className={"transport-chip" + (selected ? " is-selected" : "")} onClick={onClick}>
+      <span className="transport-chip__icon" aria-hidden>{icon}</span>
+      <strong>{title}</strong>
+      <small>{subtitle}</small>
+    </button>
+  );
+}
+
+function courierTransportLabel(transport: string, appText: (ru: string, ba: string) => string): string {
+  if (transport === "car") return appText("Легковой", "Еңел машина");
+  if (transport === "cargo") return appText("Грузовой", "Йөк машинаһы");
+  return transport;
 }

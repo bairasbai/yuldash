@@ -2983,50 +2983,65 @@ button.list-row:active {
 }
 
 /* --- Проверка водителя: слоты фото + правила --- */
+/* UploadTile (Android SosVerifyScreens.kt): CanonSurface, CanonItemShape, рамка 1 (зелёная, когда
+   загружено), поля 12, мятная плитка 46 с иконкой 22, заголовок 16 Bold, подпись 14, шеврон справа. */
 .photo-slot {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--space-md);
   width: 100%;
-  padding: 16px;
-  margin-top: 12px;
-  border: 1.5px dashed var(--border);
+  padding: var(--space-md) var(--space-xxl) var(--space-md) var(--space-md);
+  margin-top: var(--space-md);
+  border: 1px solid var(--border);
   border-radius: var(--radius-item);
   background: var(--surface);
   color: var(--text);
   text-align: left;
   transition: border-color var(--motion-quick) ease, background var(--motion-quick) ease;
 }
+.photo-slot::after {
+  content: "";
+  position: absolute;
+  right: var(--space-lg);
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: translateY(-50%) rotate(-45deg);
+}
 .photo-slot.is-done {
-  border-style: solid;
-  border-color: var(--green-btn);
-  background: var(--mint);
+  border-color: var(--green2);
 }
 .photo-slot__icon {
-  width: 48px;
-  height: 48px;
+  width: 46px;
+  height: 46px;
   border-radius: var(--radius-field);
   flex: none;
   display: grid;
   place-items: center;
-  background: var(--surface-2);
-  color: var(--green);
-}
-.photo-slot.is-done .photo-slot__icon {
-  background: var(--surface);
+  background: var(--mint);
+  color: var(--green2);
 }
 .photo-slot__text {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-xs);
+  min-width: 0;
 }
 .photo-slot__text b {
   font-size: var(--font-body);
-  font-weight: var(--weight-semibold);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
 }
 .photo-slot__text span {
   font-size: var(--font-caption);
+  line-height: var(--line-caption);
   color: var(--muted);
+}
+.photo-slot.is-done .photo-slot__text span {
+  color: var(--green2);
 }
 .verify-rules {
   margin-top: 12px;
@@ -10619,4 +10634,330 @@ select.field__input {
   font-size: var(--font-caption);
   line-height: var(--line-caption);
   font-weight: var(--weight-bold);
+}
+
+/* ================================================================
+   Гейт и заявка курьера — Android CourierNotApprovedView / CourierStatusScaffold /
+   CourierApplyFormContent (CourierOnboardingScreen.kt).
+   ================================================================ */
+/* Центрированный экран статуса: круг 96 с рамкой 30 % акцента, заголовок 19 Bold, текст, кнопки. */
+.gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* Как в приложении — по центру свободной части экрана (шапка 64 + нижние вкладки 78). */
+  min-height: calc(100dvh - 64px - 78px - var(--space-xl) * 2);
+  padding: var(--space-xl) 0;
+  text-align: center;
+}
+.gate__badge {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  margin-bottom: var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--green2) 30%, transparent);
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  animation: popIn var(--motion-entry) ease both;
+}
+.gate__badge--warn {
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.gate__badge--danger {
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.gate__title {
+  margin: 0 0 var(--space-sm);
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.gate__body {
+  margin: 0 0 var(--space-lg);
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+/* Сводка заявки: AppCard с рядами «подпись 120 · значение жирным». */
+.gate__summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  width: 100%;
+  margin-bottom: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  text-align: left;
+}
+.gate__row {
+  display: flex;
+  gap: var(--space-sm);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.gate__row span {
+  flex: none;
+  width: 120px;
+  color: var(--muted);
+}
+.gate__row b {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-weight: var(--weight-bold);
+}
+.gate__primary {
+  width: 100%;
+  margin-top: 0;
+}
+.gate__secondary {
+  width: 100%;
+  margin-top: var(--space-sm);
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-normal);
+}
+
+/* Герой заявки: CanonMint, CanonCardShape, рамка 35 % зелёного, круг 48 CanonGreen2 с иконкой. */
+.apply-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--green2) 35%, transparent);
+  border-radius: var(--radius-card);
+  background: var(--mint);
+}
+.apply-hero__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.apply-hero__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  color: var(--on-filled);
+}
+.apply-hero h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.apply-hero p {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+/* Заголовок раздела с подписью (SectionHeader из UiKit). */
+.section-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.section-head__title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.section-head__sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* Правила: AppCard, строки с плиткой 40 (CanonBg, радиус 14) под эмодзи. */
+.rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+}
+.rule-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+.rule-row__tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-field);
+  background: var(--bg);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+}
+.rule-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.rule-row__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.dl-error__title {
+  display: block;
+  color: var(--danger);
+  font-weight: var(--weight-bold);
+}
+/* Чип транспорта: CanonItemShape, мин. 96, иконка 24, заголовок, подпись; выбран — мятный с рамкой 2. */
+.transport-chip {
+  flex: 1;
+  min-width: 0;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease, box-shadow var(--motion-quick) ease, color var(--motion-quick) ease;
+}
+.transport-chip.is-selected {
+  border-color: var(--green2);
+  background: var(--mint);
+  box-shadow: inset 0 0 0 1px var(--green2);
+  color: var(--green2);
+}
+.transport-chip__icon {
+  display: inline-flex;
+  color: var(--muted);
+  transition: color var(--motion-quick) ease;
+}
+.transport-chip.is-selected .transport-chip__icon {
+  color: var(--green2);
+}
+.transport-chip strong,
+.transport-chip small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transport-chip strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.transport-chip small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* «Кто пригласил»: мятная плашка с эмодзи 19 и подписью. */
+.invite-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.invite-note__emoji {
+  flex: none;
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+}
+.invite-note__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.invite-note__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+/* Согласие с правилами: карточка мин. 56, круг-галочка 24, мятная когда отмечена. */
+.agree-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.agree-card.is-on {
+  border-color: var(--green2);
+  background: var(--mint);
+}
+.agree-card__mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--muted);
+  border-radius: var(--radius-pill);
+  color: var(--on-filled);
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.agree-card.is-on .agree-card__mark {
+  border-color: var(--green2);
+  background: var(--green2);
+}
+.agree-card__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.agree-card__text strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.dl-form .photo-slot {
+  margin-top: 0;
+}
+.dl-form > .submit-btn {
+  margin-top: 0;
 }
