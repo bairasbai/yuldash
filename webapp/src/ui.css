@@ -4179,41 +4179,175 @@ button.list-row:active {
   flex: 1;
 }
 
-/* --- Предзаказы --- */
-.sched-card {
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-item);
-  background: var(--surface);
-  animation: fadeUp var(--motion-normal) ease both;
+/* --- Предзаказы — зеркало ScheduledOrdersScreen.kt --- */
+.sched {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0 var(--space-xl);
 }
-.sched-card + .sched-card {
-  margin-top: 12px;
+.sched > * {
+  margin-top: 0 !important;
 }
-.sched-card__head {
+.sched > .info-card {
+  margin-bottom: 0 !important;
+}
+.sched__title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+/* AppNoticeCard: тёплая плашка «обновить не удалось», иконка и текст CanonWarn. */
+.app-notice {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-semibold);
+}
+.app-notice svg {
+  flex: none;
+}
+/* ScheduledOrderCard: карточка 28 с тенью; за 5 минут до подачи — рамка 1.5 CanonGreen2. */
+.sched-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
+  transition: border-color var(--motion-normal) ease;
+}
+.sched-card.is-ready {
+  border-color: var(--green2);
 }
 .sched-card__when {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-caption);
-  font-weight: var(--weight-semibold);
-  color: var(--text);
-}
-.sched-card__meta {
-  margin-top: 8px;
-  font-size: var(--font-caption);
-  color: var(--muted);
-}
-.sched-card__actions {
-  margin-top: 14px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
+  color: var(--green2);
+}
+.sched-card__when strong {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+/* CountdownChip: пилюля; «пора» — мята и зелёный текст, иначе фон и muted. */
+.sched-chip {
+  flex: none;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+.sched-chip.is-ready {
+  border-color: var(--green2);
+  background: var(--mint);
+  color: var(--green2);
+}
+.sched-card__price {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.sched-card__actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+.sched-card__btn {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+  padding: 0 var(--space-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sched-card__btn:disabled {
+  opacity: 0.5;
+}
+/* ActivatedOrderCard: зелёная карточка 28 (тень raised), дышащая точка, пилюля «Открыть». */
+.sched-live {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-lg);
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--green2);
+  color: var(--on-filled);
+  box-shadow: var(--depth-raised);
+  text-align: left;
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.sched-live__dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--on-filled);
+  animation: schedBreath var(--motion-pulse) ease-in-out infinite alternate;
+}
+@keyframes schedBreath {
+  from { opacity: 0.5; }
+  to { opacity: 1; }
+}
+.sched-live__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.sched-live__text strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.sched-live__text small {
+  color: color-mix(in srgb, var(--on-filled) 90%, transparent);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sched-live__open {
+  flex: none;
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--on-filled) 22%, transparent);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sched-live__dot {
+    animation: none;
+  }
+}
+.adlg__btn--muted {
+  color: var(--muted);
 }
 
 /* Чат заказа — на всю высоту */
@@ -8439,7 +8573,6 @@ select.field__input {
 .dprofile-name,
 .parcel-card__desc,
 .review-card__author,
-.sched-card__when,
 .city-field__name {
   min-width: 0;
   overflow-wrap: anywhere;

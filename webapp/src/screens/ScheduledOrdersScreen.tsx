@@ -1,11 +1,13 @@
 // ================================================================
 //  «Мои предзаказы» — такси на время. RequireAuth → /scheduled
-//  (зеркало backend routers/instant.py: GET /instant/scheduled,
-//  activate, cancel).
+//  (зеркало android/ScheduledOrdersScreen.kt и backend routers/instant.py:
+//  GET /instant/scheduled, activate, cancel).
 //
-//  Список предзаказов с обратным отсчётом, «Начать поиск сейчас»
-//  (activate) и «Отменить» (cancel). Блок «пора ехать» для
-//  наступивших (бэк лениво активирует их при GET).
+//  • маршрут + время подачи + обратный отсчёт («через 2 ч 10 мин» / «пора»);
+//  • «Начать поиск сейчас» (activate → живой поиск) и «Отменить» с подтверждением;
+//  • «Пора ехать» — уже активированные ко времени (сервер сам перевёл в поиск),
+//    в том числе подхваченные из истории заказов;
+//  • опрос раз в 30 с; сбой обновления виден плашкой, а не молчит.
 // ================================================================
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -13,65 +15,96 @@ import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
   fetchScheduled,
+  fetchMyOrders,
   activateScheduled,
   cancelScheduled,
   type InstantOrder,
 } from "../api/instant";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList } from "../components/States";
-import { IconClock, IconArrow, IconTrash, IconCar, IconWarn, IconClockCal } from "../components/Icons";
-import { dayMonthShort, hhmm, priceLabel } from "../utils/format";
+import { RideCardSkeleton, ErrorState, EmptyStateCard } from "../components/States";
+import { MobilityScreenIntro } from "../components/parcelForm";
+import RouteTimeline from "../components/RouteTimeline";
+import AlertDialog from "../components/AlertDialog";
+import { IconClock, IconCloudOff, IconInfo } from "../components/Icons";
 import { serverDate, serverMs } from "../utils/serverTime";
 
 type Status = "loading" | "error" | "ready";
 
-/** «через 2 ч 15 мин» / «через 8 мин» / «пора ехать». */
-function countdown(iso: string | null, appText: (r: string, b: string) => string): string {
-  if (!iso) return "";
-  const diff = serverMs(iso) - Date.now();
-  if (diff <= 0) return appText("Пора ехать", "Китергә ваҡыт");
-  const min = Math.round(diff / 60000);
-  if (min < 60) return appText(`через ${min} мин`, `${min} минуттан`);
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return appText(`через ${h} ч ${m} мин`, `${h} сәғәт ${m} минуттан`);
+/** Воркер мог активировать предзаказ до открытия экрана — подхватываем его из истории. */
+export function shouldShowActivatedScheduled(status: string, scheduledAt: string | null, waitUntil?: string | null): boolean {
+  if (!scheduledAt || status === "scheduled") return false;
+  const terminal = status === "done" || status === "cancelled" || status === "expired";
+  const waitingQueue = !!waitUntil && status !== "done" && status !== "cancelled";
+  return !terminal || waitingQueue;
 }
 
-/** «14 июл, 09:30». */
-function whenLabel(iso: string | null, ru: boolean): string {
-  if (!iso) return "";
+/** Минуты до подачи (отрицательные = уже пора); null — время не разобрать. */
+function minutesUntil(iso: string | null, nowMs: number): number | null {
+  const ms = serverMs(iso);
+  if (Number.isNaN(ms)) return null;
+  return Math.floor((ms - nowMs) / 60_000);
+}
+
+/** «13.09, 08:30» — formatDepart из приложения: местное время человека. */
+function formatDepart(iso: string | null): string {
   const d = serverDate(iso);
-  if (!d) return "";
-  const date = dayMonthShort(d, ru);
-  const time = hhmm(d);
-  return `${date}, ${time}`;
+  if (!d) return "—";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}, ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function CountdownChip({ iso, nowMs }: { iso: string | null; nowMs: number }) {
+  const { appText } = useLang();
+  const minutes = minutesUntil(iso, nowMs);
+  const ready = minutes != null && minutes <= 0;
+  let label: string;
+  if (minutes == null) label = appText("на время", "ваҡытҡа");
+  else if (ready) label = appText("пора", "ваҡыт");
+  else if (minutes < 60) label = appText(`через ${minutes} мин`, `${minutes} мин эсендә`);
+  else {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    label = m === 0 ? appText(`через ${h} ч`, `${h} сәғәт эсендә`) : appText(`через ${h} ч ${m} мин`, `${h} сәғәт ${m} мин эсендә`);
+  }
+  return <span className={"sched-chip" + (ready ? " is-ready" : "")}>{label}</span>;
 }
 
 export default function ScheduledOrdersScreen() {
-  const { appText, lang } = useLang();
-  const ru = lang !== "ba";
+  const { appText } = useLang();
   const navigate = useNavigate();
 
   const [status, setStatus] = useState<Status>("loading");
   const [rows, setRows] = useState<InstantOrder[]>([]);
-  const [dueNow, setDueNow] = useState<InstantOrder[]>([]);
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [, force] = useState(0); // тик для обратного отсчёта
+  const [activated, setActivated] = useState<InstantOrder[]>([]);
+  /** Данные есть, но последнее обновление не дошло — говорим прямо, отсчёт мог устареть. */
+  const [stale, setStale] = useState(false);
+  const [busyId, setBusyId] = useState(0);
+  const [actionNote, setActionNote] = useState("");
+  const [cancelTarget, setCancelTarget] = useState<InstantOrder | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const mergeActivated = async (loadedActivated: InstantOrder[], signal?: AbortSignal) => {
+    const recent = await fetchMyOrders(5, signal).catch(() => [] as InstantOrder[]);
+    const already = recent.filter((o) => shouldShowActivatedScheduled(o.status, o.scheduled_at, o.wait_until));
+    const seen = new Set<number>();
+    return [...loadedActivated, ...already].filter((o) => (seen.has(o.id) ? false : (seen.add(o.id), true)));
+  };
 
   const load = useCallback((signal?: AbortSignal) => {
     setStatus("loading");
     fetchScheduled(signal)
-      .then((r) => {
+      .then(async (r) => {
         setRows(r.scheduled);
-        setDueNow(r.activated); // бэк лениво активировал наступившие
+        setActivated(await mergeActivated(r.activated, signal));
+        setStale(false);
         setStatus("ready");
       })
       .catch((e) => {
         if (signal?.aborted || e?.name === "AbortError") return;
-        // 404 = эндпоинта ещё нет на проде → мягко «пусто».
-        if (e instanceof ApiError && e.status === 404) {
+        // 404 = эндпоинта ещё нет на проде → мягко «пусто»; 401 — свой путь (выход из аккаунта).
+        if (e instanceof ApiError && (e.status === 404 || e.status === 401)) {
           setRows([]);
-          setDueNow([]);
+          setActivated([]);
           setStatus("ready");
         } else setStatus("error");
       });
@@ -83,190 +116,197 @@ export default function ScheduledOrdersScreen() {
     return () => ac.abort();
   }, [load]);
 
-  // Тик обратного отсчёта раз в минуту.
+  // Раз в 30 с: живой отсчёт и наступившие ко времени с сервера. Сбой сети обязан быть виден.
   useEffect(() => {
-    const iv = window.setInterval(() => force((n) => n + 1), 30000);
+    const iv = window.setInterval(() => {
+      setNowMs(Date.now());
+      fetchScheduled()
+        .then(async (r) => {
+          setRows(r.scheduled);
+          setActivated(await mergeActivated(r.activated));
+          setStale(false);
+        })
+        .catch((e) => {
+          if (!(e instanceof ApiError && e.status === 401)) setStale(true);
+        });
+    }, 30_000);
     return () => window.clearInterval(iv);
   }, []);
 
+  const actionFail = appText("Не получилось. Проверь интернет и повтори.", "Булманы. Интернетты тикшереп ҡабатла.");
+  function serverSaid(e: unknown): string {
+    return e instanceof ApiError && e.message ? e.message : actionFail;
+  }
+
   async function activate(id: number) {
+    if (busyId) return;
     setBusyId(id);
+    setActionNote("");
     try {
       await activateScheduled(id);
       navigate("/taxi"); // заказ ушёл в поиск → экран заказа восстановит его
     } catch (e) {
-      setBusyId(null);
-      if (e instanceof ApiError) load();
+      setActionNote(serverSaid(e));
+      load(); // гонка (уже активирован/отменён) → обновим список
+    } finally {
+      setBusyId(0);
     }
   }
-
-  /**
-   * Отмена предзаказа спрашивает подтверждение: корзина стоит рядом с «начать
-   * поиск», и промах пальцем стоил бы человеку машины на 6 утра. Вернуть предзаказ
-   * после отмены нельзя — только создать заново.
-   */
-  const [confirmId, setConfirmId] = useState<number | null>(null);
 
   async function cancel(id: number) {
-    const prev = rows;
-    setConfirmId(null);
-    setRows(rows.filter((r) => r.id !== id)); // оптимистично
+    if (busyId) return;
+    setBusyId(id);
+    setActionNote("");
     try {
       await cancelScheduled(id);
-    } catch {
-      setRows(prev); // откат
+      setRows((cur) => cur.filter((r) => r.id !== id));
+    } catch (e) {
+      setActionNote(serverSaid(e));
+      load();
+    } finally {
+      setBusyId(0);
     }
   }
+
+  const empty = rows.length === 0 && activated.length === 0;
 
   return (
     <>
-      <SubHeader
-        title={appText("Мои предзаказы", "Алдан заказдарым")}
-        subtitle={appText("Такси на время — заранее", "Ваҡытҡа такси — алдан")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Мои предзаказы", "Минең алдан заказдар")} onBack={() => navigate(-1)} />
 
-      {status === "loading" && <LoadingList count={2} />}
+      <div className="sched">
+        {stale && (
+          <p className="app-notice" role="status">
+            <IconCloudOff size={20} />
+            <span>{appText("Не удалось обновить — время могло измениться. Повторим через полминуты.", "Яңырта алманыҡ — ваҡыт үҙгәргән булыуы мөмкин. Ярты минуттан ҡабатлайбыҙ.")}</span>
+          </p>
+        )}
+        <MobilityScreenIntro
+          mode="taxi"
+          title={appText("Такси к нужному времени", "Кәрәкле ваҡытҡа такси")}
+          subtitle={appText("Поиск запустится автоматически ко времени подачи.", "Эҙләү килеү ваҡытына автоматик башланыр.")}
+          badge={appText("Предзаказ", "Алдан заказ")}
+        />
 
-      {status === "error" && (
-        <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
-          <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
-          <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатлау")}
-          </button>
-        </div>
-      )}
+        {status === "loading" && (
+          <>
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+          </>
+        )}
 
-      {status === "ready" && (
-        <>
-          {/* Пора ехать — наступившие, уже ушли в поиск */}
-          {dueNow.length > 0 && (
-            <>
-              <h2 className="section-title">{appText("Пора ехать", "Китергә ваҡыт")}</h2>
-              {dueNow.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  className="trust-cta"
-                  style={{ marginTop: 10 }}
-                  onClick={() => navigate("/taxi")}
-                >
-                  <span className="trust-cta__emoji"><IconCar size={22} /></span>
-                  <span className="trust-cta__text">
-                    {appText("Заказ активирован — ищем машину", "Заказ әүҙемләште — машина эҙләйбеҙ")}
-                    {" · "}
-                    {o.from_text || appText("Точка А", "А нөктә")} → {o.to_text || appText("Точка Б", "Б нөктә")}
-                  </span>
-                  <IconArrow size={20} />
-                </button>
-              ))}
-            </>
-          )}
+        {/* Ошибка — это ошибка, а не «пусто»: иначе человек заказывает такси второй раз. */}
+        {status === "error" && (
+          <ErrorState
+            onRetry={() => load()}
+            title={appText("Не удалось загрузить предзаказы", "Алдан заказдарҙы йөкләп булманы")}
+            hint={appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла")}
+          />
+        )}
 
-          {rows.length === 0 && dueNow.length === 0 ? (
-            <div className="state" style={{ paddingTop: 40 }}>
-              <div className="state__icon"><IconClockCal size={34} /></div>
-              <h2>{appText("Пока предзаказов нет", "Әле алдан заказдар юҡ")}</h2>
-              <p>
-                {appText(
-                  "Закажи такси заранее — на время. Мы напомним и найдём машину к нужному часу.",
-                  "Такси алдан — ваҡытҡа заказ ит. Иҫкә төшөрәбеҙ һәм кәрәкле сәғәткә машина табабыҙ."
-                )}
-              </p>
-              <button type="button" className="btn-primary" onClick={() => navigate("/taxi")}>
-                <IconCar size={18} /> {appText("Заказать такси", "Такси заказ итеү")}
-              </button>
-            </div>
-          ) : (
-            rows.length > 0 && (
+        {status === "ready" && empty && (
+          <EmptyStateCard
+            icon={<IconClock size={36} />}
+            title={appText("Пока предзаказов нет", "Әлегә алдан заказ юҡ")}
+            text={appText("Закажи такси «на время» — в экране заказа выбери «На время».", "Такси «ваҡытҡа» заказ ит — заказ экранында «Ваҡытҡа» һайла.")}
+          />
+        )}
+
+        {status === "ready" && !empty && (
+          <>
+            {actionNote && <p className="rcpt-msg rcpt-msg--err">{actionNote}</p>}
+
+            {/* «Пора ехать» — активированные ко времени (сервер уже перевёл в поиск). */}
+            {activated.length > 0 && (
               <>
-                {dueNow.length > 0 && (
-                  <h2 className="section-title">{appText("Запланировано", "Планлаштырылған")}</h2>
-                )}
-                <div className="list" style={{ marginTop: dueNow.length > 0 ? 0 : 12 }}>
-                  {rows.map((o) => (
-                    <div key={o.id} className="sched-card">
-                      <div className="sched-card__head">
-                        <span className="sched-card__when">
-                          <IconClock size={16} /> {whenLabel(o.scheduled_at, ru)}
-                        </span>
-                        <span className="badge badge--gold">{countdown(o.scheduled_at, appText)}</span>
-                      </div>
-                      <div className="repeat-route" style={{ marginTop: 8 }}>
-                        <span>{o.from_text || appText("Точка А", "А нөктә")}</span>
-                        <span className="repeat-route__arrow">
-                          <IconArrow size={18} />
-                        </span>
-                        <span>{o.to_text || appText("Точка Б", "Б нөктә")}</span>
-                      </div>
-                      <div className="sched-card__meta">
-                        {priceLabel(o.price_estimate, ru)}
-                        {" · "}
-                        {o.category === "comfort" ? appText("Комфорт", "Комфорт") : appText("Эконом", "Эконом")}
-                      </div>
-                      <div className="sched-card__actions">
-                        <button
-                          type="button"
-                          className="btn-soft"
-                          style={{ flex: 1 }}
-                          onClick={() => activate(o.id)}
-                          disabled={busyId === o.id}
-                        >
-                          {busyId === o.id
-                            ? appText("Запускаем…", "Ебәрәбеҙ…")
-                            : appText("Начать поиск сейчас", "Хәҙер эҙләй башлау")}
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          onClick={() => setConfirmId(o.id)}
-                          aria-label={appText("Отменить предзаказ", "Алдан заказды кире алыу")}
-                        >
-                          <IconTrash size={20} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <p className="taxi-note">
-                  {appText(
-                    "Совет: открой приложение к назначенному времени — так мы точно найдём машину.",
-                    "Кәңәш: билдәләнгән ваҡытҡа ҡушымтаны ас — шунда машина табыуы аныҡ."
-                  )}
-                </p>
+                <h2 className="sched__title">{appText("Пора ехать", "Барыр ваҡыт")}</h2>
+                {activated.map((o) => (
+                  <button key={`act-${o.id}`} type="button" className="sched-live" onClick={() => navigate("/taxi")}>
+                    <span className="sched-live__dot" aria-hidden />
+                    <span className="sched-live__text">
+                      <strong>
+                        {o.status === "accepted" || o.status === "arriving"
+                          ? appText("Водитель едет к тебе", "Йөрөтөүсе һиңә килә")
+                          : o.status === "onboard"
+                            ? appText("Поездка началась", "Сәфәр башланды")
+                            : appText("Пора ехать — ищем машину", "Барыр ваҡыт — машина эҙләйбеҙ")}
+                      </strong>
+                      <small>
+                        {o.from_text.trim() || appText("Точка А", "А нөктәһе")} → {o.to_text.trim() || appText("Точка Б", "Б нөктәһе")}
+                      </small>
+                    </span>
+                    <span className="sched-live__open">{appText("Открыть", "Асыу")}</span>
+                  </button>
+                ))}
               </>
-            )
-          )}
-        </>
-      )}
+            )}
 
-      {/* Подтверждение отмены: вернуть предзаказ назад нельзя */}
-      {confirmId != null && (
-        <div className="sheet-backdrop" onClick={() => setConfirmId(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <h2 className="sheet__title">
-              {appText("Отменить предзаказ?", "Алдан заказды кире алырғамы?")}
-            </h2>
-            <p className="sheet__comment">
-              {appText(
-                "Поиск машины в назначенное время не начнётся.",
-                "Билдәләнгән ваҡытта машина эҙләү башланмаясаҡ."
-              )}
-            </p>
-            <button type="button" className="btn-danger" onClick={() => void cancel(confirmId)}>
-              {appText("Отменить предзаказ", "Алдан заказды кире алыу")}
-            </button>
-            <button
-              type="button"
-              className="btn-soft"
-              style={{ marginTop: 8 }}
-              onClick={() => setConfirmId(null)}
-            >
-              {appText("Оставить", "Ҡалдырырға")}
-            </button>
-          </div>
-        </div>
+            {rows.length > 0 && (
+              <>
+                <h2 className="sched__title">{appText("Ждут своего времени", "Ваҡытын көтә")}</h2>
+                {rows.map((o) => {
+                  const minutes = minutesUntil(o.scheduled_at, nowMs);
+                  const ready = minutes != null && minutes <= 5; // за 5 минут до подачи — «пора»
+                  return (
+                    <article key={o.id} className={"sched-card" + (ready ? " is-ready" : "")}>
+                      <RouteTimeline from={o.from_text} to={o.to_text} compact />
+                      <div className="sched-card__when">
+                        <IconClock size={18} />
+                        <strong>{formatDepart(o.scheduled_at)}</strong>
+                        <CountdownChip iso={o.scheduled_at} nowMs={nowMs} />
+                      </div>
+                      {o.price_estimate > 0 && (
+                        <p className="sched-card__price">
+                          {appText(`≈ ${o.price_estimate} ₽ · цену уточним при подаче`, `≈ ${o.price_estimate} ₽ · хаҡты килгәндә асыҡлайбыҙ`)}
+                        </p>
+                      )}
+                      <div className="sched-card__actions">
+                        <button type="button" className="btn-primary sched-card__btn" onClick={() => void activate(o.id)} disabled={busyId !== 0}>
+                          {busyId === o.id ? <span className="spinner spinner--sm spinner--on-filled" aria-hidden /> : appText("Начать поиск сейчас", "Хәҙер эҙләргә")}
+                        </button>
+                        <button type="button" className="btn-soft sched-card__btn" onClick={() => setCancelTarget(o)} disabled={busyId !== 0}>
+                          {appText("Отменить", "Кире алыу")}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </>
+            )}
+
+            <div className="info-card sched__info">
+              <span className="info-card__icon" aria-hidden><IconInfo size={22} /></span>
+              <span className="info-card__main">
+                <strong>{appText("Можно закрыть приложение", "Ҡушымтаны ябырға мөмкин")}</strong>
+                <small>
+                  {appText(
+                    "Сервер сам начнёт поиск ко времени подачи. Открой Юлдаш ближе к поездке, чтобы следить за статусом.",
+                    "Сервер килеү ваҡытына эҙләүҙе үҙе башлар. Статусты ҡарау өсөн Юлдашты сәфәргә яҡыныраҡ ас."
+                  )}
+                </small>
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {cancelTarget && (
+        <AlertDialog
+          title={appText("Отменить предзаказ?", "Алдан заказды кире алырғамы?")}
+          text={appText("Поиск машины в назначенное время не начнётся.", "Билдәләнгән ваҡытта машина эҙләү башланмаясаҡ.")}
+          onClose={() => busyId === 0 && setCancelTarget(null)}
+          confirm={{
+            label: appText("Отменить заказ", "Заказды кире алыу"),
+            tone: "danger",
+            disabled: busyId !== 0,
+            onClick: () => {
+              const id = cancelTarget.id;
+              setCancelTarget(null);
+              void cancel(id);
+            },
+          }}
+          dismiss={{ label: appText("Оставить", "Ҡалдырыу"), tone: "muted", onClick: () => setCancelTarget(null), disabled: busyId !== 0 }}
+        />
       )}
     </>
   );

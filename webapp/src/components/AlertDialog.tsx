@@ -19,7 +19,7 @@ export default function AlertDialog({
   text?: string;
   children?: ReactNode;
   confirm?: { label: string; tone?: AlertTone; onClick: () => void; disabled?: boolean; busy?: boolean };
-  dismiss?: { label: string; onClick: () => void; disabled?: boolean };
+  dismiss?: { label: string; onClick: () => void; disabled?: boolean; tone?: "green" | "muted" };
   /** Тап по затемнению и Esc. */
   onClose: () => void;
 }) {
@@ -40,7 +40,7 @@ export default function AlertDialog({
         {(confirm || dismiss) && (
           <div className="adlg__actions">
             {dismiss && (
-              <button type="button" className="adlg__btn adlg__btn--green" onClick={dismiss.onClick} disabled={dismiss.disabled}>
+              <button type="button" className={"adlg__btn adlg__btn--" + (dismiss.tone ?? "green")} onClick={dismiss.onClick} disabled={dismiss.disabled}>
                 {dismiss.label}
               </button>
             )}
