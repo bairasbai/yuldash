@@ -10,18 +10,17 @@ import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import ScreenHeader from "../components/ScreenHeader";
 import ModeSwitch from "../components/ModeSwitch";
-import { pluralRu } from "../utils/format";
 import { fetchSeasonalEvents, type SeasonalEvent } from "../api/seasonal";
-import RideCard from "../components/RideCard";
 import RideSheet from "../components/RideSheet";
 import YandexMap, { type MapMarker, type GeoPoint } from "../components/YandexMap";
-import { LoadingList, ErrorState } from "../components/States";
+import NearbyRideCard, { NearbySkeletonCard, NearbyMoreCard, NearbyEmptyCard } from "../components/NearbyRideCard";
+import { NearbyChip } from "../components/adminUi";
 import CommunityFeedStrip from "../components/CommunityFeedStrip";
 import { fetchRidesNear, fetchRequestsNear, type NearRequest } from "../api/discovery";
 import type { Ride } from "../api/rides";
-import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
-import { IconRides, IconGift, IconFilter, IconPin, IconCar } from "../components/Icons";
-import { YuModeTaxi } from "../components/BrandIcons";
+import { applyRideFilters, clearFilters, loadFilters, saveFilters, type Amenity, type FilterPrefs } from "../filterPrefs";
+import { IconRides, IconGift, IconPin, IconCalendar, IconClock, IconClose, IconHospital, IconChevron } from "../components/Icons";
+import { YuModeTaxi, YuWomenOnly, YuChildSeat, YuPet, YuLuggage, YuAc, YuSmokeFree, YuQuiet } from "../components/BrandIcons";
 import { PartnerAdSlot } from "../components/PartnerAd";
 import { fetchPopularRoutes, type PopularRoute } from "../api/geo";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
@@ -81,10 +80,23 @@ export default function HomeScreen() {
   /** Сколько поездок уже показали. Растёт кнопкой «Показать ещё». */
   const [limit, setLimit] = useState(PAGE);
   const [sheet, setSheet] = useState<Ride | null>(null);
-  // Фильтры по умолчанию (локальные) — применяем к списку поездок рядом.
-  const prefs = useMemo(() => loadFilters(), []);
-  const filterOn = isFilterActive(prefs);
+  // Фильтры (локальные) — применяем к списку поездок рядом. Чипы переключают их на месте,
+  // а экран «Фильтры» видит те же значения: храним в одном месте (localStorage).
+  const [prefs, setPrefs] = useState<FilterPrefs>(() => loadFilters());
   const shownRides = useMemo(() => applyRideFilters(rides, prefs), [rides, prefs]);
+  /** Сколько условий включено — для чипа «Сбросить · N». */
+  const filterCount = prefs.amenities.length + (prefs.city.trim() ? 1 : 0) + (prefs.maxPrice != null ? 1 : 0) + (prefs.onlyTrusted ? 1 : 0);
+  function toggleAmenity(a: Amenity) {
+    setPrefs((cur) => {
+      const next = { ...cur, amenities: cur.amenities.includes(a) ? cur.amenities.filter((x) => x !== a) : [...cur.amenities, a] };
+      saveFilters(next);
+      return next;
+    });
+  }
+  function resetFilters() {
+    clearFilters();
+    setPrefs(loadFilters());
+  }
 
   /**
    * День в местной зоне, сдвиг в днях: 0 — сегодня, 1 — завтра.
@@ -256,41 +268,37 @@ export default function HomeScreen() {
         <YandexMap markers={markers} me={me} height={280} />
       </div>
 
-      <div className="chips">
-        <button
-          type="button"
-          className={"chip" + (nearOnly ? " chip--on" : "")}
-          onClick={toggleNear}
-        >
-          <IconPin size={16} /> {appText("Ближайшие", "Иң яҡындар")}
-        </button>
-        {/* «Когда едем». Человек ищет не «когда-нибудь», а завтра утром: без выбора дня
-            список мешает сегодняшние поездки с теми, что через неделю. Нажатие на
-            выбранный день снимает фильтр — отдельной кнопки «все дни» не нужно. */}
-        <button
-          type="button"
-          className={"chip" + (day === localDay(0) ? " chip--on" : "")}
-          aria-pressed={day === localDay(0)}
-          onClick={() => pickDay(localDay(0))}
-        >
-          {appText("Сегодня", "Бөгөн")}
-        </button>
-        <button
-          type="button"
-          className={"chip" + (day === localDay(1) ? " chip--on" : "")}
-          aria-pressed={day === localDay(1)}
-          onClick={() => pickDay(localDay(1))}
-        >
-          {appText("Завтра", "Иртәгә")}
-        </button>
-        <button
-          type="button"
-          className={"chip" + (filterOn ? " chip--on" : "")}
-          onClick={() => navigate("/filters")}
-        >
-          <IconFilter size={16} /> {appText("Фильтры", "Фильтрҙар")}
-        </button>
-      </div>
+      {/* NearbyFilterChip-ряд как в приложении: «когда едем» | условия. Видно, пока есть что
+          фильтровать или включён хоть один фильтр — иначе снять его было бы нечем. */}
+      {(rides.length > 0 || day != null || filterCount > 0 || nearOnly) && (
+        <div className="nearby-filters">
+          <div className="nearby-filters__row">
+            <NearbyChip icon={<IconCalendar size={15} />} label={appText("Все дни", "Бөтә көндәр")} active={day == null} onClick={() => { setLimit(PAGE); setDay(null); }} />
+            <NearbyChip icon={<IconClock size={15} />} label={appText("Сегодня", "Бөгөн")} active={day === localDay(0)} onClick={() => pickDay(localDay(0))} />
+            <NearbyChip icon={<IconClock size={15} />} label={appText("Завтра", "Иртәгә")} active={day === localDay(1)} onClick={() => pickDay(localDay(1))} />
+            <span className="nearby-filters__div" aria-hidden />
+            {filterCount > 0 && (
+              <NearbyChip icon={<IconClose size={15} />} label={appText(`Сбросить · ${filterCount}`, `Бушатырға · ${filterCount}`)} active={false} onClick={resetFilters} />
+            )}
+            <NearbyChip icon={<YuWomenOnly size={15} />} label={appText("Только женщины", "Тик ҡатын-ҡыҙ")} active={prefs.amenities.includes("women_only")} onClick={() => toggleAmenity("women_only")} />
+            <NearbyChip icon={<YuChildSeat size={15} />} label={appText("Детское кресло", "Балалар ултырғысы")} active={prefs.amenities.includes("child_seat")} onClick={() => toggleAmenity("child_seat")} />
+            <NearbyChip icon={<YuPet size={15} />} label={appText("С животным", "Хайуан менән")} active={prefs.amenities.includes("pets")} onClick={() => toggleAmenity("pets")} />
+            <NearbyChip icon={<YuLuggage size={15} />} label={appText("Багаж", "Йөк")} active={prefs.amenities.includes("baggage")} onClick={() => toggleAmenity("baggage")} />
+            <NearbyChip icon={<YuAc size={15} />} label={appText("Кондиционер", "Кондиционер")} active={prefs.amenities.includes("air_conditioner")} onClick={() => toggleAmenity("air_conditioner")} />
+            <NearbyChip icon={<YuSmokeFree size={15} />} label={appText("Некурящий", "Тартмаусы")} active={prefs.amenities.includes("non_smoking")} onClick={() => toggleAmenity("non_smoking")} />
+            <NearbyChip icon={<YuQuiet size={15} />} label={appText("Тихая поездка", "Тыныс сәфәр")} active={prefs.amenities.includes("quiet")} onClick={() => toggleAmenity("quiet")} />
+            {/* Только в вебе: браузер не знает место без разрешения — чип просит его и сужает выдачу. */}
+            <span className="nearby-filters__div" aria-hidden />
+            <NearbyChip icon={<IconPin size={15} />} label={appText("Ближайшие", "Иң яҡындар")} active={nearOnly} onClick={toggleNear} />
+          </div>
+          {prefs.amenities.includes("women_only") && (
+            <p className="nearby-filters__hint">
+              <YuWomenOnly size={16} />
+              {appText("Женщины за рулём и поездки «только для женщин».", "Рулдә ҡатын-ҡыҙҙар һәм «тик ҡатын-ҡыҙ өсөн» сәфәрҙәр.")}
+            </p>
+          )}
+        </div>
+      )}
 
       {geoNote && (
         <div className="notice" role="status">
@@ -377,72 +385,49 @@ export default function HomeScreen() {
 
       <div className="nearby-header">
         <h2 className="section-title">{appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр")}</h2>
-        {status === "ready" && shownRides.length > 0 && (
-          <span className="nearby-header__count">
-            {appText(`${shownRides.length} ${pluralRu(shownRides.length, "поездка", "поездки", "поездок")}`, `${shownRides.length} сәфәр`)}
-          </span>
+        {rides.length > 0 && (
+          <span className="nearby-header__count">{appText(`${shownRides.length} рядом`, `${shownRides.length} яҡында`)}</span>
         )}
       </div>
 
-      {status === "loading" && <LoadingList count={3} />}
-      {status === "error" && <ErrorState onRetry={() => load(undefined, me)} />}
-      {status === "ready" &&
-        (shownRides.length === 0 ? (
-          <div className="state">
-            <div className="state__icon"><IconCar size={34} /></div>
-            <h2>
-              {filterOn && rides.length > 0
-                ? appText("Ничего под фильтры", "Фильтргә тап килмәй")
-                : appText("Пока никто не едет рядом", "Яҡында әле бер кем бармай")}
-            </h2>
-            <p>
-              {filterOn && rides.length > 0
-                ? appText(
-                    "Под твои фильтры сейчас нет поездок. Смягчи условия.",
-                    "Фильтрҙарыңа тап килгән сәфәр юҡ. Шарттарҙы йомшарт."
-                  )
-                : appText(
-                    "Оставь заявку — водители увидят её и откликнутся.",
-                    "Заявка ҡалдыр — йөрөтөүселәр күреп яуап бирер."
-                  )}
-            </p>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => navigate(filterOn && rides.length > 0 ? "/filters" : "/request")}
-            >
-              {filterOn && rides.length > 0
-                ? appText("Изменить фильтры", "Фильтрҙарҙы үҙгәртергә")
-                : appText("Создать заявку", "Заявка ҡалдыр")}
+      {/* Состояния ленты: скелетоны → пусто/нет сети карточкой → фильтры всё срезали → карусель. */}
+      {status === "loading" && rides.length === 0 && (
+        <div className="nearby-row" aria-hidden>
+          <NearbySkeletonCard />
+          <NearbySkeletonCard />
+        </div>
+      )}
+      {status === "error" && rides.length === 0 && <NearbyEmptyCard error onRetry={() => load(undefined, me)} />}
+      {status === "ready" && rides.length === 0 && <NearbyEmptyCard error={false} onRetry={() => load(undefined, me)} />}
+      {rides.length > 0 && shownRides.length === 0 && (
+        <div className="nearby-filtered">
+          <p>{appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал.")}</p>
+          {filterCount > 0 && (
+            <button type="button" className="nearby-filtered__reset" onClick={resetFilters}>
+              <IconClose size={20} /> {appText("Сбросить фильтры", "Фильтрҙы бушат")}
             </button>
-          </div>
-        ) : (
-          <div>
-            {shownRides.map((ride, i) => (
-              <button
-                key={ride.id}
-                type="button"
-                className="ride-card-btn"
-                onClick={() => setSheet(ride)}
-              >
-                <RideCard ride={ride} index={i} />
-              </button>
-            ))}
-            {/* «Показать ещё». Кнопка появляется, только когда сервер отдал полную
-                страницу: значит есть что показывать дальше. Иначе список молча
-                обрывался, и человек не знал — это всё или дальше не загрузилось. */}
-            {rides.length >= limit && (
-              <button
-                type="button"
-                className="btn-soft"
-                style={{ width: "100%", marginTop: 8 }}
-                onClick={() => setLimit((n) => n + PAGE)}
-              >
-                {appText("Показать ещё", "Тағы күрһәтергә")}
-              </button>
-            )}
-          </div>
-        ))}
+          )}
+        </div>
+      )}
+      {shownRides.length > 0 && (
+        <div className="nearby-row">
+          {shownRides.map((ride, i) => (
+            <NearbyRideCard key={`${ride.id}#${i}`} ride={ride} soonest={i === 0} onOpen={() => setSheet(ride)} />
+          ))}
+          {/* «Показать ещё» — когда сервер отдал полную страницу: значит дальше ещё есть. */}
+          {filterCount === 0 && rides.length >= limit && <NearbyMoreCard loading={status === "loading"} onMore={() => setLimit((n) => n + PAGE)} />}
+        </div>
+      )}
+
+      {/* ClinicRidesEntryCard: кто-то уже едет к больнице — подсядь по пути. */}
+      <button type="button" className="clinic-entry" onClick={() => navigate("/clinics")}>
+        <span className="clinic-entry__icon" aria-hidden><IconHospital size={24} /></span>
+        <span className="clinic-entry__text">
+          <strong>{appText("Поездки к клинике", "Клиникаға сәфәрҙәр")}</strong>
+          <small>{appText("Кто-то уже едет к больнице — подсядь по пути", "Кемдер клиникаға бара — юлда ҡушыл")}</small>
+        </span>
+        <span className="clinic-entry__chev" aria-hidden><IconChevron size={22} /></span>
+      </button>
 
       {/* Партнёр рядом — тариф «Город». Город берём тот, где человек ищет поездку. */}
       <PartnerAdSlot placement="nearby" city={shownRides[0]?.from_city} />

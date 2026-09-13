@@ -18954,3 +18954,393 @@ button.settings-row:active {
   flex-direction: column;
   gap: var(--space-sm);
 }
+
+/* ---- Карта: ряд фильтров и лента «Ближайшие поездки» (MapScreen.kt) ---- */
+.nearby-filters {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--space-md);
+}
+.nearby-filters__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  overflow-x: auto;
+  padding-bottom: var(--space-xs);
+  scrollbar-width: none;
+}
+.nearby-filters__row::-webkit-scrollbar {
+  display: none;
+}
+/* Черта между «когда» и «на чём»: две разные мысли в одном ряду. */
+.nearby-filters__div {
+  flex: none;
+  width: 1px;
+  height: 22px;
+  background: var(--border);
+}
+.nearby-filters__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: var(--space-sm) 0 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.nearby-filters__hint svg {
+  flex: none;
+  color: var(--woman);
+}
+/* Лента: карточки 286×152 с зазором 12, прокрутка вбок. */
+.nearby-row {
+  display: flex;
+  gap: var(--space-md);
+  margin: 0 calc(var(--space-lg) * -1);
+  padding: var(--space-xs) var(--space-lg) var(--space-sm);
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+.nearby-row::-webkit-scrollbar {
+  display: none;
+}
+.nrc {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  width: 286px;
+  height: 152px;
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  scroll-snap-align: start;
+  cursor: pointer;
+  overflow: hidden;
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.nrc:active {
+  transform: scale(0.99);
+}
+.nrc__route {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.nrc__route strong {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nrc__cat {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.nrc__verified {
+  flex: none;
+  display: inline-flex;
+  color: var(--green2);
+}
+.nrc__when {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.nrc__when em {
+  margin-left: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-style: normal;
+}
+.nrc__driver {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.nrc__driver .sm-avatar {
+  margin-right: var(--space-xs);
+  font-size: var(--font-caption);
+}
+.nrc__name {
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nrc__online {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--green2);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+.nrc__online i {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+}
+.nrc__woman {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--woman-bg);
+  color: var(--woman);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+.nrc__rating {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-left: auto;
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.nrc__rating svg {
+  color: var(--canon-star);
+}
+/* Гибкая зона: стаж/поездки водителя, высоту карточки не увеличивает. */
+.nrc__trust {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--green2);
+}
+.nrc__trust span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nrc__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.nrc__dist {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.nrc__dist svg {
+  color: var(--green2);
+}
+.nrc__price {
+  color: var(--green2);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.nrc__go {
+  flex: none;
+  margin-left: auto;
+  min-height: 36px;
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: var(--radius-field);
+  background: var(--green2);
+  color: var(--on-filled);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.nrc--skeleton {
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  cursor: default;
+}
+.nrc--skeleton .skeleton {
+  display: block;
+  border-radius: var(--radius-tiny);
+}
+.nrc__spacer {
+  flex: 1;
+}
+.nrc__skel-btn {
+  border-radius: var(--radius-field) !important;
+}
+.nrc-more {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 132px;
+  height: 152px;
+  padding: var(--space-md);
+  border: 0;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  color: var(--green);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  text-align: center;
+  white-space: pre-line;
+}
+.nrc-more:disabled {
+  opacity: 0.6;
+}
+/* NearbyEmptyCard: карточка на всю ширину, иконка 34 muted, «Обновить» текстом, «Позови водителя». */
+.nrc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  text-align: center;
+}
+.nrc-empty__icon {
+  display: inline-flex;
+  color: var(--muted);
+}
+.nrc-empty strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.nrc-empty > span {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.nrc-empty__retry {
+  font-weight: var(--weight-bold);
+}
+.nrc-empty .invite-driver {
+  width: 100%;
+  margin-top: var(--space-xs);
+  text-align: left;
+}
+.nearby-filtered {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-top: var(--space-xs);
+}
+.nearby-filtered p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.nearby-filtered__reset {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 48px;
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+/* ClinicRidesEntryCard: AppCard 28 с рамкой, мятный круг с крестом, заголовок, подпись, шеврон. */
+.clinic-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  color: var(--muted);
+  text-align: left;
+  transition: transform var(--motion-quick) ease;
+}
+.clinic-entry:active {
+  transform: scale(0.99);
+}
+.clinic-entry__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: var(--space-md);
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.clinic-entry__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.clinic-entry__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.clinic-entry__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.clinic-entry__chev {
+  flex: none;
+  display: inline-flex;
+}
