@@ -19344,3 +19344,105 @@ button.settings-row:active {
   flex: none;
   display: inline-flex;
 }
+
+/* ---- Чат: три кнопки-вкладки и пустое состояние (ChatScreen, RidesRequestsChatScreens.kt) ---- */
+.chat-inbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding-top: var(--space-sm);
+}
+.chat-inbox > * {
+  margin-top: 0 !important;
+}
+.chat-inbox > .info-card {
+  margin-bottom: 0 !important;
+}
+.chat-tabs {
+  display: flex;
+  gap: var(--space-sm);
+}
+/* FilledTonalButton 50, радиус 14: выбранная — мята с зелёной иконкой, остальные — surface. */
+.chat-tab {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 50px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+  transition: background var(--motion-quick) ease;
+}
+.chat-tab.is-on {
+  background: var(--mint);
+}
+.chat-tab__icon {
+  display: inline-flex;
+  color: var(--muted);
+}
+.chat-tab.is-on .chat-tab__icon {
+  color: var(--green2);
+}
+.chat-tab__label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-tab__badge {
+  position: absolute;
+  top: var(--space-xs);
+  right: var(--space-xs);
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  color: var(--on-accent);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+/* ChatEmptyState: карточка 28 с рамкой и тенью, круг мятный (иконка 38, поля 24). */
+.chat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xxl) var(--space-xl);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  text-align: center;
+}
+.chat-empty__icon {
+  display: grid;
+  place-items: center;
+  padding: var(--space-xl);
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.chat-empty strong {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.chat-empty span {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
