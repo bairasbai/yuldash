@@ -15767,3 +15767,231 @@ button.settings-row:active {
   line-height: var(--line-caption);
   font-weight: var(--weight-bold);
 }
+
+/* ---- Фотоконтроль машины (CarPhotoScreen.kt): шапка по ступени, правила, строки кадров. ---- */
+.cph-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-huge) var(--space-lg);
+  text-align: center;
+  color: var(--muted);
+}
+.cph-center__ok {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.cph-center strong {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.cph-center__text {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.cph-center__btn {
+  flex: none;
+  width: auto;
+  padding: 0 var(--space-xl);
+}
+/* Шапка 28: мятная / жёлтая / красная, иконка 24 + заголовок 19, пояснение 14, срок 12 Bold — всё в цвете ступени. */
+.cph-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border-radius: var(--radius-card);
+  transition: background var(--motion-normal) ease;
+}
+.cph-head--mint {
+  background: var(--mint);
+  color: var(--green2);
+}
+.cph-head--warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.cph-head--danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.cph-head__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.cph-head__row svg {
+  flex: none;
+}
+.cph-head__row strong {
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.cph-head > span {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.cph-head > small {
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+/* Отказ прошлого раза: красная подложка 22, заголовок 14 Bold. */
+.cph-reject {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.cph-reject strong {
+  font-weight: var(--weight-bold);
+}
+/* Правила: карточка с рамкой 22, строки с точкой, текст muted-strong 14. */
+.cph-rules {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.cph-rules > strong {
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.cph-rules > small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.cph-rules__row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.cph-rules__row i {
+  flex: none;
+  color: var(--muted);
+  font-style: normal;
+}
+.cph-label {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+/* Строка кадра: рамка по состоянию (принят — зелёная, отказ — красная), миниатюра 64/14, имя 16, подсказка 12. */
+.cph-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: border-color var(--motion-normal) ease;
+}
+.cph-slot.is-done {
+  border-color: var(--green2);
+}
+.cph-slot.is-bad {
+  border-color: var(--danger);
+}
+.cph-slot__thumb {
+  position: relative;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  overflow: hidden;
+  border-radius: var(--radius-field);
+}
+.cph-slot__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cph-slot__empty {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: var(--mint);
+  color: var(--green2);
+}
+/* Затемнение поверх кадра: видно, что именно этот кадр сейчас грузится. */
+.cph-slot__busy {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--scrim);
+}
+.cph-slot__busy .spinner {
+  width: 24px;
+  height: 24px;
+  border-color: color-mix(in srgb, var(--on-accent) 35%, transparent);
+  border-top-color: var(--on-accent);
+}
+.cph-slot__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.cph-slot__text strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.cph-slot__text small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.cph-slot__text small.is-bad {
+  color: var(--danger);
+}
+.cph-slot__ok {
+  flex: none;
+  display: inline-flex;
+  color: var(--green2);
+}
+.cph-error {
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.alist .cph-send {
+  margin-top: 0;
+  width: 100%;
+}

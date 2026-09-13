@@ -25,9 +25,8 @@ import {
   type CarPhotoState,
 } from "../api/carphoto";
 import { serverDate } from "../utils/serverTime";
-import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCamera, IconCheck, IconCar, IconWarn } from "../components/Icons";
+import { IconCamera, IconCheck, IconCar, IconClock, IconWarn } from "../components/Icons";
 
 type Status = "loading" | "error" | "off" | "ready";
 
@@ -80,8 +79,8 @@ function ShotThumb({ url, alt }: { url: string; alt: string }) {
       if (objUrl) URL.revokeObjectURL(objUrl);
     };
   }, [url]);
-  if (!src) return <div className="car-shot__thumb skeleton" aria-hidden />;
-  return <img className="car-shot__thumb" src={src} alt={alt} />;
+  if (!src) return <span className="cph-slot__img skeleton" aria-hidden />;
+  return <img className="cph-slot__img" src={src} alt={alt} />;
 }
 
 export default function CarPhotoScreen() {
@@ -200,41 +199,38 @@ export default function CarPhotoScreen() {
   /** Список кадров: используется и плановым обходом, и требованием по жалобе. */
   function ShotList({ slots: list, kind }: { slots: CarPhotoSlot[]; kind: CarPhotoKind }) {
     return (
-      <div className="car-shots">
+      <>
         {list.map((s) => {
           const done = !!s.url && s.verdict === "ok";
           const bad = !!s.url && !!s.verdict && s.verdict !== "ok";
           const name = appText(s.ru, s.ba);
+          const busy = busySlot === s.code;
           return (
             <button
               key={kind + s.code}
               type="button"
-              className={"car-shot" + (done ? " is-done" : "") + (bad ? " is-bad" : "")}
-              disabled={busySlot === s.code}
+              className={"cph-slot" + (done ? " is-done" : "") + (bad ? " is-bad" : "")}
+              disabled={busy}
+              aria-label={`${name}. ${done ? appText("снято", "төшөрөлгән") : appText("нужно снять", "төшөрөргә кәрәк")}`}
               onClick={() => {
                 pickFor.current = s.code;
                 pickKind.current = kind;
                 input.current?.click();
               }}
             >
-              {s.url ? (
-                <ShotThumb url={s.url} alt={name} />
-              ) : (
-                <span className="car-shot__thumb car-shot__thumb--empty" aria-hidden>
-                  <IconCamera size={20} />
-                </span>
-              )}
-              <span className="car-shot__text">
-                <span className="car-shot__name">{name}</span>
-                <span className="car-shot__hint">
-                  {bad ? reasonText(s.verdict) : appText(s.hint_ru, s.hint_ba)}
-                </span>
+              <span className="cph-slot__thumb">
+                {s.url ? <ShotThumb url={s.url} alt={name} /> : <span className="cph-slot__empty" aria-hidden><IconCamera size={24} /></span>}
+                {busy && <span className="cph-slot__busy" aria-hidden><span className="spinner" /></span>}
               </span>
-              {done && <IconCheck size={18} />}
+              <span className="cph-slot__text">
+                <strong>{name}</strong>
+                <small className={bad ? "is-bad" : ""}>{bad ? reasonText(s.verdict) : appText(s.hint_ru, s.hint_ba)}</small>
+              </span>
+              {done && <span className="cph-slot__ok" aria-hidden><IconCheck size={24} /></span>}
             </button>
           );
         })}
-      </div>
+      </>
     );
   }
 
@@ -276,243 +272,179 @@ export default function CarPhotoScreen() {
                 `${daysLeft} көн ҡалды, ${dateLabel(state?.due_at)} тиклем.`
               );
 
+  const stageTone = stage === "blocked" ? "danger" : stage === "slow" || stage === "remind" ? "warn" : "mint";
+  const nothingToDo = status === "off" || (status === "ready" && state && !state.required && !demand);
+
   return (
     <>
-      <SubHeader
-        title={appText("Фотоконтроль машины", "Машина фотоконтроле")}
-        subtitle={
-          mode === "courier"
-            ? appText("Режим курьера", "Курьер режимы")
-            : appText("Режим такси", "Такси режимы")
-        }
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Фотоконтроль машины", "Машина фотоконтроле")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        {status === "loading" && <div className="spinner-wrap"><span className="spinner" aria-hidden /></div>}
 
-      {status === "loading" && <LoadingList count={3} />}
-
-      {status === "off" && (
-        <div className="state" style={{ paddingTop: 32 }}>
-          <div className="state__icon">
-            <IconCheck size={34} />
+        {status === "error" && (
+          <div className="cph-center">
+            <IconWarn size={40} />
+            <span className="cph-center__text">{appText("Не удалось загрузить. Проверь сеть.", "Йөкләп булманы. Селтәрҙе тикшер.")}</span>
+            <button type="button" className="btn-soft cph-center__btn" onClick={() => load()}>
+              {appText("Повторить", "Ҡабатларға")}
+            </button>
           </div>
-          <h2>{appText("Сейчас ничего не нужно", "Хәҙер бер нәмә лә кәрәкмәй")}</h2>
-          <p>
-            {appText(
-              "Мы напомним заранее, когда придёт время показать машину.",
-              "Машинаны күрһәтер ваҡыт еткәс, алдан иҫкә төшөрөрбөҙ."
-            )}
-          </p>
-        </div>
-      )}
+        )}
 
-      {status === "error" && (
-        <div className="state" style={{ paddingTop: 32 }}>
-          <div className="state__icon state__icon--warn">
-            <IconWarn size={34} />
-          </div>
-          <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
-          <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатлау")}
-          </button>
-        </div>
-      )}
-
-      {/* Один общий выбор файла на весь экран: и плановый обход, и требование по жалобе
-          открывают камеру через него — какой именно кадр снимаем, помнит `pickFor`. */}
-      {status === "ready" && (
-        <input
-          ref={input}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          hidden
-          onChange={(e) => void pick(e.target.files?.[0])}
-        />
-      )}
-
-      {/* Требование по жалобе — ВЫШЕ всего: у него сутки, а у планового обхода недели. */}
-      {status === "ready" && demand && (
-        <>
-          <div className={"act-card" + (demand.status === "review" ? " act-card--mint" : " act-card--warn")}>
-            <div className="act-card__title">
-              {demand.status === "review" ? <IconCheck size={18} /> : <IconCamera size={18} />}
-              {demand.status === "review"
-                ? appText("Фото салона у нас", "Салон фотоһы беҙҙә")
-                : appText("Покажи салон", "Салонды күрһәт")}
-            </div>
-            <p className="act-card__text" style={{ margin: "6px 0 0" }}>
-              {demand.status === "review"
+        {/* Контроль сейчас не нужен: выключен или уже пройден. Спокойное «всё в порядке». */}
+        {nothingToDo && (
+          <div className="cph-center">
+            <span className="cph-center__ok" aria-hidden><IconCheck size={40} /></span>
+            <strong>{appText("Сейчас ничего не нужно", "Хәҙер бер нәмә лә кәрәкмәй")}</strong>
+            <span className="cph-center__text">
+              {state?.last_passed_at
                 ? appText(
-                    "Посмотрим и ответим. Если всё в порядке — жалоба закроется без следа.",
-                    "Ҡарап сығабыҙ һәм яуап бирәбеҙ. Бөтәһе лә тәртиптә булһа — ялыу эҙһеҙ ябыла."
+                    `Машину показывали ${dateLabel(state.last_passed_at)}. Мы напомним заранее, когда придёт время.`,
+                    `Машина ${dateLabel(state.last_passed_at)} күрһәтелгән. Ваҡыты еткәс, алдан иҫкә төшөрөрбөҙ.`
                   )
                 : appText(
-                    "Пассажир написал, что в машине было грязно. Одно фото — и вопрос закрыт, без последствий. Заказы идут как обычно.",
-                    "Юлаусы машинала бысраҡ булған тип яҙған. Бер фото — һорау ябыла, эҙемтәһеҙ. Заказдар ғәҙәттәгесә бара."
+                    "Мы напомним заранее, когда придёт время показать машину.",
+                    "Машинаны күрһәтер ваҡыт еткәс, алдан иҫкә төшөрөрбөҙ."
                   )}
-              {demand.status !== "review" && (
-                <>
-                  <br />
-                  <b>
-                    {demand.overdue
-                      ? appText(
-                          "Сутки истекли — пришли фото, пока не разобрали без тебя.",
-                          "Тәүлек үтте — фотоны ебәр, һинһеҙ ҡарап бөтмәгәндә."
-                        )
-                      : appText(`Осталось ${hoursRu(demand.hours_left)}.`, `${demand.hours_left} сәғәт ҡалды.`)}
-                  </b>
-                </>
-              )}
-            </p>
+            </span>
           </div>
+        )}
 
-          {demand.status !== "review" && (
-            <>
-              {(state?.clean_rules ?? []).length > 0 && (
-                <ul className="car-rules">
-                  {(state?.clean_rules ?? []).map((r, i) => (
-                    <li key={i}>{appText(r.ru, r.ba)}</li>
-                  ))}
-                  <li>
-                    {appText(
-                      "Запах по фото не проверить — и мы его не спрашиваем.",
-                      "Еҫте фото буйынса тикшереп булмай — беҙ уны һорамайбыҙ ҙа."
-                    )}
-                  </li>
-                </ul>
-              )}
-              <ShotList slots={demand.slots} kind="complaint" />
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={demand.missing.length > 0 || sending}
-                onClick={() => void send("complaint")}
-              >
-                {sending
-                  ? appText("Отправляем…", "Ебәрәбеҙ…")
-                  : appText("Отправить фото салона", "Салон фотоһын ебәрергә")}
-              </button>
-            </>
-          )}
-        </>
-      )}
+        {/* Один общий выбор файла на весь экран: и плановый обход, и требование по жалобе
+            открывают камеру через него — какой именно кадр снимаем, помнит `pickFor`. */}
+        {status === "ready" && (
+          <input
+            ref={input}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            hidden
+            onChange={(e) => void pick(e.target.files?.[0])}
+          />
+        )}
 
-      {status === "ready" && state && !state.required && !demand && (
-        <div className="act-card act-card--mint">
-          <div className="act-card__title">
-            <IconCheck size={18} /> {appText("Фотоконтроль пройден", "Фотоконтроль үтелгән")}
-          </div>
-          <p className="act-card__text" style={{ margin: "6px 0 0" }}>
-            {state.last_passed_at
-              ? appText(
-                  `Машину показывали ${dateLabel(state.last_passed_at)}. Напомним заранее.`,
-                  `Машина ${dateLabel(state.last_passed_at)} күрһәтелгән. Алдан иҫкә төшөрөрбөҙ.`
-                )
-              : appText("Напомним заранее, когда придёт время.", "Ваҡыты еткәс алдан иҫкә төшөрөрбөҙ.")}
-          </p>
-        </div>
-      )}
-
-      {status === "ready" && state?.required && state.status === "review" && (
-        <div className="act-card act-card--mint">
-          <div className="act-card__title">
-            <IconCheck size={18} /> {appText("Кадры у нас", "Кадрҙар беҙҙә")}
-          </div>
-          <p className="act-card__text" style={{ margin: "6px 0 0" }}>
-            {appText(
-              "Посмотрим и ответим. Работать можно как обычно — ждать нас не нужно.",
-              "Ҡарап сығабыҙ һәм яуап бирәбеҙ. Эшләргә була — беҙҙе көтөп тороу кәрәкмәй."
-            )}
-          </p>
-        </div>
-      )}
-
-      {status === "ready" && state?.required && state.status !== "review" && (
-        <>
-          <div className={"act-card" + (stage === "ok" ? " act-card--mint" : " act-card--warn")}>
-            <div className="act-card__title">
-              <IconCar size={18} /> {headTitle}
-            </div>
-            <p className="act-card__text" style={{ margin: "6px 0 0" }}>
-              {headText}
-            </p>
-          </div>
-
-          {state.reject_reason && (
-            <div className="act-card act-card--warn">
-              <div className="act-card__title">
-                <IconWarn size={18} />{" "}
-                {appText("Прошлые кадры не подошли", "Үткән кадрҙар тура килмәне")}
+        {/* Требование по жалобе — ВЫШЕ всего: у него сутки, а у планового обхода недели. */}
+        {status === "ready" && demand && (
+          <>
+            <div className={"cph-head " + (demand.status === "review" ? "cph-head--mint" : "cph-head--warn")}>
+              <div className="cph-head__row">
+                {demand.status === "review" ? <IconClock size={24} /> : <IconCamera size={24} />}
+                <strong>{demand.status === "review" ? appText("Фото салона у нас", "Салон фотоһы беҙҙә") : appText("Покажи салон", "Салонды күрһәт")}</strong>
               </div>
-              <p className="act-card__text" style={{ margin: "6px 0 0" }}>
-                {state.reject_reason}
-              </p>
+              <span>
+                {demand.status === "review"
+                  ? appText(
+                      "Посмотрим и ответим. Если всё в порядке — жалоба закроется без следа.",
+                      "Ҡарап сығабыҙ һәм яуап бирәбеҙ. Бөтәһе лә тәртиптә булһа — ялыу эҙһеҙ ябыла."
+                    )
+                  : appText(
+                      "Пассажир написал, что в машине было грязно. Одно фото — и вопрос закрыт, без последствий. Заказы идут как обычно.",
+                      "Юлаусы машинала бысраҡ булған тип яҙған. Бер фото — һорау ябыла, эҙемтәһеҙ. Заказдар ғәҙәттәгесә бара."
+                    )}
+              </span>
+              {demand.status !== "review" && (
+                <small>
+                  {demand.overdue
+                    ? appText("Сутки истекли — пришли фото, пока не разобрали без тебя.", "Тәүлек үтте — фотоны ебәр, һинһеҙ ҡарап бөтмәгәндә.")
+                    : appText(`Осталось ${hoursRu(demand.hours_left)}.`, `${demand.hours_left} сәғәт ҡалды.`)}
+                </small>
+              )}
             </div>
-          )}
 
-          <ul className="car-rules">
-            <li>
-              {appText(
-                "Снимай при свете и в фокусе: машину целиком, номер должен читаться.",
-                "Яҡтыла һәм фокуста төшөр: машина тулыһынса инһен, номер уҡылырлыҡ булһын."
-              )}
-            </li>
-            <li>
-              {state.winter
-                ? appText(
-                    "Зимой чистый кузов не требуем — только целостность: фары, бампер, ржавчина.",
-                    "Ҡышын таҙа кузов талап итмәйбеҙ — бөтөнлөк кенә: фаралар, бампер, тут."
-                  )
-                : appText(
-                    "Кузов чистый настолько, чтобы было видно состояние.",
-                    "Кузов хәлен күрерлек итеп таҙа булһын."
-                  )}
-            </li>
-            <li>
-              {appText(
-                "Салон — как для пассажира: без мусора и личных вещей.",
-                "Салон — юлаусы өсөн кеүек: сүпһеҙ һәм шәхси әйберһеҙ."
-              )}
-            </li>
-            {state.check_signs && (
-              <li>
-                {appText(
-                  "В первый раз посмотрим ещё фонарь и «шашечки» — отдельный кадр не нужен.",
-                  "Беренсе тапҡыр фонарь һәм «шашка»ларҙы ла ҡарайбыҙ — айырым кадр кәрәкмәй."
+            {demand.status !== "review" && (
+              <>
+                {/* По каким пунктам смотрят салон. Все три видны на фото — в этом весь смысл списка. */}
+                {(state?.clean_rules ?? []).length > 0 && (
+                  <div className="cph-rules">
+                    <strong>{appText("Смотрим три вещи", "Өс нәмәгә ҡарайбыҙ")}</strong>
+                    {(state?.clean_rules ?? []).map((r, i) => (
+                      <span key={i} className="cph-rules__row">
+                        <i>•</i>
+                        <span>{appText(r.ru, r.ba)}</span>
+                      </span>
+                    ))}
+                    <small>{appText("Запах по фото не проверить — и мы его не спрашиваем.", "Еҫте фото буйынса тикшереп булмай — беҙ уны һорамайбыҙ ҙа.")}</small>
+                  </div>
                 )}
-              </li>
+                <ShotList slots={demand.slots} kind="complaint" />
+                <button type="button" className="btn-primary cph-send" disabled={demand.missing.length > 0 || sending} onClick={() => void send("complaint")}>
+                  {sending ? appText("Отправляем…", "Ебәрәбеҙ…") : <><IconCheck size={20} /> {appText("Отправить фото салона", "Салон фотоһын ебәрергә")}</>}
+                </button>
+              </>
             )}
-            <li>
-              {appText(
-                "Документы фотографировать не нужно — они у нас есть.",
-                "Документтарҙы төшөрөргә кәрәкмәй — улар беҙҙә бар."
-              )}
-            </li>
-          </ul>
+          </>
+        )}
 
-          <ShotList slots={slots} kind="periodic" />
+        {status === "ready" && state?.required && (
+          <>
+            {/* Шапка: до какого числа и что будет, если опоздать. Цвет — по ступени лестницы. */}
+            <div className={"cph-head cph-head--" + stageTone}>
+              <div className="cph-head__row">
+                <IconCar size={24} />
+                <strong>{headTitle}</strong>
+              </div>
+              <span>{headText}</span>
+            </div>
 
-          {err && <div className="auth__error">{err}</div>}
+            {state.status === "review" ? (
+              /* Кадры отправлены. Главное здесь — сказать, что человек уже свободен. */
+              <div className="cph-head cph-head--mint">
+                <div className="cph-head__row">
+                  <IconClock size={24} />
+                  <strong>{appText("Кадры у нас", "Кадрҙар беҙҙә")}</strong>
+                </div>
+                <span>{appText("Посмотрим и ответим. Работать можно как обычно — ждать нас не нужно.", "Ҡарап сығабыҙ һәм яуап бирәбеҙ. Эшләргә була — беҙҙе көтөп тороу кәрәкмәй.")}</span>
+              </div>
+            ) : (
+              <>
+                {state.reject_reason && (
+                  /* Почему не приняли прошлый раз — словами человека, который смотрел. */
+                  <div className="cph-reject">
+                    <strong>{appText("Прошлые кадры не подошли", "Үткән кадрҙар тура килмәне")}</strong>
+                    <span>{state.reject_reason}</span>
+                  </div>
+                )}
 
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={!ready || sending}
-            onClick={() => void send("periodic")}
-          >
-            {sending
-              ? appText("Отправляем…", "Ебәрәбеҙ…")
-              : appText("Отправить на проверку", "Тикшереүгә ебәрергә")}
-          </button>
+                {/* Что именно смотрим: зима и первый контроль меняют требования. */}
+                <div className="cph-rules">
+                  {[
+                    appText("Снимай при свете и в фокусе: машину целиком, номер должен читаться.", "Яҡтыла һәм фокуста төшөр: машина тулыһынса инһен, номер уҡылырлыҡ булһын."),
+                    state.winter
+                      ? appText("Зимой чистый кузов не требуем — только целостность: фары, бампер, ржавчина.", "Ҡышын таҙа кузов талап итмәйбеҙ — бөтөнлөк кенә: фаралар, бампер, тут.")
+                      : appText("Кузов чистый настолько, чтобы было видно состояние.", "Кузов хәлен күрерлек итеп таҙа булһын."),
+                    appText("Салон — как для пассажира: без мусора и личных вещей.", "Салон — юлаусы өсөн кеүек: сүпһеҙ һәм шәхси әйберһеҙ."),
+                    ...(state.check_signs
+                      ? [appText("В первый раз посмотрим ещё фонарь и «шашечки» — отдельный кадр не нужен.", "Беренсе тапҡыр фонарь һәм «шашка»ларҙы ла ҡарайбыҙ — айырым кадр кәрәкмәй.")]
+                      : []),
+                    appText("Документы фотографировать не нужно — они у нас есть.", "Документтарҙы төшөрөргә кәрәкмәй — улар беҙҙә бар."),
+                  ].map((line, i) => (
+                    <span key={i} className="cph-rules__row">
+                      <i>•</i>
+                      <span>{line}</span>
+                    </span>
+                  ))}
+                </div>
 
-          <p className="car-shots__note">
-            {appText(
-              `Снимки видим только мы и ты — они лежат в закрытой части и удаляются сами через ${state.keep_days ?? 90} дней.`,
-              `Һүрәттәрҙе беҙ һәм һин генә күрәбеҙ — улар ябыҡ өлөштә ята һәм ${state.keep_days ?? 90} көндән үҙҙәре юйыла.`
+                <small className="cph-label">{appText("КАДРЫ", "КАДРҘАР")}</small>
+                <ShotList slots={slots} kind="periodic" />
+
+                {err && <div className="cph-error">{err}</div>}
+
+                <button type="button" className="btn-primary cph-send" disabled={!ready || sending} onClick={() => void send("periodic")}>
+                  {sending ? appText("Отправляем…", "Ебәрәбеҙ…") : <><IconCheck size={20} /> {appText("Отправить на проверку", "Тикшереүгә ебәрергә")}</>}
+                </button>
+
+                <small className="acard__date">
+                  {appText(
+                    `Снимки видим только мы и ты — они лежат в закрытой части и удаляются сами через ${state.keep_days ?? 90} дней.`,
+                    `Һүрәттәрҙе беҙ һәм һин генә күрәбеҙ — улар ябыҡ өлөштә ята һәм ${state.keep_days ?? 90} көндән үҙҙәре юйыла.`
+                  )}
+                </small>
+              </>
             )}
-          </p>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </>
   );
 }
