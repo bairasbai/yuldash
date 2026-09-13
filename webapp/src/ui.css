@@ -15707,3 +15707,63 @@ button.settings-row:active {
   line-height: var(--line-title);
   font-weight: var(--weight-bold);
 }
+
+/* ---- Редактор объявления партнёра (AdEditorScreen, ProfileScreen.kt): строки тарифа, кнопки 52. ---- */
+.queue-section--plain {
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.abtn--52 {
+  min-height: 52px;
+}
+.adpkg-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+/* Строка тарифа: радиус 14, рамка 1 (выбранная — мятная, рамка 2 зелёная), радио слева, цена зелёным справа. */
+.adpkg {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.adpkg.is-on {
+  border: 2px solid var(--green2);
+  background: var(--mint);
+}
+.adpkg__dot {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--green2);
+}
+.adpkg__dot i {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--muted);
+  border-radius: var(--radius-pill);
+}
+.adpkg strong {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.adpkg b {
+  flex: none;
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}

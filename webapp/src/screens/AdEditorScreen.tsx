@@ -20,22 +20,23 @@ import {
   type AdPackage,
   type AdMine,
 } from "../api/ads";
-import { LoadingList } from "../components/States";
+import { RideCardSkeleton } from "../components/States";
+import { ListedEmpty, ListedError } from "../components/adminUi";
 import { SubHeader } from "./ConsentsScreen";
-import { IconMap, IconMegaphone, IconWarn } from "../components/Icons";
+import { IconCheck, IconMegaphone } from "../components/Icons";
+import { kopExactLabel } from "../utils/format";
 
-import { pluralRu } from "../utils/format";
 type Status = "loading" | "error" | "soon" | "ready";
 
 export default function AdEditorScreen() {
-  const { appText, lang } = useLang();
-  const ru = lang !== "ba";
+  const { appText } = useLang();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
 
   const [status, setStatus] = useState<Status>("loading");
   const [packages, setPackages] = useState<AdPackage[]>([]);
+  const [packagesError, setPackagesError] = useState(false);
 
   // Поля формы.
   const [title, setTitle] = useState("");
@@ -54,12 +55,16 @@ export default function AdEditorScreen() {
     (signal?: AbortSignal) => {
       setStatus("loading");
       Promise.all([
-        fetchAdPackages(signal),
+        fetchAdPackages(signal).catch((e) => {
+          if (e instanceof ApiError && (e.status === 404 || e.status === 405)) throw e;
+          setPackagesError(true);
+          return [] as AdPackage[];
+        }),
         isEdit ? fetchAdsMine(signal) : Promise.resolve<AdMine[]>([]),
       ])
         .then(([pk, mine]) => {
           setPackages(pk);
-          if (pk.length && !pkg) setPkg(pk[0].code);
+          if (pk.length) setPackagesError(false);
           if (isEdit) {
             const ad = mine.find((a) => a.id === id);
             if (ad) {
@@ -103,7 +108,19 @@ export default function AdEditorScreen() {
     [title, text, button, target, cities, pkg]
   );
 
-  const canSave = title.trim().length > 0 && pkg.length > 0 && busy === null;
+  // Как в приложении: черновик — без тарифа, на модерацию — только с тарифом.
+  const canDraft = title.trim().length > 0 && busy === null;
+  const canSave = canDraft && pkg.length > 0;
+
+  async function reloadPackages() {
+    setPackagesError(false);
+    try {
+      const pk = await fetchAdPackages();
+      setPackages(pk);
+    } catch {
+      setPackagesError(true);
+    }
+  }
 
   /** Сохранить (создать или обновить) и вернуть актуальный id. */
   async function ensureSaved(): Promise<string> {
@@ -117,7 +134,7 @@ export default function AdEditorScreen() {
   }
 
   async function onSaveDraft() {
-    if (!canSave) return;
+    if (!canDraft) return;
     setBusy("draft");
     setError(null);
     try {
@@ -156,144 +173,97 @@ export default function AdEditorScreen() {
   return (
     <>
       <SubHeader
-        title={isEdit ? appText("Правка объявления", "Иғланды төҙәтеү") : appText("Новое объявление", "Яңы иғлан")}
-        subtitle={appText("Покажем твой бизнес нужным людям", "Бизнесыңды кәрәкле кешеләргә күрһәтәбеҙ")}
-        onBack={() => navigate(-1)}
+        title={isEdit ? appText("Изменить объявление", "Иғланды үҙгәртергә") : appText("Новое объявление", "Яңы иғлан")}
+        onBack={() => {
+          if (!busy) navigate(-1);
+        }}
       />
+      <div className="alist">
+        {status === "loading" && (
+          <>
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+          </>
+        )}
 
-      {status === "loading" && <LoadingList count={2} />}
+        {status === "soon" && (
+          <ListedEmpty
+            icon={<IconMegaphone size={34} />}
+            title={appText("Реклама скоро", "Реклама тиҙҙән")}
+            subtitle={appText("Кабинет рекламы включится после обновления сервиса.", "Реклама кабинеты яңыртыуҙан һуң эшләй башлар.")}
+          />
+        )}
 
-      {status === "soon" && (
-        <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__icon"><IconMegaphone size={34} /></div>
-          <h2>{appText("Реклама скоро", "Реклама тиҙҙән")}</h2>
-          <p>{appText("Кабинет рекламы включится после обновления сервиса.", "Реклама кабинеты яңыртыуҙан һуң эшләй башлар.")}</p>
-        </div>
-      )}
+        {status === "error" && <ListedError onRetry={() => load()} />}
 
-      {status === "error" && (
-        <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
-          <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
-          <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатлау")}
-          </button>
-        </div>
-      )}
-
-      {status === "ready" && (
-        <>
-          <div className="form">
+        {status === "ready" && (
+          <>
             <label className="field">
-              <span className="field__label">{appText("Заголовок", "Исем")}</span>
-              <input
-                className="field__input"
-                type="text"
-                maxLength={120}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={appText("Например, Шиномонтаж у трассы", "Мәҫәлән, Юл буйындағы шиномонтаж")}
-              />
+              <span className="field__label">{appText("Заголовок", "Башлыҡ")}</span>
+              <input className="field__input" type="text" maxLength={120} value={title} onChange={(e) => setTitle(e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field__label">{appText("Описание", "Аңлатма")}</span>
+              <textarea className="field__input field__area" rows={3} maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field__label">{appText("Текст кнопки (напр. «Позвонить»)", "Төймә тексты (мәҫ. «Шылтыратырға»)")}</span>
+              <input className="field__input" type="text" maxLength={60} value={button} onChange={(e) => setButton(e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field__label">{appText("Ссылка или телефон", "Һылтанма йәки телефон")}</span>
+              <input className="field__input" type="text" maxLength={300} value={target} onChange={(e) => setTarget(e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field__label">{appText("Город(а) через запятую — пусто = все", "Ҡала(лар) өтөр аша — буш = бөтәһе")}</span>
+              <input className="field__input" type="text" maxLength={500} value={cities} onChange={(e) => setCities(e.target.value)} />
             </label>
 
-            <label className="field">
-              <span className="field__label">{appText("Текст", "Текст")}</span>
-              <textarea
-                className="field__input field__area"
-                maxLength={2000}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder={appText("Коротко о предложении для попутчиков", "Юлдаштар өсөн тәҡдим тураһында ҡыҫҡаса")}
-              />
-            </label>
-
-            <div className="field-row">
-              <label className="field" style={{ flex: 1 }}>
-                <span className="field__label">{appText("Текст кнопки", "Кнопка тексты")}</span>
-                <input
-                  className="field__input"
-                  type="text"
-                  maxLength={60}
-                  value={button}
-                  onChange={(e) => setButton(e.target.value)}
-                  placeholder={appText("Позвонить", "Шылтыратыу")}
-                />
-              </label>
+            <strong className="acard__title">{appText("Тариф", "Тариф")}</strong>
+            {packages.length === 0 && packagesError && (
+              /* Без тарифов «На модерацию» не сработает — честно объясняем и даём повтор. */
+              <div className="queue-section queue-section--plain">
+                <span className="acard__sub acard__grow">{appText("Не удалось загрузить тарифы", "Тарифтарҙы йөкләп булманы")}</span>
+                <button type="button" className="btn-ghost queue-section__go" onClick={() => void reloadPackages()}>
+                  {appText("Повторить", "Ҡабатлау")}
+                </button>
+              </div>
+            )}
+            <div className="adpkg-list" role="radiogroup" aria-label={appText("Тариф", "Тариф")}>
+              {packages.map((p) => {
+                const selected = pkg === p.code;
+                return (
+                  <button key={p.code} type="button" role="radio" aria-checked={selected} className={"adpkg" + (selected ? " is-on" : "")} onClick={() => setPkg(p.code)}>
+                    <span className="adpkg__dot" aria-hidden>{selected ? <IconCheck size={20} /> : <i />}</span>
+                    <strong>{appText(p.title, p.title_ba || p.title)}</strong>
+                    <b>
+                      {kopExactLabel(p.amount_kop)} / {p.period_days}
+                      {appText(" дн", " көн")}
+                    </b>
+                  </button>
+                );
+              })}
             </div>
 
-            <label className="field">
-              <span className="field__label">{appText("Куда ведёт (ссылка или телефон)", "Ҡайҙа алып бара (һылтанма йәки телефон)")}</span>
-              <input
-                className="field__input"
-                type="text"
-                maxLength={300}
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-                placeholder="tel:+7… / https://…"
-              />
-            </label>
+            {error && <div className="auth__error">{error}</div>}
 
-            <label className="field">
-              <span className="field__label">{appText("Города показа (через запятую)", "Күрһәтеү ҡалалары (өтөр аша)")}</span>
-              <input
-                className="field__input"
-                type="text"
-                maxLength={500}
-                value={cities}
-                onChange={(e) => setCities(e.target.value)}
-                placeholder={appText("Пусто — все города", "Буш — бар ҡалалар")}
-              />
-            </label>
-          </div>
-
-          {/* Пакет размещения */}
-          <h2 className="section-title">{appText("Пакет размещения", "Урынлаштырыу пакеты")}</h2>
-          <div className="plan-grid">
-            {packages.map((p) => (
-              <button
-                key={p.code}
-                type="button"
-                className={"plan-card" + (pkg === p.code ? " is-active" : "")}
-                onClick={() => setPkg(p.code)}
-              >
-                <div className="plan-card__icon"><IconMap size={22} /></div>
-                <div className="plan-card__title">{ru ? p.title : p.title_ba}</div>
-                <div className="plan-card__hours">
-                  {appText(
-                    `${p.period_days} ${pluralRu(p.period_days, "день", "дня", "дней")}`,
-                    `${p.period_days} көн`
-                  )}
-                </div>
-                <div className="plan-card__price">{(p.amount_kop / 100).toLocaleString("ru-RU")} ₽</div>
+            <div className="acard__actions">
+              <button type="button" className="abtn abtn--52 abtn--outline abtn--body" onClick={onSaveDraft} disabled={!canDraft}>
+                {busy === "draft" ? appText("Сохраняем…", "Һаҡлайбыҙ…") : appText("Сохранить", "Һаҡларға")}
               </button>
-            ))}
-          </div>
-
-          {error && <div className="auth__error">{error}</div>}
-
-          <button type="button" className="btn-primary submit-btn" onClick={onSubmit} disabled={!canSave}>
-            {busy === "submit"
-              ? appText("Отправляем…", "Ебәрәбеҙ…")
-              : appText("Отправить на модерацию", "Модерацияға ебәреү")}
-          </button>
-          <button
-            type="button"
-            className="btn-soft"
-            style={{ width: "100%", marginTop: 10, minHeight: 50 }}
-            onClick={onSaveDraft}
-            disabled={!canSave}
-          >
-            {busy === "draft" ? appText("Сохраняем…", "Һаҡлайбыҙ…") : appText("Сохранить черновик", "Ҡараламаны һаҡлау")}
-          </button>
-
-          <p className="receipt__foot">
-            {appText(
-              "Сначала объявление проверит модератор. После одобрения оплатишь размещение в кабинете рекламы — и оно пойдёт в показ.",
-              "Башта иғланды модератор тикшерә. Раҫланғас, реклама кабинетында урынлаштырыуҙы түләйһең — һәм ул күрһәтелә башлай."
-            )}
-          </p>
-        </>
-      )}
+              <button type="button" className="abtn abtn--52 abtn--body" onClick={onSubmit} disabled={!canSave}>
+                {busy === "submit" ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("На модерацию", "Модерацияға")}
+              </button>
+            </div>
+            <small className="acard__date">
+              {appText(
+                "После отправки объявление проверит модератор. Затем оплатишь размещение — и оно пойдёт в показы.",
+                "Ебәргәс, иғланды модератор тикшерә. Аҙаҡ урынлаштырыуҙы түләйһең — һәм ул күрһәтелә башлай."
+              )}
+            </small>
+          </>
+        )}
+      </div>
     </>
   );
 }
