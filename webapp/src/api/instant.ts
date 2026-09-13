@@ -682,6 +682,12 @@ export interface TaxiReceipt {
   paid: boolean;
   driver_name: string;
   driver_verified: boolean;
+  /** Вторая сторона (для разбора спора) — id и имя, без телефона. */
+  counterparty_id?: number;
+  counterparty_name?: string;
+  /** Своя оценка, если уже ставил: чек открывают через неделю, пустые звёзды выглядели как потеря. */
+  my_stars?: number;
+  my_rating_tags?: string;
   /**
    * Из чего сложилась сумма (2026-08-23). Раньше в чеке была одна цифра, и на вопрос
    * «куда делись деньги» ответить было нечем. Старый сервер полей не шлёт → нули.

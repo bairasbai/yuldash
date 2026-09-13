@@ -1,12 +1,10 @@
 // ================================================================
 //  Чек за поездку на такси (GET /instant/orders/{id}/receipt).
-//  Зеркало Android TaxiReceiptScreen.kt.
-//
-//  Три вещи, которых раньше не было ни у кого:
-//   • документ о поездке («мне на работе нужен чек»);
-//   • «Наличные получил» — водитель закрывает оплату сам, если
-//     пассажир вышел и закрыл приложение;
-//   • «Я забыл вещь в машине» — открывает чат заказа ещё на 48 ч.
+//  Зеркало Android TaxiReceiptScreen.kt: шапка «Детали поездки» с «Поделиться»,
+//  документ (печать «Поездка завершена», сумма крупно, способ оплаты, разбивка,
+//  «Итого», маршрут, дата · км, водитель + «Заказ №»), звёзды оценки, «Ещё можно»:
+//  «рәхмәт» (пассажир), «Наличные получил» (водитель), поделиться, забытая вещь,
+//  «Проблема с поездкой» → сообщить о нарушении или открыть разбор.
 //
 //  Телефонов в чеке нет — только факт, маршрут, сумма и оплата.
 // ================================================================
@@ -17,33 +15,92 @@ import { ApiError } from "../api/client";
 import {
   fetchTaxiReceipt,
   markCashReceived,
+  rateInstantOrder,
   reportLostItem,
   type TaxiReceipt,
 } from "../api/instant";
 import { thankOrder, fetchOrderTip, type TipInfo } from "../api/family";
-import { LoadingList, ErrorState } from "../components/States";
+import { createIncident } from "../api/incidents";
+import { RideCardSkeleton, ErrorState } from "../components/States";
 import SbpPay from "../components/SbpPay";
 import PayTripCard from "../components/PayTripCard";
-import { SubHeader } from "./ConsentsScreen";
+import RouteTimeline from "../components/RouteTimeline";
 import {
-  IconArrow,
-  IconCar,
   IconChat,
   IconCheck,
+  IconChevron,
   IconClock,
+  IconFlag,
   IconHeart,
-  IconReceipt,
-  IconRoute,
+  IconSearch,
   IconShare,
+  IconShield,
+  IconStar,
   IconWallet,
+  IconWarn,
 } from "../components/Icons";
-import { formatWhen, payMethodLabel, priceLabel, rubLabel } from "../utils/format";
+import { formatWhen, kopExactLabel, payMethodLabel } from "../utils/format";
 
 type State =
   | { kind: "loading" }
   | { kind: "error" }
   | { kind: "soft"; reason: "notyet" | "pending" }
   | { kind: "ready"; r: TaxiReceipt };
+
+/** Типы спора по поездке — перечень incidentTypesRide (FairnessScreens.kt). */
+const INCIDENT_TYPES: { key: string; ru: string; ba: string }[] = [
+  { key: "rude", ru: "Нагрубили", ba: "Ҡупал һөйләште" },
+  { key: "unsafe", ru: "Опасная езда", ba: "Хәүефле йөрөтөү" },
+  { key: "non_payment", ru: "Не заплатили", ba: "Түләмәнеләр" },
+  { key: "overcharge", ru: "Взяли больше договорённого", ba: "Килешкәндән артыҡ алдылар" },
+  { key: "route_detour", ru: "Повезли не той дорогой", ba: "Икенсе юлдан алып барҙылар" },
+  { key: "passenger_no_show", ru: "Пассажир не вышел", ba: "Юлаусы сыҡманы" },
+  { key: "driver_no_show", ru: "Водитель не приехал", ba: "Йөрөтөүсе килмәне" },
+  { key: "harassment", ru: "Приставания, угрозы", ba: "Бәйләнеү, янау" },
+  { key: "rules_violation", ru: "Нарушение правил", ba: "Ҡағиҙәләрҙе боҙоу" },
+];
+
+/** Строка счёта: слева за что (muted), справа сколько (Bold, цвет причины); ниже — подсказка. */
+function Line({ label, value, tone = "text", hint }: { label: string; value: string; tone?: "text" | "warn" | "green" | "red"; hint?: string }) {
+  return (
+    <div className="rcpt__line">
+      <div className="rcpt__line-row">
+        <span>{label}</span>
+        <b className={"rcpt__val rcpt__val--" + tone}>{value}</b>
+      </div>
+      {hint && <small>{hint}</small>}
+    </div>
+  );
+}
+
+/** TaxiReceiptActionRow: карточка 68 с мятным кругом, заголовок semibold, подпись, шеврон. */
+function ActionRow({
+  icon,
+  title,
+  text,
+  onClick,
+  busy = false,
+  enabled = true,
+}: {
+  icon: JSX.Element;
+  title: string;
+  text: string;
+  onClick: () => void;
+  busy?: boolean;
+  enabled?: boolean;
+}) {
+  const { appText } = useLang();
+  return (
+    <button type="button" className={"rcpt-act" + (enabled ? "" : " is-off")} onClick={onClick} disabled={!enabled || busy}>
+      <span className="rcpt-act__icon" aria-hidden>{icon}</span>
+      <span className="rcpt-act__text">
+        <strong>{title}</strong>
+        <small>{busy ? appText("Подожди…", "Көт…") : text}</small>
+      </span>
+      <span className="rcpt-act__chev" aria-hidden><IconChevron size={20} /></span>
+    </button>
+  );
+}
 
 export default function TaxiReceiptScreen() {
   const { appText, lang } = useLang();
@@ -54,12 +111,23 @@ export default function TaxiReceiptScreen() {
 
   const [state, setState] = useState<State>({ kind: "loading" });
   const [thanked, setThanked] = useState(false);
-  const [busy, setBusy] = useState<"cash" | "lost" | "thanks" | null>(null);
+  const [busy, setBusy] = useState<"cash" | "lost" | "thanks" | "dispute" | null>(null);
   const [lostOpened, setLostOpened] = useState(false);
-  const [note, setNote] = useState<string>("");
+  const [errText, setErrText] = useState("");
+  const [successText, setSuccessText] = useState("");
+  const [problem, setProblem] = useState<"none" | "choice" | "dispute">("none");
+  const [disputeType, setDisputeType] = useState("");
+  const [disputeTypesOpen, setDisputeTypesOpen] = useState(true);
+  const [disputeText, setDisputeText] = useState("");
+  const [disputeFiled, setDisputeFiled] = useState(false);
   // Чем поблагодарить: тёплое «рәхмәт» всегда, деньги — только если водитель
   // сам их включил. null = сервер ещё не ответил или чаевые выключены.
   const [tip, setTip] = useState<TipInfo | null>(null);
+  // Оценка второй стороны прямо из чека (TaxiReceiptCompactRating).
+  const [stars, setStars] = useState(0);
+  const [pendingStar, setPendingStar] = useState(0);
+  const [rateBusy, setRateBusy] = useState(false);
+  const [rateErr, setRateErr] = useState("");
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -69,7 +137,10 @@ export default function TaxiReceiptScreen() {
       }
       setState({ kind: "loading" });
       fetchTaxiReceipt(id, signal)
-        .then((r) => setState({ kind: "ready", r }))
+        .then((r) => {
+          setState({ kind: "ready", r });
+          setStars(r.my_stars ?? 0);
+        })
         .catch((e) => {
           if (signal?.aborted || e?.name === "AbortError") return;
           if (e instanceof ApiError) {
@@ -101,6 +172,9 @@ export default function TaxiReceiptScreen() {
     return () => ac.abort();
   }, [id]);
 
+  const fail = (e: unknown, fallback: string) => setErrText(e instanceof ApiError && e.message ? e.message : fallback);
+  const netFail = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.");
+
   /**
    * «Рәхмәт» — это НЕ оценка. Раньше кнопка ставила пятёрку: она подменяла
    * мнение человека (сказать спасибо можно и после тройки) и портила рейтинг
@@ -108,13 +182,15 @@ export default function TaxiReceiptScreen() {
    * без цифр, идемпотентный.
    */
   async function sayThanks() {
-    if (busy) return;
+    if (busy || thanked) return;
     setBusy("thanks");
     try {
       await thankOrder(id);
       setThanked(true);
-    } catch {
-      setNote(appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла."));
+      setErrText("");
+      setSuccessText(appText("Спасибо передано водителю", "Рәхмәт йөрөтөүсегә тапшырылды"));
+    } catch (e) {
+      fail(e, netFail);
     } finally {
       setBusy(null);
     }
@@ -125,366 +201,399 @@ export default function TaxiReceiptScreen() {
     setBusy("cash");
     try {
       await markCashReceived(id);
+      setErrText("");
       load(); // перечитываем — статус оплаты меняет весь блок
-    } catch {
-      setNote(appText("Не получилось отметить оплату.", "Түләүҙе билдәләп булманы."));
+    } catch (e) {
+      fail(e, netFail);
     } finally {
       setBusy(null);
     }
   }
 
-  async function lostItem() {
+  async function lostItem(r: TaxiReceipt) {
+    if (lostOpened) {
+      navigate(`/taxi-chat/${r.order_id}`);
+      return;
+    }
     if (busy) return;
     setBusy("lost");
     try {
       await reportLostItem(id);
       setLostOpened(true);
-    } catch {
-      setNote(appText("Не получилось открыть чат.", "Чатты асып булманы."));
+      setErrText("");
+      navigate(`/taxi-chat/${r.order_id}`);
+    } catch (e) {
+      fail(e, netFail);
     } finally {
       setBusy(null);
     }
   }
 
-  function shareReceipt(r: TaxiReceipt) {
-    const text = [
+  async function rate(r: TaxiReceipt, value: number) {
+    if (rateBusy) return;
+    setPendingStar(value);
+    setRateBusy(true);
+    try {
+      await rateInstantOrder(r.order_id, value);
+      setStars(value);
+      setRateErr("");
+    } catch (e) {
+      setRateErr(e instanceof ApiError && e.message ? e.message : appText("Не получилось сохранить оценку.", "Баһаны һаҡлап булманы."));
+    } finally {
+      setPendingStar(0);
+      setRateBusy(false);
+    }
+  }
+
+  async function fileDispute(r: TaxiReceipt) {
+    if (busy || !disputeType || !disputeText.trim() || !r.counterparty_id) return;
+    setBusy("dispute");
+    try {
+      await createIncident({ respondent_id: r.counterparty_id, type: disputeType, description: disputeText.trim(), order_id: r.order_id });
+      setDisputeFiled(true);
+      setProblem("none");
+      setErrText("");
+      setSuccessText(appText("Разбор открыт. Мы сообщим о решении.", "Ҡарау асылды. Ҡарар тураһында хәбәр итербеҙ."));
+    } catch (e) {
+      fail(e, appText("Не получилось открыть разбор. Проверь сеть.", "Ҡарауҙы асып булманы. Селтәрҙе тикшер."));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function shareText(r: TaxiReceipt): string {
+    return [
       appText("Юлдаш · Чек за поездку", "Юлдаш · Сәфәр чегы"),
-      `${r.from_text} → ${r.to_text}`,
+      appText(`Заказ № ${r.order_id}`, `Заказ № ${r.order_id}`),
+      `${r.from_text || "—"} → ${r.to_text || "—"}`,
       formatWhen(r.done_at, ru),
-      `${appText("Сумма", "Сумма")}: ${priceLabel(r.amount, ru)}`,
-      `${appText("Водитель", "Йөрөтөүсе")}: ${r.driver_name}`,
+      `${appText("Сумма", "Сумма")}: ${kopExactLabel(r.amount_kop)} · ${payMethodLabel(r.payment_method, ru)}`,
+      ...(r.driver_name ? [`${appText("Водитель", "Йөрөтөүсе")}: ${r.driver_name}`] : []),
     ].join("\n");
+  }
+
+  function shareReceipt(r: TaxiReceipt) {
+    const text = shareText(r);
     if (navigator.share) {
-      navigator.share({ title: appText("Чек за поездку", "Сәфәр чегы"), text }).catch(() => {});
+      navigator.share({ title: appText("Юлдаш · Чек за поездку", "Юлдаш · Сәфәр чегы"), text }).catch(() => {});
     } else {
       navigator.clipboard?.writeText(text).then(
-        () => setNote(appText("Чек скопирован", "Чек күсерелде")),
+        () => setSuccessText(appText("Чек скопирован", "Чек күсерелде")),
         () => {}
       );
     }
   }
 
+  const r = state.kind === "ready" ? state.r : null;
+  const isDriver = r?.role === "driver";
+  const distanceText = r && r.distance_km != null && r.distance_km > 0 ? `${r.distance_km.toFixed(1).replace(".", ",")} ${appText("км", "км")}` : "";
+  const meta = r ? [r.done_at ? formatWhen(r.done_at, ru) : "", distanceText].filter(Boolean).join("  ·  ") : "";
+  const feeLabel = r?.driver_fee_percent != null ? (Number.isInteger(r.driver_fee_percent) ? String(r.driver_fee_percent) : r.driver_fee_percent.toFixed(1)) : "";
+  const weatherLabel =
+    r?.weather_kind === "ice"
+      ? appText("Гололёд на дороге", "Юлда быҙлауыҡ")
+      : r?.weather_kind === "blizzard"
+        ? appText("Метель по пути", "Юлда буран")
+        : r?.weather_kind === "snow"
+          ? appText("Сильный снегопад", "Көслө ҡар яуа")
+          : r?.weather_kind === "frost"
+            ? appText("Сильный мороз", "Ҡаты һыуыҡ")
+            : appText("Тяжёлая дорога", "Ауыр юл");
+  const shownStars = pendingStar > 0 ? pendingStar : stars;
+
   return (
     <>
-      <SubHeader
-        title={appText("Чек за поездку", "Сәфәр чегы")}
-        onBack={() => navigate(-1)}
-      />
-
-      {state.kind === "loading" && <LoadingList count={2} />}
-      {state.kind === "error" && <ErrorState onRetry={() => load()} />}
-
-      {state.kind === "soft" && (
-        <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__icon">
-            <IconReceipt size={34} />
+      {/* Шапка: «Детали поездки» по центру, справа «Поделиться» (гаснет, пока чека нет). */}
+      <header className="screen-header screen-header--sub rcpt-head">
+        <div className="screen-header__row">
+          <button type="button" className="subheader__back" onClick={() => navigate(-1)} aria-label={appText("Назад", "Артҡа")}>
+            <span style={{ display: "inline-flex", transform: "rotate(180deg)" }}>
+              <IconChevron size={22} />
+            </span>
+          </button>
+          <div style={{ flex: 1 }}>
+            <h1>{appText("Детали поездки", "Сәфәр ентеклектәре")}</h1>
           </div>
-          <h2>
-            {state.reason === "pending"
-              ? appText("Чек ещё не готов", "Чек әҙер түгел")
-              : appText("Чек скоро появится", "Чек тиҙҙән күренәсәк")}
-          </h2>
-          <p>
-            {state.reason === "pending"
-              ? appText(
-                  "Он появится после завершения поездки. Хорошей дороги!",
-                  "Ул сәфәр тамамланғас барлыҡҡа килер. Юлың уң булһын!"
-                )
-              : appText(
-                  "Мы включим чеки за такси с ближайшим обновлением сервиса.",
-                  "Такси чектарын яҡын яңыртыуҙа тоташтырабыҙ."
-                )}
-          </p>
+          <button type="button" className="subheader__back" onClick={() => r && shareReceipt(r)} disabled={!r} aria-label={appText("Поделиться чеком", "Чек менән бүлешеү")}>
+            <IconShare size={22} />
+          </button>
         </div>
-      )}
+      </header>
 
-      {state.kind === "ready" && (
-        <>
-          <div className="receipt">
-            <div className="receipt__brand">
-              <IconHeart size={16} /> {appText("Юлдаш", "Юлдаш")}
-              <span className="receipt__num">
-                {appText(`Заказ № ${state.r.order_id}`, `Заказ № ${state.r.order_id}`)}
+      <div className="alist">
+        {state.kind === "loading" && (
+          <>
+            <div className="rcpt-skel skeleton" aria-hidden />
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+          </>
+        )}
+        {state.kind === "error" && <ErrorState onRetry={() => load()} />}
+
+        {state.kind === "soft" && (
+          /* 409: поездка ещё не завершена — спокойный текст без тревоги. */
+          <div className="rcpt-pending">
+            <span className="rcpt-pending__icon" aria-hidden><IconClock size={28} /></span>
+            <strong>{state.reason === "pending" ? appText("Чек ещё не готов", "Чек әҙер түгел") : appText("Чек скоро появится", "Чек тиҙҙән күренәсәк")}</strong>
+            <span>
+              {state.reason === "pending"
+                ? appText("Он появится после завершения поездки. Хорошей дороги!", "Ул сәфәр тамамланғас барлыҡҡа килер. Юлың уң булһын!")
+                : appText("Мы включим чеки за такси с ближайшим обновлением сервиса.", "Такси чектарын яҡын яңыртыуҙа тоташтырабыҙ.")}
+            </span>
+          </div>
+        )}
+
+        {r && (
+          <>
+            {/* ─── Документ ─── */}
+            <section className="rcpt">
+              <span className="rcpt__stamp">
+                <IconCheck size={18} /> {appText("Поездка завершена", "Сәфәр тамамланды")}
               </span>
-            </div>
-
-            <div className="receipt__route">
-              <span>{state.r.from_text || appText("Точка А", "А нөктә")}</span>
-              <span className="ride-card__arrow">
-                <IconArrow size={18} />
+              <b className="rcpt__amount">{kopExactLabel(r.amount_kop)}</b>
+              <span className="rcpt__pay">
+                {payMethodLabel(r.payment_method, ru)}
+                {r.paid ? appText(" · Оплачено", " · Түләнгән") : ""}
               </span>
-              <span>{state.r.to_text || appText("Точка Б", "Б нөктә")}</span>
-            </div>
-            <div className="receipt__date">{formatWhen(state.r.done_at, ru)}</div>
 
-            <div className="receipt__rows">
-              <div className="info-row">
-                <span className="info-row__k">
-                  <IconClock size={15} /> {appText("Дата и время", "Көн һәм ваҡыт")}
-                </span>
-                <span className="info-row__v">{formatWhen(state.r.done_at, ru)}</span>
-              </div>
-              {state.r.distance_km != null && state.r.distance_km > 0 && (
-                <div className="info-row">
-                  <span className="info-row__k">
-                    <IconRoute size={15} /> {appText("Расстояние", "Ара")}
-                  </span>
-                  <span className="info-row__v">
-                    {state.r.distance_km.toFixed(1)} {appText("км", "км")}
-                  </span>
+              <hr className="rcpt__hair" />
+              {/* Из чего сложилась сумма. Пассажиру комиссию НЕ показываем — он платит водителю напрямую. */}
+              {(r.ride_price ?? 0) > 0 && (
+                <div className="rcpt__lines">
+                  <Line label={appText("Поездка", "Сәфәр")} value={`${(r.ride_base_price || r.ride_price) ?? 0} ₽`} />
+                  {(r.surge_rub ?? 0) > 0 && <Line label={appText("Наценка за спрос", "Ихтыяж өҫтәмәһе")} value={`+${r.surge_rub} ₽`} tone="warn" />}
+                  {(r.pickup_fee_kop ?? 0) > 0 && (
+                    <Line
+                      label={appText(`Дорога водителя к тебе, ~${Math.round(r.pickup_km ?? 0)} км`, `Йөрөтөүсенең һиңә тиклем юлы, ~${Math.round(r.pickup_km ?? 0)} км`)}
+                      value={"+" + kopExactLabel(r.pickup_fee_kop ?? 0)}
+                      tone="green"
+                      hint={r.pickup_enroute ? appText("Ему было по пути — вдвое дешевле", "Уға юл ыңғайы ине — ике тапҡыр арзаныраҡ") : appText("Уходит водителю целиком", "Тулыһынса йөрөтөүсегә бара")}
+                    />
+                  )}
+                  {(r.weather_fee_kop ?? 0) > 0 && (
+                    <Line label={weatherLabel} value={"+" + kopExactLabel(r.weather_fee_kop ?? 0)} tone="green" hint={appText("Уходит водителю целиком", "Тулыһынса йөрөтөүсегә бара")} />
+                  )}
+                  {(r.options_fee_kop ?? 0) > 0 && (
+                    <Line label={appText("Кресло и опции", "Ултырғыс һәм өҫтәмәләр")} value={"+" + kopExactLabel(r.options_fee_kop ?? 0)} tone="green" hint={appText("Уходит водителю целиком", "Тулыһынса йөрөтөүсегә бара")} />
+                  )}
+                  {r.promo_discount_kop > 0 && (
+                    <Line
+                      label={appText("Скидка Юлдаша", "Юлдаш ташламаһы")}
+                      value={"−" + kopExactLabel(r.promo_discount_kop)}
+                      tone="green"
+                      hint={appText("Водитель получил полную сумму — скидку оплатил Юлдаш", "Йөрөтөүсе тулы сумманы алды — ташламаны Юлдаш түләне")}
+                    />
+                  )}
+                  {isDriver && (r.driver_gross_kop ?? 0) > 0 && (
+                    <>
+                      <hr className="rcpt__sep" />
+                      <Line label={appText("Всего от пассажира", "Пассажирҙан барлығы")} value={kopExactLabel(r.driver_gross_kop ?? 0)} />
+                      <Line
+                        label={appText(`Комиссия Юлдаша ${feeLabel}%`, `Юлдаш комиссияһы ${feeLabel}%`)}
+                        value={"−" + kopExactLabel(r.driver_fee_kop ?? 0)}
+                        tone="red"
+                        hint={
+                          (r.commission_free_kop ?? 0) > 0
+                            ? appText(
+                                `С ${kopExactLabel(r.commission_free_kop ?? 0)} комиссию не берём — это твой бензин и кресло`,
+                                `${kopExactLabel(r.commission_free_kop ?? 0)} суммаһынан комиссия алмайбыҙ — был һинең бензин һәм ултырғыс`
+                              )
+                            : undefined
+                        }
+                      />
+                      <Line label={appText("Чистыми тебе", "Һиңә таҙа килем")} value={kopExactLabel(r.driver_net_kop ?? 0)} tone="green" />
+                    </>
+                  )}
                 </div>
               )}
-              <div className="info-row">
-                <span className="info-row__k">
-                  <IconCar size={15} /> {appText("Водитель", "Йөрөтөүсе")}
-                </span>
-                <span className="info-row__v">
-                  {state.r.driver_name}
-                  {state.r.driver_verified && (
-                    <span className="badge badge--mint" style={{ marginLeft: 6 }}>
-                      <IconCheck size={12} />
-                    </span>
-                  )}
-                </span>
+              {r.waiting_fee_kop > 0 && <Line label={appText("Ожидание", "Көтөү")} value={kopExactLabel(r.waiting_fee_kop)} tone="warn" />}
+              <div className="rcpt__total">
+                <span>{appText("Итого", "Бөтәһе")}</span>
+                <b>{kopExactLabel(r.amount_kop)}</b>
               </div>
-              <div className="info-row">
-                <span className="info-row__k">
-                  <IconWallet size={15} /> {appText("Способ оплаты", "Түләү ысулы")}
-                </span>
-                <span className="info-row__v">{payMethodLabel(state.r.payment_method, ru)}</span>
-              </div>
-              <div className="info-row">
-                <span className="info-row__k">{appText("Статус оплаты", "Түләү хәле")}</span>
-                <span className="info-row__v">
-                  {state.r.paid ? (
-                    <span className="badge badge--mint">
-                      <IconCheck size={12} /> {appText("Оплачено", "Түләнгән")}
-                    </span>
-                  ) : (
-                    appText("Не отмечена", "Билдәләнмәгән")
-                  )}
-                </span>
-              </div>
-              {state.r.promo_discount_kop > 0 && (
-                <div className="info-row">
-                  <span className="info-row__k">{appText("Скидка по промокоду", "Промокод буйынса ташлама")}</span>
-                  <span className="info-row__v">−{rubLabel(state.r.promo_discount_kop)}</span>
+
+              <hr className="rcpt__hair" />
+              <RouteTimeline from={r.from_text || appText("Точка отправления", "Китеү нөктәһе")} to={r.to_text || appText("Точка назначения", "Барыу нөктәһе")} compact />
+              <hr className="rcpt__hair" />
+
+              {meta && <span className="rcpt__meta">{meta}</span>}
+              {r.driver_name && (
+                <div className="rcpt__driver">
+                  <strong>{r.driver_name}</strong>
+                  {r.driver_verified && <span className="rcpt__verified" aria-label={appText("Водитель проверен", "Йөрөтөүсе тикшерелгән")}><IconCheck size={17} /></span>}
+                  <span className="acard__spacer" />
+                  <small>{appText(`Заказ № ${r.order_id}`, `Заказ № ${r.order_id}`)}</small>
                 </div>
               )}
+              <small className="rcpt__note">{appText("Деньги идут напрямую водителю — Юлдаш их не держит.", "Аҡса туранан-тура йөрөтөүсегә бара — Юлдаш уны тотмай.")}</small>
+            </section>
+
+            {/* ─── Оценка второй стороны ─── */}
+            <div className="rcpt-rate">
+              <span>{isDriver ? appText("Оценить пассажира", "Пассажирҙы баһалау") : appText("Оценить водителя", "Йөрөтөүсене баһалау")}</span>
+              <div className="rcpt-rate__stars" role="radiogroup">
+                {[1, 2, 3, 4, 5].map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    role="radio"
+                    aria-checked={shownStars === v}
+                    aria-label={String(v)}
+                    className={"rcpt-rate__star" + (v <= shownStars ? " is-on" : "")}
+                    disabled={rateBusy}
+                    onClick={() => rate(r, v)}
+                  >
+                    <IconStar size={34} />
+                  </button>
+                ))}
+              </div>
+              {stars > 0 && !rateErr && <small className="rcpt-rate__ok">{appText("Твоя оценка сохранена", "Һинең баһаң һаҡланды")}</small>}
+              {rateErr && <small className="rcpt-rate__err">{rateErr}</small>}
             </div>
 
-            {/* Из чего сложилась сумма. Каждая строка — причина, по которой цена такая. */}
-            {(state.r.ride_price ?? 0) > 0 && (
-              <div className="info-list">
-                <div className="info-row">
-                  <span className="info-row__k">{appText("Поездка", "Сәфәр")}</span>
-                  <span className="info-row__v">
-                    {(state.r.ride_base_price || state.r.ride_price) ?? 0} ₽
-                  </span>
-                </div>
-                {(state.r.surge_rub ?? 0) > 0 && (
-                  <div className="info-row">
-                    <span className="info-row__k">{appText("Наценка за спрос", "Ихтыяж өҫтәмәһе")}</span>
-                    <span className="info-row__v">+{state.r.surge_rub} ₽</span>
-                  </div>
-                )}
-                {(state.r.pickup_fee_kop ?? 0) > 0 && (
-                  <div className="info-row">
-                    <span className="info-row__k">
+            {/* ─── Ещё можно ─── */}
+            <strong className="rcpt-more">{appText("Ещё можно", "Тағы мөмкин")}</strong>
+
+            {!isDriver && (
+              <ActionRow
+                icon={thanked ? <IconCheck size={20} /> : <IconHeart size={20} />}
+                title={thanked ? appText("«Рәхмәт» сказан", "Рәхмәт әйтелде") : appText("Сказать «рәхмәт»", "Рәхмәт әйтеү")}
+                text={thanked ? appText("Водитель получил твоё спасибо", "Йөрөтөүсе һинең рәхмәтеңде алды") : appText("Тёплое спасибо водителю — без денег", "Йөрөтөүсегә йылы рәхмәт — аҡсаһыҙ")}
+                busy={busy === "thanks"}
+                enabled={!thanked}
+                onClick={sayThanks}
+              />
+            )}
+            {/* Есть только в вебе: деньгами — если водитель сам включил чаевые и оставил номер. */}
+            {!isDriver && tip?.money && (
+              <div className="pcard">
+                <strong className="pcard__title">{appText("Можно и деньгами — по желанию", "Аҡса менән дә була — теләк буйынса")}</strong>
+                <SbpPay phone={tip.money.sbp} name={tip.money.name} />
+              </div>
+            )}
+
+            {isDriver && !r.paid && (
+              /* Без этой кнопки заказ навсегда «не оплачен», если пассажир вышел и закрыл приложение. */
+              <div className="pcard">
+                <div className="rcpt-cash__head">
+                  <span className="rcpt-cash__icon" aria-hidden><IconWallet size={20} /></span>
+                  <span className="acard__stack acard__grow">
+                    <strong className="pcab__name">{appText("Оплата не отмечена", "Түләү билдәләнмәгән")}</strong>
+                    <span className="acard__sub">
                       {appText(
-                        `Дорога водителя к тебе, ~${Math.round(state.r.pickup_km ?? 0)} км`,
-                        `Водителдең һиңә тиклем юлы, ~${Math.round(state.r.pickup_km ?? 0)} км`
+                        "Если деньги на руках — отметь. Так поездка закроется честно, а в отчёте не будет дыры.",
+                        "Аҡса ҡулда булһа — билдәлә. Шунда сәфәр намыҫлы ябыла, отчётта тишек ҡалмай."
                       )}
                     </span>
-                    <span className="info-row__v">+{rubLabel(state.r.pickup_fee_kop ?? 0)}</span>
-                  </div>
-                )}
-                {(state.r.weather_fee_kop ?? 0) > 0 && (
-                  <div className="info-row">
-                    <span className="info-row__k">
-                      {state.r.weather_kind === "ice"
-                        ? appText("Гололёд на дороге", "Юлда быҙлауыҡ")
-                        : state.r.weather_kind === "blizzard"
-                          ? appText("Метель по пути", "Юлда буран")
-                          : state.r.weather_kind === "frost"
-                            ? appText("Сильный мороз", "Ҡаты һыуыҡ")
-                            : appText("Тяжёлая дорога", "Ауыр юл")}
-                    </span>
-                    <span className="info-row__v">+{rubLabel(state.r.weather_fee_kop ?? 0)}</span>
-                  </div>
-                )}
-                {(state.r.options_fee_kop ?? 0) > 0 && (
-                  <div className="info-row">
-                    <span className="info-row__k">{appText("Кресло и опции", "Ултырғыс һәм өҫтәмәләр")}</span>
-                    <span className="info-row__v">+{rubLabel(state.r.options_fee_kop ?? 0)}</span>
-                  </div>
-                )}
-                {state.r.role === "driver" && (state.r.driver_gross_kop ?? 0) > 0 && (
-                  <>
-                    <div className="info-row">
-                      <span className="info-row__k">{appText("Всего от пассажира", "Пассажирҙан барлығы")}</span>
-                      <span className="info-row__v">{rubLabel(state.r.driver_gross_kop ?? 0)}</span>
-                    </div>
-                    <div className="info-row">
-                      <span className="info-row__k">
-                        {appText(
-                          `Комиссия Юлдаша ${state.r.driver_fee_percent ?? 0}%`,
-                          `Юлдаш комиссияһы ${state.r.driver_fee_percent ?? 0}%`
-                        )}
-                      </span>
-                      <span className="info-row__v">−{rubLabel(state.r.driver_fee_kop ?? 0)}</span>
-                    </div>
-                    <div className="info-row">
-                      <span className="info-row__k">{appText("Чистыми тебе", "Һиңә таҙа килем")}</span>
-                      <span className="info-row__v">{rubLabel(state.r.driver_net_kop ?? 0)}</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            <div className="receipt__total">
-              <span>{appText("Итого", "Барлығы")}</span>
-              <b>{priceLabel(state.r.amount, ru)}</b>
-            </div>
-
-            {state.r.waiting_fee_kop > 0 && (
-              <p className="receipt__foot">
-                {appText("В том числе ожидание: ", "Шул иҫәптән көтөү: ")}
-                {rubLabel(state.r.waiting_fee_kop)}
-              </p>
-            )}
-
-            <button
-              type="button"
-              className="btn-soft"
-              style={{ width: "100%", marginTop: 14 }}
-              onClick={() => shareReceipt(state.r)}
-            >
-              <IconShare size={18} /> {appText("Поделиться", "Бүлешеү")}
-            </button>
-          </div>
-
-          {/* Пассажир, поездка не оплачена — способ рассчитаться */}
-          {state.r.role === "passenger" && !state.r.paid && (
-            <PayTripCard
-              kind="order"
-              id={id}
-              amountLabel={priceLabel(state.r.amount, ru)}
-              onPaid={() => load()}
-            />
-          )}
-
-          {/* Пассажир: тёплое спасибо водителю — без денег */}
-          {state.r.role === "passenger" && (
-            <div className="act-card" style={{ marginTop: 14 }}>
-              <div className="act-card__title">
-                <IconHeart size={18} />{" "}
-                {thanked
-                  ? appText("Рәхмәт сказан 💚", "Рәхмәт әйтелде 💚")
-                  : appText("Сказать рәхмәт", "Рәхмәт әйтеү")}
-              </div>
-              <p className="act-card__text">
-                {appText("Тёплое спасибо водителю — без денег.", "Йөрөтөүсегә йылы рәхмәт — аҡсаһыҙ.")}
-              </p>
-              {!thanked && (
-                <button
-                  type="button"
-                  className="btn-primary"
-                  style={{ width: "100%" }}
-                  onClick={sayThanks}
-                  disabled={busy === "thanks"}
-                >
-                  {busy === "thanks"
-                    ? appText("Отправляем…", "Ебәрәбеҙ…")
-                    : appText("Сказать рәхмәт", "Рәхмәт әйтеү")}
-                </button>
-              )}
-
-              {/* Деньгами — только если водитель сам включил чаевые и оставил номер.
-                  Его телефон до этого наружу не идёт вовсе. Кнопки «дать чаевые»
-                  по умолчанию нет: у нас скидываются на бензин, а не доплачивают
-                  сверху, и превращать спасибо в обязанность мы не хотим. */}
-              {tip?.money && (
-                <div className="tip-money">
-                  <div className="tip-money__label">
-                    {appText("Можно и деньгами — по желанию", "Аҡса менән дә була — теләк буйынса")}
-                  </div>
-                  <SbpPay phone={tip.money.sbp} name={tip.money.name} />
+                  </span>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* Водитель: пассажир ушёл, не отметив оплату — закрываем сами */}
-          {state.r.role === "driver" && !state.r.paid && (
-            <div className="act-card act-card--warn" style={{ marginTop: 14 }}>
-              <div className="act-card__title">
-                <IconWallet size={18} /> {appText("Оплата не отмечена", "Түләү билдәләнмәгән")}
+                <button type="button" className="btn-primary pform__submit" onClick={cashReceived} disabled={busy === "cash"}>
+                  <IconWallet size={20} /> {busy === "cash" ? appText("Отмечаем…", "Билдәләйбеҙ…") : appText("Наличные получил", "Аҡсаны алдым")}
+                </button>
               </div>
-              <p className="act-card__text">
-                {appText(
-                  "Пассажир мог выйти и закрыть приложение. Если деньги у тебя — отметь сам.",
-                  "Пассажир сығып, ҡушымтаны ябыуы мөмкин. Аҡса һиндә булһа — үҙең билдәлә."
-                )}
-              </p>
-              <button
-                type="button"
-                className="btn-primary"
-                style={{ width: "100%" }}
-                onClick={cashReceived}
-                disabled={busy === "cash"}
-              >
-                {busy === "cash"
-                  ? appText("Отмечаем…", "Билдәләйбеҙ…")
-                  : appText("Наличные получил", "Аҡсаны алдым")}
-              </button>
-            </div>
-          )}
-
-          {/* Забытая вещь — доступно обеим сторонам */}
-          <div className="act-card" style={{ marginTop: 14 }}>
-            <div className="act-card__title">
-              <IconChat size={18} /> {appText("Забыли вещь?", "Әйбер онотолдомо?")}
-            </div>
-            <p className="act-card__text">
-              {lostOpened
-                ? appText(
-                    "Чат снова открыт на 48 часов — напиши, что искать.",
-                    "Чат 48 сәғәткә кире асыҡ — нимә эҙләргә, яҙ."
-                  )
-                : appText(
-                    "Откроем чат этой поездки на 48 часов, чтобы вы связались.",
-                    "Бәйләнешер өсөн был сәфәр чатын 48 сәғәткә асабыҙ."
-                  )}
-            </p>
-            {lostOpened ? (
-              <button
-                type="button"
-                className="btn-primary"
-                style={{ width: "100%" }}
-                onClick={() => navigate(`/taxi-chat/${state.r.order_id}`)}
-              >
-                {appText("Открыть чат поездки", "Сәфәр чатын асыу")}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="btn-soft"
-                style={{ width: "100%" }}
-                onClick={lostItem}
-                disabled={busy === "lost"}
-              >
-                {busy === "lost"
-                  ? appText("Открываем…", "Асабыҙ…")
-                  : appText("Я забыл вещь в машине", "Машинала әйбер ҡалдырҙым")}
-              </button>
             )}
-          </div>
 
-          {note && <p className="taxi-note">{note}</p>}
-        </>
-      )}
+            <ActionRow icon={<IconShare size={20} />} title={appText("Поделиться чеком", "Чек менән бүлешеү")} text={appText("Отправить маршрут и сумму поездки", "Сәфәр юлын һәм суммаһын ебәреү")} onClick={() => shareReceipt(r)} />
+
+            {/* Забытая вещь — обеим сторонам: чат снова открыт на 48 часов. */}
+            <ActionRow
+              icon={lostOpened ? <IconChat size={20} /> : <IconSearch size={20} />}
+              title={lostOpened ? appText("Открыть чат поездки", "Сәфәр чатын асыу") : appText("Забыл вещь?", "Әйбер оноттоңмо?")}
+              text={lostOpened ? appText("Чат открыт на 48 часов", "Чат 48 сәғәткә асылды") : appText("Связаться по этой поездке", "Был сәфәр буйынса бәйләнешеү")}
+              busy={busy === "lost"}
+              onClick={() => void lostItem(r)}
+            />
+
+            <ActionRow
+              icon={<IconWarn size={20} />}
+              title={appText("Проблема с поездкой", "Сәфәр менән проблема")}
+              text={disputeFiled ? appText("Разбор уже открыт", "Ҡарау асылған") : appText("Сообщить или открыть разбор", "Хәбәр итеү йәки ҡарау асыу")}
+              onClick={() => setProblem("choice")}
+            />
+
+            {problem === "choice" && (
+              /* «Что случилось?» — две дороги: анонимная жалоба или двусторонний разбор. */
+              <div className="settings-confirm settings-confirm--card settings-confirm--plain">
+                <strong>{appText("Что случилось?", "Нимә булды?")}</strong>
+                <ActionRow
+                  icon={<IconFlag size={20} />}
+                  title={appText("Сообщить о нарушении", "Боҙоу тураһында хәбәр итеү")}
+                  text={appText("Анонимно, проверит человек", "Аноним, кеше тикшерәсәк")}
+                  onClick={() => navigate(`/report?order=${r.order_id}`)}
+                />
+                {(r.counterparty_id ?? 0) > 0 && (
+                  <ActionRow
+                    icon={<IconShield size={20} />}
+                    title={appText("Открыть разбор", "Ҡарауҙы асыу")}
+                    text={appText("Выслушаем обе стороны", "Ике яҡты ла тыңлаясаҡбыҙ")}
+                    onClick={() => {
+                      setProblem("dispute");
+                      setDisputeTypesOpen(true);
+                    }}
+                  />
+                )}
+                <div className="settings-confirm__row">
+                  <button type="button" className="btn-ghost" onClick={() => setProblem("none")}>
+                    {appText("Закрыть", "Ябыу")}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {problem === "dispute" && (r.counterparty_id ?? 0) > 0 && (
+              /* FileIncidentDialog: выбрал тип — список сворачивается в одну строку. */
+              <div className="settings-confirm settings-confirm--card settings-confirm--plain">
+                <strong>{appText("Открыть разбор", "Ҡарауҙы асыу")}</strong>
+                <span>
+                  {appText(
+                    `Мы позовём ${r.counterparty_name || appText("участника поездки", "сәфәрҙә ҡатнашыусыны")} объясниться и решим по-соседски. Решение объясним вам обоим.`,
+                    `${r.counterparty_name || "Сәфәрҙә ҡатнашыусы"} кешене аңлатырға саҡырабыҙ һәм күршеләрсә хәл итәбеҙ. Ҡарарҙы икегеҙгә лә аңлатабыҙ.`
+                  )}
+                </span>
+                <strong className="acard__title">{appText("Что случилось?", "Нимә булды?")}</strong>
+                <div className="inc-resolve__choices" role="radiogroup">
+                  {(disputeTypesOpen ? INCIDENT_TYPES : INCIDENT_TYPES.filter((t) => t.key === disputeType)).map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      role="radio"
+                      aria-checked={disputeType === t.key}
+                      className={"choice-row choice-row--sm" + (disputeType === t.key ? " is-on" : "")}
+                      onClick={() => {
+                        if (disputeTypesOpen) {
+                          setDisputeType(t.key);
+                          setDisputeTypesOpen(false);
+                        } else setDisputeTypesOpen(true);
+                      }}
+                    >
+                      {disputeType === t.key ? <IconCheck size={18} /> : <IconFlag size={18} />} {appText(t.ru, t.ba)}
+                    </button>
+                  ))}
+                  {!disputeTypesOpen && <small className="acard__date">{appText("Нажми, чтобы выбрать другое", "Башҡаһын һайлар өсөн баҫ")}</small>}
+                </div>
+                <label className="field">
+                  <span className="field__label">{appText("Как было", "Нисек булды")}</span>
+                  <textarea className="field__input field__area" rows={3} maxLength={2000} value={disputeText} onChange={(e) => setDisputeText(e.target.value)} />
+                </label>
+                <div className="settings-confirm__row">
+                  <button type="button" className="btn-ghost settings-confirm__muted" onClick={() => setProblem("none")} disabled={busy === "dispute"}>
+                    {appText("Отмена", "Кире алыу")}
+                  </button>
+                  <button type="button" className="btn-ghost inc-resolve__save" onClick={() => void fileDispute(r)} disabled={busy === "dispute" || !disputeType || !disputeText.trim()}>
+                    {busy === "dispute" ? appText("…", "…") : appText("Открыть разбор", "Ҡарауҙы асыу")}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Пассажир может завершить оплату прямо из чека, если закрыл финальный экран. */}
+            {!isDriver && !r.paid && <PayTripCard kind="order" id={id} amountLabel={kopExactLabel(r.amount_kop)} onPaid={() => load()} />}
+
+            {successText && <p className="rcpt-msg rcpt-msg--ok">{successText}</p>}
+            {errText && <p className="rcpt-msg rcpt-msg--err">{errText}</p>}
+          </>
+        )}
+      </div>
     </>
   );
 }

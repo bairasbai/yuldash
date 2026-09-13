@@ -16123,3 +16123,410 @@ button.settings-row:active {
   margin-top: 0;
   width: 100%;
 }
+
+/* ---- MobilityRouteTimeline (MobilityUi.kt): точка A зелёная 13, линия 2, точка B жёлтая 13 радиус 8. ---- */
+.route-tl {
+  display: flex;
+  gap: var(--space-md);
+  width: 100%;
+  text-align: left;
+}
+.route-tl__rail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: var(--space-xs);
+}
+.route-tl__a,
+.route-tl__b {
+  width: 13px;
+  height: 13px;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+}
+.route-tl__b {
+  border-radius: var(--radius-tiny);
+  background: var(--taxi);
+}
+.route-tl__line {
+  width: 2px;
+  height: 39px;
+  background: var(--border);
+}
+.route-tl--compact .route-tl__line {
+  height: 29px;
+}
+.route-tl__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.route-tl--compact .route-tl__text {
+  gap: 9px;
+}
+.route-tl__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.route-tl__item small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-medium);
+}
+.route-tl__item strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.route-tl--compact .route-tl__item strong {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  -webkit-line-clamp: 1;
+}
+
+/* ---- Чек такси (TaxiReceiptScreen.kt): документ, оценка, «Ещё можно». ---- */
+.rcpt-head .subheader__back:disabled {
+  color: var(--muted);
+}
+.rcpt-skel {
+  height: 148px;
+  border-radius: var(--radius-card);
+}
+/* Документ: карточка 28 с рамкой, всё по центру, интервал 12. */
+.rcpt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  text-align: center;
+  animation: fadeUp var(--motion-entry) ease both;
+}
+.rcpt__stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.rcpt__amount {
+  color: var(--text);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+}
+.rcpt__pay {
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.rcpt__hair {
+  width: calc(100% - var(--space-lg) * 2);
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: var(--hairline-green);
+}
+.rcpt__sep {
+  width: 100%;
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: var(--border);
+}
+.rcpt__lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  width: 100%;
+  text-align: left;
+}
+.rcpt__line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+}
+.rcpt__line-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.rcpt__line-row > span {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.rcpt__line small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.rcpt__val {
+  flex: none;
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.rcpt__val--text { color: var(--text); }
+.rcpt__val--warn { color: var(--warn); }
+.rcpt__val--green { color: var(--green2); }
+.rcpt__val--red { color: var(--danger); }
+/* «Итого»: подпись 16 Bold слева, сумма 19 в цвете такси справа. */
+.rcpt__total {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.rcpt__total span {
+  flex: 1;
+  text-align: left;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.rcpt__total b {
+  color: var(--taxi-text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.rcpt__meta {
+  width: 100%;
+  text-align: left;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.rcpt__driver {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+}
+.rcpt__driver strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.rcpt__verified {
+  display: inline-flex;
+  color: var(--green2);
+}
+.rcpt__driver small,
+.rcpt__note {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.rcpt__note {
+  width: 100%;
+  text-align: left;
+}
+/* Оценка: подпись muted, пять звёзд 34 в кнопках 48; закрашенные — CanonStar. */
+.rcpt-rate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  text-align: center;
+  animation: fadeUp var(--motion-entry) ease both;
+  animation-delay: var(--cascade-in);
+}
+.rcpt-rate > span {
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.rcpt-rate__stars {
+  display: flex;
+  gap: var(--space-sm);
+}
+.rcpt-rate__star {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  transition: transform var(--motion-quick) ease, color var(--motion-quick) ease;
+}
+.rcpt-rate__star:active {
+  transform: scale(0.9);
+}
+.rcpt-rate__star.is-on {
+  color: var(--canon-star);
+}
+.rcpt-rate__star.is-on svg {
+  fill: currentColor;
+}
+.rcpt-rate__ok {
+  color: var(--green2);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.rcpt-rate__err {
+  color: var(--danger);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.rcpt-more {
+  padding-top: var(--space-xs);
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+/* TaxiReceiptActionRow: 68, круг 40 мятный с иконкой 20, заголовок semibold, подпись, шеврон. */
+.rcpt-act {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 68px;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: opacity var(--motion-quick) ease, transform var(--motion-quick) ease;
+}
+.rcpt-act:active {
+  transform: scale(0.99);
+}
+.rcpt-act.is-off {
+  opacity: 0.64;
+}
+.rcpt-act__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.rcpt-act__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rcpt-act__text strong {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-semibold);
+}
+.rcpt-act__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.rcpt-act__chev {
+  flex: none;
+  display: inline-flex;
+  color: var(--muted);
+}
+.settings-confirm .rcpt-act {
+  padding: var(--space-sm) var(--space-md);
+}
+/* «Оплата не отмечена»: круг 44 жёлтый с иконкой, заголовок 19, текст 14. */
+.rcpt-cash__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.rcpt-cash__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+/* 409: «Чек ещё не готов» — карточка 28 с тенью, круг мятный 60 с часами. */
+.rcpt-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xl);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  text-align: center;
+}
+.rcpt-pending__icon {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.rcpt-pending strong {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.rcpt-pending span {
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.rcpt-msg {
+  margin: 0;
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.rcpt-msg--ok {
+  background: var(--mint);
+  color: var(--green2);
+  font-weight: var(--weight-medium);
+}
+.rcpt-msg--err {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.alist .pay-trip {
+  margin-top: 0;
+}
