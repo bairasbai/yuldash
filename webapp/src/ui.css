@@ -19540,3 +19540,158 @@ button.settings-row:active {
   background: var(--mint);
   color: var(--green2);
 }
+
+/* ---- InstantFinalCard: круг с иконкой, заголовок Title, текст muted, «Новый заказ» 52, «Закрыть». ---- */
+.ifinal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-height: calc(100dvh - 160px);
+  padding: var(--space-xl);
+  text-align: center;
+  --final-accent: var(--green2);
+  --final-bg: var(--mint);
+}
+.ifinal--bad {
+  --final-accent: var(--danger);
+  --final-bg: var(--danger-bg);
+}
+.ifinal__icon {
+  display: grid;
+  place-items: center;
+  margin-bottom: var(--space-sm);
+  padding: var(--space-xl);
+  border-radius: var(--radius-pill);
+  background: var(--final-bg);
+  color: var(--final-accent);
+}
+.ifinal h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.ifinal > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.ifinal__soft {
+  width: 100%;
+  margin-top: var(--space-sm) !important;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green2) !important;
+  font-size: var(--font-caption) !important;
+  line-height: var(--line-caption) !important;
+  text-align: left;
+}
+.ifinal__action {
+  width: 100%;
+  min-height: 52px;
+  margin-top: var(--space-lg);
+}
+.ifinal__close {
+  min-height: 48px;
+  padding: 0 var(--space-lg);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+
+/* ---- «Позови своего» — мятная карточка реферала в профиле (ProfileScreen.kt) ---- */
+.refcard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border-radius: var(--radius-card);
+  background: var(--mint);
+  box-shadow: var(--depth-card);
+}
+.refcard__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--green2);
+}
+.refcard__head h2 {
+  flex: 1;
+  margin: 0;
+  color: var(--green);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.refcard > p {
+  margin: 0;
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* Три равные колонки: длинные башкирские подписи не выталкивают код за край карточки. */
+.refcard__stats {
+  display: flex;
+  gap: var(--space-md);
+}
+.refcard__stat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.refcard__stat small {
+  color: var(--green2);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.refcard__stat strong {
+  color: var(--green);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.refcard__code {
+  letter-spacing: 1.5px;
+}
+.refcard__actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+.refcard__btn {
+  flex: 1;
+  min-height: 40px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.refcard__btn--primary {
+  border-color: transparent;
+  background: var(--green2);
+  color: var(--on-filled);
+}
+.refcard__note {
+  color: var(--green2);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}

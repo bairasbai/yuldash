@@ -54,9 +54,9 @@ import { TaxiOptions, TaxiRoundTrip, TaxiStops, type OrderStop } from "../compon
 import WaitlistForm from "../components/WaitlistForm";
 import { LoadingList } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
-import { IconCar, IconStar, IconPhone, IconChat, IconHome, IconWork, IconPin, IconClock, IconBolt, IconChevron, IconProfile, IconShield, IconWallet } from "../components/Icons";
-import { YuMoon, YuQuiet, YuWomenOnly } from "../components/BrandIcons";
-import { priceLabel } from "../utils/format";
+import { IconCar, IconStar, IconPhone, IconChat, IconHome, IconWork, IconPin, IconClock, IconBolt, IconChevron, IconClose, IconProfile, IconShield, IconWallet } from "../components/Icons";
+import { YuMoon, YuWomenOnly } from "../components/BrandIcons";
+import { priceLabel, kopExactLabel } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
 import { minDateTimeNow, maxDateTimeInDays } from "../utils/dateInput";
 import { setActiveTaxiOrder, setTaxiOrderOnScreen } from "../navSignals";
@@ -1449,23 +1449,45 @@ function TrackingView({
     );
   }
 
-  // --- Отменён ---
+  // --- Отменён: InstantFinalCard (красный круг, честный текст про плату/страйки, «Новый заказ») ---
   if (s === "cancelled") {
-    const byDriver = order.cancel_by === "driver";
+    const fee = order.cancel_fee_kop ?? 0;
+    const subtitle = order.no_show
+      ? appText(
+          `Водитель ждал ${order.wait_free_min}+ минут, но не дождался. Подача — ${kopExactLabel(fee)}, переведи водителю. Частые такие отмены ставят такси на паузу.`,
+          `Йөрөтөүсе ${order.wait_free_min}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${kopExactLabel(fee)}, йөрөтөүсегә күсер. Йыш улай булһа — такси паузаға китә.`
+        )
+      : fee > 0 && order.cancel_by === "passenger"
+        ? appText(
+            `Отмена была платной: ${kopExactLabel(fee)} (подача) — переведи водителю. Частые платные отмены ставят такси на паузу.`,
+            `Кире алыу түләүле булды: ${kopExactLabel(fee)} (килеү хаҡы) — йөрөтөүсегә күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.`
+          )
+        : order.cancel_by === "driver"
+          ? appText("Водитель отменил. Попробуй заказать снова.", "Йөрөтөүсе баш тартты. Ҡабат заказ ит.")
+          : appText("Ты отменил заказ — бесплатно.", "Һин заказды кире алдың — бушлай.");
     return (
       <>
         <SubHeader title={appText("Заказ отменён", "Заказ кире алынды")} onBack={() => navigate(-1)} />
-        <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__icon"><YuQuiet size={34} /></div>
-          <h2>{byDriver ? appText("Водитель отменил заказ", "Йөрөтөүсе заказды кире алды") : appText("Заказ отменён", "Заказ кире алынды")}</h2>
-          <p>
-            {appText(
-              "Бывает. Давай вызовем другую машину — рядом наверняка есть свободные.",
-              "Була. Әйҙә, башҡа машина саҡырайыҡ — яҡында буштар бар."
-            )}
-          </p>
-          <button type="button" className="btn-primary" onClick={onNewOrder}>
+        <div className="ifinal ifinal--bad">
+          <span className="ifinal__icon appear" style={{ "--i": 0 } as React.CSSProperties} aria-hidden><IconClose size={40} /></span>
+          <h2 className="appear" style={{ "--i": 1 } as React.CSSProperties}>
+            {order.no_show ? appText("Поездка не состоялась", "Сәфәр булманы") : appText("Заказ отменён", "Заказ ҡабул ителмәне")}
+          </h2>
+          <p className="appear" style={{ "--i": 3 } as React.CSSProperties}>{subtitle}</p>
+          {/* Телефон/чат уже открывались → мягко напоминаем завершать поездку в приложении. */}
+          {order.contact_then_cancel && (
+            <p className="ifinal__soft appear" style={{ "--i": 4 } as React.CSSProperties}>
+              {appText(
+                "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
+                "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚"
+              )}
+            </p>
+          )}
+          <button type="button" className="btn-primary ifinal__action appear" style={{ "--i": 5 } as React.CSSProperties} onClick={onNewOrder}>
             {appText("Новый заказ", "Яңы заказ")}
+          </button>
+          <button type="button" className="ifinal__close appear" style={{ "--i": 6 } as React.CSSProperties} onClick={() => navigate(-1)}>
+            {appText("Закрыть", "Ябыу")}
           </button>
         </div>
       </>

@@ -18,6 +18,7 @@ import {
   YuStar,
 } from "../components/BrandIcons";
 import { PartnerAdSlot } from "../components/PartnerAd";
+import ReferralCard from "../components/ReferralCard";
 
 function initials(name: string): string {
   const p = name.trim().split(/\s+/).filter(Boolean);
@@ -423,6 +424,9 @@ export default function ProfileScreen() {
           </button>
         </div>
       )}
+
+      {/* Реферал под шапкой — как в приложении: «Позови своего» с кодом и бонусами. */}
+      {isAuthed && <ReferralCard />}
 
       {(() => {
         const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
